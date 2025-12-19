@@ -1,0 +1,111 @@
+experience:
+  - title: Principal Applications Engineer
+    company: Oracle
+    start: July 2021
+    end: Present
+    location: Washington State
+    priority: 1.0
+    bullets:
+      - Spearheaded the migration of legacy F5 load balancers to Oracle Cloud (OCI) native solutions , building consensus across numerous teams that initially lacked internal desire for the project.
+      - Served as a critical liaison between disparate teams who were disinclined to interact, facilitating essential communication, engagement and negotiation among junior, senior, and management-level personnel to drive project success.
+      - Oversaw incident manager on-call rotation , taking ownership to identify root causes and effectively delegating tasks in unfamiliar technical domains, approaching incidents with humility and Socratic questioning.
+      - Demonstrated strong emotional intelligence by framing technical directions as suggestions and carefully reading team tonalities to foster collaboration during high-stress incidents.
+  - title: DevOps Engineer
+    company: Lumos Labs (Lumosity)
+    start: August 2020
+    end: July 2021
+    location: San Francisco
+    priority: 0.95
+    bullets:
+      - Mediated deeply held technical disputes between factions advocating for different technology stacks, consistently emphasizing consensus and consistency over specific technical choices.
+      - Successfully calmed teams with strained inter-team dynamics enabling them to resume collaboration in virtual meetings and smoothing over tensions through effective conflict resolution and interpersonal communication in a fully remote environment.
+      - Engaged in extensive discussions with managers on larger strategic questions and organizational directions, acting as a key liaison for alignment.
+  - title: System Engineer
+    company: Meta (Facebook)
+    start: August 2018
+    end: August 2020
+    location: Menlo Park
+    priority: 0.95
+    bullets:
+      - Created a global DNS replication system , collaborating with a geographically distant and initially difficult team by adopting a humble, grateful, and low-key approach to overcome initial resistance and"passive aggressive communications.
+      - Demonstrated high emotional intelligence and empathy by effectively managing personal emotions to build rapport and achieve project success, ultimately earning positive professional reviews from the challenging team.
+      - Communicated frequently with managers regarding strategic questions and organizational directions, serving as an effective liaison .
+  - title: DevOps Engineer
+    company: Orbital Insight
+    start: August 2017
+    end: August 2018
+    location: Palo Alto
+    priority: 0.9
+    bullets:
+      - Led Kubernetes proofs of concept and initiated company-wide migration despite significant resistance, including a direct prohibition from immediate management, showcasing fortitude and strategic vision .
+      - Accelerated the Kubernetes adoption timeline by privately demonstrating its power to other developers, addressing their pain points, and effectively influencing management decisions to prioritize the project for substantial cost savings and improved developer deployment velocity.
+  - title: DevOps Engineer
+    company: Twitch, an Amazon Company
+    start: March 2016
+    end: August 2017
+    location: San Francisco
+    priority: 0.9
+    bullets:
+      - Designed and delivered SafeChange, a service protecting resources from impacting changes by ensuring safety checks (e.g., no traffic, sufficient capacity) are met before modifications, promoting technical bravery and comfort with change .
+      - Helped design and derive next generation operational architecture.
+      - Was instrumental in migrating vulnerable organizational secrets into the new, secure, organizationally approved secrets store.
+  - title: Software Engineer
+    company: Flux Factory
+    start: December 2015
+    end: March 2016
+    location: San Francisco
+    priority: 0.7
+    bullets:
+      - Delivered automation, security administration, and tooling for platform reliability.
+      - Allowed much faster builds and deployments by scaling struggling Jenkins infrastructure to multiple servers and utilized Docker for automated Selenium testing.
+  - title: Principal Cloud Software Engineer
+    company: Ariba, An SAP Company
+    start: February 2013
+    end: December 2015
+    location: Sunnyvale
+    priority: 0.85
+    bullets:
+      - Served as technical leader for the Tools team , successfully balancing support for antiquated, legacy systems with strategic migration to newer, mainstream technologies.
+      - Fostered team cohesion and morale through unconventional, self-funded team-building exercises, creating shared adversarial experiences (e.g., Halloween Fright Night) to build connectedness among colleagues.
+      - Assisted other teams tactically and strategically across a wide variety of operational areas and topics, demonstrating broad collaborative support.
+  - title: Senior Operations Tools Engineer
+    company: Liveops
+    start: April 2009
+    end: February 2013
+    location: San Carlos
+    priority: 0.8
+    bullets:
+      - Proactively identified and resolved unexpected database query amplification with a Ruby on Rails developer through a humble, educational, insightful, and empathetic approach , preventing conflict and strengthening inter-team collaboration.
+      - Acted as a liaison to improve testing accuracy by collaborating with senior application engineers to modify the database export sanitization process, preventing similar issues in the future.
+      - Enhanced release processes at Live Ops to enable faster and safer deployments, including creating a system to release code updates to thousands of servers in minutes.
+  - title: Advanced Network Engineer / Team Lead
+    company: Walmart Stores
+    start: August 1997
+    end: April 2009
+    location: Bentonville
+    priority: 0.7
+    bullets:
+      - Served as the primary liaison between management and the Network Management team , effectively communicating priorities and concerns, and obtaining strategic information from leadership.
+      - Initiated and championed the adoption of full-time remote work for a team member, years before this became common in the industry, successfully negotiating against strict corporate policies and demonstrating the viability of hybrid work models across the division.
+      - Fostered a strong sense of team ownership and empowered team members by delegating the design of a replacement for a critical, custom-built management system, guiding them through independent prototyping and collaborative design.
+      - Designed, implemented and won cross team adoption of an automated daily task list application that simplified reporting, fostered team accountability , and significantly increased individual and team productivity, which was organically adopted by other teams.
+      - Cultivated empathy and customer focus by instituting mandatory help desk rotations for team members, leading to valuable insights and improvements for internal customers.
+      - Provided permission and encouragement to team members to fail safely through experimentation, fostering a learning environment and a sense of ownership , as exemplified by encouraging a young engineer to take lead on a high visibility web project.
+  - title: Instructor
+    company: NorthWest Arkansas Community College
+    start: September 2002
+    end: September 2003
+    location: Bentonville
+    priority: 0.5
+    bullets:
+      - Taught Linux System Administration and Perl Programming courses, demonstrating leadership and knowledge transfer skills, also focusing on the importance of moving quickly and failing safely.
+  - title: Senior Airman, Computer Programmer
+    company: U.S. Air Force
+    start: April 1994
+    end: October 1997
+    location: Biloxi
+    priority: 0.6
+    bullets:
+      - Grew into additional leadership roles , effectively managing the data center and assisting a civilian network administrator with Unix servers, allowing him to focus on his strengths.
+      - Trained and delegated tasks to other young team members to manage expanding responsibilities, demonstrating early leadership and delegation abilities.
+      - Delivered system administration, network security, and programming in high-security environments, functioning as a broad spectrum technical expert.

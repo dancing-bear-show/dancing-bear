@@ -1,0 +1,20 @@
+[run]
+branch = True
+source =
+    mail_assistant
+    calendar_assistant
+    schedule_assistant
+    phone
+omit =
+    .venv/*
+    tests/*
+    _disasm/*
+    personal_assistants.egg-info/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.: 
+    @overload
+    @abstractmethod
+show_missing = True

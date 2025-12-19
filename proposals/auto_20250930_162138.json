@@ -1,0 +1,1389 @@
+{
+  "generated_at": 1759263716,
+  "days": 1,
+  "query": "newer_than:1d in:inbox",
+  "counts": {
+    "total_considered": 93,
+    "selected": 82
+  },
+  "messages": [
+    {
+      "id": "1999c42acbe78b99",
+      "threadId": "1999c42acbe78b99",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "\"Chase Freedom®\" <no_reply@mcmap.chase.com>",
+      "subject": "Attn: Brian, Your activation is required.",
+      "ts": 1759263055000
+    },
+    {
+      "id": "1999c38443dbd44d",
+      "threadId": "1999c38443dbd44d",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "Samsung <samsung@innovations.samsungusa.com>",
+      "subject": "Experience a hands-free AI assistant with the new dynamic duo: Galaxy S25 FE and Buds3 FE",
+      "ts": 1759262555000
+    },
+    {
+      "id": "1999c1a1d8ba256e",
+      "threadId": "1999c1a1d8ba256e",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "StockStory <support@stockstory.org>",
+      "subject": "🚨Price Alert: Nvidia is up today. What you need to know",
+      "ts": 1759260503000
+    },
+    {
+      "id": "1999c1797f6c4d54",
+      "threadId": "1999c1797f6c4d54",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "AOC <speak@ocasiocortez.com>",
+      "subject": "We will not be intimidated.",
+      "ts": 1759260414000
+    },
+    {
+      "id": "1999c15e14eca0eb",
+      "threadId": "1999c15e14eca0eb",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "promo-subject"
+      ],
+      "from": "Steam <noreply@steampowered.com>",
+      "subject": "Steam Autumn Sale on now, with recommended deals just for you.",
+      "ts": 1759260303000
+    },
+    {
+      "id": "1999c0beefc632d0",
+      "threadId": "1999c0beefc632d0",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "Sallie Mae <smartoption@soslprospect.salliemae.com>",
+      "subject": "PLEASE READ: Important 2025 Student Loan Option Information",
+      "ts": 1759259649000
+    },
+    {
+      "id": "1999c016a9a13ba6",
+      "threadId": "1999c016a9a13ba6",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Canada Luggage Depot <info@canadaluggagedepot.ca>",
+      "subject": "🪵 Cabin calls, are you packed?",
+      "ts": 1759258961000
+    },
+    {
+      "id": "1999bff2495baa77",
+      "threadId": "1999bff2495baa77",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "CALPAK <info@calpaktravel.com>",
+      "subject": "6 HOURS LEFT: Your Free Terra",
+      "ts": 1759258813000
+    },
+    {
+      "id": "1999bf7fcc592563",
+      "threadId": "1999bf7fcc592563",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "The Washington Post <info@e.mail.washingtonpost.com>",
+      "subject": "Military leaders absorb highly partisan presentation from Trump, Hegseth",
+      "ts": 1759258343000
+    },
+    {
+      "id": "1999bf24abea6a8a",
+      "threadId": "1999bf24abea6a8a",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "AllTrails <no-reply@email.alltrails.com>",
+      "subject": "Hey Brian, don’t be a stranger",
+      "ts": 1759257971000
+    },
+    {
+      "id": "1999bf175f6c1412",
+      "threadId": "1999bf175f6c1412",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "RecycledFirefighter <info@recycledfirefighter.com>",
+      "subject": "[IMPORTANT] 30% Discount Reset Scheduled for Midnight",
+      "ts": 1759257916000
+    },
+    {
+      "id": "1999bc940d356214",
+      "threadId": "1999bc940d356214",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Ohio Nurses Assocation <notifications@nursingnetworkmail.com>",
+      "subject": "September 2025 Ohio Nurse Monthly Updates",
+      "ts": 1759255280000
+    },
+    {
+      "id": "1999bc934d82328d",
+      "threadId": "1999bc934d82328d",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Toronto Star <noreply@promo.thestar.com>",
+      "subject": "September’s top stories",
+      "ts": 1759255276000
+    },
+    {
+      "id": "1999bc88dea0840b",
+      "threadId": "1999bc88dea0840b",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Rocket Lawyer <team@email.rocketlawyer.com>",
+      "subject": "Introducing Rocket Copilot, on the go!",
+      "ts": 1759255235000
+    },
+    {
+      "id": "1999bb853be3ec06",
+      "threadId": "1999bb853be3ec06",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk"
+      ],
+      "from": "\"Rep. Zoe Lofgren\" <CA18ZL.Outreach@mail.house.gov>",
+      "subject": "September Recap: Shutdown Looming, Epstein Files, and More",
+      "ts": 1759254164000
+    },
+    {
+      "id": "1999baaf8fcbb903",
+      "threadId": "1999baaf8fcbb903",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "JCPenney <JCPenney@email.jcpenney.com>",
+      "subject": "Keep it classic ➡️ Liz Claiborne, Alfred Dunner or Stafford",
+      "ts": 1759253295000
+    },
+    {
+      "id": "1999ba171c3f91ae",
+      "threadId": "1999ba171c3f91ae",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "VoteVets HQ <info@e.votevets.org>",
+      "subject": "This is a truly terrible moment",
+      "ts": 1759252671000
+    },
+    {
+      "id": "1999b9439c04f9ac",
+      "threadId": "1999b9439c04f9ac",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Josh Harder <info@harderforcongress.com>",
+      "subject": "We’re still $4,596 short",
+      "ts": 1759251805000
+    },
+    {
+      "id": "1999b9220d6c894a",
+      "threadId": "1999b9220d6c894a",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Allbirds <hello@mail.allbirds.com>",
+      "subject": "Our Softest Launch. Ever.",
+      "ts": 1759251667000
+    },
+    {
+      "id": "1999b7bd7035ae76",
+      "threadId": "1999b7bd7035ae76",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Swiss Medical <noresponder@swissmedical.com.ar>",
+      "subject": "🤧¿Primavera sin estornudos? Es posible",
+      "ts": 1759250185000
+    },
+    {
+      "id": "1999b79459e4d4f2",
+      "threadId": "1999b79459e4d4f2",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "StackSocial <shop@email.stackcommerce.com>",
+      "subject": "Stop Paying $144/Year for Music. Here’s the Secret Hack.",
+      "ts": 1759250038000
+    },
+    {
+      "id": "1999b6de2d025b11",
+      "threadId": "1999b6de2d025b11",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "Glass Blowing Classes <info@hmbartglass.com>",
+      "subject": "Unleash Your Inner Artist: Beginner Glassblowing Classes!",
+      "ts": 1759249293000
+    },
+    {
+      "id": "1999b61d03f9fbbd",
+      "threadId": "1999b61d03f9fbbd",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Casey Oliver at URochester <annualfunds@eb.notices.rochester.edu>",
+      "subject": "FW: Get Comfy for a Cause!",
+      "ts": 1759248486000
+    },
+    {
+      "id": "1999b594ed89849d",
+      "threadId": "1999b594ed89849d",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "PEOPLES <peoples@em.peoplesjewellers.com>",
+      "subject": "Diamonds as Beautiful as Where They Come From 💎",
+      "ts": 1759247943000
+    },
+    {
+      "id": "1999b3c07a33e4b8",
+      "threadId": "1999b3c07a33e4b8",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Atlas Obscura <info@atlasobscura.com>",
+      "subject": "The Remote Village Where Names Are Songs",
+      "ts": 1759246025000
+    },
+    {
+      "id": "1999b37fae2bdecd",
+      "threadId": "1999b37fae2bdecd",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "New Relic <marketing@newrelic.com>",
+      "subject": "Join our virtual event—New Relic Now",
+      "ts": 1759245745000
+    },
+    {
+      "id": "1999b31a08550479",
+      "threadId": "1999b31a08550479",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Cherokee Nation Gadugi Portal <noreply@e.cherokee.org>",
+      "subject": "🌿🦌 Deer Season is Here! 🦌🌿",
+      "ts": 1759244501000
+    },
+    {
+      "id": "1999b2e2ce72cf13",
+      "threadId": "1999b2e2ce72cf13",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "MLB Insider <info@marketing.mlbemail.com>",
+      "subject": "The stage is set for your Blue Jays",
+      "ts": 1759245118000
+    },
+    {
+      "id": "1999b29adf5b7eb6",
+      "threadId": "1999b29adf5b7eb6",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Alienware Arena <no-reply@alienwarearena.com>",
+      "subject": "What's New on Alienware Arena? Discover Now",
+      "ts": 1759244767000
+    },
+    {
+      "id": "1999b2785d22d149",
+      "threadId": "1999b2563362860c",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Tilley <noreply@tilley.com>",
+      "subject": "So Nice, We Made It Twice",
+      "ts": 1759244681000
+    },
+    {
+      "id": "1999b2563362860c",
+      "threadId": "1999b2563362860c",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Tilley <noreply@tilley.com>",
+      "subject": "So Nice, We Made It Twice",
+      "ts": 1759244542000
+    },
+    {
+      "id": "1999b1de27a98d8d",
+      "threadId": "1999b1de27a98d8d",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "Spacelift Webinars <webinars@spacelift.io>",
+      "subject": "You’re invited: Passing infra audits without anxiety",
+      "ts": 1759244050000
+    },
+    {
+      "id": "1999b19be9bac956",
+      "threadId": "1999b19be9bac956",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "AAdvantage Cruises <AAdvantageCruises@email.aadvantagecruises.com>",
+      "subject": "Earn 2X miles on bookings from $189",
+      "ts": 1759243605000
+    },
+    {
+      "id": "1999b1441a569ed8",
+      "threadId": "1999b1441a569ed8",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "\"LEGOLAND® New York Resort\" <newyork@email.legoland.com>",
+      "subject": "This Isn't a Trick! Brick-or-Treat Starts THIS Thursday 🎃",
+      "ts": 1759243415000
+    },
+    {
+      "id": "1999aff13c5bee3d",
+      "threadId": "1999aff13c5bee3d",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Tripadvisor <product@mp1.tripadvisor.com>",
+      "subject": "Your September member update",
+      "ts": 1759242029000
+    },
+    {
+      "id": "1999afe3b299022e",
+      "threadId": "1999afe3b299022e",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Gabby Giffords <info@e.giffords.org>",
+      "subject": "This comes from the heart",
+      "ts": 1759241975000
+    },
+    {
+      "id": "1999afc01e8de9f1",
+      "threadId": "1999afc01e8de9f1",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Toronto Blue Jays <info@marketing.mlbemail.com>",
+      "subject": "We need our fans! Be here for Bye Week Intrasquad Games Wednesday and Thursday!",
+      "ts": 1759241830000
+    },
+    {
+      "id": "1999af7a6e40c7ed",
+      "threadId": "1999af7a6e40c7ed",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>",
+      "subject": "“engineer”: Harnham - Engineering Manager (AI Product) and more",
+      "ts": 1759241541000
+    },
+    {
+      "id": "1999af62d812c5b9",
+      "threadId": "1999af62d812c5b9",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Citi Entertainment <citicards@info15.citi.com>",
+      "subject": "Check out this week's entertainment offers, Brian",
+      "ts": 1759241446000
+    },
+    {
+      "id": "1999af4fe486b29e",
+      "threadId": "1999af4fe486b29e",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "The Economist <noreply@e.economist.com>",
+      "subject": "Get daily updates with our free newsletter",
+      "ts": 1759241338000
+    },
+    {
+      "id": "1999af0a96d7db52",
+      "threadId": "1999af0a96d7db52",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "The Washington Post <info@e.mail.washingtonpost.com>",
+      "subject": "Unlock all of The Post for $40",
+      "ts": 1759241010000
+    },
+    {
+      "id": "1999aee6f76e4373",
+      "threadId": "1999aee6f76e4373",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "SKECHERS <no-reply@emails.ca.skechers.com>",
+      "subject": "New styles for a new season",
+      "ts": 1759240936000
+    },
+    {
+      "id": "1999ad256a300b70",
+      "threadId": "1999ad14ad09ffd2",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "\"Ekster®\" <nest@ekster.com>",
+      "subject": "NEW: Finder Cards for Every Device",
+      "ts": 1759239098000
+    },
+    {
+      "id": "1999ad14ad09ffd2",
+      "threadId": "1999ad14ad09ffd2",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "\"Ekster®\" <nest@ekster.com>",
+      "subject": "NEW: Finder Cards for Every Device",
+      "ts": 1759239029000
+    },
+    {
+      "id": "1999ac68325ac05f",
+      "threadId": "1999ac68325ac05f",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "The Strong Museum <info@museumofplay.org>",
+      "subject": "💙Join The Strong for Sensory Friendly Sunday, October 12",
+      "ts": 1759238113000
+    },
+    {
+      "id": "1999ac5239bb490f",
+      "threadId": "1999ac5239bb490f",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "\"Shelby Widmer, Heifer International\" <info@support.heifer.org>",
+      "subject": "[LAST CHANCE] to have 3X the impact",
+      "ts": 1759238169000
+    },
+    {
+      "id": "1999ac07498fcf99",
+      "threadId": "1999ac07498fcf99",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "StackSocial <shop@email.stackcommerce.com>",
+      "subject": "💥 End of Month B L O W O U T! 💥",
+      "ts": 1759237926000
+    },
+    {
+      "id": "1999aac6b51523b9",
+      "threadId": "1999aac6b51523b9",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Fight Back via Our Revolution <info@ourrevolution.com>",
+      "subject": "Don’t Let Trump Blackmail Democrats – Tell Them: Stand Firm",
+      "ts": 1759236614000
+    },
+    {
+      "id": "1999a9b98043e083",
+      "threadId": "1999a9b98043e083",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Woolly <info@woolly.clothing>",
+      "subject": "Introducing, Tasteful Nudes",
+      "ts": 1759235511000
+    },
+    {
+      "id": "1999a911881be5a7",
+      "threadId": "1999a911881be5a7",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Rewarding Your Opinions <no-reply@rewardingyouropinions.ca>",
+      "subject": "More AIR MILES® Reward Miles? No problem!",
+      "ts": 1759234823000
+    },
+    {
+      "id": "1999a72b73b4473f",
+      "threadId": "1999a72b73b4473f",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "\"Jacen, from Monos\" <hello@monos.ca>",
+      "subject": "About your entries",
+      "ts": 1759232832000
+    },
+    {
+      "id": "1999a565602a5ee8",
+      "threadId": "1999a565602a5ee8",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Marijus from NordVPN <no-reply@mail.nordvpn.com>",
+      "subject": "Easy steps to improve your digital hygiene",
+      "ts": 1759230972000
+    },
+    {
+      "id": "1999a536a5c48c84",
+      "threadId": "1999a536a5c48c84",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk"
+      ],
+      "from": "\"Daily Beast: AM Digest\" <emails@thedailybeast.com>",
+      "subject": "What Generals Really Say About Trump and Hegseth Summit: Guru",
+      "ts": 1759230383000
+    },
+    {
+      "id": "1999a4967a58c94a",
+      "threadId": "1999a4967a58c94a",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Hanky Panky <hankypanky@hankypanky.com>",
+      "subject": "Your Exclusive Early Access Invite",
+      "ts": 1759230124000
+    },
+    {
+      "id": "1999a3c21f6a85df",
+      "threadId": "1999a3c21f6a85df",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "\"First Up | The Star\" <newsletters@email.thestar.com>",
+      "subject": "It's Truth and Reconciliation Day",
+      "ts": 1759229249000
+    },
+    {
+      "id": "1999a2c89d9b92ee",
+      "threadId": "1999a2c89d9b92ee",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "\"Emma Tucker, WSJ\" <access@interactive.wsj.com>",
+      "subject": "The 10-Point: Boeing Is Working on a 737 MAX Replacement",
+      "ts": 1759226760000
+    },
+    {
+      "id": "1999a12c9855d760",
+      "threadId": "1999a12c9855d760",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk"
+      ],
+      "from": "The Washington Post <email@washingtonpost.com>",
+      "subject": "Tuesday’s Headlines: Military leaders voice concern over Hegseth’s new Pentagon strategy",
+      "ts": 1759226545000
+    },
+    {
+      "id": "199993fb21e62490",
+      "threadId": "199993fb21e62490",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Chase Home Lending <no_reply@mcmap.chase.com>",
+      "subject": "Details enclosed for Brian: See how you can save on your next home loan with Chase",
+      "ts": 1759212711000
+    },
+    {
+      "id": "19999352279ff89f",
+      "threadId": "19999352279ff89f",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Kidsworld Pediatric Dentistry <mailer@messages.lhmailer.com>",
+      "subject": "Reminder: October 14, 2025 Appointment for Bennet",
+      "ts": 1759212019000
+    },
+    {
+      "id": "19998b879844641b",
+      "threadId": "19998b879844641b",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "PC Financial <info@e.pcfinancial.ca>",
+      "subject": "IMPORTANT: Canada Post service disruption and delivery delays.",
+      "ts": 1759203765000
+    },
+    {
+      "id": "19998b248ba38794",
+      "threadId": "19998b248ba38794",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "\"Citi® / AAdvantage® Executive Card\" <Citicards@info6.citi.com>",
+      "subject": "Your Privacy Notice and Language Practices Notice are now available",
+      "ts": 1759203444000
+    },
+    {
+      "id": "19998635a8978924",
+      "threadId": "19998635a8978924",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "category:forums"
+      ],
+      "from": "Reddit <noreply@redditmail.com>",
+      "subject": "\"Are you still buying?\"",
+      "ts": 1759198272000
+    },
+    {
+      "id": "199985ce11910141",
+      "threadId": "199985ce11910141",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "category:promotions"
+      ],
+      "from": "UAG <no-reply@urbanarmorgear.com>",
+      "subject": "Your new MO",
+      "ts": 1759197847000
+    },
+    {
+      "id": "199980c385b649d4",
+      "threadId": "199980c385b649d4",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Amazon Music <no-reply@amazonmusic.com>",
+      "subject": "Reminder: podcasts are included with your Prime membership.",
+      "ts": 1759192561000
+    },
+    {
+      "id": "19997f9d77cba1b5",
+      "threadId": "19997f9d77cba1b5",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "AOC <speak@ocasiocortez.com>",
+      "subject": "Communist manifesto",
+      "ts": 1759191355000
+    },
+    {
+      "id": "19997f6d8614846c",
+      "threadId": "19997f6d8614846c",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "LinkedIn <updates-noreply@linkedin.com>",
+      "subject": "DeWayne Hixson reacted to this post: ✈️ It took a few delays and…",
+      "ts": 1759191160000
+    },
+    {
+      "id": "19997ebe9eacdd51",
+      "threadId": "19997ebe9eacdd51",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "RecycledFirefighter <info@recycledfirefighter.com>",
+      "subject": "Account Update: 30% Discount Still Active (1 Day Left)",
+      "ts": 1759190443000
+    },
+    {
+      "id": "19997e2d31c2427a",
+      "threadId": "19997e2d31c2427a",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Rakuten Canada <hi@emails.rakuten.ca>",
+      "subject": "💰Spice it up with extra Cash Back at TEMU, Sporting Life, Viator and more💰",
+      "ts": 1759189848000
+    },
+    {
+      "id": "19997d4cea543b80",
+      "threadId": "19997d4cea543b80",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "GoDaddy <email@e.godaddy.com>",
+      "subject": "Your September account summary is ready for review! Stay up to date.",
+      "ts": 1759188925000
+    },
+    {
+      "id": "19997d1b9409aeee",
+      "threadId": "19997d1b9409aeee",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Ridge <hello@ridgewallet.ca>",
+      "subject": "This is how Weatherproof our bags are",
+      "ts": 1759188726000
+    },
+    {
+      "id": "19997bc712a93c5e",
+      "threadId": "19997bc712a93c5e",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "StackSocial <shop@email.stackcommerce.com>",
+      "subject": "Microsoft Office for Life for $20?! 🤯",
+      "ts": 1759187332000
+    },
+    {
+      "id": "19997b54e27e3b4d",
+      "threadId": "19997b54e27e3b4d",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "CUUP <support@e.shopcuup.com>",
+      "subject": "Bundle & save on fall base layers​",
+      "ts": 1759186863000
+    },
+    {
+      "id": "19997a0a598515fe",
+      "threadId": "19997a0a598515fe",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "\"Josh (personal)\" <info@harderforcongress.com>",
+      "subject": "I need your help to make a big decision",
+      "ts": 1759185509000
+    },
+    {
+      "id": "199979f19d8a34ab",
+      "threadId": "199979f19d8a34ab",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "lululemon <hello@e.lululemon.com>",
+      "subject": "New BeCalm styles just landed, gently",
+      "ts": 1759185346000
+    },
+    {
+      "id": "199979740d6b98c7",
+      "threadId": "199979740d6b98c7",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "\"VoteVets.org\" <info@e.votevets.org>",
+      "subject": "Brian Cory, is there anything we can say?",
+      "ts": 1759184893000
+    },
+    {
+      "id": "1999793533504a33",
+      "threadId": "1999793533504a33",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Marvel Entertainment <marvel@mail.marvel.com>",
+      "subject": "Magic: The Gathering Spider-Man 🕷️🕸️",
+      "ts": 1759183412000
+    },
+    {
+      "id": "199978886fceba19",
+      "threadId": "199978886fceba19",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "LinkedIn <messages-noreply@linkedin.com>",
+      "subject": "Site Reliability Engineer: MongoDB and Canonical are hiring",
+      "ts": 1759183929000
+    },
+    {
+      "id": "1999753baaca36a8",
+      "threadId": "1999753baaca36a8",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Better <hello@emails.better.com>",
+      "subject": "Veterans can start with $0 down",
+      "ts": 1759180470000
+    },
+    {
+      "id": "199974df4884fb95",
+      "threadId": "199974df4884fb95",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "\"Arc'teryx\" <arcteryx@news.arcteryx.com>",
+      "subject": "Tested and trusted: this week’s top picks",
+      "ts": 1759179844000
+    },
+    {
+      "id": "1999748663c8da3a",
+      "threadId": "1999748663c8da3a",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "bulk",
+        "promo-subject"
+      ],
+      "from": "The Washington Post <email@washingtonpost.com>",
+      "subject": "Evening Edition: Netanyahu agrees to Trump plan for Gaza deal, but Hamas still a question",
+      "ts": 1759179728000
+    },
+    {
+      "id": "1999745dd0c5d6ba",
+      "threadId": "1999745dd0c5d6ba",
+      "add": [
+        "Lists/Newsletters"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list"
+      ],
+      "from": "Glassdoor Jobs <noreply@glassdoor.com>",
+      "subject": "Sr. Site Reliability Administrator at OpenText and 7 more jobs in Toronto, ON for you. Apply Now.",
+      "ts": 1759179561000
+    },
+    {
+      "id": "199973a893157a73",
+      "threadId": "199973a893157a73",
+      "add": [
+        "Lists/Commercial"
+      ],
+      "remove": [
+        "INBOX"
+      ],
+      "reasons": [
+        "list",
+        "category:promotions"
+      ],
+      "from": "Rogers <rogers@e.rogers.com>",
+      "subject": "Sherwin, spice up your fall watchlist🍂",
+      "ts": 1759178601000
+    }
+  ]
+}

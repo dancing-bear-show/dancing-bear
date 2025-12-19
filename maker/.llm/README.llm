@@ -1,0 +1,20 @@
+Goal: Rapidly iterate 3D-printable parts with minimal tokens.
+
+Status (current assets):
+- card/ — denomination cards (STLs) + snug variant generator
+- maple_auto_1oz_total/ — maple-themed plaques (STLs)
+- tp_rod/ — fixed-length rod generator
+
+Guidelines:
+- Keep prompts short; prefer deltas from existing STLs.
+- State functional constraints, target dimensions, tolerances, printability.
+- Ask for parametric source (OpenSCAD or Fusion parameters) when possible.
+
+House style:
+- Units in mm; specify wall/perimeter targets if relevant.
+- Fillets/chamfers for strength; avoid overhangs > 45° unless supported.
+- Labeling: embossed text ≥ 0.6 mm height, 0.4 mm stroke.
+
+Output expectations:
+- If generating code: OpenSCAD preferred; otherwise a concise step-by-step CAD plan.
+- Provide a final STL export list and any print orientation notes.

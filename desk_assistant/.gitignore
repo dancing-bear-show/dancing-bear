@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+.pytest_cache/
+.mypy_cache/
+
+# Environments
+.venv/
+venv/
+
+# Editors
+.vscode/
+.idea/
+
+# Build
+build/
+dist/
+
+# macOS
+.DS_Store
+
+# Outputs
+out/
+reports/
+plan.yaml
+rules.yaml

@@ -1,0 +1,17 @@
+{
+  "currency": "USD",
+  "default": { "input": 0.0010, "cached_input": 0.00025, "output": 0.0040 },
+  "models": {
+    "gpt-5":        { "input": 0.000625, "cached_input": 0.0000625, "output": 0.00500 },
+    "gpt-5-mini":   { "input": 0.000125, "cached_input": 0.0000125, "output": 0.00100 },
+    "gpt-5-nano":   { "input": 0.000025, "cached_input": 0.0000025, "output": 0.00020 },
+    "gpt-4.1":      { "input": 0.00100, "cached_input": 0.00050, "output": 0.00400 },
+    "gpt-4.1-mini": { "input": 0.00040, "cached_input": 0.00010, "output": 0.00160 },
+    "gpt-4.1-nano": { "input": 0.00010, "cached_input": 0.000025, "output": 0.00040 },
+    "gpt-4o":       { "input": 0.00225, "cached_input": 0.00090, "output": 0.01250 },
+    "gpt-4o-mini":  { "input": 0.00015, "cached_input": 0.000075, "output": 0.00060 }
+  },
+  "aliases": {
+    "gpt-4o-2024-08-06": "gpt-4o"
+  }
+}

@@ -1,0 +1,21 @@
+paths:
+  migration_state: .llm/MIGRATION_STATE.md
+status:
+  - Provider abstractions present (Gmail, Outlook)
+  - Profile-aware credentials via ~/.config/sre-utils/credentials.ini
+  - Outlook device-code split: outlook auth device-code → outlook auth poll
+  - YAML IO helpers centralized; optional JSON cache helpers available
+completed_work:
+  - Unified filters source of truth established at config/filters_unified.yaml
+  - Gmail labels/filters and Outlook rules wired through providers
+  - CLI tree stabilized; wrappers in bin/ with consistent patterns
+  - LLM capsules introduced (.llm/*) and lightweight llm CLI added
+next_steps:
+  - Gate features by provider capabilities (e.g., Outlook signatures unsupported)
+  - Align Outlook rules caching with JSON cache helpers
+  - Migrate any direct yaml.safe_* to yaml helpers in non-export paths
+  - Expand tests for newly added CLI surfaces only (keep light)
+backlog:
+  - Sweep for secrets redaction in any logs
+  - Optional: add concise README examples for new flows
+

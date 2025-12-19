@@ -1,0 +1,7 @@
+# Generated LLM files (built by ./bin/llm agentic/domain-map or derive-all --include-generated)
+.llm/AGENTIC.md
+.llm/DOMAIN_MAP.md
+out/
+__pycache__/
+.venv/
+*.pyc

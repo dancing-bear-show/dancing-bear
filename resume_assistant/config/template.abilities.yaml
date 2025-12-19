@@ -1,0 +1,63 @@
+# Abilities-first resume template
+
+sections:
+  - key: summary
+    title: Profile
+    bulleted: true
+  - key: skills
+    title: Skills
+    bullets: true
+    columns: 1
+    compact: true
+    show_desc: true
+    desc_separator: ": "
+    plain_bullets: true
+    separator: " • "
+    # Group header styling (abilities template keeps brand color)
+    group_title_color: "#1F4E79"
+    item_color: "#1F4E79"
+  - key: technologies
+    title: Technologies
+    bullets: true
+    columns: 1
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    separator: " • "
+    # (no group title override; inherits item color when needed)
+    item_color: "#1F4E79"
+  - key: education
+    title: Education
+    item_color: "#1F4E79"
+    duration_color: "#7F7F7F"
+    duration_brackets: true
+    meta_pt: 9
+  - key: experience
+    title: Job History
+    max_items: 12
+    inline_dates: true
+    role_style: Normal
+    bullet_style: List Bullet
+    item_color: "#1F4E79"
+    location_color: "#7F7F7F"
+    duration_color: "#7F7F7F"
+    duration_brackets: true
+    location_brackets: true
+    meta_pt: 9
+    recent_roles_count: 3
+    recent_max_bullets: 4
+    prior_max_bullets: 2
+page:
+  compact: true
+  margins_in: 0.5
+  body_pt: 9.5
+  h1_pt: 12
+  title_pt: 14
+  # Keep default colored heading text (no background)
+  h1_color: "#2E74B5"
+  metadata_include_locations: true
+  header_level: 1
+  bullets:
+    style: plain
+    glyph: "•"

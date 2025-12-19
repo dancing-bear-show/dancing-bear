@@ -1,0 +1,97 @@
+experience:
+  - title: Legal Advisor
+    company: Profesional del Derecho Independiente
+    start: Jan 2014
+    end: Present
+    location: Argentina
+    priority: 1.0
+    bullets:
+      - Provide legal advice and representation in public law, human rights, and legislative matters.
+      - Draft filings, contracts, and correspondence; manage client casework and hearings.
+      - Coordinate with agencies and courts; maintain timelines and documentation.
+
+  - title: Legal Advisor
+    company: Honorable Concejo Deliberante
+    start: Dec 2019
+    end: Dec 2023
+    location: San José, Entre Ríos, Argentina
+    priority: 1.0
+    bullets:
+      - Advised the council on legislative proposals, ordinances, and regulatory compliance.
+      - Researched public law and policy; drafted memoranda and legal opinions.
+      - Supported committee sessions and plenary meetings; prepared briefings and minutes.
+
+  - title: Case Manager
+    company: Olmos & Barhoum, LLP
+    start: Feb 2017
+    end: Oct 2018
+    location: San Jose, California
+    priority: 0.95
+    bullets:
+      - Managed client accounts and firm administrative functions.
+      - Prepared forms for family-based immigration and defensive applications for Immigration Court; drafted motions.
+      - Conducted legal research to support asylum cases.
+
+  - title: Bilingual Real Estate Executive
+    company: Asas Propiedades
+    start: Jun 2014
+    end: Jan 2015
+    location: Santiago de Chile, Chile
+    priority: 0.5
+    bullets:
+      - Supported listings and client interactions in Spanish/English; coordinated property showings.
+      - Prepared documentation and assisted with closings.
+
+  - title: Analista LCB CCB
+    company: Citi (Citibank / Ecosistemas)
+    start: Jul 2013
+    end: Jan 2014
+    location: Argentina
+    priority: 0.5
+    bullets:
+      - Supported compliance analysis and reporting; prepared documentation for controls and reviews.
+
+  - title: Intern / Volunteer
+    company: Global Citizens for Sustainable Development
+    start: Feb 2013
+    end: May 2013
+    location: Bengaluru, India
+    priority: 0.6
+    bullets:
+      - Contributed to sustainable development programs; supported research and community engagement.
+
+  - title: Procuradora (Legal Clerk)
+    company: Conexiones
+    start: Mar 2011
+    end: Feb 2013
+    location: Buenos Aires, Argentina
+    priority: 0.7
+    bullets:
+      - Filed court documents and managed case logistics; liaised with attorneys and clients.
+
+  - title: Agente de soporte técnico (AT&T)
+    company: Teleperformance
+    start: Jul 2007
+    end: Jan 2009
+    location: Buenos Aires, Argentina
+    priority: 0.3
+    bullets:
+      - Provided technical support to AT&T customers; resolved service issues.
+
+  - title: Telesales Agent
+    company: TeleTech
+    start: Aug 2005
+    end: Jan 2007
+    location: Buenos Aires, Argentina
+    priority: 0.3
+    bullets:
+      - Managed inbound/outbound sales; documented interactions and achieved KPIs.
+
+  - title: Au Pair
+    company: GoAuPair
+    start: Jun 2004
+    end: Jul 2005
+    location: Los Altos, California
+    priority: 0.2
+    bullets:
+      - Provided childcare and cultural exchange; managed schedules and activities.

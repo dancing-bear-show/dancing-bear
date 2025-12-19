@@ -1,0 +1,103 @@
+groups:
+  - title: SRE & Platform Reliability
+    items:
+      - name: Incident management & on-call
+        desc: root cause, coordination, calm resolution
+        priority: 1.0
+      - name: Incident command (IMOC)
+        priority: 1.0
+      - name: Change safety (SafeChange)
+        desc: pre-checks, rollback strategy, guardrails
+        priority: 0.95
+      - name: Reliability architecture
+        desc: cross-team alignment; resilient services
+        priority: 0.95
+
+  - title: Cloud & Traffic
+    items:
+      - name: Oracle Cloud (OCI)
+        priority: 1.0
+      - name: Load balancers (F5 → OCI LB)
+        priority: 0.95
+      - name: Global DNS replication
+        priority: 0.9
+      - name: DNS
+        priority: 0.85
+      - name: F5 BIG-IP (LTM)
+        priority: 0.9
+      - name: OCI Networking (VCN, LBaaS)
+        priority: 0.9
+      - name: Authoritative DNS & replication
+        priority: 0.9
+
+  - title: Containers & Orchestration
+    items:
+      - name: Kubernetes
+        priority: 0.95
+      - name: Docker
+        priority: 0.9
+      - name: Kubernetes migration leadership (PoC → org rollout)
+        priority: 0.95
+
+  - title: CI/CD & Tooling
+    items:
+      - name: Jenkins scaling & optimization
+        priority: 0.9
+      - name: Jenkins administration & pipeline governance
+        priority: 0.9
+      - name: Release automation
+        priority: 0.85
+      - name: Secrets management
+        priority: 0.85
+      - name: Selenium test automation (Docker)
+        priority: 0.8
+      - name: Release engineering (fleet-scale deployments)
+        priority: 0.9
+
+  - title: Programming & Scripting
+    items:
+      - name: Python
+        priority: 0.8
+      - name: Ruby (Rails)
+        priority: 0.8
+      - name: Bash
+        priority: 0.75
+      - name: Perl
+        priority: 0.7
+      - name: Java
+        priority: 0.6
+      - name: Database performance diagnostics (query amplification)
+        priority: 0.8
+
+  - title: Networking & Systems
+    items:
+      - name: Network management & automation
+        priority: 0.8
+      - name: Linux system administration
+        priority: 0.75
+      - name: Network security
+        priority: 0.7
+      - name: High-security operations
+        priority: 0.75
+
+  - title: Management Competencies
+    items:
+      - name: Interpersonal communication & liaison
+        desc: bridges gaps; conveys complex ideas across IC to exec
+        priority: 0.9
+      - name: Emotional intelligence & empathy
+        desc: read tonalities; resolve conflict with humility
+        priority: 0.85
+      - name: Negotiation & conflict resolution
+        desc: unify efforts across silos; maintain cohesion
+        priority: 0.85
+      - name: Delegation & empowerment
+        desc: mentor; enable experimentation; build ownership
+        priority: 0.8
+      - name: Ownership & accountability
+        desc: clarify responsibilities; transparent progress
+        priority: 0.8
+      - name: Remote collaboration & facilitation
+        priority: 0.8
+      - name: Incident liaison (exec↔IC comms)
+        priority: 0.9

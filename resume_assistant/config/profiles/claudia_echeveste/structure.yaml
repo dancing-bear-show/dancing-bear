@@ -1,0 +1,17 @@
+order:
+  - summary
+  - skills
+  - experience
+  - education
+  - languages
+  - presentations
+  - interests
+titles:
+  summary: Profile
+  skills: Skills
+  experience: Experience
+  education: Education
+  languages: Languages
+  presentations: Presentations
+  interests: Interests
+

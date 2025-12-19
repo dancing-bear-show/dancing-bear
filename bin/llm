@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Unified LLM CLI (lightweight for this repo).
+
+Subcommands:
+  llm inventory [--write PATH|--stdout|--format md|json]
+  llm familiar [--write PATH|--stdout|--verbose]
+  llm policies [--write PATH|--stdout]
+  llm agentic [--write PATH|--stdout]
+  llm domain-map [--write PATH|--stdout]
+  llm flows [--list|--id ID|--tags TAGS] [--format md|yaml|json] [--write PATH|--stdout]
+  llm derive-all [--out-dir .llm] [--include-generated] [--stdout]
+  llm deps [--root .] [--by dependencies|dependents|combined] [--order asc|desc] [--format table|text|json]
+  llm stale [--root .] [--by area|file] [--limit N] [--since-days N] [--agg max|min|avg] [--format table|text|json]
+  llm check [--root .] [--limit N] [--agg max|min|avg] [--with-status] [--fail-on-stale]
+"""
+from pathlib import Path
+import importlib
+import sys
+
+APP_MODULES = {
+    "mail": "mail_assistant.llm_cli",
+    "calendar": "calendar_assistant.llm_cli",
+    "schedule": "schedule_assistant.llm_cli",
+    "resume": "resume_assistant.llm_cli",
+    "desk": "desk_assistant.llm_cli",
+    "maker": "maker.llm_cli",
+    "phone": "phone.llm_cli",
+    "whatsapp": "whatsapp.llm_cli",
+    "wifi": "wifi_assistant.llm_cli",
+}
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from personal_core.llm_cli import main  # noqa: E402
+
+
+def dispatch(argv: list[str]) -> int:
+    if len(argv) >= 2 and argv[0] in {"--app", "-a"}:
+        app = argv[1]
+        module_path = APP_MODULES.get(app)
+        if not module_path:
+            print(f"Unknown LLM app '{app}'. Known apps: {', '.join(sorted(APP_MODULES))}", file=sys.stderr)
+            return 2
+        module = importlib.import_module(module_path)
+        app_argv = argv[2:]
+        return int(module.main(app_argv))
+    return int(main(argv))
+
+
+if __name__ == "__main__":
+    raise SystemExit(dispatch(sys.argv[1:]))

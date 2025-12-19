@@ -1,0 +1,21 @@
+# Local Bootstrap Capsule (example)
+#
+# Copy this file to `.llm/BOOTSTRAP_CAPSULE.yaml` to keep any
+# developer-specific bootstrap hints for familiarize/agentic runs.
+# This file is ignored by git; the `.example.yaml` is tracked.
+#
+# Keep it compact: prefer pointers and small, structured fields.
+
+capsules:
+  note: Local developer bootstrap (optional)
+  tips:
+    - Prefer unified CLIs: mail-assistant, calendar-assistant, llm
+    - Keep LLM context small; use agentic help flags
+
+agentic_help:
+  hint: Use --agentic --agentic-format yaml --agentic-compact
+  unified_clis: [mail-assistant, calendar-assistant, llm]
+
+# You can also add a scoped component for quick familiarization
+# component: mail_assistant
+

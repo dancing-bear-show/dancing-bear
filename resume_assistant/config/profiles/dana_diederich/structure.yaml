@@ -1,0 +1,12 @@
+order:
+  - summary
+  - skills
+  - experience
+  - education
+  - certifications
+titles:
+  summary: Profile
+  skills: Skills
+  experience: Experience
+  education: Education
+  certifications: Certifications

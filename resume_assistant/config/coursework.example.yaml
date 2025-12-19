@@ -1,0 +1,11 @@
+coursework:
+  - name: Distributed Systems
+    priority: 0.6
+  - name: Operating Systems
+    priority: 0.6
+  - name: Computer Networks
+    priority: 0.5
+  - name: Database Systems
+    priority: 0.5
+  - name: Performance Engineering
+    priority: 0.6

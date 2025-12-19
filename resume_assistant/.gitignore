@@ -1,0 +1,8 @@
+# Personal/PII data (never commit)
+_data/
+out/
+_out/
+
+# Python cache
+__pycache__/
+*.pyc

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Run alignment for a job and render a one-page resume using alignment filters.
+#
+# Usage:
+#   bin/align-render-onepage --profile <prefix> --job <job.yaml> \
+#     [--data <path>] [--template <tpl.yaml>] [--min-priority 0.9] \
+#     [--structure-from <file>] [--out <docx>]
+#
+# Defaults:
+#   data          = out/<profile>/data.json
+#   template      = config/template.onepage.yaml
+#   structure-from= out/<profile>/structure.json (if present)
+#   alignment     = out/<profile>/alignment.<jobname>.json
+#   out           = out/<profile>/resume.<jobname>.onepage.docx
+
+profile=""
+job=""
+data=""
+template="config/template.onepage.yaml"
+min_priority="0.9"
+structure=""
+outdocx=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --profile) profile="${2:-}"; shift 2;;
+    --job) job="${2:-}"; shift 2;;
+    --data) data="${2:-}"; shift 2;;
+    --template) template="${2:-$template}"; shift 2;;
+    --min-priority) min_priority="${2:-$min_priority}"; shift 2;;
+    --structure-from) structure="${2:-}"; shift 2;;
+    --out) outdocx="${2:-}"; shift 2;;
+    -h|--help)
+      grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    *) echo "Unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+if [[ -z "$profile" || -z "$job" ]]; then
+  echo "Required: --profile <prefix> --job <job.yaml>" >&2
+  exit 2
+fi
+
+if [[ -z "$data" ]]; then
+  data="out/${profile}/data.json"
+fi
+
+job_base="$(basename "$job")"
+job_name="${job_base%.*}"
+outdir="out/${profile}"
+mkdir -p "$outdir"
+
+alignment="${outdir}/alignment.${job_name}.json"
+tailored="${outdir}/tailored.${job_name}.json"
+
+# Align first
+"$(dirname "$0")/align-job" --profile "$profile" --job "$job" --data "$data" --out "$alignment" --tailored "$tailored"
+
+# Resolve structure
+if [[ -z "$structure" ]]; then
+  if [[ -f "${outdir}/structure.json" ]]; then
+    structure="${outdir}/structure.json"
+  fi
+fi
+
+if [[ -z "$outdocx" ]]; then
+  outdocx="${outdir}/resume.${job_name}.onepage.docx"
+fi
+
+python -m resume_assistant render \
+  --data "$data" \
+  --template "$template" \
+  --profile "$profile" \
+  ${structure:+--structure-from "$structure"} \
+  --filter-skills-alignment "$alignment" \
+  --filter-exp-alignment "$alignment" \
+  --min-priority "$min_priority" \
+  --out "$outdocx"
+
+echo "Rendered: $outdocx"
+

@@ -1,0 +1,95 @@
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.cpython-*.py
+
+# Virtualenvs
+.env
+.venv
+venv/
+ENV/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.cache/
+.direnv/
+.ruff_cache/
+.tox/
+.eggs/
+pip-wheel-metadata/
+*.egg-info/
+
+# Coverage/test reports
+htmlcov/
+.coverage
+coverage/
+.coverage.*
+coverage.xml
+junit*.xml
+
+# Logs / databases
+*.log
+*.sqlite
+*.db
+
+# Node tooling
+node_modules/
+
+# Local config
+.config/
+config/
+
+# Local logs and OAuth flows (do not commit)
+logs/
+msal_flow.json
+config/client_secret_*.json
+config/
+_out/
+backups/
+_archive/
+dist/
+build/
+tmp/
+reports/
+out/
+
+# Large/binary assets
+*.stl
+*.pdf
+*.docx
+*.xlsx
+*.pptx
+*.png
+*.zip
+*.mov
+
+# Generated LLM capsules
+.llm/AGENTIC*.md
+.llm/DOMAIN_MAP*.md
+.llm/BOOTSTRAP_CAPSULE.yaml
+
+# Local OAuth tokens/credentials (never commit secrets)
+credentials.json
+token.json
+outlook_token.json
+credentials.ini
+*.credentials.ini
+*.token.json
+*.token
+settings.init
+
+# Potentially sensitive local configs
+config/*secrets*
+config/*tokens*
+config/*credentials*
+config/**/private*.yaml

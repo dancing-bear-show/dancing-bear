@@ -1,0 +1,11 @@
+sections:
+  - key: summary
+    title: Professional Summary
+  - key: skills
+    title: Core Skills
+  - key: experience
+    title: Experience
+    max_items: 8
+  - key: education
+    title: Education
+

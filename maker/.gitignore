@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Slicer outputs
+*.gcode
+*.3mf
+*.amf
+*.3mf.state
+*.fpp
+*.factory
+*.prj
+*.project
+*.gc
+*.gx
+*.ufp
+*.ast
+
+# CAD caches/exports
+*.step
+*.stp
+*.obj
+*.ply
+*.x3d
+*.wrl
+
+# Temp
+*.tmp
+~*
+Thumbs.db

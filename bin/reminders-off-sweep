@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Sweep reminders off across calendars and years using the calendar-assistant CLI.
+set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage: reminders-off-sweep [options]
+
+Options:
+  -p, --profile NAME         Credentials profile (default: outlook_personal)
+  -c, --calendars LIST       Comma-separated calendar names (default: "Your Family,Activities")
+  -s, --start-year YEAR      Start year inclusive (default: current_year-2)
+  -e, --end-year YEAR        End year inclusive (default: current_year+1)
+  -n, --dry-run              Preview without writing changes
+  -h, --help                 Show this help
+
+Example:
+  reminders-off-sweep -p outlook_personal -c "Your Family,Activities" -s 2021 -e 2026
+USAGE
+}
+
+PROFILE="outlook_personal"
+CALENDARS="Your Family,Activities"
+CUR_YEAR=$(date +%Y)
+START_YEAR=$((CUR_YEAR-2))
+END_YEAR=$((CUR_YEAR+1))
+DRY_RUN=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p|--profile)
+      PROFILE="$2"; shift 2;;
+    -c|--calendars)
+      CALENDARS="$2"; shift 2;;
+    -s|--start-year)
+      START_YEAR="$2"; shift 2;;
+    -e|--end-year)
+      END_YEAR="$2"; shift 2;;
+    -n|--dry-run)
+      DRY_RUN=1; shift;;
+    -h|--help)
+      usage; exit 0;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage; exit 2;;
+  esac
+done
+
+IFS=',' read -r -a CAL_ARR <<< "$CALENDARS"
+
+for CAL in "${CAL_ARR[@]}"; do
+  CAL_TRIMMED="${CAL## }"; CAL_TRIMMED="${CAL_TRIMMED%% }"
+  for YEAR in $(seq "$START_YEAR" "$END_YEAR"); do
+    echo "Processing ${CAL_TRIMMED} ${YEAR}"
+    ARGS=("--profile" "$PROFILE" "outlook" "reminders-off" "--calendar" "$CAL_TRIMMED" "--from" "${YEAR}-01-01" "--to" "${YEAR}-12-31" "--all-occurrences")
+    if [[ "$DRY_RUN" == "1" ]]; then
+      ARGS+=("--dry-run")
+    fi
+    "$SCRIPT_DIR/calendar-assistant" "${ARGS[@]}" || true
+  done
+done
+
