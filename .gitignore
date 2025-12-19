@@ -35,8 +35,11 @@ _archive/
 *.stl
 *.pdf
 *.docx
+*.xlsx
+*.pptx
 *.png
 *.zip
+*.mov
 out/
 
 # Generated LLM capsules
