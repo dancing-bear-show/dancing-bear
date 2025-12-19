@@ -1,0 +1,14 @@
+{
+  "mail_assistant": {
+    "domain": "mail",
+    "capsule_hint": "./bin/assistant mail --agentic",
+    "notes": "Prefer agentic schema from unified CLI: ./bin/assistant mail --agentic --agentic-format yaml --agentic-compact (or direct ./bin/mail-assistant …)",
+    "preferred_sources": "Profiles in ~/.config/sre-utils/credentials.ini"
+  },
+  "llm": {
+    "domain": "maintenance",
+    "capsule_hint": "./bin/llm agentic --stdout",
+    "notes": "Inventory, staleness, dependencies, domain map",
+    "preferred_sources": "Local repository state only"
+  }
+}

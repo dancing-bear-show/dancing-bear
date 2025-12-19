@@ -1,0 +1,1145 @@
+events:
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '13:45'
+  end_time: '17:15'
+  range:
+    start_date: '2025-10-10'
+    until: '2025-10-31'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '14:45'
+  end_time: '18:15'
+  range:
+    start_date: '2025-11-07'
+    until: '2025-12-26'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '14:45'
+  end_time: '17:15'
+  range:
+    start_date: '2025-10-13'
+    until: '2025-10-27'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '15:45'
+  end_time: '18:15'
+  range:
+    start_date: '2025-11-03'
+    until: '2025-12-29'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '17:00'
+  end_time: '18:00'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:00'
+  end_time: '19:00'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '17:00'
+  end_time: '18:00'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:00'
+  end_time: '19:00'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '13:45'
+  end_time: '17:15'
+  range:
+    start_date: '2025-10-09'
+    until: '2025-10-30'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '14:45'
+  end_time: '18:15'
+  range:
+    start_date: '2025-11-06'
+    until: '2025-12-25'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '13:45'
+  end_time: '17:15'
+  range:
+    start_date: '2025-10-14'
+    until: '2025-10-28'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '14:45'
+  end_time: '18:15'
+  range:
+    start_date: '2025-11-04'
+    until: '2025-12-30'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '14:45'
+  end_time: '17:15'
+  range:
+    start_date: '2025-10-08'
+    until: '2025-10-29'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '15:45'
+  end_time: '18:15'
+  range:
+    start_date: '2025-11-05'
+    until: '2025-12-31'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Elgin West Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '20:15'
+  end_time: '21:45'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Elgin West Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '21:15'
+  end_time: '22:45'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Elgin West Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '14:30'
+  end_time: '17:30'
+  range:
+    start_date: '2025-10-09'
+    until: '2025-10-30'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Elgin West Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '15:30'
+  end_time: '18:30'
+  range:
+    start_date: '2025-11-06'
+    until: '2025-12-25'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Elgin West Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '14:30'
+  end_time: '17:30'
+  range:
+    start_date: '2025-10-14'
+    until: '2025-10-28'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Elgin West Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '15:30'
+  end_time: '18:30'
+  range:
+    start_date: '2025-11-04'
+    until: '2025-12-30'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '14:30'
+  end_time: '17:00'
+  range:
+    start_date: '2025-10-10'
+    until: '2025-10-31'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '15:30'
+  end_time: '18:00'
+  range:
+    start_date: '2025-11-07'
+    until: '2025-12-26'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '14:30'
+  end_time: '17:00'
+  range:
+    start_date: '2025-10-13'
+    until: '2025-10-27'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '15:30'
+  end_time: '18:00'
+  range:
+    start_date: '2025-11-03'
+    until: '2025-12-29'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '14:30'
+  end_time: '17:00'
+  range:
+    start_date: '2025-10-09'
+    until: '2025-10-30'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '15:30'
+  end_time: '18:00'
+  range:
+    start_date: '2025-11-06'
+    until: '2025-12-25'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '14:30'
+  end_time: '17:00'
+  range:
+    start_date: '2025-10-14'
+    until: '2025-10-28'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '15:30'
+  end_time: '18:00'
+  range:
+    start_date: '2025-11-04'
+    until: '2025-12-30'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '14:30'
+  end_time: '17:00'
+  range:
+    start_date: '2025-10-08'
+    until: '2025-10-29'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '15:30'
+  end_time: '18:00'
+  range:
+    start_date: '2025-11-05'
+    until: '2025-12-31'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Richvale Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '17:15'
+  end_time: '18:30'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Richvale Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:15'
+  end_time: '19:30'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Richvale Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '17:15'
+  end_time: '18:30'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Fun N Fit - Richvale Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:15'
+  end_time: '19:30'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '22:15'
+  end_time: '23:45'
+  range:
+    start_date: '2025-10-13'
+    until: '2025-10-27'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '23:15'
+  end_time: 00:45
+  range:
+    start_date: '2025-11-03'
+    until: '2025-12-29'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:15'
+  end_time: '19:45'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '19:15'
+  end_time: '20:45'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:15'
+  end_time: '19:45'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:15'
+  end_time: '20:45'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '22:15'
+  end_time: '23:45'
+  range:
+    start_date: '2025-10-08'
+    until: '2025-10-29'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Bayview Hill Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '23:15'
+  end_time: 00:45
+  range:
+    start_date: '2025-11-05'
+    until: '2025-12-31'
+  location: Bayview Hill Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Centennial Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '19:00'
+  end_time: '20:30'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Centennial Pool
+  calendar: Activities
+- subject: Leisure Swim - Centennial Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '20:00'
+  end_time: '21:30'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Centennial Pool
+  calendar: Activities
+- subject: Leisure Swim - Centennial Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:00'
+  end_time: '20:30'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Centennial Pool
+  calendar: Activities
+- subject: Leisure Swim - Centennial Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '20:00'
+  end_time: '21:30'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Centennial Pool
+  calendar: Activities
+- subject: Leisure Swim - Elgin West Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:30'
+  end_time: '20:00'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Elgin West Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '19:30'
+  end_time: '21:00'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Elgin West Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:30'
+  end_time: '20:00'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Elgin West Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:30'
+  end_time: '21:00'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Elgin West Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '23:00'
+  end_time: 00:30
+  range:
+    start_date: '2025-10-10'
+    until: '2025-10-31'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:30'
+  end_time: '20:30'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: 00:00
+  end_time: 01:30
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '19:30'
+  end_time: '21:30'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:30'
+  end_time: '20:30'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Oak Ridges Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:30'
+  end_time: '21:30'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Oak Ridges Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Richvale Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:45'
+  end_time: '19:45'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Richvale Pool
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '19:45'
+  end_time: '20:45'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Richvale Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:45'
+  end_time: '19:45'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Leisure Swim - Richvale Pool
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:45'
+  end_time: '20:45'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Richvale Community Centre
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '14:45'
+  end_time: '16:40'
+  range:
+    start_date: '2025-10-10'
+    until: '2025-10-31'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '15:45'
+  end_time: '17:40'
+  range:
+    start_date: '2025-11-07'
+    until: '2025-12-26'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '14:45'
+  end_time: '16:40'
+  range:
+    start_date: '2025-10-13'
+    until: '2025-10-27'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '15:45'
+  end_time: '17:40'
+  range:
+    start_date: '2025-11-03'
+    until: '2025-12-29'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '14:45'
+  end_time: '16:40'
+  range:
+    start_date: '2025-10-09'
+    until: '2025-10-30'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '15:45'
+  end_time: '17:40'
+  range:
+    start_date: '2025-11-06'
+    until: '2025-12-25'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '14:45'
+  end_time: '16:40'
+  range:
+    start_date: '2025-10-14'
+    until: '2025-10-28'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '15:45'
+  end_time: '17:40'
+  range:
+    start_date: '2025-11-04'
+    until: '2025-12-30'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '14:45'
+  end_time: '16:40'
+  range:
+    start_date: '2025-10-08'
+    until: '2025-10-29'
+  location: Wave Pool
+  calendar: Activities
+- subject: Leisure Swim - The Wave Pool
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '15:45'
+  end_time: '17:40'
+  range:
+    start_date: '2025-11-05'
+    until: '2025-12-31'
+  location: Wave Pool
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '20:30'
+  end_time: '22:00'
+  range:
+    start_date: '2025-10-03'
+    until: '2025-10-31'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '21:30'
+  end_time: '23:00'
+  range:
+    start_date: '2025-11-07'
+    until: '2025-12-19'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '14:00'
+  end_time: '16:00'
+  range:
+    start_date: '2025-10-05'
+    until: '2025-10-26'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '15:00'
+  end_time: '17:00'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-21'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '20:30'
+  end_time: '21:30'
+  range:
+    start_date: '2025-10-02'
+    until: '2025-10-30'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '21:30'
+  end_time: '22:30'
+  range:
+    start_date: '2025-11-06'
+    until: '2025-12-18'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '20:45'
+  end_time: '21:45'
+  range:
+    start_date: '2025-10-07'
+    until: '2025-10-28'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '21:45'
+  end_time: '22:45'
+  range:
+    start_date: '2025-11-04'
+    until: '2025-12-16'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '20:00'
+  end_time: '21:00'
+  range:
+    start_date: '2025-10-01'
+    until: '2025-10-29'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating (Aurora - SARC)
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '21:00'
+  end_time: '22:00'
+  range:
+    start_date: '2025-11-05'
+    until: '2025-12-17'
+  location: Stronach Aurora Recreation Complex
+  calendar: Activities
+- subject: Public Skating - Bond Lake Arena
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '20:30'
+  end_time: '22:00'
+  range:
+    start_date: '2025-10-13'
+    until: '2025-10-27'
+  location: Bond Lake Arena
+  calendar: Activities
+- subject: Public Skating - Bond Lake Arena
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '21:30'
+  end_time: '23:00'
+  range:
+    start_date: '2025-11-03'
+    until: '2025-12-29'
+  location: Bond Lake Arena
+  calendar: Activities
+- subject: Public Skating - Bond Lake Arena
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '22:30'
+  end_time: 00:00
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Bond Lake Arena
+  calendar: Activities
+- subject: Public Skating - Bond Lake Arena
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '23:30'
+  end_time: 01:00
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Bond Lake Arena
+  calendar: Activities
+- subject: Public Skating - Bond Lake Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:30'
+  end_time: '20:00'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Bond Lake Arena
+  calendar: Activities
+- subject: Public Skating - Bond Lake Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:30'
+  end_time: '21:00'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Bond Lake Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '15:15'
+  end_time: '16:15'
+  range:
+    start_date: '2025-10-10'
+    until: '2025-10-31'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '16:15'
+  end_time: '17:15'
+  range:
+    start_date: '2025-11-07'
+    until: '2025-12-26'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '23:15'
+  end_time: 00:45
+  range:
+    start_date: '2025-10-13'
+    until: '2025-10-27'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '17:15'
+  end_time: '18:15'
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '18:15'
+  end_time: '19:15'
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '17:45'
+  end_time: '19:15'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:45'
+  end_time: '20:15'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '20:45'
+  end_time: '22:15'
+  range:
+    start_date: '2025-10-09'
+    until: '2025-10-30'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '21:45'
+  end_time: '23:15'
+  range:
+    start_date: '2025-11-06'
+    until: '2025-12-25'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - TU
+  start_time: 00:15
+  end_time: 01:45
+  range:
+    start_date: '2025-11-04'
+    until: '2025-12-30'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '15:15'
+  end_time: '16:15'
+  range:
+    start_date: '2025-10-08'
+    until: '2025-10-29'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Ed Sackfield Arena
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '16:15'
+  end_time: '17:15'
+  range:
+    start_date: '2025-11-05'
+    until: '2025-12-31'
+  location: Ed Sackfield Arena
+  calendar: Activities
+- subject: Public Skating - Elgin Barrow Arena
+  repeat: weekly
+  byday:
+  - SA
+  start_time: '23:15'
+  end_time: 00:45
+  range:
+    start_date: '2025-10-11'
+    until: '2025-11-01'
+  location: Elgin Barrow Arena
+  calendar: Activities
+- subject: Public Skating - Elgin Barrow Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: 00:15
+  end_time: 01:45
+  range:
+    start_date: '2025-11-09'
+    until: '2025-12-28'
+  location: Elgin Barrow Arena
+  calendar: Activities
+- subject: Public Skating - Tom Graham Arena
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '23:00'
+  end_time: 00:30
+  range:
+    start_date: '2025-10-10'
+    until: '2025-10-31'
+  location: Tom Graham Arena
+  calendar: Activities
+- subject: Public Skating - Tom Graham Arena
+  repeat: weekly
+  byday:
+  - SA
+  start_time: 00:00
+  end_time: 01:30
+  range:
+    start_date: '2025-11-08'
+    until: '2025-12-27'
+  location: Tom Graham Arena
+  calendar: Activities
+- subject: Public Skating - Tom Graham Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '18:30'
+  end_time: '20:00'
+  range:
+    start_date: '2025-10-12'
+    until: '2025-10-26'
+  location: Tom Graham Arena
+  calendar: Activities
+- subject: Public Skating - Tom Graham Arena
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:30'
+  end_time: '21:00'
+  range:
+    start_date: '2025-11-02'
+    until: '2025-12-28'
+  location: Tom Graham Arena
+  calendar: Activities

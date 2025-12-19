@@ -1,0 +1,269 @@
+filters:
+- name: merged_CATEGORY_PROMOTIONS
+  match:
+    from: 407etr.com OR amazon.ca OR amazon.com OR apple.com OR bestbuy.ca OR canadacomputers.com
+      OR canadiantire.ca OR costco.ca OR e.amazon.ca OR email.apple.com OR homedepot.ca
+      OR ikea.ca OR lululemon.com OR marks.com OR memoryexpress.com OR news.apple.com
+      OR peoplesjewellers.com OR popeyes.ca OR popeyes.com OR sephora.ca OR sportchek.ca
+      OR staples.ca OR thebay.com OR uniqlo.com OR updates.apple.com OR walmart.ca
+      OR yeti.com OR woot.com OR r.groupon.com OR email.stackcommerce.com OR email.jcpenney.com
+      OR s.kohls.com OR emails.reebok.com OR emails.skechers.com OR digital.costco.com
+      OR trueclassictees.com OR tilley.com OR emails.wagjag.com OR westcoastkids.ca
+  action:
+    add:
+    - CATEGORY_PROMOTIONS
+    remove:
+    - INBOX
+- name: merged_CATEGORY_UPDATES
+  match:
+    from: email.glassdoor.com OR github.com OR glassdoor.com OR linkedin.com OR nextdoor
+      OR nextdoor.com OR reddit.com OR redditmail.com OR washingtonpost.com
+  action:
+    add:
+    - CATEGORY_UPDATES
+    remove:
+    - INBOX
+- name: merged_Kids
+  match:
+    from: activerh OR moonpreneur.com OR brightchamps.com OR rhpl.ca OR richmondhill.ca
+  action:
+    add:
+    - Kids
+- name: merged_Kids_Scouts
+  match:
+    from: anne.1stballantrae@hotmail.com OR my.scouts.ca OR scouts.ca
+  action:
+    add:
+    - Kids/Scouts
+    forward: "vanesaecheveste@hotmail.com"
+- name: merged_Kids_School
+  match:
+    from: broadcasts@schoolmessengermail.com OR eurekakids@hotmail.com OR eurekamontessorirh@gmail.com
+      OR schoolcashonline.com OR ycdsb.ca OR yrdsb.ca OR yrdcsb.ca OR school-day.com
+  action:
+    add:
+    - Kids/School
+    forward: "vanesaecheveste@hotmail.com"
+  
+# Specific Kids sub-folder for Moonpreneur
+- name: kids_moonpreneur
+  match:
+    from: moonpreneur.com
+  action:
+    add:
+    - Kids/Moonpreneur
+    forward: "vanesaecheveste@hotmail.com"
+
+# Specific Kids sub-folder for BrightChamps
+- name: kids_brightchamps
+  match:
+    from: brightchamps.com
+  action:
+    add:
+    - Kids/BrightChamps
+- name: merged_Lists_Political
+  match:
+    from: dailybeast.com OR democrats.org OR ourrevolution.com OR thedailybeast.com OR ocasiocortez.com
+  action:
+    add:
+    - Lists/Political
+    remove:
+    - INBOX
+
+- name: lists_gavin_newsom
+  match:
+    from: gavinnewsom.com OR info@e.gavinnewsom.com
+  action:
+    add:
+    - Lists/Political
+    remove:
+    - INBOX
+
+- name: lists_votevets
+  match:
+    from: votevets.org OR e.votevets.org
+  action:
+    add:
+    - Lists/Political
+    remove:
+    - INBOX
+
+# Additional commercial/newsletter/update senders observed in Outlook (last 30d)
+- name: lists_commercial_more
+  match:
+    from: enews.uniqlo.ca OR email.etsy.com OR email.triangle.com OR stanley1913.com
+      OR walmartphotocentre.ca OR subs.subway.com OR emails.toysrus.ca
+      OR promo.timhortons.ca OR mail.dq.com OR goruck.com OR coldsteel.com OR shop.app
+      OR ekster.com OR oldnavy.ca OR tn.com.ar OR alpakagear.com OR backcountry.com
+      OR sharkninja.com OR rewardingyouropinions.ca OR lego.com OR drsquatch.com
+      OR crocs-email.com OR patagonia.com OR orbitkey.com OR dealnews.com OR vessi.com
+      OR marketing.basspro.com OR timbuk2.com OR e.ray-ban.com OR us-news.comms.adidas.com
+      OR send.topodesigns.ca OR hankypanky.com OR bartonwatchbands.com OR emails.rakuten.ca
+      OR email.thelasthunt.com OR email.bose.com OR dollarshaveclub.com OR calpaktravel.com
+      OR westernrise.com OR ridge.com OR maingear.com OR mail.aircanada.com OR gunnar.com
+  action:
+    add:
+    - Lists/Commercial
+    remove:
+    - INBOX
+
+- name: lists_cineplex
+  match:
+    from: campaigns.cineplex.com OR cineplex.com
+  action:
+    add:
+    - Lists/Commercial
+    remove:
+    - INBOX
+
+- name: lists_newsletters_more
+  match:
+    from: e.newyorktimes.com OR e.economist.com OR email.bayareanewsgroup.com OR nytimes.com OR email.thestar.com OR interactive.wsj.com
+      OR atlasobscura.com OR mail.futureparty.com OR heavy.com OR getthefuturist.com
+      OR news.bloomberg.com OR dailypassport.com OR redflagdeals.com OR duolingo.com
+      OR nysun.com OR mail.beehiiv.com
+  action:
+    add:
+    - Lists/Newsletters
+    remove:
+    - INBOX
+
+- name: lists_rocanews
+  match:
+    from: rocanews.com OR newsletter.rocanews.com OR wethe66.rocanews.com
+  action:
+    add:
+    - Lists/Newsletters
+    remove:
+    - INBOX
+
+- name: lists_american_rifleman
+  match:
+    from: nramedia.org OR americanrifleman.org
+  action:
+    add:
+    - Lists/Newsletters
+    remove:
+    - INBOX
+
+- name: lists_updates_streaming
+  match:
+    from: members.netflix.com OR account.netflix.com
+  action:
+    add:
+    - Lists/Updates
+- name: merged_Kids_Activities
+  match:
+    from: active.com OR janette.strachan@richmondhill.ca OR joanne.lee@speechaim.com
+      OR ontariosoccer OR richmondhill@active.com OR richmondhillsoccer.com OR speechaim.com OR speechaim.ca OR brightchamps.com
+      OR psy-ed.com OR 1to1rehab.ca OR orsc.ca OR powerupsports.com
+  action:
+    add:
+    - Kids/Activities
+    forward: "vanesaecheveste@hotmail.com"
+
+# Kids sub-folders: RHPL and Active Richmond Hill
+- name: kids_rhpl
+  match:
+    from: rhpl.ca
+  action:
+    add:
+    - Kids/RHPL
+    forward: "vanesaecheveste@hotmail.com"
+
+- name: kids_active_richmond_hill
+  match:
+    from: richmondhill@active.com OR activerh
+  action:
+    add:
+    - Kids/ActiveRichmondHill
+- match:
+    from: accountprotection.microsoft.com
+  action:
+    add:
+    - Security/Microsoft
+- match:
+    from: adguard.com
+  action:
+    add:
+    - Security/AdGuard
+    remove:
+    - INBOX
+- match:
+    from: travelingmailbox.com
+  action:
+    add:
+    - Services/TravelingMailbox
+    remove:
+    - INBOX
+- match:
+    from: sharepointonline.com OR onedrive.com
+  action:
+    add:
+    - Cloud/OneDrive
+    remove:
+    - INBOX
+- match:
+    from: jpmorgan.com
+  action:
+    add:
+    - Finance/JPMorgan
+    remove:
+    - INBOX
+- name: finance_cibc_promos
+  match:
+    from: personalbanking@info.cibc.com OR mailbox.noreply@cibc.com
+  action:
+    add:
+    - Finance/Merchants
+    remove:
+    - INBOX
+- match:
+    from: amex.ca OR bmo.com OR capitalone.ca OR cibc.com OR e.paypal.com OR paypal.ca
+      OR paypal.com OR qtrade.ca OR questrade.com OR rbc.com OR scotiabank.com OR
+      td.com OR wealthsimple.com
+  action:
+    add:
+    - Finance/Merchants
+- match:
+    from: e.etrade.com OR etrade.com OR etradefrommorganstanley.com
+  action:
+    add:
+    - Finance/ETrade
+    remove:
+    - INBOX
+- match:
+    from: chase.com OR e.chase.com
+  action:
+    add:
+    - Finance/Chase
+    remove:
+    - INBOX
+
+# Finance: Precious metals alerts and promos → move to Outlook folder
+- name: Finance_Metals_TD
+  match:
+    from: noreply@td.com OR TDPreciousMetals@tdsecurities.com
+    subject: TD Precious Metals OR Your order has arrived OR Your Transaction is Being Processed
+  action:
+    add:
+    - Finance/Metals
+    moveToFolder: Finance/Metals
+
+- name: Finance_Metals_Costco
+  match:
+    from: orderstatus@costco.ca
+    subject: Your Costco.ca Order Number
+  action:
+    add:
+    - Finance/Metals
+    moveToFolder: Finance/Metals
+
+- name: Finance_Metals_RCM
+  match:
+    from: email.mint.ca OR mint.ca OR royalcanadianmint.ca
+    subject: order OR confirmation OR receipt OR shipped OR invoice OR "Royal Canadian Mint"
+  action:
+    add:
+    - Finance/Metals
+    moveToFolder: Finance/Metals

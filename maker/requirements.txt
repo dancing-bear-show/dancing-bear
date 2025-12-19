@@ -1,0 +1,6 @@
+# Minimal tooling for inspecting/generating 3D meshes
+numpy>=1.26
+scipy>=1.10
+shapely>=2.0
+trimesh>=4.4
+requests>=2.31

@@ -1,0 +1,64 @@
+# Agentic budgets (optional, config-driven)
+#
+# Purpose: Provide per-program size caps and ratio targets for agentic help
+# outputs. Tools and tests can read this file if PyYAML is available; otherwise
+# they may fall back to environment variables and sane defaults.
+#
+# Keys are by top-level CLI program name (the `prog` field in agentic JSON),
+# e.g., mail-assistant, llm, calendar-assistant. Use env overrides for
+# one-off adjustments.
+#
+# Env overrides (take precedence over this file):
+#   - Global caps: AGENTIC_GLOBAL_BUDGET_JSON, AGENTIC_GLOBAL_BUDGET_YAML
+#   - Per-prog caps: AGENTIC_BUDGET_<PROG>_JSON|YAML (non-alnum→_; uppercased)
+#   - Ratios: AGENTIC_RATIO_COMPACT, AGENTIC_RATIO_ULTRA
+#   - Skip certain CLIs (by qualified class substring): AGENTIC_BUDGET_SKIP
+# Familiarize heuristic: BUDGET_BYTES_PER_TOKEN (defaults to 4.0)
+
+caps:
+  # Mail Assistant (~10–14 KB JSON depending on modules, ~7–10 KB YAML compact)
+  mail-assistant:
+    json: 20000   # bytes
+    yaml: 15000   # bytes
+
+  # Unified LLM helper (~3–5 KB JSON, ~2–3 KB YAML compact)
+  llm:
+    json: 8000
+    yaml: 6000
+
+  # Calendar Assistant (~4–7 KB JSON, ~3–5 KB YAML compact)
+  calendar-assistant:
+    json: 12000
+    yaml: 9000
+
+ratios:
+  # Compact must be meaningfully smaller than non-compact; ultra smaller than compact
+  mail-assistant:
+    compact: 0.90
+    ultra: 0.80
+  llm:
+    compact: 0.90
+    ultra: 0.80
+  calendar-assistant:
+    compact: 0.90
+    ultra: 0.80
+
+# Familiarize budgets (guidance for agents/tests)
+familiarize:
+  token_budget: 500          # ~2KB at 4 bytes/token
+  bytes_per_token: 4.0
+  allow:
+    - .llm/familiarize.yaml
+  optional:
+    - .llm/DOMAIN_MAP.md
+    - agentic_cli_schema
+  heavy:
+    - README.md
+    - AGENTS.md
+    - bin/README.md
+
+# Notes:
+# - Keep CLI help concise; prefer links to docs over embedding long descriptions.
+# - If a new domain inflates sizes, split rarely-used subcommands or trim help strings.
+# - For emergency unblocks in CI, use env overrides; follow up with a PR to adjust caps here.
+

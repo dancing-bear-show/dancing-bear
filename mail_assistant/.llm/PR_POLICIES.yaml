@@ -1,0 +1,5 @@
+policies:
+  style:
+    - Keep public CLI stable; add only
+  tests:
+    - Add lightweight unittest for new CLI

@@ -1,0 +1,81 @@
+# Canonical calendar plan for Your Family — Bruce
+# Source: out/calendar/bruce_current.plan.yaml (backed up here for versioning)
+# Edit by hand; use schedule-assistant to verify/sync with Outlook.
+events:
+- calendar: Your Family
+  subject: Sportball
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '11:45'
+  end_time: '12:45'
+  range:
+    start_date: '2025-10-05'
+    until: '2025-11-30'
+  location: Oak Ridges Community Centre (Gym A)
+  child: Bruce
+  child_full: bruce sherwin
+- calendar: Your Family
+  subject: Scouts
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '19:00'
+  end_time: '20:00'
+  range:
+    start_date: '2025-10-07'
+    until: '2025-12-31'
+  location: 5592 Aurora Road, Whitchurch-Stouffville, Ontario, Canada
+  child: Bruce
+- calendar: Your Family
+  subject: Spanish
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '18:00'
+  end_time: '20:30'
+  range:
+    start_date: '2025-10-01'
+    until: '2026-05-06'
+  location: Stephen Lewis High School (555 Autumn Hill Boulevard, Vaughan, ON L4J 8X2)
+  child: Bruce
+  exdates:
+  - '2026-03-18'
+- calendar: Your Family
+  subject: Swimmer 1
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '18:30'
+  end_time: '19:00'
+  range:
+    start_date: '2025-10-02'
+    until: '2025-12-04'
+  location: Oak Ridges Community Centre (12895 Bayview Avenue, Richmond Hill, ON L4B 4P9)
+  child: Bruce
+- calendar: Your Family
+  subject: Chess
+  repeat: weekly
+  byday:
+  - SU
+  start_time: 09:30
+  end_time: '10:30'
+  range:
+    start_date: '2025-09-28'
+    until: '2025-11-16'
+  location: Oak Ridges Community Centre (Program Room 2)
+  child: Bruce
+- calendar: Your Family
+  subject: Spanish
+  repeat: weekly
+  byday:
+  - SA
+  start_time: 09:30
+  end_time: '12:00'
+  range:
+    start_date: '2025-09-27'
+    until: '2026-06-06'
+  location: St. Maximilian Kolbe CHS (278 Wellington Street East, Aurora, ON L4G 1J5)
+  child: Bruce
+  exdates:
+  - '2026-04-04'

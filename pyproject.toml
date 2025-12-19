@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "personal-assistants"
+version = "0.1.0"
+description = "Reconstituted personal assistants (mail, resume, schedule)"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+  "PyYAML==6.0.3",
+  "requests==2.31.0",
+]
+
+[project.scripts]
+assistant = "personal_core.assistant_cli:main"
+mail-assistant = "mail_assistant.__main__:main"
+calendar-assistant = "calendar_assistant.__main__:main"
+schedule-assistant = "schedule_assistant.__main__:main"
+phone = "phone.__main__:main"
+whatsapp = "whatsapp.__main__:main"
+resume-assistant = "resume_assistant.resume_assistant.cli.main:main"
+apple-music-assistant = "apple_music_assistant.__main__:main"
+apple-music-user-token = "apple_music_assistant.user_token_cli:main"
+wifi-assistant = "wifi_assistant.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+include = [
+  "personal_core*",
+  "mail_assistant*",
+  "resume_assistant*",
+  "schedule_assistant*",
+  "calendar_assistant*",
+  "phone*",
+  "whatsapp*",
+  "apple_music_assistant*",
+  "wifi_assistant*",
+]

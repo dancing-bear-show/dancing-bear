@@ -1,0 +1,13 @@
+paths:
+  roadmap: README.md
+phases:
+  - "Phase 1: Stabilize unified mail workflows (complete)"
+  - "Phase 2: LLM-native capsules and CLI discovery (complete)"
+  - "Phase 3: Outlook parity and exact-match syncs (in progress)"
+  - "Phase 4: Safe automation (plan/apply/verify) with audits (planned)"
+backlog:
+  - Expand provider capability gates and parity checks
+  - Improve optimization/audit flows for unified filters
+  - Add more domain maps for schedule/calendar assistants as they grow
+  - Keep capsules token-efficient and current via ./bin/llm derive-all
+

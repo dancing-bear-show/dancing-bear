@@ -1,0 +1,80 @@
+title: Engineering Manager, DevOps
+company: Wirecutter (The New York Times)
+keywords:
+  required:
+    - skill: Engineering management
+      weight: 3
+    - skill: Performance management
+      weight: 2
+    - skill: Coaching and mentorship
+      weight: 2
+    - skill: Distributed teams
+      weight: 2
+    - skill: Roadmap and prioritization
+      weight: 2
+    - skill: Decision making facilitation
+      weight: 2
+    - skill: Reliability and scalability
+      weight: 2
+    - skill: Security and observability
+      weight: 2
+  preferred:
+    - skill: Microservices
+      weight: 1
+    - skill: Cloud computing services
+      weight: 2
+    - skill: AWS
+      weight: 2
+    - skill: GCP
+      weight: 2
+    - skill: Kubernetes
+      weight: 2
+    - skill: Containerization
+      weight: 2
+    - skill: Continuous deployments
+      weight: 2
+    - skill: Cache management
+      weight: 1
+    - skill: Automation
+      weight: 2
+    - skill: Productivity metrics
+      weight: 1
+    - skill: Stakeholder communication
+      weight: 2
+  soft_skills:
+    - Inclusive culture
+    - Collaboration
+    - Communication
+    - Advocacy for engineers
+  tech_skills:
+    - Kubernetes
+    - Docker
+    - AWS
+    - GCP
+    - CI/CD
+    - Secrets management
+    - DNS
+    - Load balancing
+  technologies:
+    - OCI
+    - F5
+    - Jenkins
+    - Selenium
+  synonyms:
+    Engineering management: [engineering manager, tech lead manager, EM, manager]
+    Performance management: [reviews, growth plans, continuous improvement]
+    Coaching and mentorship: [mentor, coaching, develop talent]
+    Distributed teams: [remote teams, hybrid teams]
+    Roadmap and prioritization: [roadmap, prioritization, reprioritization]
+    Decision making facilitation: [facilitate decisions, decision-making]
+    Reliability and scalability: [reliability, scalability, efficiency]
+    Security and observability: [security, observability, monitoring, logging, tracing]
+    Cloud computing services: [cloud, cloud services]
+    Kubernetes: [k8s]
+    Containerization: [containers, docker]
+    Continuous deployments: [CD, continuous delivery, continuous deployment]
+    Cache management: [caching]
+    Automation: [automate, automation]
+    Productivity metrics: [metrics, OKRs, KPIs]
+    Stakeholder communication: [stakeholders, cross-functional relationships]
+    Load balancing: [LB, F5, load balancer]

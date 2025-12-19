@@ -1,0 +1,18 @@
+Jane Doe
+Contact
+jane@example.com | (555) 010-0202 | Austin, TX
+
+Summary
+Backend engineer passionate about reliable distributed systems.
+
+Skills
+Go, Python, AWS, Docker, Kubernetes, Postgres
+
+Experience
+Backend Engineer at Acme Corp (2020-2024) - Remote
+- Built REST APIs in Go
+- Operated services on Kubernetes (EKS) and AWS
+
+Education
+BS Computer Science, State University, 2019
+

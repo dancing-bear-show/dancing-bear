@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+PY=${PYTHON:-python3}
+if [[ -x "$REPO_DIR/.venv/bin/python" ]]; then
+  PY="$REPO_DIR/.venv/bin/python"
+fi
+
+exec "$PY" -m calendar_assistant "$@"
+

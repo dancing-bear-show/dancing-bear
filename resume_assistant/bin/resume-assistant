@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Prefer venv if active
+if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+  python -m resume_assistant "$@"
+  exit $?
+fi
+
+# Fallback to system python
+python3 -m resume_assistant "$@"
+

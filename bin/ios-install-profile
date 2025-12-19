@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# Install an iOS/iPadOS .mobileconfig via cfgutil (Apple Configurator CLI)
+# Usage:
+#   bin/ios-install-profile [--udid <UDID>] [--profile <path>] | [PROFILE]
+# Defaults: PROFILE=out/ipad.hslayout.mobileconfig
+
+set -euo pipefail
+
+# Helpers (define early for label mapping)
+resolve_config() {
+  if [[ -n "$CONFIG_PATH" && -f "$CONFIG_PATH" ]]; then
+    echo "$CONFIG_PATH"; return 0
+  fi
+  if [[ -n "${CREDENTIALS:-}" && -f "${CREDENTIALS}" ]]; then
+    echo "${CREDENTIALS}"; return 0
+  fi
+  local xdg=${XDG_CONFIG_HOME:-"$HOME/.config"}
+  if [[ -f "$xdg/credentials.ini" ]]; then
+    echo "$xdg/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/credentials.ini" ]]; then
+    echo "$HOME/.config/credentials.ini"; return 0
+  fi
+  if [[ -f "$xdg/sre-utils/credentials.ini" ]]; then
+    echo "$xdg/sre-utils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/sre-utils/credentials.ini" ]]; then
+    echo "$HOME/.config/sre-utils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/sreutils/credentials.ini" ]]; then
+    echo "$HOME/.config/sreutils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.sre-utils/credentials.ini" ]]; then
+    echo "$HOME/.sre-utils/credentials.ini"; return 0
+  fi
+  return 1
+}
+
+ini_get() {
+  local file="$1" section="$2" key="$3"
+  awk -v s="$section" -v k="$key" '
+    BEGIN{i=0}
+    $0 ~ /^[[:space:]]*\[/ { i = ($0 ~ "^\\s*\\[" s "\\]\\s*$") ? 1 : 0 }
+    i==1 && $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {
+      val=$0; sub(/^[^=]*=/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val); print val; exit 0
+    }
+  ' "$file"
+}
+
+PROFILE="out/ipad.hslayout.mobileconfig"
+UDID="${IOS_DEVICE_UDID:-}"
+P12=""
+P12_PASS=""
+PROFILE_NAME="ios_layout_manager"
+ALT_PROFILE_NAME="ios_supervisor"
+CONFIG_PATH=""
+USE_CONFIGURATOR_IDENTITY="${IOS_USE_CONFIGURATOR_IDENTITY:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --udid|-u)
+      UDID="$2"; shift 2 ;;
+    --profile|-p)
+      PROFILE="$2"; shift 2 ;;
+    --device-label)
+      DEVICE_LABEL="$2"; shift 2 ;;
+    --p12)
+      P12="$2"; shift 2 ;;
+    --p12-pass)
+      P12_PASS="$2"; shift 2 ;;
+    --creds-profile)
+      PROFILE_NAME="$2"; shift 2 ;;
+    --config)
+      CONFIG_PATH="$2"; shift 2 ;;
+    --no-prompt)
+      NO_PROMPT=1; shift ;;
+    --use-configurator-identity)
+      USE_CONFIGURATOR_IDENTITY=1; shift ;;
+    -h|--help)
+      echo "Usage: $0 [--udid <UDID>] [--profile <path>] | [PROFILE]"; exit 0 ;;
+    *)
+      # single positional PROFILE
+      PROFILE="$1"; shift ;;
+  esac
+done
+
+# Resolve cfgutil (PATH or known app bundle location)
+CFGUTIL_BIN="cfgutil"
+if ! command -v cfgutil >/dev/null 2>&1; then
+  if [[ -x "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil" ]]; then
+    CFGUTIL_BIN="/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
+  else
+    echo "Error: cfgutil not found. Install Apple Configurator (from Mac App Store)." >&2
+    echo "Expected at /Applications/Apple Configurator.app/Contents/MacOS/cfgutil or on PATH." >&2
+    exit 127
+  fi
+fi
+
+if [[ ! -f "$PROFILE" ]]; then
+  echo "Error: profile not found: $PROFILE" >&2
+  echo "Build it first, e.g.:" >&2
+  echo "  ./bin/phone-assistant profile build --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out $PROFILE" >&2
+  exit 1
+fi
+
+echo "Devices ($CFGUTIL_BIN list):"
+"$CFGUTIL_BIN" list || true
+[[ -z "${NO_PROMPT:-}" ]] && echo "If prompted on device, tap Install to approve."
+
+# Resolve UDID from label mapping in credentials.ini when not specified
+if [[ -z "$UDID" && -n "${DEVICE_LABEL:-}" ]]; then
+  if CFG_FILE=$(resolve_config); then
+    # section [ios_devices], key=device label
+    _udid=$(ini_get "$CFG_FILE" ios_devices "$DEVICE_LABEL" || true)
+    if [[ -n "$_udid" ]]; then
+      UDID="$_udid"
+    fi
+  fi
+fi
+
+CFG_FILE=""
+if [[ -z "$USE_CONFIGURATOR_IDENTITY" ]]; then
+  if CFG_FILE=$(resolve_config); then
+    if [[ -z "$P12" ]]; then
+    # Prefer descriptive keys; fall back to legacy
+    P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_identity_p12 || true)"
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" ios_home_layout_identity_p12 || true)"
+    fi
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_p12 || true)"
+    fi
+    # Fallback to alternate section if still empty
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_identity_p12 || true)"
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" ios_home_layout_identity_p12 || true)"
+      fi
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_p12 || true)"
+      fi
+    fi
+  fi
+  if [[ -z "$P12_PASS" ]]; then
+    P12_PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_identity_pass || true)"
+    if [[ -z "$P12_PASS" ]]; then
+      P12_PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" ios_home_layout_identity_pass || true)"
+    fi
+    if [[ -z "$P12_PASS" ]]; then
+      P12_PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_p12_pass || true)"
+    fi
+    if [[ -z "$P12_PASS" ]]; then
+      P12_PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_identity_pass || true)"
+      if [[ -z "$P12_PASS" ]]; then
+        P12_PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" ios_home_layout_identity_pass || true)"
+      fi
+      if [[ -z "$P12_PASS" ]]; then
+        P12_PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_p12_pass || true)"
+      fi
+    fi
+    fi
+  fi
+fi
+
+# Expand env vars and ~ in P12 path (supports $HOME and ~)
+if [[ -n "$P12" ]]; then
+  # shellcheck disable=SC2086
+  P12="$(eval echo "$P12")"
+fi
+
+# Optional: prepare supervision identity for silent install
+CFG_OPTS=()
+TMPDIR_CREATED=""
+if [[ -n "$P12" && -z "$USE_CONFIGURATOR_IDENTITY" ]]; then
+  if [[ ! -f "$P12" ]]; then
+    echo "Error: --p12 file not found: $P12" >&2
+    exit 1
+  fi
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "Error: openssl not found (required to convert .p12 for cfgutil)." >&2
+    exit 127
+  fi
+  # If no password provided and running in a TTY, prompt once (no echo)
+  if [[ -z "$P12_PASS" && -t 0 ]]; then
+    read -s -p "Enter password for $P12: " P12_PASS
+    echo >&2
+  fi
+  TMPDIR_CREATED="$(mktemp -d -t iosprof.XXXXXX)"
+  CERT_PEM="$TMPDIR_CREATED/cert.pem"
+  CERT_DER="$TMPDIR_CREATED/cert.der"
+  KEY_PEM="$TMPDIR_CREATED/key.pem"
+  KEY_DER="$TMPDIR_CREATED/key.der"
+  trap 'test -n "$TMPDIR_CREATED" && rm -rf "$TMPDIR_CREATED"' EXIT
+  # Convert .p12 to DER cert/key (OpenSSL 3 may require -legacy for RC2 p12)
+  # Always pass -passin to avoid interactive hangs
+  PASSIN=( -passin pass:"${P12_PASS:-}" )
+  LEG_OPT=()
+  if [[ -n "${IOS_FORCE_OPENSSL_LEGACY:-}" ]]; then
+    LEG_OPT=(-legacy)
+  elif openssl pkcs12 -help 2>/dev/null | grep -q -- '-legacy'; then
+    LEG_OPT=(-legacy)
+  fi
+  # Certificate (try with -legacy when supported)
+  if ! openssl pkcs12 "${LEG_OPT[@]:-}" -in "$P12" -clcerts -nokeys -out "$CERT_PEM" "${PASSIN[@]:-}" >/dev/null 2>&1; then
+    # Fallback without -legacy
+    openssl pkcs12 -in "$P12" -clcerts -nokeys -out "$CERT_PEM" "${PASSIN[@]}" >/dev/null 2>&1 || true
+  fi
+  openssl x509 -in "$CERT_PEM" -outform der -out "$CERT_DER" >/dev/null 2>&1
+  # Private key
+  if ! openssl pkcs12 "${LEG_OPT[@]:-}" -in "$P12" -nocerts -nodes -out "$KEY_PEM" "${PASSIN[@]:-}" >/dev/null 2>&1; then
+    openssl pkcs12 -in "$P12" -nocerts -nodes -out "$KEY_PEM" "${PASSIN[@]:-}" >/dev/null 2>&1 || true
+  fi
+  openssl pkcs8 -topk8 -inform PEM -outform DER -in "$KEY_PEM" -out "$KEY_DER" -nocrypt >/dev/null 2>&1
+  # Restrict permissions for cfgutil security checks
+  chmod 600 "$KEY_DER" || true
+  chmod 600 "$CERT_DER" || true
+  # Validate outputs are non-empty
+  if [[ ! -s "$CERT_DER" || ! -s "$KEY_DER" ]]; then
+    echo "Error: Failed to convert .p12 to DER files. Check path/password in credentials or pass --p12/--p12-pass." >&2
+    echo "  P12: $P12" >&2
+    exit 1
+  fi
+  CFG_OPTS+=( --certificate "$CERT_DER" --private-key "$KEY_DER" )
+fi
+
+set -x
+# Ensure CFG_OPTS is defined even when using configurator identity
+if [[ -z "${CFG_OPTS+x}" ]]; then CFG_OPTS=( ); fi
+# Targeting
+if [[ -n "$UDID" ]]; then
+  # Map UDID to ECID from cfgutil list output
+  ECID="$("$CFGUTIL_BIN" list 2>/dev/null | awk -v U="$UDID" 'index($0,"UDID:")&&index($0,U){for(i=1;i<=NF;i++){if($i=="ECID:"){print $(i+1); exit}}}')"
+  if [[ -n "$ECID" ]]; then
+    echo "Installing to ECID: $ECID (matched UDID: $UDID)"
+    if [[ ${#CFG_OPTS[@]} -gt 0 ]]; then
+      "$CFGUTIL_BIN" --ecid "$ECID" "${CFG_OPTS[@]}" install-profile "$PROFILE"
+    else
+      "$CFGUTIL_BIN" --ecid "$ECID" install-profile "$PROFILE"
+    fi
+  else
+    echo "Warning: could not map UDID to ECID; installing to all attached devices." >&2
+    if [[ ${#CFG_OPTS[@]} -gt 0 ]]; then
+      "$CFGUTIL_BIN" "${CFG_OPTS[@]}" install-profile "$PROFILE"
+    else
+      "$CFGUTIL_BIN" install-profile "$PROFILE"
+    fi
+  fi
+else
+  if [[ ${#CFG_OPTS[@]} -gt 0 ]]; then
+    "$CFGUTIL_BIN" "${CFG_OPTS[@]}" install-profile "$PROFILE"
+  else
+    "$CFGUTIL_BIN" install-profile "$PROFILE"
+  fi
+fi
+set +x
+
+echo "Installed profile: $PROFILE"

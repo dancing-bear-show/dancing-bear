@@ -1,0 +1,6 @@
+filters:
+  - name: vip_family_vanesae
+    match:
+      query: "from:(vanesaecheveste@hotmail.com OR vanesaechevester18@gmail.com)"
+    action:
+      add: ["VIP/Family/Vanesa"]

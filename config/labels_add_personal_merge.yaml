@@ -1,0 +1,13 @@
+labels:
+  - name: Personal
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Personal/Jane
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Personal/Movati
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Personal/UnivOfRochester
+    labelListVisibility: labelShow
+    messageListVisibility: show

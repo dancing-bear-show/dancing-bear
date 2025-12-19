@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""
+Emit one or more UUIDs (lowercase, hyphenated). Default: 2.
+
+Usage:
+  bin/uuidgen-pair            # two UUIDs
+  bin/uuidgen-pair 4          # four UUIDs
+"""
+
+import sys
+import uuid
+
+
+def main() -> int:
+    try:
+        count = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    except ValueError:
+        print("error: count must be an integer", file=sys.stderr)
+        return 1
+    count = max(1, count)
+    for _ in range(count):
+        print(str(uuid.uuid4()).lower())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,2647 @@
+filters:
+- criteria:
+    query: ((from:(actblue.com OR winred.com OR democrats.org OR dccc.org OR dscc.org
+      OR moveon.org OR indivisible.org OR dnc.org OR rnc.org OR gop.com OR liberal.ca
+      OR conservative.ca OR ndp.ca) OR list:(actblue.com OR winred.com OR democrats.org
+      OR dccc.org OR dscc.org OR moveon.org OR indivisible.org OR dnc.org OR rnc.org
+      OR gop.com OR liberal.ca OR conservative.ca OR ndp.ca)) -subject:(receipt OR
+      confirmation)) OR (list:e.democrats.org)
+  action:
+    addLabels:
+    - Lists/Political
+  id: ANe1BmjCdPakMwbLXYH904HPgMx5OylOJfDgpA
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (list:s.kohls.com) OR (list:amazon.com)\
+      \ OR (list:e.walmart.ca) OR (list:digital.costco.com) OR (list:e.bestbuy.ca)"
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgnJ-RROUK5SS2sJQXUyTzUTu8XejtB4w
+- criteria:
+    query: ((from:(actblue.com OR winred.com OR democrats.org OR dccc.org OR dscc.org
+      OR moveon.org OR indivisible.org OR dnc.org OR rnc.org OR gop.com OR liberal.ca
+      OR conservative.ca OR ndp.ca) OR list:(actblue.com OR winred.com OR democrats.org
+      OR dccc.org OR dscc.org OR moveon.org OR indivisible.org OR dnc.org OR rnc.org
+      OR gop.com OR liberal.ca OR conservative.ca OR ndp.ca)) -subject:(receipt OR
+      confirmation))
+  action:
+    addLabels:
+    - Lists/Political
+  id: ANe1BmiL5NBD9cxrCXZFa2u9e0j2Np0sll-4yQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\"))"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmjeq2msfvHgCD2bDgTkyHk-s_vdqkxnYQ
+- criteria:
+    query: "((list:linkedin.com OR from:no-reply@is.email.nextdoor.com OR from:reply@ss.email.nextdoor.com\n\
+      \ OR from:redditmail.com OR from:noreply@github.com OR from:notifications@github.com\
+      \ OR list:googlegroups.com))"
+  action:
+    addLabels:
+    - CATEGORY_FORUMS
+  id: ANe1BmgVSjMhRtPXGIrQVA_X-kJLyX73vPAZ4g
+- criteria:
+    query: "((from:washingtonpost.com OR from:nytimes.com OR list:*nytimes.com OR\
+      \ from:message.bloomberg.com\n OR from:thedailybeast.com OR from:interactive.wsj.com\
+      \ OR from:apnews.com OR from:reuters.com))"
+  action:
+    addLabels:
+    - CATEGORY_UPDATES
+  id: ANe1BmhMh2rD4Sh46LF_xNQviTgcR_8IRfGHKw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\"))"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmh4cngCBOx1dXM8B8Jy1ayca8QNEovXPw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmitHpYjBHTk7cVhS6riCn2CKypku_7R8w
+- criteria:
+    query: (from:no.reply.alerts@chase.com)
+  action:
+    addLabels:
+    - Finance/Chase
+    - CATEGORY_UPDATES
+  id: ANe1BmhC1Ny_UeWpkr9xzRZ5EcXkr5tBNFDOaQ
+- criteria:
+    query: (from:njakubov@1to1rehab.ca) OR (from:(eurekamontessorirh@gmail.com OR
+      eurekakids@hotmail.com)) OR (from:(yrdcsb.ca OR ycdsb.ca))
+  action:
+    addLabels:
+    - Kids/School
+  id: ANe1BmgFSjOxfp4zk5widLR6Cs-3UodFCoExTw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhJTACUnR3b-XLFvZLp--C1mzRfzu-6Ew
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjKSPlrgHgpW2ZOmc74EF2zl2Xut95h1g
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgEzxUsh_RLNBilBTk7VOmLRJeogZ259w
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmiBljfR_yBpG9DlO7WUu2uDQdct0fKniA
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmjv5Z8P7SWxKZCi6Lk2cNrnbkXjYU8KCA
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhAqlWt8Yr32-zASnDFZGeXwbYXqTuHsQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjZigazd4rowDKDOBXdHbIQv0S5lFAmpQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgBP9d8NorHirpf99LdHGTUFt_ddKpkEw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmg5s8QO1ssoNHxCUZbs1yMs66LMq0Tucg
+- criteria:
+    query: (from:email.getthefuturist.com)
+  action:
+    addLabels:
+    - CATEGORY_UPDATES
+  id: ANe1Bmh7xiil9_BrRK1WOaPlkAFPQKiJuDnOHw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmh-0_vLc7yBMDGoCs-vhsDGJYWzBR3SCQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjVniwAQX8UjhISb3khggY3kqPVRVZShw
+- criteria:
+    query: (from:email.getthefuturist.com) OR (from:(rocanews.com OR wethe66.rocanews.com))
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+  id: ANe1Bmgtz67IifBGPlUiMW0p25jYUEh9QPlJ0Q
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmia3H1R5QXByJL2xBvwe9IZOOV64hZIdg
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgCDuVTL_NzlJ2f5PxHNaxT58uZFj7Gag
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmjhm2U1hKioeghSwDLkV52OH2icMzuamw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhlW2OOmbvPG2n_5G9pcSWmEI16Q0Cu9Q
+- criteria:
+    query: (from:no.reply.alerts@chase.com (mortgage OR loan OR payment)) OR (from:(enbridgegas.com
+      OR enbridge.com)) OR (from:(alectrautilities.com OR alectra.com)) OR (from:richmondhill.ca
+      (water OR utility OR bill))
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1Bmh404T1V0_BScVifA2AvwHmVFtrTR5adg
+- criteria:
+    query: "(from:(redditmail.com OR reddit.com)) OR ((list:linkedin.com OR from:no-reply@is.email.nextdoor.com\
+      \ OR from:reply@ss.email.nextdoor.com\n OR from:redditmail.com OR from:noreply@github.com\
+      \ OR from:notifications@github.com OR list:googlegroups.com))"
+  action:
+    addLabels:
+    - CATEGORY_FORUMS
+  id: ANe1BmixQsamZwRiPqprcn7d4oW_g6beXdjmvg
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:(\"All Star Martial Arts\" OR\
+      \ allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjaFVNtmWRr2RfBMXmdvgDTUPZE37W8qA
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:(\"All Star Martial Arts\" OR\
+      \ allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjMM0hwQlk4Ul9Pw1UkvMcmG5aJuCsTpQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:(\"All Star Martial Arts\" OR allstarmartial))\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgUGBFl0Kk8h8_EVRwpe4s_telYJ7VHjg
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:(\"All Star Martial Arts\" OR allstarmartial))\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmh-nAC-CoSODyNGBmHXRiUiiDTWiB8zyQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:(\"All Star Martial Arts\" OR allstarmartial))\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgQUUmvkUhRLAwyjH9ymsjmtoodJ5-Pmw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmiaWpjePfPTxW7ECkzibnNaVuhgwLbGEg
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhKBm8kIwbVlDoAhUzzFzsmbMWfyZIMmA
+- criteria:
+    query: (from:(rochester.edu OR ur.rochester.edu OR notices.rochester.edu))
+  action:
+    addLabels:
+    - Alumni/UnivOfRochester
+    - CATEGORY_UPDATES
+  id: ANe1BmixLLzI3jZ7iWBRhQknh4IM_ghOdK5ZXg
+- criteria:
+    query: (from:no.reply.alerts@chase.com (mortgage OR loan OR payment)) OR (from:(enbridgegas.com
+      OR enbridge.com)) OR (from:(alectrautilities.com OR alectra.com)) OR (from:richmondhill.ca
+      (water OR utility OR bill)) OR (from:(rogers.com OR e.rogers.com) (bill OR invoice
+      OR statement OR payment))
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmhmIsf__aLQEurOKlTGIgdtCyMMTZY9nQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmiqsVGQpbMHyGTYfR88NlNvGR_RAfG3jg
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmiVlKytgdCNbnc9G6XZeTq1xL4dnZWkDg
+- criteria:
+    query: ((from:(actblue.com OR winred.com OR democrats.org OR dccc.org OR dscc.org
+      OR moveon.org OR indivisible.org OR dnc.org OR rnc.org OR gop.com OR liberal.ca
+      OR conservative.ca OR ndp.ca) OR list:(actblue.com OR winred.com OR democrats.org
+      OR dccc.org OR dscc.org OR moveon.org OR indivisible.org OR dnc.org OR rnc.org
+      OR gop.com OR liberal.ca OR conservative.ca OR ndp.ca)) -subject:(receipt OR
+      confirmation)) OR (from:e.gavinnewsom.com OR list:e.gavinnewsom.com)
+  action:
+    addLabels:
+    - Lists/Political
+  id: ANe1Bmho1I8XVRCc_GwG3caNVsmZz2rYH-qR1Q
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhVhU2lYaOY3j1QgKfU51pwJ3TGw4IQcw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgiFJ17fi2jM2hQpMgTV87saTrxAcBerg
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhLQShJSU6je6Zl922AjjzjOfjFt2ZMJQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgKE0r5jGfW7KIwEDg9B_YDJkkjXjL5qw
+- criteria:
+    query: (from:no.reply.alerts@chase.com (mortgage OR loan OR payment)) OR (from:(enbridgegas.com
+      OR enbridge.com)) OR (from:(alectrautilities.com OR alectra.com)) OR (from:richmondhill.ca
+      (water OR utility OR bill)) OR (from:(rogers.com OR e.rogers.com) (bill OR invoice
+      OR statement OR payment)) OR (from:(venmo.com OR e.venmo.com OR email.venmo.com
+      OR mail.venmo.com))
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmhnzXljDXeCY7Ee1c-V3BItQArjzrzE_g
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmji1A32DYuuDF9SdkPWmvPidIer2dzdOQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmj7O4FRcaubEAgxoZiGWtq3us73LwMorQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhExCcrl7oH9jfE_CwK3pIymQrDoNFboA
+- criteria:
+    query: (from:email.bayareanewsgroup.com OR subject:("Morning Report"))
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+  id: ANe1BmhcJAAclg-3ebipduBxEPKZtJj-zyvdVQ
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgHijFj1bak-MejwAnVhEV7oMz6jPojXw
+- criteria:
+    query: (from:email.bayareanewsgroup.com OR subject:("Morning Report")) OR (from:tn.com.ar
+      OR list:tn.com.ar)
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+  id: ANe1BmgqTr188utRo1GDAH61ISm3QUkDv1JXBw
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:cineplex.com\
+      \ OR list:cineplex.com) OR (from:(\"All Star Martial Arts\" OR allstarmartial))\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgnhvqRzUjwuZUVQmiCXAseMg-K9QCyPA
+- criteria:
+    query: (from:richmondhill@active.com)
+  action:
+    addLabels:
+    - Kids/Activities
+  id: ANe1Bmj2y-iYIdbZ9effmxKgbPck27dw9Ug37w
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:cineplex.com\
+      \ OR list:cineplex.com) OR (from:(\"All Star Martial Arts\" OR allstarmartial))\
+      \ OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmhx8CWkExEysBRLsZczYvoZ4HYUHKsB0w
+- criteria:
+    query: (from:yrdsb.ca)
+  action:
+    addLabels:
+    - IMPORTANT
+    - Kids/School
+  id: ANe1Bmjw7bzA5l0B69f8Ame2dceEifEKFT5NcQ
+- criteria:
+    query: (from:njakubov@1to1rehab.ca) OR (from:(eurekamontessorirh@gmail.com OR
+      eurekakids@hotmail.com)) OR (from:ycdsb.ca)
+  action:
+    addLabels:
+    - IMPORTANT
+    - Kids/School
+  id: ANe1BmiJ9nynDPMFn6EWPkQIJyyMlcHbFgNG9w
+- criteria:
+    query: (from:(vanesaecheveste@hotmail.com OR vanesaechevester18@gmail.com))
+  action:
+    addLabels:
+    - IMPORTANT
+    - STARRED
+    - VIP/Family
+  id: ANe1BmiuvwhQRw8hvyFPDZaabdOylQTpmOrcxA
+- criteria:
+    query: (from:(pierre.dualan@jpmorgan.com OR jpmorgan.wealth.management@mcw.jpmorgan.com))
+  action:
+    addLabels:
+    - Finance
+    - IMPORTANT
+  id: ANe1BmizFU-XcCSUOp7c_WVp0Yc-_qCRFm5jqQ
+- criteria:
+    query: (from:(no-reply@is.email.nextdoor.com OR reply@ss.email.nextdoor.com))
+  action:
+    addLabels:
+    - CATEGORY_FORUMS
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmjaOFN1-hXBtixUFPIkRyumdnY8bKQ46g
+- criteria:
+    query: (from:email.getthefuturist.com) OR (from:(rocanews.com OR wethe66.rocanews.com))
+      OR (from:email.bayareanewsgroup.com OR subject:("Morning Report")) OR (from:tn.com.ar
+      OR list:tn.com.ar)
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmjXl5y9g08VzQFWK86VzaIXfv5FxSsfIg
+- criteria:
+    query: (subject:("verification code" OR "security code" OR "authentication code"
+      OR passcode OR "one-time password" OR OTP OR 2FA OR "two-factor"))
+  action:
+    addLabels:
+    - Security/Verification Codes
+    removeLabels:
+    - INBOX
+  id: ANe1Bmjlf9ZU4jg6-Yztq0N-HmE720zO1P0VGg
+- criteria:
+    query: (list:email.bayareanewsgroup.com) OR (list:washingtonpost.com) OR (list:email.stackcommerce.com)
+      OR (list:linkedin.com) OR (list:emails.wagjag.com) OR (list:email.jcpenney.com)
+      OR (list:tn.com.ar) OR (list:marketing.carters.com) OR (list:e.314actionfund.org)
+      OR (list:hankypanky.com) OR (list:woot.com) OR (list:e.gavinnewsom.com) OR (list:tilley.com)
+      OR (list:contact.loccitane.com) OR (list:thedailybeast.com) OR (list:ridgewallet.ca)
+      OR (list:montagneweb-1.com.ar) OR (list:wcd.nytimes.com) OR (list:rewardingyouropinions.ca)
+      OR (list:marketing.basspro.com) OR (list:interactive.wsj.com) OR (list:0c519e97-b1bd-4519-aa6a-d87dbf5f940f)
+      OR (list:duolingo.com) OR (list:em.peoplesjewellers.com) OR (list:e.economist.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmijzpxgFcnaQXTUHQxLEBX5REZ_nWKcvA
+- criteria:
+    query: (list:emails.skechers.com) OR (list:trueclassictees.com) OR (list:alpakagear.com)
+      OR (list:ridge.com) OR (list:atlasobscura.com) OR (list:timbuk2.com) OR (list:email.oldnavy.ca)
+      OR (list:email.getthefuturist.com) OR (list:backer-update) OR (list:e.newyorktimes.com)
+      OR (list:emails.better.com) OR (list:harderforcongress.com) OR (list:e.votevets.org)
+      OR (list:ocasiocortez.com) OR (list:redflagdeals.com) OR (list:email.bose.com)
+      OR (list:mail.aircanada.com) OR (list:e.giffords.org) OR (list:ce1adc56-21c4-4202-a79a-b750d42ad22b)
+      OR (list:us.e.sharkninja.com) OR (list:reply.royalcaribbeanmarketing.com) OR
+      (list:7767cf18-d3e5-42c8-aa35-6808740670c4) OR (list:ekster.com) OR (list:westcoastkids.ca)
+      OR (list:saxxunderwear.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmiQgJ0BnaS3pb_pdd7ceGR-mJ9Y53asKQ
+- criteria:
+    query: (list:emails.reebok.com) OR (list:clarks.com) OR (list:mail.allbirds.com)
+      OR (list:stockstory.org) OR (list:fdd11a1a831a21782e51e2428.378849.list-id.mcsv.net)
+      OR (list:gunnar.com) OR (list:calpaktravel.com) OR (list:crocs-email.com) OR
+      (list:e.shoppersdrugmart.ca) OR (list:marketing.mlbemail.com) OR (list:saxxunderwear.ca)
+      OR (list:maingear.com) OR (list:e.crm.lego.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1Bmg6L4yfXDlKo8-Cw58MKXPZL5WA1DMOEw
+- criteria:
+    query: (list:stanley1913.com subject:(invoice OR receipt OR order OR "order confirmation"))
+      OR (list:e.shopcuup.com subject:(invoice OR receipt OR order OR "order confirmation"))
+  action:
+    addLabels:
+    - IMPORTANT
+    - Finance/Merchants
+  id: ANe1Bmgv4Zxz52hXqnlzl0Ts2dDfV75pyPkKBg
+- criteria:
+    query: (list:stanley1913.com subject:(invoice OR receipt OR order OR "order confirmation"))
+      OR (list:e.shopcuup.com subject:(invoice OR receipt OR order OR "order confirmation"))
+  action:
+    addLabels:
+    - IMPORTANT
+    - Finance/Receipts
+  id: ANe1BmiP36Q86wl7kpKuRks-qCMxDM-mOoAnCw
+- criteria:
+    query: (list:stanley1913.com -subject:(invoice OR receipt OR order OR "order confirmation"))
+      OR (list:e.shopcuup.com -subject:(invoice OR receipt OR order OR "order confirmation"))
+  action:
+    addLabels:
+    - Finance/Merchants
+    removeLabels:
+    - UNREAD
+    - INBOX
+    - SPAM
+  id: ANe1BmjEbYZJHb3Gxxokest1Vr_ICe6zRiSDxQ
+- criteria:
+    query: (list:stanley1913.com subject:(shipped OR delivered OR "out for delivery"
+      OR "on the way" OR "ready for pickup" OR pickup)) OR (list:e.shopcuup.com subject:(shipped
+      OR delivered OR "out for delivery" OR "on the way" OR "ready for pickup" OR
+      pickup))
+  action:
+    addLabels:
+    - IMPORTANT
+    - Finance/Merchants
+  id: ANe1Bmh_dcZpV23mU7Y-v1I8fzGrtltv8Ta4Yw
+- criteria:
+    query: (list:stanley1913.com subject:(shipped OR delivered OR "out for delivery"
+      OR "on the way" OR "ready for pickup" OR pickup)) OR (list:e.shopcuup.com subject:(shipped
+      OR delivered OR "out for delivery" OR "on the way" OR "ready for pickup" OR
+      pickup))
+  action:
+    addLabels:
+    - IMPORTANT
+    - Finance/Orders
+  id: ANe1BmjOIrWBs2bUsj6T2R7nuTDyUZ-soC7ckA
+- criteria:
+    query: ((from:(actblue.com OR winred.com OR democrats.org OR dccc.org OR dscc.org
+      OR moveon.org OR indivisible.org OR dnc.org OR rnc.org OR gop.com OR liberal.ca
+      OR conservative.ca OR ndp.ca) OR list:(actblue.com OR winred.com OR democrats.org
+      OR dccc.org OR dscc.org OR moveon.org OR indivisible.org OR dnc.org OR rnc.org
+      OR gop.com OR liberal.ca OR conservative.ca OR ndp.ca)) -subject:(receipt OR
+      confirmation)) OR (from:e.gavinnewsom.com OR list:e.gavinnewsom.com) OR (list:e.democrats.org)
+  action:
+    addLabels:
+    - Lists/Political
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmjroynFM6k52jwQ8OQcQGaaj1rtWsyA4A
+- criteria:
+    query: (list:s.kohls.com) OR (list:amazon.com) OR (list:e.walmart.ca) OR (list:digital.costco.com)
+      OR (list:e.bestbuy.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1Bmik520P_sPZhVxhkTi0wa4G2jSwkfoh7A
+- criteria:
+    query: ((from:(actblue.com OR winred.com OR democrats.org OR dccc.org OR dscc.org
+      OR moveon.org OR indivisible.org OR dnc.org OR rnc.org OR gop.com OR liberal.ca
+      OR conservative.ca OR ndp.ca OR signon.org) OR list:(actblue.com OR winred.com
+      OR democrats.org OR dccc.org OR dscc.org OR moveon.org OR indivisible.org OR
+      dnc.org OR rnc.org OR gop.com OR liberal.ca OR conservative.ca OR ndp.ca OR
+      signon.org)) -subject:(receipt OR confirmation)) OR (from:e.gavinnewsom.com
+      OR list:e.gavinnewsom.com)
+  action:
+    addLabels:
+    - Lists/Political
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmhJIL2oCZGIas5DbuuYJWWWa6NWVlzyMg
+- criteria:
+    query: (from:(scouts.ca OR my.scouts.ca))
+  action:
+    addLabels:
+    - Kids/Activities
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1BmhbCV7JPSCorCcgg1E1o9I-_3teNaKd-A
+- criteria:
+    query: (from:(richmondhill@active.com OR janette.strachan@richmondhill.ca OR joanne.lee@speechaim.com
+      OR speechaim.com OR rhpl.ca))
+  action:
+    addLabels:
+    - Kids/Activities
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1BmjC4rvQfYryBf-qHXawK7G8jZ9tY8ch8w
+- criteria:
+    query: (from:jpmorgan.com)
+  action:
+    addLabels:
+    - Finance
+    - IMPORTANT
+  id: ANe1BmhAFkNEgrip-95evsatSomY_DinTVfNFg
+- criteria:
+    query: (from:noreply@td.com subject:"TD Precious Metals")
+  action:
+    addLabels:
+    - Finance
+    - IMPORTANT
+  id: ANe1BmhyoKzihkljburXXHBwMLr_MI0TuLExQA
+- criteria:
+    query: (from:noreply@td.com subject:"TD Precious Metals")
+  action:
+    addLabels:
+    - IMPORTANT
+    - Finance/Receipts
+  id: ANe1Bmh1-5LpedhMiRB-Ey3pRW4y3qeRky4ocg
+- criteria:
+    query: (from:(richmondhill@active.com OR janette.strachan@richmondhill.ca OR joanne.lee@speechaim.com
+      OR speechaim.com OR rhpl.ca OR richmondhillsoccer.com OR psy-ed.com OR ontariosoccer))
+  action:
+    addLabels:
+    - Kids/Activities
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1Bmio8TUX1TfcSJ--rhWUkRh11zwxISaSLw
+- criteria:
+    query: from:(vanesaecheveste@hotmail.com OR vanesaechevester18@gmail.com)
+  action:
+    addLabels:
+    - IMPORTANT
+    - STARRED
+    - VIP/Family
+  id: ANe1BmhtdAQggnqedcXG9FNHDqAOMOPCC81OzA
+- criteria:
+    query: (from:(actblue.com OR winred.com OR democrats.org OR dccc.org OR dscc.org
+      OR moveon.org OR indivisible.org OR dnc.org OR rnc.org OR gop.com OR liberal.ca
+      OR conservative.ca OR ndp.ca OR signon.org) OR list:(actblue.com OR winred.com
+      OR democrats.org OR dccc.org OR dscc.org OR moveon.org OR indivisible.org OR
+      dnc.org OR rnc.org OR gop.com OR liberal.ca OR conservative.ca OR ndp.ca OR
+      signon.org)) -subject:(receipt OR confirmation)
+  action:
+    addLabels:
+    - Lists/Political
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmiDYrDlvUZbn3u4_ldeKTPJy-FnA8fYag
+- criteria:
+    query: from:jpmorgan.com
+  action:
+    addLabels:
+    - Finance
+    - IMPORTANT
+  id: ANe1BmjGgKImis_B_De2kI0a0JWzCiotf8n_bA
+- criteria:
+    query: from:noreply@td.com subject:"TD Precious Metals"
+  action:
+    addLabels:
+    - Finance
+    - IMPORTANT
+  id: ANe1BmhRYErOpXxPOYOKGSN89mcIYjT0WvUjnQ
+- criteria:
+    query: from:noreply@td.com subject:"TD Precious Metals"
+  action:
+    addLabels:
+    - IMPORTANT
+    - Finance/Receipts
+  id: ANe1BmgS0K2pcwqOThGf1eWFl6JQdyb6AFzKuA
+- criteria:
+    query: from:no.reply.alerts@chase.com
+  action:
+    addLabels:
+    - Finance/Chase
+    - CATEGORY_UPDATES
+  id: ANe1BmgUakVBQX8rWDiX97tgjrQ122-WnxJd0Q
+- criteria:
+    query: from:(no-reply@is.email.nextdoor.com OR reply@ss.email.nextdoor.com)
+  action:
+    addLabels:
+    - CATEGORY_FORUMS
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1Bmg9qd8gKJQ7v3T4wm63sTL42b0xHI9N-Q
+- criteria:
+    query: from:email.getthefuturist.com
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1Bmjal_Ax7GiSfw6ob1rPsIJ7DyKSG6RrAQ
+- criteria:
+    query: from:(rocanews.com OR wethe66.rocanews.com)
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmgmAMF0werRiufbawWrwoHBWEokd9QZyw
+- criteria:
+    query: from:e.gavinnewsom.com OR list:e.gavinnewsom.com
+  action:
+    addLabels:
+    - Lists/Political
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmjyE_NxXb9aLjBKCTiN6FRPoLuDtysHBw
+- criteria:
+    query: from:(rochester.edu OR ur.rochester.edu OR notices.rochester.edu)
+  action:
+    addLabels:
+    - Alumni/UnivOfRochester
+    - CATEGORY_UPDATES
+  id: ANe1BmjAyyou0EmsD2hYRRNV0HM-ha-EnBS-GA
+- criteria:
+    query: subject:("verification code" OR "security code" OR "authentication code"
+      OR passcode OR "one-time password" OR OTP OR 2FA OR "two-factor")
+  action:
+    addLabels:
+    - Security/Verification Codes
+    removeLabels:
+    - INBOX
+  id: ANe1BmjtFW5SQm_VadKWi2bX45CEwsPItBPcIg
+- criteria:
+    query: from:no.reply.alerts@chase.com (mortgage OR loan OR payment)
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmjQ8qppnCrZqkunBgP9Jvac2z0cOt95BA
+- criteria:
+    query: from:(enbridgegas.com OR enbridge.com)
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1Bmg_kXg6H9YWov_zhU26VzrTImEFT1BW4Q
+- criteria:
+    query: from:(alectrautilities.com OR alectra.com)
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmiBqO9xeV5jEnyrGLHffAs5zzUzovQbXQ
+- criteria:
+    query: from:richmondhill.ca (water OR utility OR bill)
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmgjtuQkzv6Ti7X9WXxNypaB3AMEdrllHQ
+- criteria:
+    query: from:(rogers.com OR e.rogers.com) (bill OR invoice OR statement OR payment)
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmiU6mjV5QmX22zc_KYrIvCYqb4s9hPibA
+- criteria:
+    query: from:(venmo.com OR e.venmo.com OR email.venmo.com OR mail.venmo.com)
+  action:
+    addLabels:
+    - Finance/Bills
+  id: ANe1BmgztA1QH7icnTJnlHkUr5u-plr6AUhgAA
+- criteria:
+    query: from:(scouts.ca OR my.scouts.ca)
+  action:
+    addLabels:
+    - Kids/Activities
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1BmjHvYthr0LmfQKobX6zKiFhYVKNhllJKA
+- criteria:
+    query: from:email.bayareanewsgroup.com OR subject:("Morning Report")
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmjEOhtK9NBa-NkjWNcBv9X8rEclga92Sw
+- criteria:
+    query: from:tn.com.ar OR list:tn.com.ar
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1BmixK3r8Y_S444Hn4KnxDrlLsK0cV4silg
+- criteria:
+    query: from:(richmondhill@active.com OR janette.strachan@richmondhill.ca OR joanne.lee@speechaim.com
+      OR speechaim.com OR rhpl.ca OR richmondhillsoccer.com OR psy-ed.com OR ontariosoccer)
+  action:
+    addLabels:
+    - Kids/Activities
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1BmgrN0LDnZiZCcX18ftZH-6pJnu6Lnc_mA
+- criteria:
+    query: from:(redditmail.com OR reddit.com)
+  action:
+    addLabels:
+    - CATEGORY_FORUMS
+  id: ANe1BmiylpuqtbyJGMPPiWqDirsCFDVTL_OnIA
+- criteria:
+    query: "(list:linkedin.com OR from:no-reply@is.email.nextdoor.com OR from:reply@ss.email.nextdoor.com\n\
+      \ OR from:redditmail.com OR from:noreply@github.com OR from:notifications@github.com\
+      \ OR list:googlegroups.com)"
+  action:
+    addLabels:
+    - CATEGORY_FORUMS
+  id: ANe1BmjbpIbimnruHmbKSjw4ojrla8tdsik5_A
+- criteria:
+    query: "(from:washingtonpost.com OR from:nytimes.com OR list:*nytimes.com OR from:message.bloomberg.com\n\
+      \ OR from:thedailybeast.com OR from:interactive.wsj.com OR from:apnews.com OR\
+      \ from:reuters.com)"
+  action:
+    addLabels:
+    - CATEGORY_UPDATES
+  id: ANe1BmjPjJxSso7CBHswzobpQUGN6joTijIDLQ
+- criteria:
+    query: (from:yrdsb.ca) OR (from:njakubov@1to1rehab.ca) OR (from:(eurekamontessorirh@gmail.com
+      OR eurekakids@hotmail.com)) OR (from:(ycdsb.ca OR broadcasts@schoolmessengermail.com))
+      OR (from:schoolcashonline.com)
+  action:
+    addLabels:
+    - IMPORTANT
+    - Kids/School
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1Bmi1ta4UMA6L1CxyZNnsb7gVS2ZygyFP4A
+- criteria:
+    query: "((\n  list:(amazon.com OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca\n\
+      \        OR shopifyemail.com OR cmail20.com OR sendgrid.net)\n  OR from:(amazon.com\
+      \ OR costco.ca OR walmart.ca OR bestbuy.ca OR homedepot.ca)\n  OR (category:promotions\
+      \ AND subject:(sale OR \"percent off\" OR \"% off\" OR deal OR promo OR clearance\
+      \ OR \"free shipping\" OR coupon))\n) -subject:(receipt OR invoice OR \"order\
+      \ confirmation\" OR \"order confirmed\" OR shipped OR shipping\n         OR\
+      \ delivered OR delivery OR pickup OR \"ready for pickup\" OR \"order update\"\
+      \ OR refund OR \"return label\")) OR (from:e.chase.com) OR (from:alpakagear.com)\
+      \ OR (from:woot.com OR list:woot.com) OR (from:notifications@petdesk.com \"\
+      Alpine Animal Hospital\") OR (from:support@supcase.com) OR (from:cineplex.com\
+      \ OR list:cineplex.com) OR ((\n  from:orbitkey.com OR list:orbitkey.com OR\n\
+      \  from:emails.skechers.com OR list:skechers.com OR\n  from:crocs-email.com\
+      \ OR list:crocs-email.com OR\n  from:samsonite.com OR list:samsonite.com OR\n\
+      \  from:marketing.carters.com OR from:carters.com OR list:carters.com OR\n \
+      \ from:thelasthunt.com OR list:thelasthunt.com OR\n  from:e.crm.lego.com OR\
+      \ from:lego.com OR list:lego.com OR\n  from:emails.wagjag.com OR list:emails.wagjag.com\
+      \ OR\n  from:r.groupon.com OR from:noreply@groupon.com OR list:groupon.com OR\n\
+      \  from:patagonia.com OR list:patagonia.com OR\n  from:s.kohls.com OR list:kohls.com\
+      \ OR\n  from:adidas.com OR list:adidas.com OR\n  from:maingear.com OR list:maingear.com\
+      \ OR\n  from:bartonwatchbands.com OR list:bartonwatchbands.com OR\n  from:sonos.com\
+      \ OR list:sonos.com OR\n  from:crave.ca OR list:crave.ca OR\n  from:supcase.com\
+      \ OR list:supcase.com OR\n  from:trueclassictees.com OR list:trueclassictees.com\
+      \ OR\n  from:stanley1913.com OR list:stanley1913.com OR\n  from:reebok.com OR\
+      \ list:reebok.com OR\n  from:sharkninja.com OR list:sharkninja.com OR\n  from:westernrise.com\
+      \ OR list:westernrise.com OR\n  from:timbuk2.com OR list:timbuk2.com OR\n  from:costco.com\
+      \ OR list:costco.com OR\n  from:mopak.com OR list:mopak.com OR\n  from:clarks.com\
+      \ OR list:clarks.com OR\n  from:loccitane.com OR list:loccitane.com OR\n  from:dsw.com\
+      \ OR list:dsw.com OR\n  from:dsw.ca OR list:dsw.ca\n)) OR (from:(\"All Star\
+      \ Martial Arts\" OR allstarmartial)) OR (from:myneubird.com)"
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+    removeLabels:
+    - UNREAD
+    - INBOX
+  id: ANe1Bmhj7TJL_4SI2tSsXWs47Hpvw4iyeGo2iQ
+- criteria:
+    query: '(from:yrdsb.ca) OR (from:ycdsb.ca OR from:broadcasts@schoolmessengermail.com)
+      OR (from:schoolcashonline.com) OR (from:eurekamontessorirh@gmail.com OR from:eurekakids@hotmail.com)
+
+      '
+  action:
+    addLabels:
+    - Kids/School
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1BmiiPt0vnlDN3jDJDjCoZaf5-20hBxcNlA
+- criteria:
+    query: '(from:scouts.ca OR from:my.scouts.ca) OR (from:richmondhill@active.com)
+      OR (from:janette.strachan@richmondhill.ca) OR (from:joanne.lee@speechaim.com
+      OR from:speechaim.com) OR (from:rhpl.ca) OR (from:richmondhillsoccer.com OR
+      from:ontariosoccer) OR (from:moonpreneur.com) OR (from:psy-ed.com) OR (from:njakubov@1to1rehab.ca)
+
+      '
+  action:
+    addLabels:
+    - Kids/Activities
+    forward: vanesaecheveste@hotmail.com
+  id: ANe1Bmg9Gz3JaelhKGbLET5b6Ik26JaDDYfEUw
+- criteria:
+    query: '(category:promotions OR list:*) AND (subject:(sale OR "percent off" OR
+      "% off" OR deal OR promo OR clearance OR coupon OR "free shipping")) AND -subject:(receipt
+      OR invoice OR "order confirmation" OR shipped OR shipping OR delivered OR delivery
+      OR pickup OR refund OR "return label")
+
+      '
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjuhWAgJdYGNhrDHer50uLBnL1PIleAoQ
+- criteria:
+    query: '(list:*) AND -subject:(receipt OR invoice OR "order confirmation" OR shipped
+      OR shipping OR delivered OR delivery OR refund) AND -category:forums AND -category:promotions
+
+      '
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmiQtHHzL2BQ1Ch4RvwjCzOW0Mbrpc7y0Q
+- criteria:
+    query: 'from:nytimes.com OR from:washingtonpost.com OR from:apnews.com OR from:reuters.com
+      OR from:wsj.com OR from:interactive.wsj.com OR from:message.bloomberg.com OR
+      from:bloomberg.com
+
+      '
+  action:
+    addLabels:
+    - Lists/News
+    - CATEGORY_UPDATES
+  id: ANe1BmhKY3E1Z49Co2cWBZxxV4znSciBoTzfrQ
+- criteria:
+    query: 'subject:(shipped OR shipping OR delivered OR delivery OR "order update"
+      OR refund OR "return label" OR "verification code" OR "security alert")
+
+      '
+  action:
+    addLabels:
+    - CATEGORY_UPDATES
+  id: ANe1BmiXW20pAHBVkFWYFJmgxNiBi4D739WRdw
+- criteria:
+    query: 'from:facebookmail.com OR from:instagram.com OR from:twitter.com OR from:x.com
+      OR from:linkedin.com OR from:tiktok.com OR from:snapchat.com
+
+      '
+  action:
+    addLabels:
+    - CATEGORY_SOCIAL
+  id: ANe1BmgFOHqFrYjHR6vYZYO_icHlDGoxrL5-OQ
+- criteria:
+    query: 'from:noreply@github.com OR from:notifications@github.com OR from:redditmail.com
+      OR from:no-reply@is.email.nextdoor.com OR from:reply@ss.email.nextdoor.com
+
+      '
+  action:
+    addLabels:
+    - CATEGORY_SOCIAL
+  id: ANe1BmjIA4AGCRsWJG6EVbAyECwSMH5aR2eoZw
+- criteria:
+    query: from:(e.email-td.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmgQY6HDpw-uA_X63ZLAPCB5vOlmdS6K6Q
+- criteria:
+    query: from:(e.walmart.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmighgKy_APEyrmMeewL-ES5fvCZSk1dow
+- criteria:
+    query: from:(email.bayareanewsgroup.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmgw5nQ6UykFqA1INhXTkzVQNNLmNpu7Sw
+- criteria:
+    query: from:(amazon.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjBilRXIwxPzN8Ptj2xG7p9xnN9LZ9bdw
+- criteria:
+    query: from:(linkedin.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmh0Tmob2EcC7xvddJrHGrCf3PRbl-45rA
+- criteria:
+    query: from:(email.jcpenney.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmipiGU5li4zsb8Gwss2rCerXwmU0XrG_g
+- criteria:
+    query: from:(substack.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiS88-vFD2nph8KpZjbNT2DviPlg98Unw
+- criteria:
+    query: from:(samsonite.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiDEg5aO33OoMJvUOJFGiazzZRPVlGboQ
+- criteria:
+    query: from:(marketing.mlbemail.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgouSkdGEOJsC2Hq4WN9hodQSchTEIVGw
+- criteria:
+    query: from:(emails.skechers.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh4_V6ffFQhvF9eZiIWIFPhxIk7m2-PSw
+- criteria:
+    query: from:(e.economist.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhMOYY1E1Qabm482MQNVuY3sKT6QwI97w
+- criteria:
+    query: from:(e.fossil.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgWNhsrX_bsaHvdr_YEJXMUrvxl-5x9Zg
+- criteria:
+    query: from:(mail.futureparty.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjD8Eqh32K0eQsIIStmjAkICEXgFUofFA
+- criteria:
+    query: from:(email.stackcommerce.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiLefYLp_UYly_wF2a_mP1vEBGHqI2JpA
+- criteria:
+    query: from:(support.heifer.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmivsqKvpClKrHGh-oYYc7MZYZ4FpFcyFw
+- criteria:
+    query: from:(washingtonpost.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjpXPkdxNGsgkwIGOjrt0Pg1DHVisPynA
+- criteria:
+    query: from:(marketing.basspro.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhDBOj7Vm3mDNVQnXhGi9lBGFDW3YWPYA
+- criteria:
+    query: from:(audible.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhlDHAbkQ2t5i8l4D1lvciq70ew0jleKg
+- criteria:
+    query: from:(e.crm.lego.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiknLnIMK7vgUq0WFkGCjG7ee1JffwSkg
+- criteria:
+    query: from:(rewardingyouropinions.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhZabLf02Js42XHg6nMQGYT0X2Nsl4jfQ
+- criteria:
+    query: from:(crocs-email.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiPy6qinQQB_hicKYIadcEsEg7CYYOMCQ
+- criteria:
+    query: from:(offers.eddiebauer.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi3Un8TAcCVt1YGWO1I9v7jv1yJs6ENjQ
+- criteria:
+    query: from:(contact.loccitane.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhvgscB5P64SntB9mW-CKftn51ZtEMTAQ
+- criteria:
+    query: from:(drsquatch.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhee-hmGv60hVXVFhW8lqnE8Wg1Y7G-qg
+- criteria:
+    query: from:(na.patagonia.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiieirovGdpMEv-fX9OZlBTFtcga5NnWg
+- criteria:
+    query: from:(tn.com.ar)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmiGR9ysBaCM-xI0giQsaFXfaqLitEpDuA
+- criteria:
+    query: from:(emails.wagjag.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmid4b1KlMWMPjpcWdAue91-gKjlFrrG8A
+- criteria:
+    query: from:(r.groupon.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhQsebjlSJ8MwPoVeCCYoYXsrHRxd4G2A
+- criteria:
+    query: from:(thedailybeast.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmh2QGAt6tMHx11EoOM5PlkE5upExUCT-w
+- criteria:
+    query: from:(wethe66.rocanews.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjF2pD6whKi03xEIGwem2nu5wes7N8MUw
+- criteria:
+    query: from:(email.getthefuturist.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhiKkQSW_B8kg-1TiI2WJC37t8cKMdzzQ
+- criteria:
+    query: from:(mail.aircanada.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgyArTUvKtZPww6wK5gG3d5YDaWjxt8xw
+- criteria:
+    query: from:(hankypanky.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmjd_SqFa_agDvR8TIuf24irhrXEfqnZRg
+- criteria:
+    query: from:(email.thestar.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjZ-zYsmEQi5N94qCCp3Env8WTxCZQLBw
+- criteria:
+    query: from:(interactive.wsj.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmiWeJVBRb-jDpSdvwnxjpISkqWstIx1bg
+- criteria:
+    query: from:(e.newyorktimes.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhhqIScRax8ZsJvuifopZ1-8DOULW620w
+- criteria:
+    query: from:(s.kohls.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjB0-kB-zAWG7O8Wk91vrCIq79pcNNCAA
+- criteria:
+    query: from:(photobucket.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmirQVoONLwE8l6lMvrkjYviXWpSwbgaTg
+- criteria:
+    query: from:(woot.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgAGDUCh76pLjn-f-L8B6xwRzTzQS5AoA
+- criteria:
+    query: from:(trueclassictees.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgaApR71EAvZlO0ZVqiujgw9950DQO2uw
+- criteria:
+    query: from:(ocasiocortez.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjwHcicoJifzRW-z2YEKUDjNdduBDfdgA
+- criteria:
+    query: from:(e.democrats.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhiudBfsDamqv1Og-T9hRkEM28ApFgFKg
+- criteria:
+    query: from:(harderforcongress.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmjz1-QuL-E2j3fMs6YfpGpLFBTKxWbRZw
+- criteria:
+    query: from:(email.gotransit.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjQ2Gi3KD0xwNEBxewJFOKNVhN-dZNSgA
+- criteria:
+    query: from:(google.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhcZao8pefA3hazYK2HIot0vxonyD-r7w
+- criteria:
+    query: from:(message.bloomberg.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmiZScPKeVhEYP3oT8BqCWMEsb51pbTmBw
+- criteria:
+    query: from:(info.la-z-boy.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj64NHZ-vST70UJbbmUa_xbBWj0l1_Z4Q
+- criteria:
+    query: from:(e.shopcuup.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj5jiVQMqqaLL4VO3F5XnMxTxpdj__jfQ
+- criteria:
+    query: from:(ridgewallet.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh1MCY86GtVkTkrdsJBJxm-EEpUK1OK9A
+- criteria:
+    query: from:(maingear.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmigAlUUnzrZs07ijV87U8RF3kqi8GBHow
+- criteria:
+    query: from:(e.gavinnewsom.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgFHyp4hthhjrGPBMERb2NNoVBtHuCthw
+- criteria:
+    query: from:(emails.reebok.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiQSushz64nQiRyeCuFqMZ2yOMIS_pQaA
+- criteria:
+    query: from:(duolingo.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmgP5E-riqZX8ca82AQ0D96ZApw8pG_dTQ
+- criteria:
+    query: from:(amazon.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi5B8CDZmTcwo1RRNHHNqV43tIVWEZwFQ
+- criteria:
+    query: from:(email.paramountplus.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgG1PNNRdeOOiiU7Juk9YtX3Mt7bV9uGw
+- criteria:
+    query: from:(e.votevets.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhvl3WDmRHbw-Ro4HiWUvbrEUhmFNjing
+- criteria:
+    query: from:(nintendo.net)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh0EJw-UbHPxHBt-EMOLytyRN-OF6Zseg
+- criteria:
+    query: from:(news.supermercadosdia.com.ar)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgNwY9xohHDM5NFntXwK7or5xr9KgX3_Q
+- criteria:
+    query: from:(nytimes.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjIY-S_4hpVzas_6rfo9yQmQkvkYA8Fyg
+- criteria:
+    query: from:(emails.better.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgsazFn9kxGYyZePjpM42txFVRpEZdRnw
+- criteria:
+    query: from:(gunnar.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgYnIit5fd_dSev73JH2Uuu4ZacYqVM3Q
+- criteria:
+    query: from:(redflagdeals.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjUvFoN3FZsF_N9nd31SQ0gCIwbppwEcQ
+- criteria:
+    query: from:(ihotoffers.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhKkBHR8BJkUUUimarc9XwUkmd-drmjmA
+- criteria:
+    query: from:(mcmap.chase.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi8XCFh1g6B2XiHqMcZ_qvSCztKeA2Igw
+- criteria:
+    query: from:(innovations.samsungusa.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhlnqw8v5fOGXirjmF7NZWid_5Ma6462g
+- criteria:
+    query: from:(stockstory.org)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmi992kCI6G65mbsJly9zGwCKHiawOg4aw
+- criteria:
+    query: from:(soslprospect.salliemae.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhxwpELexnbQ_82WW3-PKnOB_DDoiBzWg
+- criteria:
+    query: from:(canadaluggagedepot.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi2Xcfjd3YAZj0tzAJbMNGQ35JaE8Clag
+- criteria:
+    query: from:(backerupdate.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiYgd49FkueY4YDrRE3HlPosm9_Gs_a-A
+- criteria:
+    query: from:(calpaktravel.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhq2DKCEyfEELs0CD5vdJI9ubWGjigaxA
+- criteria:
+    query: from:(e.mail.washingtonpost.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmgBHLEVJ3wVjn0BhJZSmSJegT9sPAvvQQ
+- criteria:
+    query: from:(recycledfirefighter.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjyJBCUij9PBxYII25s1zuii3cYK9iudg
+- criteria:
+    query: from:(ca.e.sharkninja.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmjxpst249hZl8zPR4MoYtoVO1DVFlV6vQ
+- criteria:
+    query: from:(promo.thestar.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi6NEW3RT27buaJA9Y2D0VfsRhoZmQDlQ
+- criteria:
+    query: from:(email.rocketlawyer.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgRqMSa2HBlUXzZ9eMAwM0Z_k5jYmZDJQ
+- criteria:
+    query: from:(us-news.adidas.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgC2RWgY5rR8crKbl4R7oGyDn5PseV7ag
+- criteria:
+    query: from:(mail.allbirds.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgU-F1QiwieM3nhyyPUs99UiCtC_uJ4Ag
+- criteria:
+    query: from:(e.dsw.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmge3okEnh22cGBbBAg82C77AxOY9-_h8w
+- criteria:
+    query: from:(swissmedical.com.ar)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh54cUVMjlnuW2TUn4SZ4Qb64f-sUx0OA
+- criteria:
+    query: from:(eb.notices.rochester.edu)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhMdg2k5i59Be1E_Kjv8E_JlGR1tx3MTQ
+- criteria:
+    query: from:(stanley1913.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh7YAVMP7lsm2-pUAZry1pkHbJlB9m2XA
+- criteria:
+    query: from:(em.peoplesjewellers.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjYQe4Sbmwy8OTLNzCK4O3kJTiydFuJmg
+- criteria:
+    query: from:(atlasobscura.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhkXXEWncuMW1YUtfp6mPFGj_uYbUlRUQ
+- criteria:
+    query: from:(e.cherokee.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjsbfnfHw1AJs98AO1BQzqHity1WuiIkA
+- criteria:
+    query: from:(newsletter.rocanews.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhxiPAk0mhzZYFWCSDRPZZJayuCfiFiAA
+- criteria:
+    query: from:(digital.costco.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmg7AvUbCVXAWHjfPy9WzAc9arWR9IbUHA
+- criteria:
+    query: from:(tilley.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiROOm39hJtNXKG7aB1Eg9LNHG8uaCEdQ
+- criteria:
+    query: from:(westernrise.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjxvwSR-rTanrunlFhqj6TWlJ4HC51lww
+- criteria:
+    query: from:(email.aadvantagecruises.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmia65R67xFbmHKv-U2MqjRFxKvt7Ve1-Q
+- criteria:
+    query: from:(email.legoland.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjFbczX894loL2E3NtlrEclkB9PD6ij-g
+- criteria:
+    query: from:(e.shoppersdrugmart.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgLaD6z4Ju-oVbrIcpSFbzcl810cKQtRA
+- criteria:
+    query: from:(mp1.tripadvisor.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgtoMiPiMEs-jJJRquXIusM3cXell1s2Q
+- criteria:
+    query: from:(e.giffords.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgnClBx9z9E28nTlLnot96SwRl5im877w
+- criteria:
+    query: from:(info15.citi.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhI3mTJjOuohnSfGp3JBZlY2_6jgqkTwQ
+- criteria:
+    query: from:(e.bestbuy.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhAOe-_6gLdCx0P8EQ-Ylr2l-jdl-IhcA
+- criteria:
+    query: from:(orbitkey.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhnHGYC-qrkG3Ex4BiVdc47CJeuI7Dbug
+- criteria:
+    query: from:(alpakagear.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhw_CgU7OZHo7u9C327meXW8OsGm-FXLw
+- criteria:
+    query: from:(emails.ca.skechers.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi1p96iA3yTInh6Hsha5XLu628vvr26Ww
+- criteria:
+    query: from:(ekster.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhF25_dA2GqFIdxMqy8xd9CSvySPFxkow
+- criteria:
+    query: from:(museumofplay.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmgua4qgbiGwL7bg8u3iXOZBd5J7NijVnA
+- criteria:
+    query: from:(marketing.carters.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjO4b5rFCiGqH4KHqB0qRCJ4DKvUqPF1g
+- criteria:
+    query: from:(bartonwatchbands.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiWfw9nJnyRur6QP2RGn7pWq2BJAzPlxQ
+- criteria:
+    query: from:(supcase.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmg6Qs3Is3FKt-DqNq93FSEt8NU0AioGqQ
+- criteria:
+    query: from:(clarks.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjjeO6GzizV3NiaQjGsR0g9_7WLPGwIPA
+- criteria:
+    query: from:(email.thelasthunt.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgNgIf6Ukp0utkAnESj_wfAOHHq14sasQ
+- criteria:
+    query: from:(ourrevolution.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhlInmEX7WdOuboyvSQblaHtA5YaqfELw
+- criteria:
+    query: from:(email.oldnavy.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhv8TNjVbI4_Ay24B_evYV3IeuoIOu81Q
+- criteria:
+    query: from:(woolly.clothing)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhWNDkQt-440vMIa9PXxOBaAr16Fv4Zqg
+- criteria:
+    query: from:(e.pcfinancial.ca)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmg4yofPpAj5yLmP4F7Jzora3KLVfEG0mg
+- criteria:
+    query: from:(info6.citi.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmgTlVOWDlhSwEOc9H4OIv4WZb7fCK3E2A
+- criteria:
+    query: from:(urbanarmorgear.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj5xfNHayf8PUiDizBRURFHO4Th68onmw
+- criteria:
+    query: from:(emails.rakuten.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgJXGhhCPevV6PhWTM34T2r5MUHVcf5lQ
+- criteria:
+    query: from:(emails.hertz.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjEayx0H8vmv26lvjSVj67ONrmKXaiOYg
+- criteria:
+    query: from:(e.lululemon.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgiTwRBqDQw3ge6xcytS5DRUeH1YexLdQ
+- criteria:
+    query: from:(mail.marvel.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgKsKQq9VViyo1Ja6NsafzGNzNtqAFZfw
+- criteria:
+    query: from:(news.arcteryx.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgZGAIh5kQX_1gs1Cq5kzAcHDHLLzSdbw
+- criteria:
+    query: from:(glassdoor.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmiJm43RC6OtrbfYnLCG1rgFHrVIbVVkGg
+- criteria:
+    query: from:(email.etsy.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjmigHmFTRgFgBJ7Zg5x9po0iUl4GILeA
+- criteria:
+    query: from:(us-news.comms.adidas.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmgmz5_gcmca9Hy9y_lNi9DvZBYHXl0O5Q
+- criteria:
+    query: from:(m.learn.coursera.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiUUKEcHFKG_qKTE0hu93xcwPG2ZDDyGQ
+- criteria:
+    query: from:(plans.eventbrite.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh4LHTXz-PUsIIFlmN-FdP35Yi81-5ykQ
+- criteria:
+    query: from:(programnews.airmiles.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiHv-BNb0X7hIsfvIdof-gM4OgZTHXAyw
+- criteria:
+    query: from:(rickshawbags.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiYtr583_t5ekQCl6DL3k8Aey_7TzypvQ
+- criteria:
+    query: from:(emails.underarmour.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmiu6-kpA5P9exzhWsBIT2Ku9QYB64EVjQ
+- criteria:
+    query: from:(jungleoutlet.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjVfZ3rGXPEx4AWfliSuyUwyTRNwg_-_w
+- criteria:
+    query: from:(send.topodesigns.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgKH94li0tMWs1xz58JnWIolM5D_uSNDg
+- criteria:
+    query: from:(reply.royalcaribbeanmarketing.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhtZzwnvk5kfVAFm9FdaDjXSBcpGNqXgA
+- criteria:
+    query: from:(e.malwarebytes.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiS2tIi8n5VjXOk-P2ytAduoPHspXfy2A
+- criteria:
+    query: from:(email.adobe.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj53gR6KkXu21a-N7kx7c35UshslNSs1A
+- criteria:
+    query: from:(moonpreneur.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjZxbJZxHj1LVYMmUJxwF9ulLZ0gvfpLw
+- criteria:
+    query: from:(email-caasco.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgxXdue0NEKt7XFbs_JxpB8TJ1MUn7QJA
+- criteria:
+    query: from:(timbuk2.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh6lXqtbrQq34FB6r9U6_ANLB008ioNCQ
+- criteria:
+    query: from:(aadvantageeshopping.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmhb5yKM1jpQITBBAvLzbHYMwyPEwCiYSQ
+- criteria:
+    query: from:(email.pcoptimum.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjW8bfAHISDZ21uTSqzYyl65BTqY3qhdA
+- criteria:
+    query: from:(news.anker.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhvjpOISc4xD75kKHRjfZZLl5haUIriBQ
+- criteria:
+    query: from:(cmail.bark.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiPTZ9NImbDon1alqw2jDgMIDUzH_OhEg
+- criteria:
+    query: from:(news.email.ikea.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmiy_7-gCCLmuuE9Fl2NbvOrPC1MlyWYmQ
+- criteria:
+    query: from:(westcoastkids.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi-jO5TYJf1sGfTFP81816EtBnRde6QLw
+- criteria:
+    query: from:(e.xbox.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj9VccACYndDXGTDPUzigicpNC8X7kBSQ
+- criteria:
+    query: from:(m.starbucks.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjrdVDeCuaSb1PZubOmPcG0qs7eRS-PfA
+- criteria:
+    query: from:(email.bose.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjjD7s5Ql0ZiDgPiot6oXM6JRX6rLR6FQ
+- criteria:
+    query: from:(m.massageaddict.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiUarYsZh1Rxrkq4dL0AVkUwupy9zrv5g
+- criteria:
+    query: from:(ur.rochester.edu)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmifTZAMiueF44jvwEH4xG2d31rkNwYJUw
+- criteria:
+    query: from:(ridge.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmga_sC6D-gjOh4-vvz_lTptphggxOKHLQ
+- criteria:
+    query: from:(emails.goaaa.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjbopwQX0xGhaa7jc15xNcJPd3kN4smXg
+- criteria:
+    query: from:(rom.on.ca)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjsJrw0SuA8GDQ5hXVH9tZ91E2-7lywZw
+- criteria:
+    query: from:(offers.bayareanewsgroup.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhatC59YKBKaaV4kP-H_Q2Uy8UVa39BIA
+- criteria:
+    query: from:(e.gear.blizzard.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmijrzt41gJMRvM_X07Qo6dPs8-Aeq-Cuw
+- criteria:
+    query: from:(saxxunderwear.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiQa8rFpcNbXLdjR_01whlteXWu6Y7feg
+- criteria:
+    query: from:(saxxunderwear.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiXwAep7B04VS6sOAKBHuzfmSQl2F5toA
+- criteria:
+    query: from:(facebookmail.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmjBhduAfHwxOt7HqufirpbGSo69BMQpDg
+- criteria:
+    query: from:(email.eero.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmivKkdYplm75WBNZ8yhq69hDnRs4UdFOA
+- criteria:
+    query: from:(mail.dazn.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgOKOvcOkXGsQ6kZ7QJDtNv5AX-MUEYpg
+- criteria:
+    query: from:(us.e.sharkninja.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmgxw-vSwn6qLuxftCCYZZc-91WG29E_mA
+- criteria:
+    query: from:(info.headspace.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgzHy_xGvFUBvoDI5IWe-YCLKXiq0cXuQ
+- criteria:
+    query: from:(firstunitariantoronto.org)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhrYCqUDHAAt2ZtnBRwmCJ-_JoZFgCarQ
+- criteria:
+    query: from:(attn.us.lg.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhRnIQqaapmbptcmYY83DyHusl4dcyN8g
+- criteria:
+    query: from:(emails.ugg.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiY_-4s_giTQn5lfckPyxs-n4b2O_6LUw
+- criteria:
+    query: from:(mopak.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhfsrfeSxn9X44cQTOWho0Qo9oWtRgL9w
+- criteria:
+    query: from:(flareaudio.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgGIbiU0kJIbwuUYwGrCS8IDEHkCGocrA
+- criteria:
+    query: from:(campaigns.cineplex.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjfOx6YcAf-huDW2bImiHce7o1xhRvveQ
+- criteria:
+    query: from:(partnernews.airmiles.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh_tB8wfsPz1jFYlV9L-qBOeoAd7kxHDQ
+- criteria:
+    query: from:(occu.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiqbqFHAidxCD1kh3rNvfoc0rxAaMWNJA
+- criteria:
+    query: from:(mail.zillow.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmi7DNhQLHYZzM5NIzrokEzFC1bNLT5Z7Q
+- criteria:
+    query: from:(movies.fandango.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmig5heMq-f3FkqZgPj-y780R79bVX0s4Q
+- criteria:
+    query: from:(email.meta.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh8HUyygrsxTsIP0k0Mqibs4o9efuI5ZQ
+- criteria:
+    query: from:(bellroy.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmioP17LR3Rvz89dZvpfm7tKQIyKF3ZY3Q
+- criteria:
+    query: from:(primevideo.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgFBznGLIY2ig7Ifm8RoSpEaXzsEyWWWA
+- criteria:
+    query: from:(aclu.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmiy2MOxa6QKom_x_0HXb2jBSBQ-Y_HW6g
+- criteria:
+    query: from:(e.emirates.email)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhqAJ-Gke4lHGrbgZIzslTfr99STiPttQ
+- criteria:
+    query: from:(o.delta.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmh6A33t9pHlMF5CzxDJ2UKF6kJBMInanw
+- criteria:
+    query: from:(info.verbling.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiRRHuuy05YZbfxT6HZJZuy_Fbgr_hE7w
+- criteria:
+    query: from:(e.daveandbusters.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj4s8MoEhnwXsACtIotR0_aLL7LlLAaaA
+- criteria:
+    query: from:(petdesk.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmgRmh9JrTS0PpmXQkKTlr6_tbxITiJtOw
+- criteria:
+    query: from:(montagneweb-1.com.ar)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhdJspckbZIFtKGFzKNV-PfhuVKPKoE-g
+- criteria:
+    query: from:(email.mint.ca)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1BmhV4ST02bmtRC5-v6h8rSU1ydTsQDzCZQ
+- criteria:
+    query: from:(cscrewards.coldstonecreamery.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi18IXzsmsoiM5AwKnUZzgpqRrM8FsEiQ
+- criteria:
+    query: from:(mail.nerdwallet.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiskU3kt3wo72WqPrUksgEJ4z7X9lHGoQ
+- criteria:
+    query: from:(nplon.patronpoint-mail.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmixgkaa7fM0ofpeWAHUvov-bqlo3qghyA
+- criteria:
+    query: from:(e.journie.ca)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhMV8jPvBdVPxCiVRMm8EsRPBEcM1iiMA
+- criteria:
+    query: from:(americas.comm.dell.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhQORi4vFJ8I7oDq1QJfQPxQ-hk0xaGmQ
+- criteria:
+    query: from:(e.dji.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmhkYx_iChqJJPBlUq1P1bDGDtHm1d-NPQ
+- criteria:
+    query: from:(subs.subway.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi30uvq9IcXiA-g42N7v2aHgn24wPGMAA
+- criteria:
+    query: from:(loyalty.ms.aa.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmi8JtbKSAqa2gXRnlcAH92joWGMhAFtBQ
+- criteria:
+    query: from:(myneubird.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi_s9xcQNaKaOV0fA4Cb2KOmRj3BfZhhA
+- criteria:
+    query: from:(30orless.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmi-NZNF9f6ZbL3B79kCYI2KU-0VxgBc8A
+- criteria:
+    query: from:(e.314actionfund.org)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjhCAzT7t8c_TStyA7qdO0SyTbbeSQnMg
+- criteria:
+    query: from:(baggu.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiQCmRqx-y3KtaLBCFZ7AeUZP69kzht6Q
+- criteria:
+    query: from:(active.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+  id: ANe1Bmh81e_uMk_5yR_ChNoniYgIcs8godRGAA
+- criteria:
+    query: from:(e.starbucks.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmj1cN0FL_WEisVhGeT9vpiOJIXAh3QPYA
+- criteria:
+    query: from:(info.cibc.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmjFULfvTwe6HOjvxVkSiBfVwj-0L-KRXg
+- criteria:
+    query: from:(novedades.santander.com.ar)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1Bmjemi_ydX-FJ7QGLgisNfyNqpRIqKk5ow
+- criteria:
+    query: from:(em.carters.com)
+  action:
+    addLabels:
+    - Lists/Commercial
+  id: ANe1BmiVCjU9lN9ZJozg5kqv94j2ONuVTdbkTQ
+- criteria:
+    query: 'from:scouts.ca OR from:my.scouts.ca
+
+      '
+  action:
+    addLabels:
+    - Kids/Scouts
+  id: ANe1BmgP_Z833GdIp65NN9cKijC5Wmik94rJ5w
+- criteria:
+    query: 'from:mail.house.gov
+
+      '
+  action:
+    addLabels:
+    - Lists/Political
+  id: ANe1BmiNgra6uAw3IjlIXoWeRk1hXqLN7vf8YQ
+- criteria:
+    query: from:(richmondhill@active.com OR active.com OR richmondhillsoccer.com OR
+      ontariosoccer)
+  action:
+    addLabels:
+    - Kids/Activities
+  id: ANe1BmjvZ1PmRQvmUkv_lK6AH0v_goYMKRVmQw
+- criteria:
+    query: from:(speechaim.com OR psy-ed.com OR 1to1rehab.ca OR rhpl.ca OR moonpreneur.com)
+  action:
+    addLabels:
+    - Kids/Activities
+  id: ANe1BmipwIbib12EG9vn59UyitSOTIaCN1tqkg
+- criteria:
+    query: from:substack.com
+  action:
+    addLabels:
+    - Lists/Newsletters
+    - CATEGORY_UPDATES
+  id: ANe1BmjtrV-uYDgOS3Ka84nQCetk6zQhQx2nbg
+- criteria:
+    query: from:mail.allbirds.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhfnE3sIv2RnDj6x3oSWwXOD7qO5MAyUQ
+- criteria:
+    query: from:emails.skechers.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgdR0OzTOkZUL5sap05J1Ev7as6vp_l0w
+- criteria:
+    query: from:us-news.adidas.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmj-JFPNN3_LQrKb5MCnH6PPoL5eWm9--g
+- criteria:
+    query: from:news.email.ikea.ca
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmiY4OcOg-CMxViwDyCUPMzDl_074J_IZg
+- criteria:
+    query: from:na.patagonia.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjqQ3Vs1medr2YuuIaJkbXUoQuAIDSQ5g
+- criteria:
+    query: from:e.crm.lego.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmhm8CMJLuEbSPz0xjN2DvQSz36zZHbUCw
+- criteria:
+    query: from:(ridgewallet.ca OR ridge.com)
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjyBqU04uvB9dD2QpI0QUFJ96wiZVRGSQ
+- criteria:
+    query: from:news.anker.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgcoG1FMtORFQWrodqPBYzDCZ6a5h2tZQ
+- criteria:
+    query: from:(us.e.sharkninja.com OR ca.e.sharkninja.com)
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjRIfDBymjSNwY3xBQ_zxkeqFo3WdAUqw
+- criteria:
+    query: from:(e.starbucks.com OR m.starbucks.com)
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjKNd_qgo_suZsbZwGy163DdomBPKOmBQ
+- criteria:
+    query: from:emails.reebok.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjwWCSQdI_KycOPI_w3UOBteC1s7W0Plw
+- criteria:
+    query: from:(mail.futureparty.com OR futureparty.com)
+  action:
+    addLabels:
+    - Lists/Newsletters
+    - CATEGORY_UPDATES
+  id: ANe1Bmib4k-xu7QmkvEAioKMDU23VVFiJgEz8w
+- criteria:
+    query: from:407etr.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmjkc-3z3fs6KORSZXUIc_nkQF727AlsyQ
+- criteria:
+    query: from:(bestbuy.ca OR bestbuy.com)
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmg1t0Um2_TFGHTrV93N4bVxuazNh-Gvqw
+- criteria:
+    query: from:digital.costco.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjSUadoxvgWTO-vsZP8yLIGXxcCi5afmw
+- criteria:
+    query: from:(homedepot.ca OR homedepot.com)
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1Bmhf1XXo9D3xFJ_Ur1srqNK3esJmV-351Q
+- criteria:
+    query: from:email.nike.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhNXciHinizmXbpVOaKfFkQgdri9iPJVQ
+- criteria:
+    query: from:thenorthface.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmgowEJGjr0FgoqsZ6utcp4_MJZyWwoMTQ
+- criteria:
+    query: from:email.columbia.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjOdI-DolZ3PfcQc3YAMYMVTuIdHezczA
+- criteria:
+    query: from:emails.lululemon.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmjaAaKq0MV_YNsmyfNaDDs90XlNsfnDCg
+- criteria:
+    query: from:em.gap.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmiiuTlo_AxaI8q_hJzFVybnaiOOpj1kXw
+- criteria:
+    query: from:email.apple.com
+  action:
+    addLabels:
+    - CATEGORY_PROMOTIONS
+    - Lists/Commercial
+  id: ANe1BmhrVd2jJoT7XLoQg2sTBYJePWqDSq9mPA

@@ -1,0 +1,16 @@
+filters:
+  - name: Categorize Promotions (explicit)
+    match:
+      query: >
+        list:*
+        AND subject:(sale OR "percent off" OR "% off" OR deal OR promo OR clearance OR coupon OR "free shipping")
+    action:
+      categories: [promotions]
+      add: ["Lists/Commercial"]
+
+  - name: Categorize Forums (explicit)
+    match:
+      query: >
+        list:googlegroups.com OR from:redditmail.com OR from:no-reply@is.email.nextdoor.com
+    action:
+      categorizeAs: forums

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Prefer venv python if present
+if [[ -x ".venv/bin/python" ]]; then
+  PY=".venv/bin/python"
+else
+  PY="python3"
+fi
+
+# Make running from repo root resilient: ensure parent-of-repo on PYTHONPATH
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PARENT_OF_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
+if [[ -f "$REPO_ROOT/__init__.py" ]]; then
+  export PYTHONPATH="$PARENT_OF_ROOT:${PYTHONPATH:-}"
+fi
+
+exec "$PY" -m mail_assistant "$@"

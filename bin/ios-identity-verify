@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Thin wrapper around phone-assistant identity verify
+# Usage:
+#   bin/ios-identity-verify [--device-label LABEL|--udid UDID] [--expected-org ORG] [--creds-profile PROFILE]
+
+set -euo pipefail
+
+DEVICE_LABEL="${IOS_DEVICE_LABEL:-}"
+UDID="${IOS_DEVICE_UDID:-}"
+EXPECTED_ORG=""
+CREDS_PROFILE="${IOS_CREDS_PROFILE:-ios_layout_manager}"
+CONFIG_PATH="${CREDENTIALS:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --device-label) DEVICE_LABEL="$2"; shift 2 ;;
+    --udid) UDID="$2"; shift 2 ;;
+    --expected-org) EXPECTED_ORG="$2"; shift 2 ;;
+    --creds-profile) CREDS_PROFILE="$2"; shift 2 ;;
+    --config) CONFIG_PATH="$2"; shift 2 ;;
+    -h|--help) echo "Usage: $0 [--device-label L|--udid U] [--expected-org ORG] [--creds-profile P]"; exit 0 ;;
+    *) echo "Unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+PA="./bin/phone-assistant"
+args=( identity verify )
+if [[ -n "$DEVICE_LABEL" ]]; then args+=( --device-label "$DEVICE_LABEL" ); fi
+if [[ -n "$UDID" ]]; then args+=( --udid "$UDID" ); fi
+if [[ -n "$EXPECTED_ORG" ]]; then args+=( --expected-org "$EXPECTED_ORG" ); fi
+if [[ -n "$CREDS_PROFILE" ]]; then args+=( --creds-profile "$CREDS_PROFILE" ); fi
+if [[ -n "$CONFIG_PATH" ]]; then args+=( --config "$CONFIG_PATH" ); fi
+
+exec "$PA" "${args[@]}"

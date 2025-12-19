@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Apply YAML locations to Outlook for the core plans (blas, bruce, bennet).
+# Usage: PROFILE=outlook_personal bin/apply-calendar-locations [--dry-run]
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+
+PROFILE="${PROFILE:-outlook_personal}"
+
+declare -a FILES=(
+  "$REPO_ROOT/out/calendar/blas_current.plan.yaml"
+  "$REPO_ROOT/out/calendar/bruce_current.plan.yaml"
+  "$REPO_ROOT/out/calendar/bruce_chess_beginners.plan.yaml"
+  "$REPO_ROOT/out/calendar/bennet_speechaim.plan.yaml"
+)
+
+for f in "${FILES[@]}"; do
+  if [[ -f "$f" ]]; then
+    echo "Applying locations from $f"
+    "$REPO_ROOT/bin/calendar_assistant" --profile "$PROFILE" outlook apply-locations --config "$f" --all-occurrences "$@"
+  else
+    echo "Skip missing file: $f" >&2
+  fi
+done

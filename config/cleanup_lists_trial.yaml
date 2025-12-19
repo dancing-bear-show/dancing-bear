@@ -1,0 +1,6 @@
+filters:
+  - name: Remove Lists/Newsletters from Trial Confirmation
+    match:
+      query: 'label:"Lists/Newsletters" subject:("trial confirmation" OR "trial confirmed" OR "free trial")'
+    action:
+      remove: ['Lists/Newsletters']

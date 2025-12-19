@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Archive the current device layout profile and rebuild it from plan/layout.
+
+set -euo pipefail
+
+NAME="${NAME:-bcsphone_snap2}"
+PLAN_PATH="${PLAN_PATH:-out/ios.plan.yaml}"
+LAYOUT_PATH="${LAYOUT_PATH:-out/ios.IconState.yaml}"
+DISPLAY_NAME="${DISPLAY_NAME:-${NAME//_/ }}"
+ALL_APPS_NAME="${ALL_APPS_NAME:-Apple Extras}"
+OUT_PATH="out/${NAME}.layout.mobileconfig"
+ARCHIVE_DIR="out/archive"
+TS="$(date +%Y%m%d%H%M%S)"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name) NAME="${2:-$NAME}"; shift 2;;
+    --plan) PLAN_PATH="${2:-$PLAN_PATH}"; shift 2;;
+    --layout) LAYOUT_PATH="${2:-$LAYOUT_PATH}"; shift 2;;
+    --display-name) DISPLAY_NAME="${2:-$DISPLAY_NAME}"; shift 2;;
+    --all-apps-name) ALL_APPS_NAME="${2:-$ALL_APPS_NAME}"; shift 2;;
+    -h|--help)
+      cat <<'EOF'
+Usage: ./bin/phone-profile-refresh [--name NAME] [--plan PATH] [--layout PATH] [--display-name NAME]
+
+Environment overrides:
+  NAME=bcsphone_snap2 (base filename + identifiers)
+  PLAN_PATH=out/ios.plan.yaml
+  LAYOUT_PATH=out/ios.IconState.yaml
+  DISPLAY_NAME="bcsphone snap-2"
+  ALL_APPS_NAME="Apple Extras"
+EOF
+      exit 0;;
+    *) echo "Unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+# Recompute paths if name changed via flag/env
+OUT_PATH="out/${NAME}.layout.mobileconfig"
+PROFILE_ID="com.example.${NAME}.profile"
+LAYOUT_ID="com.example.${NAME}.hslayout"
+
+mkdir -p "$ARCHIVE_DIR"
+
+if [[ -f "$OUT_PATH" ]]; then
+  cp "$OUT_PATH" "$ARCHIVE_DIR/${NAME}.layout.${TS}.mobileconfig"
+  echo "Archived $OUT_PATH -> $ARCHIVE_DIR/${NAME}.layout.${TS}.mobileconfig"
+fi
+
+./bin/phone profile build \
+  --plan "$PLAN_PATH" \
+  --layout "$LAYOUT_PATH" \
+  --out "$OUT_PATH" \
+  --identifier "$PROFILE_ID" \
+  --hs-identifier "$LAYOUT_ID" \
+  --display-name "$DISPLAY_NAME" \
+  --organization "Personal" \
+  --all-apps-folder-name "$ALL_APPS_NAME" \
+  --all-apps-folder-page 2
+
+echo "Wrote $OUT_PATH"
