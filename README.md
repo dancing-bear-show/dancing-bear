@@ -124,6 +124,7 @@ Cleaning
 - `bin/ios-auto-folders` → `phone auto-folders`
 - `bin/ios-unused` → `phone unused`
 - `bin/ios-prune` → `phone prune`
+- `bin/ios-iconmap-refresh` → `cfgutil get-icon-layout + phone export-device`
 
 All arguments are forwarded as-is; existing flags remain unchanged.
 - Security: never commit credentials or tokens; keep them under `~/.config/` or other local-only paths.
