@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CFGUTIL="/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
+ECID=${IOS_DEVICE_ECID:-""}
+UDID=${IOS_DEVICE_UDID:-""}
+OUT_JSON=${1:-out/ios.iconmap.json}
+OUT_YAML=${2:-out/ios.IconState.yaml}
+
+if [[ ! -x "$CFGUTIL" ]]; then
+  if command -v cfgutil >/dev/null 2>&1; then
+    CFGUTIL="$(command -v cfgutil)"
+  else
+    echo "Error: cfgutil not found; install Apple Configurator or add cfgutil to PATH" >&2
+    exit 1
+  fi
+fi
+
+if [[ -z "$ECID" && -n "$UDID" ]]; then
+  # Map UDID -> ECID via cfgutil list
+  ECID=$("$CFGUTIL" list | awk -v u="$UDID" 'index($0,u)&&/ECID:/{for(i=1;i<=NF;i++){if($i=="ECID:"){print $(i+1); exit} if($i ~ /^ECID:/){sub(/^ECID:/, "", $i); print $i; exit}}}')
+fi
+
+if [[ -z "$ECID" ]]; then
+  echo "Error: ECID not resolved. Set IOS_DEVICE_ECID or IOS_DEVICE_UDID." >&2
+  exit 2
+fi
+
+mkdir -p "$(dirname "$OUT_JSON")" "$(dirname "$OUT_YAML")"
+
+"$CFGUTIL" --ecid "$ECID" --format json get-icon-layout > "$OUT_JSON"
+./bin/phone export-device --udid "$UDID" --out "$OUT_YAML"
+
+echo "Wrote iconmap JSON: $OUT_JSON"
+echo "Wrote layout YAML:  $OUT_YAML"
