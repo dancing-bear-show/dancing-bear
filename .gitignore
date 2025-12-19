@@ -23,6 +23,11 @@ ENV/
 .direnv/
 htmlcov/
 .coverage
+coverage/
+.coverage.*
+coverage.xml
+artifacts/
+node_modules/
 .config/
 
 # Local logs and OAuth flows (do not commit)
