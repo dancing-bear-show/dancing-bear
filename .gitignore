@@ -33,6 +33,10 @@ _out/
 backups/
 _archive/
 *.stl
+*.pdf
+*.docx
+*.png
+*.zip
 out/
 
 # Generated LLM capsules
