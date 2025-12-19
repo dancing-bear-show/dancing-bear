@@ -2,10 +2,11 @@ import json
 import tempfile
 import unittest
 import subprocess
+import sys
 from pathlib import Path
 
 
-CLI = ["python", "-m", "resume_assistant"]
+CLI = [sys.executable, "-m", "resume_assistant"]
 
 
 class TestOnePageRender(unittest.TestCase):
@@ -79,4 +80,3 @@ class TestOnePageRender(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

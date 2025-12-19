@@ -16,8 +16,8 @@ def _load_cli_main():
         raise SystemExit(99)
 
 
-def main() -> int:
-    return _load_cli_main()()
+def main(argv=None) -> int:
+    return _load_cli_main()(argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
