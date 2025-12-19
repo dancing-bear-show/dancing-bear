@@ -345,9 +345,10 @@ def build_flows() -> List[Dict[str, Any]]:
                 'title': 'iOS — Export current layout',
                 'tags': ['ios','phone','layout','safe'],
                 'commands': [
-                    "./bin/phone export --out out/ios.IconState.yaml",
+                    "./bin/phone export-device --out out/ios.IconState.yaml",
+                    "./bin/phone iconmap --out out/ios.iconmap.json",
                 ],
-                'notes': 'Reads Finder backup only; no device writes.'
+                'notes': 'Uses cfgutil to read device layout; no device writes.'
             },
             {
                 'id': 'ios_scaffold_plan',
@@ -418,7 +419,7 @@ def build_flows() -> List[Dict[str, Any]]:
                 'title': 'iOS — Organize Apps (end-to-end)',
                 'tags': ['ios','phone','organize','safe'],
                 'commands': [
-                    "./bin/phone export --out out/ios.IconState.yaml",
+                    "./bin/phone export-device --out out/ios.IconState.yaml",
                     "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
                     "echo 'Edit out/ios.plan.yaml to finalize folders and pins.'",
                     "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",

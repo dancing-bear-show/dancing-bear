@@ -1,9 +1,11 @@
 """Phone Assistant CLI
 
 Commands:
-  export   — Read latest Finder backup and export layout to YAML
-  plan     — Scaffold a plan (pins + folders) from current layout
-  checklist— Generate manual move instructions from plan
+  export        — DEPRECATED: export layout from Finder backup to YAML
+  export-device — Export layout from attached device via cfgutil to YAML
+  iconmap       — Download raw icon layout from device via cfgutil
+  plan          — Scaffold a plan (pins + folders) from current layout
+  checklist     — Generate manual move instructions from plan
 
 All processing is local and read-only. No device writes.
 """
@@ -49,6 +51,7 @@ from .profile import build_mobileconfig
 
 
 def cmd_export(args: argparse.Namespace) -> int:
+    print("Deprecated: 'phone export' uses Finder backups. Use 'phone export-device' or 'phone iconmap'.", file=sys.stderr)
     out_path = Path(args.out or "out/ios.IconState.yaml")
     request = ExportRequest(backup=args.backup, out_path=out_path)
     envelope = ExportProcessor().process(ExportRequestConsumer(request).consume())
@@ -274,10 +277,23 @@ def build_parser() -> argparse.ArgumentParser:
     assistant.add_agentic_flags(p)
     sub = p.add_subparsers(dest="command")
 
-    p_exp = sub.add_parser("export", help="Export current Home Screen layout from Finder backup to YAML")
+    p_exp = sub.add_parser("export", help="DEPRECATED: export layout from Finder backup to YAML")
     p_exp.add_argument("--backup", help="Path to Finder backup UDID dir (defaults to latest under MobileSync/Backup)")
     p_exp.add_argument("--out", help="Output YAML path (default out/ios.IconState.yaml)")
     p_exp.set_defaults(func=cmd_export)
+
+    p_exp_dev = sub.add_parser("export-device", help="Export layout from attached device via cfgutil to YAML")
+    p_exp_dev.add_argument("--udid", help="Device UDID (optional when only one device is attached)")
+    p_exp_dev.add_argument("--ecid", help="Device ECID (optional; overrides --udid)")
+    p_exp_dev.add_argument("--out", help="Output YAML path (default out/ios.IconState.yaml)")
+    p_exp_dev.set_defaults(func=cmd_export_device)
+
+    p_icon = sub.add_parser("iconmap", help="Download raw icon layout from device via cfgutil")
+    p_icon.add_argument("--udid", help="Device UDID (optional when only one device is attached)")
+    p_icon.add_argument("--ecid", help="Device ECID (optional; overrides --udid)")
+    p_icon.add_argument("--format", choices=["json", "plist"], default="json", help="Output format (default json)")
+    p_icon.add_argument("--out", help="Output path (default out/ios.iconmap.json or .plist)")
+    p_icon.set_defaults(func=cmd_iconmap)
 
     p_plan = sub.add_parser("plan", help="Scaffold a plan YAML (pins + folders) from current layout")
     p_plan.add_argument("--backup", help="Path to Finder backup UDID dir (or use --layout)")
@@ -372,7 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_mb.set_defaults(func=cmd_manifest_build)
 
     p_mr = sub_m.add_parser("from-export", help="Create a device layout manifest from a layout export YAML")
-    p_mr.add_argument("--export", required=True, help="Layout export YAML (from 'phone export')")
+    p_mr.add_argument("--export", required=True, help="Layout export YAML (from 'phone export-device' or legacy export')")
     p_mr.add_argument("--out", required=True, help="Output manifest YAML path")
     p_mr.set_defaults(func=cmd_manifest_from_export)
 
@@ -568,6 +584,7 @@ def _map_udid_to_ecid(cfgutil: str, udid: str) -> str:
 
 def _export_from_device(cfgutil: str, ecid: str | None = None) -> dict:
     import subprocess as _sp
+    import json as _json
     import plistlib as _plist
     cmd = [cfgutil]
     if ecid:
@@ -579,8 +596,13 @@ def _export_from_device(cfgutil: str, ecid: str | None = None) -> dict:
         raise RuntimeError(f"cfgutil get-icon-layout failed: {e}")
     try:
         data = _plist.loads(out)
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse plist from cfgutil: {e}")
+    except Exception:
+        data = None
+    if data is None:
+        try:
+            data = _json.loads(out.decode("utf-8", errors="replace"))
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse plist or JSON from cfgutil: {e}")
     # Try to convert into our export shape via normalize_iconstate if compatible
     export: dict[str, object] = {}
     try:
@@ -591,6 +613,29 @@ def _export_from_device(cfgutil: str, ecid: str | None = None) -> dict:
         dock = []
         pages = []
         try:
+            # cfgutil may return a JSON list: [dock, page1, page2, ...]
+            if isinstance(data, list) and data:
+                dock = [s for s in (data[0] or []) if isinstance(s, str)]
+                for page in data[1:]:
+                    if not isinstance(page, list):
+                        continue
+                    page_out = {"apps": [], "folders": []}
+                    for it in page:
+                        if isinstance(it, list) and it:
+                            name = it[0] if isinstance(it[0], str) else "Folder"
+                            fapps = []
+                            for sub in it[1:]:
+                                if isinstance(sub, list):
+                                    fapps.extend([s for s in sub if isinstance(s, str)])
+                                elif isinstance(sub, str):
+                                    fapps.append(sub)
+                            if fapps:
+                                page_out["folders"].append({"name": name or "Folder", "apps": fapps})  # type: ignore[index]
+                        elif isinstance(it, str):
+                            page_out["apps"].append(it)  # type: ignore[index]
+                    pages.append(page_out)
+                export = {"dock": dock, "pages": pages}
+                return export
             # Some cfgutil plists carry similar keys as backups
             for it in (data.get("buttonBar") or []):  # type: ignore[attr-defined]
                 bid = it.get("bundleIdentifier") or it.get("displayIdentifier")
@@ -616,6 +661,47 @@ def _export_from_device(cfgutil: str, ecid: str | None = None) -> dict:
         except Exception:
             export = {}
     return export
+
+
+def cmd_export_device(args: argparse.Namespace) -> int:
+    cfg = _find_cfgutil_path()
+    ecid = getattr(args, "ecid", None)
+    udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID")
+    if not ecid and udid:
+        ecid = _map_udid_to_ecid(cfg, udid) or None
+    exp = _export_from_device(cfg, ecid)
+    if not exp:
+        print("Error: could not derive export from device layout", file=sys.stderr)
+        return 3
+    out_path = Path(getattr(args, "out", None) or "out/ios.IconState.yaml")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    write_yaml(exp, out_path)
+    print(f"Wrote layout export to {out_path}")
+    return 0
+
+
+def cmd_iconmap(args: argparse.Namespace) -> int:
+    cfg = _find_cfgutil_path()
+    fmt = getattr(args, "format", "json")
+    out_default = "out/ios.iconmap.json" if fmt == "json" else "out/ios.iconmap.plist"
+    out_path = Path(getattr(args, "out", None) or out_default)
+    ecid = getattr(args, "ecid", None)
+    udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID")
+    if not ecid and udid:
+        ecid = _map_udid_to_ecid(cfg, udid) or None
+    cmd = [cfg]
+    if ecid:
+        cmd.extend(["--ecid", ecid])
+    cmd.extend(["--format", fmt, "get-icon-layout"])
+    try:
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    except Exception as e:
+        print(f"Error: cfgutil get-icon-layout failed: {e}", file=sys.stderr)
+        return 3
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(out)
+    print(f"Wrote icon map to {out_path}")
+    return 0
 
 
 def cmd_manifest_from_device(args: argparse.Namespace) -> int:

@@ -112,7 +112,7 @@ Cleaning
 - `bin/outlook-calendar-add-from-config` → `mail-assistant outlook calendar add-from-config`
 
 #### iOS (Phone Assistant)
-- `bin/ios-export` → `phone export`
+- `bin/ios-export` → `phone export-device` (legacy backup export is deprecated)
 - `bin/ios-plan` → `phone plan`
 - `bin/ios-checklist` → `phone checklist`
 - `bin/ios-profile-build` → `phone profile build`
@@ -144,7 +144,8 @@ All arguments are forwarded as-is; existing flags remain unchanged.
     - Auto-activate `.venv` when present
     - Export `PYTHONPATH` to include the repo root
     - Prefer local `bin/` wrappers on PATH
-   - To set up the venv: `./bin/setup_venv`
+    - Add Apple Configurator `cfgutil` to PATH for live icon-map exports
+  - To set up the venv: `./bin/setup_venv`
 
 ### LLM Utilities
 - Quick inventory: `./bin/llm inventory --stdout` (writes/reads `.llm/INVENTORY.md`)
@@ -267,22 +268,25 @@ Examples
 
 ## Phone Assistant (New)
 
-Plan-only, read-only CLI that analyzes your Home Screen layout from a local Finder backup and produces:
+Plan-only, read-only CLI that analyzes your Home Screen layout from a device (cfgutil) or a local Finder backup and produces:
 
 - A normalized export (YAML) of apps/folders/dock
 - A scaffold plan (pins + folder buckets)
 - A manual move checklist to apply on device
 
 Commands
-- Export layout:
-  - `./bin/phone export --out out/ios.IconState.yaml`
+- Export layout from device (cfgutil):
+  - `./bin/phone export-device --out out/ios.IconState.yaml`
+- Download raw icon map (cfgutil JSON/plist):
+  - `./bin/phone iconmap --out out/ios.iconmap.json`
 - Scaffold a plan from the current layout:
   - `./bin/phone plan --out out/ios.plan.yaml`
 - Generate a manual move checklist from a plan:
   - `./bin/phone checklist --plan out/ios.plan.yaml --out out/ios.checklist.txt`
 
 Notes
-- Requires a local Finder backup (prefer encrypted) under `~/Library/Application Support/MobileSync/Backup/`.
+- `phone export` (backup-based) is deprecated; prefer `phone export-device`.
+- Finder backup support still exists for legacy flows under `~/Library/Application Support/MobileSync/Backup/`.
 - No device writes: iOS does not expose APIs to rearrange icons. Use the checklist to apply changes manually.
 
 Supervised/MDM automation
