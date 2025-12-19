@@ -32,6 +32,10 @@ config/client_secret_*.json
 _out/
 backups/
 _archive/
+dist/
+build/
+tmp/
+reports/
 *.stl
 *.pdf
 *.docx
