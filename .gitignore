@@ -1,4 +1,11 @@
-# Bytecode / cache
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Python bytecode / cache
 __pycache__/
 *.py[cod]
 *.so
@@ -11,33 +18,34 @@ __pycache__/
 venv/
 ENV/
 
-# OS files
-.DS_Store
-.vscode/
-.idea/
-
-# Tooling
+# Python tooling
 .pytest_cache/
 .mypy_cache/
 .cache/
 .direnv/
+.ruff_cache/
+.tox/
+.eggs/
+pip-wheel-metadata/
+*.egg-info/
+
+# Coverage/test reports
 htmlcov/
 .coverage
 coverage/
 .coverage.*
 coverage.xml
-artifacts/
-node_modules/
-.ruff_cache/
-.tox/
-.eggs/
-pip-wheel-metadata/
 junit*.xml
+
+# Logs / databases
 *.log
 *.sqlite
 *.db
-*.swp
-*.tmp
+
+# Node tooling
+node_modules/
+
+# Local config
 .config/
 
 # Local logs and OAuth flows (do not commit)
@@ -51,6 +59,9 @@ dist/
 build/
 tmp/
 reports/
+out/
+
+# Large/binary assets
 *.stl
 *.pdf
 *.docx
@@ -59,7 +70,6 @@ reports/
 *.png
 *.zip
 *.mov
-out/
 
 # Generated LLM capsules
 .llm/AGENTIC*.md
@@ -81,6 +91,3 @@ config/*secrets*
 config/*tokens*
 config/*credentials*
 config/**/private*.yaml
-
-# Python packaging metadata
-*.egg-info/
