@@ -47,11 +47,13 @@ node_modules/
 
 # Local config
 .config/
+config/
 
 # Local logs and OAuth flows (do not commit)
 logs/
 msal_flow.json
 config/client_secret_*.json
+config/
 _out/
 backups/
 _archive/

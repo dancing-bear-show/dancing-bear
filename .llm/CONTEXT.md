@@ -42,7 +42,7 @@ Development Rules (avoid)
 Activation Policy (Recommended)
 - At the start of a work session, run unit tests to establish current health when making code changes:
   - Prefer `make test`; else fall back to `python3 -m unittest -v`.
-  - Use venv if present: `.venv/bin/python -m unittest -v` (or `source .venv/bin/activate`).
+- Use venv if present: `.venv/bin/python -m unittest -v` (activation optional with `direnv`).
 - If any tests fail, immediately create an execution plan (via the plan tool) to fix them:
   - Steps should include: reproduce failure locally; isolate scope; implement minimal, surgical fix; re-run targeted tests; re-run full suite.
   - Keep fixes focused; do not change unrelated code or public CLI behavior.
@@ -51,7 +51,7 @@ Activation Policy (Recommended)
 - Never run tests that require network/secrets without explicit user approval; stub or skip such paths.
 
 LLM Imperatives
-- Activate env when running Python commands (optional for pure shell helpers like `bin/phone-profile-refresh`): `test -f .venv/bin/activate && source .venv/bin/activate || true`
+- Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
 - Use unified wrapper: `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker>` (preferred), or direct: `./bin/mail-assistant`, `./bin/mail-assistant-auth`
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
