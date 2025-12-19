@@ -2,6 +2,7 @@
 
 - Local-only CLI for iOS/iPadOS layout exports, plan scaffolds, manifests, and identity verification.
 - Entry point: `./bin/phone` (includes `export-device`, `iconmap`, `plan`, `checklist`, `manifest`, `identity`, etc.; `export` is deprecated).
+- Icon map helper: `./bin/ios-iconmap-refresh` (cfgutil JSON + YAML export).
 - LLM helpers:
   - `./bin/llm --app phone agentic --stdout`
   - `./bin/llm --app phone domain-map --stdout`
