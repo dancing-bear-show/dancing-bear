@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# POSIX shim to run the Calendar Assistant without invoking python explicitly.
+set -euo pipefail
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$SCRIPT_DIR/calendar_assistant" "$@"
+

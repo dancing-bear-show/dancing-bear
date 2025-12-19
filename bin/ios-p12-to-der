@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# Convert a supervision identity .p12 into DER certificate and key for cfgutil
+#
+# Usage:
+#   bin/ios-p12-to-der --p12 /path/to/identity.p12 \
+#       [--pass PASSWORD] [--out-dir ./out/cfgutil_identity] \
+#       [--print-cfgutil] [--keep-pem]
+#   # Or load from credentials.ini
+#   bin/ios-p12-to-der --creds-profile ios_layout_manager [--config /path/to/credentials.ini] \
+#       [--out-dir ./out/cfgutil_identity] [--print-cfgutil]
+#
+# Outputs:
+#   - <out-dir>/cert.der  (DER-encoded certificate)
+#   - <out-dir>/key.der   (DER-encoded private key)
+#
+# Notes:
+#   - Use with cfgutil: cfgutil --certificate cert.der --private-key key.der install-profile <profile>
+#   - If --print-cfgutil is set, prints a ready-to-use cfgutil command template.
+
+set -euo pipefail
+
+P12=""
+PASS=""
+OUT_DIR=""
+PRINT_CFGUTIL=0
+KEEP_PEM=0
+PROFILE_NAME="ios_layout_manager"
+ALT_PROFILE_NAME="ios_supervisor"
+CONFIG_PATH=""
+
+usage() {
+  echo "Usage: $0 --p12 PATH [--pass PASSWORD] [--out-dir DIR] [--print-cfgutil] [--keep-pem]" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --p12) P12="$2"; shift 2 ;;
+    --pass) PASS="$2"; shift 2 ;;
+    --out-dir) OUT_DIR="$2"; shift 2 ;;
+    --print-cfgutil) PRINT_CFGUTIL=1; shift ;;
+    --keep-pem) KEEP_PEM=1; shift ;;
+    --profile) PROFILE_NAME="$2"; shift 2 ;;
+    --creds-profile) PROFILE_NAME="$2"; shift 2 ;;
+    --config) CONFIG_PATH="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+# Load from credentials.ini if not provided
+resolve_config() {
+  if [[ -n "$CONFIG_PATH" && -f "$CONFIG_PATH" ]]; then
+    echo "$CONFIG_PATH"; return 0
+  fi
+  if [[ -n "${CREDENTIALS:-}" && -f "${CREDENTIALS}" ]]; then
+    echo "${CREDENTIALS}"; return 0
+  fi
+  local xdg=${XDG_CONFIG_HOME:-"$HOME/.config"}
+  if [[ -f "$xdg/credentials.ini" ]]; then
+    echo "$xdg/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/credentials.ini" ]]; then
+    echo "$HOME/.config/credentials.ini"; return 0
+  fi
+  if [[ -f "$xdg/sre-utils/credentials.ini" ]]; then
+    echo "$xdg/sre-utils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/sre-utils/credentials.ini" ]]; then
+    echo "$HOME/.config/sre-utils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/sreutils/credentials.ini" ]]; then
+    echo "$HOME/.config/sreutils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.sre-utils/credentials.ini" ]]; then
+    echo "$HOME/.sre-utils/credentials.ini"; return 0
+  fi
+  return 1
+}
+
+ini_get() {
+  local file="$1" section="$2" key="$3"
+  awk -v s="$section" -v k="$key" '
+    BEGIN{i=0}
+    $0 ~ /^[[:space:]]*\[/ {
+      i = ($0 ~ "^\\s*\\[" s "\\]\\s*$") ? 1 : 0
+    }
+    i==1 && $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {
+      val=$0; sub(/^[^=]*=/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val); print val; exit 0
+    }
+  ' "$file"
+}
+
+CFG_FILE=""
+if CFG_FILE=$(resolve_config); then
+  if [[ -z "$P12" ]]; then
+    P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_identity_p12 || true)"
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" ios_home_layout_identity_p12 || true)"
+    fi
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_p12 || true)"
+    fi
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_identity_p12 || true)"
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" ios_home_layout_identity_p12 || true)"
+      fi
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_p12 || true)"
+      fi
+    fi
+  fi
+  if [[ -z "$PASS" ]]; then
+    PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_identity_pass || true)"
+    if [[ -z "$PASS" ]]; then
+      PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" ios_home_layout_identity_pass || true)"
+    fi
+    if [[ -z "$PASS" ]]; then
+      PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_p12_pass || true)"
+    fi
+    if [[ -z "$PASS" ]]; then
+      PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_identity_pass || true)"
+      if [[ -z "$PASS" ]]; then
+        PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" ios_home_layout_identity_pass || true)"
+      fi
+      if [[ -z "$PASS" ]]; then
+        PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_p12_pass || true)"
+      fi
+    fi
+  fi
+fi
+
+# Expand env vars and ~ in P12 path, if present (supports $HOME and ~)
+if [[ -n "$P12" ]]; then
+  # shellcheck disable=SC2086
+  P12="$(eval echo "$P12")"
+fi
+
+if [[ -z "$P12" ]]; then
+  echo "Error: --p12 is required (or set [${PROFILE_NAME}] supervision_p12 in credentials.ini)" >&2
+  usage
+  exit 2
+fi
+if [[ ! -f "$P12" ]]; then
+  echo "Error: .p12 not found: $P12" >&2
+  exit 1
+fi
+if ! command -v openssl >/dev/null 2>&1; then
+  echo "Error: openssl is required but not found on PATH" >&2
+  exit 127
+fi
+
+# Default output dir
+if [[ -z "$OUT_DIR" ]]; then
+  TS=$(date +%Y%m%d_%H%M%S)
+  BASENAME=$(basename "$P12")
+  BASENAME=${BASENAME%.*}
+  OUT_DIR="out/cfgutil_identity/${BASENAME}_${TS}"
+fi
+mkdir -p "$OUT_DIR"
+
+CERT_PEM="$OUT_DIR/cert.pem"
+CERT_DER="$OUT_DIR/cert.der"
+KEY_PEM="$OUT_DIR/key.pem"
+KEY_DER="$OUT_DIR/key.der"
+
+echo "Converting .p12 to DER cert/key under: $OUT_DIR"
+
+# Always pass a -passin to avoid interactive hangs; prompt once if TTY and PASS empty
+if [[ -z "$PASS" && -t 0 ]]; then
+  read -s -p "Enter password for $P12 (leave empty if none): " PASS
+  echo >&2
+fi
+PASSIN=( -passin pass:"${PASS:-}" )
+
+# Extract certificate (PEM), then convert to DER (OpenSSL 3 may require -legacy)
+LEG_OPT=()
+if openssl pkcs12 -help 2>/dev/null | grep -q -- '-legacy'; then LEG_OPT=(-legacy); fi
+if ! openssl pkcs12 "${LEG_OPT[@]:-}" -in "$P12" -clcerts -nokeys -out "$CERT_PEM" "${PASSIN[@]}" >/dev/null 2>&1; then
+  openssl pkcs12 -in "$P12" -clcerts -nokeys -out "$CERT_PEM" "${PASSIN[@]}" >/dev/null 2>&1 || true
+fi
+openssl x509 -in "$CERT_PEM" -outform der -out "$CERT_DER" >/dev/null 2>&1
+
+# Extract private key (PEM), then convert to DER PKCS#8 (no encryption)
+if ! openssl pkcs12 "${LEG_OPT[@]:-}" -in "$P12" -nocerts -nodes -out "$KEY_PEM" "${PASSIN[@]}" >/dev/null 2>&1; then
+  openssl pkcs12 -in "$P12" -nocerts -nodes -out "$KEY_PEM" "${PASSIN[@]}" >/dev/null 2>&1 || true
+fi
+openssl pkcs8 -topk8 -inform PEM -outform DER -in "$KEY_PEM" -out "$KEY_DER" -nocrypt >/dev/null 2>&1
+
+# Validate outputs are non-empty
+if [[ ! -s "$CERT_DER" || ! -s "$KEY_DER" ]]; then
+  echo "Error: Failed to convert .p12 to DER files. Check path/password in credentials or try --pass explicitly." >&2
+  echo "  P12: $P12" >&2
+  exit 1
+fi
+
+if [[ $KEEP_PEM -eq 0 ]]; then
+  rm -f "$CERT_PEM" "$KEY_PEM"
+fi
+
+echo "DER certificate: $CERT_DER"
+echo "DER private key: $KEY_DER"
+
+if [[ $PRINT_CFGUTIL -eq 1 ]]; then
+  CFG="/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
+  if command -v cfgutil >/dev/null 2>&1; then CFG="cfgutil"; fi
+  echo ""
+  echo "Example cfgutil usage:"
+  echo "$CFG --certificate \"$CERT_DER\" --private-key \"$KEY_DER\" install-profile out/ipad.hslayout.mobileconfig"
+fi
+
+exit 0

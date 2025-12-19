@@ -1,0 +1,19 @@
+labels:
+  - name: Personal
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Personal/VIP/Family
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Health
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Health/Jane
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Health/Movati
+    labelListVisibility: labelShow
+    messageListVisibility: show
+  - name: Health/Alumni
+    labelListVisibility: labelShow
+    messageListVisibility: show

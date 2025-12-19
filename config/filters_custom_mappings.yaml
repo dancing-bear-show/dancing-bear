@@ -1,0 +1,21 @@
+filters:
+  - name: Map WagJag to Commercial
+    match:
+      query: 'from:(emails.wagjag.com OR wagjag.com)'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Citi to Finance
+    match:
+      query: 'from:(citi.com OR citibank.com OR citicards.com)'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Harder for Congress to Political
+    match:
+      query: 'from:harderforcongress.com'
+    action:
+      add: ['Lists/Political']
+      remove: ['Lists/Commercial']

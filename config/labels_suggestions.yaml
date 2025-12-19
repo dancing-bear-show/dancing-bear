@@ -1,0 +1,928 @@
+suggestions:
+- domain: e.fossil.com
+  label: Lists/Commercial
+  count: 11
+  hints:
+    list: 11
+    promotions: 11
+- domain: linkedin.com
+  label: Lists/Newsletters
+  count: 84
+  hints:
+    list: 82
+    promotions: 1
+- domain: email.jcpenney.com
+  label: Lists/Commercial
+  count: 35
+  hints:
+    list: 35
+    promotions: 35
+- domain: rom.on.ca
+  label: Lists/Newsletters
+  count: 12
+  hints:
+    list: 12
+    promotions: 1
+- domain: movies.fandango.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: news.supermercadosdia.com.ar
+  label: Lists/Commercial
+  count: 12
+  hints:
+    list: 12
+    promotions: 12
+- domain: email.stackcommerce.com
+  label: Lists/Commercial
+  count: 61
+  hints:
+    list: 61
+    promotions: 60
+- domain: baggu.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: rewardingyouropinions.ca
+  label: Lists/Commercial
+  count: 31
+  hints:
+    list: 31
+    promotions: 31
+- domain: ccsyr.org
+  label: Lists/Newsletters
+  count: 5
+  hints:
+    list: 5
+    promotions: 0
+- domain: email.bose.com
+  label: Lists/Commercial
+  count: 23
+  hints:
+    list: 23
+    promotions: 23
+- domain: mail.futureparty.com
+  label: Lists/Newsletters
+  count: 25
+  hints:
+    list: 25
+    promotions: 0
+- domain: drsquatch.com
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 3
+- domain: mail.aircanada.com
+  label: Lists/Commercial
+  count: 18
+  hints:
+    list: 18
+    promotions: 18
+- domain: thedailybeast.com
+  label: Lists/Newsletters
+  count: 37
+  hints:
+    list: 37
+    promotions: 3
+- domain: email.thestar.com
+  label: Lists/Newsletters
+  count: 8
+  hints:
+    list: 8
+    promotions: 0
+- domain: interactive.wsj.com
+  label: Lists/Newsletters
+  count: 31
+  hints:
+    list: 31
+    promotions: 0
+- domain: washingtonpost.com
+  label: Lists/Newsletters
+  count: 78
+  hints:
+    list: 78
+    promotions: 0
+- domain: amazon.ca
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: partnernews.airmiles.ca
+  label: Lists/Commercial
+  count: 11
+  hints:
+    list: 11
+    promotions: 11
+- domain: tilley.com
+  label: Lists/Commercial
+  count: 51
+  hints:
+    list: 51
+    promotions: 51
+- domain: e.shopcuup.com
+  label: Lists/Commercial
+  count: 27
+  hints:
+    list: 27
+    promotions: 27
+- domain: emails.hertz.com
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 7
+- domain: ocasiocortez.com
+  label: Lists/Commercial
+  count: 27
+  hints:
+    list: 27
+    promotions: 27
+- domain: programnews.airmiles.ca
+  label: Lists/Commercial
+  count: 19
+  hints:
+    list: 19
+    promotions: 19
+- domain: email.paramountplus.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: e.newyorktimes.com
+  label: Lists/Commercial
+  count: 17
+  hints:
+    list: 17
+    promotions: 17
+- domain: duolingo.com
+  label: Lists/Newsletters
+  count: 28
+  hints:
+    list: 26
+    promotions: 6
+- domain: emails.better.com
+  label: Lists/Commercial
+  count: 31
+  hints:
+    list: 31
+    promotions: 30
+- domain: email.livenation.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: e.daveandbusters.com
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 7
+- domain: facebookmail.com
+  label: Lists/Newsletters
+  count: 11
+  hints:
+    list: 11
+    promotions: 0
+- domain: email.etsy.com
+  label: Lists/Commercial
+  count: 20
+  hints:
+    list: 19
+    promotions: 20
+- domain: reply.royalcaribbeanmarketing.com
+  label: Lists/Commercial
+  count: 11
+  hints:
+    list: 11
+    promotions: 11
+- domain: email.gotransit.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 6
+- domain: swissmedical.com.ar
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 1
+- domain: offers.eddiebauer.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: stockstory.org
+  label: Lists/Newsletters
+  count: 20
+  hints:
+    list: 20
+    promotions: 0
+- domain: canadaluggagedepot.ca
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: ridgewallet.ca
+  label: Lists/Commercial
+  count: 21
+  hints:
+    list: 21
+    promotions: 21
+- domain: marketing.mlbemail.com
+  label: Lists/Commercial
+  count: 20
+  hints:
+    list: 20
+    promotions: 20
+- domain: message.bloomberg.com
+  label: Lists/Newsletters
+  count: 16
+  hints:
+    list: 16
+    promotions: 0
+- domain: e.email-td.com
+  label: Lists/Newsletters
+  count: 10
+  hints:
+    list: 10
+    promotions: 0
+- domain: flareaudio.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: email.americanexpress.com
+  label: Lists/Newsletters
+  count: 5
+  hints:
+    list: 5
+    promotions: 0
+- domain: gunnar.com
+  label: Lists/Commercial
+  count: 23
+  hints:
+    list: 23
+    promotions: 22
+- domain: email.pcoptimum.ca
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 10
+- domain: e.cherokee.org
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 2
+- domain: ekster.com
+  label: Lists/Newsletters
+  count: 26
+  hints:
+    list: 26
+    promotions: 6
+- domain: email.amctheatres.com
+  label: Lists/Newsletters
+  count: 5
+  hints:
+    list: 5
+    promotions: 0
+- domain: atlasobscura.com
+  label: Lists/Commercial
+  count: 24
+  hints:
+    list: 24
+    promotions: 24
+- domain: e.pcfinancial.ca
+  label: Lists/Newsletters
+  count: 7
+  hints:
+    list: 7
+    promotions: 0
+- domain: marketing.basspro.com
+  label: Lists/Commercial
+  count: 25
+  hints:
+    list: 25
+    promotions: 25
+- domain: mail.allbirds.com
+  label: Lists/Commercial
+  count: 14
+  hints:
+    list: 14
+    promotions: 14
+- domain: westcoastkids.ca
+  label: Lists/Commercial
+  count: 12
+  hints:
+    list: 12
+    promotions: 12
+- domain: emails.underarmour.com
+  label: Lists/Commercial
+  count: 19
+  hints:
+    list: 19
+    promotions: 19
+- domain: celpip.ca
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: info15.citi.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 7
+    promotions: 6
+- domain: email.legoland.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 5
+- domain: mp1.tripadvisor.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 5
+- domain: cmail.bark.com
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 9
+- domain: aadvantageeshopping.com
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 9
+- domain: emails.ca.skechers.com
+  label: Lists/Commercial
+  count: 14
+  hints:
+    list: 14
+    promotions: 14
+- domain: calpaktravel.com
+  label: Lists/Commercial
+  count: 14
+  hints:
+    list: 14
+    promotions: 14
+- domain: e.economist.com
+  label: Lists/Commercial
+  count: 26
+  hints:
+    list: 26
+    promotions: 22
+- domain: e.emirates.email
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 4
+- domain: promo.thestar.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 9
+- domain: o.delta.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: e.xbox.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 7
+- domain: bogsfootwear.ca
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: google.com
+  label: Lists/Newsletters
+  count: 9
+  hints:
+    list: 4
+    promotions: 1
+- domain: urbanarmorgear.com
+  label: Lists/Commercial
+  count: 12
+  hints:
+    list: 12
+    promotions: 12
+- domain: nintendo.net
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 7
+- domain: news.email.ikea.ca
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: harderforcongress.com
+  label: Lists/Commercial
+  count: 26
+  hints:
+    list: 26
+    promotions: 26
+- domain: e.lululemon.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: hmbartglass.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: news.arcteryx.com
+  label: Lists/Commercial
+  count: 12
+  hints:
+    list: 12
+    promotions: 12
+- domain: bellroy.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: museumofplay.org
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 8
+- domain: cscrewards.coldstonecreamery.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: primevideo.com
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 5
+    promotions: 9
+- domain: aclu.org
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 9
+- domain: mail.dazn.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 9
+- domain: send.topodesigns.ca
+  label: Lists/Commercial
+  count: 11
+  hints:
+    list: 11
+    promotions: 11
+- domain: e.gear.blizzard.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: mail.zillow.com
+  label: Lists/Newsletters
+  count: 10
+  hints:
+    list: 10
+    promotions: 1
+- domain: e.malwarebytes.com
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 6
+- domain: attn.us.lg.com
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 7
+- domain: email-caasco.com
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 7
+- domain: occu.org
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 8
+- domain: e.giffords.org
+  label: Lists/Commercial
+  count: 24
+  hints:
+    list: 24
+    promotions: 24
+- domain: rickshawbags.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: emails.ugg.com
+  label: Lists/Commercial
+  count: 11
+  hints:
+    list: 11
+    promotions: 11
+- domain: americas.comm.dell.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 4
+    promotions: 4
+- domain: substack.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 3
+- domain: support.heifer.org
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: photobucket.com
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 7
+- domain: e.votevets.org
+  label: Lists/Commercial
+  count: 21
+  hints:
+    list: 21
+    promotions: 21
+- domain: ihotoffers.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: mcmap.chase.com
+  label: Lists/Newsletters
+  count: 9
+  hints:
+    list: 9
+    promotions: 0
+- domain: soslprospect.salliemae.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: e.mail.washingtonpost.com
+  label: Lists/Newsletters
+  count: 9
+  hints:
+    list: 9
+    promotions: 0
+- domain: recycledfirefighter.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: email.rocketlawyer.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 8
+- domain: eb.notices.rochester.edu
+  label: Lists/Newsletters
+  count: 5
+  hints:
+    list: 5
+    promotions: 0
+- domain: em.peoplesjewellers.com
+  label: Lists/Commercial
+  count: 13
+  hints:
+    list: 13
+    promotions: 13
+- domain: audible.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 5
+    promotions: 5
+- domain: email.aadvantagecruises.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: ourrevolution.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: woolly.clothing
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: hankypanky.com
+  label: Lists/Commercial
+  count: 26
+  hints:
+    list: 26
+    promotions: 26
+- domain: info6.citi.com
+  label: Lists/Newsletters
+  count: 6
+  hints:
+    list: 6
+    promotions: 0
+- domain: emails.rakuten.ca
+  label: Lists/Commercial
+  count: 12
+  hints:
+    list: 12
+    promotions: 12
+- domain: mail.marvel.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: glassdoor.com
+  label: Lists/Newsletters
+  count: 13
+  hints:
+    list: 13
+    promotions: 1
+- domain: m.learn.coursera.org
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: plans.eventbrite.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: jungleoutlet.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: email.adobe.com
+  label: Lists/Commercial
+  count: 7
+  hints:
+    list: 7
+    promotions: 6
+- domain: m.starbucks.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: m.massageaddict.ca
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 6
+    promotions: 6
+- domain: ridge.com
+  label: Lists/Commercial
+  count: 17
+  hints:
+    list: 17
+    promotions: 17
+- domain: emails.goaaa.com
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 8
+- domain: offers.bayareanewsgroup.com
+  label: Lists/Commercial
+  count: 8
+  hints:
+    list: 8
+    promotions: 8
+- domain: saxxunderwear.ca
+  label: Lists/Commercial
+  count: 15
+  hints:
+    list: 15
+    promotions: 15
+- domain: saxxunderwear.com
+  label: Lists/Commercial
+  count: 15
+  hints:
+    list: 15
+    promotions: 15
+- domain: e.shoppersdrugmart.ca
+  label: Lists/Commercial
+  count: 9
+  hints:
+    list: 9
+    promotions: 9
+- domain: e.walmart.ca
+  label: Lists/Newsletters
+  count: 5
+  hints:
+    list: 5
+    promotions: 0
+- domain: email.meta.com
+  label: Lists/Commercial
+  count: 6
+  hints:
+    list: 0
+    promotions: 5
+- domain: news.anker.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: email.mint.ca
+  label: Lists/Newsletters
+  count: 6
+  hints:
+    list: 6
+    promotions: 0
+- domain: nplon.patronpoint-mail.com
+  label: Lists/Newsletters
+  count: 5
+  hints:
+    list: 5
+    promotions: 0
+- domain: e.journie.ca
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: e.dji.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: subs.subway.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: loyalty.ms.aa.com
+  label: Lists/Newsletters
+  count: 8
+  hints:
+    list: 8
+    promotions: 0
+- domain: 30orless.com
+  label: Lists/Commercial
+  count: 13
+  hints:
+    list: 0
+    promotions: 13
+- domain: e.314actionfund.org
+  label: Lists/Commercial
+  count: 33
+  hints:
+    list: 33
+    promotions: 33
+- domain: digital.costco.com
+  label: Lists/Commercial
+  count: 19
+  hints:
+    list: 19
+    promotions: 19
+- domain: clarks.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 10
+- domain: active.com
+  label: Lists/Newsletters
+  count: 10
+  hints:
+    list: 10
+    promotions: 0
+- domain: contact.loccitane.com
+  label: Lists/Commercial
+  count: 13
+  hints:
+    list: 13
+    promotions: 13
+- domain: stanley1913.com
+  label: Lists/Commercial
+  count: 19
+  hints:
+    list: 19
+    promotions: 19
+- domain: timbuk2.com
+  label: Lists/Commercial
+  count: 13
+  hints:
+    list: 13
+    promotions: 13
+- domain: westernrise.com
+  label: Lists/Commercial
+  count: 10
+  hints:
+    list: 10
+    promotions: 10
+- domain: trueclassictees.com
+  label: Lists/Commercial
+  count: 19
+  hints:
+    list: 19
+    promotions: 11
+- domain: us.e.sharkninja.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: info.cibc.com
+  label: Lists/Newsletters
+  count: 7
+  hints:
+    list: 6
+    promotions: 0
+- domain: e.dsw.ca
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 4
+- domain: nytimes.com
+  label: Lists/Newsletters
+  count: 8
+  hints:
+    list: 8
+    promotions: 0
+- domain: ca.e.sharkninja.com
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 5
+- domain: novedades.santander.com.ar
+  label: Lists/Commercial
+  count: 5
+  hints:
+    list: 5
+    promotions: 4
+- domain: emails.reebok.com
+  label: Lists/Commercial
+  count: 18
+  hints:
+    list: 18
+    promotions: 18
+params:
+  days: 30
+  min_count: 5

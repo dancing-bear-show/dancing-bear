@@ -1,0 +1,133 @@
+filters:
+  - name: Map TD Bank to Finance
+    match:
+      query: 'from:(td.com OR e.email-td.com OR tdcanadatrust.com)'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map JPMorgan to Finance
+    match:
+      query: 'from:jpmorgan.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map RBC to Finance
+    match:
+      query: 'from:(rbc.com OR rbcroyalbank.com)'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Scotiabank to Finance
+    match:
+      query: 'from:scotiabank.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map BMO to Finance
+    match:
+      query: 'from:bmo.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map CIBC to Finance
+    match:
+      query: 'from:cibc.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map AmEx to Finance
+    match:
+      query: 'from:(americanexpress.com OR aexp.com)'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map PayPal to Finance
+    match:
+      query: 'from:paypal.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Stripe to Finance
+    match:
+      query: 'from:stripe.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Square to Finance
+    match:
+      query: 'from:squareup.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Chase (US) to Finance
+    match:
+      query: 'from:chase.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Wells Fargo to Finance
+    match:
+      query: 'from:wellsfargo.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Bank of America to Finance
+    match:
+      query: 'from:bankofamerica.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Capital One to Finance
+    match:
+      query: 'from:capitalone.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Discover to Finance
+    match:
+      query: 'from:discover.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map HSBC to Finance
+    match:
+      query: 'from:(hsbc.ca OR hsbc.com)'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Fidelity to Finance
+    match:
+      query: 'from:fidelity.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Schwab to Finance
+    match:
+      query: 'from:schwab.com'
+    action:
+      categories: [updates]
+      add: ['Finance']
+
+  - name: Map Vanguard to Finance
+    match:
+      query: 'from:vanguard.com'
+    action:
+      categories: [updates]
+      add: ['Finance']

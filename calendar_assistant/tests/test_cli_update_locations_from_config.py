@@ -1,0 +1,94 @@
+import io
+import types
+import unittest
+from contextlib import redirect_stdout
+from types import SimpleNamespace
+
+
+ADDR = {
+    'street': '11099 Bathurst St',
+    'city': 'Richmond Hill',
+    'state': 'ON',
+    'postalCode': 'L4C 0A2',
+    'countryOrRegion': 'CA',
+}
+
+
+class FakeService:
+    def __init__(self, ctx):
+        self.ctx = ctx
+    def list_events_in_range(self, **kwargs):
+        # Monday 17:00 event with address
+        return [{
+            'start': {'dateTime': '2025-01-06T17:00:00+00:00'},
+            'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
+            'location': {'displayName': 'Elgin West', 'address': ADDR},
+            'id': 'occ1',
+            'seriesMasterId': 'ser1',
+        }]
+
+
+class TestUpdateLocationsFromConfig(unittest.TestCase):
+    def test_updates_yaml_with_address(self):
+        import sys
+        # Stub our YAML wrapper
+        yamlio = types.ModuleType('calendar_assistant.yamlio')
+        events = [{
+            'subject': 'Class',
+            'repeat': 'weekly',
+            'byday': ['MO'],
+            'start_time': '17:00',
+            'end_time': '17:30',
+            'range': {'start_date': '2025-01-01', 'until': '2025-02-01'},
+            'location': 'Old Name',
+        }]
+        def fake_load(_):
+            return {'events': events}
+        captured = {}
+        def fake_dump(path, obj):
+            captured['path'] = path
+            captured['obj'] = obj
+        yamlio.load_config = fake_load
+        yamlio.dump_config = fake_dump
+        old_yamlio = sys.modules.get('calendar_assistant.yamlio')
+        sys.modules['calendar_assistant.yamlio'] = yamlio
+
+        # Stub service
+        old_osvc = sys.modules.get('calendar_assistant.outlook_service')
+        stub_osvc = types.ModuleType('calendar_assistant.outlook_service')
+        stub_osvc.OutlookService = FakeService  # type: ignore
+        sys.modules['calendar_assistant.outlook_service'] = stub_osvc
+
+        from calendar_assistant import __main__ as cli
+        try:
+            args = SimpleNamespace(
+                config='dummy.yaml', calendar=None,
+                profile=None, client_id=None, tenant=None, token=None,
+                dry_run=False,
+            )
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = cli._cmd_outlook_update_locations_from_config(args)
+            out = buf.getvalue()
+            self.assertEqual(rc, 0, msg=out)
+            self.assertIn('Wrote updated locations', out)
+            # Verify dump contains the standardized address
+            written = captured.get('obj', {})
+            self.assertIn('events', written)
+            loc = written['events'][0].get('location')
+            self.assertIn('Richmond Hill', loc)
+            self.assertIn('11099 Bathurst St', loc)
+        finally:
+            if old_yamlio is None:
+                sys.modules.pop('calendar_assistant.yamlio', None)
+            else:
+                sys.modules['calendar_assistant.yamlio'] = old_yamlio
+            if old_osvc is None:
+                sys.modules.pop('calendar_assistant.outlook_service', None)
+            else:
+                sys.modules['calendar_assistant.outlook_service'] = old_osvc
+
+
+if __name__ == '__main__':  # pragma: no cover
+    unittest.main()
+

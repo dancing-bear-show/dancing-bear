@@ -1,0 +1,14 @@
+accounts:
+  - name: personal
+    provider: gmail
+    credentials: ~/.config/credentials.json
+    token: ~/.config/token.json
+    cache: .cache/personal
+
+  # Personal Outlook (Microsoft account)
+  - name: personal_outlook
+    provider: outlook
+    client_id: YOUR_AZURE_APP_CLIENT_ID
+    tenant: consumers
+    token: ~/.config/outlook_token.json
+    cache: .cache/outlook

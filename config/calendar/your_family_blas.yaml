@@ -1,0 +1,186 @@
+# Canonical calendar plan for Your Family — Blas
+# Source: out/calendar/blas_current.plan.yaml (backed up here for versioning)
+# Edit by hand; use schedule-assistant to verify/sync with Outlook.
+events:
+- calendar: Your Family
+  subject: Soccer (RHSC Sunday)
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '12:00'
+  end_time: '12:55'
+  range:
+    start_date: '2025-11-02'
+  count: 10
+  location: Richmond Green Sports Dome (Bubble)
+  exdates:
+  - '2025-12-28'
+  - '2026-01-04'
+  child: Blas
+- calendar: Your Family
+  subject: Soccer (RHSC Sunday)
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '12:00'
+  end_time: '12:55'
+  range:
+    start_date: '2026-01-25'
+  count: 10
+  location: Richmond Green Sports Dome (Bubble)
+  exdates:
+  - '2026-02-15'
+  - '2026-03-15'
+  - '2026-03-22'
+  - '2026-04-05'
+  child: Blas
+- calendar: Your Family
+  subject: Martial Arts
+  repeat: weekly
+  byday:
+  - MO
+  - TU
+  - TH
+  - FR
+  start_time: '17:00'
+  end_time: '18:00'
+  range:
+    start_date: '2025-10-07'
+    until: '2025-12-31'
+  location: 905 Brazilian Jiu Jitsu (10 Furbacher Ln #2, Aurora, ON, Canada)
+  child: Blas
+- calendar: Your Family
+  subject: Soccer (ORSC)
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '18:00'
+  end_time: '19:00'
+  range:
+    start_date: '2025-11-03'
+  count: 18
+  location: Kettle Lakes Public School (62 Kingshill Road, Richmond Hill, ON L4E 4X5)
+  exdates:
+  - '2025-12-22'
+  - '2025-12-29'
+  - '2026-02-16'
+  - '2026-01-05'
+  - '2026-03-16'
+  child: Blas
+- calendar: Your Family
+  subject: Moonpreneur Robotics
+  repeat: weekly
+  byday:
+  - MO
+  start_time: '20:00'
+  end_time: '21:30'
+  range:
+    start_date: '2025-10-06'
+    until: '2025-11-30'
+  child: Blas
+- calendar: Your Family
+  subject: Moonpreneur Power Skill
+  start: 2025-11-01T14:30
+  end: 2025-11-01T15:30
+  child: Blas
+- calendar: Your Family
+  subject: Spanish
+  repeat: weekly
+  byday:
+  - SA
+  start_time: 09:30
+  end_time: '12:00'
+  range:
+    start_date: '2025-09-27'
+    until: '2026-06-06'
+  location: St. Maximilian Kolbe CHS (278 Wellington Street East, Aurora, ON L4G 1J5)
+  child: Blas
+  exdates:
+  - '2026-04-04'
+- calendar: Your Family
+  subject: Spanish
+  repeat: weekly
+  byday:
+  - WE
+  start_time: '18:00'
+  end_time: '20:30'
+  range:
+    start_date: '2025-10-01'
+    until: '2026-05-06'
+  location: Stephen Lewis High School (555 Autumn Hill Boulevard, Vaughan, ON L4J 8X2)
+  child: Blas
+  exdates:
+  - '2026-03-18'
+- calendar: Your Family
+  subject: Scouts
+  repeat: weekly
+  byday:
+  - TU
+  start_time: '19:00'
+  end_time: '20:00'
+  range:
+    start_date: '2025-10-07'
+    until: '2025-12-31'
+  location: 5592 Aurora Road, Whitchurch-Stouffville, Ontario, Canada
+  child: Blas
+- calendar: Your Family
+  subject: Swimmer 3
+  repeat: weekly
+  byday:
+  - TH
+  start_time: '18:30'
+  end_time: '19:15'
+  range:
+    start_date: '2025-10-02'
+    until: '2025-12-04'
+  location: Oak Ridges Community Centre (12895 Bayview Avenue, Richmond Hill, ON L4B 4P9)
+  child: Blas
+  child_full: Blas Sherwin
+- calendar: Your Family
+  subject: Chess
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '10:30'
+  end_time: '11:30'
+  range:
+    start_date: '2025-09-28'
+    until: '2025-11-16'
+  location: Oak Ridges Community Centre (Program Room 2)
+  child: Blas
+  child_full: Blas Sherwin
+- calendar: Your Family
+  subject: Brightchamps Session
+  repeat: weekly
+  byday:
+  - SU
+  start_time: '19:30'
+  end_time: '20:30'
+  range:
+    start_date: '2025-11-16'
+    until: '2026-02-22'
+  location: https://champ.brightchamps.com/
+  child: Blas
+  child_full: Blas Sherwin
+- calendar: Your Family
+  subject: Moonpreneur Advanced Math
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '18:30'
+  end_time: '19:30'
+  range:
+    start_date: '2025-10-24'
+    until: '2025-10-31'
+  child: Blas
+- calendar: Your Family
+  subject: Moonpreneur Advanced Math
+  repeat: weekly
+  byday:
+  - FR
+  start_time: '19:30'
+  end_time: '20:30'
+  range:
+    start_date: '2025-11-07'
+    until: '2025-11-30'
+  child: Blas

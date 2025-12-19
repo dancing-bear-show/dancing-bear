@@ -1,0 +1,40 @@
+filters:
+  # Finance: domain-specific rules
+  - match:
+      from: "chase.com OR e.chase.com"
+    action:
+      add: ["Finance/Chase"]
+      remove: ["INBOX"]
+  - match:
+      from: "e.etrade.com OR etrade.com OR etradefrommorganstanley.com"
+    action:
+      add: ["Finance/ETrade"]
+      remove: ["INBOX"]
+  - match:
+      from: "jpmorgan.com"
+    action:
+      add: ["Finance/JPMorgan"]
+      remove: ["INBOX"]
+  - match:
+      from: "td.com"
+    action:
+      add: ["Finance/TD"]
+      remove: ["INBOX"]
+
+  # Finance: Merchants (exclude bank domains)
+  - match:
+      from: "e.paypal.com OR paypal.ca OR paypal.com OR qtrade.ca OR questrade.com OR wealthsimple.com"
+    action:
+      add: ["Finance/Merchants"]
+
+  # Personal: Gym (Movati-related senders)
+  - match:
+      from: "movatiathletic.com OR myiclubonline.com OR trainerize.com OR groupexpro.com"
+    action:
+      add: ["Personal/Gym"]
+
+  # Personal: Medical (Jane)
+  - match:
+      from: "janeapp.com"
+    action:
+      add: ["Personal/Medical"]

@@ -1,0 +1,20 @@
+name: Brian Cory Sherwin
+headline: Site Reliability Engineer
+phone: "4168018094"
+location: Richmond Hill, Ontario, Canada
+email: brian.sherwin@gmail.com
+summary: >-
+  Staff SRE focused on hardening distributed systems and improving performance.
+  Build resilient, cloud‑native architectures on AWS and Kubernetes, with EKS node
+  efficiency and cost management.
+  Drive SLO/SLI adoption, on‑call quality, and change safety across teams.
+  Turn ambiguity into automated tooling using Python CLIs and scripts; manage LLM‑assisted
+  workflows to accelerate development.
+  Mentor engineers and teams; lead training and knowledge‑sharing to raise reliability best practices.
+  Use Grafana + Tempo and Honeycomb to connect metrics, traces, logs, and cost.
+  Triage incidents quickly with PagerDuty and clear runbooks.
+  Improve JVM services through GC tuning, heap sizing, and objective performance
+  analysis using metrics and GC logs; chart and assess performance to guide
+  data‑driven experiments.
+  Integrate SaaS APIs and Jira/Atlassian workflows to streamline delivery.
+

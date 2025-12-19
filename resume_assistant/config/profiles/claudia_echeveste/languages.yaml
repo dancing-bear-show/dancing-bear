@@ -1,0 +1,13 @@
+languages:
+  - name: Spanish
+    level: Native
+    priority: 0.6
+  - name: English
+    level: Advanced
+    priority: 0.6
+  - name: French
+    level: Basic
+    priority: 0.3
+  - name: Italian
+    level: Basic
+    priority: 0.3

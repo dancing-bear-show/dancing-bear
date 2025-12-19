@@ -1,0 +1,115 @@
+groups:
+  - title: Platform
+    items:
+      - name: AWS
+        desc: operate production workloads; IAM, EC2/EKS/S3
+        priority: 1.0
+      - name: Kubernetes
+        desc: cluster ops and resilient deployment patterns
+        priority: 1.0
+      - name: EKS (cost & efficiency)
+        desc: node right‑sizing; requests/limits; autoscaling tuned for safety; utilization dashboards
+        priority: 0.95
+      - name: Cloud‑native architecture
+        desc: reliability patterns, resilience under failure
+        priority: 0.85
+  - title: Reliability & Performance
+    items:
+      - name: SRE (SLOs/SLIs)
+        desc: drive adoption, error budget policy, reduce toil
+        priority: 1.0
+      - name: Incident response & on‑call
+        desc: improved MTTR with better triage, handoffs, comms
+        priority: 0.9
+      - name: Troubleshooting site incidents
+        desc: root cause faster using cross-signal correlation
+        priority: 0.8
+      - name: Incident command
+        desc: lead war rooms; coordinate technical and stakeholder flows
+        priority: 0.7
+      - name: Performance engineering (JVM, profiling)
+        desc: GC tuning; flamegraphs; p95 tail reduction
+        priority: 1.0
+      - name: Change management
+        desc: safe rollouts, progressive delivery, postmortems
+        priority: 0.6
+  - title: Observability
+    items:
+      - name: Metrics & SLIs
+        desc: define SLIs/SLOs, tune alerts, enforce error budgets
+        priority: 1.0
+      - name: Dashboards & storytelling
+        desc: clear, actionable visuals for fast decisions
+        priority: 0.9
+      - name: Alerting & runbooks
+        desc: reduce noise, clear escalation and recovery steps
+        priority: 0.7
+  - title: Systems & Data
+    items:
+      - name: Systems modeling (data/process/network)
+        desc: map flows to understand dependencies and failure modes
+        priority: 0.85
+      - name: Data discovery & dataset linking
+        desc: correlate metrics/logs/traces/cost to explain behavior
+        priority: 0.8
+      - name: Dashboarding & data storytelling
+        desc: concise narratives that inform action
+        priority: 0.8
+  - title: Technology
+    items:
+      - name: OpenTelemetry (OTel)
+        desc: standards-based telemetry; tracing + metrics
+        priority: 1.0
+      - name: Grafana
+        desc: dashboards and alerting; Tempo tracing; cost and performance management
+        priority: 1.0
+      - name: Honeycomb
+        desc: event-based tracing; complex incident analysis
+        priority: 0.95
+      - name: AWS CloudWatch
+        desc: metrics/logs source for dashboards and alerting
+        priority: 0.6
+      - name: SaaS API Integration
+        desc: creating and integrating workflows using APIs
+        priority: 0.8
+      - name: Auto-remediation systems (Nurse)
+        desc: incident detection and automated recovery (Python)
+        priority: 0.9
+      - name: PagerDuty
+        desc: incident response and on-call paging/escalation
+        priority: 0.7
+      - name: Python coding
+        desc: automation, CLIs, data processing
+        priority: 0.8
+      - name: LLM prompt design & semantic conventions
+        desc: define task specs and structured outputs; controlled vocabularies for reliable tooling
+        priority: 0.9
+      - name: Java Garbage Collection (GC)
+        desc: tuning throughput/latency; heap sizing; GC log analysis
+        priority: 1.0
+      - name: Jira/Atlassian tooling
+        desc: project tracking, workflows, and integrations
+        priority: 0.5
+      - name: Couchbase (NoSQL)
+        desc: cluster ops; spoke at Couchbase Connect 2015
+        priority: 0.5
+  - title: Tooling
+    items:
+      - name: Automation & scripting (Go, Python, Bash)
+        desc: internal CLIs and scripts; reduce manual work
+        priority: 0.8
+  - title: Soft Skills
+    items:
+      - name: Problem framing & hypothesis‑driven investigation
+        desc: ask better questions; converge quickly on signal
+      - name: Communication & stakeholder management
+        desc: clear updates; expectations and alignment
+      - name: Remote/async collaboration
+        desc: effective across time zones and teams
+      - name: Public speaking
+        desc: conference talks; engaging technical audiences
+      - name: Internal workshops & training
+        desc: enable teams through hands-on sessions
+      - name: Executive updates & storytelling
+        desc: crisp narratives focused on outcomes
+

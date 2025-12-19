@@ -1,0 +1,4 @@
+labels:
+  - name: VIP/Family
+    labelListVisibility: labelShow
+    messageListVisibility: show

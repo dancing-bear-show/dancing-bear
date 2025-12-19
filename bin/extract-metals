@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Prefer venv python if available
+if [[ -x ".venv/bin/python" ]]; then
+  PY=".venv/bin/python"
+else
+  PY="python3"
+fi
+
+# Ensure repo on PYTHONPATH
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR/.."
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+
+exec "$PY" -m mail_assistant.utils.metals "$@"
+

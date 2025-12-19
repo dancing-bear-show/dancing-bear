@@ -1,0 +1,5 @@
+suggestions:
+  - domain: "news@example.com"
+    label: "Lists/Newsletters"
+  - domain: "hr@company.com"
+    label: "Work/HR"

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Align a profile's data to a job YAML and write alignment + tailored outputs.
+#
+# Usage:
+#   bin/align-job --profile <prefix> --job <job.yaml> [--data <path>] \
+#     [--out <alignment.json>] [--tailored <tailored.json>] \
+#     [--max-bullets N] [--min-exp-score N]
+#
+# Defaults:
+#   data      = out/<profile>/data.json
+#   alignment = out/<profile>/alignment.<jobname>.json
+#   tailored  = out/<profile>/tailored.<jobname>.json
+#   max-bullets = 3, min-exp-score = 1
+
+profile=""
+job=""
+data=""
+alignment=""
+tailored=""
+max_bullets=3
+min_exp_score=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --profile) profile="${2:-}"; shift 2;;
+    --job) job="${2:-}"; shift 2;;
+    --data) data="${2:-}"; shift 2;;
+    --out) alignment="${2:-}"; shift 2;;
+    --tailored) tailored="${2:-}"; shift 2;;
+    --max-bullets) max_bullets="${2:-3}"; shift 2;;
+    --min-exp-score) min_exp_score="${2:-1}"; shift 2;;
+    -h|--help)
+      grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    *) echo "Unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+if [[ -z "$profile" || -z "$job" ]]; then
+  echo "Required: --profile <prefix> --job <job.yaml>" >&2
+  exit 2
+fi
+
+if [[ -z "$data" ]]; then
+  data="out/${profile}/data.json"
+fi
+
+# Derive job name for filenames
+job_base="$(basename "$job")"
+job_name="${job_base%.*}"
+
+outdir="out/${profile}"
+mkdir -p "$outdir"
+
+if [[ -z "$alignment" ]]; then
+  alignment="${outdir}/alignment.${job_name}.json"
+fi
+if [[ -z "$tailored" ]]; then
+  tailored="${outdir}/tailored.${job_name}.json"
+fi
+
+python -m resume_assistant align \
+  --data "$data" \
+  --job "$job" \
+  --out "$alignment" \
+  --tailored "$tailored" \
+  --max-bullets "$max_bullets" \
+  --min-exp-score "$min_exp_score" \
+  --profile "$profile"
+
+echo "Alignment: $alignment"
+echo "Tailored:  $tailored"
+

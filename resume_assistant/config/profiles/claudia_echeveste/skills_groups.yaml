@@ -1,0 +1,69 @@
+groups:
+  - title: Legal Expertise
+    items:
+      - name: International law
+        desc: human rights focus; clinic experience
+        priority: 1.0
+      - name: Human rights law
+        desc: research, clinic work, asylum case support
+        priority: 1.0
+      - name: Municipal & legislative law
+        desc: drafting, policy advisory, regulatory analysis
+        priority: 1.0
+      - name: Immigration law support
+        desc: family-based and defensive applications; motions
+        priority: 0.95
+      - name: Corporate law
+        desc: compliance and legal documentation
+        priority: 0.8
+      - name: Environmental law
+        priority: 0.7
+      - name: Constitutional procedural law
+        priority: 0.6
+      - name: USCIS/EOIR procedures
+        desc: family-based, defensive applications, motions
+        priority: 0.95
+      - name: Asylum case support
+        desc: country conditions research, affidavits
+        priority: 0.9
+      - name: Human rights documentation
+        desc: clinic methods, evidence standards
+        priority: 0.9
+
+  - title: Legal Skills
+    items:
+      - name: Legal research & writing
+        desc: memoranda, legal opinions, motions
+        priority: 1.0
+      - name: Legislative drafting & interpretation
+        priority: 1.0
+      - name: Client advisement & case management
+        priority: 0.95
+      - name: Contract drafting & review
+        desc: service, consulting, NDAs
+        priority: 0.8
+      - name: Translation & legal terminology (ES/EN)
+        desc: accuracy, context
+        priority: 0.85
+      - name: Ordinance/statute drafting
+        desc: structure, citations, amendments
+        priority: 1.0
+      - name: Committee procedure & records
+        desc: agendas, minutes, reports
+        priority: 0.9
+      - name: Stakeholder consultation
+        desc: community input, hearings, notices
+        priority: 0.8
+      - name: Public speaking & presentations
+        priority: 0.4
+      - name: NGO legal assistance
+        priority: 0.5
+
+  - title: Computer Skills
+    items:
+      - name: Microsoft Office Suite
+        priority: 0.5
+      - name: Microsoft Windows
+        priority: 0.4
+      - name: Internet research & publication
+        priority: 0.5

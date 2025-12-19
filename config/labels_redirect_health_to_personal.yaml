@@ -1,0 +1,10 @@
+labels: []
+redirects:
+  - from: "Health/Jane"
+    to: "Personal/Jane"
+  - from: "Health/Movati"
+    to: "Personal/Movati"
+  - from: "Health"
+    to: "Personal"
+  - from: "Alumni/UnivOfRochester"
+    to: "Personal/UnivOfRochester"

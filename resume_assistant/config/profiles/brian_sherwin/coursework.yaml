@@ -1,0 +1,16 @@
+coursework:
+  - name: Operating Systems
+    priority: 0.7
+  - name: Data Structures
+    priority: 0.6
+  - name: Computer Organization
+    priority: 0.6
+  - name: Discrete Mathematics
+    priority: 0.5
+  - name: Theory of Computation (Models & Limitations / Formal Systems)
+    priority: 0.5
+  - name: Artificial Intelligence
+    priority: 0.4
+  - name: Calculus I/II
+    priority: 0.3
+

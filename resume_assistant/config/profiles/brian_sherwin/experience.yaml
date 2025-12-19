@@ -1,0 +1,83 @@
+experience:
+- title: Staff Site Reliability Engineer
+  company: Confluent
+  start: May 2025
+  end: ''
+  location: Toronto, CA
+  priority: 1.0
+  bullets:
+    - text: Introduced LLM-assisted workflows for internal tooling (CLI automation + tests)
+      priority: 1.0
+    - text: Lead SLO/SLI practices, incident response, and command
+      priority: 0.95
+    - text: Defined prompt specs for LLM tools (inputs, assumptions, expected outputs) to reduce rework and increase reliability
+      priority: 0.95
+- title: Senior Staff Site Reliability Engineer
+  company: Sailpoint Technologies
+  start: November 2020
+  end: May 2025
+  location: Toronto, CA
+  priority: 0.95
+  bullets:
+  - text: First hire for Site Reliability Engineering with the goal of education and expansion of reliability
+    priority: 0.7
+  - text: Train, educate, and document SailPoint Engineering in the first principles of reliability
+    priority: 0.7
+  - text: Create and document processes to improve SailPoint's commitment to reliability for our customers
+    priority: 0.7
+  - text: Developed and led an SRE team from 1 to 9 engineers
+    priority: 0.85
+  - text: Developed an EKS and JVM cost-saving strategy realizing $1,000,000 annual savings via performance analysis and JVM GC tuning
+    priority: 1.0
+  - text: Optimized EKS node groups and requests/limits for utilization and cost; tuned autoscaling to maintain safety without catastrophic failures
+    priority: 0.95
+  - text: Developed Grafana dashboards to debug and effectively use telemetry from Grafana Cloud, CloudWatch, and Elasticsearch in a single pane of glass
+    priority: 0.9
+  - text: Created Service Level Objectives to track degradation while reducing monitoring fatigue
+    priority: 0.95
+  - text: Standardized incident updates and runbooks so responders know what, why, and what next quickly; reduced MTTR and handoff confusion
+    priority: 0.85
+- title: Senior Site Reliability Engineer
+  company: LinkedIn Inc.
+  start: November 2011
+  end: November 2020
+  location: San Jose, CA
+  priority: 0.9
+  bullets:
+  - text: Member of first-line team troubleshooting high-impact production issues
+    priority: 0.75
+  - text: Analyzed operational cost of Java applications
+    priority: 0.8
+  - text: Architected LinkedIn's auto-remediation system "Nurse" (Python)
+    priority: 0.95
+  - text: Expanded monitoring using statistical methods
+    priority: 0.85
+  - text: Fostered a culture of measuring, managing, and improving uptime and availability
+    priority: 0.8
+  - text: Configured monitoring to respond to user issues using LinkedIn's homegrown monitoring system
+    priority: 0.65
+  - text: Established a shared vocabulary across dashboards, alerts, and logs so teams see the same story; sped triage and decisions
+    priority: 0.85
+- title: Network Operation Engineer, Operations
+  company: LiveOps Inc.
+  start: November 2009
+  end: November 2011
+  location: San Jose, CA
+  priority: 0.6
+  bullets:
+  - text: Wrote Perl and shell scripts to quantify business impact from service outages
+    priority: 0.7
+  - text: Liaised between Sales, Customer Support, and Engineering to ensure timely turnaround and communication
+    priority: 0.6
+  - text: Acted as team lead coordinating low-level managerial tasks
+    priority: 0.6
+- title: Network Administrator, Distribution Center Team
+  company: Wal-Mart Stores Inc.
+  start: June 2007
+  end: November 2009
+  location: ''
+  priority: 0.5
+  bullets:
+  - text: Designed automations for proactive diagnosis; configured Cisco switches for reliable installations
+    priority: 0.6
+

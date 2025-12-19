@@ -1,0 +1,6 @@
+filters:
+  - name: finance_td
+    match:
+      query: "from:(td.com) OR from:(pcfinancial.ca) OR from:(pcoptimum.ca) OR from:(email-td.com) OR from:(pcfinancial.ca)"
+    action:
+      add: ["Finance/TD"]

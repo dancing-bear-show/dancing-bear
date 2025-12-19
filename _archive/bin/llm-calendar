@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Prefer venv python if present
+if [[ -x ".venv/bin/python" ]]; then
+  PY=".venv/bin/python"
+else
+  PY="python3"
+fi
+
+# Ensure repo parent is on PYTHONPATH when running from repo root
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR/.."
+if [[ -f "$REPO_ROOT/calendar_assistant/__init__.py" ]]; then
+  export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+fi
+
+exec "$PY" -m calendar_assistant.llm_cli "$@"

@@ -1,0 +1,43 @@
+# Candidate skills input (curate this by hand)
+name: Jane Doe
+headline: Senior Site Reliability Engineer
+contact:
+  email: jane@example.com
+  phone: (555) 010-0202
+  location: Austin, TX
+
+# Keep this as keywords, not prose
+summary_keywords:
+  - reliability
+  - observability
+  - incident management
+  - kubernetes
+  - aws
+
+skills:
+  soft_skills:
+    - communication
+    - collaboration
+    - stakeholder management
+    - mentoring
+  tech_skills:
+    - Python
+    - Kubernetes
+    - AWS
+    - Terraform
+  technologies:
+    - EKS
+    - Grafana
+    - Prometheus
+
+# Optional: seed experience bullets (kept short)
+experience:
+  - title: Senior SRE
+    company: Acme
+    start: 2020
+    end: 2024
+    location: Remote
+    bullets:
+      - Managed Kubernetes clusters on EKS
+      - Built Grafana dashboards for SLOs
+

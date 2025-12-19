@@ -1,0 +1,11 @@
+languages:
+  - name: English
+    level: Native
+    priority: 1.0
+  - name: Spanish
+    level: Business conversational
+    priority: 0.8
+  - name: French
+    level: Advanced beginner
+    priority: 0.4
+

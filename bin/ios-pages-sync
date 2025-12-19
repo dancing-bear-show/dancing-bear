@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Build and install a multi-page Home Screen Layout profile from a plan
+# Requires: Supervised device + Apple Configurator 2 (cfgutil)
+#
+# Usage:
+#   bin/ios-pages-sync \
+#     [--plan out/ipad.plan.yaml] \
+#     [--layout out/ipad.IconState.yaml] \
+#     [--out out/ipad.hslayout.mobileconfig] \
+#     [--udid <UDID>] \
+#     [--identifier com.example.profile] \
+#     [--hs-identifier com.example.hslayout] \
+#     [--display-name "Home Screen Layout"] \
+#     [--organization "Personal"]
+
+set -euo pipefail
+
+PLAN="out/ipad.plan.yaml"
+LAYOUT="out/ipad.IconState.yaml"
+PROFILE_OUT="out/ipad.hslayout.mobileconfig"
+UDID="${IOS_DEVICE_UDID:-}"
+UDIDS_CSV=""
+LABELS_CSV=""
+IDENT="com.example.profile"
+HS_IDENT="com.example.hslayout"
+DISPLAY="Home Screen Layout"
+ORG="Personal"
+P12=""
+P12_PASS=""
+PROFILE_NAME="ios_layout_manager"
+ALT_PROFILE_NAME="ios_supervisor"
+CONFIG_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --plan) PLAN="$2"; shift 2 ;;
+    --layout) LAYOUT="$2"; shift 2 ;;
+    --out) PROFILE_OUT="$2"; shift 2 ;;
+    --udid|-u) UDID="$2"; shift 2 ;;
+    --identifier) IDENT="$2"; shift 2 ;;
+    --hs-identifier) HS_IDENT="$2"; shift 2 ;;
+    --display-name) DISPLAY="$2"; shift 2 ;;
+    --organization) ORG="$2"; shift 2 ;;
+    --p12) P12="$2"; shift 2 ;;
+    --p12-pass) P12_PASS="$2"; shift 2 ;;
+    --creds-profile) PROFILE_NAME="$2"; shift 2 ;;
+    --device-label) DEVICE_LABEL="$2"; shift 2 ;;
+    --device-labels) LABELS_CSV="$2"; shift 2 ;;
+    --udids) UDIDS_CSV="$2"; shift 2 ;;
+    --config) CONFIG_PATH="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [--plan PATH] [--layout PATH] [--out PATH] [--udid UDID] [--identifier ID] [--hs-identifier ID] [--display-name NAME] [--organization ORG]"; exit 0 ;;
+    *) echo "Unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+if [[ ! -f "$PLAN" ]]; then
+  echo "Error: plan not found: $PLAN" >&2
+  echo "Create it first, e.g.:" >&2
+  echo "  ./bin/phone-assistant plan --layout out/ipad.IconState.yaml --out $PLAN" >&2
+  exit 1
+fi
+if [[ ! -f "$LAYOUT" ]]; then
+  echo "Error: layout export not found: $LAYOUT" >&2
+  echo "Export it first, e.g.:" >&2
+  echo "  ./bin/phone-assistant export --out $LAYOUT" >&2
+  exit 1
+fi
+# cfgutil fallback is handled by ios-install-profile; no hard check here
+
+set -x
+./bin/phone-assistant profile build \
+  --plan "$PLAN" \
+  --layout "$LAYOUT" \
+  --out "$PROFILE_OUT" \
+  --identifier "$IDENT" \
+  --hs-identifier "$HS_IDENT" \
+  --display-name "$DISPLAY" \
+  --organization "$ORG"
+
+# Resolve a list of UDIDs from labels/udids
+to_udids_from_labels() {
+  local labels_csv="$1" cfg="$2"; local out="";
+  IFS=',' read -r -a arr <<< "$labels_csv"
+  for lbl in "${arr[@]}"; do
+    lbl="${lbl// /}"
+    if [[ -z "$lbl" ]]; then continue; fi
+    local val
+    val=$(awk -v k="$lbl" '
+      BEGIN{i=0}
+      $0 ~ /^[[:space:]]*\[/ {i = ($0 ~ /^\s*\[ios_devices\]\s*$/) ? 1 : 0}
+      i==1 && $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {val=$0; sub(/^[^=]*=/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val); print val; exit 0}
+    ' "$cfg")
+    if [[ -n "$val" ]]; then out+="$val,"; fi
+  done
+  echo "${out%,}"
+}
+
+# Resolve UDID from label mapping if not provided
+if [[ -z "$UDID" && -n "${DEVICE_LABEL:-}" ]]; then
+  # Attempt read same config as ios-install-profile
+  RESOLVE_CFG() {
+    if [[ -n "$CONFIG_PATH" && -f "$CONFIG_PATH" ]]; then echo "$CONFIG_PATH"; return; fi
+    if [[ -n "${CREDENTIALS:-}" && -f "${CREDENTIALS}" ]]; then echo "${CREDENTIALS}"; return; fi
+    local xdg=${XDG_CONFIG_HOME:-"$HOME/.config"}
+    if [[ -f "$xdg/credentials.ini" ]]; then echo "$xdg/credentials.ini"; return; fi
+    if [[ -f "$HOME/.config/credentials.ini" ]]; then echo "$HOME/.config/credentials.ini"; return; fi
+    if [[ -f "$xdg/sre-utils/credentials.ini" ]]; then echo "$xdg/sre-utils/credentials.ini"; return; fi
+    if [[ -f "$HOME/.config/sre-utils/credentials.ini" ]]; then echo "$HOME/.config/sre-utils/credentials.ini"; return; fi
+    if [[ -f "$HOME/.config/sreutils/credentials.ini" ]]; then echo "$HOME/.config/sreutils/credentials.ini"; return; fi
+    if [[ -f "$HOME/.sre-utils/credentials.ini" ]]; then echo "$HOME/.sre-utils/credentials.ini"; return; fi
+  }
+  CFG_FILE=$(RESOLVE_CFG)
+  if [[ -n "$CFG_FILE" && -f "$CFG_FILE" ]]; then
+    UDID=$(awk -v k="$DEVICE_LABEL" '
+      BEGIN{i=0}
+      $0 ~ /^[[:space:]]*\[/ {i = ($0 ~ /^\s*\[ios_devices\]\s*$/) ? 1 : 0}
+      i==1 && $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {val=$0; sub(/^[^=]*=/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val); print val; exit 0}
+    ' "$CFG_FILE")
+    # Multi-labels
+    if [[ -z "$UDIDS_CSV" && -n "$LABELS_CSV" ]]; then
+      UDIDS_CSV=$(to_udids_from_labels "$LABELS_CSV" "$CFG_FILE")
+    fi
+  fi
+fi
+
+if [[ -n "$UDIDS_CSV" ]]; then
+  IFS=',' read -r -a _udids <<< "$UDIDS_CSV"
+  for u in "${_udids[@]}"; do
+    ./bin/ios-install-profile --udid "$u" --profile "$PROFILE_OUT" ${P12:+--p12 "$P12"} ${P12_PASS:+--p12-pass "$P12_PASS"} ${PROFILE_NAME:+--creds-profile "$PROFILE_NAME"} ${CONFIG_PATH:+--config "$CONFIG_PATH"}
+  done
+elif [[ -n "$UDID" ]]; then
+  ./bin/ios-install-profile --udid "$UDID" --profile "$PROFILE_OUT" ${P12:+--p12 "$P12"} ${P12_PASS:+--p12-pass "$P12_PASS"} ${PROFILE_NAME:+--creds-profile "$PROFILE_NAME"} ${CONFIG_PATH:+--config "$CONFIG_PATH"}
+else
+  ./bin/ios-install-profile --profile "$PROFILE_OUT" ${P12:+--p12 "$P12"} ${P12_PASS:+--p12-pass "$P12_PASS"} ${PROFILE_NAME:+--creds-profile "$PROFILE_NAME"} ${CONFIG_PATH:+--config "$CONFIG_PATH"}
+fi
+set +x
+
+echo "Synced pages via multi-page profile: $PROFILE_OUT"

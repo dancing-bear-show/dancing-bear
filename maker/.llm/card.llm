@@ -1,0 +1,22 @@
+Context:
+Design family for coin/card denomination holders.
+Existing STLs: card_1x_1oz, card_2x_halfoz, card_4x_quarteroz, card_10x_tenthoz.
+
+Status:
+- Generator available: `maker/card/gen_snug_variants.py` (produces +0.2/+0.4 mm clearance variants)
+
+Constraints:
+- Flat base for easy bed adhesion; orientation: text up.
+- Target thickness ~2.0–3.0 mm; chamfer edges 0.6–1.0 mm.
+- Label text legible with 0.4 mm nozzle; raised/embossed ≥0.6 mm.
+- Slots sized for standard coin capsules; allow +0.2 mm clearance.
+
+Ask:
+Provide a parametric OpenSCAD that can generate the above variants with inputs:
+label_text, slot_count, slot_diameter, slot_spacing, base_width, base_height, base_thickness, fillet_size.
+Then list parameters for each existing STL so we can reproduce.
+
+Deliverables:
+- Self-contained OpenSCAD source (≤ 150 lines if possible).
+- Parameter presets for the four variants.
+- Suggested print settings and orientation.

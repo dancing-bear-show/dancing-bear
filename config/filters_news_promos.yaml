@@ -1,0 +1,21 @@
+filters:
+  - name: "Auto Lists: Promotions (catch-all)"
+    match:
+      query: >
+        (category:promotions OR list:*)
+        AND (subject:(sale OR "percent off" OR "% off" OR deal OR promo OR clearance OR coupon OR "free shipping"))
+        AND -subject:(receipt OR invoice OR "order confirmation" OR shipped OR shipping OR delivered OR delivery OR pickup OR refund OR "return label")
+    action:
+      add: ["Lists/Commercial"]
+
+  - name: "Auto Lists: Newsletters (catch-all)"
+    match:
+      query: >
+        (list:*)
+        AND -subject:(receipt OR invoice OR "order confirmation" OR shipped OR shipping OR delivered OR delivery OR refund)
+        AND -category:forums
+        AND -category:promotions
+        AND -subject:("trial confirmation" OR "trial confirmed" OR "free trial")
+    action:
+      categories: [updates]
+      add: ["Lists/Newsletters"]

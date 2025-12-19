@@ -1,0 +1,24 @@
+Goal: Keep Gmail and Outlook in lockstep via one unified config.
+
+Imperatives:
+- Prefer editing `config/filters_unified.yaml` (and `config/labels_current.yaml`) only.
+- Derive provider configs via `config derive` (never hand-edit provider outputs).
+- Use `config optimize` to merge sender lists for the same destination.
+- Use `config audit` to track % of simple Gmail rules not yet unified.
+
+Common flows:
+- Derive: `config derive labels|filters`
+- Optimize: `config optimize filters --preview`
+- Audit: export Gmail → `config audit filters --in unified --export exported --preview-missing`
+- Outlook parity: default move-to-folder from first `action.add` label; disable with `--categories-only`.
+
+Sweeps:
+- Gmail: 90-day Inbox sweeps on pruned actionable sets.
+- Outlook: modest (pages=1, top=20) regular; occasional aggressive with cache clear.
+
+Status snapshot:
+- Unified coverage: simple Gmail rules 100% covered (0% not unified).
+- Auto-archive (remove INBOX): Lists/Commercial, Lists/Newsletters, Lists/Updates, Cloud/OneDrive, plus Finance/ETrade and Finance/JPMorgan.
+- Retailers merged under Lists/Commercial (examples): amazon(.com/.ca), bestbuy.ca, walmart.ca, costco.ca, homedepot.ca, staples.ca, sephora.ca, ikea.ca, thebay.com, lululemon.com, canadacomputers.com, memoryexpress.com, sportchek.ca, marks.com, uniqlo.com, peoplesjewellers.com, yeti.com.
+- Finance merged under Finance/Merchants (examples): amex.ca, capitalone.ca, rbc.com, bmo.com, cibc.com, td.com, scotiabank.com, wealthsimple.com, questrade.com, qtrade.ca, paypal(.com/.ca).
+- OneDrive: sharepointonline.com OR onedrive.com.

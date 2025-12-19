@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Helper to run Gmail OAuth auth flow with sane defaults.
+set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+DEFAULT_CRED="$DEFAULT_CONFIG_DIR/credentials.json"
+DEFAULT_TOK="$DEFAULT_CONFIG_DIR/token.json"
+
+show_usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--credentials PATH] [--token PATH]
+
+Defaults:
+  --credentials $DEFAULT_CRED
+  --token       $DEFAULT_TOK
+
+Example:
+  mkdir -p "$DEFAULT_CONFIG_DIR"
+  cp "$ROOT_DIR/credentials.example.json" "$DEFAULT_CRED"
+  $(basename "$0")
+EOF
+}
+
+cred=""
+tok=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --credentials)
+      cred=${2:-}; shift 2 ;;
+    --token)
+      tok=${2:-}; shift 2 ;;
+    -h|--help)
+      show_usage; exit 0 ;;
+    *)
+      echo "Unknown argument: $1" >&2; show_usage; exit 2 ;;
+  esac
+done
+
+# Defaults to external config directory
+cred=${cred:-$DEFAULT_CRED}
+tok=${tok:-$DEFAULT_TOK}
+
+if [[ ! -f "$cred" ]]; then
+  echo "credentials file not found: $cred" >&2
+  echo "Create one by copying the template and filling client id/secret:" >&2
+  echo "  mkdir -p $DEFAULT_CONFIG_DIR" >&2
+  echo "  cp $ROOT_DIR/credentials.example.json $cred" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$tok")"
+echo "Running auth with --credentials $cred --token $tok" >&2
+exec "$SCRIPT_DIR/mail_assistant" auth --credentials "$cred" --token "$tok"

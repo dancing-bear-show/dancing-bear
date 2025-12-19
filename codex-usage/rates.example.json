@@ -1,0 +1,9 @@
+{
+  "currency": "USD",
+  "per_1k": {
+    "input": 0.0050,
+    "cached_input": 0.0010,
+    "output": 0.0150,
+    "reasoning": 0.0300
+  }
+}

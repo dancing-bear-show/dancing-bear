@@ -1,0 +1,15 @@
+order:
+  - summary
+  - skills
+  - education
+  - experience
+  - presentations
+  - interests
+titles:
+  summary: Profile
+  skills: Abilities
+  education: Education
+  experience: Job History
+  presentations: Public Presentations
+  interests: Personal Interests
+

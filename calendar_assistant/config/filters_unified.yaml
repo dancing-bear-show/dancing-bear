@@ -1,0 +1,10 @@
+filters:
+  - name: Skip Microsoft Account Team (Gmail)
+    provider: gmail
+    query: 'from:accountprotection.microsoft.com OR from:account.microsoft.com OR "Microsoft account team"'
+    actions:
+      archive: true
+      mark_read: true
+      labels:
+        - Notifications/Microsoft
+

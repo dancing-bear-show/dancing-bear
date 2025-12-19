@@ -1,0 +1,58 @@
+# Bytecode / cache
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.cpython-*.py
+
+# Virtualenvs
+.env
+.venv
+venv/
+ENV/
+
+# OS files
+.DS_Store
+.vscode/
+.idea/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.cache/
+.direnv/
+htmlcov/
+.coverage
+.config/
+
+# Local logs and OAuth flows (do not commit)
+logs/
+msal_flow.json
+config/client_secret_*.json
+_out/
+backups/
+out/
+
+# Generated LLM capsules
+.llm/AGENTIC*.md
+.llm/DOMAIN_MAP*.md
+.llm/BOOTSTRAP_CAPSULE.yaml
+
+# Local OAuth tokens/credentials (never commit secrets)
+credentials.json
+token.json
+outlook_token.json
+credentials.ini
+*.credentials.ini
+*.token.json
+*.token
+settings.init
+
+# Potentially sensitive local configs
+config/*secrets*
+config/*tokens*
+config/*credentials*
+config/**/private*.yaml
+
+# Python packaging metadata
+*.egg-info/

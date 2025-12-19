@@ -1,0 +1,20 @@
+Context:
+“Maple auto 1oz total” denomination plaques (1 oz total, split into 1x, 2x half, 4x quarter, 10x tenth).
+
+Status:
+- STLs present for: 1x, 2x half, 4x quarter, 10x tenth under `maker/maple_auto_1oz_total/`
+
+Constraints:
+- Keep maple motif cleanly printable: minimum feature ≥ 0.5 mm.
+- Text and numbers readable at 0.2 mm layers; emboss ≥ 0.6 mm.
+- Plaque thickness ~2–3 mm; gentle back chamfer.
+
+Ask:
+Create a parametric OpenSCAD with:
+- total_oz (1.0), parts (1,2,4,10), label_format (e.g., “1oz total — 4 × quarter oz”).
+- motif toggle (maple on/off) and motif_scale.
+Return presets for: 1x, 2x half, 4x quarter, 10x tenth.
+
+Deliverables:
+- Self-contained OpenSCAD source with simple maple outline (polygon or importable DXF option).
+- Parameter sets for the four variants and recommended print orientation.

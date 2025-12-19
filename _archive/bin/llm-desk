@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -x ".venv/bin/python" ]]; then
+  PY=".venv/bin/python"
+else
+  PY="python3"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR/.."
+if [[ -f "$REPO_ROOT/desk_assistant/__init__.py" ]] || [[ -d "$REPO_ROOT/desk_assistant/desk_assistant" ]]; then
+  export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+fi
+
+exec "$PY" -m desk_assistant.llm_cli "$@"

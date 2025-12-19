@@ -1,0 +1,81 @@
+{
+  "agent_note": "Familiarization is read-only; skip running unit tests and skim this capsule plus .llm context files before executing CLI commands.",
+  "project": {
+    "name": "Mail Assistant",
+    "goal": "Unified Gmail/Outlook CLI for labels, filters, signatures, and rules backed by a human-editable YAML source of truth.",
+    "wrappers": {
+      "mail_assistant": "./bin/mail-assistant",
+      "auth_helper": "./bin/mail-assistant-auth"
+    },
+    "canonical_config": "config/filters_unified.yaml"
+  },
+  "profiles": {
+    "source_ini": "~/.config/sre-utils/credentials.ini",
+    "gmail_profile": "mail_assistant.gmail_personal",
+    "outlook_profile": "mail_assistant.outlook_personal",
+    "shared_profile": "mail_assistant.personal"
+  },
+  "architecture": {
+    "CLIEntrypoint": {
+      "name": "mail_assistant.__main__",
+      "path": "mail_assistant/__main__.py",
+      "purpose": "Dispatches ./bin/mail-assistant invocations into mail_assistant.cli.* handlers and surfaces agentic schemas."
+    },
+    "ConfigResolver": {
+      "name": "ConfigResolver",
+      "path": "mail_assistant/config_resolver.py",
+      "purpose": "Loads config/filters_unified.yaml, resolves includes, and converts YAML into provider-ready DSL objects."
+    },
+    "FilterDSL": {
+      "name": "FilterDSL",
+      "path": "mail_assistant/dsl.py",
+      "purpose": "Defines the filters/labels YAML DSL plus validation helpers shared across Gmail and Outlook sync flows."
+    },
+    "FilterHelpers": {
+      "name": "FilterHelpers",
+      "path": "mail_assistant/utils/filters.py",
+      "purpose": "Shared plan/apply logic that translates DSL entries into Gmail filters, Outlook rules, and reporting outputs."
+    },
+    "GmailProvider": {
+      "name": "GmailProvider",
+      "path": "mail_assistant/providers/gmail.py",
+      "purpose": "Gmail API adapter covering labels, filters, and signatures with dry-run aware sync helpers."
+    },
+    "OutlookProvider": {
+      "name": "OutlookProvider",
+      "path": "mail_assistant/providers/outlook.py",
+      "purpose": "Outlook rules/categories adapter with device-code auth helpers and planner/report output utilities."
+    }
+  },
+  "workflows": {
+    "gmail_plan": {
+      "desc": "Plan Gmail filters from the canonical YAML before any destructive sync.",
+      "command": "./bin/mail-assistant filters plan --config config/filters_unified.yaml --profile gmail_personal --delete-missing",
+      "verify": "Compare output to out/filters.gmail.from_unified.yaml"
+    },
+    "outlook_plan": {
+      "desc": "Plan Outlook rules/categories from the derived config produced by workflows.",
+      "command": "./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --profile outlook_personal --move-to-folders --delete-missing",
+      "verify": "Spot-check results against out/filters.outlook.from_unified.yaml"
+    },
+    "workflows_from_unified": {
+      "desc": "Generates derived Gmail/Outlook artifacts from config/filters_unified.yaml (no writes).",
+      "command": "./bin/mail-assistant workflows from-unified --config config/filters_unified.yaml"
+    }
+  },
+  "canonical_outputs": {
+    "gmail_plan": "out/filters.gmail.from_unified.yaml",
+    "outlook_plan": "out/filters.outlook.from_unified.yaml",
+    "gmail_export": "out/filters.gmail.export.yaml"
+  },
+  "budgets": {
+    "familiarize_token_budget": "600",
+    "guidance": "Keep familiarize fast and read-only; prefer .llm/CONTEXT.md, DOMAIN_MAP.md, and PATTERNS.md when deeper detail is needed."
+  },
+  "links": {
+    "context": ".llm/CONTEXT.md",
+    "domain_map": ".llm/DOMAIN_MAP.md",
+    "patterns": ".llm/PATTERNS.md",
+    "migration": ".llm/MIGRATION_STATE.md"
+  }
+}

@@ -1,0 +1,161 @@
+filters:
+  - name: Map Substack to Newsletters
+    match:
+      query: 'from:substack.com'
+    action:
+      categories: [updates]
+      add: ['Lists/Newsletters']
+
+  - name: Map Allbirds to Commercial
+    match:
+      query: 'from:mail.allbirds.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Skechers to Commercial
+    match:
+      query: 'from:emails.skechers.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Adidas to Commercial
+    match:
+      query: 'from:us-news.adidas.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map IKEA to Commercial
+    match:
+      query: 'from:news.email.ikea.ca'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Patagonia to Commercial
+    match:
+      query: 'from:na.patagonia.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map LEGO to Commercial
+    match:
+      query: 'from:e.crm.lego.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Ridge Wallet to Commercial
+    match:
+      query: 'from:(ridgewallet.ca OR ridge.com)'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Anker to Commercial
+    match:
+      query: 'from:news.anker.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map SharkNinja to Commercial
+    match:
+      query: 'from:(us.e.sharkninja.com OR ca.e.sharkninja.com)'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Starbucks to Commercial
+    match:
+      query: 'from:(e.starbucks.com OR m.starbucks.com)'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Reebok to Commercial
+    match:
+      query: 'from:emails.reebok.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map TheFutureParty to Newsletters
+    match:
+      query: 'from:(mail.futureparty.com OR futureparty.com)'
+    action:
+      categories: [updates]
+      add: ['Lists/Newsletters']
+
+  - name: Map 407ETR to Commercial
+    match:
+      query: 'from:407etr.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Best Buy to Commercial
+    match:
+      query: 'from:(bestbuy.ca OR bestbuy.com)'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Costco to Commercial
+    match:
+      query: 'from:digital.costco.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Home Depot to Commercial
+    match:
+      query: 'from:(homedepot.ca OR homedepot.com)'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Nike to Commercial
+    match:
+      query: 'from:email.nike.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map The North Face to Commercial
+    match:
+      query: 'from:thenorthface.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Columbia to Commercial
+    match:
+      query: 'from:email.columbia.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Lululemon to Commercial
+    match:
+      query: 'from:emails.lululemon.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Gap/Old Navy to Commercial
+    match:
+      query: 'from:em.gap.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']
+
+  - name: Map Apple to Commercial
+    match:
+      query: 'from:email.apple.com'
+    action:
+      categories: [promotions]
+      add: ['Lists/Commercial']

@@ -1,0 +1,6 @@
+labels: []
+redirects:
+  - from: "Scouts"
+    to: "Kids/Scouts"
+  - from: "School"
+    to: "Kids/School"

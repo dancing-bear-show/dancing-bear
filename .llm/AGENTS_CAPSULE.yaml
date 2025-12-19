@@ -1,0 +1,22 @@
+paths:
+  agents: AGENTS.md
+priority_rules:
+  use_unified_clis_first:
+  - assistant
+  - mail-assistant
+  - calendar-assistant
+  - schedule-assistant
+familiarize_files:
+  - .llm/familiarize.yaml
+workflow_for_new_functionality:
+  - '1) FIRST: Check if unified CLIs already cover it'
+  - './bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker> --help'
+  - './bin/mail-assistant --help    # Mail (labels, filters, signatures, outlook)'
+  - './bin/schedule-assistant --help  # Schedules plan/apply (dry-run default)'
+  - './bin/calendar-assistant --help  # Calendar utilities (where available)'
+  - '2) SECOND: Add subcommands under existing groups (labels, filters, outlook)'
+  - '3) LAST: Add focused helpers in mail_assistant/* with small methods and tests'
+analytics_tools: []
+agentic_schemas_notes:
+  - Prefer `--agentic --agentic-format yaml --agentic-compact` over `--help` for token-efficient schemas.
+  - `./bin/llm agentic --stdout` emits a compact capsule; use it for discovery.

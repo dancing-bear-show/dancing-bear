@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Normalize and move source files into _data/sources with clear names.
+#
+# Usage:
+#   bin/normalize-sources [--prefix <profile>] [--root <search_dir>]
+#
+# Example:
+#   bin/normalize-sources --prefix brian_sherwin --root .
+
+PREFIX="brian_sherwin"
+ROOT="."
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prefix)
+      PREFIX="${2:-$PREFIX}"; shift 2;;
+    --root)
+      ROOT="${2:-$ROOT}"; shift 2;;
+    *)
+      echo "Unknown arg: $1" >&2; exit 1;;
+  esac
+done
+
+dest_dir="_data/sources"
+mkdir -p "$dest_dir"
+
+# Quick presence check
+first_match=$(find "$ROOT" -type f \( -iname '*transcript*.*' -o -iname '*linkedin*.*' -o -iname '*resume*.*' \) -print -quit || true)
+if [[ -z "${first_match:-}" ]]; then
+  echo "No transcript files found under: $ROOT"
+  exit 0
+fi
+
+normalize_transcript() {
+  local src="$1"
+  local base ext tag date year month newname dest
+  base="$(basename "$src")"
+  ext="${base##*.}"
+  shopt -s nocasematch
+  if [[ "$base" == *official* ]]; then
+    tag="official"
+  elif [[ "$base" == *unofficial* ]]; then
+    tag="unofficial"
+  else
+    tag="unknown"
+  fi
+  # Extract YYYY[-_/.]?MM if present, else YYYY, else 'unknown'
+  if [[ "$base" =~ ([0-9]{4})[-_./]?([0-1][0-9]) ]]; then
+    year="${BASH_REMATCH[1]}"; month="${BASH_REMATCH[2]}"; date="$year-$month"
+  elif [[ "$base" =~ ([0-9]{4}) ]]; then
+    year="${BASH_REMATCH[1]}"; date="$year"
+  else
+    date="unknown"
+  fi
+  shopt -u nocasematch
+  # Lowercase extension for consistency (macOS bash is 3.2; no ${var,,})
+  ext_lc=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+  newname="${PREFIX}.transcript.${tag}.${date}.${ext_lc}"
+  dest="${dest_dir}/${newname}"
+  # ensure no overwrite
+  if [[ -e "$dest" ]]; then
+    local i=1
+    while [[ -e "${dest_dir}/${PREFIX}.transcript.${tag}.${date}.${i}.${ext_lc}" ]]; do i=$((i+1)); done
+    dest="${dest_dir}/${PREFIX}.transcript.${tag}.${date}.${i}.${ext_lc}"
+  fi
+  echo "Move: $src -> $dest"
+  mv "$src" "$dest"
+}
+
+normalize_resume() {
+  local src="$1"
+  local base ext date year month ext_lc newname dest
+  base="$(basename "$src")"
+  ext="${base##*.}"
+  # Extract YYYY[-_/.]?MM if present, else YYYY, else 'unknown'
+  if [[ "$base" =~ ([0-9]{4})[-_./]?([0-1][0-9]) ]]; then
+    year="${BASH_REMATCH[1]}"; month="${BASH_REMATCH[2]}"; date="$year-$month"
+  elif [[ "$base" =~ ([0-9]{4}) ]]; then
+    year="${BASH_REMATCH[1]}"; date="$year"
+  else
+    date="unknown"
+  fi
+  ext_lc=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+  newname="${PREFIX}.resume.source.${date}.${ext_lc}"
+  dest="${dest_dir}/${newname}"
+  if [[ -e "$dest" ]]; then
+    local i=1
+    while [[ -e "${dest_dir}/${PREFIX}.resume.source.${date}.${i}.${ext_lc}" ]]; do i=$((i+1)); done
+    dest="${dest_dir}/${PREFIX}.resume.source.${date}.${i}.${ext_lc}"
+  fi
+  echo "Move: $src -> $dest"
+  mv "$src" "$dest"
+}
+
+normalize_linkedin() {
+  local src="$1"
+  local base ext date year month ext_lc newname dest
+  base="$(basename "$src")"
+  ext="${base##*.}"
+  if [[ "$base" =~ ([0-9]{4})[-_./]?([0-1][0-9]) ]]; then
+    year="${BASH_REMATCH[1]}"; month="${BASH_REMATCH[2]}"; date="$year-$month"
+  elif [[ "$base" =~ ([0-9]{4}) ]]; then
+    year="${BASH_REMATCH[1]}"; date="$year"
+  else
+    date="unknown"
+  fi
+  ext_lc=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+  newname="${PREFIX}.linkedin.export.${date}.${ext_lc}"
+  dest="${dest_dir}/${newname}"
+  if [[ -e "$dest" ]]; then
+    local i=1
+    while [[ -e "${dest_dir}/${PREFIX}.linkedin.export.${date}.${i}.${ext_lc}" ]]; do i=$((i+1)); done
+    dest="${dest_dir}/${PREFIX}.linkedin.export.${date}.${i}.${ext_lc}"
+  fi
+  echo "Move: $src -> $dest"
+  mv "$src" "$dest"
+}
+
+# Transcripts
+find "$ROOT" -type f \( -iname '*transcript*.*' \) -print0 | \
+while IFS= read -r -d $'\0' f; do
+  # Skip already-normalized ones inside _data/sources
+  case "$f" in
+    "$dest_dir"/*) continue;;
+  esac
+  normalize_transcript "$f"
+done
+
+# LinkedIn exports
+find "$ROOT" -type f \( -iname '*linkedin*.*' \) -print0 | \
+while IFS= read -r -d $'\0' f; do
+  case "$f" in
+    "$dest_dir"/*) continue;;
+  esac
+  normalize_linkedin "$f"
+done
+
+# Resumes
+find "$ROOT" -type f \( -iname '*resume*.pdf' -o -iname '*resume*.doc' -o -iname '*resume*.docx' \) -print0 | \
+while IFS= read -r -d $'\0' f; do
+  case "$f" in
+    "$dest_dir"/*) continue;;
+  esac
+  # Avoid moving our canonical source if already in dest
+  normalize_resume "$f"
+done
+
+echo "Done. Sources in: $dest_dir"

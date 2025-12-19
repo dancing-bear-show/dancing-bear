@@ -1,0 +1,13 @@
+filters:
+  - name: Categorize Political (US House)
+    match:
+      query: >
+        from:mail.house.gov
+    action:
+      add: ["Lists/Political"]
+
+  - name: Categorize Political (US Senate)
+    match:
+      query: 'from:senate.gov'
+    action:
+      add: ['Lists/Political']

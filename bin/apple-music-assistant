@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Wrapper for apple_music_assistant CLI."""
+
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from apple_music_assistant.__main__ import main  # noqa: E402
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

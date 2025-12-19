@@ -1,0 +1,7 @@
+labels:
+  - name: Personal/Alumni
+    labelListVisibility: labelShow
+    messageListVisibility: show
+redirects:
+  - from: "Health/Alumni"
+    to: "Personal/Alumni"
