@@ -31,6 +31,7 @@ msal_flow.json
 config/client_secret_*.json
 _out/
 backups/
+_archive/
 out/
 
 # Generated LLM capsules
