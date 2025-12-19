@@ -1,7 +1,0 @@
-filters:
-  - name: school_ycdsb
-    match:
-      query: "from:(ycdsb.ca)"
-    action:
-      add: ["Kids/School"]
-      forward: vanesaecheveste@hotmail.com

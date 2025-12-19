@@ -1,7 +1,0 @@
-
-filters:
-  - name: Remove Scouts from speechaim.com
-    match:
-      query: 'label:Scouts from:speechaim.com'
-    action:
-      remove: ['Scouts']

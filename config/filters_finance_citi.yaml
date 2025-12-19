@@ -1,6 +1,0 @@
-filters:
-  - name: finance_citi
-    match:
-      query: "from:(citi.com)"
-    action:
-      add: ["Finance/Citi"]
