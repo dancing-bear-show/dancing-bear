@@ -52,6 +52,9 @@ def _flow_map() -> str:
     if _cli_path_exists(["profile", "build"]):
         lines.append("- Profiles")
         lines.append("  - Build .mobileconfig: ./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig")
+    if _cli_path_exists(["export-device"]):
+        lines.append("- Device snapshot")
+        lines.append("  - Refresh icon map + YAML: ./bin/ios-iconmap-refresh")
     if _cli_path_exists(["manifest", "create"]):
         lines.append("- Manifests")
         lines.append("  - Create manifest: ./bin/phone manifest create --plan out/ios.plan.yaml --out out/ios.manifest.yaml")
