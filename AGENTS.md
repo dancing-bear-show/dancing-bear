@@ -121,7 +121,7 @@ Only add new entry points if these CLIs truly cannot cover the scenario.
 - Preserve existing CLI flags/subcommands; keep edits surgical.
 
 ### Build, Test, and Development Commands
-- Create venv: `python3 -m venv .venv && source .venv/bin/activate`
+- Create venv: `python3 -m venv .venv` (activation optional with `direnv`)
 - Install editable deps: `make venv` or `pip install -e .`
 - CLI help:
   - `./bin/mail-assistant --help`

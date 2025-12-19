@@ -66,7 +66,8 @@ class WorkflowAllProvidersTests(unittest.TestCase):
             tok = os.path.join(td, "tok.json")
             with open(tok, "w", encoding="utf-8") as fh:
                 fh.write("{}")
-            with patch.object(cr, "resolve_paths_profile", new=lambda **kwargs: (cred, tok)):
+            with patch.object(cr, "resolve_paths_profile", new=lambda **kwargs: (cred, tok)), \
+                 patch.object(m, "_resolve_outlook_args", new=lambda _args: (None, None, None, None)):
                 buf = io.StringIO()
                 args = SimpleNamespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, providers=None, profile=None, accounts_config=None, account=None)
                 with redirect_stdout(buf):
