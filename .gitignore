@@ -32,6 +32,7 @@ config/client_secret_*.json
 _out/
 backups/
 _archive/
+*.stl
 out/
 
 # Generated LLM capsules
