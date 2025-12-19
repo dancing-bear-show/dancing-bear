@@ -34,7 +34,8 @@ def _cli_path_exists(path: List[str]) -> bool:
 def _flow_map() -> str:
     lines: List[str] = []
     layout_cmds = [
-        ("export", "Export layout", "./bin/phone export --out out/ios.IconState.yaml"),
+        ("export-device", "Export layout (device)", "./bin/phone export-device --out out/ios.IconState.yaml"),
+        ("iconmap", "Download icon map", "./bin/phone iconmap --out out/ios.iconmap.json"),
         ("plan", "Scaffold plan", "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml"),
         ("checklist", "Checklist", "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt"),
     ]
@@ -63,7 +64,8 @@ def build_agentic_capsule() -> str:
     """Construct a compact capsule for LLM agents."""
     commands = [
         "help: ./bin/phone --help",
-        "export: ./bin/phone export --out out/ios.IconState.yaml",
+        "export-device: ./bin/phone export-device --out out/ios.IconState.yaml",
+        "iconmap: ./bin/phone iconmap --out out/ios.iconmap.json",
         "plan: ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
         "checklist: ./bin/phone checklist --plan out/ios.plan.yaml",
     ]

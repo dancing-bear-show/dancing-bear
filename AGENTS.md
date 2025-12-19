@@ -85,7 +85,8 @@ Flows mirror the data-driven system in `cars-sre-utils`.
 ./bin/schedule-assistant apply --plan out/schedule.plan.yaml --apply
 
 # Phone/iOS helpers
-./bin/phone export --out out/ios.IconState.yaml
+./bin/phone export-device --out out/ios.IconState.yaml
+./bin/phone iconmap --out out/ios.iconmap.json
 ./bin/phone plan --out out/ios.plan.yaml
 ```
 Only add new entry points if these CLIs truly cannot cover the scenario.

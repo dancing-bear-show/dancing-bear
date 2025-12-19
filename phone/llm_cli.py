@@ -45,7 +45,8 @@ def _familiar_extended() -> str:
         "  name: phone_familiarize\n"
         "  version: 1\n"
         "steps:\n"
-        "  - run: ./bin/phone export --out out/ios.IconState.yaml\n"
+        "  - run: ./bin/phone export-device --out out/ios.IconState.yaml\n"
+        "  - run: ./bin/phone iconmap --out out/ios.iconmap.json\n"
         "  - run: ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml\n"
         "  - run: ./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt\n"
     )

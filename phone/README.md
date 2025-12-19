@@ -1,7 +1,7 @@
 # Phone
 
 - Local-only CLI for iOS/iPadOS layout exports, plan scaffolds, manifests, and identity verification.
-- Entry point: `./bin/phone` (includes `export`, `plan`, `checklist`, `manifest`, `identity`, etc.).
+- Entry point: `./bin/phone` (includes `export-device`, `iconmap`, `plan`, `checklist`, `manifest`, `identity`, etc.; `export` is deprecated).
 - LLM helpers:
   - `./bin/llm --app phone agentic --stdout`
   - `./bin/llm --app phone domain-map --stdout`
@@ -11,7 +11,8 @@
 
 1) **Export/inspect layout**
    - Live (cfgutil): `./bin/ios-verify-layout --device-label <label>` or `--udid <UDID>`
-   - From backup: `./bin/phone export --out out/ios.IconState.yaml`
+   - From device (YAML): `./bin/phone export-device --out out/ios.IconState.yaml`
+   - Raw icon map (JSON): `./bin/phone iconmap --out out/ios.iconmap.json`
 
 2) **Build profile** (spec-aligned, single page)
    - Example (latest profile used): `out/homescreen.spec.mobileconfig`
