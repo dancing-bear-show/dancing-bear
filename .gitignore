@@ -28,6 +28,16 @@ coverage/
 coverage.xml
 artifacts/
 node_modules/
+.ruff_cache/
+.tox/
+.eggs/
+pip-wheel-metadata/
+junit*.xml
+*.log
+*.sqlite
+*.db
+*.swp
+*.tmp
 .config/
 
 # Local logs and OAuth flows (do not commit)
