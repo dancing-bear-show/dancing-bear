@@ -4,8 +4,17 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from personal_core import llm_cli
-from personal_core.textio import read_text
+from core import llm_cli
+from core.textio import read_text
+
+from .meta import (
+    AGENTIC_FALLBACK,
+    DOMAIN_MAP_FALLBACK,
+    FAMILIAR_COMPACT_FALLBACK,
+    FAMILIAR_EXTENDED_FALLBACK,
+    INVENTORY_FALLBACK,
+    POLICIES_FALLBACK,
+)
 
 LLM_DIR = Path(".llm")
 
@@ -16,7 +25,7 @@ def _agentic() -> str:
     try:
         return build_agentic_capsule()
     except Exception:
-        return "agentic: whatsapp\npurpose: Local WhatsApp ChatStorage search helpers"
+        return AGENTIC_FALLBACK
 
 
 def _domain_map() -> str:
@@ -25,35 +34,29 @@ def _domain_map() -> str:
     try:
         return build_domain_map()
     except Exception:
-        return "Domain Map not available"
+        return DOMAIN_MAP_FALLBACK
 
 
 def _inventory() -> str:
-    return read_text(LLM_DIR / "INVENTORY.md") or "# LLM Agent Inventory (WhatsApp)\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
+    return read_text(LLM_DIR / "INVENTORY.md") or INVENTORY_FALLBACK
 
 
 def _familiar_compact() -> str:
     return (
         read_text(LLM_DIR / "familiarize.yaml")
-        or "meta:\n  name: whatsapp_familiarize\n  version: 1\nsteps:\n  - run: ./bin/whatsapp --help\n"
+        or FAMILIAR_COMPACT_FALLBACK
     )
 
 
 def _familiar_extended() -> str:
-    return (
-        "meta:\n"
-        "  name: whatsapp_familiarize\n"
-        "  version: 1\n"
-        "steps:\n"
-        "  - run: ./bin/whatsapp search --contains school --limit 20\n"
-    )
+    return FAMILIAR_EXTENDED_FALLBACK
 
 
 def _policies() -> str:
-    return read_text(LLM_DIR / "PR_POLICIES.yaml") or "policies:\n  style:\n    - Keep CLI stable; prefer dry-run flows\n  tests:\n    - Add lightweight unittest for new CLI surfaces\n"
+    return read_text(LLM_DIR / "PR_POLICIES.yaml") or POLICIES_FALLBACK
 
 
-CONFIG = llm_cli.LlmConfig(
+CONFIG = llm_cli.make_app_llm_config(
     prog="llm-whatsapp",
     description="WhatsApp Assistant LLM utilities (inventory, familiar, policies, agentic, domain-map)",
     agentic=_agentic,

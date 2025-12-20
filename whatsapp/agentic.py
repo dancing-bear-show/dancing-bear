@@ -5,12 +5,13 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List, Tuple
 
-from personal_core.agentic import (
+from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _build_cli_tree,
     cli_path_exists as _cli_path_exists,
     section as _section,
 )
+from .meta import APP_ID, PURPOSE
 
 
 @lru_cache(maxsize=1)
@@ -52,8 +53,8 @@ def build_agentic_capsule() -> str:
     if flows:
         sections.append(("Flow Map", flows))
     return _build_capsule(
-        "whatsapp",
-        "Local-only WhatsApp ChatStorage search helpers",
+        APP_ID,
+        PURPOSE,
         commands,
         sections,
     )

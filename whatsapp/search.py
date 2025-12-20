@@ -46,6 +46,17 @@ def _connect_ro(path: str) -> sqlite3.Connection:
     return sqlite3.connect(uri, uri=True)
 
 
+def _build_like_clause(column: str, terms: Iterable[str], match_all: bool) -> Tuple[str, List[Any]]:
+    cleaned = [t.strip().lower() for t in terms if isinstance(t, str) and t.strip()]
+    if not cleaned:
+        return "", []
+    parts = [f"lower({column}) LIKE ?" for _ in cleaned]
+    joiner = " AND " if match_all else " OR "
+    clause = "(" + joiner.join(parts) + ")"
+    params = [f"%{t}%" for t in cleaned]
+    return clause, params
+
+
 def _build_where(
     contains: List[str],
     match_all: bool,
@@ -56,18 +67,15 @@ def _build_where(
     conds: List[str] = ["m.ZTEXT IS NOT NULL"]
     params: List[Any] = []
     # contains
-    terms = [t for t in (contains or []) if isinstance(t, str) and t.strip()]
-    if terms:
-        parts = []
-        for t in terms:
-            parts.append("lower(m.ZTEXT) LIKE ?")
-            params.append(f"%{t.strip().lower()}%")
-        joiner = " AND " if match_all else " OR "
-        conds.append("(" + joiner.join(parts) + ")")
+    clause, clause_params = _build_like_clause("m.ZTEXT", contains or [], match_all)
+    if clause:
+        conds.append(clause)
+        params.extend(clause_params)
     # contact display name
-    if contact and contact.strip():
-        conds.append("lower(s.ZPARTNERNAME) LIKE ?")
-        params.append(f"%{contact.strip().lower()}%")
+    contact_clause, contact_params = _build_like_clause("s.ZPARTNERNAME", [contact or ""], True)
+    if contact_clause:
+        conds.append(contact_clause)
+        params.extend(contact_params)
     # from_me
     if from_me is True:
         conds.append("m.ZISFROMME = 1")
@@ -125,6 +133,19 @@ def format_rows_text(rows: Iterable[MessageRow]) -> str:
     return "\n".join(out_lines)
 
 
+def rows_to_dicts(rows: Iterable[MessageRow]) -> List[Dict[str, Any]]:
+    return [
+        {"ts": r.ts, "partner": r.partner, "from_me": bool(r.from_me), "text": r.text}
+        for r in rows
+    ]
+
+
+def format_rows_json(rows: Iterable[MessageRow], indent: int = 2) -> str:
+    import json as _json
+
+    return _json.dumps(rows_to_dicts(rows), ensure_ascii=False, indent=indent)
+
+
 def run_search_cli(args) -> int:  # argparse.Namespace
     # Determine from_me filter
     from_me: Optional[bool] = None
@@ -142,22 +163,7 @@ def run_search_cli(args) -> int:  # argparse.Namespace
         limit=max(1, int(getattr(args, "limit", 50) or 50)),
     )
     if getattr(args, "json", False):
-        import json as _json
-        print(
-            _json.dumps(
-                [
-                    {
-                        "ts": r.ts,
-                        "partner": r.partner,
-                        "from_me": bool(r.from_me),
-                        "text": r.text,
-                    }
-                    for r in rows
-                ],
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
+        print(format_rows_json(rows))
         return 0
     print(format_rows_text(rows))
     return 0

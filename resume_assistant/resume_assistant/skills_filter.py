@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-
-def _normalize_text(s: str) -> str:
-    return re.sub(r"\s+", " ", s or "").strip().lower()
+from .text_match import expand_keywords, keyword_match
 
 
 def _item_matches(item_text: str, keywords: Set[str]) -> bool:
-    it = _normalize_text(item_text)
     for kw in keywords:
         if not kw:
             continue
-        k = kw.lower()
         # match whole or substring to be forgiving
-        if k in it:
+        if keyword_match(item_text, kw, normalize=True, word_boundary=False):
             return True
     return False
 
@@ -53,12 +48,7 @@ def filter_skills_by_keywords(
     - Filters flat skills list similarly if groups are absent.
     - Drops empty groups.
     """
-    syn = synonyms or {}
-    kw: Set[str] = set()
-    for k in matched_keywords:
-        kw.add(str(k))
-        for s in syn.get(k, []) or []:
-            kw.add(str(s))
+    kw: Set[str] = set(expand_keywords(matched_keywords or [], synonyms=synonyms))
 
     out = dict(data)
     groups = (data.get("skills_groups") or [])
@@ -85,4 +75,3 @@ def filter_skills_by_keywords(
         skills = [str(s) for s in (data.get("skills") or [])]
         out["skills"] = [s for s in skills if _item_matches(s, kw)]
     return out
-

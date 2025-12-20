@@ -11,14 +11,15 @@ import sys
 from functools import lru_cache
 from typing import Optional
 
-from personal_core.assistant import BaseAssistant
+from core.assistant import BaseAssistant
 
 from . import search as _wa
+from .meta import APP_ID, PURPOSE
 
 
 assistant = BaseAssistant(
-    "whatsapp",
-    "agentic: whatsapp\npurpose: Local WhatsApp ChatStorage search helpers",
+    APP_ID,
+    f"agentic: {APP_ID}\npurpose: {PURPOSE}",
 )
 
 

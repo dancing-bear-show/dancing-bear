@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Tuple
+
+from .text_match import keyword_match
 
 
 def _canon_map(synonyms: Dict[str, List[str]]) -> Dict[str, str]:
@@ -11,17 +12,6 @@ def _canon_map(synonyms: Dict[str, List[str]]) -> Dict[str, str]:
         for s in syns:
             m[s.lower()] = canon
     return m
-
-
-def _token_match(text: str, keyword: str) -> bool:
-    if not text or not keyword:
-        return False
-    # simple case-insensitive substring match with word boundaries preference
-    t = text.lower()
-    k = keyword.lower()
-    if re.search(rf"\b{re.escape(k)}\b", t):
-        return True
-    return k in t
 
 
 def _collect_candidate_text(candidate: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
@@ -83,7 +73,7 @@ def align_candidate_to_job(
         for kw_raw in canon_list:
             # test kw and its synonyms
             alts = [kw_raw] + [s for s, c in syn_map.items() if c == kw_raw]
-            if any(_token_match(text, alt) for alt in alts):
+            if any(keyword_match(text, alt) for alt in alts):
                 counts[kw_raw] += 1
                 hits[kw_raw].append({"text": text, **meta})
 
@@ -161,7 +151,7 @@ def build_tailored_candidate(
                 bt = str(b.get("text") or b.get("line") or b.get("name") or "")
             else:
                 bt = str(b)
-            if any(re.search(rf"\b{re.escape(k)}\b", bt, re.I) or (k.lower() in bt.lower()) for k in skills):
+            if any(keyword_match(bt, k) for k in skills):
                 kept.append(bt)
             if len(kept) >= max_bullets_per_role:
                 break

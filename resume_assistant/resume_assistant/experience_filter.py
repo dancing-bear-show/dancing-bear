@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-
-def _match(text: str, kw: str) -> bool:
-    if not text or not kw:
-        return False
-    t = text.lower()
-    k = kw.lower()
-    return (re.search(rf"\b{re.escape(k)}\b", t) is not None) or (k in t)
+from .text_match import expand_keywords, keyword_match
 
 
 def filter_experience_by_keywords(
@@ -27,15 +20,7 @@ def filter_experience_by_keywords(
     - Respects max_roles and max_bullets_per_role if provided.
     - Drops roles with score < min_score.
     """
-    syn = synonyms or {}
-    kws: List[str] = []
-    for k in matched_keywords or []:
-        if not k:
-            continue
-        kws.append(str(k))
-        for s in syn.get(k, []) or []:
-            if s:
-                kws.append(str(s))
+    kws: List[str] = expand_keywords(matched_keywords or [], synonyms=synonyms)
 
     experiences = list(data.get("experience") or [])
     if not experiences or not kws:
@@ -46,12 +31,12 @@ def filter_experience_by_keywords(
         score = 0
         title_company = " ".join([e.get("title") or "", e.get("company") or ""]).strip()
         for kw in kws:
-            if _match(title_company, kw):
+            if keyword_match(title_company, kw):
                 score += 1
         bullets = e.get("bullets") or []
         keep_bullets: List[str] = []
         for b in bullets:
-            if any(_match(str(b), kw) for kw in kws):
+            if any(keyword_match(str(b), kw) for kw in kws):
                 keep_bullets.append(str(b))
         # Fallback keep first bullet if none matched
         if not keep_bullets and bullets:
@@ -72,4 +57,3 @@ def filter_experience_by_keywords(
     out = dict(data)
     out["experience"] = out_roles
     return out
-
