@@ -99,7 +99,7 @@ fi
 if [[ ! -f "$PROFILE" ]]; then
   echo "Error: profile not found: $PROFILE" >&2
   echo "Build it first, e.g.:" >&2
-  echo "  ./bin/phone-assistant profile build --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out $PROFILE" >&2
+  echo "  ./bin/phone profile build --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out $PROFILE" >&2
   exit 1
 fi
 

@@ -11,7 +11,8 @@ venv:
 	$(PY) -m pip install -e .
 	# Ensure wrapper is executable for direct runs
 	chmod +x bin/mail_assistant bin/mail-assistant bin/mail-assistant-auth bin/assistant || true
-	chmod +x bin/wifi-assistant || true
+	chmod +x bin/phone bin/phone-assistant || true
+	chmod +x bin/wifi bin/wifi-assistant || true
 	chmod +x bin/apple-music-assistant bin/apple-music-user-token || true
 	# Cars-style convenience wrappers
 	chmod +x bin/gmail-auth bin/gmail-labels-export bin/gmail-labels-sync || true

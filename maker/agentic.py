@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import List
 
-from personal_core.agentic import section as _section
+from core.agentic import section as _section
 
 
 def _list_tools() -> List[str]:
@@ -21,7 +21,8 @@ def build_agentic_capsule() -> str:
     out.append("agentic: maker")
     out.append("purpose: Utility generators and print helpers")
     out.append("commands:")
-    out.append("  - list tools: ./bin/llm-maker domain-map --stdout")
+    out.append("  - list tools: ./bin/maker list-tools")
+    out.append("  - LLM domain map: ./bin/llm --app maker domain-map --stdout")
     out.append("  - example: python3 maker/card/gen_snug_variants.py --help")
     out.append("")
     tools = _list_tools()

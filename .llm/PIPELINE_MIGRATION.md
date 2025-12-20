@@ -53,7 +53,7 @@ so multiple engineers can work in parallel without stepping on each other.
   - [ ] CLI shim delegates to new domain orchestrator.
 - Schedule:
   - [x] Plan command uses dedicated pipeline consumers/processors/producers (`schedule_assistant/pipeline.py` + new tests).
-  - [ ] Update remaining commands (verify/sync/apply) + docs once calendar migration is done.
+- [x] Update remaining commands (verify/sync/apply) + docs once calendar migration is done.
 
 ## Phase 3 — Desk & Resume (parallel-friendly)
 - Desk:
@@ -71,6 +71,9 @@ so multiple engineers can work in parallel without stepping on each other.
 ## Phase 5 — Maker & Misc (optional)
 - [x] Maker CLI now uses pipeline consumers/processors/producers for listing + tool execution.
 - Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
+
+## Phase 6 — Wi-Fi (optional)
+- [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi_assistant/pipeline.py` + CLI shim).
 
 ## Coordination Notes
 - Each phase should leave CLI behavior unchanged (backward compatible).

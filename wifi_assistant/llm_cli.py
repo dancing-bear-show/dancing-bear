@@ -4,8 +4,8 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from personal_core import llm_cli
-from personal_core.textio import read_text
+from core import llm_cli
+from core.textio import read_text
 
 LLM_DIR = Path(".llm")
 
@@ -35,7 +35,7 @@ def _inventory() -> str:
 def _familiar_compact() -> str:
     return (
         read_text(LLM_DIR / "familiarize.yaml")
-        or "meta:\n  name: wifi_familiarize\n  version: 1\nsteps:\n  - run: ./bin/wifi-assistant --help\n"
+        or "meta:\n  name: wifi_familiarize\n  version: 2\nsteps:\n  - run: ./bin/wifi --help\n"
     )
 
 
@@ -43,10 +43,10 @@ def _familiar_extended() -> str:
     return (
         "meta:\n"
         "  name: wifi_familiarize\n"
-        "  version: 1\n"
+        "  version: 2\n"
         "steps:\n"
-        "  - run: ./bin/wifi-assistant --ping-count 8\n"
-        "  - run: ./bin/wifi-assistant --json --out out/wifi.diag.json\n"
+        "  - run: ./bin/wifi --ping-count 8\n"
+        "  - run: ./bin/wifi --json --out out/wifi.diag.json\n"
     )
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Thin wrapper around phone-assistant identity verify
+# Thin wrapper around phone identity verify
 # Usage:
 #   bin/ios-identity-verify [--device-label LABEL|--udid UDID] [--expected-org ORG] [--creds-profile PROFILE]
 
@@ -23,7 +23,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-PA="./bin/phone-assistant"
+PA="./bin/phone"
+if [[ ! -x "$PA" && -x "./bin/phone-assistant" ]]; then
+  PA="./bin/phone-assistant"
+fi
 args=( identity verify )
 if [[ -n "$DEVICE_LABEL" ]]; then args+=( --device-label "$DEVICE_LABEL" ); fi
 if [[ -n "$UDID" ]]; then args+=( --udid "$UDID" ); fi

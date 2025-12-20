@@ -57,19 +57,19 @@ done
 if [[ ! -f "$PLAN" ]]; then
   echo "Error: plan not found: $PLAN" >&2
   echo "Create it first, e.g.:" >&2
-  echo "  ./bin/phone-assistant plan --layout out/ipad.IconState.yaml --out $PLAN" >&2
+  echo "  ./bin/phone plan --layout out/ipad.IconState.yaml --out $PLAN" >&2
   exit 1
 fi
 if [[ ! -f "$LAYOUT" ]]; then
   echo "Error: layout export not found: $LAYOUT" >&2
   echo "Export it first, e.g.:" >&2
-  echo "  ./bin/phone-assistant export --out $LAYOUT" >&2
+  echo "  ./bin/phone export --out $LAYOUT" >&2
   exit 1
 fi
 # cfgutil fallback is handled by ios-install-profile; no hard check here
 
 set -x
-./bin/phone-assistant profile build \
+./bin/phone profile build \
   --plan "$PLAN" \
   --layout "$LAYOUT" \
   --out "$PROFILE_OUT" \

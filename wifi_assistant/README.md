@@ -5,9 +5,14 @@ Quick Wi-Fi/network diagnostics to separate Wi-Fi link issues from upstream ISP 
 ## Usage
 
 ```
+./bin/wifi
+./bin/wifi --ping-count 8 --json --out out/wifi.diag.json
+./bin/wifi --no-trace --no-http
+```
+
+Legacy (still supported):
+```
 ./bin/wifi-assistant
-./bin/wifi-assistant --ping-count 8 --json --out out/wifi.diag.json
-./bin/wifi-assistant --no-trace --no-http
 ```
 
 Probes:

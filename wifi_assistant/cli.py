@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
+import sys
 from typing import Optional
 
-from .diagnostics import DiagnoseConfig, SubprocessRunner, render_report, report_to_dict, run_diagnosis
+from .diagnostics import DiagnoseConfig, run_diagnosis
+from .pipeline import DiagnoseProcessor, DiagnoseProducer, DiagnoseRequest, DiagnoseRequestConsumer
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="wifi-assistant", description="Wi-Fi + network diagnostic helper")
+    prog = Path(sys.argv[0]).name or "wifi"
+    parser = argparse.ArgumentParser(prog=prog, description="Wi-Fi + network diagnostic helper")
     parser.add_argument("--gateway", help="Override detected default gateway IP")
     parser.add_argument("--targets", nargs="+", default=["1.1.1.1", "8.8.8.8", "google.com"], help="Ping targets (besides gateway)")
     parser.add_argument("--ping-count", type=int, default=12, help="Packets per target")
@@ -48,18 +50,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         survey_count=args.survey_count,
     )
 
-    report = run_diagnosis(cfg, runner=SubprocessRunner())
-    if args.json:
-        content = json.dumps(report_to_dict(report), indent=2)
-    else:
-        content = render_report(report)
-
-    if args.out:
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(content, encoding="utf-8")
-    print(content, end="")
-    return 0
+    out_path = Path(args.out) if args.out else None
+    request = DiagnoseRequest(config=cfg, emit_json=args.json, out_path=out_path)
+    processor = DiagnoseProcessor(run_fn=run_diagnosis)
+    envelope = processor.process(DiagnoseRequestConsumer(request).consume())
+    DiagnoseProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 
 if __name__ == "__main__":  # pragma: no cover

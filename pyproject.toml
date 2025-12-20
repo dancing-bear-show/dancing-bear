@@ -25,22 +25,25 @@ dependencies = [
 ]
 
 [project.scripts]
-assistant = "personal_core.assistant_cli:main"
+assistant = "core.assistant_cli:main"
 mail-assistant = "mail_assistant.__main__:main"
 calendar-assistant = "calendar_assistant.__main__:main"
 schedule-assistant = "schedule_assistant.__main__:main"
 phone = "phone.__main__:main"
+phone-assistant = "phone.__main__:main"
 whatsapp = "whatsapp.__main__:main"
 resume-assistant = "resume_assistant.resume_assistant.cli.main:main"
 apple-music-assistant = "apple_music_assistant.__main__:main"
 apple-music-user-token = "apple_music_assistant.user_token_cli:main"
 wifi-assistant = "wifi_assistant.__main__:main"
+wifi = "wifi_assistant.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 include = [
+  "core*",
   "personal_core*",
   "mail_assistant*",
   "resume_assistant*",
