@@ -12,8 +12,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from personal_core.assistant import BaseAssistant
-from personal_core.auth import build_outlook_service
+from core.assistant import BaseAssistant
+from core.auth import build_outlook_service_from_args
 
 from .helpers import build_gmail_service_from_args as _build_gmail_service_raw
 from .scan_common import (
@@ -371,12 +371,7 @@ def _add_common_gmail_paging_args(sp: argparse.ArgumentParser, *, default_days: 
 def _build_outlook_service(args: argparse.Namespace):
     """Create an OutlookService using shared resolver; returns None on failure."""
     try:
-        return build_outlook_service(
-            profile=getattr(args, "profile", None),
-            client_id=getattr(args, "client_id", None),
-            tenant=getattr(args, "tenant", None),
-            token_path=getattr(args, "token", None),
-        )
+        return build_outlook_service_from_args(args)
     except Exception as exc:
         print(str(exc))
         return None

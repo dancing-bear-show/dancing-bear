@@ -7,6 +7,7 @@ Domain
 - Canonical config: unified filters live at `config/filters_unified.yaml`.
 - Derive provider configs; do not hand-edit derived outputs in `out/`.
 - Keep public CLI stable (additive changes only); preserve existing flags/subcommands.
+- Use shared auth flag builders (`mail_assistant.cli.args`, backed by `core.cli_args`) to keep Gmail/Outlook args consistent.
 
 Sync Policy (Unified → Providers)
 - Plan before apply; prefer exact-match destructive syncs only with explicit review.
