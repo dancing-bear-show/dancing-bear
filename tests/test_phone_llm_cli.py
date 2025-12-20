@@ -1,13 +1,14 @@
 import io
 import sys
 import unittest
-from pathlib import Path
+
+from tests.fixtures import repo_root
 
 
 class TestPhoneLlmCli(unittest.TestCase):
     def test_agentic_stdout(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        sys.path.insert(0, str(repo_root.parent))
+        root = repo_root()
+        sys.path.insert(0, str(root.parent))
         import phone.llm_cli as mod  # type: ignore
 
         buf = io.StringIO()

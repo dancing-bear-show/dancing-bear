@@ -1,15 +1,16 @@
 import io
 import sys
 import unittest
-from pathlib import Path
+
+from tests.fixtures import repo_root
 
 
 class TestCalendarFamiliarVerbose(unittest.TestCase):
     def test_calendar_familiar_verbose_includes_outlook_steps(self):
-        repo_root = Path(__file__).resolve().parents[1]
+        root = repo_root()
         # Ensure repo root is importable for calendar_assistant
-        sys.path.insert(0, str(repo_root))
-        sys.path.insert(0, str(repo_root.parent))
+        sys.path.insert(0, str(root))
+        sys.path.insert(0, str(root.parent))
         import calendar_assistant.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout

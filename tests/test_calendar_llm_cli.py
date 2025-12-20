@@ -1,13 +1,14 @@
 import io
 import sys
 import unittest
-from pathlib import Path
+
+from tests.fixtures import repo_root
 
 
 class TestCalendarLLMCLI(unittest.TestCase):
     def test_llm_calendar_agentic(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        sys.path.insert(0, str(repo_root.parent))
+        root = repo_root()
+        sys.path.insert(0, str(root.parent))
         import calendar_assistant.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
@@ -21,8 +22,8 @@ class TestCalendarLLMCLI(unittest.TestCase):
         self.assertIn("agentic: calendar_assistant", out)
 
     def test_llm_calendar_derive_all(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        sys.path.insert(0, str(repo_root.parent))
+        root = repo_root()
+        sys.path.insert(0, str(root.parent))
         import calendar_assistant.llm_cli as mod  # type: ignore
         import tempfile
         with tempfile.TemporaryDirectory() as td:

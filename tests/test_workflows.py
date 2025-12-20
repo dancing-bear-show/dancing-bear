@@ -6,14 +6,7 @@ from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
-def _has_pyyaml() -> bool:
-    try:
-        import importlib.util
-
-        return importlib.util.find_spec("yaml") is not None
-    except Exception:
-        return False
+from tests.fixtures import has_pyyaml
 
 
 class FakeClient:
@@ -46,7 +39,7 @@ class FakeClient:
         return list(self._filters)
 
 
-@unittest.skipUnless(_has_pyyaml(), "requires PyYAML")
+@unittest.skipUnless(has_pyyaml(), "requires PyYAML")
 class WorkflowTests(unittest.TestCase):
     def _write_unified(self, data) -> str:
         import yaml
@@ -80,4 +73,3 @@ class WorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

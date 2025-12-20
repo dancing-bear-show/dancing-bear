@@ -1,9 +1,8 @@
-import os
 import sys
 import unittest
-from pathlib import Path
 
-from tests.fixtures import run
+from tests.fixtures import bin_path, repo_root, run
+
 
 class PhoneCLITests(unittest.TestCase):
     def test_help_via_module_invocation(self):
@@ -12,18 +11,18 @@ class PhoneCLITests(unittest.TestCase):
         self.assertIn('Phone Assistant CLI', proc.stdout)
 
     def test_help_via_executable_script(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        wrapper = repo_root / 'bin' / 'phone'
+        root = repo_root()
+        wrapper = bin_path('phone')
         self.assertTrue(wrapper.exists(), 'bin/phone not found')
-        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(repo_root))
+        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Phone Assistant CLI', proc.stdout)
 
     def test_help_via_legacy_script(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        wrapper = repo_root / 'bin' / 'phone-assistant'
+        root = repo_root()
+        wrapper = bin_path('phone-assistant')
         self.assertTrue(wrapper.exists(), 'bin/phone-assistant not found')
-        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(repo_root))
+        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Phone Assistant CLI', proc.stdout)
 

@@ -4,12 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.fixtures import repo_root
+
 
 class TestScheduleLLMCLI(unittest.TestCase):
     def _import_mod(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        sys.path.insert(0, str(repo_root))
-        sys.path.insert(0, str(repo_root.parent))
+        root = repo_root()
+        sys.path.insert(0, str(root))
+        sys.path.insert(0, str(root.parent))
         import schedule_assistant.llm_cli as mod  # type: ignore
 
         return mod

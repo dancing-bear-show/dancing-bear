@@ -1,12 +1,11 @@
 # Source Generated with Decompyle++
 # File: test_whatsapp_cli.cpython-39.pyc (Python 3.9)
 
-import os
 import sys
 import unittest
-from pathlib import Path
 
-from tests.fixtures import run
+from tests.fixtures import bin_path, repo_root, run
+
 
 class WhatsAppCLITests(unittest.TestCase):
 
@@ -16,9 +15,9 @@ class WhatsAppCLITests(unittest.TestCase):
         self.assertIn('WhatsApp Assistant CLI', proc.stdout)
 
     def test_help_via_executable_script(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        wrapper = repo_root / 'bin' / 'whatsapp'
+        root = repo_root()
+        wrapper = bin_path('whatsapp')
         self.assertTrue(wrapper.exists(), 'bin/whatsapp not found')
-        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(repo_root))
+        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('WhatsApp Assistant CLI', proc.stdout)

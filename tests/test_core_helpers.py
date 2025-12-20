@@ -1,5 +1,4 @@
 import argparse
-import importlib.util
 import io
 import os
 import tempfile
@@ -9,12 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
-def _has_pyyaml() -> bool:
-    try:
-        return importlib.util.find_spec("yaml") is not None
-    except Exception:
-        return False
+from tests.fixtures import has_pyyaml
 
 
 class CorePipelineTests(unittest.TestCase):
@@ -224,7 +218,7 @@ class CoreAuthTests(unittest.TestCase):
         self.assertEqual(DummyService.seen_args.cache, "cache")
 
 
-@unittest.skipUnless(_has_pyyaml(), "requires PyYAML")
+@unittest.skipUnless(has_pyyaml(), "requires PyYAML")
 class CoreYamlIOTests(unittest.TestCase):
     def test_load_config_missing_returns_empty(self):
         from core.yamlio import load_config

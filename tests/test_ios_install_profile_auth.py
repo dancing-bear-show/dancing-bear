@@ -6,11 +6,13 @@ import textwrap
 from pathlib import Path
 import unittest
 
+from tests.fixtures import bin_path, repo_root
+
 
 class TestIosInstallProfileAuth(unittest.TestCase):
     def setUp(self):
-        self.repo_root = Path(__file__).resolve().parents[1]
-        self.bin_install = self.repo_root / "bin" / "ios-install-profile"
+        self.repo_root = repo_root()
+        self.bin_install = bin_path("ios-install-profile")
         self.assertTrue(self.bin_install.exists(), "ios-install-profile not found")
 
         # Temp workspace for stubs and config

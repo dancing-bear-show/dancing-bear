@@ -1,6 +1,5 @@
 import io
 from contextlib import redirect_stdout
-from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -14,11 +13,12 @@ from maker.pipeline import (
     ToolRequest,
     ToolRequestConsumer,
 )
+from tests.fixtures import repo_root
 
 
 class MakerPipelineTests(TestCase):
     def setUp(self):
-        self.tools_root = Path(__file__).resolve().parents[1] / "maker"
+        self.tools_root = repo_root() / "maker"
 
     def test_catalog_consumer_discovers_tools(self):
         catalog = ToolCatalogConsumer(self.tools_root).consume()

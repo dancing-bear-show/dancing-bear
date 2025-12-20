@@ -4,17 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
-def _has_pyyaml() -> bool:
-    try:
-        import importlib.util
-
-        return importlib.util.find_spec("yaml") is not None
-    except Exception:
-        return False
+from tests.fixtures import has_pyyaml
 
 
-@unittest.skipUnless(_has_pyyaml(), "requires PyYAML")
+@unittest.skipUnless(has_pyyaml(), "requires PyYAML")
 class YamlIOTests(unittest.TestCase):
     def test_load_config_missing_returns_empty(self):
         from mail_assistant.yamlio import load_config
@@ -55,4 +48,3 @@ class YamlIOTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

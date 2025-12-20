@@ -2,14 +2,15 @@ import io
 import os
 import unittest
 from contextlib import redirect_stdout
-from pathlib import Path
+
+from tests.fixtures import bin_path, repo_root
 
 
 class TestLlmCli(unittest.TestCase):
     def test_help(self):
         import subprocess, sys
-        root = Path(__file__).resolve().parents[1]
-        proc = subprocess.run([sys.executable, str(root / 'bin' / 'llm'), '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))
+        root = repo_root()
+        proc = subprocess.run([sys.executable, str(bin_path('llm')), '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Unified LLM utilities', proc.stdout)
 
@@ -45,15 +46,15 @@ class TestLlmCli(unittest.TestCase):
 
     def test_check_respects_sla_env(self):
         import subprocess, sys, os
-        root = Path(__file__).resolve().parents[1]
+        root = repo_root()
         env = dict(os.environ)
         # Allow .llm to be considered within SLA to avoid failing in CI
         env['LLM_SLA'] = '.llm:365,Root:365'
-        proc = subprocess.run([sys.executable, str(root / 'bin' / 'llm'), 'check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root), env=env)
+        proc = subprocess.run([sys.executable, str(bin_path('llm')), 'check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root), env=env)
         self.assertEqual(proc.returncode, 0, msg=proc.stdout + "\n" + proc.stderr)
 
     def test_repo_llm_app_phone(self):
-        from personal_core import llm_cli as repo_llm
+        from core import llm_cli as repo_llm
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = repo_llm.main(['--app', 'phone', 'agentic', '--stdout'])

@@ -1,9 +1,10 @@
 import unittest
-from pathlib import Path
+
+from tests.fixtures import has_pyyaml
 
 
 class LocationsMapTests(unittest.TestCase):
-    @unittest.skipUnless(__import__('importlib').util.find_spec('yaml') is not None, 'requires PyYAML')
+    @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_enrich_location_from_yaml(self):
         # Use built-in fallback map when config/locations.yaml is absent
         from calendar_assistant.locations_map import enrich_location, ADDRESS_MAP

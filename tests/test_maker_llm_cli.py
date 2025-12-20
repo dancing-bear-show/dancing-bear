@@ -1,14 +1,15 @@
 import io
 import sys
 import unittest
-from pathlib import Path
+
+from tests.fixtures import repo_root
 
 
 class TestMakerLLMCLI(unittest.TestCase):
     def test_llm_maker_agentic(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        sys.path.insert(0, str(repo_root))
-        sys.path.insert(0, str(repo_root.parent))
+        root = repo_root()
+        sys.path.insert(0, str(root))
+        sys.path.insert(0, str(root.parent))
         import maker.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
@@ -24,4 +25,3 @@ class TestMakerLLMCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
