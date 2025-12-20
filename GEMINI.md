@@ -19,7 +19,7 @@ Load only as needed:
 Avoid `--help`; prefer agentic schemas:
 ```bash
 ./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
-./bin/calendar-assistant --agentic --agentic-format yaml --agentic-compact
+./bin/calendar --agentic --agentic-format yaml --agentic-compact
 ./bin/schedule-assistant --agentic --agentic-format yaml --agentic-compact
 ./bin/llm --agentic --agentic-format yaml --agentic-compact
 ```
@@ -28,7 +28,7 @@ Avoid `--help`; prefer agentic schemas:
 If safe auto-approvals are needed, mirror the approach from `configs/llm/gemini-yolo.md` (shared standards). Respect token budgets defined in `.llm/AGENTIC_BUDGETS.yaml`.
 
 ## Quick Reference
-- CLIs: `./bin/mail-assistant`, `./bin/calendar-assistant`, `./bin/schedule-assistant`, `./bin/phone`.
+- CLIs: `./bin/mail-assistant`, `./bin/calendar`, `./bin/schedule-assistant`, `./bin/phone`.
 - Auth: leverage `--profile gmail_personal|outlook_personal` (paths in `~/.config/credentials.ini`).
 - Tests: `python3 -m unittest tests/test_cli.py -v`, `make test`.
 - Config SoT: `config/filters_unified.yaml` for filters/rules; derived outputs in `out/`.

@@ -27,6 +27,7 @@ dependencies = [
 [project.scripts]
 assistant = "core.assistant_cli:main"
 mail-assistant = "mail_assistant.__main__:main"
+calendar = "calendar_assistant.__main__:main"
 calendar-assistant = "calendar_assistant.__main__:main"
 schedule-assistant = "schedule_assistant.__main__:main"
 phone = "phone.__main__:main"

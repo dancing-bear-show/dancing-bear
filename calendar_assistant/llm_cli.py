@@ -4,8 +4,8 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from personal_core import llm_cli
-from personal_core.textio import read_text
+from core import llm_cli
+from core.textio import read_text
 
 
 LLM_DIR = Path(".llm")
@@ -20,7 +20,7 @@ def _inventory_md() -> str:
 def _familiar_compact() -> str:
     return (
         read_text(LLM_DIR / "familiarize.yaml")
-        or "meta:\n  name: calendar_assistant_familiarize\n  version: 3\nsteps:\n  - run: ./bin/calendar-assistant --agentic\n  - run: ./bin/llm-calendar agentic --stdout\n"
+        or "meta:\n  name: calendar_assistant_familiarize\n  version: 4\nsteps:\n  - run: ./bin/calendar --agentic\n  - run: ./bin/llm-calendar agentic --stdout\n"
     )
 
 
@@ -28,9 +28,9 @@ def _familiar_extended() -> str:
     return (
         "meta:\n"
         "  name: calendar_assistant_familiarize\n"
-        "  version: 3\n"
+        "  version: 4\n"
         "steps:\n"
-        "  - run: ./bin/calendar-assistant --agentic\n"
+        "  - run: ./bin/calendar --agentic\n"
         "  - run: ./bin/llm-calendar agentic --stdout\n"
         "  - run: ./bin/mail-assistant --profile outlook_personal outlook auth ensure || true\n"
         "  - run: ./bin/mail-assistant --profile outlook_personal outlook auth validate || true\n"

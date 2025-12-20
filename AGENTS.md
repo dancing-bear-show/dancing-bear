@@ -7,6 +7,9 @@ This repository hosts the personal assistants (mail, calendar, schedule, phone).
 - Reduce context needed to manage labels/filters/rules by using human-editable YAML sources of truth plus reproducible plan → apply flows.
 - Favor safe automation (plan/dry-run first) while keeping helpers dependency-light and agent friendly.
 
+## 🤝 Coordination
+- Assume other agents may be working in parallel; avoid touching unrelated files and call out unexpected changes.
+
 ## 🤖 For LLM Agents: Token-Efficient Context System
 **Always start with `.llm/CONTEXT.md` before scanning wider files.**
 
@@ -17,7 +20,7 @@ This repository hosts the personal assistants (mail, calendar, schedule, phone).
   - `.llm/FAMILIARIZE_CORE.md` for curated policy notes.
   - Prefer agentic CLI schemas over `--help`:  
     `./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact`  
-    `./bin/calendar-assistant --agentic --agentic-format yaml --agentic-compact`  
+    `./bin/calendar --agentic --agentic-format yaml --agentic-compact`  
     `./bin/llm agentic --stdout`
 - Generate or refresh the capsule with `./bin/llm familiar --stdout` (preview) or `./bin/llm familiar-sync`.
 - Heed budget guards: `$FAMILIARIZE_TOKEN_BUDGET` and `$BUDGET_BYTES_PER_TOKEN` prevent runaway rewrites; new capsules are skipped if larger than the incumbent.
@@ -81,7 +84,7 @@ Flows mirror the data-driven system in `cars-sre-utils`.
 ./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders
 
 # Calendar workflows
-./bin/calendar-assistant outlook add-from-config --config config/calendar/...
+./bin/calendar outlook add-from-config --config config/calendar/...
 ./bin/schedule-assistant apply --plan out/schedule.plan.yaml --apply
 
 # Phone/iOS helpers
@@ -115,7 +118,7 @@ Only add new entry points if these CLIs truly cannot cover the scenario.
 ### Project Structure & Module Organization
 - `mail_assistant/` — Gmail/Outlook CLI (labels, filters, signatures).
 - `calendar_assistant/`, `schedule_assistant/`, `phone/` — calendar/phone helpers.
-- `bin/` — wrapper scripts (e.g., `bin/mail_assistant`, `bin/calendar-assistant`, `bin/llm`).
+- `bin/` — wrapper scripts (e.g., `bin/mail_assistant`, `bin/calendar`, `bin/llm`).
 - `tests/` — lightweight CLI/unit tests.
 - `_disasm/` — Decompiled references; **do not modify**.
 - Preserve existing CLI flags/subcommands; keep edits surgical.
@@ -125,7 +128,7 @@ Only add new entry points if these CLIs truly cannot cover the scenario.
 - Install editable deps: `make venv` or `pip install -e .`
 - CLI help:
   - `./bin/mail-assistant --help`
-  - `./bin/calendar-assistant --help`
+  - `./bin/calendar --help`
   - `./bin/schedule-assistant --help`
 - Labels: `python3 -m mail_assistant labels export --out labels.yaml`
 - Filters:

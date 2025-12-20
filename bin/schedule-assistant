@@ -3,7 +3,7 @@
 
 Ensures the repository root is on sys.path so the package resolves when
 invoked as a script. If the schedule_assistant CLI is not available yet,
-prints a helpful hint to use calendar-assistant schedule-import flows.
+prints a helpful hint to use calendar schedule-import flows.
 """
 from pathlib import Path
 import sys
@@ -18,11 +18,10 @@ def main() -> int:
         from schedule_assistant.__main__ import main as _main  # type: ignore
     except Exception:
         print("Schedule Assistant CLI is not available yet.")
-        print("Tip: use ./bin/calendar-assistant outlook schedule-import to import schedules.")
+        print("Tip: use ./bin/calendar outlook schedule-import to import schedules.")
         return 2
     return int(_main())
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

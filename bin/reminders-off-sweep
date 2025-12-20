@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Sweep reminders off across calendars and years using the calendar-assistant CLI.
+# Sweep reminders off across calendars and years using the calendar CLI.
 set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+CALENDAR_BIN="$SCRIPT_DIR/calendar"
+if [[ ! -x "$CALENDAR_BIN" && -x "$SCRIPT_DIR/calendar-assistant" ]]; then
+  CALENDAR_BIN="$SCRIPT_DIR/calendar-assistant"
+fi
 
 usage() {
   cat <<'USAGE'
@@ -58,7 +62,6 @@ for CAL in "${CAL_ARR[@]}"; do
     if [[ "$DRY_RUN" == "1" ]]; then
       ARGS+=("--dry-run")
     fi
-    "$SCRIPT_DIR/calendar-assistant" "${ARGS[@]}" || true
+    "$CALENDAR_BIN" "${ARGS[@]}" || true
   done
 done
-

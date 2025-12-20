@@ -55,24 +55,24 @@ Cleaning
   - Purges: `out/`, `logs/`, coverage files, Python caches (`__pycache__/`, `.pytest_cache/`), local tooling caches (`.cache/`, `.mypy_cache/`, `.direnv/`), and `*.egg-info`.
 - Calendar (Outlook)
   - Verify plan (safe):
-    - `./bin/calendar-assistant --profile outlook_personal outlook verify-from-config --config out/plan.yaml`
+    - `./bin/calendar --profile outlook_personal outlook verify-from-config --config out/plan.yaml`
   - Apply plan (create):
-    - `./bin/calendar-assistant --profile outlook_personal outlook add-from-config --config out/plan.yaml`
+    - `./bin/calendar --profile outlook_personal outlook add-from-config --config out/plan.yaml`
     - Tips: add `--no-reminder` to disable alerts on created items (or set per-event in YAML via `reminder: off` or `reminder_minutes: 0`).
     - Tip: add `--no-reminder` to suppress event reminders/alerts on creation
   - Update locations from Outlook to YAML (pull full addresses):
-    - `./bin/calendar-assistant --profile outlook_personal outlook update-locations --config out/plan.yaml --calendar "Your Family"`
+    - `./bin/calendar --profile outlook_personal outlook update-locations --config out/plan.yaml --calendar "Your Family"`
     - Notes: `outlook locations-enrich` uses `config/locations.yaml` to map facility short names to full addresses when enriching.
   - Remove events matching a plan (cleanup):
-    - `./bin/calendar-assistant --profile outlook_personal outlook remove-from-config --config out/plan.yaml --calendar "Your Family" --apply`
+    - `./bin/calendar --profile outlook_personal outlook remove-from-config --config out/plan.yaml --calendar "Your Family" --apply`
     - Use `--subject-only` to match by subject regardless of time/weekday (useful for wholesale cleanup)
   - Deduplicate series (keep newest, drop non-standard locations):
-    - `./bin/calendar-assistant --profile outlook_personal outlook dedup --calendar "Your Family" --from 2025-01-01 --to 2026-12-31 --prefer-delete-nonstandard --keep-newest --apply`
+    - `./bin/calendar --profile outlook_personal outlook dedup --calendar "Your Family" --from 2025-01-01 --to 2026-12-31 --prefer-delete-nonstandard --keep-newest --apply`
   - One-offs (report):
-    - `./bin/calendar-assistant --profile outlook_personal outlook list-one-offs --calendar "Your Family" --from 2025-09-01 --to 2026-06-30 --out out/one_offs.yaml`
+    - `./bin/calendar --profile outlook_personal outlook list-one-offs --calendar "Your Family" --from 2025-09-01 --to 2026-06-30 --out out/one_offs.yaml`
   - Reminders (bulk set):
-    - Turn off across a window: `./bin/calendar-assistant --profile outlook_personal outlook reminders-set --calendar "Activities" --from 2025-01-01 --to 2026-06-30 --off`
-    - Set minutes: `./bin/calendar-assistant --profile outlook_personal outlook reminders-set --calendar "Activities" --from 2025-01-01 --to 2026-06-30 --minutes 5`
+    - Turn off across a window: `./bin/calendar --profile outlook_personal outlook reminders-set --calendar "Activities" --from 2025-01-01 --to 2026-06-30 --off`
+    - Set minutes: `./bin/calendar --profile outlook_personal outlook reminders-set --calendar "Activities" --from 2025-01-01 --to 2026-06-30 --minutes 5`
   - Notes:
     - Locations in add-from-config accept `Name (street, city, state POSTAL)` and are parsed into Outlook structured addresses.
     - Facility short-name to full address mapping lives in `config/locations.yaml` and is used by `outlook locations-enrich`.

@@ -22,3 +22,23 @@ class CalendarCLITests(unittest.TestCase):
         self.assertIn('Calendar Assistant CLI', proc.stdout)
 
     test_help_via_assistant_wrapper = unittest.skipUnless(__import__('importlib').util.find_spec('yaml') is not None, 'requires PyYAML to import CLI')(test_help_via_assistant_wrapper)
+
+    def test_help_via_calendar_wrapper(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        wrapper = repo_root / 'bin' / 'calendar'
+        self.assertTrue(wrapper.exists(), 'bin/calendar not found')
+        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(repo_root))
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn('Calendar Assistant CLI', proc.stdout)
+
+    test_help_via_calendar_wrapper = unittest.skipUnless(__import__('importlib').util.find_spec('yaml') is not None, 'requires PyYAML to import CLI')(test_help_via_calendar_wrapper)
+
+    def test_help_via_legacy_wrapper(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        wrapper = repo_root / 'bin' / 'calendar-assistant'
+        self.assertTrue(wrapper.exists(), 'bin/calendar-assistant not found')
+        proc = run([sys.executable, str(wrapper), '--help'], cwd=str(repo_root))
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn('Calendar Assistant CLI', proc.stdout)
+
+    test_help_via_legacy_wrapper = unittest.skipUnless(__import__('importlib').util.find_spec('yaml') is not None, 'requires PyYAML to import CLI')(test_help_via_legacy_wrapper)

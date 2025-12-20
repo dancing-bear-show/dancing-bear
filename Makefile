@@ -11,6 +11,7 @@ venv:
 	$(PY) -m pip install -e .
 	# Ensure wrapper is executable for direct runs
 	chmod +x bin/mail_assistant bin/mail-assistant bin/mail-assistant-auth bin/assistant || true
+	chmod +x bin/calendar bin/calendar-assistant bin/calendar_assistant || true
 	chmod +x bin/phone bin/phone-assistant || true
 	chmod +x bin/wifi bin/wifi-assistant || true
 	chmod +x bin/apple-music-assistant bin/apple-music-user-token || true
@@ -75,7 +76,7 @@ agentic:
 	@./bin/mail-assistant --agentic || ./bin/mail_assistant --agentic || true
 	@echo
 	@echo "== Calendar Assistant Agentic =="
-	@./bin/calendar-assistant --agentic || true
+	@./bin/calendar --agentic || ./bin/calendar-assistant --agentic || true
 	@echo
 	@echo "== Maker Agentic =="
 	@./bin/llm-maker agentic --stdout || true
