@@ -1,7 +1,7 @@
 import unittest
-import subprocess
 from pathlib import Path
 
+from tests.fixtures import run
 
 def _has_pyyaml() -> bool:
     try:
@@ -10,10 +10,6 @@ def _has_pyyaml() -> bool:
         return importlib.util.find_spec("yaml") is not None
     except Exception:
         return False
-
-
-def run(cmd, cwd=None):
-    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
 @unittest.skipUnless(_has_pyyaml(), "requires PyYAML")
@@ -35,4 +31,3 @@ class ForwardingHelpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
