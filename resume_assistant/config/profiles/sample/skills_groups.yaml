@@ -1,0 +1,23 @@
+groups:
+  - title: Platform
+    items:
+      - name: Kubernetes
+        desc: cluster operations and scaling
+      - name: Terraform
+        desc: infrastructure as code
+      - name: AWS
+        desc: EKS, IAM, S3, CloudWatch
+  - title: Observability
+    items:
+      - name: Prometheus
+        desc: metrics and alerting
+      - name: Grafana
+        desc: dashboards and SLO reporting
+      - name: OpenTelemetry
+        desc: tracing and instrumentation
+  - title: Automation
+    items:
+      - name: Python
+        desc: CLI tooling and workflows
+      - name: Go
+        desc: services and tooling

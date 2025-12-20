@@ -5,7 +5,7 @@ Delegates to the shared repo-level LLM CLI implementation so tests that import
 subcommands without duplicating logic.
 """
 
-from personal_core import llm_cli as _core_llm_cli
+from core import llm_cli as _core_llm_cli
 
 # Re-export primary entrypoints from the shared implementation.
 LlmConfig = _core_llm_cli.LlmConfig

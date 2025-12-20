@@ -45,15 +45,15 @@ junit*.xml
 # Node tooling
 node_modules/
 
-# Local config
+# Local config (root private configs)
 .config/
-config/
+/config/*
+!/config/*.example.yaml
 
 # Local logs and OAuth flows (do not commit)
 logs/
 msal_flow.json
-config/client_secret_*.json
-config/
+/config/client_secret_*.json
 _out/
 backups/
 _archive/
@@ -62,6 +62,10 @@ build/
 tmp/
 reports/
 out/
+
+# Proposal outputs (private)
+proposals/*.json
+proposals/*.yaml
 
 # Large/binary assets
 *.stl
@@ -88,8 +92,8 @@ credentials.ini
 *.token
 settings.init
 
-# Potentially sensitive local configs
-config/*secrets*
-config/*tokens*
-config/*credentials*
-config/**/private*.yaml
+# Potentially sensitive local configs (root config only)
+/config/*secrets*
+/config/*tokens*
+/config/*credentials*
+/config/**/private*.yaml

@@ -6,6 +6,7 @@ httplib2==0.22.0
 requests==2.31.0
 urllib3==1.26.18
 PyYAML==6.0.3
+python-docx==1.2.0
 premailer==3.10.0
 msal==1.28.0
 numpy==1.26.4

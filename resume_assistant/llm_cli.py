@@ -4,8 +4,8 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from personal_core import llm_cli
-from personal_core.textio import read_text
+from core import llm_cli
+from core.textio import read_text
 
 LLM_DIR = Path(".llm")
 

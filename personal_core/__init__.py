@@ -1,10 +1,13 @@
-"""Shared helpers for personal assistant CLIs.
+"""Compatibility shims for core helpers (migrated from personal_core)."""
 
-This lightweight package hosts reusable utilities (agentic helpers,
-YAML shims, etc.) so individual assistants can stay focused on their
-domain logic without duplicating boilerplate.
-"""
+from core import agentic, auth, assistant, assistant_cli, llm_cli, textio, yamlio  # noqa: F401
 
-from . import agentic, yamlio, textio  # noqa: F401
-
-__all__ = ["agentic", "yamlio", "textio"]
+__all__ = [
+    "agentic",
+    "auth",
+    "assistant",
+    "assistant_cli",
+    "llm_cli",
+    "textio",
+    "yamlio",
+]

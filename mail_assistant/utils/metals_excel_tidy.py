@@ -4,7 +4,7 @@ import argparse
 import json
 from typing import Dict, List, Optional
 
-from personal_core.auth import resolve_outlook_credentials
+from core.auth import resolve_outlook_credentials
 from ..outlook_api import OutlookClient
 
 

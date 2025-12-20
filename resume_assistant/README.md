@@ -17,7 +17,7 @@ Quick Start
   - `make purge-temp` — remove only `~$*.docx` locks and `.DS_Store`
   - `make distclean` — also remove `out/` (generated artifacts; may include personal data)
   - `make deepclean` — `distclean` + remove `.venv`
-- Output naming: add `--profile <prefix>` to auto-write into `out/<prefix>/<kind>.<ext>` (default profile: `brian_sherwin`)
+- Output naming: add `--profile <prefix>` to auto-write into `out/<prefix>/<kind>.<ext>` (default profile: `sample`)
 
 Testing
 - Run from this subdirectory so module resolution matches tests:
@@ -26,8 +26,8 @@ Testing
 
 Source Normalization
 - Move transcript files into `_data/sources/` with clear names:
-  - `./bin/normalize-sources --prefix brian_sherwin --root .`
-  - Produces names like: `_data/sources/brian_sherwin.transcript.official.2020-05.pdf`
+  - `./bin/normalize-sources --prefix sample --root .`
+  - Produces names like: `_data/sources/sample.transcript.official.2020-05.pdf`
 
 Commands
 - `extract` — Parse LinkedIn and resume sources into unified YAML/JSON
@@ -38,13 +38,13 @@ Commands
 - `render` — Render a `.docx` using a YAML/JSON template (optionally mimic a reference resume’s structure)
   - Example: `python -m resume_assistant render --data out/data.json --template config/template.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
   - Mimic structure: add `--structure-from reference.docx` to align section order and headings.
-  - With profile prefix (writes to `out/<prefix>/`): `python -m resume_assistant render --data out/brian_sherwin/data.json --template config/template.example.yaml --profile brian_sherwin`
+  - With profile prefix (writes to `out/<prefix>/`): `python -m resume_assistant render --data out/sample/data.json --template config/template.example.yaml --profile sample`
   - Priority cutoff (dynamic sizing): add `--min-priority 0.8` to keep only items with `priority >= 0.8` across Skills/Technologies, summary lists, and experience roles/bullets.
   - Reuse saved structure automatically: when `--profile <prefix>` is set and `out/<prefix>/structure.(json|yaml)` exists, render will apply it unless `--structure-from` is provided. Fallback to legacy `out/<prefix>.structure.*` is supported.
   - Alignment-based filtering (optional): provide `--filter-skills-alignment align.json` and/or `--filter-exp-alignment align.json` (optionally with `--filter-*-job job.yaml`) to filter Skills/Experience to matched keywords from an alignment report.
-  - RBC example (align + render, priority-trim):
-    - `python -m resume_assistant align --data out/brian_sherwin/data.json --job config/job.rbc_sre.yaml --out out/brian_sherwin/alignment.rbc.json --tailored out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
-    - `python -m resume_assistant render --data out/brian_sherwin/data.json --template config/template.onepage.yaml --profile brian_sherwin --structure-from out/brian_sherwin/structure.json --filter-skills-alignment out/brian_sherwin/alignment.rbc.json --filter-exp-alignment out/brian_sherwin/alignment.rbc.json --min-priority 0.9 --out out/brian_sherwin/resume.rbc.onepage.docx`
+  - Example alignment (align + render, priority-trim):
+    - `python -m resume_assistant align --data out/sample/data.json --job config/job.example.yaml --out out/sample/alignment.example.json --tailored out/sample/tailored.example.json --profile sample`
+    - `python -m resume_assistant render --data out/sample/data.json --template config/template.onepage.yaml --profile sample --structure-from out/sample/structure.json --filter-skills-alignment out/sample/alignment.example.json --filter-exp-alignment out/sample/alignment.example.json --min-priority 0.9 --out out/sample/resume.example.onepage.docx`
 - `structure` — Infer section order and headings from a reference `.docx`
   - Example: `python -m resume_assistant structure --source reference.docx --out out/structure.yaml`
 - `align` — Align candidate data to a job posting and produce a tailored dataset
@@ -224,8 +224,9 @@ Examples
 
 Profiles & Outputs
 - Profiles live under `config/profiles/<prefix>/` and may contain: `profile.yaml`, `skills_groups.yaml`, `experience.yaml`, `interests.yaml`, `presentations.yaml`, `languages.yaml`, `coursework.yaml`, `structure.yaml`.
+- Sample profile lives under `config/profiles/sample/`; keep private overlays in `_data/profiles_private/`.
 - Outputs are nested by profile in `out/<prefix>/` with conventional names: `data.json`, `summary.md`, `resume.docx`, `structure.json`, `alignment.json`, `style.json`.
-- Default profile is `brian_sherwin`; override with `--profile <prefix>`.
+- Default profile is `sample`; override with `--profile <prefix>`.
 
 Internals
 - Overlays: `resume_assistant/overlays.py` centralizes profile/grouped-skills/experience overlays.
@@ -285,7 +286,7 @@ keywords:
 Style Corpus
 - Put public-safe writing samples in `corpus/`; put personal/private samples under `_data/corpus/`.
 - Build a style profile JSON:
-  - `./bin/resume_assistant style build --corpus-dir corpus --profile brian_sherwin`
+  - `./bin/resume_assistant style build --corpus-dir corpus --profile sample`
 - Use with summarize/render to bias keyword selection:
-  - `./bin/resume_assistant summarize --data out/brian_sherwin/data.json --style-profile out/brian_sherwin/style.json --profile brian_sherwin`
-  - `./bin/resume_assistant render --data out/brian_sherwin/data.json --style-profile out/brian_sherwin/style.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --profile brian_sherwin`
+  - `./bin/resume_assistant summarize --data out/sample/data.json --style-profile out/sample/style.json --profile sample`
+  - `./bin/resume_assistant render --data out/sample/data.json --style-profile out/sample/style.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --profile sample`

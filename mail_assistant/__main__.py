@@ -15,8 +15,8 @@ import os
 from pathlib import Path
 from typing import Optional, Iterable
 from .utils.cli_helpers import with_gmail_client as _with_gmail_client
-from personal_core.assistant import BaseAssistant
-from personal_core.auth import resolve_outlook_credentials
+from core.assistant import BaseAssistant
+from core.auth import resolve_outlook_credentials
 from .config_resolver import (
     default_gmail_credentials_path,
     default_gmail_token_path,

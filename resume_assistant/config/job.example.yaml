@@ -1,0 +1,38 @@
+title: Senior Site Reliability Engineer
+company: ExampleCo
+keywords:
+  required:
+    - skill: Kubernetes
+      weight: 3
+    - skill: Observability
+      weight: 3
+    - skill: SLO/SLI
+      weight: 3
+    - skill: Incident management
+      weight: 3
+    - skill: Automation
+      weight: 2
+  preferred:
+    - skill: Grafana
+      weight: 2
+    - skill: OpenTelemetry
+      weight: 2
+    - skill: Terraform
+      weight: 2
+    - skill: AWS
+      weight: 2
+    - skill: Python
+      weight: 2
+  soft_skills:
+    - Communication
+    - Collaboration
+  tech_skills:
+    - Docker
+    - Linux
+  technologies:
+    - EKS
+  nice_to_have:
+    - skill: Go
+      weight: 1
+  synonyms:
+    Kubernetes: [k8s, EKS]

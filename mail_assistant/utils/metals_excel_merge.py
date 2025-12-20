@@ -19,7 +19,7 @@ import json
 import time
 from typing import Dict, List, Optional, Tuple
 
-from personal_core.auth import resolve_outlook_credentials
+from core.auth import resolve_outlook_credentials
 from ..outlook_api import OutlookClient
 
 

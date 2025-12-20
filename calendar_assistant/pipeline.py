@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
-from personal_core.auth import build_gmail_service as _build_gmail_service
+from core.auth import build_gmail_service as _build_gmail_service
 
 from calendar_assistant.yamlio import load_config as _load_yaml
 from calendar_assistant.model import normalize_event

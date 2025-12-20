@@ -82,7 +82,7 @@ def _parse_experience_block(block: List[str]) -> Dict[str, Any]:
         return {"title": title, "company": company, "start": start, "end": end, "location": location, "bullets": bullets}
     header = block[0]
     # Heuristic: "Senior Engineer at FooCorp (2020-2023) - City, ST"
-    m = re.match(r"(.+?)\s+at\s+(.+?)(?:\s*\(([^)]+)\))?(?:\s*-\s*(.+))?", header, re.I)
+    m = re.match(r"(.+?)\s+at\s+(.+?)(?:\s*\(([^)]+)\))?(?:\s*-\s*(.+))?$", header, re.I)
     if m:
         title = m.group(1).strip()
         company = m.group(2).strip()

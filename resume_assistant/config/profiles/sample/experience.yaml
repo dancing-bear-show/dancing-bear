@@ -1,0 +1,18 @@
+experience:
+  - title: Senior Site Reliability Engineer
+    company: ExampleCo
+    location: Remote
+    start: 2021
+    end: Present
+    bullets:
+      - Built SLOs and alerts for core services
+      - Reduced incident response time by 30 percent through runbooks
+      - Automated infrastructure provisioning with Terraform
+  - title: Site Reliability Engineer
+    company: Acme Corp
+    location: Austin, TX
+    start: 2018
+    end: 2021
+    bullets:
+      - Operated Kubernetes clusters and CI/CD pipelines
+      - Partnered with developers to improve reliability

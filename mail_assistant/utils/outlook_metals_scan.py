@@ -13,7 +13,7 @@ Usage:
 import argparse
 from typing import Dict, List, Tuple
 
-from personal_core.auth import resolve_outlook_credentials
+from core.auth import resolve_outlook_credentials
 from ..outlook_api import OutlookClient
 
 

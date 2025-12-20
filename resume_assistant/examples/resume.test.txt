@@ -1,0 +1,25 @@
+Casey Sample
+casey.sample@example.com | (555) 010-1234 | Austin, TX
+
+Summary
+Reliability engineer with 7+ years improving cloud platforms and observability.
+
+Technical Skills
+Python, Go, AWS, Kubernetes, Terraform, Prometheus, Grafana
+
+Experience
+Senior Site Reliability Engineer at ExampleCo (2020-2024) - Remote
+- Reduced incident MTTR by 35% by redesigning alert routing.
+- Built Kubernetes cluster upgrades with zero downtime.
+- Automated compliance checks with Python tooling.
+
+Platform Engineer at SampleCorp (2016-2020) - Denver, CO
+- Migrated 120 services to AWS with Terraform.
+- Created SLO program and error budget dashboards.
+- Implemented CI/CD pipelines for containerized services.
+
+Education
+BS Computer Science, Example University, 2016
+
+Certifications
+AWS Certified Solutions Architect - Associate (2021)

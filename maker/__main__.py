@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import List, Optional
 
-from personal_core.assistant import BaseAssistant
+from core.assistant import BaseAssistant
 from maker.pipeline import (
     ConsoleProducer,
     ModuleResultProducer,

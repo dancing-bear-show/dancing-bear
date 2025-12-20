@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from personal_core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
+from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 
 def safe_import(name: str) -> Optional[Any]:

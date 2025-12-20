@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from personal_core import assistant_cli
+from core import assistant_cli
 
 
 class AssistantCLITests(unittest.TestCase):

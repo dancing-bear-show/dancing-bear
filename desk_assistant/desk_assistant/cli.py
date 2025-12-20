@@ -3,7 +3,7 @@ import os
 import sys
 from typing import List, Optional
 
-from personal_core.assistant import BaseAssistant
+from core.assistant import BaseAssistant
 
 from . import __version__
 from .pipeline import (

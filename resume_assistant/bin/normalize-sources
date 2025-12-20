@@ -8,9 +8,9 @@ set -euo pipefail
 #   bin/normalize-sources [--prefix <profile>] [--root <search_dir>]
 #
 # Example:
-#   bin/normalize-sources --prefix brian_sherwin --root .
+#   bin/normalize-sources --prefix sample --root .
 
-PREFIX="brian_sherwin"
+PREFIX="sample"
 ROOT="."
 
 while [[ $# -gt 0 ]]; do

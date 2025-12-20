@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 
-from personal_core.assistant import BaseAssistant
+from core.assistant import BaseAssistant
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json, write_text
 from ..parsing import parse_linkedin_text, parse_resume_text, merge_profiles
@@ -21,7 +21,7 @@ from ..overlays import apply_profile_overlays
 from ..priority import filter_by_min_priority
 
 # Default profile used when --profile is not provided
-DEFAULT_PROFILE = "brian_sherwin"
+DEFAULT_PROFILE = "sample"
 
 assistant = BaseAssistant(
     "resume_assistant",

@@ -26,7 +26,7 @@ sample-docx: deps
 	  --profile sample
 
 # Tidy helpers
-TIDY_PREFIX ?= brian_sherwin
+TIDY_PREFIX ?= sample
 TIDY_SUFFIXES ?= .json,.docx
 TIDY_KEEP ?= 3
 

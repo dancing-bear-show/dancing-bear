@@ -2,7 +2,7 @@ import json
 import os
 from typing import Dict, List, Optional
 
-from personal_core.yamlio import load_config as _load_yaml
+from core.yamlio import load_config as _load_yaml
 
 from .utils import expand_paths, parse_duration, parse_size
 

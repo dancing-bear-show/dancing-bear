@@ -15,7 +15,7 @@ Design goals:
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from personal_core.auth import resolve_outlook_credentials
+from core.auth import resolve_outlook_credentials
 
 
 @dataclass

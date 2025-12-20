@@ -19,7 +19,7 @@ from typing import Optional
 import os
 import subprocess
 
-from personal_core.assistant import BaseAssistant
+from core.assistant import BaseAssistant
 
 from .helpers import LayoutLoadError, load_layout, read_lines_file, read_yaml, write_yaml
 from .pipeline import (

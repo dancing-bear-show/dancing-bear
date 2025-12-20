@@ -19,7 +19,7 @@ import argparse
 import csv
 from typing import List, Optional
 
-from personal_core.auth import resolve_outlook_credentials
+from core.auth import resolve_outlook_credentials
 from ..outlook_api import OutlookClient
 
 

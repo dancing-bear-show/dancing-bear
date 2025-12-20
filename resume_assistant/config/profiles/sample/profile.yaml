@@ -1,0 +1,14 @@
+name: Sample Person
+headline: Senior Site Reliability Engineer
+summary:
+  - Build reliable platforms with clear SLOs and automation
+  - Lead incident response and post-incident learning
+contact:
+  email: sample@example.com
+  phone: "+1-555-0100"
+  location: Austin, TX
+  website: https://example.com
+  linkedin: https://www.linkedin.com/in/sample
+  github: https://github.com/sample
+  links:
+    - https://cal.com/sample

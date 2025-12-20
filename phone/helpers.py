@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from personal_core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
+from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 from .backup import find_latest_backup_dir, find_iconstate_file, load_plist
 from .layout import NormalizedLayout, normalize_iconstate

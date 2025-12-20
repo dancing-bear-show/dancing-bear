@@ -3,7 +3,7 @@ import os
 import re
 from typing import Dict, Iterable, List, Optional
 
-from personal_core.yamlio import dump_config as _dump_yaml
+from core.yamlio import dump_config as _dump_yaml
 
 
 def expand_paths(paths: Iterable[str]) -> List[str]:

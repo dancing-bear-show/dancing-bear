@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import List
 
-from personal_core.agentic import (
+from core.agentic import (
     build_cli_tree as _core_build_cli_tree,
     cli_path_exists as _core_cli_path_exists,
     section as _section,

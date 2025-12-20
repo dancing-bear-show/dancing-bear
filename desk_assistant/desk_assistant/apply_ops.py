@@ -2,7 +2,7 @@ import os
 import shutil
 from typing import Dict, List
 
-from personal_core.yamlio import load_config as _load_yaml
+from core.yamlio import load_config as _load_yaml
 
 
 def apply_plan_file(plan_path: str, dry_run: bool = False) -> None:
