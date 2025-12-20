@@ -116,6 +116,7 @@ File‑First Credentials (Preferred)
 
 Testing
 - Run `make test` or `python3 -m unittest -v`
+- CI: `.github/workflows/ci.yml` runs `python -m unittest -v` on push and PRs
 - Add targeted tests only for new CLI surfaces/behaviors
 
 Security
