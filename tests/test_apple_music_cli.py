@@ -140,8 +140,9 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", side_effect=stub_client):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["tracks"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["tracks"])
         self.assertEqual(rc, 0)
         data = json.loads(buf.getvalue())
         self.assertEqual(len(data["tracks"]), 2)
@@ -149,8 +150,9 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", side_effect=stub_client):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["list", "--playlist-limit", "1"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["list", "--playlist-limit", "1"])
         self.assertEqual(rc, 0)
         data = json.loads(buf.getvalue())
         self.assertEqual(len(data["playlists"]), 2)
@@ -184,8 +186,9 @@ class AppleMusicCLITests(unittest.TestCase):
         stub = StubClient()
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["create", "--shuffle-seed", "1", "--count", "3", "--dry-run"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["create", "--shuffle-seed", "1", "--count", "3", "--dry-run"])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("plan", payload)
@@ -194,8 +197,9 @@ class AppleMusicCLITests(unittest.TestCase):
 
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["create", "--shuffle-seed", "1", "--count", "2", "--name", "My Playlist"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["create", "--shuffle-seed", "1", "--count", "2", "--name", "My Playlist"])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("created", payload)
@@ -225,8 +229,9 @@ class AppleMusicCLITests(unittest.TestCase):
         stub = StubClient()
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["create", "--preset", "sonic", "--count", "3", "--shuffle-seed", "2"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["create", "--preset", "sonic", "--count", "3", "--shuffle-seed", "2"])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("created", payload)
@@ -254,16 +259,18 @@ class AppleMusicCLITests(unittest.TestCase):
         stub = StubClient()
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["dedupe", "--keep", "latest"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["dedupe", "--keep", "latest"])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertEqual(payload["duplicates"][0]["keep"], "a2")  # latest kept
 
         with mock.patch("apple_music_assistant.cli.AppleMusicClient", return_value=stub):
             buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cli.main(["dedupe", "--keep", "first", "--delete"])
+            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
+                with redirect_stdout(buf):
+                    rc = cli.main(["dedupe", "--keep", "first", "--delete"])
         self.assertEqual(rc, 0)
         self.assertIn("a2", stub.deleted)
 
