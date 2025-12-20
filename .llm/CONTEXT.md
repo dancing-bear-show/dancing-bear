@@ -1,29 +1,37 @@
 LLM Agent Context Cache
 Concise reference for agent behavior and repo architecture
-Last Reviewed: 2025-11-11
+Last Reviewed: 2025-12-20
 
 Project Goal (Reminder)
-- Provide a unified, dependable CLI for personal email hygiene and calendar workflows across Gmail and Outlook.
-- Reduce context needed to manage labels/filters/rules by using a single human‑editable YAML source of truth.
-- Favor safe plan→apply flows and persisted, profile‑based credentials for repeatable operations.
+- Provide unified, dependable CLIs for personal workflows (mail, calendar, schedule, resume, phone, WhatsApp, maker).
+- Reduce context needed to manage labels/filters/rules with a single human-editable YAML source of truth for Gmail/Outlook.
+- Favor safe plan->apply flows and persisted, profile-based credentials for repeatable operations.
 
 System Identity
-- Project: Personal Assistants (mail, calendar)
-- Scope: Gmail/Outlook CLIs for labels, filters, signatures, rules; minimal helpers
-- Constraints: Python 3.11, dependency‑light, stable public CLI
+- Project: Personal Assistants (mail, calendar, schedule, resume, phone, WhatsApp, maker)
+- Scope: Gmail/Outlook mail and Outlook calendar workflows plus supporting assistants.
+- Constraints: Python 3.11, dependency-light, stable public CLI
 
 Familiarize Mode (Strict + Tiers)
-- Strict (capsule‑only): Read `.llm/familiarize.yaml`; generate with `./bin/llm familiar --stdout`.
+- Strict (capsule-only): Read `.llm/familiarize.yaml`; generate with `./bin/llm familiar --stdout`.
 - Optional: Programmatic `.llm/DOMAIN_MAP.md`; compact schemas via `--agentic --agentic-format yaml --agentic-compact`.
 - Extended (explicit): Only open heavy files intentionally (README/AGENTS/large exports).
 
 Architecture Overview
 ```
 mail_assistant/           # Gmail/Outlook providers, CLI wiring, helpers
-bin/                      # Entry wrappers: mail-assistant, calendar-assistant, auth
-tests/                    # Lightweight unittest smoke/tests
-_disasm/                  # Decompiled refs (read-only)
-config/, out/, backups/   # Local artifacts and plans (ignored from packaging)
+calendar_assistant/       # Outlook calendar CLI + Gmail scans
+schedule_assistant/       # plan/apply calendar schedules
+resume_assistant/         # extract/summarize/render resumes
+phone/                    # iOS layout tooling
+whatsapp/                 # local-only ChatStorage search
+maker/                    # utility generators
+bin/                      # entry wrappers and helper scripts
+core/, personal_core/     # shared helpers
+tests/                    # lightweight unittest suite
+.llm/                     # LLM context, flows, capsules
+_disasm/                  # decompiled refs (read-only)
+config/, out/             # YAML inputs and derived outputs
 ```
 
 Development Rules (do)
@@ -56,7 +64,7 @@ LLM Imperatives
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 
-Agentic Schemas — Notes
+Agentic Schemas - Notes
 - Prefer compact schemas from CLI over `--help` to save tokens.
 - `./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact`
 - `./bin/llm agentic --stdout`
@@ -68,33 +76,34 @@ Familiarization Policy (Fast + Lean)
 - Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
   1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
-  2) Entry points: `bin/mail-assistant` → `mail_assistant/__main__.py`
-  3) Core config/DSL: `mail_assistant/dsl.py`, `mail_assistant/config_resolver.py`, `mail_assistant/utils/filters.py`
-  4) Providers/APIs: `mail_assistant/providers/*.py`, `mail_assistant/gmail_api.py`, `mail_assistant/outlook_api.py`
-  5) Tests for shape: `tests/test_cli.py`, `tests/test_cli_filters.py`, `tests/test_workflows*.py`
+  2) Entry points: `bin/assistant`, `bin/mail-assistant`, `bin/calendar-assistant`, `bin/schedule-assistant`, `bin/phone`, `bin/whatsapp`
+  3) Shared helpers: `core/`, `personal_core/`
+  4) Mail config/DSL: `mail_assistant/dsl.py`, `mail_assistant/config_resolver.py`, `mail_assistant/utils/filters.py`
+  5) Providers/APIs: `mail_assistant/providers/*.py`, `mail_assistant/gmail_api.py`, `mail_assistant/outlook_api.py`
+  6) Tests for shape: `tests/test_cli.py`, `tests/test_cli_filters.py`, `tests/test_workflows*.py`
 - Ripgrep quick searches (exclude heavy dirs):
   - `rg -n "(def main\(|argparse|click)" mail_assistant/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
   - `rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail_assistant/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
   - `rg -n "filters_unified.yaml|derive|audit|optimize" mail_assistant/ README.md -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
 
 Agentic Shortcuts
-- `./bin/assistant mail --agentic` or direct `./bin/mail-assistant --agentic` — compact agentic capsule from main parser
-- `./bin/llm agentic --stdout` — compact agentic capsule (LLM CLI)
-- `./bin/llm domain-map --write .llm/DOMAIN_MAP.md` — programmatic CLI tree + flows
-- `./bin/llm derive-all --out-dir .llm --include-generated --stdout` — ensure core capsules
-- `./bin/llm familiar --verbose --write .llm/familiarize.yaml` — token‑safe familiarization plan
-- `./bin/llm stale --with-status --limit 10` — staleness overview; see also `deps` and `check`
+- `./bin/assistant mail --agentic` or direct `./bin/mail-assistant --agentic` - compact agentic capsule from main parser
+- `./bin/llm agentic --stdout` - compact agentic capsule (LLM CLI)
+- `./bin/llm domain-map --write .llm/DOMAIN_MAP.md` - programmatic CLI tree + flows
+- `./bin/llm derive-all --out-dir .llm --include-generated --stdout` - ensure core capsules
+- `./bin/llm familiar --verbose --write .llm/familiarize.yaml` - token-safe familiarization plan
+- `./bin/llm stale --with-status --limit 10` - staleness overview; see also `deps` and `check`
 
 Flows (Curated Workflows)
 - List all: `./bin/llm flows --list`
 - Show one: `./bin/llm flows --id <flow_id> --format md|yaml|json`
-- Examples: `gmail.filters.plan-apply-verify`, `outlook.rules.plan-apply-verify`, `unified_derive`
+- Examples: `gmail.filters.plan-apply-verify`, `outlook.rules.plan-apply-verify`, `unified.derive`
 
 Operational Checks (Mail filters/rules)
 - Unified is the source of truth: treat `config/filters_unified.yaml` as canonical for both Gmail and Outlook.
 - Always run a plan first, then apply:
-  - Gmail: `filters plan --config … [--delete-missing]` then `filters sync --delete-missing`.
-  - Outlook: `outlook rules plan --config … --move-to-folders` then `outlook rules sync --delete-missing`.
+  - Gmail: `filters plan --config ... [--delete-missing]` then `filters sync --delete-missing`.
+  - Outlook: `outlook rules plan --config ... --move-to-folders` then `outlook rules sync --delete-missing`.
 - After apply, verify no extraneous rules exist outside unified:
   - Gmail: export and compare counts/criteria to derived `out/filters.gmail.from_unified.yaml`.
   - Outlook: list rules and spot-check criteria vs `out/filters.outlook.from_unified.yaml`.
@@ -108,11 +117,11 @@ LLM Maintenance & SLA
 - Enforce freshness locally: `./bin/llm check --fail-on-stale`
 - Exclude noisy areas by default via env: `export LLM_EXCLUDE=backups,_disasm,out,_out`
 
-File‑First Credentials (Preferred)
+File-First Credentials (Preferred)
 - Use profiles in `~/.config/credentials.ini` (or `$XDG_CONFIG_HOME/credentials.ini`).
 - Gmail profile example: `[mail_assistant.gmail_personal]` with `credentials` and `token` file paths.
 - Outlook profile example: `[mail_assistant.outlook_personal]` with `outlook_client_id`, `tenant`, and `outlook_token`.
-- Search order: `$CREDENTIALS` → `$XDG_CONFIG_HOME/credentials.ini` → `~/.config/credentials.ini` → `~/.config/sre-utils/credentials.ini` → `~/.config/sreutils/credentials.ini` → `~/.sre-utils/credentials.ini`.
+- Search order: `$CREDENTIALS` -> `$XDG_CONFIG_HOME/credentials.ini` -> `~/.config/credentials.ini` -> `~/.config/sre-utils/credentials.ini` -> `~/.config/sreutils/credentials.ini` -> `~/.sre-utils/credentials.ini`.
 
 Testing
 - Run `make test` or `python3 -m unittest -v`
