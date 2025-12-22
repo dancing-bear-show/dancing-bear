@@ -1,17 +1,36 @@
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 from pathlib import Path
 import sys
 from typing import Optional
 
+from core.assistant import BaseAssistant
+
 from .diagnostics import DiagnoseConfig, run_diagnosis
 from .pipeline import DiagnoseProcessor, DiagnoseProducer, DiagnoseRequest, DiagnoseRequestConsumer
+
+APP_ID = "wifi"
+PURPOSE = "Wi-Fi and LAN diagnostics (gateway vs upstream vs DNS)"
+
+assistant = BaseAssistant(
+    APP_ID,
+    f"agentic: {APP_ID}\npurpose: {PURPOSE}",
+)
+
+
+@lru_cache(maxsize=1)
+def _lazy_agentic():
+    from . import agentic as _agentic
+
+    return _agentic.emit_agentic_context
 
 
 def build_parser() -> argparse.ArgumentParser:
     prog = Path(sys.argv[0]).name or "wifi"
     parser = argparse.ArgumentParser(prog=prog, description="Wi-Fi + network diagnostic helper")
+    assistant.add_agentic_flags(parser)
     parser.add_argument("--gateway", help="Override detected default gateway IP")
     parser.add_argument("--targets", nargs="+", default=["1.1.1.1", "8.8.8.8", "google.com"], help="Ping targets (besides gateway)")
     parser.add_argument("--ping-count", type=int, default=12, help="Packets per target")
@@ -33,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    agentic_result = assistant.maybe_emit_agentic(
+        args, emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact)
+    )
+    if agentic_result is not None:
+        return agentic_result
 
     cfg = DiagnoseConfig(
         ping_targets=args.targets,
