@@ -1,67 +1,40 @@
-import io
-import os
-import tempfile
 import unittest
-from contextlib import redirect_stdout
-from types import SimpleNamespace
 from unittest.mock import patch
 
-from tests.fixtures import has_pyyaml
+from tests.fixtures import (
+    FakeGmailClient,
+    capture_stdout,
+    has_pyyaml,
+    make_args,
+    write_yaml,
+)
 
 
-class FakeClient:
-    def __init__(self):
-        # Define a stable label set and ID mapping
-        self._labels = [
+def _make_filters_client():
+    """Create a FakeGmailClient configured for filters tests."""
+    return FakeGmailClient(
+        labels=[
             {"id": "LBL_X", "name": "X"},
             {"id": "LBL_REPORTS", "name": "Reports"},
             {"id": "INBOX", "name": "INBOX"},
             {"id": "UNREAD", "name": "UNREAD"},
-        ]
-        self._name_to_id = {d["name"]: d["id"] for d in self._labels}
-        # Existing filter set contains one rule equivalent to desired "Reports" rule
-        self._filters = [
+        ],
+        filters=[
             {
                 "id": "F_EXIST_1",
                 "criteria": {"from": None, "to": None, "subject": "Weekly report", "query": None, "negatedQuery": None},
-                "action": {"addLabelIds": [self._name_to_id["Reports"]]},
+                "action": {"addLabelIds": ["LBL_REPORTS"]},
             }
-        ]
-
-    # Provider-like surface used by CLI
-    def authenticate(self):
-        return None
-
-    def list_labels(self):
-        return list(self._labels)
-
-    def get_label_id_map(self):
-        return dict(self._name_to_id)
-
-    def list_filters(self, use_cache: bool = False, ttl: int = 300):
-        return list(self._filters)
-
-    def list_message_ids(self, query=None, label_ids=None, max_pages: int = 1, page_size: int = 500):
-        q = query or ""
-        # Deterministic fake counts based on query content
-        if "from:(a@b.com)" in q:
-            return ["m" + str(i) for i in range(5)]  # 5 matches
-        if "subject:\"Weekly report\"" in q:
-            return ["n" + str(i) for i in range(3)]  # 3 matches
-        return []
+        ],
+        message_ids_by_query={
+            "from:(a@b.com)": ["m" + str(i) for i in range(5)],
+            'subject:"Weekly report"': ["n" + str(i) for i in range(3)],
+        },
+    )
 
 
 @unittest.skipUnless(has_pyyaml(), "requires PyYAML")
 class CLIFilterPlanImpactTests(unittest.TestCase):
-    def _write_yaml(self, data) -> str:
-        import yaml
-
-        td = tempfile.mkdtemp()
-        p = os.path.join(td, "filters.yaml")
-        with open(p, "w", encoding="utf-8") as fh:
-            yaml.safe_dump(data, fh, sort_keys=False)
-        return p
-
     def test_filters_plan_shows_create_for_missing(self):
         # Desired has two rules; one already exists (Reports), one new (X)
         desired = {
@@ -70,16 +43,17 @@ class CLIFilterPlanImpactTests(unittest.TestCase):
                 {"match": {"subject": "Weekly report"}, "action": {"add": ["Reports"]}},
             ]
         }
-        cfg_path = self._write_yaml(desired)
-        fake = FakeClient()
-        args = SimpleNamespace(config=cfg_path, delete_missing=False, credentials=None, token=None, cache=None)
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
+        cfg_path = write_yaml(desired, filename="filters.yaml")
+        client = _make_filters_client()
+        args = make_args(config=cfg_path, delete_missing=False)
+
+        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             import mail_assistant.__main__ as m
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with capture_stdout() as buf:
                 rc = m._cmd_filters_plan(args)
             out = buf.getvalue()
+
         self.assertEqual(rc, 0)
         self.assertIn("Plan: create=1 delete=0", out)
         self.assertIn("Would create:", out)
@@ -92,16 +66,17 @@ class CLIFilterPlanImpactTests(unittest.TestCase):
                 {"match": {"subject": "Weekly report"}, "action": {"add": ["Reports"]}},
             ]
         }
-        cfg_path = self._write_yaml(desired)
-        fake = FakeClient()
-        # Provide days and only_inbox to exercise query builder
-        args = SimpleNamespace(config=cfg_path, days=7, only_inbox=True, pages=2, credentials=None, token=None, cache=None)
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
+        cfg_path = write_yaml(desired, filename="filters.yaml")
+        client = _make_filters_client()
+        args = make_args(config=cfg_path, days=7, only_inbox=True, pages=2)
+
+        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             import mail_assistant.__main__ as m
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+
+            with capture_stdout() as buf:
                 rc = m._cmd_filters_impact(args)
             out = buf.getvalue().splitlines()
+
         self.assertEqual(rc, 0)
         # Expect two lines of counts and a total
         counts = [ln for ln in out if ln.strip() and not ln.startswith("Total ")]

@@ -36,6 +36,7 @@ def build_domain_map() -> str:
     return "Top-Level\n- bin/wifi — CLI wrapper\n- wifi_assistant/cli.py — argparse entry\n- wifi_assistant/pipeline.py — pipeline components\n- wifi_assistant/diagnostics.py — probes (wifi info, ping, dns, trace, http)\n- wifi_assistant/agentic.py — capsule + domain map\n- wifi_assistant/llm_cli.py — LLM wiring"
 
 
-def emit_agentic_context() -> int:
+def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
+    """Emit agentic capsule. Format/compact params for API consistency."""
     print(build_agentic_capsule())
     return 0

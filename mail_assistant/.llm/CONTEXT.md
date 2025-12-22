@@ -29,5 +29,5 @@ CLI Basics
 - Filters: export Gmail rules; derive from unified; audit and optimize similar rules.
 
 Coding Style
-- Python 3.9; optional deps are lazily imported inside functions.
+- Python 3.11; optional deps are lazily imported inside functions.
 - Small, focused helpers; keep public CLI stable (additive changes only).
