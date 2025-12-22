@@ -1,56 +1,47 @@
 import base64
-import io
+import json
 import os
 import tempfile
+import time
 import unittest
-from contextlib import redirect_stdout
-from types import SimpleNamespace
 from unittest.mock import patch
 
+from tests.fixtures import FakeGmailClient, capture_stdout, make_args
 
-class FakeClient:
-    def __init__(self):
-        self.sent = []
-        self._id = "MSG1"
-        self._thread = "THREAD1"
 
-    def authenticate(self):
-        return None
-
-    def get_message(self, msg_id: str, fmt: str = "full"):
-        return {
-            "id": self._id,
-            "threadId": self._thread,
-            "payload": {
-                "headers": [
-                    {"name": "From", "value": "Sender <sender@example.com>"},
-                    {"name": "Subject", "value": "Hello"},
-                    {"name": "Message-Id", "value": "<abc@id>"},
-                    {"name": "References", "value": "<prev@id>"},
-                ]
-            },
-        }
-
-    def get_message_text(self, msg_id: str) -> str:
-        return "Body text."
-
-    def get_profile(self):
-        return {"emailAddress": "me@example.com"}
-
-    def send_message_raw(self, raw_bytes: bytes, thread_id=None):
-        self.sent.append((raw_bytes, thread_id))
-        return {"id": "SENT"}
+def _make_messages_client():
+    """Create a FakeGmailClient configured for messages tests."""
+    msg_id = "MSG1"
+    return FakeGmailClient(
+        messages={
+            msg_id: {
+                "id": msg_id,
+                "threadId": "THREAD1",
+                "payload": {
+                    "headers": [
+                        {"name": "From", "value": "Sender <sender@example.com>"},
+                        {"name": "Subject", "value": "Hello"},
+                        {"name": "Message-Id", "value": "<abc@id>"},
+                        {"name": "References", "value": "<prev@id>"},
+                    ]
+                },
+                "text": "Body text.",
+            }
+        },
+    )
 
 
 class MessagesScheduleTests(unittest.TestCase):
     def test_reply_with_send_in_queues(self):
         with tempfile.TemporaryDirectory() as td:
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = os.path.join(td, "scheduled.json")
-            fake = FakeClient()
-            with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
+            client = _make_messages_client()
+
+            with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
                 import mail_assistant.__main__ as m
-                args = SimpleNamespace(
-                    id=fake._id,
+
+                args = make_args(
+                    id="MSG1",
                     query=None,
                     days=None,
                     only_inbox=False,
@@ -68,17 +59,14 @@ class MessagesScheduleTests(unittest.TestCase):
                     apply=False,
                     send_at=None,
                     send_in="1s",
-                    credentials=None,
-                    token=None,
-                    cache=None,
                     profile="gmail_personal",
                 )
-                buf = io.StringIO()
-                with redirect_stdout(buf):
+
+                with capture_stdout() as buf:
                     rc = m._cmd_messages_reply(args)
+
                 self.assertEqual(rc, 0)
                 # Queue should contain one item
-                import json
                 with open(os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"], "r", encoding="utf-8") as fh:
                     data = json.loads(fh.read())
                 self.assertEqual(len(data), 1)
@@ -87,7 +75,6 @@ class MessagesScheduleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = os.path.join(td, "scheduled.json")
             # Pre-populate queue with one due item
-            import json, time
             due = int(time.time()) - 1
             raw = base64.b64encode(b"From: a@b\nTo: c@d\n\nhi").decode("utf-8")
             queued = [{
@@ -103,15 +90,18 @@ class MessagesScheduleTests(unittest.TestCase):
             with open(os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"], "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(queued))
 
-            fake = FakeClient()
-            with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
+            client = _make_messages_client()
+
+            with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
                 import mail_assistant.__main__ as m
-                args = SimpleNamespace(max=5, profile="gmail_personal")
-                buf = io.StringIO()
-                with redirect_stdout(buf):
+
+                args = make_args(max=5, profile="gmail_personal")
+
+                with capture_stdout() as buf:
                     rc = m._cmd_messages_apply_scheduled(args)
+
                 self.assertEqual(rc, 0)
-                self.assertEqual(len(fake.sent), 1)
+                self.assertEqual(len(client.sent_messages), 1)
 
 
 if __name__ == "__main__":

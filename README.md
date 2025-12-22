@@ -4,15 +4,6 @@ Unified, dependency-light CLIs for personal workflows across mail, calendars, sc
 phone layouts, resumes, and WhatsApp. Built to be safe by default (plan and dry-run first),
 with a single YAML source of truth for Gmail and Outlook filters.
 
-This repository was reconstructed from Python bytecode caches located at:
-
-  /Users/briansherwin/Library/Caches/com.apple.python/Users/briansherwin/personal
-
-Notes on reconstruction:
-- Source was decompiled from Python 3.9 bytecode; some functions may be incomplete.
-- Look for placeholders like "# WARNING: Decompyle incomplete" where manual repair is needed.
-- Current runtime target is Python 3.11 (see `.python-version`).
-
 ## Quick Start
 
 - Create venv and install:

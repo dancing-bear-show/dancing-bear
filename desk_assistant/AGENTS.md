@@ -23,7 +23,7 @@ These instructions guide LLM agents working in this repository.
 - Tests: `make test` or `python3 -m unittest tests/test_cli.py -v`
 
 ## Coding Style & Conventions
-- Python 3.9; prefer small, dependency‑light modules.
+- Python 3.11; prefer small, dependency‑light modules.
 - Use lazy imports for optional deps (e.g., PyYAML).
 - 4‑space indentation; `snake_case` for functions/vars; `CapWords` for classes.
 - Keep public CLI stable; do not break flags or subcommands.

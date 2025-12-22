@@ -2,7 +2,7 @@
 
 A small, dependency-light CLI to help keep your macOS filesystem tidy over time — scan for large/stale/duplicate files, plan moves based on human-readable rules, and apply safe actions.
 
-- Language: Python 3.9+
+- Language: Python 3.11
 - Philosophy: scan → plan → apply; human-edited YAML rules
 - Install: `pip install -e .` (optionally `pip install -e .[yaml]` for YAML IO)
 
