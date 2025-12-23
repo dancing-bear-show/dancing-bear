@@ -675,8 +675,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         from .utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
     except Exception:
-        # Best-effort: never fail CLI due to masking
-        pass
+        pass  # nosec B110 - best-effort masking, never fail CLI
     parser = build_parser()
     args = parser.parse_args(argv)
     agentic_result = assistant.maybe_emit_agentic(

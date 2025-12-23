@@ -111,7 +111,7 @@ class GmailClient:
             with open(p, "w", encoding="utf-8") as fh:
                 _json.dump(data, fh, ensure_ascii=False)
         except Exception:
-            pass
+            pass  # nosec B110 - non-critical cache write
 
     @property
     def service(self):
@@ -309,7 +309,7 @@ class GmailClient:
             try:
                 self.cache.put_meta(msg_id, msg)
             except Exception:
-                pass
+                pass  # nosec B110 - non-critical cache write
         return msg
 
     def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict[str, Any]]:
@@ -331,7 +331,7 @@ class GmailClient:
                 if name and value is not None:
                     hdrs[name.lower()] = value
         except Exception:
-            pass
+            pass  # nosec B110 - malformed headers
         return hdrs
 
     # --- Message content helpers ---
