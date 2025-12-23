@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 """Thin Outlook service wrapper.
 
 Encapsulates an authenticated Outlook client and exposes a stable set of
 helpers used by CLI handlers. This keeps __main__ smaller and centralizes
 Graph interactions while preserving existing behavior.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional

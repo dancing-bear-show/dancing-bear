@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Agentic capsule helpers for the Resume Assistant CLI."""
+from __future__ import annotations
 
 from functools import lru_cache
 from typing import List, Tuple

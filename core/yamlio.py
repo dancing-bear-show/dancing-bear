@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Shared YAML read/write helpers for personal assistant CLIs."""
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Optional

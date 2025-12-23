@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Text parsing helpers for email/HTML schedule extraction."""
+from __future__ import annotations
 
 import re
 from html import unescape

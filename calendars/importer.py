@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Schedule Importer scaffolding.
 
 Parses schedules from simple tabular sources (CSV/XLSX) and produces
@@ -7,6 +5,7 @@ recurring/one-off event specs suitable for Outlook calendar creation.
 
 Heavy parsers (PDF/HTML) are optional and lazily imported.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Phone assistant pipeline components (export, plan, checklist)."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path

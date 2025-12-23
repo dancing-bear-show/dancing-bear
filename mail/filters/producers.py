@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Producers for mail filters pipelines."""
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict

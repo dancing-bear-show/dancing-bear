@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Convenience orchestration helpers for forwarding commands."""
+from __future__ import annotations
 
 from ..context import MailContext
 from .consumers import (

@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Selection helpers for recurring event matching.
 
 Pure functions to compute calendar windows and filter Outlook events
 by weekday/time. Dependency-light and easily unit testable.
 """
+from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import datetime as _dt

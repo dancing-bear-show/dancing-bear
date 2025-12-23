@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Shared helper functions for calendar assistant."""
+from __future__ import annotations
 
 from argparse import Namespace
 

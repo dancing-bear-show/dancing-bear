@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Filters CLI registration.
 
 Centralizes wiring for the `filters` group to match the existing CLI
 shape exactly.
 """
+from __future__ import annotations
 
 
 def register(

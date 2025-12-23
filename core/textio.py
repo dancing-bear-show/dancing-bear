@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Small text IO helpers shared across assistant CLIs."""
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional

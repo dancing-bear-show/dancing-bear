@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Pipeline primitives for config commands."""
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass

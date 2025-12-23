@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Processors for mail filters pipelines."""
+from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass

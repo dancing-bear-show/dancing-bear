@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """CLI argument helpers and help string constants for calendar."""
+from __future__ import annotations
 
 from core.cli_args import add_gmail_auth_args as _add_gmail_auth_args
 from core.cli_args import add_outlook_auth_args as _add_outlook_auth_args
