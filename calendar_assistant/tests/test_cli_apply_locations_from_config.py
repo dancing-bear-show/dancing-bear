@@ -35,8 +35,8 @@ class FakeService:
 class TestApplyLocationsFromConfig(unittest.TestCase):
     def test_apply_all_occurrences_updates_series_and_occurrence(self):
         import sys
-        # Stub YAML wrapper to return a recurring event with a desired location
-        yamlio = types.ModuleType('calendar_assistant.yamlio')
+        import calendar_assistant.outlook_pipelines as pipelines
+
         def fake_load(_):
             return {'events': [{
                 'subject': 'Class',
@@ -45,9 +45,9 @@ class TestApplyLocationsFromConfig(unittest.TestCase):
                 'range': {'start_date': '2025-01-01', 'until': '2025-02-01'},
                 'location': 'Target Location',
             }]}
-        yamlio.load_config = fake_load
-        old_yamlio = sys.modules.get('calendar_assistant.yamlio')
-        sys.modules['calendar_assistant.yamlio'] = yamlio
+        # Stub the imported function directly in the pipelines module
+        old_load_yaml = pipelines._load_yaml
+        pipelines._load_yaml = fake_load
 
         # Stub service
         osvc_mod = types.ModuleType('calendar_assistant.outlook_service')
@@ -69,15 +69,13 @@ class TestApplyLocationsFromConfig(unittest.TestCase):
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('Applied', out)
             # Both series master and single occurrence updated
-            # FakeService stores updates on instance; we can’t access it directly here
+            # FakeService stores updates on instance; we can't access it directly here
             # but we can assert message contains both update lines
             self.assertIn('Updated series', out)
             self.assertIn('Updated occurrence', out)
         finally:
-            if old_yamlio is None:
-                sys.modules.pop('calendar_assistant.yamlio', None)
-            else:
-                sys.modules['calendar_assistant.yamlio'] = old_yamlio
+            # Restore original _load_yaml
+            pipelines._load_yaml = old_load_yaml
             if old_osvc is None:
                 sys.modules.pop('calendar_assistant.outlook_service', None)
             else:

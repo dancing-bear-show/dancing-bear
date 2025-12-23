@@ -31,8 +31,8 @@ class FakeService:
 class TestUpdateLocationsFromConfig(unittest.TestCase):
     def test_updates_yaml_with_address(self):
         import sys
-        # Stub our YAML wrapper
-        yamlio = types.ModuleType('calendar_assistant.yamlio')
+        import calendar_assistant.outlook_pipelines as pipelines
+
         events = [{
             'subject': 'Class',
             'repeat': 'weekly',
@@ -44,10 +44,16 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
         }]
         def fake_load(_):
             return {'events': events}
+        # Stub the imported function directly in the pipelines module
+        old_load_yaml = pipelines._load_yaml
+        pipelines._load_yaml = fake_load
+
+        # Stub yamlio module for dump_config (imported inside the function)
         captured = {}
         def fake_dump(path, obj):
             captured['path'] = path
             captured['obj'] = obj
+        yamlio = types.ModuleType('calendar_assistant.yamlio')
         yamlio.load_config = fake_load
         yamlio.dump_config = fake_dump
         old_yamlio = sys.modules.get('calendar_assistant.yamlio')
@@ -79,6 +85,8 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
             self.assertIn('Richmond Hill', loc)
             self.assertIn('11099 Bathurst St', loc)
         finally:
+            # Restore original _load_yaml
+            pipelines._load_yaml = old_load_yaml
             if old_yamlio is None:
                 sys.modules.pop('calendar_assistant.yamlio', None)
             else:

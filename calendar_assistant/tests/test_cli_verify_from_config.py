@@ -21,8 +21,8 @@ class FakeService:
 class TestVerifyFromConfigFlow(unittest.TestCase):
     def test_verify_from_config_duplicates_and_missing(self):
         import sys
-        # Stub YAML loader to provide two events, one matching and one missing
-        yamlio = types.ModuleType("calendar_assistant.yamlio")
+        import calendar_assistant.outlook_pipelines as pipelines
+
         def fake_load_config(_path):
             return {
                 'events': [
@@ -44,9 +44,9 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
                     },
                 ]
             }
-        yamlio.load_config = fake_load_config
-        old_yaml = sys.modules.get('calendar_assistant.yamlio')
-        sys.modules['calendar_assistant.yamlio'] = yamlio
+        # Stub the imported function directly in the pipelines module
+        old_load_yaml = pipelines._load_yaml
+        pipelines._load_yaml = fake_load_config
 
         # Stub OutlookService used by the command
         old_osvc_mod = sys.modules.get('calendar_assistant.outlook_service')
@@ -73,10 +73,8 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
                 sys.modules.pop('calendar_assistant.outlook_service', None)
             else:
                 sys.modules['calendar_assistant.outlook_service'] = old_osvc_mod
-            if old_yaml is None:
-                sys.modules.pop('calendar_assistant.yamlio', None)
-            else:
-                sys.modules['calendar_assistant.yamlio'] = old_yaml
+            # Restore original _load_yaml
+            pipelines._load_yaml = old_load_yaml
 
 
 if __name__ == '__main__':  # pragma: no cover

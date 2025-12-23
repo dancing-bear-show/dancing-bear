@@ -94,7 +94,8 @@ class PlanProducer(Producer[ResultEnvelope[PlanResult]]):
             if msg:
                 print(msg)
             return
-        assert result.payload is not None
+        if result.payload is None:
+            return
         _dump_yaml(str(result.payload.out_path), result.payload.document)
         events = result.payload.document.get("events", [])
         print(f"Wrote plan with {len(events)} events to {result.payload.out_path}")
@@ -466,7 +467,8 @@ class VerifyProducer(Producer[ResultEnvelope[VerifyResult]]):
             if msg:
                 print(msg)
             return
-        assert result.payload is not None
+        if result.payload is None:
+            return
         for line in result.payload.lines:
             print(line)
 
@@ -689,7 +691,8 @@ class SyncProducer(Producer[ResultEnvelope[SyncResult]]):
             if msg:
                 print(msg)
             return
-        assert result.payload is not None
+        if result.payload is None:
+            return
         for line in result.payload.lines:
             print(line)
 
