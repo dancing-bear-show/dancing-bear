@@ -10,10 +10,8 @@ from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 
 from .diagnostics import DiagnoseConfig, run_diagnosis
+from .meta import APP_ID, PURPOSE
 from .pipeline import DiagnoseProcessor, DiagnoseProducer, DiagnoseRequest, DiagnoseRequestConsumer
-
-APP_ID = "wifi"
-PURPOSE = "Wi-Fi and LAN diagnostics (gateway vs upstream vs DNS)"
 
 assistant = BaseAssistant(
     APP_ID,
