@@ -116,7 +116,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     agentic_result = assistant.maybe_emit_agentic(
-        args, emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact)
+        args, emit_func=lambda fmt, compact: (print(_lazy_agentic()()), 0)[1]
     )
     if agentic_result is not None:
         return agentic_result

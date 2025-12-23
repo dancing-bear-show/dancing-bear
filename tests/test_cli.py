@@ -30,10 +30,11 @@ class CLITests(unittest.TestCase):
         root = repo_root()
         wrapper = bin_path('mail_assistant')
         self.assertTrue(wrapper.exists(), 'bin/mail_assistant not found')
-        proc = run([sys.executable, str(wrapper), 'outlook', 'calendar', '--help'], cwd=str(root))
+        # With CLIApp, outlook calendar commands use dot notation (e.g., calendar.add)
+        proc = run([sys.executable, str(wrapper), 'outlook', 'calendar.add', '--help'], cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        # Ensure subcommands are present in help output
-        self.assertIn('add-recurring', proc.stdout)
+        # Ensure calendar add options are present in help output
+        self.assertIn('--subject', proc.stdout)
 
     test_outlook_calendar_help = unittest.skipUnless(has_pyyaml(), 'requires PyYAML to import CLI')(test_outlook_calendar_help)
 
