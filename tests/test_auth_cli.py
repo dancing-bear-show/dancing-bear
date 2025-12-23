@@ -140,12 +140,12 @@ class AuthCLITests(unittest.TestCase):
         requests.get = _get
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            import mail_assistant.__main__ as m
+            from mail_assistant.outlook.commands import run_outlook_auth_validate
 
             args = SimpleNamespace(client_id="fake", tenant="consumers", token=tok_path, profile=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = m._cmd_outlook_auth_validate(args)
+                rc = run_outlook_auth_validate(args)
             out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn("Outlook token valid.", out)
