@@ -65,6 +65,12 @@ so multiple engineers can work in parallel without stepping on each other.
 ## Phase 4 — Phone & WhatsApp (after core + example apps done)
 - Phone:
   - [x] Layout export/plan/checklist now run through pipeline consumers/processors/producers (`phone/pipeline.py`).
+  - [x] Unused/prune/analyze commands migrated to pipeline.
+  - [x] Device I/O commands (export-device, iconmap) now use pipelines via `phone/device.py` helpers.
+  - [x] Manifest commands (from-export, from-device, install) migrated to pipeline.
+  - [x] Identity verify command uses pipeline with credential/certificate helpers in `phone/device.py`.
+  - [x] App classification extracted to `phone/classify.py` for shared use.
+  - [x] Full pipeline coverage: 12/12 commands use Consumer/Processor/Producer pattern.
 - WhatsApp:
   - [ ] Sqlite consumer, search processors, text/JSON producers.
 
