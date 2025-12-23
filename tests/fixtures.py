@@ -175,6 +175,12 @@ class FakeGmailClient:
 
     def delete_filter(self, filter_id: str) -> None:
         self.deleted_filter_ids.append(filter_id)
+        self.filters = [f for f in self.filters if f.get("id") != filter_id]
+
+    @property
+    def deleted_ids(self) -> List[str]:
+        """Alias for deleted_filter_ids for backward compatibility."""
+        return self.deleted_filter_ids
 
     def ensure_label(self, name: str, **kwargs) -> str:
         mapping = self.get_label_id_map()
@@ -199,8 +205,13 @@ class FakeGmailClient:
     def delete_label(self, label_id: str) -> None:
         self.labels = [lab for lab in self.labels if lab["id"] != label_id]
 
-    def batch_modify_messages(self, ids: List[str], add_ids: List[str], remove_ids: List[str]) -> None:
-        self.modified_batches.append((ids, add_ids, remove_ids))
+    def batch_modify_messages(
+        self,
+        ids: List[str],
+        add_label_ids: Optional[List[str]] = None,
+        remove_label_ids: Optional[List[str]] = None,
+    ) -> None:
+        self.modified_batches.append((list(ids), list(add_label_ids or []), list(remove_label_ids or [])))
 
     def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:
         self.sent_messages.append(raw_bytes)
@@ -213,6 +224,9 @@ class FakeGmailClient:
     def list_forwarding_addresses(self) -> List[Dict]:
         return [{"forwardingEmail": addr, "verificationStatus": "accepted"}
                 for addr in self.verified_forward_addresses]
+
+    def get_verified_forwarding_addresses(self) -> set:
+        return set(self.verified_forward_addresses)
 
 
 def make_gmail_client(

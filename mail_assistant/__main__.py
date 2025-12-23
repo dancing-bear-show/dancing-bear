@@ -27,6 +27,18 @@ from .config_resolver import (
 )
 from .utils.plan import print_plan_summary
 
+# Pipeline command imports
+from .signatures.commands import (
+    run_signatures_export,
+    run_signatures_sync,
+    run_signatures_normalize,
+)
+from .auto.commands import (
+    run_auto_propose,
+    run_auto_summary,
+    run_auto_apply,
+)
+
 
 CLI_DESCRIPTION = "Mail Assistant CLI"
 
@@ -184,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
         p_auto_propose.add_argument(k, **v)
     p_auto_propose.add_argument("--out", required=True, help="Path to proposal JSON")
     p_auto_propose.add_argument("--dry-run", action="store_true")
-    p_auto_propose.set_defaults(func=_cmd_auto_propose)
+    p_auto_propose.set_defaults(func=run_auto_propose)
 
     p_auto_apply = sub_auto.add_parser("apply", help="Apply a saved proposal (archive + label)")
     p_auto_apply.add_argument("--credentials", type=str)
@@ -195,11 +207,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto_apply.add_argument("--batch-size", type=int, default=500)
     p_auto_apply.add_argument("--dry-run", action="store_true")
     p_auto_apply.add_argument("--log", type=str, default="logs/auto_runs.jsonl")
-    p_auto_apply.set_defaults(func=_cmd_auto_apply)
+    p_auto_apply.set_defaults(func=run_auto_apply)
 
     p_auto_summary = sub_auto.add_parser("summary", help="Summarize a proposal JSON")
     p_auto_summary.add_argument("--proposal", required=True)
-    p_auto_summary.set_defaults(func=_cmd_auto_summary)
+    p_auto_summary.set_defaults(func=run_auto_summary)
 
     # forwarding group (registered via helper to keep this lean)
     from .cli.forwarding import register as _register_forwarding
@@ -218,9 +230,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     _register_signatures(
         sub,
-        f_export=_cmd_signatures_export,
-        f_sync=_cmd_signatures_sync,
-        f_normalize=_cmd_signatures_normalize,
+        f_export=run_signatures_export,
+        f_sync=run_signatures_sync,
+        f_normalize=run_signatures_normalize,
     )
 
     # config group (inspect/redacted view)
@@ -1297,193 +1309,6 @@ def _cmd_cache_prune(args: argparse.Namespace) -> int:
             pass
     print(f"Pruned {removed} files older than {args.days} days from {root}")
     return 0
-
-
-# --------- Auto propose/apply (Gmail) ---------
-
-def _classify_low_interest(msg: dict) -> Optional[dict]:
-    """Return action suggestion if message is likely low-interest.
-
-    Heuristics: List-Unsubscribe/List-Id headers, Precedence: bulk, Auto-Submitted,
-    Gmail categories (CATEGORY_PROMOTIONS/FORUMS), promo keywords in subject.
-    """
-    from .gmail_api import GmailClient  # type: ignore  # for type hints
-    hdrs = GmailClient.headers_to_dict(msg)
-    label_ids = set(msg.get("labelIds", []) or [])
-    subject = (hdrs.get("subject") or "").lower()
-    from_addr = (hdrs.get("from") or "")
-    reasons = []
-    if hdrs.get("list-unsubscribe") or hdrs.get("list-id"):
-        reasons.append("list")
-    if (hdrs.get("precedence") or "").lower() in {"bulk", "list"}:
-        reasons.append("bulk")
-    if (hdrs.get("auto-submitted") or "").lower() not in {"", "no"}:
-        reasons.append("auto-submitted")
-    if "category_promotions" in label_ids or "CATEGORY_PROMOTIONS" in label_ids:
-        reasons.append("category:promotions")
-    if "CATEGORY_FORUMS" in label_ids:
-        reasons.append("category:forums")
-    promo_kw = ["sale", "% off", "percent off", "deal", "promo", "clearance", "free shipping", "coupon"]
-    if any(k in subject for k in promo_kw):
-        reasons.append("promo-subject")
-    if not reasons:
-        return None
-    # Choose target label
-    add = []
-    if "category:promotions" in reasons or "promo-subject" in reasons:
-        add.append("Lists/Commercial")
-    else:
-        add.append("Lists/Newsletters")
-    return {
-        "add": add,
-        "remove": ["INBOX"],
-        "reasons": reasons,
-        "from": from_addr,
-        "subject": hdrs.get("subject") or "",
-        "ts": int(msg.get("internalDate", 0))
-    }
-
-
-def _cmd_auto_propose(args: argparse.Namespace) -> int:
-    GmailClient = _lazy_gmail_client()
-    from .applog import AppLogger  # type: ignore
-    logger = AppLogger(args.log)
-    sid = logger.start("auto_propose", vars(args))
-    try:
-        from .utils.cli_helpers import gmail_provider_from_args
-        from .utils.gmail_ops import fetch_messages_with_metadata
-        client = gmail_provider_from_args(args)
-        client.authenticate()
-        q = _build_gmail_query({"query": ""}, days=args.days, only_inbox=True)
-        ids, msgs = fetch_messages_with_metadata(
-            client,
-            query=q,
-            pages=int(args.pages),
-            max_msgs=None,
-        )
-        selected = []
-        # Build protected matcher
-        prot = [p.strip().lower() for p in (args.protect or []) if p and isinstance(p, str)]
-        def _is_protected(from_val: str) -> bool:
-            f = (from_val or '').lower()
-            # Extract bare email if in Name <email>
-            if '<' in f and '>' in f:
-                try:
-                    f = f.split('<')[-1].split('>')[0]
-                except Exception:
-                    pass
-            f = f.strip()
-            dom = f.split('@')[-1] if '@' in f else f
-            for p in prot:
-                if not p:
-                    continue
-                if p.startswith('@'):
-                    if f.endswith(p) or dom == p.lstrip('@'):
-                        return True
-                elif p in (f,):
-                    return True
-            return False
-        for m in msgs:
-            # Skip protected senders
-            try:
-                hdrs = _lazy_gmail_client().headers_to_dict(m)  # type: ignore[attr-defined]
-            except Exception:
-                hdrs = {}
-            if _is_protected(hdrs.get('from','')):
-                continue
-            act = _classify_low_interest(m)
-            if act:
-                selected.append({
-                    "id": m.get("id"),
-                    "threadId": m.get("threadId"),
-                    **act,
-                })
-        doc = {
-            "generated_at": int(__import__("time").time()),
-            "days": int(args.days),
-            "query": q,
-            "counts": {"total_considered": len(msgs), "selected": len(selected)},
-            "messages": selected,
-        }
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(__import__("json").dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"Proposal written to {out} (selected {len(selected)} of {len(msgs)})")
-        logger.end(sid, status="ok")
-        return 0
-    except Exception as e:
-        logger.error(sid, f"auto_propose failed: {e}")
-        logger.end(sid, status="error", error=str(e))
-        print(f"Error: {e}")
-        return 1
-
-
-def _cmd_auto_summary(args: argparse.Namespace) -> int:
-    p = Path(args.proposal)
-    doc = __import__("json").loads(p.read_text(encoding="utf-8"))
-    msgs = doc.get("messages") or []
-    from collections import Counter
-    reasons = Counter()
-    add_labels = Counter()
-    for m in msgs:
-        for r in (m.get("reasons") or []):
-            reasons[r] += 1
-        for a in (m.get("add") or []):
-            add_labels[a] += 1
-    print(f"Messages: {len(msgs)}")
-    print("Top reasons:")
-    for k, v in reasons.most_common(10):
-        print(f"  {k}: {v}")
-    print("Label adds:")
-    for k, v in add_labels.most_common():
-        print(f"  {k}: {v}")
-    return 0
-
-
-def _cmd_auto_apply(args: argparse.Namespace) -> int:
-    GmailClient = _lazy_gmail_client()
-    from .applog import AppLogger  # type: ignore
-    logger = AppLogger(args.log)
-    sid = logger.start("auto_apply", vars(args))
-    try:
-        doc = __import__("json").loads(Path(args.proposal).read_text(encoding="utf-8"))
-        msgs = doc.get("messages") or []
-        from .utils.cli_helpers import gmail_provider_from_args
-        client = gmail_provider_from_args(args)
-        client.authenticate()
-        name_to_id = client.get_label_id_map()
-        # Build per-message label change ids (but apply in batches ignoring per-message add differences by union? We'll group by same add/remove sets)
-        # For correctness, apply in batches with message-specific ids not supported; so we split by action signature
-        from collections import defaultdict
-        groups = defaultdict(list)
-        cutoff_ts = None
-        if args.cutoff_days:
-            cutoff_ts = int(__import__("time").time()) - int(args.cutoff_days) * 86400
-        for m in msgs:
-            if cutoff_ts and int(m.get("ts", 0)) > cutoff_ts:
-                continue
-            add_ids = [name_to_id.get(x) or x for x in (m.get("add") or [])]
-            rem_ids = [name_to_id.get(x) or x for x in (m.get("remove") or [])]
-            sig = (tuple(sorted(add_ids)), tuple(sorted(rem_ids)))
-            groups[sig].append(m.get("id"))
-        total = 0
-        B = int(args.batch_size)
-        for (add_ids, rem_ids), id_list in groups.items():
-            if args.dry_run:
-                print(f"Would modify {len(id_list)} messages; +{list(add_ids)} -{list(rem_ids)}")
-                total += len(id_list)
-                continue
-            for i in range(0, len(id_list), B):
-                client.batch_modify_messages(id_list[i : i + B], list(add_ids), list(rem_ids))
-            total += len(id_list)
-        print(f"Applied to {total} messages.")
-        logger.end(sid, status="ok")
-        return 0
-    except Exception as e:
-        logger.error(sid, f"auto_apply failed: {e}")
-        logger.end(sid, status="error", error=str(e))
-        print(f"Error: {e}")
-        return 1
 
 
 # ---------- Accounts (1-to-many) operations ----------
@@ -3364,7 +3189,7 @@ def _cmd_accounts_sync_signatures(args: argparse.Namespace) -> int:
                 dry_run=args.dry_run,
                 account_display_name=a.get("display_name"),
             )
-            _cmd_signatures_sync(ns)
+            run_signatures_sync(ns)
         elif provider == "outlook":
             # Not supported via API; drop guidance file only
             assets = Path("signatures_assets")
@@ -3450,157 +3275,6 @@ def _cmd_forwarding_disable(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Failed to disable auto-forwarding: {e}")
         return 3
-
-
-def _cmd_signatures_export(args: argparse.Namespace) -> int:
-    # Export Gmail signatures and write an iOS HTML asset for manual import
-    out = Path(args.out)
-    assets = Path(args.assets_dir)
-    assets.mkdir(parents=True, exist_ok=True)
-    doc = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
-
-    if args.credentials:
-        from .utils.cli_helpers import gmail_provider_from_args
-        client = gmail_provider_from_args(args)
-        client.authenticate()
-        for sa in client.list_signatures():
-            doc["signatures"]["gmail"].append({
-                "sendAs": sa.get("sendAsEmail"),
-                "isPrimary": sa.get("isPrimary", False),
-                "signature_html": sa.get("signature", ""),
-                "displayName": sa.get("displayName"),
-            })
-        # Set a default_html from primary if present
-        prim = next((s for s in doc["signatures"]["gmail"] if s.get("isPrimary")), None)
-        if prim and prim.get("signature_html"):
-            doc["signatures"]["default_html"] = prim["signature_html"]
-            # Write iOS asset
-            (assets / "ios_signature.html").write_text(prim["signature_html"], encoding="utf-8")
-    from .yamlio import dump_config
-    out.parent.mkdir(parents=True, exist_ok=True)
-    dump_config(str(out), doc)
-    print(f"Exported signatures to {out}; iOS asset at {assets/'ios_signature.html'}")
-    return 0
-
-
-def _cmd_signatures_sync(args: argparse.Namespace) -> int:
-    doc = load_config(args.config)
-    sigs = (doc.get("signatures") or {})
-    default_html = sigs.get("default_html")
-
-    # Helpers
-    class _Safe(dict):
-        def __missing__(self, k):
-            return '{' + k + '}'
-
-    def _inline_css(html: str) -> str:
-        try:
-            from premailer import transform  # type: ignore
-            return transform(html)
-        except Exception:
-            return html
-
-    def _render(template_html: str, subs: dict) -> str:
-        try:
-            return template_html.format_map(_Safe(**subs))
-        except Exception:
-            return template_html
-
-    # Gmail apply
-    if args.credentials:
-        from .utils.cli_helpers import gmail_provider_from_args
-        client = gmail_provider_from_args(args)
-        client.authenticate()
-        current = {s.get("sendAsEmail"): s for s in client.list_signatures()}
-        desired = sigs.get("gmail") or []
-        if not desired and default_html:
-            # If not specified per send-as, apply default to primary send-as
-            for sa in current.values():
-                if not sa.get("isPrimary"):
-                    continue
-                email = sa.get("sendAsEmail")
-                disp = sa.get("displayName") or getattr(args, 'account_display_name', None)
-                html_final = _inline_css(_render(default_html, {"displayName": disp or "", "email": email or ""}))
-                if args.dry_run:
-                    print(f"Would update Gmail signature for {email} (primary)")
-                else:
-                    client.update_signature(email, html_final)
-                    print(f"Updated Gmail signature for {email}")
-        else:
-            for ent in desired:
-                email = ent.get("sendAs")
-                html = ent.get("signature_html") or default_html
-                if not email or not html:
-                    continue
-                if args.send_as and email != args.send_as:
-                    continue
-                disp = (current.get(email) or {}).get("displayName") or getattr(args, 'account_display_name', None)
-                html_final = _inline_css(_render(html, {"displayName": disp or "", "email": email}))
-                if args.dry_run:
-                    print(f"Would update Gmail signature for {email}")
-                else:
-                    client.update_signature(email, html_final)
-                    print(f"Updated Gmail signature for {email}")
-
-    # iOS: write asset file if provided
-    ios = sigs.get("ios") or {}
-    if default_html and ios is not None:
-        out = Path("signatures_assets/ios_signature.html")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(default_html, encoding="utf-8")
-        print(f"Wrote iOS signature asset to {out}")
-
-    # Outlook: not supported programmatically; write an advisory file
-    if sigs.get("outlook") or default_html:
-        note = Path("signatures_assets/OUTLOOK_README.txt")
-        note.parent.mkdir(parents=True, exist_ok=True)
-        note.write_text(
-            "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
-            "Use the exported HTML (ios_signature.html) and paste into Outlook signature settings,\n"
-            "or configure roaming signatures as per Microsoft guidance.",
-            encoding="utf-8",
-        )
-        print(f"Wrote Outlook guidance to {note}")
-    return 0
-
-
-def _cmd_signatures_normalize(args: argparse.Namespace) -> int:
-    doc = load_config(args.config)
-    sigs = (doc.get("signatures") or {})
-    html = sigs.get("default_html")
-    if not html:
-        g = sigs.get("gmail") or []
-        if g and isinstance(g, list):
-            html = g[0].get("signature_html")
-    if not html:
-        print("No signature HTML found in config")
-        return 1
-    vars_map = {}
-    for pair in args.var:
-        if "=" in pair:
-            k, v = pair.split("=", 1)
-            vars_map[k] = v
-
-    class _Safe(dict):
-        def __missing__(self, k):
-            return '{' + k + '}'
-
-    def _inline_css(html_in: str) -> str:
-        try:
-            from premailer import transform  # type: ignore
-            return transform(html_in)
-        except Exception:
-            return html_in
-
-    try:
-        html_r = html.format_map(_Safe(**vars_map))
-    except Exception:
-        html_r = html
-    outp = Path(args.out_html)
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    outp.write_text(_inline_css(html_r), encoding="utf-8")
-    print(f"Wrote normalized signature to {outp}")
-    return 0
 
 
 # -------------- Messages: search, summarize, reply --------------
