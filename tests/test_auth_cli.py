@@ -82,12 +82,12 @@ class AuthCLITests(unittest.TestCase):
         }
 
         with patch.dict("sys.modules", fake_modules, clear=False):
-            import mail_assistant.__main__ as m
+            from mail_assistant.config_cli.commands import run_auth
 
             args = SimpleNamespace(validate=True, token=tok_path, credentials=None, profile=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = m._cmd_auth(args)
+                rc = run_auth(args)
             out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn("Gmail token valid.", out)

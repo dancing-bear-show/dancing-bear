@@ -14,7 +14,7 @@ class EnvSetupTests(unittest.TestCase):
         td = tempfile.mkdtemp()
         ini_path = os.path.join(td, 'credentials.ini')
         with patch.object(cr, '_INI_PATHS', [ini_path]):
-            import mail_assistant.__main__ as m
+            from mail_assistant.config_cli.commands import run_env_setup
             args = SimpleNamespace(
                 venv_dir=os.path.join(td, '.venv'),
                 no_venv=True,
@@ -29,7 +29,7 @@ class EnvSetupTests(unittest.TestCase):
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = m._cmd_env_setup(args)
+                rc = run_env_setup(args)
             self.assertEqual(rc, 0)
             # Verify INI written
             import configparser

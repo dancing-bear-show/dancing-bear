@@ -25,8 +25,6 @@ from .config_resolver import (
     expand_path,
     resolve_paths_profile,
 )
-from .utils.plan import print_plan_summary
-
 # Pipeline command imports
 from .signatures.commands import (
     run_signatures_export,
