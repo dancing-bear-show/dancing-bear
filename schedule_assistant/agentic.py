@@ -1,9 +1,8 @@
+"""Agentic capsule helpers for the Schedule Assistant CLI."""
 from __future__ import annotations
 
-"""Agentic capsule helpers for the Schedule Assistant CLI."""
-
 from functools import lru_cache
-from typing import List
+from typing import List, Tuple
 
 from core.agentic import (
     build_capsule as _build_capsule,
@@ -18,7 +17,7 @@ def _get_parser():
     try:
         from . import __main__ as main_mod
 
-        return main_mod.build_parser()
+        return main_mod.app.build_parser()
     except Exception:
         return None
 
@@ -89,7 +88,7 @@ def build_domain_map() -> str:
     return "\n".join([s for s in sections if s])
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
-    # fmt/compact kept for parity but currently unused.
+def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:
+    # _fmt/_compact kept for signature parity but currently unused.
     print(build_agentic_capsule())
     return 0

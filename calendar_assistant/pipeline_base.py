@@ -6,12 +6,35 @@ from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
 
-from core.pipeline import ResultEnvelope
+from core.pipeline import Consumer, ResultEnvelope
 from core.auth import build_gmail_service as _build_gmail_service
 
 from .gmail_service import GmailService
+
+# Generic type for request objects
+RequestT = TypeVar("RequestT")
+
+
+class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
+    """Generic consumer that wraps any request object.
+
+    Replaces boilerplate consumer classes that all do the same thing:
+    store a request and return it on consume().
+
+    Example usage:
+        # Instead of defining a separate consumer class:
+        request = OutlookVerifyRequest(...)
+        consumer = RequestConsumer(request)
+        payload = consumer.consume()  # Returns the request
+    """
+
+    def __init__(self, request: RequestT) -> None:
+        self._request = request
+
+    def consume(self) -> RequestT:  # pragma: no cover - trivial
+        return self._request
 
 
 @dataclass
