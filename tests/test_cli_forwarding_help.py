@@ -7,8 +7,8 @@ from tests.fixtures import bin_path, has_pyyaml, repo_root, run
 class ForwardingHelpTests(unittest.TestCase):
     def test_forwarding_group_help_lists_subcommands(self):
         root = repo_root()
-        wrapper = bin_path("mail_assistant")
-        self.assertTrue(wrapper.exists(), "bin/mail_assistant not found")
+        wrapper = bin_path("mail")
+        self.assertTrue(wrapper.exists(), "bin/mail not found")
         proc = run([str(wrapper), "forwarding", "--help"], cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         out = proc.stdout

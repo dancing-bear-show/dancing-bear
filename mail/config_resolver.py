@@ -38,7 +38,7 @@ _INI_PATHS = _dedupe([
     *(os.path.join(root, "sreutils", "credentials.ini") for root in _config_roots()),
     os.path.expanduser("~/.sre-utils/credentials.ini"),
 ])
-_SECTION = "mail_assistant"
+_SECTION = "mail"
 _DEFAULT_CONFIG_DIR = _config_roots()[0]
 DEFAULT_GMAIL_CREDENTIALS = os.path.join(_DEFAULT_CONFIG_DIR, "credentials.json")
 DEFAULT_GMAIL_TOKEN = os.path.join(_DEFAULT_CONFIG_DIR, "token.json")
@@ -198,7 +198,7 @@ def _get_ini_section(profile: Optional[str]) -> Dict[str, str]:
 def get_outlook_client_id(profile: Optional[str] = None) -> Optional[str]:
     """Return Outlook (Microsoft Graph) client_id from INI if present.
 
-    Looks under section [mail_assistant] for key 'outlook_client_id' or
+    Looks under section [mail] for key 'outlook_client_id' or
     a generic 'client_id'. Returns None if not found.
     """
     sec = _get_ini_section(profile)

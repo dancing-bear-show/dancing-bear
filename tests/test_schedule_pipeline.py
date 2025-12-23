@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest import TestCase
 
 from core.pipeline import ResultEnvelope
-from schedule_assistant.pipeline import (
+from schedule.pipeline import (
     PlanProducer,
     PlanProcessor,
     PlanRequest,

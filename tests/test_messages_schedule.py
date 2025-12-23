@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.fixtures import FakeGmailClient, capture_stdout, make_args
-from mail_assistant.messages_cli.commands import (
+from mail.messages_cli.commands import (
     run_messages_reply,
     run_messages_apply_scheduled,
 )
@@ -41,7 +41,7 @@ class MessagesScheduleTests(unittest.TestCase):
             os.environ["MAIL_ASSISTANT_SCHEDULE_PATH"] = os.path.join(td, "scheduled.json")
             client = _make_messages_client()
 
-            with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
                 args = make_args(
                     id="MSG1",
@@ -95,7 +95,7 @@ class MessagesScheduleTests(unittest.TestCase):
 
             client = _make_messages_client()
 
-            with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
                 args = make_args(max=5, profile="gmail_personal")
 

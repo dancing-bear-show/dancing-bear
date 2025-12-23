@@ -13,7 +13,7 @@ class TestLlmCliExclude(unittest.TestCase):
         self.root = Path(self.td_ctx.name)
         # Areas
         for d in (
-            'mail_assistant',  # included
+            'mail',  # included
             'proposals',       # to be excluded via env
             'backups',         # heavy dir skipped by default
             '_disasm',         # heavy dir skipped by default
@@ -21,7 +21,7 @@ class TestLlmCliExclude(unittest.TestCase):
         ):
             (self.root / d).mkdir(parents=True, exist_ok=True)
         # Minimal files
-        (self.root / 'mail_assistant' / 'a.py').write_text('print("hi")\n', encoding='utf-8')
+        (self.root / 'mail' / 'a.py').write_text('print("hi")\n', encoding='utf-8')
         (self.root / 'proposals' / 'b.py').write_text('print("proposal")\n', encoding='utf-8')
         (self.root / 'backups' / 'old.txt').write_text('old\n', encoding='utf-8')
         (self.root / '_disasm' / 'ref.txt').write_text('ref\n', encoding='utf-8')
@@ -32,7 +32,7 @@ class TestLlmCliExclude(unittest.TestCase):
         self.td_ctx.cleanup()
 
     def test_stale_excludes_by_env(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         env_val = os.environ.get('LLM_EXCLUDE')
         try:
@@ -49,7 +49,7 @@ class TestLlmCliExclude(unittest.TestCase):
                 os.environ['LLM_EXCLUDE'] = env_val
 
     def test_stale_default_skips_heavy_dirs(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['stale', '--root', str(self.root), '--with-status', '--limit', '15', '--format', 'text'])
@@ -61,22 +61,22 @@ class TestLlmCliExclude(unittest.TestCase):
         self.assertNotIn('\nout\t', out)   # area name 'out'
         self.assertNotIn('\n_out\t', out)  # area name '_out'
 
-    def test_stale_include_only_mail_assistant(self):
-        from mail_assistant import llm_cli
+    def test_stale_include_only_mail(self):
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = llm_cli.main(['stale', '--root', str(self.root), '--with-status', '--limit', '50', '--format', 'text', '--include', 'mail_assistant'])
+            rc = llm_cli.main(['stale', '--root', str(self.root), '--with-status', '--limit', '50', '--format', 'text', '--include', 'mail'])
         self.assertEqual(rc, 0)
         lines = [ln for ln in buf.getvalue().splitlines() if ln and not ln.startswith('|')]
-        hits = [ln for ln in lines if ln.split('\t', 1)[0] == 'mail_assistant']
-        # Ensure we saw at least one row for mail_assistant and no unrelated areas
-        self.assertTrue(hits, msg='Expected mail_assistant in stale output')
+        hits = [ln for ln in lines if ln.split('\t', 1)[0] == 'mail']
+        # Ensure we saw at least one row for mail and no unrelated areas
+        self.assertTrue(hits, msg='Expected mail in stale output')
         for ln in lines:
             area = ln.split('\t', 1)[0]
-            self.assertIn('mail_assistant', area)
+            self.assertIn('mail', area)
 
     def test_deps_respects_env_exclude(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         env_val = os.environ.get('LLM_EXCLUDE')
         try:

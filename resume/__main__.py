@@ -1,0 +1,24 @@
+"""Executable shim so `python -m resume` runs the CLI."""
+
+from __future__ import annotations
+
+from importlib import import_module
+import sys
+
+
+def _load_cli_main():
+    try:
+        module = import_module("resume.resume.cli.main")
+        return getattr(module, "main")
+    except ModuleNotFoundError as exc:
+        missing = str(exc).split("'")[1]
+        print(f"Missing optional dependency '{missing}'. Install resume requirements or run in the venv before using this CLI.", file=sys.stderr)
+        raise SystemExit(99)
+
+
+def main(argv=None) -> int:
+    return _load_cli_main()(argv)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

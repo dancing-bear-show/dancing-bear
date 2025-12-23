@@ -13,7 +13,7 @@ def resolve_outlook_credentials(
 ):
     """Return (client_id, tenant, token_path) folded over env/profile defaults."""
     import os
-    from mail_assistant.config_resolver import (
+    from mail.config_resolver import (
         get_outlook_client_id,
         get_outlook_tenant,
         get_outlook_token_path,
@@ -45,8 +45,8 @@ def build_outlook_service(
     service_cls=None,
 ):
     """Instantiate OutlookService with a shared resolver."""
-    from calendar_assistant.context import OutlookContext as DefaultContext
-    from calendar_assistant.outlook_service import OutlookService as DefaultService
+    from calendars.context import OutlookContext as DefaultContext
+    from calendars.outlook_service import OutlookService as DefaultService
 
     context_cls = context_cls or DefaultContext
     service_cls = service_cls or DefaultService
@@ -63,7 +63,7 @@ def build_gmail_service(
 ):
     """Instantiate a GmailService (via existing CLI helper resolution)."""
     from types import SimpleNamespace
-    from calendar_assistant.gmail_service import GmailService as DefaultService  # reuse existing helper
+    from calendars.gmail_service import GmailService as DefaultService  # reuse existing helper
 
     service_cls = service_cls or DefaultService
     args = SimpleNamespace(

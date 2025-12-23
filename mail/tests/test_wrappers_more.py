@@ -14,7 +14,7 @@ class TestMoreWrappers(unittest.TestCase):
         self.assertTrue(wrapper.exists(), 'bin/llm-calendar not found')
         proc = run([str(wrapper), 'agentic', '--stdout'], cwd=str(repo_root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn('agentic: calendar_assistant', proc.stdout)
+        self.assertIn('agentic: calendar', proc.stdout)
 
     def test_wrapper_llm_maker_agentic(self):
         repo_root = Path(__file__).resolve().parents[1]

@@ -8,7 +8,7 @@ import unittest
 def load_llm_cli():
     pkg_parent = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(pkg_parent))
-    mod = importlib.import_module("mail_assistant.llm_cli")
+    mod = importlib.import_module("mail.llm_cli")
     return mod
 
 
@@ -24,7 +24,7 @@ class TestLLMAgentic(unittest.TestCase):
             sys.stdout = sys_stdout
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("agentic: mail_assistant", out)
+        self.assertIn("agentic: mail", out)
 
 
 if __name__ == "__main__":

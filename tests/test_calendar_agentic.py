@@ -10,7 +10,7 @@ class TestCalendarAgentic(unittest.TestCase):
         # Ensure parent of repo is importable
         root = repo_root()
         sys.path.insert(0, str(root.parent))
-        import calendar_assistant.__main__ as mod  # type: ignore
+        import calendars.__main__ as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -20,7 +20,7 @@ class TestCalendarAgentic(unittest.TestCase):
             sys.stdout = old
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("agentic: calendar_assistant", out)
+        self.assertIn("agentic: calendar", out)
 
 
 if __name__ == "__main__":
