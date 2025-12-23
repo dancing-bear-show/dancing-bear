@@ -105,6 +105,15 @@ assistant = BaseAssistant(
     "agentic: calendar_assistant\npurpose: Outlook calendars + Gmail scans → plans",
 )
 
+# CLI help string constants to avoid duplication
+HELP_START_DATE = "Start date YYYY-MM-DD (default: 30 days ago)"
+HELP_END_DATE = "End date YYYY-MM-DD (default: 180 days ahead)"
+HELP_CALENDAR_DEFAULT = "Calendar name (defaults to event.calendar or primary)"
+HELP_CONFIG_EVENTS = "YAML with events: [] entries"
+HELP_DRY_RUN = "Preview changes without writing"
+HELP_DEFAULT_CALENDAR = "Default calendar name to include in plan entries"
+HELP_INBOX_ONLY = "Restrict to Inbox (adds in:inbox)"
+
 
 def build_parser() -> argparse.ArgumentParser:
     epilog = (
@@ -127,9 +136,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_g_scan.add_argument("--from-text", dest="from_text", default="active rh", help="Text to match sender (Gmail query)")
     p_g_scan.add_argument("--query", help="Raw Gmail query to use instead of --from-text/--days")
     _add_common_gmail_paging_args(p_g_scan, default_days=60, default_pages=5, default_page_size=100)
-    p_g_scan.add_argument("--inbox-only", action="store_true", help="Restrict to Inbox (adds in:inbox)")
+    p_g_scan.add_argument("--inbox-only", action="store_true", help=HELP_INBOX_ONLY)
     p_g_scan.add_argument("--out", help="Optional output YAML plan path (events: [])")
-    p_g_scan.add_argument("--calendar", help="Default calendar name to include in plan entries")
+    p_g_scan.add_argument("--calendar", help=HELP_DEFAULT_CALENDAR)
     p_g_scan.set_defaults(func=_cmd_gmail_scan_classes)
 
     p_g_rcpts = sub_g.add_parser("scan-receipts", help="Scan Gmail receipts (ActiveRH) and extract recurring events")
@@ -138,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_g_rcpts.add_argument("--query", help="Raw Gmail query to use instead of --from-text/--days")
     _add_common_gmail_paging_args(p_g_rcpts, default_days=365, default_pages=5, default_page_size=100)
     p_g_rcpts.add_argument("--out", required=True, help="Output YAML plan path (events: [])")
-    p_g_rcpts.add_argument("--calendar", help="Default calendar name to include in plan entries")
+    p_g_rcpts.add_argument("--calendar", help=HELP_DEFAULT_CALENDAR)
     p_g_rcpts.set_defaults(func=_cmd_gmail_scan_receipts)
 
     # scan-activerh: generic targeting for Active RH receipts across programs
@@ -147,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_g_arh.add_argument("--query", help="Raw Gmail query (overrides defaults)")
     _add_common_gmail_paging_args(p_g_arh, default_days=365, default_pages=10, default_page_size=100)
     p_g_arh.add_argument("--out", required=True, help="Output YAML plan path (events: [])")
-    p_g_arh.add_argument("--calendar", help="Default calendar name to include in plan entries")
+    p_g_arh.add_argument("--calendar", help=HELP_DEFAULT_CALENDAR)
     p_g_arh.set_defaults(func=_cmd_gmail_scan_activerh)
 
     # gmail mail-list (read-only sniff test)
@@ -156,7 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_g_list.add_argument("--from-text", dest="from_text", help="Optional sender filter (adds from:")
     p_g_list.add_argument("--query", help="Raw Gmail query; overrides defaults")
     _add_common_gmail_paging_args(p_g_list, default_days=7, default_pages=1, default_page_size=10)
-    p_g_list.add_argument("--inbox-only", action="store_true", help="Restrict to Inbox (adds in:inbox)")
+    p_g_list.add_argument("--inbox-only", action="store_true", help=HELP_INBOX_ONLY)
     p_g_list.set_defaults(func=_cmd_gmail_mail_list)
 
     # gmail sweep-top: find frequent senders in Inbox window
@@ -166,7 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_g_sweep.add_argument("--pages", type=int, default=5, help="Max pages to fetch (default 5)")
     p_g_sweep.add_argument("--page-size", type=int, default=100, help="Page size (default 100)")
     p_g_sweep.add_argument("--top", type=int, default=10, help="How many top senders to show (default 10)")
-    p_g_sweep.add_argument("--inbox-only", action="store_true", help="Restrict to Inbox (adds in:inbox)")
+    p_g_sweep.add_argument("--inbox-only", action="store_true", help=HELP_INBOX_ONLY)
     p_g_sweep.add_argument("--out", help="Optional suggested Gmail filters YAML path")
     p_g_sweep.set_defaults(func=_cmd_gmail_sweep_top)
 
@@ -206,7 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_cfg = sub_out.add_parser("add-from-config", help="Add events defined in a YAML file")
     _add_common_outlook_args(p_cfg)
-    p_cfg.add_argument("--config", required=True, help="YAML with events: [] entries")
+    p_cfg.add_argument("--config", required=True, help=HELP_CONFIG_EVENTS)
     p_cfg.add_argument("--dry-run", action="store_true", help="Print actions without creating events")
     p_cfg.add_argument("--no-reminder", action="store_true", help="Create events without reminders/alerts")
     p_cfg.set_defaults(func=_cmd_outlook_add_from_config)
@@ -214,15 +223,15 @@ def build_parser() -> argparse.ArgumentParser:
     # verify-from-config: check for duplicates in Outlook before create
     p_verify = sub_out.add_parser("verify-from-config", help="Verify plan against Outlook to avoid duplicates")
     _add_common_outlook_args(p_verify)
-    p_verify.add_argument("--config", required=True, help="YAML with events: [] entries")
-    p_verify.add_argument("--calendar", help="Calendar name (defaults to event.calendar or primary)")
+    p_verify.add_argument("--config", required=True, help=HELP_CONFIG_EVENTS)
+    p_verify.add_argument("--calendar", help=HELP_CALENDAR_DEFAULT)
     p_verify.set_defaults(func=_cmd_outlook_verify_from_config)
 
     # update-locations: pull current event locations from Outlook and update YAML
     p_update_loc = sub_out.add_parser("update-locations", help="Update YAML event locations from Outlook calendar")
     _add_common_outlook_args(p_update_loc)
-    p_update_loc.add_argument("--config", required=True, help="YAML with events: [] entries")
-    p_update_loc.add_argument("--calendar", help="Calendar name (defaults to event.calendar or primary)")
+    p_update_loc.add_argument("--config", required=True, help=HELP_CONFIG_EVENTS)
+    p_update_loc.add_argument("--calendar", help=HELP_CALENDAR_DEFAULT)
     p_update_loc.add_argument("--dry-run", action="store_true", help="Preview updates without writing")
     p_update_loc.set_defaults(func=_cmd_outlook_update_locations_from_config)
 
@@ -230,7 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply_loc = sub_out.add_parser("apply-locations", help="Apply locations from YAML to Outlook events")
     _add_common_outlook_args(p_apply_loc)
     p_apply_loc.add_argument("--config", required=True, help="YAML events config path")
-    p_apply_loc.add_argument("--calendar", help="Calendar name (defaults to event.calendar or primary)")
+    p_apply_loc.add_argument("--calendar", help=HELP_CALENDAR_DEFAULT)
     p_apply_loc.add_argument("--dry-run", action="store_true", help="Preview updates without patching events")
     p_apply_loc.add_argument("--all-occurrences", action="store_true", help="Update all matching events in window (dedup by series)")
     p_apply_loc.set_defaults(func=_cmd_outlook_apply_locations_from_config)
@@ -241,15 +250,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_enrich_loc.add_argument("--calendar", required=True, help="Calendar name to scan/update")
     p_enrich_loc.add_argument("--from", dest="from_date", default=None, help="Start date YYYY-MM-DD")
     p_enrich_loc.add_argument("--to", dest="to_date", default=None, help="End date YYYY-MM-DD")
-    p_enrich_loc.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    p_enrich_loc.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
     p_enrich_loc.set_defaults(func=_cmd_outlook_locations_enrich)
 
     # list one-off events in a time window
     p_list_one = sub_out.add_parser("list-one-offs", help="List non-recurring (single) events in a calendar window")
     _add_common_outlook_args(p_list_one)
     p_list_one.add_argument("--calendar", help="Calendar name (e.g., 'Your Family')")
-    p_list_one.add_argument("--from", dest="from_date", help="Start date YYYY-MM-DD (default: 30 days ago)")
-    p_list_one.add_argument("--to", dest="to_date", help="End date YYYY-MM-DD (default: 180 days ahead)")
+    p_list_one.add_argument("--from", dest="from_date", help=HELP_START_DATE)
+    p_list_one.add_argument("--to", dest="to_date", help=HELP_END_DATE)
     p_list_one.add_argument("--limit", type=int, default=200, help="How many rows to show (default 200)")
     p_list_one.add_argument("--out", help="Optional YAML output path (events: [])")
     p_list_one.set_defaults(func=_cmd_outlook_list_one_offs)
@@ -257,8 +266,8 @@ def build_parser() -> argparse.ArgumentParser:
     # remove-from-config: delete events/series that match the YAML config
     p_rm_cfg = sub_out.add_parser("remove-from-config", help="Delete Outlook events/series matching a YAML config")
     _add_common_outlook_args(p_rm_cfg)
-    p_rm_cfg.add_argument("--config", required=True, help="YAML with events: [] entries")
-    p_rm_cfg.add_argument("--calendar", help="Calendar name (defaults to event.calendar or primary)")
+    p_rm_cfg.add_argument("--config", required=True, help=HELP_CONFIG_EVENTS)
+    p_rm_cfg.add_argument("--calendar", help=HELP_CALENDAR_DEFAULT)
     p_rm_cfg.add_argument("--apply", action="store_true", help="Actually delete; otherwise just plan")
     p_rm_cfg.add_argument("--subject-only", action="store_true", help="Match by subject only (ignore day/time)")
     p_rm_cfg.set_defaults(func=_cmd_outlook_remove_from_config)
@@ -267,8 +276,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_dedup = sub_out.add_parser("dedup", help="Find and optionally remove duplicate series by subject/day/time")
     _add_common_outlook_args(p_dedup)
     p_dedup.add_argument("--calendar", help="Calendar name (e.g., 'Your Family')")
-    p_dedup.add_argument("--from", dest="from_date", help="Start date YYYY-MM-DD (default: 30 days ago)")
-    p_dedup.add_argument("--to", dest="to_date", help="End date YYYY-MM-DD (default: 180 days ahead)")
+    p_dedup.add_argument("--from", dest="from_date", help=HELP_START_DATE)
+    p_dedup.add_argument("--to", dest="to_date", help=HELP_END_DATE)
     p_dedup.add_argument("--apply", action="store_true", help="Delete duplicates (keep oldest series by default)")
     p_dedup.add_argument("--delete-standardized", action="store_true", help="Prefer deleting series whose location looks standardized (address-style)")
     p_dedup.add_argument("--keep-newest", action="store_true", help="Keep newest series (default keeps oldest)")
@@ -282,7 +291,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--top", type=int, default=25, help="Items per page (default 25)")
     p_scan.add_argument("--pages", type=int, default=2, help="Max pages to fetch (default 2)")
     p_scan.add_argument("--out", help="Optional output YAML plan path (events: [])")
-    p_scan.add_argument("--calendar", help="Default calendar name to include in plan entries")
+    p_scan.add_argument("--calendar", help=HELP_DEFAULT_CALENDAR)
     p_scan.set_defaults(func=_cmd_outlook_scan_classes)
 
     # schedule-import: import CSV/XLSX/PDF/URL into a new calendar
@@ -301,8 +310,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rem = sub_out.add_parser("reminders-off", help="Turn off reminders for events in a date window")
     _add_common_outlook_args(p_rem)
     p_rem.add_argument("--calendar", help="Calendar name to update (defaults to primary)")
-    p_rem.add_argument("--from", dest="from_date", default=None, help="Start date YYYY-MM-DD (default: 30 days ago)")
-    p_rem.add_argument("--to", dest="to_date", default=None, help="End date YYYY-MM-DD (default: 180 days ahead)")
+    p_rem.add_argument("--from", dest="from_date", default=None, help=HELP_START_DATE)
+    p_rem.add_argument("--to", dest="to_date", default=None, help=HELP_END_DATE)
     p_rem.add_argument("--all-occurrences", action="store_true", help="Also update occurrences (not just series masters)")
     p_rem.add_argument("--dry-run", action="store_true", help="Preview changes without patching events")
     p_rem.set_defaults(func=_cmd_outlook_reminders_off)
@@ -319,12 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_rem = sub_out.add_parser("reminders-set", help="Set reminders on/off or minutes for events in a date window")
     _add_common_outlook_args(p_rem)
     p_rem.add_argument("--calendar", required=True, help="Calendar name to modify")
-    p_rem.add_argument("--from", dest="from_date", help="Start date YYYY-MM-DD (default: 30 days ago)")
-    p_rem.add_argument("--to", dest="to_date", help="End date YYYY-MM-DD (default: 180 days ahead)")
+    p_rem.add_argument("--from", dest="from_date", help=HELP_START_DATE)
+    p_rem.add_argument("--to", dest="to_date", help=HELP_END_DATE)
     mode = p_rem.add_mutually_exclusive_group(required=True)
     mode.add_argument("--off", action="store_true", help="Turn reminders off for matching events")
     mode.add_argument("--minutes", type=int, help="Set reminder minutes before start (enables reminders)")
-    p_rem.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    p_rem.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
     p_rem.set_defaults(func=_cmd_outlook_reminders_set)
 
     # mail-list: read-only message listing (no search)
@@ -332,10 +341,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_set = sub_out.add_parser("settings-apply", help="Apply appointment settings (categories/showAs/sensitivity/reminders) from YAML rules")
     _add_common_outlook_args(p_set)
     p_set.add_argument("--calendar", help="Calendar name to modify (defaults to primary)")
-    p_set.add_argument("--from", dest="from_date", help="Start date YYYY-MM-DD (default: 30 days ago)")
-    p_set.add_argument("--to", dest="to_date", help="End date YYYY-MM-DD (default: 180 days ahead)")
+    p_set.add_argument("--from", dest="from_date", help=HELP_START_DATE)
+    p_set.add_argument("--to", dest="to_date", help=HELP_END_DATE)
     p_set.add_argument("--config", required=True, help="YAML with rules: settings: {defaults: {...}} rules: [{match: {...}, set: {...}}]")
-    p_set.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    p_set.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
     p_set.set_defaults(func=_cmd_outlook_settings_apply)
 
     p_mail = sub_out.add_parser("mail-list", help="List recent messages (read-only)")
