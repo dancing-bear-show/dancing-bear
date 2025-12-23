@@ -1,8 +1,26 @@
+"""Resume assistant CLI using CLIApp framework.
+
+Commands:
+  extract       - Parse LinkedIn and resume sources
+  summarize     - Build summary output
+  render        - Render DOCX resume
+  structure     - Infer section order from reference DOCX
+  align         - Align candidate data with job posting
+  candidate-init - Generate candidate skills YAML
+  style build   - Build style profile from corpus
+  files tidy    - Archive or delete old files
+  experience export - Export job history summary
+"""
+
+from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
+from typing import List, Optional
 
 from core.assistant import BaseAssistant
+from core.cli_framework import CLIApp
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json, write_text
 from ..parsing import parse_linkedin_text, parse_resume_text, merge_profiles
@@ -25,6 +43,17 @@ assistant = BaseAssistant(
     "resume_assistant",
     "agentic: resume_assistant\npurpose: Extract, summarize, and render resumes",
 )
+
+app = CLIApp(
+    "resume-assistant",
+    "Extract, summarize, and render resumes from LinkedIn profiles and existing resumes.",
+    add_common_args=False,
+)
+
+
+def _emit_agentic(fmt: str, compact: bool) -> int:
+    from ..agentic import emit_agentic_context
+    return emit_agentic_context(fmt, compact)
 
 
 def _extend_seed_with_style(seed: dict, style_profile_path) -> dict:
@@ -50,13 +79,6 @@ def _apply_profile_overlays(data: dict, prof) -> dict:
     return apply_profile_overlays(data, prof)
 
 
-
-def _add_common_io_args(p: argparse.ArgumentParser):
-    p.add_argument("--out", help="Output file path (overrides --profile)")
-    p.add_argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-    p.add_argument("--out-dir", default="out", help="Output directory (default: out; pass _out for legacy layouts)")
-
-
 def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
     """Resolve output path.
 
@@ -75,7 +97,14 @@ def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
     return path
 
 
-def _cmd_extract(args: argparse.Namespace) -> int:
+# --- extract command ---
+@app.command("extract", help="Parse LinkedIn and resume sources and produce unified data (YAML/JSON)")
+@app.argument("--linkedin", help="Path to LinkedIn profile (txt/md/html/docx/pdf)")
+@app.argument("--resume", help="Path to resume (txt/md/html/docx/pdf)")
+@app.argument("--out", help="Output file path (overrides --profile)")
+@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_extract(args: argparse.Namespace) -> int:
     linkedin_text = ""
     if args.linkedin:
         if str(args.linkedin).lower().endswith((".html", ".htm")):
@@ -101,7 +130,19 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_summarize(args: argparse.Namespace) -> int:
+# --- summarize command ---
+@app.command("summarize", help="Build heuristically-derived summary output")
+@app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
+@app.argument("--seed", help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)")
+@app.argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
+@app.argument("--filter-skills-alignment", help="Alignment JSON to filter Skills")
+@app.argument("--filter-skills-job", help="Job YAML/JSON to supplement synonyms")
+@app.argument("--filter-exp-alignment", help="Alignment JSON to filter Experience")
+@app.argument("--filter-exp-job", help="Job YAML/JSON for experience filter")
+@app.argument("--out", help="Output file path (overrides --profile)")
+@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_summarize(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
 
     # Apply filters via pipeline
@@ -141,7 +182,22 @@ def _cmd_summarize(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_render(args: argparse.Namespace) -> int:
+# --- render command ---
+@app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")
+@app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
+@app.argument("--template", help="Template config (YAML/JSON)")
+@app.argument("--seed", help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)")
+@app.argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
+@app.argument("--filter-skills-alignment", help="Alignment JSON to filter Skills to matched keywords")
+@app.argument("--filter-skills-job", help="Job YAML/JSON to supplement synonyms for filtering")
+@app.argument("--filter-exp-alignment", help="Alignment JSON to filter Experience to matched keywords")
+@app.argument("--filter-exp-job", help="Job YAML/JSON to supplement synonyms for experience filter")
+@app.argument("--structure-from", help="Reference DOCX resume to mimic section order and headings")
+@app.argument("--min-priority", type=float, help="Filter Skills/Technologies items by priority (keep >= cutoff)")
+@app.argument("--out", help="Output file path (overrides --profile)")
+@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_render(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
     template = load_template(args.template) if args.template else {}
     seed = parse_seed_criteria(args.seed) if args.seed else {}
@@ -238,176 +294,30 @@ def _cmd_render(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_structure(args: argparse.Namespace) -> int:
+# --- structure command ---
+@app.command("structure", help="Infer section order and headings from a reference DOCX resume")
+@app.argument("--source", required=True, help="Reference .docx file")
+@app.argument("--out", help="Output file path (overrides --profile)")
+@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_structure(args: argparse.Namespace) -> int:
     struct = infer_structure_from_docx(args.source)
     out = _resolve_out(args, ".json", kind="structure")
     write_yaml_or_json(struct, out)
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="resume-assistant",
-        description=(
-            "Extract, summarize, and render resumes from LinkedIn profiles and existing resumes."
-        ),
-    )
-    assistant.add_agentic_flags(p)
-    sub = p.add_subparsers(dest="command", required=True)
-
-    # extract
-    p_ext = sub.add_parser(
-        "extract",
-        help="Parse LinkedIn and resume sources and produce unified data (YAML/JSON).",
-    )
-    p_ext.add_argument("--linkedin", help="Path to LinkedIn profile (txt/md/html/docx/pdf)")
-    p_ext.add_argument("--resume", help="Path to resume (txt/md/html/docx/pdf)")
-    _add_common_io_args(p_ext)
-    p_ext.set_defaults(func=_cmd_extract)
-
-    # summarize
-    p_sum = sub.add_parser("summarize", help="Build heuristically-derived summary output.")
-    p_sum.add_argument("--data", required=True, help="Unified data file (YAML/JSON)")
-    p_sum.add_argument(
-        "--seed",
-        help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated).",
-    )
-    p_sum.add_argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
-    _add_common_io_args(p_sum)
-    p_sum.set_defaults(func=_cmd_summarize)
-
-    # render
-    p_r = sub.add_parser(
-        "render",
-        help=(
-            "Render a DOCX resume from unified data with a YAML/JSON template."
-        ),
-    )
-    p_r.add_argument("--data", required=True, help="Unified data file (YAML/JSON)")
-    p_r.add_argument("--template", help="Template config (YAML/JSON)")
-    p_r.add_argument(
-        "--seed",
-        help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated).",
-    )
-    p_r.add_argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
-    p_r.add_argument("--filter-skills-alignment", help="Alignment JSON to filter Skills to matched keywords")
-    p_r.add_argument("--filter-skills-job", help="Job YAML/JSON to supplement synonyms for filtering")
-    p_r.add_argument("--filter-exp-alignment", help="Alignment JSON to filter Experience to matched keywords")
-    p_r.add_argument("--filter-exp-job", help="Job YAML/JSON to supplement synonyms for experience filter")
-    p_r.add_argument(
-        "--structure-from",
-        help="Reference DOCX resume to mimic section order and headings.",
-    )
-    p_r.add_argument(
-        "--min-priority", type=float, help="Filter Skills/Technologies items by priority/usefulness (keep items >= cutoff)")
-    _add_common_io_args(p_r)
-    p_r.set_defaults(func=_cmd_render)
-
-    # structure
-    p_s = sub.add_parser(
-        "structure",
-        help="Infer section order and headings from a reference DOCX resume.",
-    )
-    p_s.add_argument("--source", required=True, help="Reference .docx file")
-    _add_common_io_args(p_s)
-    p_s.set_defaults(func=_cmd_structure)
-
-    # align
-    p_a = sub.add_parser(
-        "align",
-        help="Align unified candidate data with a job posting YAML/JSON and output alignment report.",
-    )
-    p_a.add_argument("--data", required=True, help="Unified candidate data (YAML/JSON)")
-    p_a.add_argument("--job", required=True, help="Job posting config (YAML/JSON)")
-    p_a.add_argument("--out", help="Alignment report (YAML/JSON); overrides --profile")
-    p_a.add_argument(
-        "--tailored",
-        help="Optional path to write tailored candidate data focused on matched keywords (YAML/JSON)",
-    )
-    p_a.add_argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-    p_a.add_argument("--out-dir", default="out", help="Output directory (default: out; pass _out for legacy layouts)")
-    p_a.add_argument("--max-bullets", type=int, default=6, help="Max bullets per role in tailored output")
-    p_a.add_argument("--min-exp-score", type=int, default=1, help="Minimum experience score to keep a role")
-    p_a.set_defaults(func=_cmd_align)
-
-    # candidate-init
-    p_ci = sub.add_parser(
-        "candidate-init",
-        help="Generate a candidate skills YAML from unified data for manual curation.",
-    )
-    p_ci.add_argument("--data", required=True, help="Unified candidate data (YAML/JSON)")
-    p_ci.add_argument("--out", help="Output candidate YAML path; overrides --profile")
-    p_ci.add_argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-    p_ci.add_argument("--out-dir", default="out", help="Output directory (default: out; pass _out for legacy layouts)")
-    p_ci.add_argument("--include-experience", action="store_true", help="Include experience items and bullets")
-    p_ci.add_argument("--max-bullets", type=int, default=3, help="Max bullets per role if including experience")
-    p_ci.set_defaults(func=_cmd_candidate_init)
-
-    # style
-    p_style = sub.add_parser(
-        "style",
-        help="Build or manage style profiles from a prose corpus.",
-    )
-    style_sub = p_style.add_subparsers(dest="style_cmd", required=True)
-    p_style_build = style_sub.add_parser("build", help="Build style profile JSON from a corpus directory")
-    p_style_build.add_argument("--corpus-dir", required=True, help="Directory of prose samples (.txt/.md/.docx)")
-    _add_common_io_args(p_style_build)
-    p_style_build.set_defaults(func=_cmd_style_build)
-
-    # files
-    p_files = sub.add_parser("files", help="File utilities for organizing outputs and data")
-    files_sub = p_files.add_subparsers(dest="files_cmd", required=True)
-    p_tidy = files_sub.add_parser("tidy", help="Archive or delete old files to reduce noise")
-    p_tidy.add_argument("--dir", default="_data", help="Directory to tidy (default: _data)")
-    p_tidy.add_argument("--prefix", help="Only match files starting with this prefix")
-    p_tidy.add_argument("--suffixes", default=".json,.docx", help="Comma-separated suffix list (e.g., .json,.docx)")
-    p_tidy.add_argument("--keep", type=int, default=2, help="Keep most-recent N matches (default: 2)")
-    p_tidy.add_argument("--archive-dir", help="Archive destination directory (default: <dir>/archive)")
-    p_tidy.add_argument("--delete", action="store_true", help="Delete old files instead of archiving")
-    p_tidy.add_argument("--purge-temp", action="store_true", help="Remove temporary files (e.g., '~$*.docx', .DS_Store)")
-    p_tidy.add_argument("--subfolder", help="Subfolder under archive for moved files (e.g., profile name)")
-    p_tidy.set_defaults(func=_cmd_files_tidy)
-
-    # experience
-    p_exp = sub.add_parser("experience", help="Experience tools")
-    exp_sub = p_exp.add_subparsers(dest="exp_cmd", required=True)
-    p_exp_export = exp_sub.add_parser(
-        "export",
-        help="Export a YAML/JSON summary of job history from data or a resume file",
-    )
-    p_exp_export.add_argument("--data", help="Unified data file (YAML/JSON)")
-    p_exp_export.add_argument("--resume", help="Resume file to parse (txt/md/html/docx/pdf)")
-    p_exp_export.add_argument("--max-bullets", type=int, default=None, help="Limit bullets per role in summary")
-    _add_common_io_args(p_exp_export)
-    p_exp_export.set_defaults(func=_cmd_experience_export)
-
-    return p
-
-
-from typing import List, Optional
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    def _emit_agentic(fmt: str, compact: bool) -> int:
-        from ..agentic import emit_agentic_context
-
-        return emit_agentic_context(fmt, compact)
-
-    agentic_result = assistant.maybe_emit_agentic(args, emit_func=_emit_agentic)
-    if agentic_result is not None:
-        return int(agentic_result)
-    try:
-        return args.func(args)
-    except KeyboardInterrupt:
-        return 2
-    except Exception as exc:  # keep CLI stable: report and non-zero
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-
-
-def _cmd_align(args: argparse.Namespace) -> int:
+# --- align command ---
+@app.command("align", help="Align unified candidate data with a job posting YAML/JSON")
+@app.argument("--data", required=True, help="Unified candidate data (YAML/JSON)")
+@app.argument("--job", required=True, help="Job posting config (YAML/JSON)")
+@app.argument("--tailored", help="Optional path to write tailored candidate data (YAML/JSON)")
+@app.argument("--max-bullets", type=int, default=6, help="Max bullets per role in tailored output")
+@app.argument("--min-exp-score", type=int, default=1, help="Minimum experience score to keep a role")
+@app.argument("--out", help="Alignment report path (overrides --profile)")
+@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_align(args: argparse.Namespace) -> int:
     candidate = read_yaml_or_json(args.data)
     prof = getattr(args, "profile", None)
     if prof:
@@ -425,7 +335,15 @@ def _cmd_align(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_candidate_init(args: argparse.Namespace) -> int:
+# --- candidate-init command ---
+@app.command("candidate-init", help="Generate a candidate skills YAML from unified data")
+@app.argument("--data", required=True, help="Unified candidate data (YAML/JSON)")
+@app.argument("--include-experience", action="store_true", help="Include experience items and bullets")
+@app.argument("--max-bullets", type=int, default=3, help="Max bullets per role if including experience")
+@app.argument("--out", help="Output candidate YAML path (overrides --profile)")
+@app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_candidate_init(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
     # Overlay profile data onto candidate if profile is provided
     prof = getattr(args, "profile", None)
@@ -465,7 +383,16 @@ def _cmd_candidate_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_style_build(args: argparse.Namespace) -> int:
+# --- style group ---
+style_group = app.group("style", help="Build or manage style profiles from a prose corpus")
+
+
+@style_group.command("build", help="Build style profile JSON from a corpus directory")
+@style_group.argument("--corpus-dir", required=True, help="Directory of prose samples (.txt/.md/.docx)")
+@style_group.argument("--out", help="Output file path (overrides --profile)")
+@style_group.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@style_group.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_style_build(args: argparse.Namespace) -> int:
     from ..style import build_style_profile
     prof = build_style_profile(args.corpus_dir)
     out = _resolve_out(args, ".json", kind="style")
@@ -473,7 +400,20 @@ def _cmd_style_build(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_files_tidy(args: argparse.Namespace) -> int:
+# --- files group ---
+files_group = app.group("files", help="File utilities for organizing outputs and data")
+
+
+@files_group.command("tidy", help="Archive or delete old files to reduce noise")
+@files_group.argument("--dir", default="_data", help="Directory to tidy (default: _data)")
+@files_group.argument("--prefix", help="Only match files starting with this prefix")
+@files_group.argument("--suffixes", default=".json,.docx", help="Comma-separated suffix list (e.g., .json,.docx)")
+@files_group.argument("--keep", type=int, default=2, help="Keep most-recent N matches (default: 2)")
+@files_group.argument("--archive-dir", help="Archive destination directory (default: <dir>/archive)")
+@files_group.argument("--delete", action="store_true", help="Delete old files instead of archiving")
+@files_group.argument("--purge-temp", action="store_true", help="Remove temporary files (e.g., '~$*.docx', .DS_Store)")
+@files_group.argument("--subfolder", help="Subfolder under archive for moved files (e.g., profile name)")
+def cmd_files_tidy(args: argparse.Namespace) -> int:
     suffixes = [s.strip() for s in (args.suffixes or "").split(",") if s.strip()]
     plan = build_tidy_plan(
         dir_path=args.dir,
@@ -494,7 +434,18 @@ def _cmd_files_tidy(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_experience_export(args: argparse.Namespace) -> int:
+# --- experience group ---
+experience_group = app.group("experience", help="Experience tools")
+
+
+@experience_group.command("export", help="Export a YAML/JSON summary of job history from data or resume")
+@experience_group.argument("--data", help="Unified data file (YAML/JSON)")
+@experience_group.argument("--resume", help="Resume file to parse (txt/md/html/docx/pdf)")
+@experience_group.argument("--max-bullets", type=int, default=None, help="Limit bullets per role in summary")
+@experience_group.argument("--out", help="Output file path (overrides --profile)")
+@experience_group.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
+@experience_group.argument("--out-dir", default="out", help="Output directory (default: out)")
+def cmd_experience_export(args: argparse.Namespace) -> int:
     if not args.data and not args.resume:
         raise SystemExit("Provide --data or --resume")
     if args.data:
@@ -515,3 +466,32 @@ def _cmd_experience_export(args: argparse.Namespace) -> int:
     out = _resolve_out(args, ".yaml", kind="experience")
     write_yaml_or_json(summary, out)
     return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point for the Resume Assistant CLI."""
+    parser = app.build_parser()
+    assistant.add_agentic_flags(parser)
+
+    args = parser.parse_args(argv)
+
+    agentic_result = assistant.maybe_emit_agentic(args, emit_func=_emit_agentic)
+    if agentic_result is not None:
+        return int(agentic_result)
+
+    cmd_func = getattr(args, "_cmd_func", None)
+    if not cmd_func:
+        parser.print_help()
+        return 0
+
+    try:
+        return int(cmd_func(args))
+    except KeyboardInterrupt:
+        return 2
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
