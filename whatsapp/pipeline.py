@@ -3,11 +3,45 @@ from __future__ import annotations
 """WhatsApp pipeline primitives built on shared core scaffolding."""
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
 
 from .search import MessageRow, format_rows_json, format_rows_text, search_messages
+
+# Generic RequestConsumer (mirrors calendar_assistant.pipeline_base.RequestConsumer)
+RequestT = TypeVar("RequestT")
+
+
+class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
+    """Generic consumer that wraps any request object."""
+
+    def __init__(self, request: RequestT) -> None:
+        self._request = request
+
+    def consume(self) -> RequestT:  # pragma: no cover - trivial
+        return self._request
+
+
+class BaseProducer:
+    """Base class for pipeline producers with common error handling.
+
+    Mirrors calendar_assistant.pipeline_base.BaseProducer for consistency.
+    """
+
+    def produce(self, result: ResultEnvelope) -> None:
+        """Template method: handle errors, delegate success to subclass."""
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg)
+            return
+        if result.payload is not None:
+            self._produce_success(result.payload, result.diagnostics)
+
+    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
+        """Override in subclass to handle successful result output."""
+        raise NotImplementedError("Subclass must implement _produce_success")
 
 
 @dataclass
@@ -24,14 +58,8 @@ class SearchRequest:
     emit_json: bool = False
 
 
-class SearchRequestConsumer(Consumer[SearchRequest]):
-    """Return the pre-parsed SearchRequest (keeps pipeline structure uniform)."""
-
-    def __init__(self, request: SearchRequest) -> None:
-        self._request = request
-
-    def consume(self) -> SearchRequest:
-        return self._request
+# Type alias for backward compatibility
+SearchRequestConsumer = RequestConsumer[SearchRequest]
 
 
 @dataclass
@@ -72,14 +100,11 @@ class SearchProcessor(Processor[SearchRequest, ResultEnvelope[SearchResult]]):
             )
 
 
-class SearchProducer(Producer[ResultEnvelope[SearchResult]]):
+class SearchProducer(BaseProducer):
     """Output search results to stdout (text or JSON)."""
 
-    def produce(self, result: ResultEnvelope[SearchResult]) -> None:
-        if not result.ok() or result.payload is None:
-            return  # errors handled by caller
-        sr = result.payload
-        if sr.emit_json:
-            print(format_rows_json(sr.rows))
+    def _produce_success(self, payload: SearchResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.emit_json:
+            print(format_rows_json(payload.rows))
         else:
-            print(format_rows_text(sr.rows))
+            print(format_rows_text(payload.rows))
