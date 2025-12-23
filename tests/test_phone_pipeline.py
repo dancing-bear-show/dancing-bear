@@ -19,11 +19,31 @@ from phone.pipeline import (
     ChecklistResult,
     ChecklistRequest,
     ChecklistRequestConsumer,
+    ExportDeviceProducer,
+    ExportDeviceProcessor,
+    ExportDeviceResult,
+    ExportDeviceRequest,
+    ExportDeviceRequestConsumer,
     ExportProducer,
     ExportProcessor,
     ExportResult,
     ExportRequest,
     ExportRequestConsumer,
+    IconmapProducer,
+    IconmapProcessor,
+    IconmapResult,
+    IconmapRequest,
+    IconmapRequestConsumer,
+    ManifestFromDeviceProducer,
+    ManifestFromDeviceProcessor,
+    ManifestFromDeviceResult,
+    ManifestFromDeviceRequest,
+    ManifestFromDeviceRequestConsumer,
+    ManifestFromExportProducer,
+    ManifestFromExportProcessor,
+    ManifestFromExportResult,
+    ManifestFromExportRequest,
+    ManifestFromExportRequestConsumer,
     PlanProducer,
     PlanProcessor,
     PlanResult,
@@ -269,3 +289,124 @@ class PhonePipelineTests(TestCase):
             AnalyzeProducer().produce(env)
         output = buf.getvalue()
         self.assertIn('"dock_count": 4', output)
+
+    # -------------------------------------------------------------------------
+    # Device I/O pipeline tests (export-device, iconmap)
+    # -------------------------------------------------------------------------
+
+    def test_export_device_processor_success(self):
+        mock_export = {"dock": ["app1"], "pages": []}
+        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.device.map_udid_to_ecid", return_value="0x123"), \
+             patch("phone.device.export_from_device", return_value=mock_export):
+            request = ExportDeviceRequest(udid="test-udid", ecid=None, out_path=Path("out.yaml"))
+            env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertEqual(env.payload.document, mock_export)  # type: ignore[union-attr]
+
+    def test_export_device_processor_cfgutil_not_found(self):
+        with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
+            request = ExportDeviceRequest(udid=None, ecid=None, out_path=Path("out.yaml"))
+            env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 127)
+
+    def test_export_device_processor_empty_export(self):
+        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.device.map_udid_to_ecid", return_value=""), \
+             patch("phone.device.export_from_device", return_value={}):
+            request = ExportDeviceRequest(udid=None, ecid=None, out_path=Path("out.yaml"))
+            env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 3)
+
+    def test_export_device_producer_writes_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "export.yaml"
+            payload = ExportDeviceResult(document={"dock": ["app1"]}, out_path=path)
+            result = ResultEnvelope(status="success", payload=payload)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                ExportDeviceProducer().produce(result)
+            self.assertTrue(path.exists())
+            self.assertIn("Wrote layout export", buf.getvalue())
+
+    def test_iconmap_processor_success(self):
+        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.device.map_udid_to_ecid", return_value=""), \
+             patch("subprocess.check_output", return_value=b'{"dock": []}'):
+            request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
+            env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertEqual(env.payload.data, b'{"dock": []}')  # type: ignore[union-attr]
+
+    def test_iconmap_processor_cfgutil_not_found(self):
+        with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
+            request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
+            env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 127)
+
+    def test_iconmap_producer_writes_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "iconmap.json"
+            payload = IconmapResult(data=b'{"test": true}', out_path=path)
+            result = ResultEnvelope(status="success", payload=payload)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                IconmapProducer().produce(result)
+            self.assertTrue(path.exists())
+            self.assertEqual(path.read_bytes(), b'{"test": true}')
+            self.assertIn("Wrote icon map", buf.getvalue())
+
+    # -------------------------------------------------------------------------
+    # Manifest pipeline tests
+    # -------------------------------------------------------------------------
+
+    def test_manifest_from_export_processor_success(self):
+        export_data = {"dock": ["app1"], "pages": [{"apps": ["app2"], "folders": []}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            export_path = Path(tmp) / "export.yaml"
+            import yaml
+            with open(export_path, "w") as f:
+                yaml.safe_dump(export_data, f)
+            request = ManifestFromExportRequest(export_path=export_path, out_path=Path(tmp) / "manifest.yaml")
+            env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIn("layout", env.payload.manifest)  # type: ignore[union-attr]
+        self.assertEqual(env.payload.manifest["layout"]["dock"], ["app1"])  # type: ignore[union-attr]
+
+    def test_manifest_from_export_processor_file_not_found(self):
+        request = ManifestFromExportRequest(export_path=Path("/nonexistent.yaml"), out_path=Path("out.yaml"))
+        env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 2)
+
+    def test_manifest_from_export_producer_writes_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.yaml"
+            manifest = {"meta": {"name": "test"}, "layout": {"dock": []}}
+            payload = ManifestFromExportResult(manifest=manifest, out_path=path)
+            result = ResultEnvelope(status="success", payload=payload)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                ManifestFromExportProducer().produce(result)
+            self.assertTrue(path.exists())
+            self.assertIn("Wrote device layout manifest", buf.getvalue())
+
+    def test_manifest_from_device_processor_success(self):
+        mock_export = {"dock": ["app1"], "pages": [{"apps": ["app2"], "folders": []}]}
+        with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.device.map_udid_to_ecid", return_value="0x123"), \
+             patch("phone.device.export_from_device", return_value=mock_export):
+            request = ManifestFromDeviceRequest(udid="test-udid", export_out=None, out_path=Path("out.yaml"))
+            env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIn("layout", env.payload.manifest)  # type: ignore[union-attr]
+
+    def test_manifest_from_device_processor_cfgutil_not_found(self):
+        with patch("phone.device.find_cfgutil_path", side_effect=FileNotFoundError("cfgutil not found")):
+            request = ManifestFromDeviceRequest(udid=None, export_out=None, out_path=Path("out.yaml"))
+            env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 127)

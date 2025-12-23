@@ -31,10 +31,30 @@ from .pipeline import (
     ChecklistProcessor,
     ChecklistRequest,
     ChecklistRequestConsumer,
+    ExportDeviceProducer,
+    ExportDeviceProcessor,
+    ExportDeviceRequest,
+    ExportDeviceRequestConsumer,
     ExportProducer,
     ExportProcessor,
     ExportRequest,
     ExportRequestConsumer,
+    IconmapProducer,
+    IconmapProcessor,
+    IconmapRequest,
+    IconmapRequestConsumer,
+    ManifestFromDeviceProducer,
+    ManifestFromDeviceProcessor,
+    ManifestFromDeviceRequest,
+    ManifestFromDeviceRequestConsumer,
+    ManifestFromExportProducer,
+    ManifestFromExportProcessor,
+    ManifestFromExportRequest,
+    ManifestFromExportRequestConsumer,
+    ManifestInstallProducer,
+    ManifestInstallProcessor,
+    ManifestInstallRequest,
+    ManifestInstallRequestConsumer,
     PlanProducer,
     PlanProcessor,
     PlanRequest,
@@ -468,315 +488,78 @@ def cmd_manifest_build(args: argparse.Namespace) -> int:
 
 
 def cmd_manifest_from_export(args: argparse.Namespace) -> int:
-    exp = read_yaml(Path(args.export))
-    if not isinstance(exp, dict) or 'dock' not in exp or 'pages' not in exp:
-        print("Error: export file must contain 'dock' and 'pages' keys", file=sys.stderr)
-        return 2
-    dock = list(exp.get('dock') or [])
-    pages_in = exp.get('pages') or []
-    pages_out = []
-    all_apps = []
-    seen = set()
-    folders_total = 0
-    for p in pages_in:
-        apps = list(p.get('apps') or [])
-        folders = []
-        for f in p.get('folders') or []:
-            name = f.get('name') or 'Folder'
-            fapps = list(f.get('apps') or [])
-            folders.append({'name': name, 'apps': fapps})
-            folders_total += 1
-        pages_out.append({'apps': apps, 'folders': folders})
-        for a in apps:
-            if a and a not in seen:
-                seen.add(a); all_apps.append(a)
-        for f in folders:
-            for a in f['apps']:
-                if a and a not in seen:
-                    seen.add(a); all_apps.append(a)
-    for a in dock:
-        if a and a not in seen:
-            seen.add(a); all_apps.append(a)
-    manifest = {
-        'meta': {'name': 'device_layout_manifest', 'version': 1},
-        'device': {'udid': os.environ.get('IOS_DEVICE_UDID'), 'label': os.environ.get('IOS_DEVICE_LABEL')},
-        'layout': {'dock': dock, 'pages': pages_out},
-        'apps': {'all': all_apps},
-        'counts': {'apps_total': len(all_apps), 'pages_count': len(pages_out), 'folders_count': folders_total},
-        'source': {'export_path': str(Path(args.export))},
-    }
-    out = Path(args.out)
-    write_yaml(manifest, out)
-    print(f"Wrote device layout manifest to {out}")
-    return 0
-
-
-def _find_cfgutil_path() -> str:
-    # Prefer PATH
-    from shutil import which
-    p = which("cfgutil")
-    if p:
-        return p
-    # Fallback to app bundle path
-    alt = "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
-    if Path(alt).exists():
-        return alt
-    raise FileNotFoundError("cfgutil not found; install Apple Configurator or add cfgutil to PATH")
-
-
-def _map_udid_to_ecid(cfgutil: str, udid: str) -> str:
-    import subprocess as _sp
-    try:
-        out = _sp.check_output([cfgutil, "list"], stderr=_sp.STDOUT, text=True)
-    except Exception as e:
-        raise RuntimeError(f"cfgutil list failed: {e}")
-    for line in out.splitlines():
-        if "UDID:" in line and udid in line:
-            # Extract ECID token (after 'ECID:')
-            parts = line.split()
-            for i, tok in enumerate(parts):
-                if tok.startswith("ECID:"):
-                    # token may be 'ECID:' then value next, or 'ECID:0x...'
-                    if tok == "ECID:":
-                        if i + 1 < len(parts):
-                            return parts[i + 1]
-                    else:
-                        return tok.split(":", 1)[1]
-    return ""
-
-
-def _export_from_device(cfgutil: str, ecid: str | None = None) -> dict:
-    import subprocess as _sp
-    import json as _json
-    import plistlib as _plist
-    cmd = [cfgutil]
-    if ecid:
-        cmd.extend(["--ecid", ecid])
-    cmd.extend(["--format", "plist", "get-icon-layout"])
-    try:
-        out = _sp.check_output(cmd, stderr=_sp.DEVNULL)
-    except Exception as e:
-        raise RuntimeError(f"cfgutil get-icon-layout failed: {e}")
-    try:
-        data = _plist.loads(out)
-    except Exception:
-        data = None
-    if data is None:
-        try:
-            data = _json.loads(out.decode("utf-8", errors="replace"))
-        except Exception as e:
-            raise RuntimeError(f"Failed to parse plist or JSON from cfgutil: {e}")
-    # Try to convert into our export shape via normalize_iconstate if compatible
-    export: dict[str, object] = {}
-    try:
-        layout = normalize_iconstate(data)  # type: ignore[arg-type]
-        export = to_yaml_export(layout)
-    except Exception:
-        # Best-effort fallback: attempt to map common keys
-        dock = []
-        pages = []
-        try:
-            # cfgutil may return a JSON list: [dock, page1, page2, ...]
-            if isinstance(data, list) and data:
-                dock = [s for s in (data[0] or []) if isinstance(s, str)]
-                for page in data[1:]:
-                    if not isinstance(page, list):
-                        continue
-                    page_out = {"apps": [], "folders": []}
-                    for it in page:
-                        if isinstance(it, list) and it:
-                            name = it[0] if isinstance(it[0], str) else "Folder"
-                            fapps = []
-                            for sub in it[1:]:
-                                if isinstance(sub, list):
-                                    fapps.extend([s for s in sub if isinstance(s, str)])
-                                elif isinstance(sub, str):
-                                    fapps.append(sub)
-                            if fapps:
-                                page_out["folders"].append({"name": name or "Folder", "apps": fapps})  # type: ignore[index]
-                        elif isinstance(it, str):
-                            page_out["apps"].append(it)  # type: ignore[index]
-                    pages.append(page_out)
-                export = {"dock": dock, "pages": pages}
-                return export
-            # Some cfgutil plists carry similar keys as backups
-            for it in (data.get("buttonBar") or []):  # type: ignore[attr-defined]
-                bid = it.get("bundleIdentifier") or it.get("displayIdentifier")
-                if bid:
-                    dock.append(bid)
-            for page in (data.get("iconLists") or []):  # type: ignore[attr-defined]
-                page_out = {"apps": [], "folders": []}
-                for it in (page or []):
-                    if isinstance(it, dict) and ("iconLists" in it) and ("displayName" in it):
-                        name = it.get("displayName") or "Folder"
-                        flist = []
-                        for sub in (it.get("iconLists") or [[]])[0]:
-                            bid = sub.get("bundleIdentifier") or sub.get("displayIdentifier")
-                            if bid:
-                                flist.append(bid)
-                        page_out["folders"].append({"name": name, "apps": flist})  # type: ignore[index]
-                    else:
-                        bid = it.get("bundleIdentifier") or it.get("displayIdentifier") if isinstance(it, dict) else None
-                        if bid:
-                            page_out["apps"].append(bid)  # type: ignore[index]
-                pages.append(page_out)
-            export = {"dock": dock, "pages": pages}
-        except Exception:
-            export = {}
-    return export
+    request = ManifestFromExportRequest(
+        export_path=Path(args.export),
+        out_path=Path(args.out),
+    )
+    envelope = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
+    ManifestFromExportProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 
 def cmd_export_device(args: argparse.Namespace) -> int:
-    cfg = _find_cfgutil_path()
-    ecid = getattr(args, "ecid", None)
-    udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID")
-    if not ecid and udid:
-        ecid = _map_udid_to_ecid(cfg, udid) or None
-    exp = _export_from_device(cfg, ecid)
-    if not exp:
-        print("Error: could not derive export from device layout", file=sys.stderr)
-        return 3
     out_path = Path(getattr(args, "out", None) or "out/ios.IconState.yaml")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    write_yaml(exp, out_path)
-    print(f"Wrote layout export to {out_path}")
-    return 0
+    request = ExportDeviceRequest(
+        udid=getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),
+        ecid=getattr(args, "ecid", None),
+        out_path=out_path,
+    )
+    envelope = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
+    ExportDeviceProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 3))
 
 
 def cmd_iconmap(args: argparse.Namespace) -> int:
-    cfg = _find_cfgutil_path()
     fmt = getattr(args, "format", "json")
     out_default = "out/ios.iconmap.json" if fmt == "json" else "out/ios.iconmap.plist"
     out_path = Path(getattr(args, "out", None) or out_default)
-    ecid = getattr(args, "ecid", None)
-    udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID")
-    if not ecid and udid:
-        ecid = _map_udid_to_ecid(cfg, udid) or None
-    cmd = [cfg]
-    if ecid:
-        cmd.extend(["--ecid", ecid])
-    cmd.extend(["--format", fmt, "get-icon-layout"])
-    try:
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-    except Exception as e:
-        print(f"Error: cfgutil get-icon-layout failed: {e}", file=sys.stderr)
-        return 3
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(out)
-    print(f"Wrote icon map to {out_path}")
-    return 0
+    request = IconmapRequest(
+        udid=getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),
+        ecid=getattr(args, "ecid", None),
+        format=fmt,
+        out_path=out_path,
+    )
+    envelope = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
+    IconmapProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 3))
 
 
 def cmd_manifest_from_device(args: argparse.Namespace) -> int:
-    cfg = _find_cfgutil_path()
-    udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID")
-    ecid = _map_udid_to_ecid(cfg, udid) if udid else None
-    exp = _export_from_device(cfg, ecid)
-    if not exp:
-        print("Error: could not derive export from device layout", file=sys.stderr)
-        return 3
-    # Optionally write export YAML
-    if getattr(args, "export_out", None):
-        write_yaml(exp, Path(args.export_out))
-    # Build the same manifest as from-export
-    class _Args:
-        export: str
-        out: str
-    tmp = _Args()
-    tmp.export = str(Path(args.export_out) if getattr(args, "export_out", None) else Path("out/device.IconState.yaml"))
-    # Ensure we have a path for export if not written
-    if not getattr(args, "export_out", None):
-        # Write to out/device.IconState.yaml
-        out_path = Path("out/device.IconState.yaml")
-        write_yaml(exp, out_path)
-        tmp.export = str(out_path)
-    tmp.out = getattr(args, "out")
-    return cmd_manifest_from_export(tmp)  # type: ignore[arg-type]
-
-
-def _plan_from_layout(layout_obj: dict) -> dict:
-    plan: dict = {"dock": list(layout_obj.get("dock") or []), "pages": {}, "folders": {}}
-    pages = layout_obj.get("pages") or []
-    page_map: dict[int, dict] = {}
-    for idx, p in enumerate(pages, start=1):
-        apps = list(p.get("apps") or [])
-        folders = []
-        for f in p.get("folders") or []:
-            name = f.get("name") or "Folder"
-            fapps = list(f.get("apps") or [])
-            plan["folders"][name] = fapps
-            folders.append(name)
-        page_map[idx] = {"apps": apps, "folders": folders}
-    plan["pages"] = page_map
-    return plan
+    export_out = Path(args.export_out) if getattr(args, "export_out", None) else None
+    request = ManifestFromDeviceRequest(
+        udid=getattr(args, "udid", None),
+        export_out=export_out,
+        out_path=Path(args.out),
+    )
+    envelope = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
+    ManifestFromDeviceProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 3))
 
 
 def cmd_manifest_install(args: argparse.Namespace) -> int:
-    mpath = Path(args.manifest)
-    man = read_yaml(mpath)
-    if not isinstance(man, dict):
-        print("Error: invalid manifest", file=sys.stderr)
-        return 2
-    # Build plan from manifest
-    plan = man.get("plan") or {}
-    if not plan and man.get("layout"):
-        plan = _plan_from_layout(man.get("layout") or {})
-    if not plan:
-        print("Error: manifest missing 'plan' or 'layout' section", file=sys.stderr)
-        return 2
-    prof = man.get("profile") or {}
-    layout_export = None  # plan contains dock/pages; no need for export
-    profile_dict = build_mobileconfig(
-        plan=plan,
-        layout_export=layout_export,
-        top_identifier=prof.get("identifier", "com.example.profile"),
-        hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
-        display_name=prof.get("display_name", "Home Screen Layout"),
-        organization=prof.get("organization"),
-        dock_count=4,
+    out_path = Path(args.out) if getattr(args, "out", None) else None
+    request = ManifestInstallRequest(
+        manifest_path=Path(args.manifest),
+        out_path=out_path,
+        dry_run=getattr(args, "dry_run", False),
+        udid=getattr(args, "udid", None),
+        device_label=getattr(args, "device_label", None),
+        creds_profile=getattr(args, "creds_profile", None),
+        config=getattr(args, "config", None),
     )
-    # Determine output profile path
-    _out_s = getattr(args, "out", None) or ""
-    if _out_s:
-        out_path = Path(_out_s)
-    else:
-        dev = man.get("device") or {}
-        suffix = dev.get("label") or dev.get("udid") or "device"
-        out_path = Path("out") / f"{suffix}.hslayout.from_manifest.mobileconfig"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    import plistlib
-    with out_path.open("wb") as f:
-        plistlib.dump(profile_dict, f, fmt=plistlib.FMT_XML, sort_keys=False)
-    print(f"Built profile: {out_path}")
-
-    if getattr(args, "dry_run", False):
-        print("Dry-run: skipping install")
+    envelope = ManifestInstallProcessor().process(ManifestInstallRequestConsumer(request).consume())
+    ManifestInstallProducer().produce(envelope)
+    if envelope.ok():
         return 0
-
-    # Resolve install parameters
-    dev = man.get("device") or {}
-    udid = getattr(args, "udid", None) or dev.get("udid") or os.environ.get("IOS_DEVICE_UDID")
-    label = getattr(args, "device_label", None) or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
-    creds_profile = getattr(args, "creds_profile", None) or dev.get("creds_profile") or os.environ.get("IOS_CREDS_PROFILE")
-    # Build install command
-    repo_root = Path(__file__).resolve().parents[1]
-    installer = str(repo_root / "bin" / "ios-install-profile")
-    cmd = [installer, "--profile", str(out_path)]
-    if creds_profile:
-        cmd.extend(["--creds-profile", creds_profile])
-    if getattr(args, "config", None):
-        cmd.extend(["--config", str(getattr(args, "config"))])
-    if udid:
-        cmd.extend(["--udid", udid])
-    elif label:
-        cmd.extend(["--device-label", label])
-    print("Installing via:", " ".join(cmd))
-    try:
-        rc = subprocess.call(cmd)
-    except FileNotFoundError:
-        print("Error: ios-install-profile not found", file=sys.stderr)
-        return 127
-    return int(rc)
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 
 def _read_credentials_ini(explicit: str | None = None) -> tuple[str | None, dict]:
@@ -852,7 +635,9 @@ def cmd_identity_verify(args: argparse.Namespace) -> int:
         pass
 
     # Device supervision status
-    cfg = _find_cfgutil_path()
+    from .device import find_cfgutil_path
+
+    cfg = find_cfgutil_path()
     udid = getattr(args, "udid", None)
     if not udid:
         lbl = getattr(args, "device_label", None) or os.environ.get("IOS_DEVICE_LABEL")
