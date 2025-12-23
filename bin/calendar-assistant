@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Thin wrapper to run the Calendar Assistant CLI (legacy name)."""
-
+"""Legacy alias for bin/calendar."""
 from pathlib import Path
 import sys
 

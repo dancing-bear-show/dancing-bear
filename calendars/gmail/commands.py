@@ -5,24 +5,22 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from core.pipeline import run_pipeline
+
 from ..gmail_pipelines import (
     GmailAuth,
     GmailPlanProducer,
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
-    GmailReceiptsRequestConsumer,
     GmailScanClassesProcessor,
     GmailScanClassesProducer,
     GmailScanClassesRequest,
-    GmailScanClassesRequestConsumer,
     GmailMailListProcessor,
     GmailMailListProducer,
     GmailMailListRequest,
-    GmailMailListRequestConsumer,
     GmailSweepTopProcessor,
     GmailSweepTopProducer,
     GmailSweepTopRequest,
-    GmailSweepTopRequestConsumer,
 )
 
 
@@ -42,11 +40,7 @@ def run_gmail_mail_list(args: argparse.Namespace) -> int:
         page_size=int(getattr(args, "page_size", 10)),
         inbox_only=bool(getattr(args, "inbox_only", False)),
     )
-    envelope = GmailMailListProcessor().process(GmailMailListRequestConsumer(request).consume())
-    GmailMailListProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, GmailMailListProcessor, GmailMailListProducer)
 
 
 def run_gmail_sweep_top(args: argparse.Namespace) -> int:
@@ -67,11 +61,7 @@ def run_gmail_sweep_top(args: argparse.Namespace) -> int:
         top=int(getattr(args, "top", 10)),
         out_path=Path(getattr(args, "out")) if getattr(args, "out", None) else None,
     )
-    envelope = GmailSweepTopProcessor().process(GmailSweepTopRequestConsumer(request).consume())
-    GmailSweepTopProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, GmailSweepTopProcessor, GmailSweepTopProducer)
 
 
 def run_gmail_scan_classes(args: argparse.Namespace) -> int:
@@ -92,11 +82,7 @@ def run_gmail_scan_classes(args: argparse.Namespace) -> int:
         calendar=getattr(args, "calendar", None),
         out_path=Path(getattr(args, "out")) if getattr(args, "out", None) else None,
     )
-    envelope = GmailScanClassesProcessor().process(GmailScanClassesRequestConsumer(request).consume())
-    GmailScanClassesProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, GmailScanClassesProcessor, GmailScanClassesProducer)
 
 
 def run_gmail_scan_receipts(args: argparse.Namespace) -> int:
@@ -116,11 +102,7 @@ def run_gmail_scan_receipts(args: argparse.Namespace) -> int:
         calendar=getattr(args, "calendar", None),
         out_path=Path(getattr(args, "out")),
     )
-    envelope = GmailReceiptsProcessor().process(GmailReceiptsRequestConsumer(request).consume())
-    GmailPlanProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, GmailReceiptsProcessor, GmailPlanProducer)
 
 
 def run_gmail_scan_activerh(args: argparse.Namespace) -> int:

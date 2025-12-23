@@ -188,6 +188,12 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
         pass  # nosec B110 - style setting failure
 
 
+def _extract_experience_locations(data: Dict[str, Any]) -> List[str]:
+    """Extract unique location strings from experience entries."""
+    locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
+    return list(dict.fromkeys([loc for loc in locs if loc]))
+
+
 def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) -> None:
     """Set document core properties (title, author, keywords)."""
     try:
@@ -208,8 +214,7 @@ def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) 
         include_exp_locs = bool((template.get("page") or {}).get("metadata_include_locations", True))
 
         if include_exp_locs:
-            locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
-            uniq_locs = list(dict.fromkeys([loc for loc in locs if loc]))
+            uniq_locs = _extract_experience_locations(data)
             kw.extend(uniq_locs)
             if uniq_locs:
                 try:
@@ -222,67 +227,66 @@ def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) 
         pass  # nosec B110 - metadata set failure
 
 
+def _center_paragraph(para) -> None:
+    """Center a paragraph and remove indents."""
+    try:
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        pf = para.paragraph_format
+        pf.left_indent = Pt(0)
+        pf.first_line_indent = Pt(0)
+    except Exception:
+        pass  # nosec B110 - alignment failure
+
+
+def _get_contact_field(data: Dict[str, Any], field: str) -> str:
+    """Get a contact field from data or nested contact dict."""
+    contact = data.get("contact") or {}
+    return data.get(field) or contact.get(field) or ""
+
+
+def _collect_link_extras(data: Dict[str, Any]) -> List[str]:
+    """Collect formatted link extras (website, linkedin, github, links list)."""
+    extras = []
+    for field in ["website", "linkedin", "github"]:
+        val = _get_contact_field(data, field)
+        if val:
+            extras.append(_format_link_display(val))
+    links_list = _get_contact_field(data, "links") or []
+    for val in (links_list if isinstance(links_list, list) else []):
+        if isinstance(val, str) and val.strip():
+            extras.append(_format_link_display(val))
+    return extras
+
+
 def _render_document_header(doc, data: Dict[str, Any]) -> None:
     """Render the name, headline, and contact line at the top of the resume."""
-    name = data.get("name") or ""
-    contact = data.get("contact") or {}
-    headline = data.get("headline") or contact.get("headline") or ""
-    email = data.get("email") or contact.get("email") or ""
-    phone = data.get("phone") or contact.get("phone") or ""
+    name = _get_contact_field(data, "name")
+    headline = _get_contact_field(data, "headline")
+    email = _get_contact_field(data, "email")
+    phone = _get_contact_field(data, "phone")
     display_phone = _format_phone_display(phone) if phone else ""
-    location = data.get("location") or contact.get("location") or ""
-    website = data.get("website") or contact.get("website") or ""
-    linkedin = data.get("linkedin") or contact.get("linkedin") or ""
-    github = data.get("github") or contact.get("github") or ""
-    links_list = data.get("links") or contact.get("links") or []
+    location = _get_contact_field(data, "location")
 
     # Name heading
     if name:
         doc.add_heading(name, level=0)
         _tight_paragraph(doc.paragraphs[-1], after_pt=2)
-        try:
-            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            pf = doc.paragraphs[-1].paragraph_format
-            pf.left_indent = Pt(0)
-            pf.first_line_indent = Pt(0)
-        except Exception:
-            pass  # nosec B110 - alignment failure
+        _center_paragraph(doc.paragraphs[-1])
 
     # Headline
     if headline:
         p_head = doc.add_paragraph(str(headline))
         _tight_paragraph(p_head, after_pt=2)
-        try:
-            p_head.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            pf = p_head.paragraph_format
-            pf.left_indent = Pt(0)
-            pf.first_line_indent = Pt(0)
-        except Exception:
-            pass  # nosec B110 - alignment failure
+        _center_paragraph(p_head)
 
     # Contact line with links
-    extras = []
-    for val in [website, linkedin, github]:
-        if isinstance(val, str) and val.strip():
-            extras.append(_format_link_display(val))
-    for val in (links_list if isinstance(links_list, list) else []):
-        if isinstance(val, str) and val.strip():
-            extras.append(_format_link_display(val))
-
     subtitle_parts = [p for p in [email, display_phone, location] if p]
-    if extras:
-        subtitle_parts.extend(extras)
+    subtitle_parts.extend(_collect_link_extras(data))
 
     if subtitle_parts:
         p = doc.add_paragraph(" | ".join(subtitle_parts))
         _tight_paragraph(p, after_pt=6)
-        try:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            pf = p.paragraph_format
-            pf.left_indent = Pt(0)
-            pf.first_line_indent = Pt(0)
-        except Exception:
-            pass  # nosec B110 - alignment failure
+        _center_paragraph(p)
 
 
 def _resolve_sections(template: Dict[str, Any], structure: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -300,6 +304,37 @@ def _resolve_sections(template: Dict[str, Any], structure: Optional[Dict[str, An
         ]
 
     return sections
+
+
+def _render_section_heading(doc, title: str, template: Dict[str, Any]) -> None:
+    """Render a section heading with optional shading."""
+    if not title:
+        return
+    doc.add_heading(str(title), level=1)
+    _tight_paragraph(doc.paragraphs[-1], before_pt=6, after_pt=2)
+    _flush_left(doc.paragraphs[-1])
+    page_h1_bg = (template.get("page") or {}).get("h1_bg") or (template.get("page") or {}).get("heading_bg")
+    bg_rgb = _parse_hex_color(page_h1_bg)
+    if bg_rgb:
+        _apply_paragraph_shading(doc.paragraphs[-1], bg_rgb)
+
+
+# Section renderer registry - maps section keys to renderer classes
+SECTION_RENDERERS = {
+    "summary": SummarySectionRenderer,
+    "skills": SkillsSectionRenderer,
+    "technologies": TechnologiesSectionRenderer,
+    "interests": InterestsSectionRenderer,
+    "presentations": PresentationsSectionRenderer,
+    "languages": LanguagesSectionRenderer,
+    "coursework": CourseworkSectionRenderer,
+    "certifications": CertificationsSectionRenderer,
+    "experience": ExperienceSectionRenderer,
+    "education": EducationSectionRenderer,
+}
+
+# Sections that need keywords passed to render()
+SECTIONS_WITH_KEYWORDS = {"summary", "experience"}
 
 
 def write_resume_docx(
@@ -333,54 +368,17 @@ def write_resume_docx(
 
     for sec in sections:
         key = sec.get("key")
-        title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         if not key:
             continue
-        if title:
-            doc.add_heading(str(title), level=1)
-            _tight_paragraph(doc.paragraphs[-1], before_pt=6, after_pt=2)
-            _flush_left(doc.paragraphs[-1])
-            # Optional shading for section headings
-            try:
-                page_h1_bg = (template.get("page") or {}).get("h1_bg") or (template.get("page") or {}).get("heading_bg")
-            except Exception:
-                page_h1_bg = None
-            bg_rgb = _parse_hex_color(page_h1_bg)
-            if bg_rgb:
-                _apply_paragraph_shading(doc.paragraphs[-1], bg_rgb)
+        title = sec.get("title") or (key.title() if isinstance(key, str) else "")
+        _render_section_heading(doc, title, template)
 
-        if key == "summary":
-            renderer = SummarySectionRenderer(doc, page_cfg)
-            renderer.render(data, sec, keywords)
-        elif key == "skills":
-            renderer = SkillsSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "technologies":
-            renderer = TechnologiesSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "interests":
-            renderer = InterestsSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "presentations":
-            renderer = PresentationsSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "languages":
-            renderer = LanguagesSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "coursework":
-            renderer = CourseworkSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "certifications":
-            renderer = CertificationsSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        elif key == "experience":
-            renderer = ExperienceSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec, keywords)
-        elif key == "education":
-            renderer = EducationSectionRenderer(doc, page_cfg)
-            renderer.render(data, sec)
-        else:
-            # Unknown section: noop
-            pass
+        renderer_class = SECTION_RENDERERS.get(key)
+        if renderer_class:
+            renderer = renderer_class(doc, page_cfg)
+            if key in SECTIONS_WITH_KEYWORDS:
+                renderer.render(data, sec, keywords)
+            else:
+                renderer.render(data, sec)
 
     doc.save(out_path)

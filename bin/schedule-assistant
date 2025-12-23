@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Thin wrapper to run the Schedule Assistant CLI.
-
-Ensures the repository root is on sys.path so the package resolves when
-invoked as a script. If the schedule_assistant CLI is not available yet,
-prints a helpful hint to use calendar schedule-import flows.
-"""
+"""Legacy alias for bin/schedule."""
 from pathlib import Path
 import sys
 
@@ -12,16 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-
-def main() -> int:
-    try:
-        from schedule.__main__ import main as _main  # type: ignore
-    except Exception:
-        print("Schedule Assistant CLI is not available yet.")
-        print("Tip: use ./bin/calendar outlook schedule-import to import schedules.")
-        return 2
-    return int(_main())
-
+from schedule.__main__ import main  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(main())

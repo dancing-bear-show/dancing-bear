@@ -97,3 +97,32 @@ class BaseProducer:
         """Print a list of log messages."""
         for line in logs:
             print(line)
+
+
+def run_pipeline(request: Any, processor_cls: type, producer_cls: type) -> int:
+    """Execute a pipeline and return CLI exit code.
+
+    Simplifies command handlers by encapsulating the common pattern:
+    1. Process the request
+    2. Produce output
+    3. Return appropriate exit code
+
+    Args:
+        request: The request object to process
+        processor_cls: Processor class (instantiated with no args)
+        producer_cls: Producer class (instantiated with no args)
+
+    Returns:
+        0 on success, or error code from diagnostics (default 2)
+
+    Example:
+        def run_outlook_xyz(args) -> int:
+            svc = _build_outlook_service(args)
+            if not svc:
+                return 1
+            request = XyzRequest(service=svc, ...)
+            return run_pipeline(request, XyzProcessor, XyzProducer)
+    """
+    envelope = processor_cls().process(request)
+    producer_cls().produce(envelope)
+    return 0 if envelope.ok() else int((envelope.diagnostics or {}).get("code", 2))

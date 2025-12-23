@@ -1,6 +1,13 @@
-#!/usr/bin/env bash
-# POSIX shim to run the Mail Assistant without invoking python explicitly.
-set -euo pipefail
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-exec "$SCRIPT_DIR/mail_assistant" "$@"
+#!/usr/bin/env python3
+"""Legacy alias for bin/mail."""
+from pathlib import Path
+import sys
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from mail.__main__ import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())

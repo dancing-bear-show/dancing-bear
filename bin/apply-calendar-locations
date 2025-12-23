@@ -19,7 +19,7 @@ declare -a FILES=(
 for f in "${FILES[@]}"; do
   if [[ -f "$f" ]]; then
     echo "Applying locations from $f"
-    "$REPO_ROOT/bin/calendar_assistant" --profile "$PROFILE" outlook apply-locations --config "$f" --all-occurrences "$@"
+    "$REPO_ROOT/bin/calendar" --profile "$PROFILE" outlook apply-locations --config "$f" --all-occurrences "$@"
   else
     echo "Skip missing file: $f" >&2
   fi
