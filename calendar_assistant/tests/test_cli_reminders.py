@@ -38,23 +38,23 @@ class TestRemindersFlows(unittest.TestCase):
             sys.modules['calendar_assistant.outlook_service'] = self.old_osvc
 
     def test_reminders_off(self):
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_reminders_off
         args = SimpleNamespace(calendar=None, from_date='2025-01-01', to_date='2025-01-31', all_occurrences=True, dry_run=False,
                                profile=None, client_id=None, tenant=None, token=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = cli._cmd_outlook_reminders_off(args)
+            rc = run_outlook_reminders_off(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn('Disabled reminders on', out)
 
     def test_reminders_set_minutes(self):
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_reminders_set
         args = SimpleNamespace(calendar=None, from_date='2025-01-01', to_date='2025-01-31', off=False, minutes=10, dry_run=False,
                                profile=None, client_id=None, tenant=None, token=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = cli._cmd_outlook_reminders_set(args)
+            rc = run_outlook_reminders_set(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn('Updated reminders on', out)
