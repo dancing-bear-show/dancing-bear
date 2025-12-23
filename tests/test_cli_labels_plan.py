@@ -31,10 +31,10 @@ class CLILabelPlanTests(unittest.TestCase):
         args = make_args(config=cfg_path, delete_missing=True)
 
         with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-            import mail_assistant.__main__ as m
+            from mail_assistant.labels.commands import run_labels_plan
 
             with capture_stdout() as buf:
-                rc = m._cmd_labels_plan(args)
+                rc = run_labels_plan(args)
             out = buf.getvalue()
 
         self.assertEqual(rc, 0)

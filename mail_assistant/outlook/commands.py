@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from ..config_resolver import expand_path, default_outlook_token_path
 from core.auth import resolve_outlook_credentials
@@ -18,7 +17,6 @@ from .consumers import (
     OutlookRulesSweepConsumer,
     OutlookCategoriesListConsumer,
     OutlookCategoriesExportConsumer,
-    OutlookCategoriesSyncConsumer,
     OutlookFoldersSyncConsumer,
     OutlookCalendarAddConsumer,
     OutlookCalendarAddRecurringConsumer,
@@ -33,7 +31,6 @@ from .processors import (
     OutlookRulesSweepProcessor,
     OutlookCategoriesListProcessor,
     OutlookCategoriesExportProcessor,
-    OutlookCategoriesSyncProcessor,
     OutlookFoldersSyncProcessor,
     OutlookCalendarAddProcessor,
     OutlookCalendarAddRecurringProcessor,
@@ -48,7 +45,6 @@ from .producers import (
     OutlookRulesSweepProducer,
     OutlookCategoriesListProducer,
     OutlookCategoriesExportProducer,
-    OutlookCategoriesSyncProducer,
     OutlookFoldersSyncProducer,
     OutlookCalendarAddProducer,
     OutlookCalendarAddRecurringProducer,

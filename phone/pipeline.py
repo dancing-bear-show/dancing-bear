@@ -914,6 +914,139 @@ def _plan_from_layout(layout_obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # -----------------------------------------------------------------------------
+# Identity verify pipeline
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class IdentityVerifyRequest:
+    p12_path: Optional[str]
+    p12_pass: Optional[str]
+    creds_profile: Optional[str]
+    config: Optional[str]
+    device_label: Optional[str]
+    udid: Optional[str]
+    expected_org: Optional[str]
+
+
+class IdentityVerifyRequestConsumer(Consumer[IdentityVerifyRequest]):
+    def __init__(self, request: IdentityVerifyRequest) -> None:
+        self._request = request
+
+    def consume(self) -> IdentityVerifyRequest:
+        return self._request
+
+
+@dataclass
+class IdentityVerifyResult:
+    p12_path: str
+    cert_subject: str
+    cert_issuer: str
+    udid: Optional[str]
+    supervised: Optional[str]
+    expected_org: Optional[str]
+    org_match: Optional[bool]
+
+
+class IdentityVerifyProcessor(Processor[IdentityVerifyRequest, ResultEnvelope[IdentityVerifyResult]]):
+    def process(self, payload: IdentityVerifyRequest) -> ResultEnvelope[IdentityVerifyResult]:
+        import os
+        from .device import (
+            read_credentials_ini,
+            resolve_p12_path,
+            extract_p12_cert_info,
+            get_device_supervision_status,
+            resolve_udid_from_label,
+        )
+
+        # Load credentials
+        cfg_path, ini = read_credentials_ini(payload.config)
+        creds_profile = payload.creds_profile or os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager")
+
+        # Resolve p12
+        p12_path, p12_pass = resolve_p12_path(
+            payload.p12_path,
+            payload.p12_pass,
+            creds_profile,
+            ini,
+        )
+
+        if not p12_path:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": "p12 path not provided (use --p12 or credentials.ini)", "code": 2},
+            )
+
+        # Extract certificate info
+        try:
+            cert = extract_p12_cert_info(p12_path, p12_pass)
+        except FileNotFoundError:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": f"p12 file not found: {p12_path}", "code": 2},
+            )
+        except RuntimeError as e:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": str(e), "code": 3},
+            )
+
+        # Resolve device UDID
+        udid = payload.udid or os.environ.get("IOS_DEVICE_UDID")
+        if not udid:
+            label = payload.device_label or os.environ.get("IOS_DEVICE_LABEL")
+            if label:
+                udid = resolve_udid_from_label(label, cfg_path, ini)
+
+        # Get supervision status
+        supervised = get_device_supervision_status()
+
+        # Check org match if expected
+        org_match: Optional[bool] = None
+        if payload.expected_org:
+            org_match = (payload.expected_org in cert.subject) or (payload.expected_org in cert.issuer)
+
+        return ResultEnvelope(
+            status="success",
+            payload=IdentityVerifyResult(
+                p12_path=p12_path,
+                cert_subject=cert.subject,
+                cert_issuer=cert.issuer,
+                udid=udid,
+                supervised=supervised,
+                expected_org=payload.expected_org,
+                org_match=org_match,
+            ),
+        )
+
+
+class IdentityVerifyProducer(Producer[ResultEnvelope[IdentityVerifyResult]]):
+    def produce(self, result: ResultEnvelope[IdentityVerifyResult]) -> None:
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(f"Error: {msg}", file=sys.stderr)
+            return
+
+        assert result.payload is not None
+        p = result.payload
+
+        print("Identity Verification Summary")
+        print(f"- p12: {p.p12_path}")
+        print(f"- cert.subject: {p.cert_subject or '(unknown)'}")
+        print(f"- cert.issuer:  {p.cert_issuer or '(unknown)'}")
+        if p.expected_org:
+            print(f"- expected org '{p.expected_org}': {'MATCH' if p.org_match else 'NO MATCH'}")
+        print(f"- device.udid: {p.udid or '(not provided)'}")
+        print(f"- device.supervised: {p.supervised or '(unknown)'}")
+        print("")
+        print("Next steps:")
+        print("- Ensure the device shows 'Supervised by <Org>' matching the certificate subject/issuer above.")
+        print("- If they match, no-touch installs should succeed using this identity.")
+        print("- If they do not match, Prepare again under the correct Organization, or export the matching Supervision Identity.")
+
+
+# -----------------------------------------------------------------------------
 # Helper
 # -----------------------------------------------------------------------------
 

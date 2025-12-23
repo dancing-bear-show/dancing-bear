@@ -6,7 +6,6 @@ import argparse
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import List
 
 from ..context import MailContext
 from ..utils.plan import print_plan_summary

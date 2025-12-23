@@ -48,10 +48,10 @@ class CLIFilterPlanImpactTests(unittest.TestCase):
         args = make_args(config=cfg_path, delete_missing=False)
 
         with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-            import mail_assistant.__main__ as m
+            from mail_assistant.filters.commands import run_filters_plan
 
             with capture_stdout() as buf:
-                rc = m._cmd_filters_plan(args)
+                rc = run_filters_plan(args)
             out = buf.getvalue()
 
         self.assertEqual(rc, 0)
@@ -71,10 +71,10 @@ class CLIFilterPlanImpactTests(unittest.TestCase):
         args = make_args(config=cfg_path, days=7, only_inbox=True, pages=2)
 
         with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-            import mail_assistant.__main__ as m
+            from mail_assistant.filters.commands import run_filters_impact
 
             with capture_stdout() as buf:
-                rc = m._cmd_filters_impact(args)
+                rc = run_filters_impact(args)
             out = buf.getvalue().splitlines()
 
         self.assertEqual(rc, 0)

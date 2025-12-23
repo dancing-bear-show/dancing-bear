@@ -3,7 +3,6 @@ from __future__ import annotations
 """Consumers for forwarding pipelines."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 from core.pipeline import Consumer
 

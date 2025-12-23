@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Consumers for Outlook pipelines."""
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 from core.pipeline import Consumer
 
