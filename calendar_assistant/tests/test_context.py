@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 from calendar_assistant.context import OutlookContext
 
@@ -11,11 +12,15 @@ class TestOutlookContext(unittest.TestCase):
         try:
             os.environ['MAIL_ASSISTANT_OUTLOOK_CLIENT_ID'] = 'ENV_CLIENT'
             os.environ['MAIL_ASSISTANT_OUTLOOK_TENANT'] = 'common'
-            ctx = OutlookContext()
-            cid, ten, tok = ctx.resolve()
-            self.assertEqual(cid, 'ENV_CLIENT')
-            self.assertEqual(ten, 'common')
-            self.assertIsNone(tok)
+            # Mock config resolver to isolate from user's credentials.ini
+            with patch('mail_assistant.config_resolver.get_outlook_client_id', return_value=None), \
+                 patch('mail_assistant.config_resolver.get_outlook_tenant', return_value=None), \
+                 patch('mail_assistant.config_resolver.get_outlook_token_path', return_value=None):
+                ctx = OutlookContext()
+                cid, ten, tok = ctx.resolve()
+                self.assertEqual(cid, 'ENV_CLIENT')
+                self.assertEqual(ten, 'common')
+                self.assertIsNone(tok)
         finally:
             if old_id is None:
                 os.environ.pop('MAIL_ASSISTANT_OUTLOOK_CLIENT_ID', None)

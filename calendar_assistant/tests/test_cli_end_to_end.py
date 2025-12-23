@@ -21,9 +21,9 @@ class FakeService:
 
 class TestAddFromConfigFlow(unittest.TestCase):
     def test_add_from_config_uses_service(self):
-        # Inject a fake YAML I/O wrapper used by the function
         import sys
-        yamlio = types.ModuleType("calendar_assistant.yamlio")
+        import calendar_assistant.outlook_pipelines as pipelines
+
         def fake_load_config(_path):
             # one recurring and one single event
             return {
@@ -45,9 +45,9 @@ class TestAddFromConfigFlow(unittest.TestCase):
                     },
                 ]
             }
-        yamlio.load_config = fake_load_config
-        old_yamlio = sys.modules.get("calendar_assistant.yamlio")
-        sys.modules["calendar_assistant.yamlio"] = yamlio
+        # Stub the imported function directly in the pipelines module
+        old_load_yaml = pipelines._load_yaml
+        pipelines._load_yaml = fake_load_config
 
         # Stub module for calendar_assistant.outlook_service to return our FakeService
         old_osvc_mod = sys.modules.get('calendar_assistant.outlook_service')
@@ -78,12 +78,8 @@ class TestAddFromConfigFlow(unittest.TestCase):
                 sys.modules.pop('calendar_assistant.outlook_service', None)
             else:
                 sys.modules['calendar_assistant.outlook_service'] = old_osvc_mod
-            # Clean up injected modules to avoid cross-test interference
-            import sys as _sys
-            if old_yamlio is None:
-                _sys.modules.pop("calendar_assistant.yamlio", None)
-            else:
-                _sys.modules["calendar_assistant.yamlio"] = old_yamlio
+            # Restore original _load_yaml
+            pipelines._load_yaml = old_load_yaml
 
 
 if __name__ == '__main__':  # pragma: no cover
