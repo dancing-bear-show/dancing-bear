@@ -1705,7 +1705,6 @@ class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[Outloo
         non = [sid for sid in sorted_sids if sid not in std]
 
         keep = oldest
-        delete = [sid for sid in sorted_sids if sid != keep]
 
         if payload.prefer_delete_nonstandard:
             if non and std:
