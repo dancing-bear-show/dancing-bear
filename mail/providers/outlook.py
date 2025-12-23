@@ -7,6 +7,8 @@ from ..outlook_api import OutlookClient
 
 
 class OutlookProvider(BaseProvider):
+    _provider_name = "outlook"
+
     def __init__(self, *, client_id: str, tenant: str = "consumers", token_path: Optional[str] = None, cache_dir: Optional[str] = None) -> None:
         # Map BaseProvider ctor fields; credentials_path carries client_id conceptually
         super().__init__(credentials_path=client_id, token_path=token_path or "", cache_dir=cache_dir)

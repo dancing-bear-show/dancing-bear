@@ -1,7 +1,7 @@
 Resume Assistant — Domain Map
 
 CLI
-- Entrypoint: `resume_assistant/cli/main.py`
+- Entrypoint: `resume/cli/main.py`
 - Subcommands: extract, summarize, render, structure, align, candidate-init, style, files, experience
 
 Overlays & Profiles
@@ -18,11 +18,11 @@ Outputs (by profile)
 - `_out/<profile>/style.json` — style profile from corpus
 
 Core Modules
-- Rendering: `resume_assistant/docx_writer.py`
-- Parsing: `resume_assistant/parsing.py`
-- Alignment: `resume_assistant/aligner.py`, `resume_assistant/job.py`
-- Filters: `resume_assistant/skills_filter.py`, `resume_assistant/experience_filter.py`
-- Priority: `resume_assistant/priority.py`
-- Structure inference: `resume_assistant/structure.py`
-- Utilities: `resume_assistant/io_utils.py`, `resume_assistant/cleanup.py`, `resume_assistant/style.py`
+- Rendering: `resume/docx_writer.py`
+- Parsing: `resume/parsing.py`
+- Alignment: `resume/aligner.py`, `resume/job.py`
+- Filters: `resume/skills_filter.py`, `resume/experience_filter.py`
+- Priority: `resume/priority.py`
+- Structure inference: `resume/structure.py`
+- Utilities: `resume/io_utils.py`, `resume/cleanup.py`, `resume/style.py`
 

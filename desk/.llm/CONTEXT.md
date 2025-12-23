@@ -11,14 +11,14 @@ Principles
 
 Paths
 - CLI wrapper: `bin/desk-assistant`
-- Entrypoint: `desk_assistant/cli.py` and module `desk_assistant/__main__.py`
-- Helpers: `desk_assistant/utils.py`
+- Entrypoint: `desk/cli.py` and module `desk/__main__.py`
+- Helpers: `desk/utils.py`
 
 Common Commands
-- `python3 -m desk_assistant scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
-- `python3 -m desk_assistant rules export --out rules.yaml`
-- `python3 -m desk_assistant plan --config rules.yaml --out plan.yaml`
-- `python3 -m desk_assistant apply --plan plan.yaml --dry-run`
+- `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
+- `python3 -m desk rules export --out rules.yaml`
+- `python3 -m desk plan --config rules.yaml --out plan.yaml`
+- `python3 -m desk apply --plan plan.yaml --dry-run`
 
 Testing
 - Use `unittest`. Run `make test`.

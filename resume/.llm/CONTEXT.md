@@ -41,14 +41,14 @@ Proposal Guidance
 - Prefer `NAME: description` for Skills/Technologies and quantified bullets for Experience (lever + metric + context).
 
 Workflow Hints
-- `cd ~/code/cars-sre-utils/resume_assistant`
+- `cd ~/code/cars-sre-utils/resume`
 - Extract → curate → align → render.
 - Use `--profile <prefix>` to overlay `config/profiles/<prefix>/`.
-- Tidy old artifacts with `resume_assistant files tidy` (archive or delete), optionally `--purge-temp`.
+- Tidy old artifacts with `resume files tidy` (archive or delete), optionally `--purge-temp`.
 
 Alignment Pattern (RBC SRE example)
-- Align: `python -m resume_assistant align --data _out/brian_sherwin/data.json --job config/job.rbc_sre.yaml --out _out/brian_sherwin/alignment.rbc.json --tailored _out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
-- Render: `python -m resume_assistant render --data _out/brian_sherwin/data.json --template config/template.onepage.yaml --profile brian_sherwin --structure-from _out/brian_sherwin/structure.json --filter-skills-alignment _out/brian_sherwin/alignment.rbc.json --filter-exp-alignment _out/brian_sherwin/alignment.rbc.json --min-priority 0.9 --out _out/brian_sherwin/resume.rbc.onepage.docx`
+- Align: `python -m resume align --data _out/brian_sherwin/data.json --job config/job.rbc_sre.yaml --out _out/brian_sherwin/alignment.rbc.json --tailored _out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
+- Render: `python -m resume render --data _out/brian_sherwin/data.json --template config/template.onepage.yaml --profile brian_sherwin --structure-from _out/brian_sherwin/structure.json --filter-skills-alignment _out/brian_sherwin/alignment.rbc.json --filter-exp-alignment _out/brian_sherwin/alignment.rbc.json --min-priority 0.9 --out _out/brian_sherwin/resume.rbc.onepage.docx`
 
 Proposals & Examples
 - When proposing examples or templates, explicitly call out whitespace minimization and one-page intent.

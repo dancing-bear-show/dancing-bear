@@ -16,14 +16,14 @@ Key Workflows
 
 Auth & Profiles
 - Prefer profiles in INI: `~/.config/sre-utils/credentials.ini` (or `~/.config/sreutils/credentials.ini`).
-- Sections: `[mail_assistant]` or `[mail_assistant.<profile>]`.
+- Sections: `[mail]` or `[mail.<profile>]`.
 - Keys: `credentials`, `token`, `outlook_client_id`, `tenant`, `outlook_token`.
 - Use `--profile` instead of passing `--credentials`/`--token` repeatedly.
 
 CLI Basics
 - Help: `./bin/mail-assistant --help`
 - LLM utilities: `./bin/llm agentic --stdout` (or `--write .llm/AGENTIC.md`)
-- Global agentic flag: `python3 -m mail_assistant --agentic`
+- Global agentic flag: `python3 -m mail --agentic`
 - Initialize LLM capsules: `./bin/llm derive-all --out-dir .llm` (use `--stdout` to print summary). Generated files (AGENTIC.md, DOMAIN_MAP.md) are built on demand; use `--include-generated` to write them.
 - Labels: export/sync with YAML; keep DSL human-editable with brief comments.
 - Filters: export Gmail rules; derive from unified; audit and optimize similar rules.

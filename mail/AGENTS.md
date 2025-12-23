@@ -7,7 +7,7 @@ Domain
 - Canonical config: unified filters live at `config/filters_unified.yaml`.
 - Derive provider configs; do not hand-edit derived outputs in `out/`.
 - Keep public CLI stable (additive changes only); preserve existing flags/subcommands.
-- Use shared auth flag builders (`mail_assistant.cli.args`, backed by `core.cli_args`) to keep Gmail/Outlook args consistent.
+- Use shared auth flag builders (`mail.cli.args`, backed by `core.cli_args`) to keep Gmail/Outlook args consistent.
 
 Sync Policy (Unified → Providers)
 - Plan before apply; prefer exact-match destructive syncs only with explicit review.
@@ -21,7 +21,7 @@ Providers
 
 Security
 - Never commit credentials or tokens. Use profiles in `~/.config/credentials.ini`.
-- Profiles: `[mail_assistant.<profile>]` → `credentials`, `token`, `outlook_client_id`, `tenant`, `outlook_token`.
+- Profiles: `[mail.<profile>]` → `credentials`, `token`, `outlook_client_id`, `tenant`, `outlook_token`.
 
 Agent Utilities
 - Capsule: `./bin/mail-assistant --agentic` (compact context with CLI tree + flow map).

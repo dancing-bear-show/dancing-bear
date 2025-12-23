@@ -16,17 +16,17 @@ A small, dependency-light CLI to help keep your macOS filesystem tidy over time 
   - `./bin/desk-assistant --help`
 
 - Scan common locations for large/stale files:
-  - `python3 -m desk_assistant scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
+  - `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
 
 - Generate a starter rules file:
-  - `python3 -m desk_assistant rules export --out rules.yaml`
+  - `python3 -m desk rules export --out rules.yaml`
 
 - Produce a plan from rules:
-  - `python3 -m desk_assistant plan --config rules.yaml --out plan.yaml`
+  - `python3 -m desk plan --config rules.yaml --out plan.yaml`
 
 - Apply a plan (dry-run first):
-  - `python3 -m desk_assistant apply --plan plan.yaml --dry-run`
-  - `python3 -m desk_assistant apply --plan plan.yaml`
+  - `python3 -m desk apply --plan plan.yaml --dry-run`
+  - `python3 -m desk apply --plan plan.yaml`
 - LLM capsules:
   - `./bin/llm --app desk agentic --stdout`
   - `./bin/llm --app desk domain-map --stdout`
