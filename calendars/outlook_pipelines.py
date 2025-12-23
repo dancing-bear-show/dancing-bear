@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import Processor, ResultEnvelope
 
 from calendars.yamlio import load_config as _load_yaml
 from calendars.model import normalize_event

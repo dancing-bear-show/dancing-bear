@@ -9,7 +9,6 @@ All processing is local-first with dry-run/plan-then-apply patterns.
 
 from __future__ import annotations
 
-import argparse
 from typing import Optional, List
 
 from core.assistant import BaseAssistant

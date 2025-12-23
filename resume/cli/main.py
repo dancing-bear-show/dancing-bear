@@ -30,7 +30,6 @@ from ..docx_writer import write_resume_docx
 from ..structure import infer_structure_from_docx
 from ..job import load_job_config, build_keyword_spec
 from ..aligner import align_candidate_to_job, build_tailored_candidate
-from ..experience_filter import filter_experience_by_keywords
 from ..cleanup import build_tidy_plan, execute_archive, execute_delete, purge_temp_files
 from ..experience_summary import build_experience_summary
 from ..overlays import apply_profile_overlays

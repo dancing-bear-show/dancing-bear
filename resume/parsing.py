@@ -692,7 +692,7 @@ def parse_resume_pdf(path: str) -> Dict[str, Any]:
         raise RuntimeError("Parsing .pdf requires pdfminer.six; install pdfminer.six.")
 
     from pdfminer.high_level import extract_text  # type: ignore
-    from pdfminer.layout import LAParams, LTTextContainer, LTChar  # type: ignore
+    from pdfminer.layout import LAParams  # type: ignore
 
     # Use layout analysis for better text extraction
     laparams = LAParams(

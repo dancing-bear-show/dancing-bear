@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict
 
 import time
-from typing import Dict
 
 from core.pipeline import Producer, ResultEnvelope
 

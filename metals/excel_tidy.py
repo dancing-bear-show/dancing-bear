@@ -5,7 +5,7 @@ import json
 from typing import Dict, List, Optional
 
 from core.auth import resolve_outlook_credentials
-from ..outlook_api import OutlookClient
+from mail.outlook_api import OutlookClient
 
 
 def _headers(client: OutlookClient) -> Dict[str, str]:

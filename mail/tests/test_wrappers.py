@@ -1,4 +1,3 @@
-import sys
 import subprocess
 import unittest
 from pathlib import Path

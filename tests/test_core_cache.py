@@ -1,6 +1,5 @@
 """Tests for core/cache.py ConfigCacheMixin."""
 
-import json
 import os
 import tempfile
 import time
