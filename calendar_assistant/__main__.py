@@ -47,31 +47,6 @@ from .gmail.commands import (
     run_gmail_sweep_top,
 )
 
-# Backward-compatible aliases for tests that import from __main__
-_cmd_outlook_add = run_outlook_add
-_cmd_outlook_add_recurring = run_outlook_add_recurring
-_cmd_outlook_add_from_config = run_outlook_add_from_config
-_cmd_outlook_verify_from_config = run_outlook_verify_from_config
-_cmd_outlook_update_locations_from_config = run_outlook_update_locations
-_cmd_outlook_apply_locations_from_config = run_outlook_apply_locations
-_cmd_outlook_locations_enrich = run_outlook_locations_enrich
-_cmd_outlook_list_one_offs = run_outlook_list_one_offs
-_cmd_outlook_remove_from_config = run_outlook_remove_from_config
-_cmd_outlook_dedup = run_outlook_dedup
-_cmd_outlook_scan_classes = run_outlook_scan_classes
-_cmd_outlook_schedule_import = run_outlook_schedule_import
-_cmd_outlook_reminders_off = run_outlook_reminders_off
-_cmd_outlook_reminders_set = run_outlook_reminders_set
-_cmd_outlook_calendar_share = run_outlook_calendar_share
-_cmd_outlook_settings_apply = run_outlook_settings_apply
-_cmd_outlook_mail_list = run_outlook_mail_list
-_cmd_gmail_scan_classes = run_gmail_scan_classes
-_cmd_gmail_scan_receipts = run_gmail_scan_receipts
-_cmd_gmail_scan_activerh = run_gmail_scan_activerh
-_cmd_gmail_mail_list = run_gmail_mail_list
-_cmd_gmail_sweep_top = run_gmail_sweep_top
-
-
 assistant = BaseAssistant(
     "calendar_assistant",
     "agentic: calendar_assistant\npurpose: Outlook calendars + Gmail scans → plans",

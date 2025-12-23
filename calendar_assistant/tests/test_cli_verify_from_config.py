@@ -54,7 +54,7 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
         stub_osvc.OutlookService = FakeService  # type: ignore
         sys.modules['calendar_assistant.outlook_service'] = stub_osvc
 
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_verify_from_config
         try:
             args = SimpleNamespace(
                 config='dummy.yaml', calendar=None,
@@ -62,7 +62,7 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = cli._cmd_outlook_verify_from_config(args)
+                rc = run_outlook_verify_from_config(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('Checked 2 recurring entries', out)

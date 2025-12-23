@@ -59,7 +59,7 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
         stub_osvc.OutlookService = FakeService  # type: ignore
         sys.modules['calendar_assistant.outlook_service'] = stub_osvc
 
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_update_locations
         try:
             args = SimpleNamespace(
                 config='dummy.yaml', calendar=None,
@@ -68,7 +68,7 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = cli._cmd_outlook_update_locations_from_config(args)
+                rc = run_outlook_update_locations(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('Wrote updated locations', out)
