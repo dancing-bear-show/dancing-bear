@@ -471,6 +471,7 @@ def cmd_export(args) -> int:
     return _output_json(args, {"playlists": playlists_out})
 
 
+@app.command("create", help="Create a playlist from preset seeds")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
@@ -482,7 +483,6 @@ def cmd_export(args) -> int:
 @app.argument("--count", type=int, default=20, help="How many seeds to include (<= len seeds)")
 @app.argument("--storefront", help="Storefront code (default: from ping)")
 @app.argument("--shuffle-seed", type=int, help="Deterministic shuffle seed (optional)")
-@app.command("create", help="Create a playlist from preset seeds")
 def cmd_create(args) -> int:
     """Create a playlist from preset seeds."""
     client = _get_client(args)
@@ -506,6 +506,7 @@ def cmd_create(args) -> int:
     return _output_json(args, payload)
 
 
+@app.command("dedupe", help="Find (and optionally delete) duplicate playlists by name")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
@@ -514,7 +515,6 @@ def cmd_create(args) -> int:
 @app.argument("--keep", choices=["latest", "first"], default="latest", help="Which duplicate to keep")
 @app.argument("--delete", action="store_true", help="Delete duplicates (default: plan only)")
 @app.argument("--playlist-limit", type=int, help="Maximum playlists to fetch")
-@app.command("dedupe", help="Find (and optionally delete) duplicate playlists by name")
 def cmd_dedupe(args) -> int:
     """Find (and optionally delete) duplicate playlists by name."""
     client = _get_client(args)
