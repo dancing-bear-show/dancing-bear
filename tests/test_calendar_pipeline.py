@@ -796,3 +796,137 @@ class BaseProducerTests(TestCase):
         env = ResultEnvelope(status="success", payload=None)
         result = BaseProducer.print_error(env)
         self.assertFalse(result)
+
+
+class RunPipelineTests(TestCase):
+    """Tests for the run_pipeline helper function."""
+
+    def test_run_pipeline_returns_zero_on_success(self):
+        """run_pipeline() returns 0 when processor returns success."""
+        from core.pipeline import run_pipeline
+
+        class MockProcessor:
+            def process(self, req):
+                return ResultEnvelope(status="success", payload={"data": req})
+
+        class MockProducer:
+            def produce(self, env):
+                pass  # No output needed for test
+
+        result = run_pipeline({"test": 123}, MockProcessor, MockProducer)
+        self.assertEqual(0, result)
+
+    def test_run_pipeline_returns_error_code_on_failure(self):
+        """run_pipeline() returns error code from diagnostics on failure."""
+        from core.pipeline import run_pipeline
+
+        class MockProcessor:
+            def process(self, req):
+                return ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"})
+
+        class MockProducer:
+            def produce(self, env):
+                pass
+
+        result = run_pipeline({}, MockProcessor, MockProducer)
+        self.assertEqual(42, result)
+
+    def test_run_pipeline_returns_default_code_on_failure_without_code(self):
+        """run_pipeline() returns 2 when error has no code in diagnostics."""
+        from core.pipeline import run_pipeline
+
+        class MockProcessor:
+            def process(self, req):
+                return ResultEnvelope(status="error", diagnostics={"message": "fail"})
+
+        class MockProducer:
+            def produce(self, env):
+                pass
+
+        result = run_pipeline({}, MockProcessor, MockProducer)
+        self.assertEqual(2, result)
+
+    def test_run_pipeline_calls_producer_with_envelope(self):
+        """run_pipeline() passes the envelope from processor to producer."""
+        from core.pipeline import run_pipeline
+
+        captured_envelope = []
+
+        class MockProcessor:
+            def process(self, req):
+                return ResultEnvelope(status="success", payload={"from_request": req})
+
+        class MockProducer:
+            def produce(self, env):
+                captured_envelope.append(env)
+
+        run_pipeline({"key": "value"}, MockProcessor, MockProducer)
+        self.assertEqual(1, len(captured_envelope))
+        self.assertEqual({"from_request": {"key": "value"}}, captured_envelope[0].payload)
+
+    def test_run_pipeline_passes_request_to_processor(self):
+        """run_pipeline() passes the request directly to processor.process()."""
+        from core.pipeline import run_pipeline
+
+        captured_request = []
+
+        class MockProcessor:
+            def process(self, req):
+                captured_request.append(req)
+                return ResultEnvelope(status="success", payload=None)
+
+        class MockProducer:
+            def produce(self, env):
+                pass
+
+        test_request = {"field1": "a", "field2": 42}
+        run_pipeline(test_request, MockProcessor, MockProducer)
+        self.assertEqual(1, len(captured_request))
+        self.assertEqual(test_request, captured_request[0])
+
+
+class CheckServiceRequiredTests(TestCase):
+    """Tests for the check_service_required helper function."""
+
+    def test_check_service_required_returns_none_when_service_exists(self):
+        """check_service_required() returns None when service is not None."""
+        from calendars.pipeline_base import check_service_required
+
+        result = check_service_required(MagicMock())
+        self.assertIsNone(result)
+
+    def test_check_service_required_returns_error_envelope_when_none(self):
+        """check_service_required() returns error envelope when service is None."""
+        from calendars.pipeline_base import check_service_required
+
+        result = check_service_required(None)
+        self.assertIsNotNone(result)
+        self.assertIsInstance(result, ResultEnvelope)
+        self.assertEqual("error", result.status)
+        self.assertEqual(1, result.diagnostics.get("code"))
+        self.assertIn("service is required", result.diagnostics.get("message", ""))
+
+    def test_check_service_required_uses_custom_error_message(self):
+        """check_service_required() uses custom error message when provided."""
+        from calendars.pipeline_base import check_service_required
+
+        result = check_service_required(None, error_msg="Custom error message")
+        self.assertIsNotNone(result)
+        self.assertEqual("Custom error message", result.diagnostics.get("message"))
+
+    def test_check_service_required_walrus_pattern(self):
+        """check_service_required() works with walrus operator pattern."""
+        from calendars.pipeline_base import check_service_required
+
+        # Simulate the intended usage pattern
+        service = None
+        if err := check_service_required(service):
+            self.assertEqual("error", err.status)
+        else:
+            self.fail("Expected error envelope for None service")
+
+        # With valid service
+        service = MagicMock()
+        if err := check_service_required(service):
+            self.fail("Expected None for valid service")
+        # Success - no error returned
