@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Schedule Assistant CLI
 
 Follows the LLM patterns used in cars-sre-utils:
@@ -12,6 +10,7 @@ Initial scope: generate a canonical schedule plan from simple sources
 application (dry-run by default). This provides a stable CLI surface
 to extend later with real calendar integrations.
 """
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
