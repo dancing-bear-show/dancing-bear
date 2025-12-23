@@ -41,16 +41,17 @@ class TestGmailScanFlows(unittest.TestCase):
         fake = FakeProvider({"m1": "\n".join(text)})
         old_mod = sys.modules.get('mail_assistant.utils.cli_helpers')
         sys.modules['mail_assistant.utils.cli_helpers'] = stub_gmail_provider(fake)
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.gmail.commands import run_gmail_scan_receipts
         import tempfile
         import os
         try:
             tf = tempfile.NamedTemporaryFile('w+', delete=False, suffix='.yaml')
             tf.close()
-            args = SimpleNamespace(from_text='richmondhill.ca', days=365, pages=1, page_size=10, query=None, out=tf.name)
+            args = SimpleNamespace(from_text='richmondhill.ca', days=365, pages=1, page_size=10, query=None, out=tf.name,
+                                   profile=None, credentials=None, token=None, cache=None, calendar=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = cli._cmd_gmail_scan_receipts(args)
+                rc = run_gmail_scan_receipts(args)
             out = buf.getvalue().lower()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('wrote 1 events to', out)
@@ -71,12 +72,13 @@ class TestGmailScanFlows(unittest.TestCase):
         fake = FakeProvider({"m1": "\n".join(body)})
         old_mod = sys.modules.get('mail_assistant.utils.cli_helpers')
         sys.modules['mail_assistant.utils.cli_helpers'] = stub_gmail_provider(fake)
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.gmail.commands import run_gmail_scan_classes
         try:
-            args = SimpleNamespace(from_text='active rh', days=60, pages=1, page_size=10, query=None, inbox_only=False, out=None)
+            args = SimpleNamespace(from_text='active rh', days=60, pages=1, page_size=10, query=None, inbox_only=False, out=None,
+                                   profile=None, credentials=None, token=None, cache=None, calendar=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = cli._cmd_gmail_scan_classes(args)
+                rc = run_gmail_scan_classes(args)
             out = buf.getvalue().lower()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('candidate recurring', out)
@@ -99,14 +101,15 @@ class TestGmailScanFlows(unittest.TestCase):
         fake = FakeProvider({"m1": "\n".join(text)})
         old_mod = sys.modules.get('mail_assistant.utils.cli_helpers')
         sys.modules['mail_assistant.utils.cli_helpers'] = stub_gmail_provider(fake)
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.gmail.commands import run_gmail_scan_activerh
         try:
             tf = tempfile.NamedTemporaryFile('w+', delete=False, suffix='.yaml')
             tf.close()
-            args = SimpleNamespace(days=365, pages=1, page_size=10, query=None, out=tf.name)
+            args = SimpleNamespace(days=365, pages=1, page_size=10, query=None, out=tf.name,
+                                   profile=None, credentials=None, token=None, cache=None, calendar=None, from_text=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = cli._cmd_gmail_scan_activerh(args)
+                rc = run_gmail_scan_activerh(args)
             out = buf.getvalue().lower()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('wrote 1 events to', out)

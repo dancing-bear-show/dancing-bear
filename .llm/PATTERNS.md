@@ -142,3 +142,25 @@ class TestCLI(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 ```
+
+Code Quality (qlty)
+```bash
+# Check a specific file for issues
+~/.qlty/bin/qlty check path/to/file.py
+
+# Check entire module
+~/.qlty/bin/qlty check schedule_assistant/
+
+# Common issue types:
+# - ruff:E402 - imports not at top of file (fix: move docstring before imports)
+# - python:S3776 - cognitive complexity too high (fix: extract helper functions)
+
+# Extract metrics for a file
+~/.qlty/bin/qlty metrics path/to/file.py
+
+# Show all available linters
+~/.qlty/bin/qlty plugins
+
+# Fix auto-fixable issues
+~/.qlty/bin/qlty check --fix path/to/file.py
+```
