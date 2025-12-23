@@ -6,8 +6,8 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from core.pipeline import ResultEnvelope
-from wifi_assistant.diagnostics import DiagnoseConfig, DnsResult, Report
-from wifi_assistant.pipeline import (
+from wifi.diagnostics import DiagnoseConfig, DnsResult, Report
+from wifi.pipeline import (
     DiagnoseProcessor,
     DiagnoseProducer,
     DiagnoseRequest,
@@ -34,7 +34,7 @@ def _sample_report() -> Report:
 class WifiPipelineTests(TestCase):
     def test_processor_success(self):
         report = _sample_report()
-        with patch("wifi_assistant.pipeline.run_diagnosis", return_value=report) as fake_run:
+        with patch("wifi.pipeline.run_diagnosis", return_value=report) as fake_run:
             request = DiagnoseRequest(config=DiagnoseConfig(ping_targets=["1.1.1.1"]))
             env = DiagnoseProcessor().process(DiagnoseRequestConsumer(request).consume())
         self.assertTrue(env.ok())
