@@ -59,6 +59,39 @@ class TestReadCsv(unittest.TestCase):
             rows = _read_csv(f.name)
             self.assertEqual(rows, [])
 
+    def test_reads_csv_with_quotes(self):
+        """Test reading CSV with quoted fields."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            w = csv.writer(f)
+            w.writerow(["name", "description"])
+            w.writerow(["item", "has, comma"])
+            f.flush()
+            rows = _read_csv(f.name)
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[1][1], "has, comma")
+
+
+class TestColLetterAdvanced(unittest.TestCase):
+    """Advanced tests for _col_letter function."""
+
+    def test_middle_letters(self):
+        """Test middle alphabet letters."""
+        self.assertEqual(_col_letter(13), "M")
+        self.assertEqual(_col_letter(14), "N")
+
+    def test_boundary_values(self):
+        """Test boundary values between single and double letters."""
+        self.assertEqual(_col_letter(25), "Y")
+        self.assertEqual(_col_letter(26), "Z")
+        self.assertEqual(_col_letter(27), "AA")
+
+    def test_large_columns(self):
+        """Test large column numbers."""
+        # BA = 53
+        self.assertEqual(_col_letter(53), "BA")
+        # ZZ = 702
+        self.assertEqual(_col_letter(702), "ZZ")
+
 
 if __name__ == "__main__":
     unittest.main()
