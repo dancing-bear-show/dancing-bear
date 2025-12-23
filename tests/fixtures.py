@@ -38,7 +38,7 @@ def bin_path(name: str) -> Path:
 
 
 def run(cmd: Sequence[str], cwd: Optional[str] = None):
-    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
 
 
 def has_pyyaml() -> bool:

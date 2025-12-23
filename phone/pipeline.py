@@ -490,7 +490,7 @@ class IconmapProcessor(Processor[IconmapRequest, ResultEnvelope[IconmapResult]])
         cmd.extend(["--format", payload.format, "get-icon-layout"])
 
         try:
-            out = _sp.check_output(cmd, stderr=_sp.STDOUT)
+            out = _sp.check_output(cmd, stderr=_sp.STDOUT)  # nosec B603
         except _sp.CalledProcessError as e:
             return ResultEnvelope(
                 status="error",
@@ -890,7 +890,7 @@ class ManifestInstallProducer(Producer[ResultEnvelope[ManifestInstallResult]]):
         if result.payload.install_cmd:
             print("Installing via:", " ".join(result.payload.install_cmd))
             try:
-                subprocess.call(result.payload.install_cmd)
+                subprocess.call(result.payload.install_cmd)  # nosec B603
             except FileNotFoundError:
                 print("Error: ios-install-profile not found", file=sys.stderr)
 

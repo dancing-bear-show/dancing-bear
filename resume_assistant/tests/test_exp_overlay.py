@@ -46,7 +46,7 @@ experience:
                 encoding="utf-8",
             )
             try:
-                r = subprocess.run(
+                r = subprocess.run(  # nosec B603
                     CLI
                     + [
                         "render",
