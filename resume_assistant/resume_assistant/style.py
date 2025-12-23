@@ -4,7 +4,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List
 
 from .io_utils import read_text_any
 

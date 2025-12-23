@@ -7,14 +7,14 @@ Minimal-token approach for Copilot to get oriented in this repository.
 Read these files in order for a fast bootstrap:
 
 ### Tier 1: Essential Context (~400 tokens total)
-1. **`.llm/QUICK_START.md`** — project overview, primary CLIs, auth, testing.
-2. **`.llm/FAMILIARIZE_CORE.md`** — architecture patterns and key rules.
+1. **`.llm/CONTEXT.md`** — system overview, architecture, and rules.
+2. **`.llm/COMMANDS.md`** — curated command reference.
 
 ### Tier 2: Detailed Context (On-Demand)
 Load only when deeper detail is needed:
-- **`.llm/CONTEXT.md`** — full architecture, rules, and commands.
-- **`.llm/DOMAIN_MAP.md`** — directory/auth map.
+- **`.llm/DOMAIN_MAP.md`** — CLI tree, flows index, binaries.
 - **`.llm/PATTERNS.md`** — code templates for filters, CLI wiring, etc.
+- **`.llm/MIGRATION_STATE.md`** — provider abstraction status.
 
 ### Tier 3: Automated Capsule
 Token-efficient summary:

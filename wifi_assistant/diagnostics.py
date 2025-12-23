@@ -7,7 +7,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
 @dataclass
@@ -27,7 +27,7 @@ class CommandRunner:
 class SubprocessRunner(CommandRunner):
     def run(self, cmd: Sequence[str], timeout: Optional[float] = None) -> CommandResult:
         try:
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603 - cmd is controlled by caller
                 cmd,
                 capture_output=True,
                 text=True,

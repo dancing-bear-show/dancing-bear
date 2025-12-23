@@ -1,7 +1,7 @@
 import os
 import time
 import hashlib
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .utils import expand_paths, parse_size, parse_duration, human_size
 

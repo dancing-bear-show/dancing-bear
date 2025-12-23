@@ -1,5 +1,4 @@
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -13,12 +12,11 @@ from ..docx_writer import write_resume_docx
 from ..structure import infer_structure_from_docx
 from ..job import load_job_config, build_keyword_spec
 from ..aligner import align_candidate_to_job, build_tailored_candidate
-from ..skills_filter import filter_skills_by_keywords
 from ..experience_filter import filter_experience_by_keywords
 from ..cleanup import build_tidy_plan, execute_archive, execute_delete, purge_temp_files
 from ..experience_summary import build_experience_summary
 from ..overlays import apply_profile_overlays
-from ..priority import filter_by_min_priority
+from ..pipeline import FilterPipeline
 
 # Default profile used when --profile is not provided
 DEFAULT_PROFILE = "sample"
@@ -43,8 +41,7 @@ def _extend_seed_with_style(seed: dict, style_profile_path) -> dict:
                 cur = [cur]
             seed["keywords"] = list(dict.fromkeys(list(cur) + style_kws))
     except Exception:
-        # Non-fatal; keep seed as-is
-        pass
+        pass  # nosec B110 - non-fatal seed extension
     return seed
 
 
@@ -52,52 +49,6 @@ def _apply_profile_overlays(data: dict, prof) -> dict:
     # shim retained for backward-compatibility within this module; delegate
     return apply_profile_overlays(data, prof)
 
-
-def _apply_alignment_filters(data: dict, args: argparse.Namespace) -> dict:
-    """Apply optional alignment-based filters to skills and experience.
-
-    When the render CLI provides `--filter-skills-alignment` or
-    `--filter-exp-alignment`, this helper trims the corresponding
-    sections to matched keywords from the alignment JSON. If a job
-    file is also provided, synonyms are included.
-    """
-    out = dict(data)
-    # Build synonyms map from job spec if provided
-    synonyms = {}
-    try:
-        if getattr(args, "filter_skills_job", None):
-            spec, syn = build_keyword_spec(load_job_config(args.filter_skills_job))
-            synonyms.update(syn or {})
-    except Exception:
-        pass
-    try:
-        if getattr(args, "filter_exp_job", None):
-            spec, syn = build_keyword_spec(load_job_config(args.filter_exp_job))
-            synonyms.update(syn or {})
-    except Exception:
-        pass
-
-    # Skills filter
-    try:
-        skills_align = getattr(args, "filter_skills_alignment", None)
-        if skills_align:
-            al = read_yaml_or_json(skills_align)
-            matched = [m.get("skill") for m in (al.get("matched_keywords") or []) if m.get("skill")]
-            out = filter_skills_by_keywords(out, matched, synonyms)
-    except Exception:
-        pass
-
-    # Experience filter
-    try:
-        exp_align = getattr(args, "filter_exp_alignment", None)
-        if exp_align:
-            al = read_yaml_or_json(exp_align)
-            matched = [m.get("skill") for m in (al.get("matched_keywords") or []) if m.get("skill")]
-            out = filter_experience_by_keywords(out, matched_keywords=matched, synonyms=synonyms)
-    except Exception:
-        pass
-
-    return out
 
 
 def _add_common_io_args(p: argparse.ArgumentParser):
@@ -135,9 +86,13 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     li = parse_linkedin_text(linkedin_text) if linkedin_text else {}
     rs = {}
     if args.resume:
-        if str(args.resume).lower().endswith('.docx'):
+        resume_lower = str(args.resume).lower()
+        if resume_lower.endswith('.docx'):
             from ..parsing import parse_resume_docx
             rs = parse_resume_docx(args.resume)
+        elif resume_lower.endswith('.pdf'):
+            from ..parsing import parse_resume_pdf
+            rs = parse_resume_pdf(args.resume)
         else:
             rs = parse_resume_text(resume_text) if resume_text else {}
     data = merge_profiles(li, rs)
@@ -148,41 +103,24 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 
 def _cmd_summarize(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
-    # Optional: overlay profile data when --profile is provided
-    prof = getattr(args, "profile", None)
-    if prof:
-        data = _apply_profile_overlays(data, prof)
+
+    # Apply filters via pipeline
+    data = (
+        FilterPipeline(data)
+        .with_profile_overlays(getattr(args, "profile", None))
+        .with_skill_filter(
+            getattr(args, "filter_skills_alignment", None),
+            getattr(args, "filter_skills_job", None),
+        )
+        .with_experience_filter(
+            getattr(args, "filter_exp_alignment", None),
+            getattr(args, "filter_exp_job", None),
+        )
+        .execute()
+    )
+
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
-    # Optional: filter skills to matched keywords
-    if getattr(args, "filter_skills_alignment", None):
-        try:
-            al = read_yaml_or_json(args.filter_skills_alignment)
-            matched = [m.get("skill") for m in (al.get("matched_keywords") or []) if m.get("skill")]
-            synonyms = {}
-            if getattr(args, "filter_skills_job", None):
-                spec, syn = build_keyword_spec(load_job_config(args.filter_skills_job))
-                synonyms = syn or {}
-            data = filter_skills_by_keywords(data, matched, synonyms)
-        except Exception:
-            pass
-    # Optional: filter experience to matched keywords
-    if getattr(args, "filter_exp_alignment", None):
-        try:
-            al = read_yaml_or_json(args.filter_exp_alignment)
-            matched = [m.get("skill") for m in (al.get("matched_keywords") or []) if m.get("skill")]
-            synonyms = {}
-            if getattr(args, "filter_exp_job", None):
-                spec, syn = build_keyword_spec(load_job_config(args.filter_exp_job))
-                synonyms = syn or {}
-            data = filter_experience_by_keywords(
-                data,
-                matched_keywords=matched,
-                synonyms=synonyms,
-            )
-        except Exception:
-            pass
-    # (skills already optionally filtered above)
     summary = build_summary(data, seed)
     out = _resolve_out(args, ".md", kind="summary")
     if out.suffix.lower() in {".yaml", ".yml", ".json"}:
@@ -208,16 +146,23 @@ def _cmd_render(args: argparse.Namespace) -> int:
     template = load_template(args.template) if args.template else {}
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
-    # Overlay profile config if present (e.g., config/profile.<profile>.yaml)
-    prof = getattr(args, "profile", None)
-    if prof:
-        data = _apply_profile_overlays(data, prof)
-    # Optional: filter skills/experience via alignment report (+ optional job synonyms)
-    data = _apply_alignment_filters(data, args)
-    # Optional: filter grouped skills/technologies/summary/experience by priority/usefulness cutoff
+
+    # Apply all filters via pipeline
     min_prio = getattr(args, "min_priority", None)
-    if isinstance(min_prio, (int, float)):
-        data = filter_by_min_priority(data, float(min_prio))
+    data = (
+        FilterPipeline(data)
+        .with_profile_overlays(getattr(args, "profile", None))
+        .with_skill_filter(
+            getattr(args, "filter_skills_alignment", None),
+            getattr(args, "filter_skills_job", None),
+        )
+        .with_experience_filter(
+            getattr(args, "filter_exp_alignment", None),
+            getattr(args, "filter_exp_job", None),
+        )
+        .with_priority_filter(float(min_prio) if isinstance(min_prio, (int, float)) else None)
+        .execute()
+    )
 
     structure = None
     if args.structure_from:
@@ -282,7 +227,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     try:
         out_docx.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
-        pass
+        pass  # nosec B110 - mkdir failure
     write_resume_docx(
         data=data,
         template=template,

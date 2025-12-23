@@ -1,17 +1,27 @@
 ---
 name: Question
-about: Ask a question about usage or behavior
+about: Ask about usage, architecture, or best practices
+title: 'docs: '
 labels: question
 ---
 
 ## Question
+<!-- What do you want to know? -->
+
 
 ## Context
-- OS:
-- Python:
-- Command or workflow:
+<!-- What are you trying to accomplish? -->
 
-## What I Tried
 
-## Additional Details
+## What I've Tried
+<!-- Docs you've read, commands you've run -->
+- [ ] Checked README.md
+- [ ] Checked .llm/CONTEXT.md
+- [ ] Ran `--help` on relevant command
+- [ ] Searched existing issues
+
+## Environment (if relevant)
+- **OS:**
+- **Python:**
+- **Command:**
 

@@ -223,3 +223,37 @@ def run_filters_rm_from_token(args) -> int:
     producer = FiltersRemoveTokenProducer(payload.client, dry_run=payload.dry_run)
     producer.produce(envelope)
     return 0
+
+
+def run_filters_list(args) -> int:
+    """List all filters."""
+    from ..utils.cli_helpers import gmail_client_authenticated
+
+    client = getattr(args, "_gmail_client", None) or gmail_client_authenticated(args)
+    # Map label IDs to names for friendly output
+    id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in client.list_labels()}
+
+    def ids_to_names(ids):
+        return [id_to_name.get(x, x) for x in ids or []]
+
+    for f in client.list_filters():
+        fid = f.get("id", "")
+        c = f.get("criteria", {})
+        a = f.get("action", {})
+        forward = a.get("forward")
+        add = ids_to_names(a.get("addLabelIds"))
+        rem = ids_to_names(a.get("removeLabelIds"))
+        print(f"{fid}\tfrom={c.get('from','')} subject={c.get('subject','')} query={c.get('query','')} | add={add} rem={rem} fwd={forward}")
+    return 0
+
+
+def run_filters_delete(args) -> int:
+    """Delete a filter by ID."""
+    from ..utils.cli_helpers import gmail_provider_from_args
+
+    client = gmail_provider_from_args(args)
+    client.authenticate()
+    fid = args.id
+    client.delete_filter(fid)
+    print(f"Deleted filter id={fid}")
+    return 0

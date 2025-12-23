@@ -1,20 +1,21 @@
 [run]
+source = .
 branch = True
-source =
-    mail_assistant
-    calendar_assistant
-    schedule_assistant
-    phone
 omit =
     .venv/*
     tests/*
-    _disasm/*
-    personal_assistants.egg-info/*
+    */test_*.py
+    setup.py
 
 [report]
 exclude_lines =
     pragma: no cover
-    if __name__ == .__main__.: 
-    @overload
-    @abstractmethod
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
 show_missing = True
+precision = 1
+
+[html]
+directory = htmlcov
