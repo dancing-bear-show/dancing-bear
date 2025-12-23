@@ -383,6 +383,537 @@ class AnalyzeProducer(Producer[ResultEnvelope[AnalyzeResult]]):
 
 
 # -----------------------------------------------------------------------------
+# Device I/O pipelines (export-device, iconmap)
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class ExportDeviceRequest:
+    udid: Optional[str]
+    ecid: Optional[str]
+    out_path: Path
+
+
+class ExportDeviceRequestConsumer(Consumer[ExportDeviceRequest]):
+    def __init__(self, request: ExportDeviceRequest) -> None:
+        self._request = request
+
+    def consume(self) -> ExportDeviceRequest:
+        return self._request
+
+
+@dataclass
+class ExportDeviceResult:
+    document: Dict[str, Any]
+    out_path: Path
+
+
+class ExportDeviceProcessor(Processor[ExportDeviceRequest, ResultEnvelope[ExportDeviceResult]]):
+    def process(self, payload: ExportDeviceRequest) -> ResultEnvelope[ExportDeviceResult]:
+        from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
+
+        try:
+            cfgutil = find_cfgutil_path()
+        except FileNotFoundError as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 127})
+
+        ecid = payload.ecid
+        if not ecid and payload.udid:
+            ecid = map_udid_to_ecid(cfgutil, payload.udid) or None
+
+        try:
+            export = export_from_device(cfgutil, ecid)
+        except RuntimeError as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 3})
+
+        if not export:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": "Could not derive export from device layout", "code": 3},
+            )
+
+        return ResultEnvelope(status="success", payload=ExportDeviceResult(document=export, out_path=payload.out_path))
+
+
+class ExportDeviceProducer(Producer[ResultEnvelope[ExportDeviceResult]]):
+    def produce(self, result: ResultEnvelope[ExportDeviceResult]) -> None:
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg, file=sys.stderr)
+            return
+        assert result.payload is not None
+        result.payload.out_path.parent.mkdir(parents=True, exist_ok=True)
+        write_yaml(result.payload.document, result.payload.out_path)
+        print(f"Wrote layout export to {result.payload.out_path}")
+
+
+@dataclass
+class IconmapRequest:
+    udid: Optional[str]
+    ecid: Optional[str]
+    format: str  # "json" or "plist"
+    out_path: Path
+
+
+class IconmapRequestConsumer(Consumer[IconmapRequest]):
+    def __init__(self, request: IconmapRequest) -> None:
+        self._request = request
+
+    def consume(self) -> IconmapRequest:
+        return self._request
+
+
+@dataclass
+class IconmapResult:
+    data: bytes
+    out_path: Path
+
+
+class IconmapProcessor(Processor[IconmapRequest, ResultEnvelope[IconmapResult]]):
+    def process(self, payload: IconmapRequest) -> ResultEnvelope[IconmapResult]:
+        import subprocess as _sp
+        from .device import find_cfgutil_path, map_udid_to_ecid
+
+        try:
+            cfgutil = find_cfgutil_path()
+        except FileNotFoundError as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 127})
+
+        ecid = payload.ecid
+        if not ecid and payload.udid:
+            ecid = map_udid_to_ecid(cfgutil, payload.udid) or None
+
+        cmd = [cfgutil]
+        if ecid:
+            cmd.extend(["--ecid", ecid])
+        cmd.extend(["--format", payload.format, "get-icon-layout"])
+
+        try:
+            out = _sp.check_output(cmd, stderr=_sp.STDOUT)
+        except _sp.CalledProcessError as e:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": f"cfgutil get-icon-layout failed: {e}", "code": 3},
+            )
+        except Exception as e:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": f"cfgutil get-icon-layout failed: {e}", "code": 3},
+            )
+
+        return ResultEnvelope(status="success", payload=IconmapResult(data=out, out_path=payload.out_path))
+
+
+class IconmapProducer(Producer[ResultEnvelope[IconmapResult]]):
+    def produce(self, result: ResultEnvelope[IconmapResult]) -> None:
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg, file=sys.stderr)
+            return
+        assert result.payload is not None
+        result.payload.out_path.parent.mkdir(parents=True, exist_ok=True)
+        result.payload.out_path.write_bytes(result.payload.data)
+        print(f"Wrote icon map to {result.payload.out_path}")
+
+
+# -----------------------------------------------------------------------------
+# Manifest pipelines
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class ManifestFromExportRequest:
+    export_path: Path
+    out_path: Path
+
+
+class ManifestFromExportRequestConsumer(Consumer[ManifestFromExportRequest]):
+    def __init__(self, request: ManifestFromExportRequest) -> None:
+        self._request = request
+
+    def consume(self) -> ManifestFromExportRequest:
+        return self._request
+
+
+@dataclass
+class ManifestFromExportResult:
+    manifest: Dict[str, Any]
+    out_path: Path
+
+
+class ManifestFromExportProcessor(Processor[ManifestFromExportRequest, ResultEnvelope[ManifestFromExportResult]]):
+    def process(self, payload: ManifestFromExportRequest) -> ResultEnvelope[ManifestFromExportResult]:
+        import os
+
+        try:
+            exp = read_yaml(payload.export_path)
+        except FileNotFoundError:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": f"Export not found: {payload.export_path}", "code": 2},
+            )
+
+        if not isinstance(exp, dict) or "dock" not in exp or "pages" not in exp:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": "Export file must contain 'dock' and 'pages' keys", "code": 2},
+            )
+
+        dock = list(exp.get("dock") or [])
+        pages_in = exp.get("pages") or []
+        pages_out: List[Dict[str, Any]] = []
+        all_apps: List[str] = []
+        seen: set = set()
+        folders_total = 0
+
+        for p in pages_in:
+            apps = list(p.get("apps") or [])
+            folders = []
+            for f in p.get("folders") or []:
+                name = f.get("name") or "Folder"
+                fapps = list(f.get("apps") or [])
+                folders.append({"name": name, "apps": fapps})
+                folders_total += 1
+            pages_out.append({"apps": apps, "folders": folders})
+            for a in apps:
+                if a and a not in seen:
+                    seen.add(a)
+                    all_apps.append(a)
+            for f in folders:
+                for a in f["apps"]:
+                    if a and a not in seen:
+                        seen.add(a)
+                        all_apps.append(a)
+
+        for a in dock:
+            if a and a not in seen:
+                seen.add(a)
+                all_apps.append(a)
+
+        manifest = {
+            "meta": {"name": "device_layout_manifest", "version": 1},
+            "device": {
+                "udid": os.environ.get("IOS_DEVICE_UDID"),
+                "label": os.environ.get("IOS_DEVICE_LABEL"),
+            },
+            "layout": {"dock": dock, "pages": pages_out},
+            "apps": {"all": all_apps},
+            "counts": {
+                "apps_total": len(all_apps),
+                "pages_count": len(pages_out),
+                "folders_count": folders_total,
+            },
+            "source": {"export_path": str(payload.export_path)},
+        }
+
+        return ResultEnvelope(
+            status="success",
+            payload=ManifestFromExportResult(manifest=manifest, out_path=payload.out_path),
+        )
+
+
+class ManifestFromExportProducer(Producer[ResultEnvelope[ManifestFromExportResult]]):
+    def produce(self, result: ResultEnvelope[ManifestFromExportResult]) -> None:
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg, file=sys.stderr)
+            return
+        assert result.payload is not None
+        write_yaml(result.payload.manifest, result.payload.out_path)
+        print(f"Wrote device layout manifest to {result.payload.out_path}")
+
+
+@dataclass
+class ManifestFromDeviceRequest:
+    udid: Optional[str]
+    export_out: Optional[Path]
+    out_path: Path
+
+
+class ManifestFromDeviceRequestConsumer(Consumer[ManifestFromDeviceRequest]):
+    def __init__(self, request: ManifestFromDeviceRequest) -> None:
+        self._request = request
+
+    def consume(self) -> ManifestFromDeviceRequest:
+        return self._request
+
+
+@dataclass
+class ManifestFromDeviceResult:
+    manifest: Dict[str, Any]
+    out_path: Path
+    export_out: Optional[Path]
+    export_document: Optional[Dict[str, Any]]
+
+
+class ManifestFromDeviceProcessor(Processor[ManifestFromDeviceRequest, ResultEnvelope[ManifestFromDeviceResult]]):
+    def process(self, payload: ManifestFromDeviceRequest) -> ResultEnvelope[ManifestFromDeviceResult]:
+        import os
+        from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
+
+        try:
+            cfgutil = find_cfgutil_path()
+        except FileNotFoundError as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 127})
+
+        udid = payload.udid or os.environ.get("IOS_DEVICE_UDID")
+        ecid = map_udid_to_ecid(cfgutil, udid) if udid else None
+
+        try:
+            exp = export_from_device(cfgutil, ecid)
+        except RuntimeError as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 3})
+
+        if not exp:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": "Could not derive export from device layout", "code": 3},
+            )
+
+        # Build manifest from export
+        dock = list(exp.get("dock") or [])
+        pages_in = exp.get("pages") or []
+        pages_out: List[Dict[str, Any]] = []
+        all_apps: List[str] = []
+        seen: set = set()
+        folders_total = 0
+
+        for p in pages_in:
+            apps = list(p.get("apps") or [])
+            folders = []
+            for f in p.get("folders") or []:
+                name = f.get("name") or "Folder"
+                fapps = list(f.get("apps") or [])
+                folders.append({"name": name, "apps": fapps})
+                folders_total += 1
+            pages_out.append({"apps": apps, "folders": folders})
+            for a in apps:
+                if a and a not in seen:
+                    seen.add(a)
+                    all_apps.append(a)
+            for f in folders:
+                for a in f["apps"]:
+                    if a and a not in seen:
+                        seen.add(a)
+                        all_apps.append(a)
+
+        for a in dock:
+            if a and a not in seen:
+                seen.add(a)
+                all_apps.append(a)
+
+        export_path = payload.export_out or Path("out/device.IconState.yaml")
+        manifest = {
+            "meta": {"name": "device_layout_manifest", "version": 1},
+            "device": {
+                "udid": os.environ.get("IOS_DEVICE_UDID"),
+                "label": os.environ.get("IOS_DEVICE_LABEL"),
+            },
+            "layout": {"dock": dock, "pages": pages_out},
+            "apps": {"all": all_apps},
+            "counts": {
+                "apps_total": len(all_apps),
+                "pages_count": len(pages_out),
+                "folders_count": folders_total,
+            },
+            "source": {"export_path": str(export_path)},
+        }
+
+        return ResultEnvelope(
+            status="success",
+            payload=ManifestFromDeviceResult(
+                manifest=manifest,
+                out_path=payload.out_path,
+                export_out=payload.export_out,
+                export_document=exp,
+            ),
+        )
+
+
+class ManifestFromDeviceProducer(Producer[ResultEnvelope[ManifestFromDeviceResult]]):
+    def produce(self, result: ResultEnvelope[ManifestFromDeviceResult]) -> None:
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg, file=sys.stderr)
+            return
+        assert result.payload is not None
+        # Write export if path specified or default
+        if result.payload.export_document:
+            export_path = result.payload.export_out or Path("out/device.IconState.yaml")
+            export_path.parent.mkdir(parents=True, exist_ok=True)
+            write_yaml(result.payload.export_document, export_path)
+        # Write manifest
+        write_yaml(result.payload.manifest, result.payload.out_path)
+        print(f"Wrote device layout manifest to {result.payload.out_path}")
+
+
+# -----------------------------------------------------------------------------
+# Manifest install pipeline
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class ManifestInstallRequest:
+    manifest_path: Path
+    out_path: Optional[Path]
+    dry_run: bool
+    udid: Optional[str]
+    device_label: Optional[str]
+    creds_profile: Optional[str]
+    config: Optional[str]
+
+
+class ManifestInstallRequestConsumer(Consumer[ManifestInstallRequest]):
+    def __init__(self, request: ManifestInstallRequest) -> None:
+        self._request = request
+
+    def consume(self) -> ManifestInstallRequest:
+        return self._request
+
+
+@dataclass
+class ManifestInstallResult:
+    profile_path: Path
+    profile_bytes: bytes
+    dry_run: bool
+    install_cmd: Optional[List[str]]
+
+
+class ManifestInstallProcessor(Processor[ManifestInstallRequest, ResultEnvelope[ManifestInstallResult]]):
+    def process(self, payload: ManifestInstallRequest) -> ResultEnvelope[ManifestInstallResult]:
+        import os
+        import plistlib
+        from .profile import build_mobileconfig
+
+        try:
+            man = read_yaml(payload.manifest_path)
+        except FileNotFoundError:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": f"Manifest not found: {payload.manifest_path}", "code": 2},
+            )
+
+        if not isinstance(man, dict):
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": "Invalid manifest", "code": 2},
+            )
+
+        # Build plan from manifest
+        plan = man.get("plan") or {}
+        if not plan and man.get("layout"):
+            plan = _plan_from_layout(man.get("layout") or {})
+        if not plan:
+            return ResultEnvelope(
+                status="error",
+                diagnostics={"message": "Manifest missing 'plan' or 'layout' section", "code": 2},
+            )
+
+        prof = man.get("profile") or {}
+        profile_dict = build_mobileconfig(
+            plan=plan,
+            layout_export=None,
+            top_identifier=prof.get("identifier", "com.example.profile"),
+            hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
+            display_name=prof.get("display_name", "Home Screen Layout"),
+            organization=prof.get("organization"),
+            dock_count=4,
+        )
+
+        # Determine output profile path
+        if payload.out_path:
+            out_path = payload.out_path
+        else:
+            dev = man.get("device") or {}
+            suffix = dev.get("label") or dev.get("udid") or "device"
+            out_path = Path("out") / f"{suffix}.hslayout.from_manifest.mobileconfig"
+
+        # Serialize profile
+        profile_bytes = plistlib.dumps(profile_dict, fmt=plistlib.FMT_XML, sort_keys=False)
+
+        # Build install command if not dry-run
+        install_cmd: Optional[List[str]] = None
+        if not payload.dry_run:
+            dev = man.get("device") or {}
+            udid = payload.udid or dev.get("udid") or os.environ.get("IOS_DEVICE_UDID")
+            label = payload.device_label or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
+            creds_profile = payload.creds_profile or dev.get("creds_profile") or os.environ.get("IOS_CREDS_PROFILE")
+
+            repo_root = Path(__file__).resolve().parents[1]
+            installer = str(repo_root / "bin" / "ios-install-profile")
+            cmd = [installer, "--profile", str(out_path)]
+            if creds_profile:
+                cmd.extend(["--creds-profile", creds_profile])
+            if payload.config:
+                cmd.extend(["--config", payload.config])
+            if udid:
+                cmd.extend(["--udid", udid])
+            elif label:
+                cmd.extend(["--device-label", label])
+            install_cmd = cmd
+
+        return ResultEnvelope(
+            status="success",
+            payload=ManifestInstallResult(
+                profile_path=out_path,
+                profile_bytes=profile_bytes,
+                dry_run=payload.dry_run,
+                install_cmd=install_cmd,
+            ),
+        )
+
+
+class ManifestInstallProducer(Producer[ResultEnvelope[ManifestInstallResult]]):
+    def produce(self, result: ResultEnvelope[ManifestInstallResult]) -> None:
+        import subprocess
+
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg, file=sys.stderr)
+            return
+
+        assert result.payload is not None
+        # Write profile
+        result.payload.profile_path.parent.mkdir(parents=True, exist_ok=True)
+        result.payload.profile_path.write_bytes(result.payload.profile_bytes)
+        print(f"Built profile: {result.payload.profile_path}")
+
+        if result.payload.dry_run:
+            print("Dry-run: skipping install")
+            return
+
+        if result.payload.install_cmd:
+            print("Installing via:", " ".join(result.payload.install_cmd))
+            try:
+                subprocess.call(result.payload.install_cmd)
+            except FileNotFoundError:
+                print("Error: ios-install-profile not found", file=sys.stderr)
+
+
+def _plan_from_layout(layout_obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a layout object to a plan format."""
+    plan: Dict[str, Any] = {"dock": list(layout_obj.get("dock") or []), "pages": {}, "folders": {}}
+    pages = layout_obj.get("pages") or []
+    page_map: Dict[int, Dict[str, Any]] = {}
+    for idx, p in enumerate(pages, start=1):
+        apps = list(p.get("apps") or [])
+        folders = []
+        for f in p.get("folders") or []:
+            name = f.get("name") or "Folder"
+            fapps = list(f.get("apps") or [])
+            plan["folders"][name] = fapps
+            folders.append(name)
+        page_map[idx] = {"apps": apps, "folders": folders}
+    plan["pages"] = page_map
+    return plan
+
+
+# -----------------------------------------------------------------------------
 # Helper
 # -----------------------------------------------------------------------------
 

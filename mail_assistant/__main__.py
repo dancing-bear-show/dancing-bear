@@ -38,6 +38,33 @@ from .auto.commands import (
     run_auto_summary,
     run_auto_apply,
 )
+from .forwarding.commands import (
+    run_forwarding_list,
+    run_forwarding_add,
+    run_forwarding_status,
+    run_forwarding_enable,
+    run_forwarding_disable,
+)
+from .outlook.commands import (
+    run_outlook_rules_list,
+    run_outlook_rules_export,
+    run_outlook_rules_sync,
+    run_outlook_rules_plan,
+    run_outlook_rules_delete,
+    run_outlook_rules_sweep,
+    run_outlook_categories_list,
+    run_outlook_categories_export,
+    run_outlook_categories_sync,
+    run_outlook_folders_sync,
+    run_outlook_calendar_add,
+    run_outlook_calendar_add_recurring,
+    run_outlook_calendar_add_from_config,
+    run_outlook_auth_device_code,
+    run_outlook_auth_poll,
+    run_outlook_auth_ensure,
+    run_outlook_auth_validate,
+)
+from .outlook.helpers import resolve_outlook_args as _resolve_outlook_args
 
 
 CLI_DESCRIPTION = "Mail Assistant CLI"
@@ -218,11 +245,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     _register_forwarding(
         sub,
-        f_list=_cmd_forwarding_list,
-        f_add=_cmd_forwarding_add,
-        f_status=_cmd_forwarding_status,
-        f_enable=_cmd_forwarding_enable,
-        f_disable=_cmd_forwarding_disable,
+        f_list=run_forwarding_list,
+        f_add=run_forwarding_add,
+        f_status=run_forwarding_status,
+        f_enable=run_forwarding_enable,
+        f_disable=run_forwarding_disable,
     )
 
     # signatures group (registered via helper)
@@ -386,7 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=default_outlook_flow,
         help=f"Path to store the device-flow JSON (default: {default_outlook_flow})",
     )
-    p_outlook_auth_dev.set_defaults(func=_cmd_outlook_auth_device_code)
+    p_outlook_auth_dev.set_defaults(func=run_outlook_auth_device_code)
 
     p_outlook_auth_poll = sub_outlook_auth.add_parser(
         "poll",
@@ -402,7 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=default_outlook_token,
         help=f"Path to token cache JSON output (default: {default_outlook_token})",
     )
-    p_outlook_auth_poll.set_defaults(func=_cmd_outlook_auth_poll)
+    p_outlook_auth_poll.set_defaults(func=run_outlook_auth_poll)
 
     p_outlook_auth_ensure = sub_outlook_auth.add_parser(
         "ensure",
@@ -411,7 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_auth_ensure.add_argument("--client-id", help="Azure app (client) ID")
     p_outlook_auth_ensure.add_argument("--tenant", default="consumers", help="AAD tenant (default: consumers)")
     p_outlook_auth_ensure.add_argument("--token", help="Path to token cache JSON (defaults from profile)")
-    p_outlook_auth_ensure.set_defaults(func=_cmd_outlook_auth_ensure)
+    p_outlook_auth_ensure.set_defaults(func=run_outlook_auth_ensure)
 
     p_outlook_auth_validate = sub_outlook_auth.add_parser(
         "validate",
@@ -420,7 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_auth_validate.add_argument("--client-id", help="Azure app (client) ID")
     p_outlook_auth_validate.add_argument("--tenant", default="consumers", help="AAD tenant (default: consumers)")
     p_outlook_auth_validate.add_argument("--token", help="Path to token cache JSON (defaults from profile)")
-    p_outlook_auth_validate.set_defaults(func=_cmd_outlook_auth_validate)
+    p_outlook_auth_validate.set_defaults(func=run_outlook_auth_validate)
 
     # outlook rules sync: create Outlook inbox rules from YAML DSL
     p_outlook_rules_sync = sub_outlook.add_parser("rules", help="Outlook rules operations")
@@ -432,7 +459,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_rules_list_cmd.add_argument("--cache-ttl", type=int, default=600, help="Cache TTL seconds (default 600)")
     p_outlook_rules_list_cmd.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_rules_list_cmd.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_rules_list_cmd.set_defaults(func=_cmd_outlook_rules_list)
+    p_outlook_rules_list_cmd.set_defaults(func=run_outlook_rules_list)
     p_outlook_rules_export_cmd = sub_outlook_rules.add_parser("export", help="Export Outlook rules to filters YAML")
     _add_outlook_args(p_outlook_rules_export_cmd)
     p_outlook_rules_export_cmd.add_argument("--out", required=True, help="Output YAML path")
@@ -440,7 +467,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_rules_export_cmd.add_argument("--cache-ttl", type=int, default=600)
     p_outlook_rules_export_cmd.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_rules_export_cmd.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_rules_export_cmd.set_defaults(func=_cmd_outlook_rules_export)
+    p_outlook_rules_export_cmd.set_defaults(func=run_outlook_rules_export)
     p_outlook_rules_plan_cmd = sub_outlook_rules.add_parser("plan", help="Plan Outlook rule changes from filters YAML")
     _add_outlook_args(p_outlook_rules_plan_cmd)
     p_outlook_rules_plan_cmd.add_argument("--config", required=True, help="Filters YAML (same DSL as Gmail export)")
@@ -451,13 +478,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_rules_plan_cmd.add_argument("--categories-only", action="store_false", dest="move_to_folders", help="Plan without folder moves; categories only")
     p_outlook_rules_plan_cmd.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_rules_plan_cmd.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_rules_plan_cmd.set_defaults(func=_cmd_outlook_rules_plan)
+    p_outlook_rules_plan_cmd.set_defaults(func=run_outlook_rules_plan)
     p_outlook_rules_delete_cmd = sub_outlook_rules.add_parser("delete", help="Delete an Outlook rule by ID")
     _add_outlook_args(p_outlook_rules_delete_cmd)
     p_outlook_rules_delete_cmd.add_argument("--id", required=True, help="Rule ID to delete")
     p_outlook_rules_delete_cmd.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_rules_delete_cmd.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_rules_delete_cmd.set_defaults(func=_cmd_outlook_rules_delete)
+    p_outlook_rules_delete_cmd.set_defaults(func=run_outlook_rules_delete)
 
     # outlook calendar helpers
     p_outlook_calendar = sub_outlook.add_parser("calendar", help="Outlook calendar operations")
@@ -479,7 +506,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cal_add.add_argument("--no-reminder", action="store_true", help="Create event without reminders/alerts")
     p_cal_add.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_cal_add.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_cal_add.set_defaults(func=_cmd_outlook_calendar_add)
+    p_cal_add.set_defaults(func=run_outlook_calendar_add)
 
     # Add recurring event
     p_cal_add_rec = sub_outlook_cal.add_parser("add-recurring", help="Add a recurring event with optional exclusions")
@@ -503,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cal_add_rec.add_argument("--no-reminder", action="store_true", help="Create series without reminders/alerts")
     p_cal_add_rec.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_cal_add_rec.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_cal_add_rec.set_defaults(func=_cmd_outlook_calendar_add_recurring)
+    p_cal_add_rec.set_defaults(func=run_outlook_calendar_add_recurring)
 
     # Add from config (YAML DSL)
     p_cal_from_cfg = sub_outlook_cal.add_parser("add-from-config", help="Add events defined in a YAML file")
@@ -514,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cal_from_cfg.add_argument("--no-reminder", action="store_true", help="Create events without reminders/alerts")
     p_cal_from_cfg.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_cal_from_cfg.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_cal_from_cfg.set_defaults(func=_cmd_outlook_calendar_add_from_config)
+    p_cal_from_cfg.set_defaults(func=run_outlook_calendar_add_from_config)
     p_outlook_rules_sweep_cmd = sub_outlook_rules.add_parser("sweep", help="Apply folder moves to existing messages based on filters YAML")
     p_outlook_rules_sweep_cmd.add_argument("--client-id", help="Azure app (client) ID for device auth; defaults from env or accounts config")
     p_outlook_rules_sweep_cmd.add_argument("--tenant", default="consumers", help="AAD tenant (default: consumers)")
@@ -532,7 +559,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_rules_sweep_cmd.add_argument("--cache-ttl", type=int, default=600, help="Cache TTL seconds for folder/search caches")
     p_outlook_rules_sweep_cmd.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_rules_sweep_cmd.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_rules_sweep_cmd.set_defaults(func=_cmd_outlook_rules_sweep)
+    p_outlook_rules_sweep_cmd.set_defaults(func=run_outlook_rules_sweep)
     p_outlook_rules_sync_cmd = sub_outlook_rules.add_parser("sync", help="Sync rules from filters YAML into Outlook Inbox")
     p_outlook_rules_sync_cmd.add_argument("--client-id", help="Azure app (client) ID for device auth; defaults from env or accounts config")
     p_outlook_rules_sync_cmd.add_argument("--tenant", default="consumers", help="AAD tenant (default: consumers)")
@@ -545,7 +572,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_rules_sync_cmd.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_rules_sync_cmd.add_argument("--account", help="Account name in accounts config to use for defaults")
     p_outlook_rules_sync_cmd.add_argument("--delete-missing", action="store_true", help="Delete Outlook rules not present in YAML")
-    p_outlook_rules_sync_cmd.set_defaults(func=_cmd_outlook_rules_sync)
+    p_outlook_rules_sync_cmd.set_defaults(func=run_outlook_rules_sync)
 
     # outlook categories sync: create/update Outlook categories from labels YAML
     p_outlook_categories = sub_outlook.add_parser("categories", help="Outlook categories operations")
@@ -556,7 +583,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_categories_list.add_argument("--cache-ttl", type=int, default=600)
     p_outlook_categories_list.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_categories_list.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_categories_list.set_defaults(func=_cmd_outlook_categories_list)
+    p_outlook_categories_list.set_defaults(func=run_outlook_categories_list)
     p_outlook_categories_export = sub_outlook_categories.add_parser("export", help="Export categories to YAML (labels list)")
     _add_outlook_args(p_outlook_categories_export)
     p_outlook_categories_export.add_argument("--out", required=True, help="Output YAML path")
@@ -564,14 +591,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_categories_export.add_argument("--account", help="Account name in accounts config to use for defaults")
     p_outlook_categories_export.add_argument("--use-cache", action="store_true")
     p_outlook_categories_export.add_argument("--cache-ttl", type=int, default=600)
-    p_outlook_categories_export.set_defaults(func=_cmd_outlook_categories_export)
+    p_outlook_categories_export.set_defaults(func=run_outlook_categories_export)
     p_outlook_categories_sync = sub_outlook_categories.add_parser("sync", help="Sync categories from labels YAML")
     _add_outlook_args(p_outlook_categories_sync)
     p_outlook_categories_sync.add_argument("--config", required=True, help="Labels YAML (same DSL as Gmail export)")
     p_outlook_categories_sync.add_argument("--dry-run", action="store_true")
     p_outlook_categories_sync.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_categories_sync.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_categories_sync.set_defaults(func=_cmd_outlook_categories_sync)
+    p_outlook_categories_sync.set_defaults(func=run_outlook_categories_sync)
 
     # outlook folders sync: create Outlook folders from Gmail-style label paths
     p_outlook_folders = sub_outlook.add_parser("folders", help="Outlook folders operations")
@@ -582,7 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_outlook_folders_sync.add_argument("--dry-run", action="store_true")
     p_outlook_folders_sync.add_argument("--accounts-config", default="config/accounts.yaml", help="Accounts YAML for defaults")
     p_outlook_folders_sync.add_argument("--account", help="Account name in accounts config to use for defaults")
-    p_outlook_folders_sync.set_defaults(func=_cmd_outlook_folders_sync)
+    p_outlook_folders_sync.set_defaults(func=run_outlook_folders_sync)
 
     return parser
 
@@ -776,36 +803,6 @@ def _analyze_labels(labels: list[dict]) -> dict:
         'imapish': imapish,
         'unset_visibility': unset_vis,
     }
-
-
-# ---------- Policy normalization (Outlook-first) ----------
-
-def _norm_label_name_outlook(name: str, mode: str = "join-dash") -> str:
-    parts = (name or "").split("/")
-    if not parts:
-        return name
-    if mode == "first":
-        return parts[0]
-    if mode == "join-colon":
-        return ":".join(parts)
-    return "-".join(parts)
-
-
-OUTLOOK_COLOR_NAMES = {
-    # Subset of known Outlook category color names
-    "preset0", "preset1", "preset2", "preset3", "preset4", "preset5", "preset6", "preset7",
-}
-
-
-def _norm_label_color_outlook(color: Optional[dict]) -> Optional[dict]:
-    if not isinstance(color, dict):
-        return None
-    name = color.get("name")
-    if name and isinstance(name, str):
-        return {"name": name}
-    # If hex provided, drop for now (no hex mapping). Could add heuristic mapping later.
-    return None
-
 
 from .dsl import (
     normalize_labels_for_outlook as _normalize_labels_for_outlook,
@@ -1496,974 +1493,6 @@ def _cmd_accounts_sync_filters(args: argparse.Namespace) -> int:
         print(f"  provider not supported for filters: {provider}")
     return 0
 
-
-def _cmd_outlook_rules_sync(args: argparse.Namespace) -> int:
-    """Create Outlook inbox rules from a Gmail-style filters YAML.
-
-    This is a convenience wrapper around the existing Outlook integration used
-    by the multi-account commands, for single-account setups.
-    """
-    # YAML handled via load_config()
-
-    # Lazy import Outlook client
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    if getattr(args, 'verbose', False):
-        print(f"[outlook rules] client_id={client_id} tenant={tenant} token={token_path or '<memory>'} cache_dir={cache_dir or ''} dry_run={bool(args.dry_run)}")
-    client.authenticate()
-
-    # Load and normalize the desired rules for Outlook
-    doc = load_config(args.config)
-    desired = _normalize_filters_for_outlook(doc.get("filters") or [])
-
-    # Build canonical map of existing rules to avoid duplicates/deletes
-    def _canon(rule: dict) -> str:
-        crit = rule.get("criteria") or {}
-        act = rule.get("action") or {}
-        return str({
-            "from": crit.get("from"),
-            "to": crit.get("to"),
-            "subject": crit.get("subject"),
-            "add": tuple(sorted((act.get("addLabelIds") or []))),
-            "forward": act.get("forward"),
-            "move": act.get("moveToFolderId"),
-        })
-
-    # Fetch existing rules with resilience
-    try:
-        existing_rules = client.list_filters()
-    except Exception as e:
-        resp = getattr(e, 'response', None)
-        body = ''
-        status = None
-        try:
-            if resp is not None and hasattr(resp, 'text'):
-                body = resp.text
-            if resp is not None and hasattr(resp, 'status_code'):
-                status = getattr(resp, 'status_code', None)
-        except Exception:
-            body = ''
-        print(f"Warning: failed to list Outlook rules: {e}{(' | ' + body) if body else ''}")
-        if status in (401, 403):
-            prof = getattr(args, 'profile', None)
-            prof_flag = f" --profile {prof}" if prof else ""
-            print(f"Hint: authenticate with: ./bin/mail-assistant{prof_flag} outlook auth ensure")
-        try:
-            existing_rules = client.list_filters(use_cache=True, ttl=600)
-            print("Using cached Outlook rules for sync.")
-        except Exception:
-            existing_rules = []
-            print("Proceeding with empty existing rules baseline.")
-    existing = { _canon(r): r for r in existing_rules }
-
-    # Map category names to IDs for assignCategories; folders optionally
-    name_to_id = client.get_label_id_map()
-    folder_path_map = client.get_folder_path_map() if getattr(args, 'move_to_folders', False) else {}
-
-    created = 0
-    desired_keys: set[str] = set()
-    for spec in desired:
-        m = spec.get("match") or {}
-        a_act = spec.get("action") or {}
-        criteria = {k: v for k, v in m.items() if k in ("from", "to", "subject") and v}
-        if not criteria:
-            # Skip Outlook rules with no simple criteria
-            continue
-        action = {}
-        add_labs = a_act.get("add") or []
-        if a_act.get("moveToFolder"):
-            # Explicit folder path from YAML
-            fid = client.ensure_folder_path(str(a_act.get("moveToFolder")))
-            action["moveToFolderId"] = fid
-        elif getattr(args, 'move_to_folders', False) and add_labs:
-            # Choose first label; use nested path if provided (slashes preserved)
-            lab_name = str(add_labs[0])
-            # If we already know the path id, use it; else create nested path
-            fid = folder_path_map.get(lab_name) or client.ensure_folder_path(lab_name)
-            action["moveToFolderId"] = fid
-        elif add_labs:
-            ids = [name_to_id.get(x) or name_to_id.get(_norm_label_name_outlook(x)) for x in add_labs]
-            ids = [x for x in ids if x]
-            if ids:
-                action["addLabelIds"] = ids
-        if a_act.get("forward"):
-            action["forward"] = a_act["forward"]
-
-        key = str({
-            "from": criteria.get("from"),
-            "to": criteria.get("to"),
-            "subject": criteria.get("subject"),
-            "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-            "forward": action.get("forward"),
-            "move": action.get("moveToFolderId"),
-        })
-        desired_keys.add(key)
-        if key in existing:
-            continue
-        if args.dry_run:
-            if action.get("moveToFolderId"):
-                rev = {v: k for k, v in (client.get_folder_path_map() or {}).items()}
-                disp = dict(action)
-                disp["moveToFolder"] = rev.get(action["moveToFolderId"], action["moveToFolderId"])
-                print(f"Would create Outlook rule: criteria={criteria} action={disp}")
-            else:
-                print(f"Would create Outlook rule: criteria={criteria} action={action}")
-        else:
-            try:
-                client.create_filter(criteria, action)
-                print("Created Outlook rule")
-            except Exception as e:
-                resp = getattr(e, 'response', None)
-                body = ''
-                try:
-                    if resp is not None and hasattr(resp, 'text'):
-                        body = resp.text
-                except Exception:
-                    body = ''
-                print(f"Error creating Outlook rule: {e}{(' | ' + body) if body else ''}")
-        created += 1
-
-    # Optionally delete rules that are not present in desired YAML
-    deleted = 0
-    if getattr(args, 'delete_missing', False):
-        for k, rule in existing.items():
-            if k not in desired_keys:
-                rid = rule.get("id")
-                if args.dry_run:
-                    print(f"Would delete Outlook rule: id={rid}")
-                else:
-                    try:
-                        if rid:
-                            client.delete_filter(rid)
-                            print(f"Deleted Outlook rule: id={rid}")
-                            deleted += 1
-                    except Exception as e:
-                        resp = getattr(e, 'response', None)
-                        body = ''
-                        try:
-                            if resp is not None and hasattr(resp, 'text'):
-                                body = resp.text
-                        except Exception:
-                            body = ''
-                        print(f"Error deleting Outlook rule id={rid}: {e}{(' | ' + body) if body else ''}")
-
-    print(f"Sync complete. Created: {created}{(', Deleted: ' + str(deleted)) if getattr(args, 'delete_missing', False) else ''}")
-    return 0
-
-
-def _cmd_outlook_rules_export(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    rules = client.list_filters(use_cache=getattr(args, 'use_cache', False), ttl=getattr(args, 'cache_ttl', 600))
-    # Map category IDs to names
-    id_to_name = {v: k for k, v in client.get_label_id_map().items() if v}
-    # Map folder IDs to full path names for better fidelity
-    folder_path_map = client.get_folder_path_map() or {}
-    folder_rev = {fid: path for path, fid in folder_path_map.items()}
-    out_filters = []
-    for r in rules:
-        crit = r.get("criteria") or {}
-        act = r.get("action") or {}
-        entry = {"match": {}}
-        for k in ("from", "to", "subject"):
-            if crit.get(k):
-                entry["match"][k] = crit.get(k)
-        a = {}
-        add_ids = act.get("addLabelIds") or []
-        if add_ids:
-            a["add"] = [id_to_name.get(i) or i for i in add_ids]
-        if act.get("forward"):
-            a["forward"] = act.get("forward")
-        if act.get("moveToFolderId"):
-            # Prefer full path name
-            a["moveToFolder"] = folder_rev.get(act.get("moveToFolderId")) or act.get("moveToFolderId")
-        if a:
-            entry["action"] = a
-        out_filters.append(entry)
-    data = {"filters": out_filters}
-    outp = Path(expand_path(args.out))
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    from .yamlio import dump_config
-    dump_config(str(outp), data)
-    print(f"Exported {len(out_filters)} rules to {outp}")
-    return 0
-
-
-def _cmd_outlook_rules_plan(args: argparse.Namespace) -> int:
-    # Same inputs as sync, but always dry-run and prints a concise plan
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    doc = load_config(args.config)
-    desired = _normalize_filters_for_outlook(doc.get("filters") or [])
-    # Fetch existing rules; respect --use-cache/--cache-ttl and be resilient to Graph timeouts
-    try:
-        existing = client.list_filters(
-            use_cache=getattr(args, 'use_cache', False),
-            ttl=getattr(args, 'cache_ttl', 600),
-        )
-    except Exception as e:
-        resp = getattr(e, 'response', None)
-        body = ''
-        status = None
-        try:
-            if resp is not None and hasattr(resp, 'text'):
-                body = resp.text
-            if resp is not None and hasattr(resp, 'status_code'):
-                status = getattr(resp, 'status_code', None)
-        except Exception:
-            body = ''
-        print(f"Warning: failed to list Outlook rules: {e}{(' | ' + body) if body else ''}")
-        if status in (401, 403):
-            prof = getattr(args, 'profile', None)
-            prof_flag = f" --profile {prof}" if prof else ""
-            print(f"Hint: authenticate with: ./bin/mail-assistant{prof_flag} outlook auth ensure")
-        # Retry once with cache if not already requested
-        try:
-            existing = client.list_filters(use_cache=True, ttl=getattr(args, 'cache_ttl', 600))
-            print("Using cached Outlook rules for plan.")
-        except Exception:
-            existing = []
-            print("Proceeding with empty existing rules baseline.")
-
-    # Build canonical on existing
-    def _canon_map(r: dict) -> str:
-        c = r.get("criteria") or {}
-        a = r.get("action") or {}
-        return str({
-            "from": c.get("from"),
-            "to": c.get("to"),
-            "subject": c.get("subject"),
-            "add": tuple(sorted((a.get("addLabelIds") or []))),
-            "forward": a.get("forward"),
-            "move": a.get("moveToFolderId"),
-        })
-
-    existing_keys = {_canon_map(r) for r in existing}
-    name_to_id = client.get_label_id_map()
-    folder_map = client.get_folder_id_map() if getattr(args, 'move_to_folders', False) else {}
-    created = 0
-    for spec in desired:
-        m = spec.get("match") or {}
-        a_act = spec.get("action") or {}
-        criteria = {k: v for k, v in m.items() if k in ("from", "to", "subject") and v}
-        if not criteria:
-            # Skip Outlook rules with no simple criteria
-            continue
-        action = {}
-        adds = a_act.get("add") or []
-        if getattr(args, 'move_to_folders', False) and adds:
-            lab_name = _norm_label_name_outlook(adds[0])
-            fid = folder_map.get(lab_name) or lab_name
-            action["moveToFolderId"] = fid
-        elif adds:
-            ids = [name_to_id.get(x) or name_to_id.get(_norm_label_name_outlook(x)) for x in adds]
-            ids = [x for x in ids if x]
-            if ids:
-                action["addLabelIds"] = ids
-        if a_act.get("forward"):
-            action["forward"] = a_act["forward"]
-
-        key = str({
-            "from": criteria.get("from"),
-            "to": criteria.get("to"),
-            "subject": criteria.get("subject"),
-            "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-            "forward": action.get("forward"),
-            "move": action.get("moveToFolderId"),
-        })
-        if key in existing_keys:
-            continue
-        # Present
-        disp = dict(action)
-        if action.get("moveToFolderId"):
-            rev = {v: k for k, v in (folder_map or {}).items()}
-            disp["moveToFolder"] = rev.get(action["moveToFolderId"], action["moveToFolderId"])
-        print(f"Would create Outlook rule: criteria={criteria} action={disp}")
-        created += 1
-    print(f"Plan summary: create={created}")
-    return 0
-
-
-def _cmd_outlook_rules_delete(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    try:
-        client.delete_filter(args.id)
-        print(f"Deleted Outlook rule: {args.id}")
-        return 0
-    except Exception as e:
-        resp = getattr(e, 'response', None)
-        body = ''
-        try:
-            if resp is not None and hasattr(resp, 'text'):
-                body = resp.text
-        except Exception:
-            body = ''
-        print(f"Error deleting Outlook rule: {e}{(' | ' + body) if body else ''}")
-        return 3
-
-
-def _cmd_outlook_rules_sweep(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    if getattr(args, 'clear_cache', False):
-        try:
-            client.cfg_clear()
-        except Exception:
-            pass
-    doc = load_config(args.config)
-    desired = _normalize_filters_for_outlook(doc.get("filters") or [])
-    # Folder path map to avoid re-fetch
-    folder_paths = client.get_folder_path_map(clear_cache=getattr(args, 'clear_cache', False)) if getattr(args, 'move_to_folders', False) else {}
-    total_moves = 0
-    for spec in desired:
-        m = spec.get("match") or {}
-        a_act = spec.get("action") or {}
-        # Build a simple $search query
-        qparts = []
-        if m.get("from"):
-            qparts.append(f"from:{m.get('from')}")
-        if m.get("subject"):
-            subj = str(m.get("subject"))
-            if ' ' in subj:
-                qparts.append(f"subject:\"{subj}\"")
-            else:
-                qparts.append(f"subject:{subj}")
-        if not qparts:
-            continue
-        srch = " ".join(qparts)
-        # Determine destination folder
-        dest_id = None
-        if a_act.get("moveToFolder"):
-            pth = str(a_act.get("moveToFolder"))
-            if getattr(args, 'dry_run', False):
-                dest_id = folder_paths.get(pth)
-                if not dest_id:
-                    print(f"Would create folder path: {pth}")
-            else:
-                dest_id = client.ensure_folder_path(pth)
-        elif getattr(args, 'move_to_folders', False) and (a_act.get("add") or []):
-            pth = str((a_act.get("add") or ["Inbox"])[0])
-            if getattr(args, 'dry_run', False):
-                dest_id = folder_paths.get(pth)
-                if not dest_id:
-                    print(f"Would create folder path: {pth}")
-            else:
-                dest_id = client.ensure_folder_path(pth)
-        if not dest_id:
-            continue
-        try:
-            ids = client.search_inbox_messages(
-                srch,
-                days=getattr(args, 'days', 30),
-                top=getattr(args, 'top', 25),
-                pages=getattr(args, 'pages', 2),
-                use_cache=not getattr(args, 'clear_cache', False),
-            )
-        except Exception:
-            # Some tenants do not allow combining $search + $filter. Retry without days filter.
-            ids = client.search_inbox_messages(
-                srch,
-                days=None,
-                top=getattr(args, 'top', 25),
-                pages=getattr(args, 'pages', 2),
-                use_cache=not getattr(args, 'clear_cache', False),
-            )
-        if not ids:
-            continue
-        if getattr(args, 'dry_run', False):
-            print(f"Would move {len(ids)} messages for search='{srch}' -> folderId={dest_id}")
-            total_moves += len(ids)
-            continue
-        # Apply moves
-        for mid in ids:
-            try:
-                client.move_message(mid, dest_id)
-                total_moves += 1
-            except Exception as e:
-                print(f"Move failed for {mid}: {e}")
-    print(f"Sweep summary: moved={total_moves}")
-    return 0
-
-
-def _cmd_outlook_rules_list(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    rules = client.list_filters(use_cache=getattr(args, 'use_cache', False), ttl=getattr(args, 'cache_ttl', 600))
-    if not rules:
-        print("No Inbox rules found.")
-        return 0
-    # Build id->name map for categories
-    name_to_id = client.get_label_id_map()
-    id_to_name = {v: k for k, v in name_to_id.items() if v}
-    # Build folder id -> full path map for nicer display
-    folder_path_rev = {fid: path for path, fid in (client.get_folder_path_map() or {}).items()}
-    for r in rules:
-        rid = r.get("id", "")
-        crit = r.get("criteria") or {}
-        act = r.get("action") or {}
-        cats = []
-        for cid in (act.get("addLabelIds") or []):
-            nm = id_to_name.get(cid) or cid
-            cats.append(nm)
-        forward = act.get("forward") or None
-        move = act.get("moveToFolderId") or None
-        move_name = folder_path_rev.get(move) if move else None
-        print(f"{rid}\tfrom={crit.get('from') or ''}\tto={crit.get('to') or ''}\tsubject={crit.get('subject') or ''}")
-        if cats or forward or move:
-            details = []
-            if cats:
-                details.append("categories=" + ",".join(cats))
-            if forward:
-                details.append("forward=" + forward)
-            if move:
-                details.append("moveToFolder=" + (move_name or move))
-            print("  " + " ".join(details))
-    return 0
-
-
-def _resolve_outlook_args(args: argparse.Namespace):
-    profile = getattr(args, "profile", None)
-    client_id, tenant, token_path = resolve_outlook_credentials(
-        profile,
-        getattr(args, "client_id", None),
-        getattr(args, "tenant", None),
-        getattr(args, "token", None),
-    )
-    cache_dir = getattr(args, "cache_dir", None) or getattr(args, "cache", None)
-    if not client_id:
-        cfg_path = getattr(args, "accounts_config", None)
-        acc_name = getattr(args, "account", None)
-        if cfg_path and os.path.exists(cfg_path):
-            accts = _load_accounts(cfg_path)
-            chosen = None
-            if acc_name:
-                chosen = next((a for a in accts if a.get("name") == acc_name), None)
-            if not chosen:
-                chosen = next((a for a in accts if (a.get("provider") or "").lower() == "outlook"), None)
-            if chosen:
-                client_id = chosen.get("client_id") or chosen.get("application_id") or chosen.get("credentials")
-                tenant = chosen.get("tenant") or tenant
-                token_path = token_path or chosen.get("token")
-                cache_dir = chosen.get("cache") or cache_dir
-    # Try picking up cache from accounts config even if client_id was set via profile
-    if not cache_dir:
-        cfg_path = getattr(args, "accounts_config", None)
-        acc_name = getattr(args, "account", None)
-        if cfg_path and os.path.exists(cfg_path):
-            accts = _load_accounts(cfg_path)
-            chosen = None
-            if acc_name:
-                chosen = next((a for a in accts if a.get("name") == acc_name), None)
-            if not chosen:
-                chosen = next((a for a in accts if (a.get("provider") or "").lower() == "outlook"), None)
-            if chosen:
-                cache_dir = chosen.get("cache") or cache_dir
-    return client_id, tenant, token_path, cache_dir
-
-
-def _cmd_outlook_categories_list(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    cats = client.list_labels(use_cache=getattr(args, 'use_cache', False), ttl=getattr(args, 'cache_ttl', 600))
-    if not cats:
-        print("No categories.")
-        return 0
-    for c in cats:
-        name = c.get("name", "")
-        cid = c.get("id", "")
-        print(f"{cid}\t{name}")
-    return 0
-
-
-def _cmd_outlook_categories_export(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    cats = client.list_labels(use_cache=getattr(args, 'use_cache', False), ttl=getattr(args, 'cache_ttl', 600))
-    labels = []
-    for c in cats:
-        entry = {"name": c.get("name", "")}
-        col = c.get("color")
-        if isinstance(col, dict) and col.get("name"):
-            entry["color"] = {"name": col.get("name")}
-        labels.append(entry)
-    data = {"labels": labels}
-    outp = Path(args.out)
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    from .yamlio import dump_config
-    dump_config(str(outp), data)
-    print(f"Exported {len(labels)} categories to {outp}")
-    return 0
-
-
-def _cmd_outlook_folders_sync(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-
-    doc = load_config(args.config)
-    labels = doc.get("labels") or []
-    if not isinstance(labels, list):
-        print("Labels YAML must contain a labels: [] list")
-        return 2
-    # Build current path map once
-    path_map = client.get_folder_path_map()
-    created = 0
-    skipped = 0
-    for entry in labels:
-        name = None
-        if isinstance(entry, dict):
-            name = entry.get("name")
-        elif isinstance(entry, str):
-            name = entry
-        if not name:
-            continue
-        # Skip Gmail system-y or bracketed labels
-        if str(name).startswith("["):
-            skipped += 1
-            continue
-        if name in path_map:
-            skipped += 1
-            continue
-        if args.dry_run:
-            print(f"Would create folder: {name}")
-            created += 1
-            continue
-        fid = client.ensure_folder_path(name)
-        if fid:
-            print(f"Created folder: {name}")
-            path_map[name] = fid
-            created += 1
-    print(f"Folders sync complete. Created: {created}, Skipped: {skipped}")
-    return 0
-
-
-def _cmd_outlook_auth_device_code(args: argparse.Namespace) -> int:
-    # Resolve client_id from args/env/ini
-    client_id, tenant, _ = resolve_outlook_credentials(
-        getattr(args, "profile", None),
-        getattr(args, "client_id", None),
-        getattr(args, "tenant", None),
-        None,
-    )
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or store outlook_client_id in credentials.ini.")
-        return 2
-    try:
-        import msal  # type: ignore
-        import json
-    except Exception as e:
-        print(f"Missing msal dependency: {e}. Run: pip install msal")
-        return 1
-    authority = f"https://login.microsoftonline.com/{tenant}"
-    app = msal.PublicClientApplication(client_id, authority=authority)
-    flow = app.initiate_device_flow(scopes=["https://graph.microsoft.com/.default"])
-    if "user_code" not in flow:
-        print("Failed to start device flow.")
-        return 1
-    outp = Path(args.out)
-    outp.parent.mkdir(parents=True, exist_ok=True)
-    flow_out = dict(flow)
-    flow_out["_client_id"] = client_id
-    flow_out["_tenant"] = tenant
-    outp.write_text(json.dumps(flow_out), encoding="utf-8")
-    msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
-    print(msg)
-    # Always show the next step so users know to persist the token
-    prof = getattr(args, 'profile', None)
-    prof_flag = f" --profile {prof}" if prof else ""
-    print(f"Next: ./bin/mail-assistant{prof_flag} outlook auth poll --flow {args.out} --token {default_outlook_token_path()}")
-    if getattr(args, 'verbose', False):
-        print(f"[device-code] Saved flow to {outp} (client_id={client_id}, tenant={tenant}).")
-    print(f"Saved device flow to {outp}")
-    return 0
-
-
-def _cmd_outlook_auth_poll(args: argparse.Namespace) -> int:
-    try:
-        import msal  # type: ignore
-        import json
-    except Exception as e:
-        print(f"Missing msal dependency: {e}. Run: pip install msal")
-        return 1
-    flow_path = Path(expand_path(args.flow))
-    if not flow_path.exists():
-        print(f"Device flow file not found: {flow_path}")
-        return 2
-    flow = json.loads(flow_path.read_text())
-    client_id = flow.get("_client_id")
-    tenant = flow.get("_tenant") or "consumers"
-    if not client_id:
-        print("Device flow missing _client_id. Re-run outlook auth device-code.")
-        return 2
-    cache = msal.SerializableTokenCache()
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
-    if getattr(args, 'verbose', False):
-        print(f"[device-code] Polling device flow from {flow_path}. This may take up to {int(flow.get('expires_in', 900))//60} minutes…")
-    result = app.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        print(f"Device flow failed: {result}")
-        return 3
-    token_path = Path(expand_path(args.token))
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(cache.serialize(), encoding="utf-8")
-    print(f"Saved Outlook token cache to {token_path}")
-    return 0
-
-
-def _cmd_outlook_auth_ensure(args: argparse.Namespace) -> int:
-    """Ensure a persistent Outlook MSAL token cache exists and is valid.
-
-    Attempts silent refresh using the cache at --token (or profile). Falls back to
-    device-code flow and persists the cache on success.
-    """
-    try:
-        import msal  # type: ignore
-    except Exception as e:
-        print(f"Missing msal dependency: {e}. Run: pip install msal")
-        return 1
-
-    client_id, tenant, token_path = resolve_outlook_credentials(
-        getattr(args, "profile", None),
-        getattr(args, "client_id", None),
-        getattr(args, "tenant", None),
-        getattr(args, "token", None),
-    )
-    token_path = expand_path(token_path or default_outlook_token_path())
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID or configure a profile in ~/.config/credentials.ini")
-        return 2
-    cache = msal.SerializableTokenCache()
-    # Load existing cache if present
-    tp = Path(token_path)
-    if tp.exists():
-        try:
-            cache.deserialize(tp.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
-    scopes = ["https://graph.microsoft.com/.default"]
-    accounts = []
-    try:
-        accounts = app.get_accounts()
-    except Exception:
-        accounts = []
-    if accounts:
-        res = app.acquire_token_silent(scopes, account=accounts[0])
-        if res and "access_token" in res:
-            tp.parent.mkdir(parents=True, exist_ok=True)
-            tp.write_text(cache.serialize(), encoding="utf-8")
-            print(f"Token cache valid. Saved to {tp}")
-            return 0
-    # Fallback: interactive device flow
-    flow = app.initiate_device_flow(scopes=scopes)
-    if "user_code" not in flow:
-        print("Failed to start device flow.")
-        return 1
-    msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
-    print(msg)
-    result = app.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        print(f"Device flow failed: {result}")
-        return 3
-    tp.parent.mkdir(parents=True, exist_ok=True)
-    tp.write_text(cache.serialize(), encoding="utf-8")
-    print(f"Saved Outlook token cache to {tp}")
-    return 0
-
-
-def _cmd_outlook_auth_validate(args: argparse.Namespace) -> int:
-    """Validate Outlook token cache by performing a silent refresh and a /me ping.
-
-    Non-interactive: does not initiate device-code flow.
-    """
-    try:
-        import msal  # type: ignore
-        import requests  # type: ignore
-    except Exception as e:
-        print(f"Outlook validation unavailable (missing deps): {e}")
-        return 1
-    client_id, tenant, token_path = resolve_outlook_credentials(
-        getattr(args, "profile", None),
-        getattr(args, "client_id", None),
-        getattr(args, "tenant", None),
-        getattr(args, "token", None),
-    )
-    token_path = expand_path(token_path or default_outlook_token_path())
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID or configure a profile in ~/.config/credentials.ini")
-        return 2
-    tp = Path(token_path)
-    if not tp.exists():
-        print(f"Token cache not found: {tp}")
-        return 2
-    cache = msal.SerializableTokenCache()
-    try:
-        cache.deserialize(tp.read_text(encoding="utf-8"))
-    except Exception:
-        print(f"Unable to read token cache: {tp}")
-        return 3
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
-    accounts = []
-    try:
-        accounts = app.get_accounts()
-    except Exception:
-        accounts = []
-    if not accounts:
-        print("No account in token cache.")
-        return 3
-    res = app.acquire_token_silent(["https://graph.microsoft.com/.default"], account=accounts[0])
-    if not (res and res.get("access_token")):
-        print("Silent token acquisition failed.")
-        return 4
-    # Ping /me to confirm validity
-    r = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {res['access_token']}"})
-    if r.status_code == 200:
-        print("Outlook token valid.")
-        return 0
-    print(f"Graph /me failed: {r.status_code} {r.text[:200]}")
-    return 5
-
-
-def _cmd_outlook_calendar_add(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    try:
-        evt = client.create_event(
-            calendar_id=None,
-            calendar_name=getattr(args, "calendar", None),
-            subject=args.subject,
-            start_iso=args.start,
-            end_iso=args.end,
-            tz=getattr(args, "tz", None),
-            body_html=getattr(args, "body_html", None),
-            all_day=getattr(args, "all_day", False),
-            location=getattr(args, "location", None),
-            no_reminder=getattr(args, "no_reminder", False),
-        )
-    except Exception as e:
-        print(f"Failed to create event: {e}")
-        return 3
-    print(f"Created event: {evt.get('id')} subject={evt.get('subject')}")
-    return 0
-
-
-def _cmd_outlook_calendar_add_recurring(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    if not (args.until or args.count):
-        print("Provide either --until (YYYY-MM-DD) or --count for the recurrence range")
-        return 2
-    if args.repeat == "weekly" and not args.byday:
-        print("For weekly recurrence, provide --byday like MO,WE,FR")
-        return 2
-    byday = None
-    if getattr(args, "byday", None):
-        byday = [s.strip() for s in str(args.byday).split(',') if s.strip()]
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-    try:
-        evt = client.create_recurring_event(
-            calendar_id=None,
-            calendar_name=getattr(args, "calendar", None),
-            subject=args.subject,
-            start_time=args.start_time,
-            end_time=args.end_time,
-            tz=getattr(args, "tz", None),
-            repeat=args.repeat,
-            interval=getattr(args, "interval", 1),
-            byday=byday,
-            range_start_date=args.range_start,
-            range_until=getattr(args, "until", None),
-            count=getattr(args, "count", None),
-            body_html=getattr(args, "body_html", None),
-            location=getattr(args, "location", None),
-            exdates=[s.strip() for s in str(getattr(args, 'exdates', '') or '').split(',') if s.strip()] or None,
-            no_reminder=getattr(args, "no_reminder", False),
-        )
-    except Exception as e:
-        print(f"Failed to create recurring event: {e}")
-        return 3
-    print(f"Created recurring series: {evt.get('id')} subject={evt.get('subject')}")
-    return 0
-
-
-def _cmd_outlook_calendar_add_from_config(args: argparse.Namespace) -> int:
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-    from .yamlio import load_config
-    cfg = load_config(args.config)
-    items = cfg.get("events") if isinstance(cfg, dict) else None
-    if not isinstance(items, list):
-        print("Config must contain events: [] list")
-        return 2
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-
-    created = 0
-    for i, ev in enumerate(items, start=1):
-        if not isinstance(ev, dict):
-            continue
-        cal_name = ev.get("calendar")
-        subj = ev.get("subject")
-        if not subj:
-            print(f"Skipping event {i}: missing subject")
-            continue
-        if ev.get("repeat"):
-            try:
-                evt = client.create_recurring_event(
-                    calendar_id=None,
-                    calendar_name=cal_name,
-                    subject=subj,
-                    start_time=ev.get("start_time") or ev.get("startTime") or ev.get("start-time"),
-                    end_time=ev.get("end_time") or ev.get("endTime") or ev.get("end-time"),
-                    tz=ev.get("tz"),
-                    repeat=ev.get("repeat"),
-                    interval=int(ev.get("interval", 1)),
-                    byday=ev.get("byday") or ev.get("byDay"),
-                    range_start_date=(ev.get("range", {}) or {}).get("start_date") or ev.get("start_date") or ev.get("startDate"),
-                    range_until=(ev.get("range", {}) or {}).get("until") or ev.get("until"),
-                    count=ev.get("count"),
-                    body_html=ev.get("body_html") or ev.get("bodyHtml"),
-                    location=ev.get("location"),
-                    exdates=ev.get("exdates") or ev.get("exceptions") or [],
-                    no_reminder=getattr(args, "no_reminder", False),
-                )
-                created += 1
-                print(f"[{i}] Created series: {evt.get('id')} {subj}")
-            except Exception as e:
-                print(f"[{i}] Failed to create series '{subj}': {e}")
-        else:
-            start_iso = ev.get("start")
-            end_iso = ev.get("end")
-            if not (start_iso and end_iso):
-                print(f"Skipping one-time event '{subj}': missing start/end")
-                continue
-            try:
-                evt = client.create_event(
-                    calendar_id=None,
-                    calendar_name=cal_name,
-                    subject=subj,
-                    start_iso=start_iso,
-                    end_iso=end_iso,
-                    tz=ev.get("tz"),
-                    body_html=ev.get("body_html") or ev.get("bodyHtml"),
-                    all_day=bool(ev.get("all_day") or ev.get("allDay")),
-                    location=ev.get("location"),
-                    no_reminder=getattr(args, "no_reminder", False),
-                )
-                created += 1
-                print(f"[{i}] Created event: {evt.get('id')} {subj}")
-            except Exception as e:
-                print(f"[{i}] Failed to create event '{subj}': {e}")
-    print(f"Created {created} events/series from config")
-    return 0
-
-
 from .utils.shield import mask_value as _mask_value  # credential shielding
 
 
@@ -2972,67 +2001,6 @@ def _cmd_workflows_from_unified(args: argparse.Namespace) -> int:
         return 2
     return 0
 
-def _cmd_outlook_categories_sync(args: argparse.Namespace) -> int:
-    """Create/update Outlook categories from a labels YAML file.
-
-    Uses the same labels.yaml generated by `labels export`. Names/colors are
-    normalized for Outlook (slashes joined, unsupported fields ignored).
-    """
-    # YAML handled via load_config()
-
-    try:
-        from .outlook_api import OutlookClient  # type: ignore
-    except Exception as e:
-        print(f"Outlook features unavailable: {e}")
-        return 1
-
-    # Resolve defaults: env -> ini (profile) -> accounts config -> args
-    client_id, tenant, token_path, cache_dir = _resolve_outlook_args(args)
-    if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
-        return 2
-
-    client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
-    client.authenticate()
-
-    doc = load_config(args.config)
-    base = doc.get("labels") or []
-    desired = _normalize_labels_for_outlook(base)
-
-    existing = {l.get("name", ""): l for l in client.list_labels()}
-
-    created = 0
-    updated = 0
-    for spec in desired:
-        name = spec.get("name")
-        if not name:
-            continue
-        if name not in existing:
-            if args.dry_run:
-                print(f"Would create category: {name}")
-            else:
-                client.create_label(**spec)
-                print(f"Created category: {name}")
-            created += 1
-            continue
-        # Update color if different/specified
-        cur = existing[name]
-        need = False
-        upd = {"name": name}
-        if spec.get("color") and spec.get("color") != cur.get("color"):
-            upd["color"] = spec["color"]
-            need = True
-        if need:
-            if args.dry_run:
-                print(f"Would update category: {name}")
-            else:
-                client.update_label(cur.get("id", ""), upd)
-                print(f"Updated category: {name}")
-            updated += 1
-
-    print(f"Sync complete. Created: {created}, Updated: {updated}")
-    return 0
-
 
 def _cmd_accounts_plan_labels(args: argparse.Namespace) -> int:
     accts = _load_accounts(args.config)
@@ -3203,78 +2171,6 @@ def _cmd_accounts_sync_signatures(args: argparse.Namespace) -> int:
         else:
             print(f"  Unsupported provider: {provider}")
     return 0
-
-
-def _cmd_forwarding_list(args: argparse.Namespace) -> int:
-    # Use profile-aware resolver
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    infos = client.list_forwarding_addresses_info()
-    for i in infos:
-        print(f"{i.get('forwardingEmail','')}\t{i.get('verificationStatus','unknown')}")
-    return 0
-
-
-def _cmd_forwarding_add(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    resp = client.create_forwarding_address(args.email)
-    status = resp.get("verificationStatus") or "pending"
-    print(f"Added forwarding address: {args.email} (status: {status}). Check inbox at that address to verify.")
-    return 0
-
-def _cmd_forwarding_status(args: argparse.Namespace) -> int:
-    # Show account-level auto-forwarding state
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    try:
-        st = client.get_auto_forwarding()
-    except Exception as e:
-        print(f"Failed to fetch auto-forwarding: {e}")
-        return 2
-    enabled = st.get('enabled', False)
-    addr = st.get('emailAddress') or ''
-    disp = st.get('disposition') or ''
-    print(f"enabled={enabled} emailAddress={addr} disposition={disp}")
-    return 0
-
-def _cmd_forwarding_enable(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    # Basic sanity: ensure destination is verified
-    dest = args.email
-    try:
-        verified = set(client.get_verified_forwarding_addresses())
-    except Exception:
-        verified = set()
-    if verified and dest not in verified:
-        print(f"Error: forward address not verified: {dest}")
-        return 2
-    try:
-        st = client.set_auto_forwarding(enabled=True, email=dest, disposition=args.disposition)
-        print(
-            f"Auto-forwarding enabled → {st.get('emailAddress','')}; disposition={st.get('disposition','')}"
-        )
-        return 0
-    except Exception as e:
-        print(f"Failed to enable auto-forwarding: {e}")
-        return 3
-
-def _cmd_forwarding_disable(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    try:
-        st = client.set_auto_forwarding(enabled=False)
-        print("Auto-forwarding disabled.")
-        return 0
-    except Exception as e:
-        print(f"Failed to disable auto-forwarding: {e}")
-        return 3
 
 
 # -------------- Messages: search, summarize, reply --------------

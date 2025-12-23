@@ -1,34 +1,12 @@
+"""Candidate-to-job alignment using KeywordMatcher.
+
+Matches candidate profile against job requirements and produces alignment reports.
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
-from .text_match import keyword_match
-
-
-def _canon_map(synonyms: Dict[str, List[str]]) -> Dict[str, str]:
-    m: Dict[str, str] = {}
-    for canon, syns in synonyms.items():
-        m[canon.lower()] = canon
-        for s in syns:
-            m[s.lower()] = canon
-    return m
-
-
-def _collect_candidate_text(candidate: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
-    items: List[Tuple[str, Dict[str, Any]]] = []
-    # Summary and skills
-    if candidate.get("summary"):
-        items.append((str(candidate["summary"]), {"scope": "summary"}))
-    for s in candidate.get("skills") or []:
-        items.append((str(s), {"scope": "skills"}))
-    # Experience
-    for i, e in enumerate(candidate.get("experience") or []):
-        title = " ".join([e.get("title") or "", e.get("company") or ""]).strip()
-        if title:
-            items.append((title, {"scope": "exp_title", "index": i}))
-        for b in e.get("bullets") or []:
-            items.append((str(b), {"scope": "exp_bullet", "index": i}))
-    return items
+from .keyword_matcher import KeywordMatcher
 
 
 def align_candidate_to_job(
@@ -36,88 +14,68 @@ def align_candidate_to_job(
     keyword_spec: Dict[str, Any],
     synonyms: Dict[str, List[str]] | None = None,
 ) -> Dict[str, Any]:
-    syn_map = _canon_map(synonyms or {})
-    def canon(s: str) -> str:
-        return syn_map.get(s.lower(), s)
+    """Align a candidate profile against a job keyword specification.
 
+    Args:
+        candidate: Candidate data with summary, skills, experience.
+        keyword_spec: Job spec with required/preferred/nice tiers and categories.
+        synonyms: Optional synonym mapping.
+
+    Returns:
+        Alignment report with matched_keywords, missing_required,
+        missing_by_category, and experience_scores.
+    """
+    # Build matcher from spec
+    matcher = KeywordMatcher()
+    matcher.add_synonyms(synonyms or {})
+    matcher.add_keywords_from_spec(keyword_spec)
+
+    # Collect matches from candidate
+    matches = matcher.collect_matches_from_candidate(candidate)
+
+    # Build matched keywords list with full metadata
+    matched_keywords = []
+    for kw, result in matches.items():
+        matched_keywords.append({
+            "skill": result.keyword,
+            "count": result.count,
+            "weight": result.weight,
+            "tier": result.tier,
+            "category": result.category,
+        })
+
+    # Sort by tier priority, then weight, then count
+    tier_order = {"required": 0, "preferred": 1, "nice": 2}
+    matched_keywords.sort(
+        key=lambda d: (tier_order.get(d["tier"], 3), -d["weight"], -d["count"])
+    )
+
+    # Find missing required keywords
     required = keyword_spec.get("required", [])
-    preferred = keyword_spec.get("preferred", [])
-    nice = keyword_spec.get("nice", [])
-    categories = (keyword_spec.get("categories") or {})
-    # Flatten category keywords and preserve category tag
-    cat_map: Dict[str, str] = {}
-    all_kw = [*required, *preferred, *nice]
-    for cat_name, lst in categories.items():
-        for item in lst or []:
-            tag = dict(item)
-            tag["category"] = cat_name
-            all_kw.append(tag)
-    canon_list = [canon(x["skill"]) for x in all_kw]
-    weights = {canon(k["skill"]): int(k.get("weight", 1)) for k in all_kw}
-    tiers = {}
-    for k in all_kw:
-        ck = canon(k["skill"]) 
-        if k in required:
-            tiers[ck] = "required"
-        elif k in preferred:
-            tiers[ck] = "preferred"
-        elif k in nice:
-            tiers[ck] = "nice"
-        if k.get("category"):
-            cat_map[ck] = k["category"]
+    matched_set = set(matches.keys())
+    missing_required = []
+    for item in required:
+        kw = item.get("skill") or item.get("name") or ""
+        if kw:
+            canon = matcher.canonicalize(kw)
+            if canon not in matched_set:
+                missing_required.append(canon)
 
-    counts: Dict[str, int] = {k: 0 for k in canon_list}
-    hits: Dict[str, List[Dict[str, Any]]] = {k: [] for k in canon_list}
-    items = _collect_candidate_text(candidate)
-    for text, meta in items:
-        for kw_raw in canon_list:
-            # test kw and its synonyms
-            alts = [kw_raw] + [s for s, c in syn_map.items() if c == kw_raw]
-            if any(keyword_match(text, alt) for alt in alts):
-                counts[kw_raw] += 1
-                hits[kw_raw].append({"text": text, **meta})
-
-    matched = [k for k, c in counts.items() if c > 0]
-    missing_required = [canon(k["skill"]) for k in required if counts.get(canon(k["skill"])) == 0]
-    # missing by category
+    # Find missing by category
+    categories = keyword_spec.get("categories") or {}
     missing_by_category: Dict[str, List[str]] = {}
-    for cat_name, lst in categories.items():
-        miss = []
-        for item in lst or []:
-            ck = canon(item.get("skill", ""))
-            if ck and counts.get(ck, 0) == 0:
-                miss.append(ck)
-        missing_by_category[cat_name] = miss
+    for cat_name, items in categories.items():
+        missing = []
+        for item in items or []:
+            kw = item.get("skill") or item.get("name") or "" if isinstance(item, dict) else str(item)
+            if kw:
+                canon = matcher.canonicalize(kw)
+                if canon not in matched_set:
+                    missing.append(canon)
+        missing_by_category[cat_name] = missing
 
-    # experience scores
-    exp_scores: List[Tuple[int, int]] = []  # (index, score)
-    exp_len = len(candidate.get("experience") or [])
-    for i in range(exp_len):
-        score = 0
-        # title/company
-        for kw in matched:
-            for h in hits[kw]:
-                if h.get("scope") == "exp_title" and h.get("index") == i:
-                    score += weights.get(kw, 1)
-        # bullets
-        for kw in matched:
-            for h in hits[kw]:
-                if h.get("scope") == "exp_bullet" and h.get("index") == i:
-                    score += 1
-        exp_scores.append((i, score))
-
-    exp_scores.sort(key=lambda t: t[1], reverse=True)
-    matched_keywords = [
-        {
-            "skill": k,
-            "count": counts[k],
-            "weight": weights.get(k, 1),
-            "tier": tiers.get(k, "preferred"),
-            "category": cat_map.get(k),
-        }
-        for k in matched
-    ]
-    matched_keywords.sort(key=lambda d: (d["tier"] == "required", d["weight"], d["count"]), reverse=True)
+    # Score experience roles
+    exp_scores = matcher.score_experience_roles(candidate)
 
     return {
         "matched_keywords": matched_keywords,
@@ -134,36 +92,57 @@ def build_tailored_candidate(
     max_bullets_per_role: int = 6,
     min_exp_score: int = 1,
 ) -> Dict[str, Any]:
+    """Build a tailored candidate profile based on alignment results.
+
+    Args:
+        candidate: Original candidate data.
+        alignment: Alignment report from align_candidate_to_job.
+        limit_skills: Maximum skills to include.
+        max_bullets_per_role: Maximum bullets per experience role.
+        min_exp_score: Minimum score for a role to be included.
+
+    Returns:
+        Tailored candidate with filtered skills and experience.
+    """
     matched = alignment.get("matched_keywords") or []
-    # sort already handled; pick top skills
     skills = [m["skill"] for m in matched][:limit_skills]
     scores = {i: s for i, s in alignment.get("experience_scores") or []}
+
+    # Build matcher for bullet filtering
+    matcher = KeywordMatcher()
+    for skill in skills:
+        matcher.add_keyword(skill)
 
     tailored_exp_items: List[Tuple[int, Dict[str, Any]]] = []
     for i, e in enumerate(candidate.get("experience") or []):
         sc = scores.get(i, 0)
         if sc < min_exp_score:
             continue
-        # filter bullets to those that include matched keywords
+
+        # Filter bullets to those matching keywords
         kept: List[str] = []
         for b in e.get("bullets") or []:
             if isinstance(b, dict):
                 bt = str(b.get("text") or b.get("line") or b.get("name") or "")
             else:
                 bt = str(b)
-            if any(keyword_match(bt, k) for k in skills):
+            if matcher.matches(bt):
                 kept.append(bt)
             if len(kept) >= max_bullets_per_role:
                 break
-        tailored_exp_items.append((i, {**e, "bullets": kept or (e.get("bullets") or [])[:1]}))
 
-    # keep order by score descending
+        # Fallback to first bullet if none matched
+        if not kept and e.get("bullets"):
+            kept = [str(e["bullets"][0])]
+
+        tailored_exp_items.append((i, {**e, "bullets": kept}))
+
+    # Sort by score descending
     tailored_exp_items.sort(key=lambda t: scores.get(t[0], 0), reverse=True)
     tailored_exp = [e for _, e in tailored_exp_items]
 
-    out = {
+    return {
         **{k: v for k, v in candidate.items() if k not in {"skills", "experience"}},
         "skills": skills or (candidate.get("skills") or [])[:limit_skills],
         "experience": tailored_exp or (candidate.get("experience") or [])[:3],
     }
-    return out
