@@ -12,6 +12,15 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 import os
 
+# Regex pattern constants for HTML parsing
+RE_STRIP_TAGS = r'<[^>]+>'
+RE_AMPM = r'(?i)\b(a\.?m\.?|p\.?m\.?)\b'
+RE_AM_ONLY = r'(?i)\b(a\.?m\.?)\b'
+RE_PM_ONLY = r'(?i)\b(p\.?m\.?)\b'
+RE_TIME = r'^(\d{1,2})(?::(\d{2}))?'
+RE_TABLE_CELL = r'<t[dh][^>]*>([\s\S]*?)</t[dh]>'
+RE_TABLE_ROW = r'<tr[\s\S]*?>([\s\S]*?)</tr>'
+
 
 @dataclass
 class ScheduleItem:
@@ -191,8 +200,7 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                                         range_start=_dt.date.today().isoformat(), location='Aurora Pools', notes=f'Imported from PDF {path}',
                                     ))
         except Exception:
-            # If pdfplumber fails, continue with text fallback below
-            pass
+            pass  # nosec B110 - pdfplumber failure falls through to text extraction
         if items:
             return items
     try:
@@ -344,12 +352,12 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                     if 'p.m' in s.lower():
                         ampm = 'pm'
                     # Strip am/pm text for split
-                    s_clean = re.sub(r'(?i)\b(a\.?m\.?|p\.?m\.?)\b','',s)
+                    s_clean = re.sub(RE_AMPM,'',s)
                     parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
                     if len(parts)!=2:
                         return None, None
                     def to24(t: str, suffix: Optional[str]) -> Optional[str]:
-                        m = re.match(r'^(\d{1,2})(?::(\d{2}))?$', t)
+                        m = re.match(RE_TIME, t)
                         if not m:
                             return None
                         hh = int(m.group(1))
@@ -421,20 +429,20 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 m = {'Sunday':'SU','Monday':'MO','Tuesday':'TU','Wednesday':'WE','Thursday':'TH','Friday':'FR','Saturday':'SA'}
                 return m[d]
             def strip_tags(s: str) -> str:
-                return re.sub(r'<[^>]+>', '', s).replace('\xa0',' ').replace('&nbsp;',' ').strip()
+                return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0',' ').replace('&nbsp;',' ').strip()
             def parse_range(s: str):
                 s = strip_tags(s)
                 if not s:
                     return None, None
                 s = s.replace('–','-').replace('—','-').replace('to','-')
-                has_am = re.search(r'(?i)\b(a\.?m\.?)\b', s) is not None
-                has_pm = re.search(r'(?i)\b(p\.?m\.?)\b', s) is not None
-                s_clean = re.sub(r'(?i)\b(a\.?m\.?|p\.?m\.?)\b','',s)
+                has_am = re.search(RE_AM_ONLY, s) is not None
+                has_pm = re.search(RE_PM_ONLY, s) is not None
+                s_clean = re.sub(RE_AMPM,'',s)
                 parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
                 if len(parts)!=2:
                     return None, None
                 def to24(t, suf):
-                    m=re.match(r'^(\d{1,2})(?::(\d{2}))?$', t)
+                    m=re.match(RE_TIME, t)
                     if not m:
                         return None
                     hh=int(m.group(1)); mm=int(m.group(2) or 0)
@@ -470,20 +478,20 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
             m = {'Sunday':'SU','Monday':'MO','Tuesday':'TU','Wednesday':'WE','Thursday':'TH','Friday':'FR','Saturday':'SA'}
             return m.get(d, '')
         def strip_tags(s: str) -> str:
-            return re.sub(r'<[^>]+>', '', s).replace('\xa0',' ').strip()
+            return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0',' ').strip()
         def parse_range(s: str):
             s = strip_tags(s)
             if not s:
                 return None, None
             s = s.replace('–','-').replace('—','-').replace('to','-')
-            has_am = re.search(r'(?i)\b(a\.?m\.?)\b', s) is not None
-            has_pm = re.search(r'(?i)\b(p\.?m\.?)\b', s) is not None
-            s_clean = re.sub(r'(?i)\b(a\.?m\.?|p\.?m\.?)\b','',s)
+            has_am = re.search(RE_AM_ONLY, s) is not None
+            has_pm = re.search(RE_PM_ONLY, s) is not None
+            s_clean = re.sub(RE_AMPM,'',s)
             parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
             if len(parts)!=2:
                 return None, None
             def to24(t, suf):
-                m=re.match(r'^(\d{1,2})(?::(\d{2}))?$', t)
+                m=re.match(RE_TIME, t)
                 if not m:
                     return None
                 hh=int(m.group(1)); mm=int(m.group(2) or 0)
@@ -523,7 +531,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
         # Locate tables containing a "Leisure Swim" header
         tables = re.findall(r'<table[\s\S]*?</table>', html, re.I)
         def strip_tags(s: str) -> str:
-            return re.sub(r'<[^>]+>', '', s).replace('\xa0',' ').replace('&nbsp;',' ').strip()
+            return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0',' ').replace('&nbsp;',' ').strip()
         def norm_days(spec: str) -> List[str]:
             s = (spec or '').lower().replace('&amp;','&')
             days = ['mon','tue','wed','thu','fri','sat','sun']
@@ -552,14 +560,14 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
             out = []
             for part in parts:
                 part = part.replace('–','-').replace('—','-').replace('to','-')
-                has_am = re.search(r'(?i)\b(a\.?m\.?)\b', part) is not None
-                has_pm = re.search(r'(?i)\b(p\.?m\.?)\b', part) is not None
-                sc = re.sub(r'(?i)\b(a\.?m\.?|p\.?m\.?)\b','', part)
+                has_am = re.search(RE_AM_ONLY, part) is not None
+                has_pm = re.search(RE_PM_ONLY, part) is not None
+                sc = re.sub(RE_AMPM,'', part)
                 seg = [t.strip(' .') for t in sc.split('-') if t.strip()]
                 if len(seg) != 2:
                     continue
                 def to24(t: str, suf: str|None) -> str|None:
-                    m = re.match(r'^(\d{1,2})(?::(\d{2}))?$', t)
+                    m = re.match(RE_TIME, t)
                     if not m:
                         return None
                     hh = int(m.group(1)); mm = int(m.group(2) or 0)
@@ -583,12 +591,12 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
             header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', tbl, re.I)
             headers = []
             if header:
-                headers = [strip_tags(h) for h in re.findall(r'<t[dh][^>]*>([\s\S]*?)</t[dh]>', header.group(1), re.I)]
+                headers = [strip_tags(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
             if not headers:
                 # Try the first row as headers
-                first_row = re.search(r'<tr[\s\S]*?>([\s\S]*?)</tr>', tbl, re.I)
+                first_row = re.search(RE_TABLE_ROW, tbl, re.I)
                 if first_row:
-                    headers = [strip_tags(h) for h in re.findall(r'<t[dh][^>]*>([\s\S]*?)</t[dh]>', first_row.group(1), re.I)]
+                    headers = [strip_tags(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
             # Find Day and Leisure indices
             day_idx = None; leisure_idx = None
             for i, h in enumerate(headers):
@@ -601,9 +609,9 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 continue
             # Body rows
             body = re.search(r'<tbody[\s\S]*?>([\s\S]*?)</tbody>', tbl, re.I)
-            rows = re.findall(r'<tr[\s\S]*?>([\s\S]*?)</tr>', body.group(1), re.I) if body else re.findall(r'<tr[\s\S]*?>([\s\S]*?)</tr>', tbl, re.I)
+            rows = re.findall(RE_TABLE_ROW, body.group(1), re.I) if body else re.findall(RE_TABLE_ROW, tbl, re.I)
             for row in rows:
-                cols = re.findall(r'<t[dh][^>]*>([\s\S]*?)</t[dh]>', row, re.I)
+                cols = re.findall(RE_TABLE_CELL, row, re.I)
                 if len(cols) <= max(day_idx, leisure_idx):
                     continue
                 day_spec = strip_tags(cols[day_idx])

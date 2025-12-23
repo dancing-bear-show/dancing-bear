@@ -8,7 +8,6 @@ Outputs:
 - card_2x_halfoz_snug_25p4mm.stl (PETG)
 """
 from pathlib import Path
-import math
 import numpy as np
 import shapely.geometry as sg
 import shapely.affinity as sa

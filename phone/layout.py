@@ -473,61 +473,6 @@ def analyze_layout(layout: NormalizedLayout, plan: Optional[Dict[str, Any]] = No
 
 # ---- Auto-folderization helpers ----
 
-def _classify_app_folder(app_id: str) -> str:
-    """Heuristic folder classification by bundle id substrings.
-
-    Returns one of: Work, Media, Social, Finance, Travel, Health, Shopping, Utilities
-    """
-    s = app_id.lower()
-    # Explicit Apple apps
-    apple_map = {
-        'com.apple.mobileslideshow': 'Media',  # Photos
-        'com.apple.tv': 'Media',
-        'com.apple.podcasts': 'Media',
-        'com.apple.music': 'Media',
-        'com.apple.mobilemail': 'Work',
-        'com.apple.mobilesafari': 'Utilities',
-        'com.apple.maps': 'Travel',
-        'com.apple.Preferences'.lower(): 'Utilities',
-    }
-    if app_id in apple_map:
-        return apple_map[app_id]
-
-    patterns: Dict[str, List[str]] = {
-        'Work': [
-            'slack', 'trello', 'asana', 'jira', 'notion', 'zoom', 'meet', 'calendar',
-            'docs', 'sheets', 'slides', 'drive', 'gmail', 'outlook', 'microsoft', 'teams',
-            'onedrive', 'dropbox', 'docusign', 'adobe', 'pdf', 'todoist', 'evernote', 'box.'
-        ],
-        'Media': [
-            'spotify', 'netflix', 'youtube', 'music', 'podcast', 'tv', 'photo', 'slideshow',
-            'primevideo', 'prime-video', 'hulu', 'disney', 'hbomax', 'maxapp', 'plex', 'podcasts'
-        ],
-        'Social': [
-            'facebook', 'instagram', 'twitter', 'reddit', 'snap', 'tiktok', 'threads', 'messenger', 'whatsapp'
-        ],
-        'Shopping': [
-            'amazon', 'shopify', 'ebay', 'etsy', 'target', 'walmart', 'bestbuy', 'costco', 'doordash',
-            'ubereats', 'uber-eats', 'grubhub', 'instacart', 'shop.app'
-        ],
-        'Travel': [
-            'uber', 'lyft', 'airbnb', 'marriott', 'hilton', 'hyatt', 'delta', 'united', 'southwest', 'aa',
-            'american', 'hotel', 'booking', 'kayak', 'expedia', 'map'
-        ],
-        'Finance': [
-            'bank', 'pay', 'venmo', 'paypal', 'amex', 'chase', 'mint', 'robinhood', 'schwab', 'fidelity',
-            'credit', 'wallet', 'cashapp', 'stripe', 'coinbase', 'tax'
-        ],
-        'Health': [
-            'health', 'fit', 'fitness', 'peloton', 'strava', 'calm', 'sleep', 'headspace', 'workout', 'med', 'pill'
-        ],
-    }
-    for folder, subs in patterns.items():
-        if any(sub in s for sub in subs):
-            return folder
-    # Default
-    return 'Utilities'
-
 
 def auto_folderize(layout: NormalizedLayout, *,
                    keep: Optional[List[str]] = None,
@@ -537,8 +482,11 @@ def auto_folderize(layout: NormalizedLayout, *,
     - keep: bundle IDs to exclude from assignment (e.g., Safari/Settings)
     - seed_folders: existing mapping to start from (apps are added idempotently)
     """
+    from .classify import classify_app
+
     keep_set = set(keep or [])
     folders: Dict[str, List[str]] = {k: list(v) for k, v in (seed_folders or {}).items()}
+
     def add(folder: str, app: str):
         arr = folders.setdefault(folder, [])
         if app not in arr:
@@ -547,7 +495,7 @@ def auto_folderize(layout: NormalizedLayout, *,
     for app in list_all_apps(layout):
         if not app or app in keep_set:
             continue
-        folder = _classify_app_folder(app)
+        folder = classify_app(app)
         add(folder, app)
     return folders
 

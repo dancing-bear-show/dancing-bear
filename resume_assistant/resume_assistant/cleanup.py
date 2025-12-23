@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import List, Sequence
 
 
 @dataclass
@@ -68,14 +68,13 @@ def execute_delete(plan: TidyPlan) -> List[Path]:
             p.unlink()
             deleted.append(p)
         except Exception:
-            pass
+            pass  # nosec B110 - file deletion failure
     return deleted
 
 
 def purge_temp_files(dir_path: str | Path) -> List[Path]:
     base = Path(dir_path)
     removed: List[Path] = []
-    patterns = ["~$", ".DS_Store"]
     for p in base.rglob("*"):
         if not p.is_file():
             continue
@@ -85,5 +84,5 @@ def purge_temp_files(dir_path: str | Path) -> List[Path]:
                 p.unlink()
                 removed.append(p)
             except Exception:
-                pass
+                pass  # nosec B110 - temp file deletion failure
     return removed

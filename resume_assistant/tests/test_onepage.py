@@ -48,7 +48,7 @@ class TestOnePageRender(unittest.TestCase):
             }
             data.write_text(json.dumps(payload), encoding="utf-8")
 
-            r = subprocess.run(CLI + [
+            r = subprocess.run(CLI + [  # nosec B603
                 "render", "--data", str(data), "--template", "config/template.onepage.yaml", "--out", str(out)
             ])
             self.assertEqual(r.returncode, 0)

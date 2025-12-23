@@ -1,14 +1,39 @@
+"""DOCX resume writer.
+
+Renders resume data to DOCX format using templates and styling configuration.
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-import re
-from functools import lru_cache
 
 from .io_utils import safe_import
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
-from docx.oxml import OxmlElement  # type: ignore
-from docx.oxml.ns import qn  # type: ignore
+
+# Import from new abstraction modules
+from .docx_styles import (
+    _parse_hex_color,
+    _is_dark,
+    _tight_paragraph,
+    _compact_bullet,
+    _flush_left,
+    _apply_paragraph_shading,
+    _normalize_present,
+    _format_phone_display,
+    _format_link_display,
+    _clean_inline_text,
+    _normalize_bullet_text,
+)
+from .docx_sections import (
+    BulletRenderer,
+    HeaderRenderer,
+    InterestsSectionRenderer,
+    LanguagesSectionRenderer,
+    CourseworkSectionRenderer,
+    CertificationsSectionRenderer,
+    PresentationsSectionRenderer,
+)
+
 
 SECTION_SYNONYMS = {
     "summary": {"summary", "profile", "about"},
@@ -27,195 +52,19 @@ def _match_section_key(title: str) -> Optional[str]:
     return None
 
 
-def _normalize_present(val: str) -> str:
-    v = (val or "").strip()
-    if not v:
-        return v
-    if v.lower() in {"now", "present", "current", "to date", "today"}:
-        return "Present"
-    return v
-
-
-def _format_date_location(start: str, end: str, location: str) -> str:
-    start_n = _normalize_present(start)
-    end_n = _normalize_present(end)
-    parts: List[str] = []
-    span = ""
-    if start_n and end_n:
-        span = f"{start_n} – {end_n}"
-    elif start_n and not end_n:
-        span = f"{start_n} – Present"
-    elif end_n and not start_n:
-        span = end_n
-    if span:
-        parts.append(span)
-    if location:
-        parts.append(location)
-    return " · ".join(parts)
-
-
-def _format_phone_display(phone: str) -> str:
-    p = (phone or "").strip()
-    digits = re.sub(r"\D+", "", p)
-    if len(digits) == 11 and digits.startswith("1"):
-        # +1 (AAA) BBB-CCCC
-        return f"+1 ({digits[1:4]}) {digits[4:7]}-{digits[7:]}"
-    if len(digits) == 10:
-        return f"({digits[0:3]}) {digits[3:6]}-{digits[6:]}"
-    return p
-
-
-def _format_link_display(url: str) -> str:
-    u = (url or "").strip()
-    if not u:
-        return ""
-    # Strip scheme and common prefixes for compact display
-    u = re.sub(r"^https?://", "", u, flags=re.I)
-    u = re.sub(r"^www\.", "", u, flags=re.I)
-    # Trim trailing slashes
-    u = u.rstrip("/")
-    return u
-
-
-def _tight_paragraph(paragraph, before_pt: int = 0, after_pt: int = 0, line_spacing: float = 1.0):
-    try:
-        pf = paragraph.paragraph_format
-        pf.space_before = Pt(before_pt)
-        pf.space_after = Pt(after_pt)
-        pf.line_spacing = line_spacing
-    except Exception:
-        pass
-
-
-def _clean_inline_text(s: str) -> str:
-    # Remove bullet glyphs and collapse whitespace/newlines
-    s2 = s.replace("•", " ")
-    s2 = re.sub(r"\s+", " ", s2)
-    return s2.strip()
-
-
-def _normalize_bullet_text(text: str, strip_terminal_period: bool = True) -> str:
-    """Normalize bullet text for consistent style.
-
-    - Collapses whitespace and removes stray bullet glyphs via _clean_inline_text.
-    - Optionally strips a single terminal period to keep resume bullets fragment-style.
-    """
-    s = _clean_inline_text(text)
-    if strip_terminal_period:
-        try:
-            if s.endswith('.'):
-                s = s.rstrip()
-                # remove exactly one trailing period and trailing spaces
-                s = s[:-1].rstrip()
-        except Exception:
-            pass
-    return s
-
-
-def _compact_bullet(paragraph):
-    try:
-        pf = paragraph.paragraph_format
-        pf.left_indent = Pt(0)
-        pf.hanging_indent = Pt(0)
-        pf.space_before = Pt(0)
-        pf.space_after = Pt(0)
-        pf.line_spacing = 1.0
-    except Exception:
-        pass
-
-
-def _flush_left(paragraph):
-    try:
-        pf = paragraph.paragraph_format
-        pf.left_indent = Pt(0)
-        pf.first_line_indent = Pt(0)
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    except Exception:
-        pass
-
-
-@lru_cache(maxsize=256)
-def _parse_hex_color(s: str | None) -> tuple[int, int, int] | None:
-    if not s:
-        return None
-    v = s.strip().lstrip('#')
-    if len(v) != 6:
-        return None
-    try:
-        r = int(v[0:2], 16)
-        g = int(v[2:4], 16)
-        b = int(v[4:6], 16)
-        return (r, g, b)
-    except Exception:
-        return None
-
-
-def _hex_fill(rgb: tuple[int, int, int]) -> str:
-    # DOCX shading expects hex without '#'
-    r, g, b = rgb
-    return f"{r:02X}{g:02X}{b:02X}"
-
-
-def _is_dark(rgb: tuple[int, int, int]) -> bool:
-    # Perceived luminance; threshold tuned for readability
-    r, g, b = rgb
-    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return luminance < 140
-
-
-def _apply_paragraph_shading(paragraph, bg_rgb: tuple[int, int, int]):
-    try:
-        p = paragraph._p  # low-level OXML paragraph
-        pPr = p.get_or_add_pPr()
-        shd = OxmlElement('w:shd')
-        shd.set(qn('w:val'), 'clear')
-        shd.set(qn('w:color'), 'auto')
-        shd.set(qn('w:fill'), _hex_fill(bg_rgb))
-        # Remove existing shd if present to avoid duplicates
-        for child in list(pPr):
-            if child.tag == qn('w:shd'):
-                pPr.remove(child)
-        pPr.append(shd)
-    except Exception:
-        # Non-fatal if shading fails
-        pass
-
-
+# Backward-compatible function aliases that delegate to renderers
 def _bold_keywords(paragraph, text: str, keywords: List[str]):
-    # naive keyword bolding: split by keyword occurrences and add runs
-    lowered = text.lower()
-    idx = 0
-    found_any = False
-    while idx < len(text):
-        match_pos = None
-        match_kw = None
-        for kw in keywords:
-            if not kw:
-                continue
-            pos = lowered.find(kw.lower(), idx)
-            if pos != -1 and (match_pos is None or pos < match_pos):
-                match_pos = pos
-                match_kw = text[pos : pos + len(kw)]
-        if match_pos is None:
-            paragraph.add_run(text[idx:])
-            break
-        # add preceding
-        if match_pos > idx:
-            paragraph.add_run(text[idx:match_pos])
-        # add bold keyword
-        br = paragraph.add_run(match_kw or "")
-        br.bold = True
-        found_any = True
-        idx = match_pos + len(match_kw or "")
-    if not found_any:
-        paragraph.add_run(text)
+    """Bold keywords in paragraph text."""
+    renderer = BulletRenderer.__new__(BulletRenderer)
+    renderer._bold_keywords(paragraph, text, keywords)
+
+
+def _add_bullet_line(doc, text: str, *, sec: Dict[str, Any] | None = None, keywords: List[str] | None = None, glyph: str = "•"):
+    renderer = BulletRenderer(doc)
+    return renderer.add_bullet_line(text, sec=sec, keywords=keywords, glyph=glyph)
 
 
 def _add_plain_bullet(doc, text: str, keywords: List[str] | None = None):
-    """Deprecated alias for _add_bullet_line with default glyph.
-
-    Kept to preserve API; routes to the unified implementation.
-    """
     return _add_bullet_line(doc, text, keywords=keywords, glyph="•")
 
 
@@ -229,52 +78,13 @@ def _add_bullets(
     glyph: str = "•",
     list_style: str = "List Bullet",
 ):
-    """Render a sequence of bullet items efficiently, reusing formatting paths.
-
-    - When plain=True, uses tight, flush-left bullets via _add_bullet_line.
-    - Otherwise, uses the Word list style with compact spacing.
-    """
-    if plain:
-        for it in items:
-            _add_bullet_line(doc, it, sec=sec, keywords=keywords, glyph=glyph)
-        return
-    for it in items:
-        p = doc.add_paragraph(style=list_style)
-        _tight_paragraph(p, after_pt=0)
-        _compact_bullet(p)
-        if keywords:
-            _bold_keywords(p, it, keywords)
-        else:
-            p.add_run(it)
+    renderer = BulletRenderer(doc)
+    renderer.add_bullets(items, sec=sec, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
 
 
 def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
-    title = (title or "").strip()
-    if not title:
-        return None
-    cfg = sec or {}
-    p = doc.add_paragraph()
-    _tight_paragraph(p, after_pt=0)
-    _flush_left(p)
-    gt_color_hex = cfg.get("group_title_color") or None
-    gt_bg_hex = cfg.get("group_title_bg") or cfg.get("title_bg") or None
-    r = p.add_run(title)
-    r.bold = True
-    # Apply background shading if provided and choose a contrasting text color if not explicitly set
-    bg_rgb = _parse_hex_color(gt_bg_hex)
-    if bg_rgb:
-        _apply_paragraph_shading(p, bg_rgb)
-        # If no explicit text color, choose auto contrast (white on dark, black on light)
-        if not gt_color_hex:
-            gt_color_hex = "#FFFFFF" if _is_dark(bg_rgb) else "#000000"
-    # Apply text color
-    txt_rgb = _parse_hex_color(gt_color_hex or (cfg.get("item_color") or cfg.get("title_color")))
-    if txt_rgb:
-        try:
-            r.font.color.rgb = RGBColor(*txt_rgb)
-        except Exception:
-            pass
-    return p
+    renderer = HeaderRenderer(doc)
+    return renderer.add_group_title(title, sec)
 
 
 def _add_header_line(
@@ -287,132 +97,15 @@ def _add_header_line(
     sec: Dict[str, Any] | None = None,
     style: str = "Normal",
 ):
-    """Add a left-flush header line: Title at Company — [Location] — (Duration).
-
-    - Title and Company are bold and colored (item_color).
-    - Location is italic, bracketed optionally, smaller (meta_pt) and colored (location_color).
-    - Duration is bracketed optionally, smaller (meta_pt), and colored (duration_color).
-    """
-    cfg = sec or {}
-    p = doc.add_paragraph(style=style)
-    _tight_paragraph(p, after_pt=0)
-    _flush_left(p)
-    item_color_hex = cfg.get("item_color") or cfg.get("header_color")
-    loc_color_hex = cfg.get("location_color") or item_color_hex
-    dur_color_hex = cfg.get("duration_color") or cfg.get("location_color") or item_color_hex
-    loc_brackets = bool(cfg.get("location_brackets", True))
-    dur_brackets = bool(cfg.get("duration_brackets", True))
-    # Optional smaller meta font size
-    meta_pt = None
-    try:
-        meta_pt = float(cfg.get("meta_pt")) if cfg.get("meta_pt") else None
-    except Exception:
-        meta_pt = None
-
-    # Title
-    if title_text:
-        r_title = p.add_run(title_text)
-        r_title.bold = True
-        rgb = _parse_hex_color(item_color_hex)
-        if rgb:
-            try:
-                r_title.font.color.rgb = RGBColor(*rgb)
-            except Exception:
-                pass
-    # Company
-    if title_text and company_text:
-        p.add_run(" at ")
-    if company_text:
-        r_comp = p.add_run(company_text)
-        r_comp.bold = True
-        rgb = _parse_hex_color(item_color_hex)
-        if rgb:
-            try:
-                r_comp.font.color.rgb = RGBColor(*rgb)
-            except Exception:
-                pass
-    # Location
-    if loc_text:
-        p.add_run(" — ")
-        if loc_brackets:
-            p.add_run("[")
-        r_loc = p.add_run(loc_text)
-        r_loc.italic = True
-        if meta_pt:
-            try:
-                r_loc.font.size = Pt(meta_pt)
-            except Exception:
-                pass
-        rgb = _parse_hex_color(loc_color_hex)
-        if rgb:
-            try:
-                r_loc.font.color.rgb = RGBColor(*rgb)
-            except Exception:
-                pass
-        if loc_brackets:
-            p.add_run("]")
-    # Duration
-    if span_text:
-        p.add_run(" — ")
-        if dur_brackets:
-            p.add_run("(")
-        r_span = p.add_run(span_text)
-        if meta_pt:
-            try:
-                r_span.font.size = Pt(meta_pt)
-            except Exception:
-                pass
-        rgb = _parse_hex_color(dur_color_hex)
-        if rgb:
-            try:
-                r_span.font.color.rgb = RGBColor(*rgb)
-            except Exception:
-                pass
-        if dur_brackets:
-            p.add_run(")")
-    return p
-
-
-def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> int:
-    try:
-        if sec and isinstance(sec.get("header_level"), int):
-            return int(sec.get("header_level"))
-        if page_cfg and isinstance(page_cfg.get("header_level"), int):
-            return int(page_cfg.get("header_level"))
-    except Exception:
-        pass
-    return 1
-
-
-def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> tuple[bool, str]:
-    # Determine bullet style and glyph
-    glyph = "•"
-    style = None
-    if sec:
-        # nested bullets config object
-        bul = sec.get("bullets") if isinstance(sec.get("bullets"), dict) else {}
-        if bul:
-            style = bul.get("style") or style
-            glyph = bul.get("glyph") or glyph
-        if sec.get("plain_bullets") is True:
-            style = "plain"
-    if not style and page_cfg and isinstance(page_cfg.get("bullets"), dict):
-        bulp = page_cfg.get("bullets") or {}
-        style = bulp.get("style") or style
-        glyph = bulp.get("glyph") or glyph
-    return (style == "plain" or (sec and sec.get("plain_bullets") is True), glyph)
-
-
-def _add_bullet_line(doc, text: str, *, sec: Dict[str, Any] | None = None, keywords: List[str] | None = None, glyph: str = "•"):
-    p = doc.add_paragraph()
-    _tight_paragraph(p, after_pt=0)
-    _flush_left(p)
-    p.add_run(f"{glyph} ")
-    if keywords:
-        _bold_keywords(p, text, keywords)
-    else:
-        p.add_run(text)
-    return p
+    renderer = HeaderRenderer(doc)
+    return renderer.add_header_line(
+        title_text=title_text,
+        company_text=company_text,
+        loc_text=loc_text,
+        span_text=span_text,
+        sec=sec,
+        style=style,
+    )
 
 
 def _add_named_bullet(
@@ -424,25 +117,25 @@ def _add_named_bullet(
     glyph: str = "•",
     sep: str = ": ",
 ):
-    p = doc.add_paragraph()
-    _tight_paragraph(p, after_pt=0)
-    _flush_left(p)
-    p.add_run(f"{glyph} ")
-    cfg = sec or {}
-    name_color_hex = cfg.get("name_color") or cfg.get("item_color") or cfg.get("title_color")
-    # Name part: bold + colored
-    r_name = p.add_run(name_text)
-    r_name.bold = True
-    rgb = _parse_hex_color(name_color_hex)
-    if rgb:
-        try:
-            r_name.font.color.rgb = RGBColor(*rgb)
-        except Exception:
-            pass
-    # Separator and description
-    p.add_run(sep)
-    p.add_run(desc_text)
-    return p
+    renderer = BulletRenderer(doc)
+    return renderer.add_named_bullet(name_text, desc_text, sec=sec, glyph=glyph, sep=sep)
+
+
+def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> int:
+    try:
+        if sec and isinstance(sec.get("header_level"), int):
+            return int(sec.get("header_level"))
+        if page_cfg and isinstance(page_cfg.get("header_level"), int):
+            return int(page_cfg.get("header_level"))
+    except Exception:
+        pass  # nosec B110 - invalid header_level
+    return 1
+
+
+def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> tuple:
+    renderer = BulletRenderer.__new__(BulletRenderer)
+    renderer.page_cfg = page_cfg or {}
+    return renderer.get_bullet_config(sec)
 
 
 def write_resume_docx(
@@ -470,7 +163,7 @@ def write_resume_docx(
             sec.left_margin = Inches(m)
             sec.right_margin = Inches(m)
         except Exception:
-            pass
+            pass  # nosec B110 - margin setting failure
         try:
             body_pt = float(page_cfg.get("body_pt", 10.5))
             h1_pt = float(page_cfg.get("h1_pt", 12))
@@ -498,7 +191,7 @@ def write_resume_docx(
                 if rgbt:
                     doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
         except Exception:
-            pass
+            pass  # nosec B110 - style setting failure
     # Core metadata
     name = data.get("name") or ""
     # Contact fields (accept top-level or under contact)
@@ -539,10 +232,10 @@ def write_resume_docx(
                 try:
                     cp.category = "; ".join(uniq_locs)
                 except Exception:
-                    pass
+                    pass  # nosec B110 - category set failure
         cp.keywords = "; ".join(kw)
     except Exception:
-        pass
+        pass  # nosec B110 - metadata set failure
 
     # Header
     if name:
@@ -554,7 +247,7 @@ def write_resume_docx(
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
     # Optional headline line directly under the name
     if headline:
         p_head = doc.add_paragraph(str(headline))
@@ -565,7 +258,7 @@ def write_resume_docx(
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
     # Build compact contact line with auto-included extras
     extras = []
     for val in [website, linkedin, github]:
@@ -586,7 +279,7 @@ def write_resume_docx(
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
 
     sections = template.get("sections") or []
     keywords = []
@@ -920,105 +613,20 @@ def write_resume_docx(
                         p = doc.add_paragraph(sep.join(tech_items))
                         _tight_paragraph(p, after_pt=2)
         elif key == "interests":
-            items_raw = data.get("interests") or []
-            # normalize to simple strings
-            items: List[str] = []
-            for it in items_raw:
-                if isinstance(it, dict):
-                    s = str(it.get("text") or it.get("name") or it.get("title") or it.get("label") or "").strip()
-                else:
-                    s = str(it).strip()
-                if s:
-                    items.append(_clean_inline_text(s))
-            if items:
-                as_bullets = bool(sec.get("bullets", True))
-                sep = sec.get("separator") or " • "
-                if as_bullets:
-                    plain, glyph = _use_plain_bullets(sec, page_cfg)
-                    _add_bullets(doc, items, sec=sec, keywords=None, plain=plain, glyph=glyph, list_style="List Bullet")
-                else:
-                    p = doc.add_paragraph(sep.join(items))
-                    _tight_paragraph(p, after_pt=2)
+            renderer = InterestsSectionRenderer(doc, page_cfg)
+            renderer.render(data, sec)
         elif key == "presentations":
-            # Public presentations/talks
-            items_raw = data.get("presentations") or []
-            lines: List[str] = []
-            for it in items_raw:
-                if isinstance(it, dict):
-                    title = str(it.get("title") or it.get("name") or "").strip()
-                    event = str(it.get("event") or "").strip()
-                    year = str(it.get("year") or "").strip()
-                    link = str(it.get("link") or "").strip()
-                    parts = [p for p in [title or event, event if title else "", year] if p]
-                    line = " — ".join(parts)
-                    if link:
-                        line = f"{line} ({link})" if line else link
-                    if line:
-                        lines.append(_clean_inline_text(line))
-                else:
-                    s = str(it).strip()
-                    if s:
-                        lines.append(_clean_inline_text(s))
-            if lines:
-                plain, glyph = _use_plain_bullets(sec, page_cfg)
-                _add_bullets(doc, lines, sec=sec, keywords=None, plain=plain, glyph=glyph, list_style="List Bullet")
+            renderer = PresentationsSectionRenderer(doc, page_cfg)
+            renderer.render(data, sec)
         elif key == "languages":
-            items_raw = data.get("languages") or []
-            lines: List[str] = []
-            for it in items_raw:
-                if isinstance(it, dict):
-                    lang = str(it.get("name") or it.get("language") or it.get("title") or "").strip()
-                    level = str(it.get("level") or it.get("proficiency") or "").strip()
-                    line = lang
-                    if level:
-                        line = f"{lang} — {level}"
-                    if line:
-                        lines.append(_clean_inline_text(line))
-                else:
-                    s = str(it).strip()
-                    if s:
-                        lines.append(_clean_inline_text(s))
-            if lines:
-                plain, glyph = _use_plain_bullets(sec, page_cfg)
-                _add_bullets(doc, lines, sec=sec, keywords=None, plain=plain, glyph=glyph, list_style="List Bullet")
+            renderer = LanguagesSectionRenderer(doc, page_cfg)
+            renderer.render(data, sec)
         elif key == "coursework":
-            items_raw = data.get("coursework") or []
-            items: List[str] = []
-            for it in items_raw:
-                if isinstance(it, dict):
-                    name = str(it.get("name") or it.get("course") or it.get("title") or "").strip()
-                    desc = str(it.get("desc") or it.get("description") or "").strip()
-                    s = name
-                    if desc:
-                        s = f"{name} — {desc}"
-                    if s:
-                        items.append(_clean_inline_text(s))
-                else:
-                    s = str(it).strip()
-                    if s:
-                        items.append(_clean_inline_text(s))
-            if items:
-                plain, glyph = _use_plain_bullets(sec, page_cfg)
-                _add_bullets(doc, items, sec=sec, keywords=None, plain=plain, glyph=glyph, list_style="List Bullet")
+            renderer = CourseworkSectionRenderer(doc, page_cfg)
+            renderer.render(data, sec)
         elif key == "certifications":
-            items_raw = data.get("certifications") or []
-            lines: List[str] = []
-            for it in items_raw:
-                if isinstance(it, dict):
-                    nm = str(it.get("name") or it.get("title") or it.get("cert") or "").strip()
-                    yr = str(it.get("year") or it.get("date") or "").strip()
-                    s = nm
-                    if yr:
-                        s = f"{nm} — {yr}"
-                    if s:
-                        lines.append(_clean_inline_text(s))
-                else:
-                    s = str(it).strip()
-                    if s:
-                        lines.append(_clean_inline_text(s))
-            if lines:
-                plain, glyph = _use_plain_bullets(sec, page_cfg)
-                _add_bullets(doc, lines, sec=sec, keywords=None, plain=plain, glyph=glyph, list_style="List Bullet")
+            renderer = CertificationsSectionRenderer(doc, page_cfg)
+            renderer.render(data, sec)
         elif key == "experience":
             items = data.get("experience") or []
             max_items = int(sec.get("max_items", 999))
@@ -1026,7 +634,7 @@ def write_resume_docx(
             role_style = str(sec.get("role_style", "Normal"))
             bullet_style = str(sec.get("bullet_style", "List Bullet"))
             max_bullets = int(sec.get("max_bullets", 999))
-            item_color_hex = sec.get("item_color") or sec.get("header_color")
+            sec.get("item_color") or sec.get("header_color")
             # Per-recency bullet controls
             recent_roles_count = int(sec.get("recent_roles_count", 0) or 0)
             recent_max_bullets = int(sec.get("recent_max_bullets", max_bullets))

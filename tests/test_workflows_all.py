@@ -50,7 +50,8 @@ class WorkflowAllProvidersTests(unittest.TestCase):
 
         # Patch Gmail provider construction inside plan/sync path
         with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
-            import mail_assistant.__main__ as m
+            from mail_assistant.config_cli.commands import run_workflows_from_unified
+            from mail_assistant.outlook import helpers as outlook_helpers
             # Force Gmail detection by pointing credentials to a temp file that exists
             from mail_assistant import config_resolver as cr
             td = tempfile.mkdtemp()
@@ -61,11 +62,11 @@ class WorkflowAllProvidersTests(unittest.TestCase):
             with open(tok, "w", encoding="utf-8") as fh:
                 fh.write("{}")
             with patch.object(cr, "resolve_paths_profile", new=lambda **kwargs: (cred, tok)), \
-                 patch.object(m, "_resolve_outlook_args", new=lambda _args: (None, None, None, None)):
+                 patch.object(outlook_helpers, "resolve_outlook_args", new=lambda _args: (None, None, None, None)):
                 buf = io.StringIO()
                 args = SimpleNamespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, providers=None, profile=None, accounts_config=None, account=None)
                 with redirect_stdout(buf):
-                    rc = m._cmd_workflows_from_unified(args)
+                    rc = run_workflows_from_unified(args)
                 out = buf.getvalue()
 
         self.assertEqual(rc, 0)

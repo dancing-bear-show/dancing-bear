@@ -6,6 +6,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from typing import List
 
 from mail_assistant.context import MailContext
 from mail_assistant.filters.consumers import (
@@ -46,63 +47,29 @@ from mail_assistant.filters.producers import (
     FiltersRemoveTokenProducer,
 )
 
+from tests.fixtures import FakeGmailClient
 
-class _FakeGmailClient:
-    def __init__(self):
-        self._labels = [
+
+def _make_pipeline_client():
+    """Create a FakeGmailClient configured for filters pipeline tests."""
+    return FakeGmailClient(
+        labels=[
             {"id": "LBL_VIP", "name": "VIP"},
             {"id": "LBL_OTHER", "name": "Other"},
-        ]
-        self._filters = [
+        ],
+        filters=[
             {
                 "id": "EXTRA",
                 "criteria": {"from": "someone@example.com"},
                 "action": {"addLabelIds": ["LBL_OTHER"]},
             }
-        ]
-        self.modified_batches: list[tuple[list[str], list[str], list[str]]] = []
-        self.deleted_ids: list[str] = []
-
-    def list_labels(self):
-        return self._labels
-
-    def list_filters(self):
-        return self._filters
-
-    def get_label_id_map(self):
-        return {lab["name"]: lab["id"] for lab in self._labels}
-
-    def list_message_ids(self, query=None, max_pages=1, page_size=500):
-        q = (query or "").lower()
-        if "foo@example.com" in q:
-            return ["m1"] * 5
-        if "subject:\"bar report\"" in q:
-            return ["m2"] * 3
-        return []
-
-    def get_verified_forwarding_addresses(self):
-        return {"verified@example.com"}
-
-    def ensure_label(self, name):
-        lid = f"LBL_{name.upper()}"
-        self._labels.append({"id": lid, "name": name})
-        return lid
-
-    def create_filter(self, criteria, action):
-        self._filters.append({"id": "NEW", "criteria": criteria, "action": action})
-
-    def delete_filter(self, fid):
-        self.deleted_ids.append(fid)
-        self._filters = [f for f in self._filters if f.get("id") != fid]
-
-    def batch_modify_messages(self, ids, add_label_ids=None, remove_label_ids=None):
-        self.modified_batches.append(
-            (
-                list(ids),
-                list(add_label_ids or []),
-                list(remove_label_ids or []),
-            )
-        )
+        ],
+        message_ids_by_query={
+            "foo@example.com": ["m1"] * 5,
+            'subject:"bar report"': ["m2"] * 3,
+        },
+        verified_forward_addresses={"verified@example.com"},
+    )
 
 
 class FiltersPlanConsumerTests(unittest.TestCase):
@@ -119,7 +86,7 @@ class FiltersPlanConsumerTests(unittest.TestCase):
             )
             args = SimpleNamespace(config=str(cfg_path), credentials=None, token=None, profile=None)
             ctx = MailContext.from_args(args)
-            ctx.gmail_client = _FakeGmailClient()
+            ctx.gmail_client = _make_pipeline_client()
 
             consumer = FiltersPlanConsumer(ctx)
             payload = consumer.consume()
@@ -205,20 +172,20 @@ class FiltersSyncProcessorTests(unittest.TestCase):
         self.assertEqual(len(result.to_create), 1)
         self.assertEqual(len(result.to_delete), 1)
 
-        fake_client = _FakeGmailClient()
-        fake_client._filters = [
-            {
-                "id": "DROP",
-                "criteria": {"from": "drop@example.com"},
-                "action": {"addLabelIds": ["LBL_OTHER"]},
-            }
-        ]
+        fake_client = FakeGmailClient(
+            labels=[{"id": "LBL_VIP", "name": "VIP"}, {"id": "LBL_OTHER", "name": "Other"}],
+            filters=[
+                {
+                    "id": "DROP",
+                    "criteria": {"from": "drop@example.com"},
+                    "action": {"addLabelIds": ["LBL_OTHER"]},
+                }
+            ],
+        )
         producer = FiltersSyncProducer(fake_client, dry_run=False)
         producer.produce(envelope)
 
-        created = [
-            f for f in fake_client.list_filters() if (f.get("id") or "").startswith("NEW")
-        ]
+        created = [f for f in fake_client.created_filters]
         self.assertTrue(
             any(
                 "CATEGORY_PROMOTIONS" in (f.get("action", {}).get("addLabelIds") or [])
@@ -246,7 +213,7 @@ class FiltersSyncProcessorTests(unittest.TestCase):
 
 class FiltersImpactProcessorTests(unittest.TestCase):
     def test_impact_processor_counts_and_producer_outputs(self):
-        client = _FakeGmailClient()
+        client = _make_pipeline_client()
         payload = FiltersImpactPayload(
             filters=[
                 {"match": {"from": "foo@example.com"}},
@@ -274,7 +241,7 @@ class FiltersExportProcessorTests(unittest.TestCase):
     def test_export_pipeline_writes_yaml(self):
         args = SimpleNamespace(out=None)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeGmailClient()
+        ctx.gmail_client = _make_pipeline_client()
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "filters.yaml"
             ctx.args.out = str(out_path)
@@ -305,7 +272,7 @@ class FiltersSweepProcessorTests(unittest.TestCase):
         cfg_path.write_text(data)
         args = SimpleNamespace(config=str(cfg_path), **flags)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeGmailClient()
+        ctx.gmail_client = _make_pipeline_client()
         return ctx
 
     def test_sweep_pipeline_modifies_messages(self):
@@ -448,7 +415,7 @@ class FiltersPruneProcessorTests(unittest.TestCase):
     def _make_context(self, *, dry_run: bool):
         args = SimpleNamespace(pages=2, days=None, only_inbox=False, dry_run=dry_run)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeGmailClient()
+        ctx.gmail_client = _make_pipeline_client()
         return ctx
 
     def test_prune_dry_run_outputs_plan(self):
@@ -490,7 +457,7 @@ class FiltersAddForwardProcessorTests(unittest.TestCase):
             require_forward_verified=require_verified,
         )
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeGmailClient()
+        ctx.gmail_client = _make_pipeline_client()
         return ctx
 
     def test_add_forward_dry_run(self):
@@ -538,7 +505,7 @@ class FiltersAddTokenProcessorTests(unittest.TestCase):
             dry_run=dry_run,
         )
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeGmailClient()
+        ctx.gmail_client = _make_pipeline_client()
         return ctx
 
     def test_add_token_dry_run(self):
@@ -571,15 +538,20 @@ class FiltersRemoveTokenProcessorTests(unittest.TestCase):
             dry_run=dry_run,
         )
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeGmailClient()
-        # Seed fake filter with a from clause containing tokens
-        ctx.gmail_client._filters = [
-            {
-                "id": "EXTRA",
-                "criteria": {"from": "someone@example.com OR hello@example.com"},
-                "action": {"addLabelIds": ["LBL_OTHER"]},
-            }
-        ]
+        ctx.gmail_client = FakeGmailClient(
+            labels=[
+                {"id": "LBL_VIP", "name": "VIP"},
+                {"id": "LBL_OTHER", "name": "Other"},
+            ],
+            filters=[
+                {
+                    "id": "EXTRA",
+                    "criteria": {"from": "someone@example.com OR hello@example.com"},
+                    "action": {"addLabelIds": ["LBL_OTHER"]},
+                }
+            ],
+            verified_forward_addresses={"verified@example.com"},
+        )
         return ctx
 
     def test_remove_token_dry_run(self):

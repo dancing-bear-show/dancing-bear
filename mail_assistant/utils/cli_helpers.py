@@ -33,7 +33,7 @@ def with_gmail_client(func):
         try:
             setattr(args, "_gmail_client", client)
         except Exception:
-            pass
+            pass  # nosec B110 - non-critical attribute set
         return func(args, *a, **kw)
 
     return wrapper

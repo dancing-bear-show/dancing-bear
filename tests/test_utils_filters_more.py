@@ -1,18 +1,6 @@
 import unittest
 
-
-class FakeProvider:
-    def __init__(self, mapping=None):
-        self._map = mapping or {}
-
-    def get_label_id_map(self):
-        return dict(self._map)
-
-    def ensure_label(self, name: str, **kwargs):
-        # Emulate creating a new label id if missing
-        if name not in self._map:
-            self._map[name] = f"id_{name.replace(' ', '_')}"
-        return self._map[name]
+from tests.fixtures import FakeGmailClient
 
 
 class TestUtilsFiltersMore(unittest.TestCase):
@@ -53,10 +41,20 @@ class TestUtilsFiltersMore(unittest.TestCase):
     def test_action_to_label_changes(self):
         from mail_assistant.utils.filters import action_to_label_changes
 
-        prov = FakeProvider({"Work": "L1", "INBOX": "INBOX"})
-        add_ids, rem_ids = action_to_label_changes(prov, {"add": ["Work", "CATEGORY_PROMOTIONS"], "remove": ["INBOX", "Archive"]})
+        client = FakeGmailClient(labels=[
+            {"id": "L1", "name": "Work"},
+            {"id": "INBOX", "name": "INBOX"},
+        ])
+        add_ids, rem_ids = action_to_label_changes(
+            client,
+            {"add": ["Work", "CATEGORY_PROMOTIONS"], "remove": ["INBOX", "Archive"]}
+        )
         self.assertIn("L1", add_ids)
         self.assertIn("CATEGORY_PROMOTIONS", add_ids)
         self.assertIn("INBOX", rem_ids)
         # "Archive" gets ensured and mapped
-        self.assertTrue(any(x.startswith("id_Archive") for x in rem_ids))
+        self.assertTrue(any("Archive" in x or "LBL_" in x for x in rem_ids))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -3,7 +3,6 @@ import argparse
 import csv
 import datetime as dt
 import json
-import os
 import re
 import sys
 from collections import defaultdict, Counter
@@ -45,7 +44,7 @@ def load_rates(path: Optional[str], overrides: Dict[str, Optional[float]]) -> Di
                 if 'per_1k' in user_cfg and isinstance(user_cfg['per_1k'], dict):
                     cfg['per_1k'].update(user_cfg['per_1k'])
         except Exception:
-            pass
+            pass  # nosec B110 - config load failure
     # Apply CLI overrides (per 1K tokens)
     for key, val in overrides.items():
         if val is not None:
@@ -123,7 +122,7 @@ def load_model_rate_table(path: Optional[str]) -> Dict[str, Dict[str, float]]:
                 if target in table:
                     table[alias] = dict(table[target])
         except Exception:
-            pass
+            pass  # nosec B110 - alias config failure
     table['__currency__'] = {'currency': currency}
     table['__default__'] = default
     return table
@@ -188,7 +187,7 @@ def iter_session_files(root: Path) -> Iterator[Path]:
             _ = int(p.parts[-3])  # month
             _ = int(p.parts[-2])  # day
         except Exception:
-            pass
+            pass  # nosec B110 - path validation
         yield p
 
 
@@ -337,7 +336,7 @@ def rollup_daily(start_date: dt.date, end_date: dt.date) -> List[Dict[str, objec
                     if start_dt <= t < end_dt:
                         per_day_prompts[t.date()] += 1
         except Exception:
-            pass
+            pass  # nosec B110 - log parse failure
 
     # ToolCall counts from codex-tui.log (best-effort)
     per_day_toolcalls: Counter = Counter()
@@ -360,7 +359,7 @@ def rollup_daily(start_date: dt.date, end_date: dt.date) -> List[Dict[str, objec
                     if start_date <= day <= end_date:
                         per_day_toolcalls[day] += 1
         except Exception:
-            pass
+            pass  # nosec B110 - log parse failure
 
     # Build rows
     rows: List[Dict[str, object]] = []
@@ -700,7 +699,7 @@ def rollup_weekly(start_date: dt.date, end_date: dt.date) -> List[Dict[str, obje
                     if start_dt <= t < end_dt:
                         per_week_prompts[_iso_year_week(t.date())] += 1
         except Exception:
-            pass
+            pass  # nosec B110 - log parse failure
 
     # ToolCall counts from log
     per_week_toolcalls: Counter = Counter()
@@ -721,7 +720,7 @@ def rollup_weekly(start_date: dt.date, end_date: dt.date) -> List[Dict[str, obje
                     if start_date <= day <= end_date:
                         per_week_toolcalls[_iso_year_week(day)] += 1
         except Exception:
-            pass
+            pass  # nosec B110 - log parse failure
 
     # Iterate weeks from start_date (aligned to Monday) to end_date
     week_rows: List[Dict[str, object]] = []
@@ -909,7 +908,8 @@ def cmd_insights(args: argparse.Namespace) -> int:
         rows2.append(rr)
 
     # Metrics
-    import statistics, math
+    import statistics
+    import math
     tot = [r['total_tokens'] for r in rows2]
     prom = [r['prompts'] for r in rows2]
     outs = [r['output_tokens'] for r in rows2]

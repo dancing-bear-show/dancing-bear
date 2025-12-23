@@ -1,5 +1,4 @@
 import io
-import sys
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
@@ -16,7 +15,8 @@ class TestScheduleVerifySync(unittest.TestCase):
 
     def test_verify_subject_time_with_exdates(self):
         # Plan: weekly Monday 18:00–19:00 from 2025-10-06 to 2025-10-20 with exdate 2025-10-13
-        import tempfile, textwrap
+        import tempfile
+        import textwrap
         from schedule_assistant import __main__ as sa
 
         with tempfile.TemporaryDirectory() as td:
@@ -56,7 +56,8 @@ class TestScheduleVerifySync(unittest.TestCase):
             self.assertIn("Missing: none", out)
 
     def test_verify_subject_time_reports_missing(self):
-        import tempfile, textwrap
+        import tempfile
+        import textwrap
         from schedule_assistant import __main__ as sa
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
@@ -92,7 +93,8 @@ class TestScheduleVerifySync(unittest.TestCase):
             self.assertIn("Missing (subject@time):", out)
 
     def test_sync_dry_run_counts_subject_time(self):
-        import tempfile, textwrap
+        import tempfile
+        import textwrap
         from schedule_assistant import __main__ as sa
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(

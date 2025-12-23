@@ -49,7 +49,7 @@ class CacheMixin:
             with open(p, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, ensure_ascii=False)
         except Exception:
-            pass
+            pass  # nosec B110 - non-fatal cache write
 
 
 class BaseProvider(ABC, CacheMixin):

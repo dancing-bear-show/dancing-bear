@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from html import unescape as _html_unescape
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 DAY_MAP = {
     "monday": "MO",
@@ -108,7 +108,7 @@ def infer_meta_from_text(
             end_date = f"{y2f:04d}-{MONTH_MAP[m2.lower()]:02d}-{int(d2):02d}"
             meta["range"] = {"start_date": start_date, "until": end_date}
         except Exception:
-            pass
+            pass  # nosec B110 - non-critical metadata extraction
     class_match = class_pat.search(text or "")
     if class_match:
         meta["subject"] = class_match.group(0).strip().title()

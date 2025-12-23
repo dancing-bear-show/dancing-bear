@@ -15,6 +15,13 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core.textio import read_text as _read_text, write_text as _write_text
 
+# Default filenames for LLM outputs
+DEFAULT_AGENTIC_FILENAME = "AGENTIC.md"
+DEFAULT_DOMAIN_MAP_FILENAME = "DOMAIN_MAP.md"
+DEFAULT_INVENTORY_FILENAME = "INVENTORY.md"
+DEFAULT_FAMILIAR_FILENAME = "familiarize.yaml"
+DEFAULT_POLICIES_FILENAME = "PR_POLICIES.yaml"
+
 
 @dataclass
 class LlmConfig:
@@ -26,11 +33,11 @@ class LlmConfig:
     familiar_compact: Optional[Callable[[], str]] = None
     familiar_extended: Optional[Callable[[], str]] = None
     policies: Optional[Callable[[], str]] = None
-    agentic_filename: str = "AGENTIC.md"
-    domain_map_filename: str = "DOMAIN_MAP.md"
-    inventory_filename: str = "INVENTORY.md"
-    familiar_filename: str = "familiarize.yaml"
-    policies_filename: str = "PR_POLICIES.yaml"
+    agentic_filename: str = DEFAULT_AGENTIC_FILENAME
+    domain_map_filename: str = DEFAULT_DOMAIN_MAP_FILENAME
+    inventory_filename: str = DEFAULT_INVENTORY_FILENAME
+    familiar_filename: str = DEFAULT_FAMILIAR_FILENAME
+    policies_filename: str = DEFAULT_POLICIES_FILENAME
 
 
 def make_app_llm_config(
@@ -43,11 +50,11 @@ def make_app_llm_config(
     familiar_compact: Optional[Callable[[], str]] = None,
     familiar_extended: Optional[Callable[[], str]] = None,
     policies: Optional[Callable[[], str]] = None,
-    agentic_filename: str = "AGENTIC.md",
-    domain_map_filename: str = "DOMAIN_MAP.md",
-    inventory_filename: str = "INVENTORY.md",
-    familiar_filename: str = "familiarize.yaml",
-    policies_filename: str = "PR_POLICIES.yaml",
+    agentic_filename: str = DEFAULT_AGENTIC_FILENAME,
+    domain_map_filename: str = DEFAULT_DOMAIN_MAP_FILENAME,
+    inventory_filename: str = DEFAULT_INVENTORY_FILENAME,
+    familiar_filename: str = DEFAULT_FAMILIAR_FILENAME,
+    policies_filename: str = DEFAULT_POLICIES_FILENAME,
 ) -> LlmConfig:
     """Helper to build a common app LLM config without repeating boilerplate."""
     return LlmConfig(
@@ -559,7 +566,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(json.dumps(data, indent=2))
             return 0
         content = _default_inventory()
-        target = Path(args.write or (llm_dir / "INVENTORY.md"))
+        target = Path(args.write or (llm_dir / DEFAULT_INVENTORY_FILENAME))
         if args.write:
             _write_text(target, content)
         if args.stdout or not args.write:
@@ -568,7 +575,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.cmd == "familiar":
         content = _familiar_content(verbose=getattr(args, "verbose", False))
-        target = Path(args.write or (llm_dir / "familiarize.yaml"))
+        target = Path(args.write or (llm_dir / DEFAULT_FAMILIAR_FILENAME))
         if args.write:
             _write_text(target, content)
         if args.stdout or not args.write:
@@ -576,7 +583,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.cmd == "policies":
-        target = Path(args.write or (llm_dir / "PR_POLICIES.yaml"))
+        target = Path(args.write or (llm_dir / DEFAULT_POLICIES_FILENAME))
         content = _read_text(target) or _default_policies()
         if args.write:
             _write_text(target, content)
@@ -586,7 +593,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.cmd == "agentic":
         content = _mail_agentic_capsule()
-        target = Path(args.write or (llm_dir / "AGENTIC.md"))
+        target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
         if args.write:
             _write_text(target, content)
         if args.stdout or not args.write:
@@ -595,7 +602,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.cmd == "domain-map":
         content = _mail_domain_map()
-        target = Path(args.write or (llm_dir / "DOMAIN_MAP.md"))
+        target = Path(args.write or (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME))
         if args.write:
             _write_text(target, content)
         if args.stdout or not args.write:
@@ -637,11 +644,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.cmd == "derive-all":
         outputs = [
-            (llm_dir / "AGENTIC.md", _mail_agentic_capsule()),
-            (llm_dir / "DOMAIN_MAP.md", _mail_domain_map()),
-            (llm_dir / "INVENTORY.md", _default_inventory()),
-            (llm_dir / "familiarize.yaml", _familiar_content(verbose=False)),
-            (llm_dir / "PR_POLICIES.yaml", _default_policies()),
+            (llm_dir / DEFAULT_AGENTIC_FILENAME, _mail_agentic_capsule()),
+            (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME, _mail_domain_map()),
+            (llm_dir / DEFAULT_INVENTORY_FILENAME, _default_inventory()),
+            (llm_dir / DEFAULT_FAMILIAR_FILENAME, _familiar_content(verbose=False)),
+            (llm_dir / DEFAULT_POLICIES_FILENAME, _default_policies()),
         ]
         if getattr(args, "include_generated", False):
             out_dir = Path(getattr(args, "out_dir", ".llm") or ".llm")

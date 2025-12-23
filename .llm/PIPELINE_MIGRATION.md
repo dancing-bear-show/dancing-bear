@@ -26,6 +26,9 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Filters prune-empty uses the pipeline (counts + retry deletes).
   - [x] Filters add-forward-by-label now uses pipeline consumers/processors/producers.
   - [x] Filters add-from-token / rm-from-token now use the pipeline.
+  - [x] `messages_cli` search and summarize now use pipeline processors/producers.
+  - [x] `accounts` multi-account commands (list, export-labels, sync-labels, export-filters, sync-filters, plan-labels, plan-filters, export-signatures, sync-signatures) now use pipeline processors/producers.
+  - [x] `config_cli` commands (auth, backup, cache-stats, cache-clear, cache-prune, config-inspect, derive-labels, derive-filters, optimize-filters, audit-filters, env-setup, workflows) now use pipeline processors/producers.
   - [ ] Slim `mail_assistant/__main__.py` to CLI shim → domain orchestrator. (Filters + labels now delegate; other commands pending.)
   - [x] Update docs/tests (`tests/test_llm_*`, CLI tests) to cover new pathway.
 
@@ -60,17 +63,26 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Define consumers for scan/rules YAML, processors for ranking, producers for plan/apply.
   - [x] Wire CLI shim to new orchestrator (`desk_assistant/pipeline.py`, CLI now delegates to pipeline components).
 - Resume:
-  - [ ] Consumers for LinkedIn/resume sources, processors for summarize/render, producers for DOCX/YAML.
+  - [x] Pipeline module (`resume_assistant/pipeline.py`) with FilterPipeline for chainable transforms.
+  - [x] Commands (extract, summarize, render, structure, align, etc.) use pipeline pattern.
 
 ## Phase 4 — Phone & WhatsApp (after core + example apps done)
 - Phone:
   - [x] Layout export/plan/checklist now run through pipeline consumers/processors/producers (`phone/pipeline.py`).
+  - [x] Unused/prune/analyze commands migrated to pipeline.
+  - [x] Device I/O commands (export-device, iconmap) now use pipelines via `phone/device.py` helpers.
+  - [x] Manifest commands (from-export, from-device, install) migrated to pipeline.
+  - [x] Identity verify command uses pipeline with credential/certificate helpers in `phone/device.py`.
+  - [x] App classification extracted to `phone/classify.py` for shared use.
+  - [x] Full pipeline coverage: 12/12 commands use Consumer/Processor/Producer pattern.
 - WhatsApp:
-  - [ ] Sqlite consumer, search processors, text/JSON producers.
+  - [x] Pipeline module (`whatsapp/pipeline.py`) with SearchProcessor/SearchRequestConsumer/SearchProducer.
+  - [x] Search command uses pipeline pattern for local ChatStorage queries.
 
 ## Phase 5 — Maker & Misc (optional)
 - [x] Maker CLI now uses pipeline consumers/processors/producers for listing + tool execution.
-- Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
+- [x] Maker migrated to CLIApp decorator pattern with direct imports (no subprocess).
+- [ ] Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
 
 ## Phase 6 — Wi-Fi (optional)
 - [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi_assistant/pipeline.py` + CLI shim).

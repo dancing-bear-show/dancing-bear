@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 import subprocess
@@ -47,7 +46,7 @@ experience:
                 encoding="utf-8",
             )
             try:
-                r = subprocess.run(
+                r = subprocess.run(  # nosec B603
                     CLI
                     + [
                         "render",
@@ -75,7 +74,7 @@ experience:
                 try:
                     cfg.unlink()
                 except Exception:
-                    pass
+                    pass  # nosec B110 - test cleanup
 
 
 if __name__ == "__main__":

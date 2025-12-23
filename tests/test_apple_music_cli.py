@@ -1,6 +1,5 @@
 import io
 import json
-import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -73,7 +72,7 @@ class AppleMusicCLITests(unittest.TestCase):
                 )
 
             with mock.patch("apple_music_assistant.cli.AppleMusicClient", side_effect=stub_client):
-                rc = cli.main(["--config", str(cfg), "--out", str(out_path)])
+                rc = cli.main(["export", "--config", str(cfg), "--out", str(out_path)])
             self.assertEqual(rc, 0)
             data = json.loads(out_path.read_text())
             self.assertEqual(data["playlists"][0]["name"], "My Mix")
@@ -84,7 +83,7 @@ class AppleMusicCLITests(unittest.TestCase):
         self.assertIn("data:text/html,", url)
         self.assertIn("DEV_TOKEN", url)
 
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory():
             with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV_TOKEN"}):
                 with mock.patch.object(user_token_cli, "build_data_url", return_value="URL") as m_build:
                     with mock.patch("webbrowser.open") as m_open:
@@ -116,7 +115,7 @@ class AppleMusicCLITests(unittest.TestCase):
             with mock.patch("apple_music_assistant.cli.AppleMusicClient", side_effect=stub_client):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
-                    rc = cli.main(["--config", str(cfg), "ping"])
+                    rc = cli.main(["ping", "--config", str(cfg)])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue().strip())
         self.assertEqual(payload["status"], "ok")
@@ -158,7 +157,6 @@ class AppleMusicCLITests(unittest.TestCase):
         self.assertEqual(len(data["playlists"]), 2)
 
     def test_create_playlist_with_shuffle_and_dry_run(self):
-        seeds_order = []
 
         class StubClient:
             def __init__(self):
@@ -188,7 +186,7 @@ class AppleMusicCLITests(unittest.TestCase):
             buf = io.StringIO()
             with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
                 with redirect_stdout(buf):
-                    rc = cli.main(["create", "--shuffle-seed", "1", "--count", "3", "--dry-run"])
+                    rc = cli.main(["--dry-run", "create", "--shuffle-seed", "1", "--count", "3"])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("plan", payload)

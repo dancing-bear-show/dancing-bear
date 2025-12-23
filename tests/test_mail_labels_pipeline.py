@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mail_assistant.context import MailContext
-from mail_assistant.labels.commands import run_labels_plan, run_labels_sync
 from mail_assistant.labels.consumers import (
     LabelsPlanConsumer,
     LabelsSyncConsumer,

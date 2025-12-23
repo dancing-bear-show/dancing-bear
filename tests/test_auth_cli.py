@@ -82,12 +82,12 @@ class AuthCLITests(unittest.TestCase):
         }
 
         with patch.dict("sys.modules", fake_modules, clear=False):
-            import mail_assistant.__main__ as m
+            from mail_assistant.config_cli.commands import run_auth
 
             args = SimpleNamespace(validate=True, token=tok_path, credentials=None, profile=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = m._cmd_auth(args)
+                rc = run_auth(args)
             out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn("Gmail token valid.", out)
@@ -140,12 +140,12 @@ class AuthCLITests(unittest.TestCase):
         requests.get = _get
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            import mail_assistant.__main__ as m
+            from mail_assistant.outlook.commands import run_outlook_auth_validate
 
             args = SimpleNamespace(client_id="fake", tenant="consumers", token=tok_path, profile=None)
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = m._cmd_outlook_auth_validate(args)
+                rc = run_outlook_auth_validate(args)
             out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn("Outlook token valid.", out)
