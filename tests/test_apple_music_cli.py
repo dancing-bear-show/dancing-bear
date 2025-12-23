@@ -188,7 +188,7 @@ class AppleMusicCLITests(unittest.TestCase):
             buf = io.StringIO()
             with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV", "APPLE_MUSIC_USER_TOKEN": "USER"}):
                 with redirect_stdout(buf):
-                    rc = cli.main(["create", "--shuffle-seed", "1", "--count", "3", "--dry-run"])
+                    rc = cli.main(["--dry-run", "create", "--shuffle-seed", "1", "--count", "3"])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue())
         self.assertIn("plan", payload)
