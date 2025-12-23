@@ -487,7 +487,7 @@ def run_outlook_auth_ensure(args) -> int:
         try:
             cache.deserialize(tp.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            pass  # Token cache corrupt or invalid; start fresh
 
     app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
     scopes = ["https://graph.microsoft.com/.default"]
@@ -496,7 +496,7 @@ def run_outlook_auth_ensure(args) -> int:
     try:
         accounts = app.get_accounts()
     except Exception:
-        accounts = []
+        accounts = []  # Cache lookup failed; proceed with empty accounts
 
     if accounts:
         res = app.acquire_token_silent(scopes, account=accounts[0])
@@ -564,7 +564,7 @@ def run_outlook_auth_validate(args) -> int:
     try:
         accounts = app.get_accounts()
     except Exception:
-        accounts = []
+        accounts = []  # Cache lookup failed; proceed with empty accounts
 
     if not accounts:
         print("No account in token cache.")
