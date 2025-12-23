@@ -2,7 +2,7 @@
 """Thin wrapper to run the Mail Assistant CLI.
 
 Ensures the repository root is on sys.path so the package resolves when
-invoked as a script (python path/to/bin/mail_assistant).
+invoked as a script (python path/to/bin/mail).
 """
 from pathlib import Path
 import sys
