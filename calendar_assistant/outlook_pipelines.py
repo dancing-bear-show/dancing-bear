@@ -19,7 +19,7 @@ from calendar_assistant.model import normalize_event
 from calendar_assistant.selection import compute_window, filter_events_by_day_time
 
 from .location_sync import LocationSync
-from .pipeline_base import BaseProducer, DateWindowResolver, to_iso_str
+from .pipeline_base import BaseProducer, DateWindowResolver, RequestConsumer, to_iso_str
 
 # Error message constants
 ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"
@@ -38,12 +38,8 @@ class OutlookVerifyRequest:
     service: Any
 
 
-class OutlookVerifyRequestConsumer(Consumer[OutlookVerifyRequest]):
-    def __init__(self, request: OutlookVerifyRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookVerifyRequest:  # pragma: no cover - trivial
-        return self._request
+# Type alias for backward compatibility
+OutlookVerifyRequestConsumer = RequestConsumer[OutlookVerifyRequest]
 
 
 @dataclass
@@ -55,8 +51,8 @@ class OutlookVerifyResult:
 
 
 class OutlookVerifyProcessor(Processor[OutlookVerifyRequest, ResultEnvelope[OutlookVerifyResult]]):
-    def __init__(self, config_loader=_load_yaml) -> None:
-        self._config_loader = config_loader
+    def __init__(self, config_loader=None) -> None:
+        self._config_loader = config_loader if config_loader is not None else _load_yaml
 
     def process(self, payload: OutlookVerifyRequest) -> ResultEnvelope[OutlookVerifyResult]:
         try:
@@ -123,12 +119,7 @@ class OutlookAddRequest:
     service: Any
 
 
-class OutlookAddRequestConsumer(Consumer[OutlookAddRequest]):
-    def __init__(self, request: OutlookAddRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookAddRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookAddRequestConsumer = RequestConsumer[OutlookAddRequest]
 
 
 @dataclass
@@ -139,8 +130,8 @@ class OutlookAddResult:
 
 
 class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAddResult]]):
-    def __init__(self, config_loader=_load_yaml) -> None:
-        self._config_loader = config_loader
+    def __init__(self, config_loader=None) -> None:
+        self._config_loader = config_loader if config_loader is not None else _load_yaml
 
     def process(self, payload: OutlookAddRequest) -> ResultEnvelope[OutlookAddResult]:
         try:
@@ -257,12 +248,7 @@ class OutlookScheduleImportRequest:
     service: Any
 
 
-class OutlookScheduleImportRequestConsumer(Consumer[OutlookScheduleImportRequest]):
-    def __init__(self, request: OutlookScheduleImportRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookScheduleImportRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookScheduleImportRequestConsumer = RequestConsumer[OutlookScheduleImportRequest]
 
 
 @dataclass
@@ -394,12 +380,7 @@ class OutlookListOneOffsRequest:
     out_path: Optional[Path]
 
 
-class OutlookListOneOffsRequestConsumer(Consumer[OutlookListOneOffsRequest]):
-    def __init__(self, request: OutlookListOneOffsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookListOneOffsRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookListOneOffsRequestConsumer = RequestConsumer[OutlookListOneOffsRequest]
 
 
 @dataclass
@@ -880,8 +861,8 @@ class OutlookLocationsResult:
 
 
 class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
-    def __init__(self, config_loader=_load_yaml) -> None:
-        self._config_loader = config_loader
+    def __init__(self, config_loader=None) -> None:
+        self._config_loader = config_loader if config_loader is not None else _load_yaml
 
     def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
         try:
@@ -907,8 +888,8 @@ class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultE
 
 
 class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
-    def __init__(self, config_loader=_load_yaml) -> None:
-        self._config_loader = config_loader
+    def __init__(self, config_loader=None) -> None:
+        self._config_loader = config_loader if config_loader is not None else _load_yaml
 
     def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
         try:
@@ -974,8 +955,8 @@ class OutlookRemoveResult:
 
 
 class OutlookRemoveProcessor(Processor[OutlookRemoveRequest, ResultEnvelope[OutlookRemoveResult]]):
-    def __init__(self, config_loader=_load_yaml) -> None:
-        self._config_loader = config_loader
+    def __init__(self, config_loader=None) -> None:
+        self._config_loader = config_loader if config_loader is not None else _load_yaml
 
     def process(self, payload: OutlookRemoveRequest) -> ResultEnvelope[OutlookRemoveResult]:
         try:
@@ -1297,8 +1278,8 @@ class OutlookSettingsResult:
 
 
 class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[OutlookSettingsResult]]):
-    def __init__(self, config_loader=_load_yaml, regex_module=re, today_factory=None) -> None:
-        self._config_loader = config_loader
+    def __init__(self, config_loader=None, regex_module=re, today_factory=None) -> None:
+        self._config_loader = config_loader if config_loader is not None else _load_yaml
         self._regex = regex_module
         self._window = DateWindowResolver(today_factory)
 
