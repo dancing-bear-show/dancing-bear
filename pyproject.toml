@@ -22,7 +22,7 @@ dependencies = [
   "requests==2.32.4",
   "shapely==2.0.3",
   "trimesh==4.4.0",
-  "urllib3==2.5.0",
+  "urllib3==2.6.0",
 ]
 
 [project.scripts]
