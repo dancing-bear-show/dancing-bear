@@ -14,6 +14,150 @@ SECTION_PATTERNS = {
 }
 
 
+# =============================================================================
+# Shared extraction utilities (used by both DOCX and PDF parsers)
+# =============================================================================
+
+
+def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
+    """Parse a job header line into structured data.
+
+    Handles common formats:
+    - "Title at Company — [Location] — (Start – End)"  (generated DOCX format)
+    - "Title at Company, 2020-2023"
+    - "Title | Company | 2020 - Present"
+    - "Title at Company (Jan 2020 - Dec 2023)"
+
+    Returns dict with: title, company, location, start, end, or None if not matched.
+    """
+    # Pattern 1: Generated DOCX format "Title at Company — [Location] — (Start – End)"
+    m = re.match(
+        r"(.+?)\s+at\s+(.+?)"  # Title at Company
+        r"(?:\s*[—\-]\s*\[?([^\]—\-\(]+?)\]?)?"  # — [Location] or — Location
+        r"(?:\s*[—\-]\s*\(?([\d\w\s]+?)\s*[–\-]\s*([\d\w\s]+?)\)?\s*)?$",  # — (Start – End)
+        text
+    )
+    if m:
+        return {
+            "title": m.group(1).strip(),
+            "company": m.group(2).strip(),
+            "location": (m.group(3) or "").strip(),
+            "start": (m.group(4) or "").strip(),
+            "end": (m.group(5) or "").strip(),
+        }
+
+    # Pattern 2: "Title at Company, dates" or "Title at Company (dates)"
+    m = re.match(
+        r"(.+?)\s+at\s+(.+?)(?:[,\s]+|\s*\()((?:\d{4}|\w+\s+\d{4})\s*[-–]\s*(?:\d{4}|Present|Current|\w+\s+\d{4}))\)?",
+        text, re.I
+    )
+    if m:
+        date_range = m.group(3).strip()
+        start, end = "", ""
+        if "–" in date_range or "-" in date_range:
+            parts = re.split(r"\s*[-–]\s*", date_range)
+            if len(parts) == 2:
+                start, end = parts[0].strip(), parts[1].strip()
+        return {
+            "title": m.group(1).strip(),
+            "company": m.group(2).strip().rstrip(","),
+            "location": "",
+            "start": start,
+            "end": end,
+        }
+
+    # Pattern 3: "Title | Company | dates"
+    parts = [p.strip() for p in re.split(r"\s*[|•·]\s*", text)]
+    if len(parts) >= 2:
+        date_idx = -1
+        for i, p in enumerate(parts):
+            if re.search(r"\d{4}\s*[-–]\s*(?:\d{4}|Present|Current)", p, re.I):
+                date_idx = i
+                break
+        if date_idx >= 0:
+            title = parts[0]
+            company = parts[1] if len(parts) > 1 and date_idx != 1 else ""
+            date_range = parts[date_idx]
+            start, end = "", ""
+            if "–" in date_range or "-" in date_range:
+                dr_parts = re.split(r"\s*[-–]\s*", date_range)
+                if len(dr_parts) == 2:
+                    start, end = dr_parts[0].strip(), dr_parts[1].strip()
+            return {
+                "title": title,
+                "company": company,
+                "location": "",
+                "start": start,
+                "end": end,
+            }
+
+    # Pattern 4: Simple "Title at Company"
+    m = re.match(r"(.+?)\s+at\s+(.+?)$", text)
+    if m:
+        return {
+            "title": m.group(1).strip(),
+            "company": m.group(2).strip(),
+            "location": "",
+            "start": "",
+            "end": "",
+        }
+
+    return None
+
+
+def _parse_education_entry(text: str) -> Optional[Dict[str, str]]:
+    """Parse an education line into structured data.
+
+    Handles common formats:
+    - "Degree at Institution — (Year)"  (generated DOCX format)
+    - "B.S. Computer Science, MIT, 2016"
+    - "Bachelor of Science in CS — MIT (2016)"
+    - "Degree from Institution (Year)"
+
+    Returns dict with: degree, institution, year, or None if not matched.
+    """
+    # Pattern 1: Generated format "Degree at Institution — (Year)"
+    m = re.match(r"(.+?)\s+at\s+(.+?)(?:\s*—\s*\((\d{4})\))?$", text)
+    if m:
+        return {
+            "degree": m.group(1).strip(),
+            "institution": m.group(2).strip(),
+            "year": (m.group(3) or "").strip(),
+        }
+
+    # Pattern 2: "Degree, Institution, Year"
+    m = re.match(r"(.+?),\s*(.+?),\s*(\d{4})", text)
+    if m:
+        return {
+            "degree": m.group(1).strip(),
+            "institution": m.group(2).strip(),
+            "year": m.group(3).strip(),
+        }
+
+    # Pattern 3: "Degree from Institution (Year)" - greedy institution match
+    m = re.match(r"(.+?)\s+from\s+(.+?)(?:\s*[\(\-—]\s*(\d{4})\)?)?$", text, re.I)
+    if m:
+        return {
+            "degree": m.group(1).strip(),
+            "institution": m.group(2).strip().rstrip("()"),
+            "year": (m.group(3) or "").strip(),
+        }
+
+    # Pattern 4: Look for year anywhere in short line
+    year_match = re.search(r"\b(19|20)\d{2}\b", text)
+    if year_match and len(text) < 100:
+        year = year_match.group(0)
+        rest = text.replace(year, "").strip(" ,-–—()")
+        if rest:
+            return {
+                "degree": rest,
+                "institution": "",
+                "year": year,
+            }
+
+    return None
+
+
 def _split_lines(text: str) -> List[str]:
     return [ln.strip() for ln in text.splitlines()]
 
@@ -22,13 +166,17 @@ def _extract_contact(lines: List[str]) -> Dict[str, str]:
     email = ""
     phone = ""
     location = ""
+    linkedin = ""
+    github = ""
+    website = ""
     for ln in lines[:10]:  # top lines commonly have contact
         if not email:
-            m = re.search(r"[\w.\-+]+@[\w.\-]+", ln)
+            m = re.search(r"[\w.\-+]+@[\w.\-]+\.[a-zA-Z]{2,}", ln)
             if m:
                 email = m.group(0)
         if not phone:
-            m = re.search(r"\+?\d[\d\s\-()]{6,}\d", ln)
+            # Match phone formats: (555) 123-4567, +1 (555) 123-4567, 555-123-4567
+            m = re.search(r"\+?1?\s*\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}", ln)
             if m:
                 phone = m.group(0)
         if not location:
@@ -36,7 +184,28 @@ def _extract_contact(lines: List[str]) -> Dict[str, str]:
             m = re.search(r"([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*),\s*[A-Z]{2}", ln)
             if m:
                 location = m.group(0)
-    return {"email": email, "phone": phone, "location": location}
+        if not linkedin:
+            m = re.search(r"linkedin\.com/in/[\w\-]+", ln, re.I)
+            if m:
+                linkedin = m.group(0)
+        if not github:
+            m = re.search(r"github\.com/[\w\-]+", ln, re.I)
+            if m:
+                github = m.group(0)
+        if not website:
+            # Generic URL that's not linkedin/github/email domain
+            # Must have scheme or www prefix, or be a standalone domain (not part of email)
+            m = re.search(r"(?:https?://|www\.)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:/[\w\-/]*)?)", ln)
+            if m and "linkedin" not in m.group(0).lower() and "github" not in m.group(0).lower():
+                website = m.group(0)
+    return {
+        "email": email.strip(),
+        "phone": phone.strip(),
+        "location": location.strip(),
+        "linkedin": linkedin.strip(),
+        "github": github.strip(),
+        "website": website.strip(),
+    }
 
 
 def _extract_sections(lines: List[str]) -> Dict[str, List[str]]:
@@ -117,8 +286,8 @@ def _parse_education(lines: List[str]) -> List[Dict[str, str]]:
 
 def _parse_skills(lines: List[str]) -> List[str]:
     text = " ".join(lines)
-    # split by commas or semicolons
-    parts = [p.strip() for p in re.split(r"[,;]\s*", text) if p.strip()]
+    # split by pipes, commas, semicolons, or bullet points
+    parts = [p.strip() for p in re.split(r"[|,;•·]\s*", text) if p.strip()]
     # dedupe while preserving order
     seen = set()
     skills = []
@@ -251,6 +420,12 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
       Following normal paragraphs are bullets/achievements until next H2 or H1
     - H2 under Education: degree line (tab-separated with dates)
     - Skills: paragraphs under Technical Skills until next H1
+
+    Also handles generated resume format:
+    - Title style: Name
+    - Normal after title: Headline
+    - Normal with pipes: Contact line (email | phone | location | links)
+    - Normal under Experience: "Title at Company — [Location] — (Start – End)"
     """
     from .io_utils import safe_import
 
@@ -284,11 +459,28 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
 
     # Name: first title paragraph if present and not generic
     name = ""
+    headline = ""
     if paragraphs and para_style(0) in {"title", "heading 0"}:
         nm = para_text(0)
         # Avoid capturing filenames
         if any(c.isalpha() for c in nm) and len(nm) < 80:
             name = nm
+
+    # Extract contact info and headline from early paragraphs (before first H1)
+    first_h1 = min(h1_indices) if h1_indices else len(paragraphs)
+    early_lines: List[str] = []
+    for i in range(min(first_h1, 10)):
+        txt = para_text(i)
+        if txt:
+            early_lines.append(txt)
+            # Check for headline: normal paragraph right after title, no special chars
+            if i == 1 and para_style(0) in {"title", "heading 0"} and para_style(1) == "normal":
+                # Headline if it doesn't look like contact info
+                if not re.search(r"[@|]", txt) and len(txt) < 100:
+                    headline = txt
+
+    # Extract contact from early lines
+    contact = _extract_contact(early_lines)
 
     # Summary/Profile
     summary = ""
@@ -299,7 +491,6 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
     else:
         # If no explicit summary section, use text before first H1 as profile
         if h1_indices:
-            first_h1 = min(h1_indices)
             # Skip first paragraph if it's a title/filename
             start_idx = 1 if para_style(0) in {"title", "heading 0"} else 0
             if first_h1 > start_idx:
@@ -333,13 +524,22 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
         s = sections["education"]
         i = s["start"] + 1
         while i <= s["end"]:
+            line = para_text(i)
+            if not line:
+                i += 1
+                continue
+            # Try shared education entry parser
+            edu_entry = _parse_education_entry(line)
+            if edu_entry:
+                education.append(edu_entry)
+                i += 1
+                continue
+            # Try Heading 2 style format (fallback for original DOCX format)
             if para_style(i).startswith("heading 2"):
-                line = para_text(i)
                 parts = [p.strip() for p in re.split(r"\t+|\s{2,}", line)]
                 degree = parts[0] if parts else line
                 year = ""
                 if len(parts) > 1:
-                    # try to find last 4-digit number
                     m = re.search(r"(\d{4})(?!.*\d{4})", parts[-1])
                     if m:
                         year = m.group(1)
@@ -364,8 +564,19 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
             if not text:
                 i += 1
                 continue
+
+            # Try shared experience entry parser for common formats
+            exp_entry = _parse_experience_entry(text)
+            if exp_entry and style in {"normal", "list paragraph"}:
+                # Save previous role if exists
+                if current:
+                    experience.append(current)
+                current = {**exp_entry, "bullets": []}
+                i += 1
+                continue
+
             if style.startswith("heading 2"):
-                # start new role
+                # start new role (original format)
                 if current:
                     experience.append(current)
                 title = text
@@ -386,6 +597,11 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
                     "location": "",
                     "bullets": [],
                 }
+            elif style.startswith("list"):
+                # Bullet point - strip bullet glyph
+                bullet_text = re.sub(r"^[•\-\*]\s*", "", text).strip()
+                if current and bullet_text:
+                    current.setdefault("bullets", []).append(bullet_text)
             else:
                 # normal paragraph; treat as company line in two cases:
                 # 1) before first role (current is None)
@@ -402,10 +618,8 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
 
     return {
         "name": name,
-        "headline": "",
-        "email": "",
-        "phone": "",
-        "location": "",
+        "headline": headline,
+        **contact,
         "summary": summary,
         "skills": skills,
         "experience": experience,
@@ -437,6 +651,175 @@ def _looks_like_company_line(text: str) -> bool:
     # Two or more capitalized words
     caps = re.findall(r"\b[A-Z][A-Za-z]+\b", text)
     return len(caps) >= 2
+
+
+def _looks_like_section_heading(text: str) -> bool:
+    """Check if a line looks like a section heading in a PDF.
+
+    Heuristics:
+    - Short line (< 40 chars)
+    - All caps or title case
+    - Matches known section patterns
+    - No punctuation except colons
+    """
+    t = text.strip()
+    if not t or len(t) > 50:
+        return False
+    # Check if it matches known sections
+    if _key_from_heading(t):
+        return True
+    # All caps short line
+    if t.isupper() and len(t) < 30:
+        return True
+    # Title case with no punctuation (except colon)
+    stripped = re.sub(r"[:\s]", "", t)
+    if stripped.istitle() and len(t) < 40 and not re.search(r"[.,;!?]", t):
+        return True
+    return False
+
+
+def parse_resume_pdf(path: str) -> Dict[str, Any]:
+    """Parse resume from a PDF file.
+
+    Uses pdfminer.six for text extraction with layout analysis,
+    then applies heuristics to identify sections and structure.
+    """
+    from .io_utils import safe_import
+
+    pdfminer = safe_import("pdfminer.high_level")
+    if not pdfminer:
+        raise RuntimeError("Parsing .pdf requires pdfminer.six; install pdfminer.six.")
+
+    from pdfminer.high_level import extract_text, extract_pages  # type: ignore
+    from pdfminer.layout import LAParams, LTTextContainer, LTChar  # type: ignore
+
+    # Use layout analysis for better text extraction
+    laparams = LAParams(
+        line_margin=0.5,
+        word_margin=0.1,
+        char_margin=2.0,
+        boxes_flow=0.5,
+    )
+
+    text = extract_text(path, laparams=laparams)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    if not lines:
+        return {
+            "name": "",
+            "headline": "",
+            "email": "",
+            "phone": "",
+            "location": "",
+            "linkedin": "",
+            "github": "",
+            "website": "",
+            "summary": "",
+            "skills": [],
+            "experience": [],
+            "education": [],
+        }
+
+    # Extract contact info from early lines
+    contact = _extract_contact(lines[:15])
+
+    # Name: usually first line if it's short and looks like a name
+    name = ""
+    headline = ""
+    first_line = lines[0] if lines else ""
+    if first_line and len(first_line) < 60:
+        # Check it's not a section heading or contact
+        if not _looks_like_section_heading(first_line):
+            if not re.search(r"[@()\d]{3,}", first_line):  # Not phone/email
+                name = first_line
+
+    # Second line might be headline
+    if len(lines) > 1 and name:
+        second = lines[1]
+        if len(second) < 80 and not _looks_like_section_heading(second):
+            if not re.search(r"[@|]", second):  # Not contact line
+                headline = second
+
+    # Find section boundaries
+    section_indices: Dict[str, int] = {}
+    for i, ln in enumerate(lines):
+        if _looks_like_section_heading(ln):
+            key = _key_from_heading(ln)
+            if key and key not in section_indices:
+                section_indices[key] = i
+
+    # Sort section starts
+    sorted_sections = sorted(section_indices.items(), key=lambda x: x[1])
+
+    def get_section_lines(key: str) -> List[str]:
+        if key not in section_indices:
+            return []
+        start = section_indices[key] + 1
+        # Find next section
+        end = len(lines)
+        for k, idx in sorted_sections:
+            if idx > section_indices[key]:
+                end = idx
+                break
+        return lines[start:end]
+
+    # Summary
+    summary_lines = get_section_lines("summary")
+    if not summary_lines and sorted_sections:
+        # Use lines before first section as summary
+        first_section_idx = sorted_sections[0][1]
+        start_idx = 2 if name else 0  # Skip name/headline
+        if first_section_idx > start_idx:
+            candidate = lines[start_idx:first_section_idx]
+            # Filter out contact-like lines
+            summary_lines = [
+                ln for ln in candidate
+                if not re.search(r"[@()\d]{5,}", ln)
+                and not re.search(r"linkedin|github", ln, re.I)
+            ]
+    summary = " ".join(summary_lines).strip()
+
+    # Skills
+    skills = _parse_skills(get_section_lines("skills"))
+
+    # Experience (using shared parser)
+    experience: List[Dict[str, Any]] = []
+    exp_lines = get_section_lines("experience")
+    current: Optional[Dict[str, Any]] = None
+
+    for ln in exp_lines:
+        # Check if this looks like a job header using shared parser
+        job = _parse_experience_entry(ln)
+        if job:
+            if current:
+                experience.append(current)
+            current = {**job, "bullets": []}
+        elif current:
+            # This is a bullet or description
+            bullet = re.sub(r"^[•\-\*▪▸►]\s*", "", ln).strip()
+            if bullet:
+                current["bullets"].append(bullet)
+
+    if current:
+        experience.append(current)
+
+    # Education (using shared parser)
+    education: List[Dict[str, str]] = []
+    edu_lines = get_section_lines("education")
+    for ln in edu_lines:
+        edu_entry = _parse_education_entry(ln)
+        if edu_entry:
+            education.append(edu_entry)
+
+    return {
+        "name": name,
+        "headline": headline,
+        **contact,
+        "summary": summary,
+        "skills": skills,
+        "experience": experience,
+        "education": education,
+    }
 
 
 def merge_profiles(linkedin: Dict[str, Any], resume: Dict[str, Any]) -> Dict[str, Any]:

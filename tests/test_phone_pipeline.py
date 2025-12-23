@@ -9,6 +9,11 @@ from core.pipeline import ResultEnvelope
 from phone.layout import NormalizedLayout
 from phone.helpers import LayoutLoadError
 from phone.pipeline import (
+    AnalyzeProducer,
+    AnalyzeProcessor,
+    AnalyzeResult,
+    AnalyzeRequest,
+    AnalyzeRequestConsumer,
     ChecklistProducer,
     ChecklistProcessor,
     ChecklistResult,
@@ -24,6 +29,16 @@ from phone.pipeline import (
     PlanResult,
     PlanRequest,
     PlanRequestConsumer,
+    PruneProducer,
+    PruneProcessor,
+    PruneResult,
+    PruneRequest,
+    PruneRequestConsumer,
+    UnusedProducer,
+    UnusedProcessor,
+    UnusedResult,
+    UnusedRequest,
+    UnusedRequestConsumer,
 )
 
 
@@ -95,3 +110,162 @@ class PhonePipelineTests(TestCase):
             ChecklistProducer().produce(env)
             self.assertTrue(path.exists())
             self.assertIn("step1", path.read_text())
+
+    # -------------------------------------------------------------------------
+    # Unused pipeline tests
+    # -------------------------------------------------------------------------
+
+    def test_unused_processor_success(self):
+        with patch("phone.pipeline.load_layout", return_value=self.layout):
+            request = UnusedRequest(
+                layout=None,
+                backup=None,
+                recent_path=None,
+                keep_path=None,
+                limit=10,
+                threshold=0.0,
+                format="text",
+            )
+            env = UnusedProcessor().process(UnusedRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIsInstance(env.payload.rows, list)  # type: ignore[union-attr]
+
+    def test_unused_processor_failure(self):
+        err = LayoutLoadError(code=2, message="no backup")
+        with patch("phone.pipeline.load_layout", side_effect=err):
+            request = UnusedRequest(
+                layout=None,
+                backup=None,
+                recent_path=None,
+                keep_path=None,
+                limit=10,
+                threshold=0.0,
+                format="text",
+            )
+            env = UnusedProcessor().process(UnusedRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 2)
+
+    def test_unused_producer_text_output(self):
+        payload = UnusedResult(rows=[("com.test.app", 0.9, "Page 1")], format="text")
+        env = ResultEnvelope(status="success", payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            UnusedProducer().produce(env)
+        output = buf.getvalue()
+        self.assertIn("com.test.app", output)
+        self.assertIn("Likely unused", output)
+
+    def test_unused_producer_csv_output(self):
+        payload = UnusedResult(rows=[("com.test.app", 0.9, "Page 1")], format="csv")
+        env = ResultEnvelope(status="success", payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            UnusedProducer().produce(env)
+        output = buf.getvalue()
+        self.assertIn("app,score,location", output)
+        self.assertIn("com.test.app,0.90,Page 1", output)
+
+    # -------------------------------------------------------------------------
+    # Prune pipeline tests
+    # -------------------------------------------------------------------------
+
+    def test_prune_processor_success(self):
+        with patch("phone.pipeline.load_layout", return_value=self.layout):
+            request = PruneRequest(
+                layout=None,
+                backup=None,
+                recent_path=None,
+                keep_path=None,
+                limit=10,
+                threshold=0.0,
+                mode="offload",
+                out_path=Path("prune.txt"),
+            )
+            env = PruneProcessor().process(PruneRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIsInstance(env.payload.lines, list)  # type: ignore[union-attr]
+        self.assertIn("OFFLOAD", env.payload.lines[0])  # type: ignore[union-attr]
+
+    def test_prune_processor_delete_mode(self):
+        with patch("phone.pipeline.load_layout", return_value=self.layout):
+            request = PruneRequest(
+                layout=None,
+                backup=None,
+                recent_path=None,
+                keep_path=None,
+                limit=10,
+                threshold=0.0,
+                mode="delete",
+                out_path=Path("prune.txt"),
+            )
+            env = PruneProcessor().process(PruneRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIn("DELETE", env.payload.lines[0])  # type: ignore[union-attr]
+
+    def test_prune_producer_writes_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prune.txt"
+            payload = PruneResult(lines=["line1", "line2"], out_path=path)
+            env = ResultEnvelope(status="success", payload=payload)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                PruneProducer().produce(env)
+            self.assertTrue(path.exists())
+            self.assertIn("line1", path.read_text())
+            self.assertIn("Wrote", buf.getvalue())
+
+    # -------------------------------------------------------------------------
+    # Analyze pipeline tests
+    # -------------------------------------------------------------------------
+
+    def test_analyze_processor_success(self):
+        with patch("phone.pipeline.load_layout", return_value=self.layout):
+            request = AnalyzeRequest(
+                layout=None,
+                backup=None,
+                plan_path=None,
+                format="text",
+            )
+            env = AnalyzeProcessor().process(AnalyzeRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIn("dock_count", env.payload.metrics)  # type: ignore[union-attr]
+        self.assertIn("pages_count", env.payload.metrics)  # type: ignore[union-attr]
+
+    def test_analyze_processor_failure(self):
+        err = LayoutLoadError(code=2, message="no backup")
+        with patch("phone.pipeline.load_layout", side_effect=err):
+            request = AnalyzeRequest(
+                layout=None,
+                backup=None,
+                plan_path=None,
+                format="text",
+            )
+            env = AnalyzeProcessor().process(AnalyzeRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 2)
+
+    def test_analyze_producer_text_output(self):
+        payload = AnalyzeResult(
+            metrics={"dock_count": 4, "pages_count": 2, "totals": {"folders": 5}},
+            format="text",
+        )
+        env = ResultEnvelope(status="success", payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            AnalyzeProducer().produce(env)
+        output = buf.getvalue()
+        self.assertIn("Layout Summary", output)
+        self.assertIn("Dock: 4 apps", output)
+
+    def test_analyze_producer_json_output(self):
+        payload = AnalyzeResult(
+            metrics={"dock_count": 4, "pages_count": 2, "totals": {"folders": 5}},
+            format="json",
+        )
+        env = ResultEnvelope(status="success", payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            AnalyzeProducer().produce(env)
+        output = buf.getvalue()
+        self.assertIn('"dock_count": 4', output)

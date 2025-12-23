@@ -1,29 +1,17 @@
-import io
-import tempfile
 import unittest
-from contextlib import redirect_stdout
-from types import SimpleNamespace
+
+from tests.fixtures import FakeGmailClient, capture_stdout, make_args, write_yaml
 
 
-class FakeGmailClient:
-    def __init__(self, credentials_path: str, token_path: str, cache_dir=None):
-        self.credentials_path = credentials_path
-        self.token_path = token_path
-        self.cache_dir = cache_dir
-        self.auth = False
-        self.created = []
-
-    def authenticate(self):
-        self.auth = True
-
-    def get_label_id_map(self):
-        return {}
-
-    def ensure_label(self, name: str, **kwargs):
-        return f"ID_{name}"
-
-    def create_filter(self, criteria, action):
-        self.created.append((criteria, action))
+def _make_fake_client_class():
+    """Create a FakeGmailClient class that accepts constructor args."""
+    class ConstructableFakeGmailClient(FakeGmailClient):
+        def __init__(self, credentials_path: str, token_path: str, cache_dir=None):
+            super().__init__()
+            self.credentials_path = credentials_path
+            self.token_path = token_path
+            self.cache_dir = cache_dir
+    return ConstructableFakeGmailClient
 
 
 class LabelsApplySuggestionsTests(unittest.TestCase):
@@ -32,38 +20,35 @@ class LabelsApplySuggestionsTests(unittest.TestCase):
 
         # Patch lazy loader to return our fake client class
         original_lazy = cli._lazy_gmail_client
-        cli._lazy_gmail_client = lambda: FakeGmailClient
+        cli._lazy_gmail_client = _make_fake_client_class
         try:
-            with tempfile.TemporaryDirectory() as td:
-                cfg = {
-                    "suggestions": [
-                        {"domain": "news@example.com", "label": "Lists/Newsletters"},
-                        {"domain": "hr@company.com", "label": "Work/HR"},
-                    ]
-                }
-                import yaml
-                p = tempfile.NamedTemporaryFile(dir=td, suffix=".yaml", delete=False)
-                p.close()
-                with open(p.name, "w", encoding="utf-8") as fh:
-                    yaml.safe_dump(cfg, fh, sort_keys=False)
+            cfg = {
+                "suggestions": [
+                    {"domain": "news@example.com", "label": "Lists/Newsletters"},
+                    {"domain": "hr@company.com", "label": "Work/HR"},
+                ]
+            }
+            cfg_path = write_yaml(cfg, filename="suggestions.yaml")
+            args = make_args(
+                credentials="cred.json",
+                token="tok.json",
+                config=cfg_path,
+                dry_run=True,
+                sweep_days=None,
+                pages=1,
+                batch_size=2,
+            )
 
-                args = SimpleNamespace(
-                    credentials="cred.json",
-                    token="tok.json",
-                    cache=None,
-                    config=p.name,
-                    dry_run=True,
-                    sweep_days=None,
-                    pages=1,
-                    batch_size=2,
-                )
-                buf = io.StringIO()
-                with redirect_stdout(buf):
-                    rc = cli._cmd_labels_apply_suggestions(args)
-                out = buf.getvalue()
-                self.assertEqual(rc, 0)
-                self.assertIn("Would create: from:(news@example.com)", out)
-                self.assertIn("Would create: from:(hr@company.com)", out)
+            with capture_stdout() as buf:
+                rc = cli._cmd_labels_apply_suggestions(args)
+            out = buf.getvalue()
+
+            self.assertEqual(rc, 0)
+            self.assertIn("Would create: from:(news@example.com)", out)
+            self.assertIn("Would create: from:(hr@company.com)", out)
         finally:
             cli._lazy_gmail_client = original_lazy
 
+
+if __name__ == "__main__":
+    unittest.main()
