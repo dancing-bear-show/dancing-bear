@@ -14,7 +14,7 @@ import argparse
 from typing import Dict, List, Tuple
 
 from core.auth import resolve_outlook_credentials
-from ..outlook_api import OutlookClient
+from mail.outlook_api import OutlookClient
 
 
 QUERIES: List[Tuple[str, str]] = [

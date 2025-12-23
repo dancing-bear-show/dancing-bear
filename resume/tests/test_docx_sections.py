@@ -1,7 +1,7 @@
 """Unit tests for docx_sections renderers."""
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 class MockParagraph:
@@ -226,7 +226,7 @@ class TestListSectionRenderer(unittest.TestCase):
         renderer = ListSectionRenderer(self.doc)
         items = ["A", "B", "C"]
         sec = {"bullets": False, "separator": ", "}
-        result = renderer.render_simple_list(items, sec)
+        renderer.render_simple_list(items, sec)
         self.assertEqual(len(self.doc.paragraphs), 1)
 
     def test_render_simple_list_skips_empty_items(self):

@@ -20,7 +20,7 @@ import csv
 from typing import List, Optional
 
 from core.auth import resolve_outlook_credentials
-from ..outlook_api import OutlookClient
+from mail.outlook_api import OutlookClient
 
 
 def _col_letter(idx: int) -> str:

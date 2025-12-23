@@ -10,7 +10,6 @@ Outputs:
 from pathlib import Path
 import numpy as np
 import shapely.geometry as sg
-import shapely.affinity as sa
 import shapely.ops as so
 import trimesh
 
