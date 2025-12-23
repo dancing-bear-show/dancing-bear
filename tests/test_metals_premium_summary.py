@@ -207,5 +207,61 @@ class TestMain(unittest.TestCase):
         mock_run.assert_called_once()
 
 
+class TestPremRowAdvanced(unittest.TestCase):
+    """Advanced tests for PremRow dataclass."""
+
+    def test_equality(self):
+        """Test PremRow equality."""
+        row1 = PremRow(date="2024-01-15", vendor="TD", order_id="123",
+                       metal="gold", cost_per_oz=2500, spot_cad=2400, total_oz=1.0)
+        row2 = PremRow(date="2024-01-15", vendor="TD", order_id="123",
+                       metal="gold", cost_per_oz=2500, spot_cad=2400, total_oz=1.0)
+        self.assertEqual(row1, row2)
+
+
+class TestSummarizeAdvanced(unittest.TestCase):
+    """Advanced tests for _summarize function."""
+
+    def test_calculates_avg_premium_per_oz(self):
+        """Test calculates average premium per oz."""
+        rows = [
+            PremRow(date="2024-01-15", vendor="TD", order_id="1", metal="silver",
+                    cost_per_oz=35.00, spot_cad=30.00, total_oz=10.0),
+        ]
+        result = _summarize(rows)
+        # Premium per oz = cost - spot = 35 - 30 = 5
+        self.assertEqual(result["avg_premium_per_oz"], 5.0)
+
+    def test_weighted_average(self):
+        """Test uses ounce-weighted average for premium."""
+        rows = [
+            PremRow(date="2024-01-15", vendor="TD", order_id="1", metal="silver",
+                    cost_per_oz=35.00, spot_cad=30.00, total_oz=10.0),
+            PremRow(date="2024-01-16", vendor="TD", order_id="2", metal="silver",
+                    cost_per_oz=40.00, spot_cad=30.00, total_oz=5.0),
+        ]
+        result = _summarize(rows)
+        # Weighted avg = (5*10 + 10*5) / 15 = 100/15 = 6.67
+        self.assertAlmostEqual(result["avg_premium_per_oz"], 6.67, places=2)
+
+
+class TestMonthlyAdvanced(unittest.TestCase):
+    """Advanced tests for _monthly function."""
+
+    def test_aggregates_multiple_orders_per_month(self):
+        """Test aggregates multiple orders in same month."""
+        rows = [
+            PremRow(date="2024-01-05", vendor="TD", order_id="1", metal="silver",
+                    cost_per_oz=35.00, spot_cad=30.00, total_oz=5.0),
+            PremRow(date="2024-01-15", vendor="Costco", order_id="2", metal="silver",
+                    cost_per_oz=36.00, spot_cad=31.00, total_oz=10.0),
+            PremRow(date="2024-01-25", vendor="RCM", order_id="3", metal="silver",
+                    cost_per_oz=34.00, spot_cad=29.00, total_oz=8.0),
+        ]
+        result = _monthly(rows)
+        self.assertEqual(result["2024-01"]["orders"], 3)
+        self.assertEqual(result["2024-01"]["total_oz"], 23.0)
+
+
 if __name__ == "__main__":
     unittest.main()
