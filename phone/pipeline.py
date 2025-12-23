@@ -5,12 +5,43 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
 
 from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
+
+# Generic RequestConsumer (mirrors calendar_assistant.pipeline_base.RequestConsumer)
+RequestT = TypeVar("RequestT")
+
+
+class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
+    """Generic consumer that wraps any request object."""
+
+    def __init__(self, request: RequestT) -> None:
+        self._request = request
+
+    def consume(self) -> RequestT:  # pragma: no cover - trivial
+        return self._request
+
+
+class BaseProducer:
+    """Base class for pipeline producers with common error handling."""
+
+    def produce(self, result: ResultEnvelope) -> None:
+        """Template method: handle errors, delegate success to subclass."""
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg, file=sys.stderr)
+            return
+        if result.payload is not None:
+            self._produce_success(result.payload, result.diagnostics)
+
+    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
+        """Override in subclass to handle successful result output."""
+        raise NotImplementedError("Subclass must implement _produce_success")
 
 
 @dataclass
@@ -19,12 +50,8 @@ class ExportRequest:
     out_path: Path
 
 
-class ExportRequestConsumer(Consumer[ExportRequest]):
-    def __init__(self, request: ExportRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ExportRequest:  # pragma: no cover - simple
-        return self._request
+# Type alias for backward compatibility
+ExportRequestConsumer = RequestConsumer[ExportRequest]
 
 
 @dataclass
@@ -45,16 +72,10 @@ class ExportProcessor(Processor[ExportRequest, ResultEnvelope[ExportResult]]):
         return ResultEnvelope(status="success", payload=ExportResult(document=export, out_path=payload.out_path))
 
 
-class ExportProducer(Producer[ResultEnvelope[ExportResult]]):
-    def produce(self, result: ResultEnvelope[ExportResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None  # for type checker
-        write_yaml(result.payload.document, result.payload.out_path)
-        print(f"Wrote layout export to {result.payload.out_path}")
+class ExportProducer(BaseProducer):
+    def _produce_success(self, payload: ExportResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        write_yaml(payload.document, payload.out_path)
+        print(f"Wrote layout export to {payload.out_path}")
 
 
 @dataclass
@@ -64,12 +85,7 @@ class PlanRequest:
     out_path: Path
 
 
-class PlanRequestConsumer(Consumer[PlanRequest]):
-    def __init__(self, request: PlanRequest) -> None:
-        self._request = request
-
-    def consume(self) -> PlanRequest:  # pragma: no cover
-        return self._request
+PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 
 @dataclass
@@ -88,16 +104,10 @@ class PlanProcessor(Processor[PlanRequest, ResultEnvelope[PlanResult]]):
         return ResultEnvelope(status="success", payload=PlanResult(document=plan, out_path=payload.out_path))
 
 
-class PlanProducer(Producer[ResultEnvelope[PlanResult]]):
-    def produce(self, result: ResultEnvelope[PlanResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        write_yaml(result.payload.document, result.payload.out_path)
-        print(f"Wrote plan scaffold to {result.payload.out_path}")
+class PlanProducer(BaseProducer):
+    def _produce_success(self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        write_yaml(payload.document, payload.out_path)
+        print(f"Wrote plan scaffold to {payload.out_path}")
 
 
 @dataclass
@@ -108,12 +118,7 @@ class ChecklistRequest:
     out_path: Path
 
 
-class ChecklistRequestConsumer(Consumer[ChecklistRequest]):
-    def __init__(self, request: ChecklistRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ChecklistRequest:  # pragma: no cover
-        return self._request
+ChecklistRequestConsumer = RequestConsumer[ChecklistRequest]
 
 
 @dataclass
@@ -136,17 +141,11 @@ class ChecklistProcessor(Processor[ChecklistRequest, ResultEnvelope[ChecklistRes
         return ResultEnvelope(status="success", payload=ChecklistResult(steps=steps, out_path=payload.out_path))
 
 
-class ChecklistProducer(Producer[ResultEnvelope[ChecklistResult]]):
-    def produce(self, result: ResultEnvelope[ChecklistResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        out = result.payload.out_path
+class ChecklistProducer(BaseProducer):
+    def _produce_success(self, payload: ChecklistResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(result.payload.steps) + "\n", encoding="utf-8")
+        out.write_text("\n".join(payload.steps) + "\n", encoding="utf-8")
         print(f"Wrote checklist to {out}")
 
 
@@ -166,12 +165,7 @@ class UnusedRequest:
     format: str = "text"  # "text" or "csv"
 
 
-class UnusedRequestConsumer(Consumer[UnusedRequest]):
-    def __init__(self, request: UnusedRequest) -> None:
-        self._request = request
-
-    def consume(self) -> UnusedRequest:
-        return self._request
+UnusedRequestConsumer = RequestConsumer[UnusedRequest]
 
 
 @dataclass
@@ -197,16 +191,10 @@ class UnusedProcessor(Processor[UnusedRequest, ResultEnvelope[UnusedResult]]):
         return ResultEnvelope(status="success", payload=UnusedResult(rows=rows, format=payload.format))
 
 
-class UnusedProducer(Producer[ResultEnvelope[UnusedResult]]):
-    def produce(self, result: ResultEnvelope[UnusedResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        rows = result.payload.rows
-        if result.payload.format == "csv":
+class UnusedProducer(BaseProducer):
+    def _produce_success(self, payload: UnusedResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        rows = payload.rows
+        if payload.format == "csv":
             print("app,score,location")
             for app, score, loc in rows:
                 print(f"{app},{score:.2f},{loc}")
@@ -234,12 +222,7 @@ class PruneRequest:
     out_path: Path = Path("out/ios.unused.prune_checklist.txt")
 
 
-class PruneRequestConsumer(Consumer[PruneRequest]):
-    def __init__(self, request: PruneRequest) -> None:
-        self._request = request
-
-    def consume(self) -> PruneRequest:
-        return self._request
+PruneRequestConsumer = RequestConsumer[PruneRequest]
 
 
 @dataclass
@@ -280,17 +263,11 @@ class PruneProcessor(Processor[PruneRequest, ResultEnvelope[PruneResult]]):
         return ResultEnvelope(status="success", payload=PruneResult(lines=lines, out_path=payload.out_path))
 
 
-class PruneProducer(Producer[ResultEnvelope[PruneResult]]):
-    def produce(self, result: ResultEnvelope[PruneResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        out = result.payload.out_path
+class PruneProducer(BaseProducer):
+    def _produce_success(self, payload: PruneResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("\n".join(result.payload.lines) + "\n", encoding="utf-8")
+        out.write_text("\n".join(payload.lines) + "\n", encoding="utf-8")
         print(f"Wrote {out}")
 
 
@@ -307,12 +284,7 @@ class AnalyzeRequest:
     format: str = "text"  # "text" or "json"
 
 
-class AnalyzeRequestConsumer(Consumer[AnalyzeRequest]):
-    def __init__(self, request: AnalyzeRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AnalyzeRequest:
-        return self._request
+AnalyzeRequestConsumer = RequestConsumer[AnalyzeRequest]
 
 
 @dataclass
@@ -344,17 +316,11 @@ class AnalyzeProcessor(Processor[AnalyzeRequest, ResultEnvelope[AnalyzeResult]])
         return ResultEnvelope(status="success", payload=AnalyzeResult(metrics=metrics, format=payload.format))
 
 
-class AnalyzeProducer(Producer[ResultEnvelope[AnalyzeResult]]):
-    def produce(self, result: ResultEnvelope[AnalyzeResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        metrics = result.payload.metrics
+class AnalyzeProducer(BaseProducer):
+    def _produce_success(self, payload: AnalyzeResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        metrics = payload.metrics
 
-        if result.payload.format == "json":
+        if payload.format == "json":
             import json
             print(json.dumps(metrics, indent=2))
             return
@@ -394,12 +360,7 @@ class ExportDeviceRequest:
     out_path: Path
 
 
-class ExportDeviceRequestConsumer(Consumer[ExportDeviceRequest]):
-    def __init__(self, request: ExportDeviceRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ExportDeviceRequest:
-        return self._request
+ExportDeviceRequestConsumer = RequestConsumer[ExportDeviceRequest]
 
 
 @dataclass
@@ -435,17 +396,11 @@ class ExportDeviceProcessor(Processor[ExportDeviceRequest, ResultEnvelope[Export
         return ResultEnvelope(status="success", payload=ExportDeviceResult(document=export, out_path=payload.out_path))
 
 
-class ExportDeviceProducer(Producer[ResultEnvelope[ExportDeviceResult]]):
-    def produce(self, result: ResultEnvelope[ExportDeviceResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        result.payload.out_path.parent.mkdir(parents=True, exist_ok=True)
-        write_yaml(result.payload.document, result.payload.out_path)
-        print(f"Wrote layout export to {result.payload.out_path}")
+class ExportDeviceProducer(BaseProducer):
+    def _produce_success(self, payload: ExportDeviceResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        payload.out_path.parent.mkdir(parents=True, exist_ok=True)
+        write_yaml(payload.document, payload.out_path)
+        print(f"Wrote layout export to {payload.out_path}")
 
 
 @dataclass
@@ -456,12 +411,7 @@ class IconmapRequest:
     out_path: Path
 
 
-class IconmapRequestConsumer(Consumer[IconmapRequest]):
-    def __init__(self, request: IconmapRequest) -> None:
-        self._request = request
-
-    def consume(self) -> IconmapRequest:
-        return self._request
+IconmapRequestConsumer = RequestConsumer[IconmapRequest]
 
 
 @dataclass
@@ -505,17 +455,11 @@ class IconmapProcessor(Processor[IconmapRequest, ResultEnvelope[IconmapResult]])
         return ResultEnvelope(status="success", payload=IconmapResult(data=out, out_path=payload.out_path))
 
 
-class IconmapProducer(Producer[ResultEnvelope[IconmapResult]]):
-    def produce(self, result: ResultEnvelope[IconmapResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        result.payload.out_path.parent.mkdir(parents=True, exist_ok=True)
-        result.payload.out_path.write_bytes(result.payload.data)
-        print(f"Wrote icon map to {result.payload.out_path}")
+class IconmapProducer(BaseProducer):
+    def _produce_success(self, payload: IconmapResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        payload.out_path.parent.mkdir(parents=True, exist_ok=True)
+        payload.out_path.write_bytes(payload.data)
+        print(f"Wrote icon map to {payload.out_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -529,12 +473,7 @@ class ManifestFromExportRequest:
     out_path: Path
 
 
-class ManifestFromExportRequestConsumer(Consumer[ManifestFromExportRequest]):
-    def __init__(self, request: ManifestFromExportRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ManifestFromExportRequest:
-        return self._request
+ManifestFromExportRequestConsumer = RequestConsumer[ManifestFromExportRequest]
 
 
 @dataclass
@@ -614,16 +553,10 @@ class ManifestFromExportProcessor(Processor[ManifestFromExportRequest, ResultEnv
         )
 
 
-class ManifestFromExportProducer(Producer[ResultEnvelope[ManifestFromExportResult]]):
-    def produce(self, result: ResultEnvelope[ManifestFromExportResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
-        write_yaml(result.payload.manifest, result.payload.out_path)
-        print(f"Wrote device layout manifest to {result.payload.out_path}")
+class ManifestFromExportProducer(BaseProducer):
+    def _produce_success(self, payload: ManifestFromExportResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        write_yaml(payload.manifest, payload.out_path)
+        print(f"Wrote device layout manifest to {payload.out_path}")
 
 
 @dataclass
@@ -633,12 +566,7 @@ class ManifestFromDeviceRequest:
     out_path: Path
 
 
-class ManifestFromDeviceRequestConsumer(Consumer[ManifestFromDeviceRequest]):
-    def __init__(self, request: ManifestFromDeviceRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ManifestFromDeviceRequest:
-        return self._request
+ManifestFromDeviceRequestConsumer = RequestConsumer[ManifestFromDeviceRequest]
 
 
 @dataclass
@@ -733,22 +661,16 @@ class ManifestFromDeviceProcessor(Processor[ManifestFromDeviceRequest, ResultEnv
         )
 
 
-class ManifestFromDeviceProducer(Producer[ResultEnvelope[ManifestFromDeviceResult]]):
-    def produce(self, result: ResultEnvelope[ManifestFromDeviceResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-        assert result.payload is not None
+class ManifestFromDeviceProducer(BaseProducer):
+    def _produce_success(self, payload: ManifestFromDeviceResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         # Write export if path specified or default
-        if result.payload.export_document:
-            export_path = result.payload.export_out or Path("out/device.IconState.yaml")
+        if payload.export_document:
+            export_path = payload.export_out or Path("out/device.IconState.yaml")
             export_path.parent.mkdir(parents=True, exist_ok=True)
-            write_yaml(result.payload.export_document, export_path)
+            write_yaml(payload.export_document, export_path)
         # Write manifest
-        write_yaml(result.payload.manifest, result.payload.out_path)
-        print(f"Wrote device layout manifest to {result.payload.out_path}")
+        write_yaml(payload.manifest, payload.out_path)
+        print(f"Wrote device layout manifest to {payload.out_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -767,12 +689,7 @@ class ManifestInstallRequest:
     config: Optional[str]
 
 
-class ManifestInstallRequestConsumer(Consumer[ManifestInstallRequest]):
-    def __init__(self, request: ManifestInstallRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ManifestInstallRequest:
-        return self._request
+ManifestInstallRequestConsumer = RequestConsumer[ManifestInstallRequest]
 
 
 @dataclass
@@ -867,30 +784,23 @@ class ManifestInstallProcessor(Processor[ManifestInstallRequest, ResultEnvelope[
         )
 
 
-class ManifestInstallProducer(Producer[ResultEnvelope[ManifestInstallResult]]):
-    def produce(self, result: ResultEnvelope[ManifestInstallResult]) -> None:
+class ManifestInstallProducer(BaseProducer):
+    def _produce_success(self, payload: ManifestInstallResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         import subprocess
 
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg, file=sys.stderr)
-            return
-
-        assert result.payload is not None
         # Write profile
-        result.payload.profile_path.parent.mkdir(parents=True, exist_ok=True)
-        result.payload.profile_path.write_bytes(result.payload.profile_bytes)
-        print(f"Built profile: {result.payload.profile_path}")
+        payload.profile_path.parent.mkdir(parents=True, exist_ok=True)
+        payload.profile_path.write_bytes(payload.profile_bytes)
+        print(f"Built profile: {payload.profile_path}")
 
-        if result.payload.dry_run:
+        if payload.dry_run:
             print("Dry-run: skipping install")
             return
 
-        if result.payload.install_cmd:
-            print("Installing via:", " ".join(result.payload.install_cmd))
+        if payload.install_cmd:
+            print("Installing via:", " ".join(payload.install_cmd))
             try:
-                subprocess.call(result.payload.install_cmd)  # nosec B603
+                subprocess.call(payload.install_cmd)  # nosec B603
             except FileNotFoundError:
                 print("Error: ios-install-profile not found", file=sys.stderr)
 
@@ -929,12 +839,7 @@ class IdentityVerifyRequest:
     expected_org: Optional[str]
 
 
-class IdentityVerifyRequestConsumer(Consumer[IdentityVerifyRequest]):
-    def __init__(self, request: IdentityVerifyRequest) -> None:
-        self._request = request
-
-    def consume(self) -> IdentityVerifyRequest:
-        return self._request
+IdentityVerifyRequestConsumer = RequestConsumer[IdentityVerifyRequest]
 
 
 @dataclass
@@ -1020,25 +925,16 @@ class IdentityVerifyProcessor(Processor[IdentityVerifyRequest, ResultEnvelope[Id
         )
 
 
-class IdentityVerifyProducer(Producer[ResultEnvelope[IdentityVerifyResult]]):
-    def produce(self, result: ResultEnvelope[IdentityVerifyResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(f"Error: {msg}", file=sys.stderr)
-            return
-
-        assert result.payload is not None
-        p = result.payload
-
+class IdentityVerifyProducer(BaseProducer):
+    def _produce_success(self, payload: IdentityVerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         print("Identity Verification Summary")
-        print(f"- p12: {p.p12_path}")
-        print(f"- cert.subject: {p.cert_subject or '(unknown)'}")
-        print(f"- cert.issuer:  {p.cert_issuer or '(unknown)'}")
-        if p.expected_org:
-            print(f"- expected org '{p.expected_org}': {'MATCH' if p.org_match else 'NO MATCH'}")
-        print(f"- device.udid: {p.udid or '(not provided)'}")
-        print(f"- device.supervised: {p.supervised or '(unknown)'}")
+        print(f"- p12: {payload.p12_path}")
+        print(f"- cert.subject: {payload.cert_subject or '(unknown)'}")
+        print(f"- cert.issuer:  {payload.cert_issuer or '(unknown)'}")
+        if payload.expected_org:
+            print(f"- expected org '{payload.expected_org}': {'MATCH' if payload.org_match else 'NO MATCH'}")
+        print(f"- device.udid: {payload.udid or '(not provided)'}")
+        print(f"- device.supervised: {payload.supervised or '(unknown)'}")
         print("")
         print("Next steps:")
         print("- Ensure the device shows 'Supervised by <Org>' matching the certificate subject/issuer above.")
