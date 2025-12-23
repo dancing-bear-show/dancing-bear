@@ -90,11 +90,11 @@ Read in order for best context:
 Use profiles in `~/.config/credentials.ini`:
 
 ```ini
-[mail_assistant.gmail_personal]
+[mail.gmail_personal]
 credentials = /path/to/google_credentials.json
 token = /path/to/token.json
 
-[mail_assistant.outlook_personal]
+[mail.outlook_personal]
 outlook_client_id = <YOUR_APP_ID>
 tenant = consumers
 outlook_token = /path/to/outlook_token.json

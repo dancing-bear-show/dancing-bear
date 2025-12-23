@@ -30,11 +30,11 @@ Prefer profiles in `~/.config/credentials.ini` and avoid passing tokens on the C
 
 Example:
 ```
-[mail_assistant.gmail_personal]
+[mail.gmail_personal]
 credentials = /Users/you/.config/google_credentials.gmail_personal.json
 token = /Users/you/.config/token.gmail_personal.json
 
-[mail_assistant.outlook_personal]
+[mail.outlook_personal]
 outlook_client_id = <YOUR_APP_ID>
 tenant = consumers
 outlook_token = /Users/you/.config/outlook_token.json

@@ -1,5 +1,5 @@
 Scope
-- Applies to files under `resume_assistant/`.
+- Applies to files under `resume/`.
 
 Guidelines
 - Keep modules small and avoid heavy formatting dependencies.

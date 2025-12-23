@@ -28,10 +28,10 @@ This repository hosts personal assistants (mail, calendar, schedule, phone, resu
 ## Architecture
 
 ```
-mail_assistant/           # Gmail/Outlook providers, CLI wiring
-calendar_assistant/       # Outlook calendar CLI + Gmail scans
-schedule_assistant/       # plan/apply calendar schedules
-resume_assistant/         # extract/summarize/render resumes
+mail/           # Gmail/Outlook providers, CLI wiring
+calendars/       # Outlook calendar CLI + Gmail scans
+schedule/       # plan/apply calendar schedules
+resume/         # extract/summarize/render resumes
 phone/                    # iOS layout tooling
 whatsapp/                 # local-only ChatStorage search
 maker/                    # utility generators
@@ -51,7 +51,7 @@ make test  # or: python3 -m unittest -v
 ## Per-Module Context
 
 Look for `AGENTS.md` files in subdirectories for domain-specific instructions:
-- `mail_assistant/AGENTS.md`
-- `calendar_assistant/AGENTS.md`
+- `mail/AGENTS.md`
+- `calendars/AGENTS.md`
 - `phone/AGENTS.md`
 - etc.

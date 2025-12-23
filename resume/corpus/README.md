@@ -8,7 +8,7 @@ File types
 - `.txt`, `.md` are preferred. `.docx` also supported if `python-docx` is installed.
 
 Build a style profile
-- `./bin/resume_assistant style build --corpus-dir corpus --profile yourprefix`
+- `./bin/resume style build --corpus-dir corpus --profile yourprefix`
 - Outputs `out/yourprefix.style.json` with simple lexical stats and top terms.
 
 Use with render/summarize (optional)

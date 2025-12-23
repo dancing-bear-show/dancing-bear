@@ -7,6 +7,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from core.cache import ConfigCacheMixin
+
 # Lazy optional deps: avoid importing on --help to prevent warnings/overhead
 msal = None  # type: ignore
 requests = None  # type: ignore
@@ -77,13 +79,13 @@ SCOPES = [
 ]
 
 
-class OutlookClientBase:
+class OutlookClientBase(ConfigCacheMixin):
     """Base Microsoft Graph client with authentication and config caching.
 
     Provides:
     - MSAL device flow authentication
     - Token refresh and caching
-    - JSON config caching for API responses
+    - JSON config caching for API responses (via ConfigCacheMixin)
     """
 
     def __init__(
@@ -93,6 +95,7 @@ class OutlookClientBase:
         token_path: Optional[str] = None,
         cache_dir: Optional[str] = None,
     ) -> None:
+        ConfigCacheMixin.__init__(self, cache_dir, provider="outlook")
         self.client_id = client_id
         self.tenant = tenant
         self.token_path = token_path
@@ -101,53 +104,7 @@ class OutlookClientBase:
         self._cache: Optional["msal.SerializableTokenCache"] = None
         self._app: Optional["msal.PublicClientApplication"] = None
         self._scopes: List[str] = ["https://graph.microsoft.com/.default"]
-        self._cfg_provider = "outlook"
         self.GRAPH = GRAPH
-
-    # -------------------- Simple config JSON cache --------------------
-    def _cfg_path(self, name: str) -> Optional[str]:
-        if not self.cache_dir:
-            return None
-        return os.path.join(self.cache_dir, self._cfg_provider, "config", f"{name}.json")
-
-    def cfg_get_json(self, name: str, ttl: int) -> Optional[Dict[str, Any]]:
-        p = self._cfg_path(name)
-        if not p:
-            return None
-        if not os.path.exists(p):
-            return None
-        try:
-            if ttl > 0:
-                age = time.time() - os.path.getmtime(p)
-                if age > ttl:
-                    return None
-            with open(p, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except Exception:
-            return None
-
-    def cfg_put_json(self, name: str, data: Any) -> None:
-        p = self._cfg_path(name)
-        if not p:
-            return
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        try:
-            with open(p, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False)
-        except Exception:
-            pass  # nosec B110 - non-fatal cache write
-
-    def cfg_clear(self) -> None:
-        p = self._cfg_path(".")
-        if not p:
-            return
-        import shutil
-        config_dir = os.path.dirname(p)
-        try:
-            if os.path.isdir(config_dir):
-                shutil.rmtree(config_dir)
-        except Exception:
-            pass  # nosec B110 - non-fatal cache clear
 
     # -------------------- Auth --------------------
     def authenticate(self) -> None:

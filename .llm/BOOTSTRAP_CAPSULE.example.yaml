@@ -17,5 +17,5 @@ agentic_help:
   unified_clis: [mail-assistant, calendar-assistant, llm]
 
 # You can also add a scoped component for quick familiarization
-# component: mail_assistant
+# component: mail
 
