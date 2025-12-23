@@ -43,6 +43,10 @@ from .pipeline import (
     IconmapProcessor,
     IconmapRequest,
     IconmapRequestConsumer,
+    IdentityVerifyProducer,
+    IdentityVerifyProcessor,
+    IdentityVerifyRequest,
+    IdentityVerifyRequestConsumer,
     ManifestFromDeviceProducer,
     ManifestFromDeviceProcessor,
     ManifestFromDeviceRequest,
@@ -562,116 +566,21 @@ def cmd_manifest_install(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-def _read_credentials_ini(explicit: str | None = None) -> tuple[str | None, dict]:
-    """Return (path, mapping) for credentials.ini if found."""
-    cand: list[str] = []
-    if explicit:
-        cand.append(explicit)
-    envp = os.environ.get("CREDENTIALS")
-    if envp:
-        cand.append(envp)
-    xdg = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
-    cand.extend([
-        os.path.join(xdg, "credentials.ini"),
-        os.path.join(os.path.expanduser("~"), ".config", "credentials.ini"),
-        os.path.join(xdg, "sre-utils", "credentials.ini"),
-        os.path.join(os.path.expanduser("~"), ".config", "sre-utils", "credentials.ini"),
-        os.path.join(os.path.expanduser("~"), ".config", "sreutils", "credentials.ini"),
-        os.path.join(os.path.expanduser("~"), ".sre-utils", "credentials.ini"),
-    ])
-    for p in cand:
-        if p and os.path.exists(p):
-            # Minimal INI reader
-            import configparser
-            cp = configparser.ConfigParser()
-            cp.read(p)
-            data = {s: dict(cp.items(s)) for s in cp.sections()}
-            return p, data
-    return None, {}
-
-
 def cmd_identity_verify(args: argparse.Namespace) -> int:
-    # Resolve p12
-    p12_path = getattr(args, "p12", None)
-    p12_pass = getattr(args, "p12_pass", None)
-    cfg_path, ini = _read_credentials_ini(getattr(args, "config", None))
-    prof = getattr(args, "creds_profile", os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"))
-    if not p12_path and prof in ini:
-        sec = ini[prof]
-        p12_path = sec.get("supervision_identity_p12") or sec.get("ios_home_layout_identity_p12") or sec.get("supervision_p12")
-        p12_pass = p12_pass or sec.get("supervision_identity_pass") or sec.get("ios_home_layout_identity_pass") or sec.get("supervision_p12_pass")
-    # Expand ~
-    if p12_path and p12_path.startswith("~/"):
-        p12_path = os.path.join(os.path.expanduser("~"), p12_path[2:])
-    # Extract cert subject/issuer
-    cert_subject = ""
-    cert_issuer = ""
-    if not p12_path or not os.path.exists(p12_path):
-        print("Error: .p12 path not provided or not found (use --p12 or credentials.ini)", file=sys.stderr)
-        return 2
-    import subprocess as _sp
-    # Extract cert PEM with -legacy for OpenSSL 3
-    cert_pem = None
-    try:
-        cmd = ["openssl", "pkcs12", "-legacy", "-in", p12_path, "-clcerts", "-nokeys"]
-        if p12_pass:
-            cmd.extend(["-passin", f"pass:{p12_pass}"])
-        cert_pem = _sp.check_output(cmd, stderr=_sp.DEVNULL)
-    except Exception:
-        try:
-            cmd = ["openssl", "pkcs12", "-in", p12_path, "-clcerts", "-nokeys"]
-            if p12_pass:
-                cmd.extend(["-passin", f"pass:{p12_pass}"])
-            cert_pem = _sp.check_output(cmd, stderr=_sp.DEVNULL)
-        except Exception as e:
-            print(f"Error: failed to extract certificate from {p12_path}: {e}", file=sys.stderr)
-            return 3
-    try:
-        subj = _sp.check_output(["openssl", "x509", "-noout", "-subject"], input=cert_pem, stderr=_sp.DEVNULL)
-        iss = _sp.check_output(["openssl", "x509", "-noout", "-issuer"], input=cert_pem, stderr=_sp.DEVNULL)
-        cert_subject = subj.decode().strip().replace("subject=", "")
-        cert_issuer = iss.decode().strip().replace("issuer=", "")
-    except Exception:
-        pass
-
-    # Device supervision status
-    from .device import find_cfgutil_path
-
-    cfg = find_cfgutil_path()
-    udid = getattr(args, "udid", None)
-    if not udid:
-        lbl = getattr(args, "device_label", None) or os.environ.get("IOS_DEVICE_LABEL")
-        if lbl and cfg_path and os.path.exists(cfg_path):
-            # map label to UDID
-            import configparser
-            cp = configparser.ConfigParser()
-            cp.read(cfg_path)
-            if cp.has_section("ios_devices") and cp.has_option("ios_devices", lbl):
-                udid = cp.get("ios_devices", lbl)
-    supervised = None
-    try:
-        out = _sp.check_output([cfg, "get", "Supervised"], stderr=_sp.DEVNULL, text=True)
-        if "Supervised:" in out:
-            supervised = out.split(":", 1)[1].strip()
-    except Exception:
-        pass
-
-    print("Identity Verification Summary")
-    print(f"- p12: {p12_path}")
-    print(f"- cert.subject: {cert_subject or '(unknown)'}")
-    print(f"- cert.issuer:  {cert_issuer or '(unknown)'}")
-    if getattr(args, "expected_org", None):
-        exp = getattr(args, "expected_org")
-        ok = (exp in cert_subject) or (exp in cert_issuer)
-        print(f"- expected org '{exp}': {'MATCH' if ok else 'NO MATCH'}")
-    print(f"- device.udid: {udid or '(not provided)'}")
-    print(f"- device.supervised: {supervised if supervised is not None else '(unknown)'}")
-    print("")
-    print("Next steps:")
-    print("- Ensure the device shows 'Supervised by <Org>' matching the certificate subject/issuer above.")
-    print("- If they match, no-touch installs should succeed using this identity.")
-    print("- If they do not match, Prepare again under the correct Organization, or export the matching Supervision Identity.")
-    return 0
+    request = IdentityVerifyRequest(
+        p12_path=getattr(args, "p12", None),
+        p12_pass=getattr(args, "p12_pass", None),
+        creds_profile=getattr(args, "creds_profile", None),
+        config=getattr(args, "config", None),
+        device_label=getattr(args, "device_label", None),
+        udid=getattr(args, "udid", None),
+        expected_org=getattr(args, "expected_org", None),
+    )
+    envelope = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+    IdentityVerifyProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 
 if __name__ == "__main__":

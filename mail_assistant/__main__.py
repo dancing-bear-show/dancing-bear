@@ -65,6 +65,32 @@ from .outlook.commands import (
     run_outlook_auth_validate,
 )
 from .outlook.helpers import resolve_outlook_args as _resolve_outlook_args
+from .labels.commands import (
+    run_labels_plan,
+    run_labels_sync,
+    run_labels_export,
+    run_labels_list,
+    run_labels_doctor,
+    run_labels_prune_empty,
+    run_labels_learn,
+    run_labels_apply_suggestions,
+    run_labels_delete,
+    run_labels_sweep_parents,
+)
+from .filters.commands import (
+    run_filters_plan,
+    run_filters_sync,
+    run_filters_export,
+    run_filters_list,
+    run_filters_delete,
+    run_filters_impact,
+    run_filters_sweep,
+    run_filters_sweep_range,
+    run_filters_prune_empty,
+    run_filters_add_forward_by_label,
+    run_filters_add_from_token,
+    run_filters_rm_from_token,
+)
 
 
 CLI_DESCRIPTION = "Mail Assistant CLI"
@@ -100,16 +126,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     _register_labels(
         sub,
-        f_list=_cmd_labels_list,
-        f_sync=_cmd_labels_sync,
-        f_export=_cmd_labels_export,
-        f_plan=_cmd_labels_plan,
-        f_doctor=_cmd_labels_doctor,
-        f_prune_empty=_cmd_labels_prune_empty,
-        f_learn=_cmd_labels_learn,
-        f_apply_suggestions=_cmd_labels_apply_suggestions,
-        f_delete=_cmd_labels_delete,
-        f_sweep_parents=_cmd_labels_sweep_parents,
+        f_list=run_labels_list,
+        f_sync=run_labels_sync,
+        f_export=run_labels_export,
+        f_plan=run_labels_plan,
+        f_doctor=run_labels_doctor,
+        f_prune_empty=run_labels_prune_empty,
+        f_learn=run_labels_learn,
+        f_apply_suggestions=run_labels_apply_suggestions,
+        f_delete=run_labels_delete,
+        f_sweep_parents=run_labels_sweep_parents,
     )
 
     # filters group (registered via helper)
@@ -117,18 +143,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     _register_filters(
         sub,
-        f_list=_cmd_filters_list,
-        f_export=_cmd_filters_export,
-        f_sync=_cmd_filters_sync,
-        f_plan=_cmd_filters_plan,
-        f_impact=_cmd_filters_impact,
-        f_sweep=_cmd_filters_sweep,
-        f_sweep_range=_cmd_filters_sweep_range,
-        f_delete=_cmd_filters_delete,
-        f_prune_empty=_cmd_filters_prune_empty,
-        f_add_forward_by_label=_cmd_filters_add_forward_by_label,
-        f_add_from_token=_cmd_filters_add_from_token,
-        f_rm_from_token=_cmd_filters_rm_from_token,
+        f_list=run_filters_list,
+        f_export=run_filters_export,
+        f_sync=run_filters_sync,
+        f_plan=run_filters_plan,
+        f_impact=run_filters_impact,
+        f_sweep=run_filters_sweep,
+        f_sweep_range=run_filters_sweep_range,
+        f_delete=run_filters_delete,
+        f_prune_empty=run_filters_prune_empty,
+        f_add_forward_by_label=run_filters_add_forward_by_label,
+        f_add_from_token=run_filters_add_from_token,
+        f_rm_from_token=run_filters_rm_from_token,
     )
 
     # messages group (search, summarize, reply)
@@ -751,59 +777,6 @@ def _cmd_auth(args: argparse.Namespace) -> int:
     return 0
 
 
-@_with_gmail_client
-def _cmd_labels_list(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_client_authenticated
-    client = getattr(args, "_gmail_client", None) or gmail_client_authenticated(args)
-    labels = client.list_labels()
-    for lab in labels:
-        name = lab.get("name", "<unknown>")
-        lab_id = lab.get("id", "")
-        print(f"{lab_id}\t{name}")
-    return 0
-
-
-def _cmd_labels_sync(args: argparse.Namespace) -> int:
-    from .labels.commands import run_labels_sync
-
-    return run_labels_sync(args)
-
-
-def _cmd_labels_export(args: argparse.Namespace) -> int:
-    from .labels.commands import run_labels_export
-
-    return run_labels_export(args)
-
-
-def _cmd_labels_plan(args: argparse.Namespace) -> int:
-    from .labels.commands import run_labels_plan
-
-    return run_labels_plan(args)
-
-
-def _analyze_labels(labels: list[dict]) -> dict:
-    names = [l.get("name", "") for l in labels if isinstance(l, dict)]
-    from collections import Counter
-    counts = Counter(names)
-    dups = [n for n, c in counts.items() if c > 1]
-    parts = [n.split('/') for n in names]
-    max_depth = max((len(ps) for ps in parts), default=0)
-    top_counts = Counter(ps[0] for ps in parts if ps)
-    vis_l = Counter((l.get('labelListVisibility') or 'unset') for l in labels if isinstance(l, dict))
-    vis_m = Counter((l.get('messageListVisibility') or 'unset') for l in labels if isinstance(l, dict))
-    imapish = [n for n in names if n.startswith('[Gmail]') or n.lower().startswith('imap/')]
-    unset_vis = [l.get('name') for l in labels if not l.get('labelListVisibility') or not l.get('messageListVisibility')]
-    return {
-        'total': len(names),
-        'duplicates': dups,
-        'max_depth': max_depth,
-        'top_counts': dict(top_counts.most_common(10)),
-        'vis_label': dict(vis_l),
-        'vis_message': dict(vis_m),
-        'imapish': imapish,
-        'unset_visibility': unset_vis,
-    }
-
 from .dsl import (
     normalize_labels_for_outlook as _normalize_labels_for_outlook,
     normalize_filters_for_outlook as _normalize_filters_for_outlook,
@@ -812,315 +785,6 @@ from .dsl import (
 
 
 # Normalization helpers moved to mail_assistant.dsl (imported above)
-
-
-def _cmd_labels_doctor(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    labs = client.list_labels(use_cache=getattr(args, 'use_cache', False), ttl=getattr(args, 'cache_ttl', 300))
-    info = _analyze_labels(labs)
-    print(f"Total labels: {info['total']}")
-    print(f"Duplicates: {len(info['duplicates'])}{(' ; ' + ','.join(info['duplicates'])) if info['duplicates'] else ''}")
-    print(f"Max depth: {info['max_depth']}")
-    print(f"Top-level groups: {info['top_counts']}")
-    print(f"Visibility labelListVisibility: {info['vis_label']}")
-    print(f"Visibility messageListVisibility: {info['vis_message']}")
-    print(f"IMAP-style labels: {len(info['imapish'])}{(' ; ' + ','.join(info['imapish'])) if info['imapish'] else ''}")
-    print(f"Unset visibility count: {len(info['unset_visibility'])}")
-
-    # Enforce defaults if requested
-    changed = 0
-    if args.set_visibility:
-        for l in labs:
-            if l.get('type') == 'system':
-                continue
-            name = l.get('name')
-            body = {"name": name}
-            need = False
-            if not l.get('labelListVisibility'):
-                body['labelListVisibility'] = 'labelShow'
-                need = True
-            if not l.get('messageListVisibility'):
-                body['messageListVisibility'] = 'show'
-                need = True
-            if need:
-                client.update_label(l.get('id', ''), body)
-                print(f"Updated visibility: {name}")
-                changed += 1
-
-    # Redirects passed as old=new
-    if args.imap_redirect:
-        map_pairs = []
-        for spec in args.imap_redirect:
-            if '=' in spec:
-                old, new = spec.split('=', 1)
-                map_pairs.append((old.strip(), new.strip()))
-        if map_pairs:
-            name_to_id = client.get_label_id_map()
-            for old, new in map_pairs:
-                old_id = name_to_id.get(old)
-                new_id = name_to_id.get(new) or client.ensure_label(new)
-                if not old_id or not new_id:
-                    print(f"Skip redirect: {old}->{new} (missing label)")
-                    continue
-                ids = client.list_message_ids(label_ids=[old_id], max_pages=50, page_size=500)
-                from .utils.batch import apply_in_chunks
-                apply_in_chunks(
-                    lambda chunk: client.batch_modify_messages(
-                        chunk, add_label_ids=[new_id], remove_label_ids=[old_id]
-                    ),
-                    ids,
-                    500,
-                )
-                print(f"Redirected {len(ids)} messages {old} -> {new}")
-                changed += 1
-
-    # Deletes
-    if args.imap_delete:
-        name_to_id = client.get_label_id_map()
-        for name in args.imap_delete:
-            lid = name_to_id.get(name)
-            if lid:
-                client.delete_label(lid)
-                print(f"Deleted label: {name}")
-                changed += 1
-
-    if changed:
-        print(f"Applied {changed} change(s).")
-    return 0
-
-
-def _cmd_labels_prune_empty(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    import time
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    labels = client.list_labels()
-    deleted = 0
-    def _delete_with_retry(label_id: str, name: str) -> bool:
-        last_err = None
-        for i in range(3):
-            try:
-                client.delete_label(label_id)
-                print(f"Deleted label: {name}")
-                return True
-            except Exception as e:
-                last_err = e
-                time.sleep(1.5 * (2 ** i))
-        print(f"Warning: failed to delete label {name}: {last_err}")
-        return False
-    processed = 0
-    limit = int(getattr(args, 'limit', 0) or 0)
-    sleep_s = float(getattr(args, 'sleep_sec', 0.0) or 0.0)
-    for lab in labels:
-        if lab.get("type") != "user":
-            continue
-        if int(lab.get("messagesTotal", 0)) == 0:
-            name = lab.get("name")
-            if args.dry_run:
-                print(f"Would delete label: {name}")
-            else:
-                if _delete_with_retry(lab.get("id", ""), name or ""):
-                    deleted += 1
-                    processed += 1
-                    if sleep_s > 0:
-                        time.sleep(sleep_s)
-                    if limit and processed >= limit:
-                        break
-            if args.dry_run and limit:
-                processed += 1
-                if processed >= limit:
-                    break
-    print(f"Prune complete. Deleted: {deleted}")
-    return 0
-
-
-def _cmd_labels_learn(args: argparse.Namespace) -> int:
-    GmailClient = _lazy_gmail_client()
-    creds_path, tok_path = resolve_paths_profile(
-        arg_credentials=args.credentials,
-        arg_token=args.token,
-        profile=getattr(args, "profile", None),
-    )
-    client = GmailClient(
-        credentials_path=creds_path,
-        token_path=tok_path,
-        cache_dir=args.cache,
-    )
-    client.authenticate()
-    q = _build_gmail_query({}, days=args.days, only_inbox=args.only_inbox)
-    ids = client.list_message_ids(query=q, max_pages=100)
-    msgs = client.get_messages_metadata(ids, use_cache=True)
-    # Protected list
-    prot = [p.strip().lower() for p in (args.protect or []) if p and isinstance(p, str)]
-    def is_protected(from_val: str) -> bool:
-        f = (from_val or '').lower()
-        if '<' in f and '>' in f:
-            try:
-                f = f.split('<')[-1].split('>')[0]
-            except Exception:
-                pass
-        f = f.strip()
-        dom = f.split('@')[-1] if '@' in f else f
-        for p in prot:
-            if not p:
-                continue
-            if p.startswith('@'):
-                if f.endswith(p) or dom == p.lstrip('@'):
-                    return True
-            elif p in (f,):
-                return True
-        return False
-
-    from collections import Counter, defaultdict
-    domain_counts = Counter()
-    domain_hints = defaultdict(lambda: {"list": 0, "promotions": 0})
-    for m in msgs:
-        hdrs = client.headers_to_dict(m)
-        frm = hdrs.get('from','')
-        if is_protected(frm):
-            continue
-        # derive domain
-        f = frm
-        if '<' in f and '>' in f:
-            try:
-                f = f.split('<')[-1].split('>')[0]
-            except Exception:
-                pass
-        dom = f.split('@')[-1].lower().strip() if '@' in f else f.lower().strip()
-        if not dom:
-            continue
-        domain_counts[dom] += 1
-        # hints
-        if 'list-unsubscribe' in hdrs or 'list-id' in hdrs:
-            domain_hints[dom]['list'] += 1
-        labs = set(m.get('labelIds') or [])
-        if 'CATEGORY_PROMOTIONS' in labs:
-            domain_hints[dom]['promotions'] += 1
-
-    suggestions = []
-    for dom, cnt in domain_counts.items():
-        if cnt < int(args.min_count):
-            continue
-        hints = domain_hints[dom]
-        label = None
-        if hints['promotions'] >= max(1, cnt // 3):
-            label = 'Lists/Commercial'
-        elif hints['list'] >= max(1, cnt // 3):
-            label = 'Lists/Newsletters'
-        if not label:
-            continue
-        suggestions.append({
-            'domain': dom,
-            'label': label,
-            'count': cnt,
-            'hints': hints,
-        })
-
-    out_doc = { 'suggestions': suggestions, 'params': {'days': int(args.days), 'min_count': int(args.min_count)} }
-    out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(__import__('yaml').safe_dump(out_doc, sort_keys=False), encoding='utf-8')
-    print(f"Wrote {len(suggestions)} suggestions to {out}")
-    return 0
-
-
-def _cmd_labels_apply_suggestions(args: argparse.Namespace) -> int:
-    doc = load_config(args.config)
-    sugg = doc.get('suggestions') or []
-    if not sugg:
-        print('No suggestions found.')
-        return 0
-    GmailClient = _lazy_gmail_client()
-    creds_path, tok_path = resolve_paths_profile(
-        arg_credentials=args.credentials,
-        arg_token=args.token,
-        profile=getattr(args, "profile", None),
-    )
-    client = GmailClient(
-        credentials_path=creds_path,
-        token_path=tok_path,
-        cache_dir=args.cache,
-    )
-    client.authenticate()
-    created = 0
-    for s in sugg:
-        dom = s.get('domain')
-        label = s.get('label')
-        if not dom or not label:
-            continue
-        crit = {'query': f'from:({dom})'}
-        # Map suggested label to provider label IDs via shared helper
-        add_ids, _ = _action_to_label_changes(client, {'add': [label]})
-        act = {'addLabelIds': add_ids}
-        if args.dry_run:
-            print(f"Would create: from:({dom}) -> add=[{label}]")
-        else:
-            client.create_filter(crit, act)
-            print(f"Created rule: from:({dom}) -> add=[{label}]")
-        created += 1
-    # Optional sweep
-    if args.sweep_days:
-        args2 = argparse.Namespace(
-            credentials=args.credentials, token=args.token, cache=args.cache,
-            config=args.config, days=int(args.sweep_days), only_inbox=False,
-            pages=args.pages, batch_size=args.batch_size, max_msgs=None, dry_run=args.dry_run,
-        )
-        print(f"\nSweeping back {args.sweep_days} days for suggestions …")
-        _cmd_filters_sweep(args2)
-    print(f"Suggestions applied: {created}")
-    return 0
-
-
-def _cmd_labels_delete(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    name_to_id = client.get_label_id_map()
-    name = args.name
-    lid = name_to_id.get(name)
-    if not lid:
-        print(f"Label not found: {name}")
-        return 1
-    client.delete_label(lid)
-    print(f"Deleted label: {name}")
-    return 0
-
-
-def _cmd_labels_sweep_parents(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    from .utils.batch import apply_in_chunks
-
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    name_to_id = client.get_label_id_map()
-    parents = [n.strip() for n in (args.names or "").split(",") if n.strip()]
-    total_added = 0
-    for parent in parents:
-        # Ensure parent label exists
-        parent_id = name_to_id.get(parent) or client.ensure_label(parent)
-        # Collect child label IDs under namespace "Parent/"
-        child_ids = [lid for name, lid in name_to_id.items() if name.startswith(parent + "/")]
-        if not child_ids:
-            print(f"No child labels under {parent}/; skipping")
-            continue
-        # Gather message IDs that have any of the child labels
-        ids = client.list_message_ids(label_ids=child_ids, max_pages=int(args.pages), page_size=int(args.batch_size))
-        if args.dry_run:
-            print(f"[{parent}] Would add to {len(ids)} messages")
-        else:
-            apply_in_chunks(
-                lambda chunk: client.batch_modify_messages(chunk, add_label_ids=[parent_id]),
-                ids,
-                int(args.batch_size),
-            )
-            print(f"[{parent}] Added to {len(ids)} messages")
-        total_added += len(ids)
-    print(f"Sweep-parents complete. Messages touched: {total_added}")
-    return 0
-
-
 # -------------- Filters helpers and commands --------------
 
 from .utils.filters import (
@@ -1130,94 +794,6 @@ from .utils.filters import (
     action_to_label_changes as _action_to_label_changes,
 )
 
-
-@_with_gmail_client
-def _cmd_filters_list(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_client_authenticated
-    client = getattr(args, "_gmail_client", None) or gmail_client_authenticated(args)
-    # Map label IDs to names for friendly output
-    id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in client.list_labels()}
-    def ids_to_names(ids):
-        return [id_to_name.get(x, x) for x in ids or []]
-    for f in client.list_filters():
-        fid = f.get("id", "")
-        c = f.get("criteria", {})
-        a = f.get("action", {})
-        forward = a.get("forward")
-        add = ids_to_names(a.get("addLabelIds"))
-        rem = ids_to_names(a.get("removeLabelIds"))
-        print(f"{fid}\tfrom={c.get('from','')} subject={c.get('subject','')} query={c.get('query','')} | add={add} rem={rem} fwd={forward}")
-    return 0
-
-
-def _cmd_filters_prune_empty(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_prune_empty
-
-    return run_filters_prune_empty(args)
-
-
-def _cmd_filters_export(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_export
-
-    return run_filters_export(args)
-
-
-def _cmd_filters_sync(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_sync
-
-    return run_filters_sync(args)
-
-
-def _cmd_filters_plan(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_plan
-
-    return run_filters_plan(args)
-
-
-def _cmd_filters_delete(args: argparse.Namespace) -> int:
-    from .utils.cli_helpers import gmail_provider_from_args
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-    fid = args.id
-    client.delete_filter(fid)
-    print(f"Deleted filter id={fid}")
-    return 0
-
-
-def _cmd_filters_add_forward_by_label(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_add_forward_by_label
-
-    return run_filters_add_forward_by_label(args)
-
-
-def _cmd_filters_add_from_token(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_add_from_token
-
-    return run_filters_add_from_token(args)
-
-
-def _cmd_filters_rm_from_token(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_rm_from_token
-
-    return run_filters_rm_from_token(args)
-
-
-def _cmd_filters_impact(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_impact
-
-    return run_filters_impact(args)
-
-
-def _cmd_filters_sweep(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_sweep
-
-    return run_filters_sweep(args)
-
-
-def _cmd_filters_sweep_range(args: argparse.Namespace) -> int:
-    from .filters.commands import run_filters_sweep_range
-
-    return run_filters_sweep_range(args)
 
 
 def _cmd_backup(args: argparse.Namespace) -> int:
@@ -1429,7 +1005,7 @@ def _cmd_accounts_sync_filters(args: argparse.Namespace) -> int:
                 delete_missing=False,
                 require_forward_verified=args.require_forward_verified,
             )
-            _cmd_filters_sync(ns)
+            run_filters_sync(ns)
             continue
 
         if provider == "outlook":
@@ -1770,7 +1346,7 @@ def _cmd_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
         profile=getattr(args, 'profile', None),
     )
     print("\n[Plan] Gmail filters vs derived from unified:")
-    _cmd_filters_plan(ns_plan)
+    run_filters_plan(ns_plan)
 
     # 3) Optionally apply
     if getattr(args, 'apply', False):
@@ -1785,7 +1361,7 @@ def _cmd_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
             profile=getattr(args, 'profile', None),
         )
         print("\n[Apply] Syncing Gmail filters to match derived …")
-        _cmd_filters_sync(ns_sync)
+        run_filters_sync(ns_sync)
         print("\nDone. Consider exporting and comparing for drift:")
         print(f"  python3 -m mail_assistant filters export --out {out_dir}/filters.gmail.export.after.yaml")
         print(f"  Compare to {out_gmail}")
@@ -1944,7 +1520,7 @@ def _cmd_workflows_from_unified(args: argparse.Namespace) -> int:
             cache=None,
             profile=getattr(args, 'profile', None),
         )
-        _cmd_filters_plan(ns_plan)
+        run_filters_plan(ns_plan)
         if getattr(args, 'apply', False):
             print("\n[Gmail] Apply:")
             ns_sync = argparse.Namespace(
@@ -1957,7 +1533,7 @@ def _cmd_workflows_from_unified(args: argparse.Namespace) -> int:
                 cache=None,
                 profile=getattr(args, 'profile', None),
             )
-            _cmd_filters_sync(ns_sync)
+            run_filters_sync(ns_sync)
     else:
         if requested is None or 'gmail' in (requested or set(['gmail'])):
             print("\n[Gmail] Skipping (no credentials/token detected). Use --profile or env setup.")

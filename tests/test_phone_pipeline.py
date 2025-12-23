@@ -34,6 +34,11 @@ from phone.pipeline import (
     IconmapResult,
     IconmapRequest,
     IconmapRequestConsumer,
+    IdentityVerifyProducer,
+    IdentityVerifyProcessor,
+    IdentityVerifyResult,
+    IdentityVerifyRequest,
+    IdentityVerifyRequestConsumer,
     ManifestFromDeviceProducer,
     ManifestFromDeviceProcessor,
     ManifestFromDeviceResult,
@@ -410,3 +415,81 @@ class PhonePipelineTests(TestCase):
             env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
         self.assertFalse(env.ok())
         self.assertEqual(env.diagnostics["code"], 127)
+
+    # -------------------------------------------------------------------------
+    # Identity verify pipeline tests
+    # -------------------------------------------------------------------------
+
+    def test_identity_verify_processor_success(self):
+        from phone.device import CertInfo
+
+        mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
+        with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
+             patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")), \
+             patch("phone.device.extract_p12_cert_info", return_value=mock_cert), \
+             patch("phone.device.get_device_supervision_status", return_value="true"):
+            request = IdentityVerifyRequest(
+                p12_path="/path/to/cert.p12",
+                p12_pass="pass",
+                creds_profile=None,
+                config=None,
+                device_label=None,
+                udid="test-udid",
+                expected_org="TestOrg",
+            )
+            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertEqual(env.payload.cert_subject, "CN=TestOrg")  # type: ignore[union-attr]
+        self.assertEqual(env.payload.org_match, True)  # type: ignore[union-attr]
+
+    def test_identity_verify_processor_no_p12(self):
+        with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
+             patch("phone.device.resolve_p12_path", return_value=(None, None)):
+            request = IdentityVerifyRequest(
+                p12_path=None,
+                p12_pass=None,
+                creds_profile=None,
+                config=None,
+                device_label=None,
+                udid=None,
+                expected_org=None,
+            )
+            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 2)
+
+    def test_identity_verify_processor_p12_not_found(self):
+        with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
+             patch("phone.device.resolve_p12_path", return_value=("/missing.p12", None)), \
+             patch("phone.device.extract_p12_cert_info", side_effect=FileNotFoundError("/missing.p12")):
+            request = IdentityVerifyRequest(
+                p12_path="/missing.p12",
+                p12_pass=None,
+                creds_profile=None,
+                config=None,
+                device_label=None,
+                udid=None,
+                expected_org=None,
+            )
+            env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertEqual(env.diagnostics["code"], 2)
+
+    def test_identity_verify_producer_output(self):
+        payload = IdentityVerifyResult(
+            p12_path="/path/to/cert.p12",
+            cert_subject="CN=TestOrg",
+            cert_issuer="CN=TestIssuer",
+            udid="test-udid",
+            supervised="true",
+            expected_org="TestOrg",
+            org_match=True,
+        )
+        result = ResultEnvelope(status="success", payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            IdentityVerifyProducer().produce(result)
+        output = buf.getvalue()
+        self.assertIn("Identity Verification Summary", output)
+        self.assertIn("CN=TestOrg", output)
+        self.assertIn("MATCH", output)
