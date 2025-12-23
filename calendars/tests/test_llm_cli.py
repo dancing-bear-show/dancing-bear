@@ -2,7 +2,7 @@ import io
 import unittest
 from contextlib import redirect_stdout
 
-from calendar import llm_cli
+from calendars import llm_cli
 
 
 class TestLlmCli(unittest.TestCase):
