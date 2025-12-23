@@ -103,7 +103,7 @@ class WifiAssistantTests(unittest.TestCase):
                 out_path = Path(tmpdir) / "diag.json"
                 buf = io.StringIO()
                 with redirect_stdout(buf):
-                    rc = cli.main(["--json", "--out", str(out_path)])
+                    rc = cli.main(["diagnose", "--json", "--out", str(out_path)])
                 self.assertEqual(rc, 0)
                 data = json.loads(out_path.read_text())
                 self.assertEqual(data["gateway"], "192.168.0.1")
