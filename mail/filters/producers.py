@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 import time
 
@@ -26,6 +26,7 @@ from .processors import (
     FiltersAddForwardResult,
     FiltersAddTokenResult,
     FiltersRemoveTokenResult,
+    FilterTokenUpdate,
 )
 
 

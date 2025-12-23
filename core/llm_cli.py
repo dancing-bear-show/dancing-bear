@@ -74,8 +74,6 @@ def make_app_llm_config(
     )
 
 
-_contributors: List[LlmContributor] = []
-
 DEFAULT_SKIP_DIRS = {
     "backups",
     "_disasm",

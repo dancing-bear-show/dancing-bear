@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch, MagicMock
-import sys
 
 
 class TestMetalsCLI(unittest.TestCase):

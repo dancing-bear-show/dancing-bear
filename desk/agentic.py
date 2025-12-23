@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List
+from typing import List, Tuple
 
 from core.agentic import (
+    build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
     cli_path_exists as _core_cli_path_exists,
     section as _section,
