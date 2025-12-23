@@ -1,17 +1,19 @@
 import io
 from contextlib import redirect_stdout
+from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
 from maker.pipeline import (
     ConsoleProducer,
-    ModuleResultProducer,
-    ModuleRunnerProcessor,
     ToolCatalogConsumer,
     ToolCatalogFormatter,
     ToolRequest,
     ToolRequestConsumer,
+    ToolResult,
+    ToolRunnerProcessor,
+    ToolResultProducer,
 )
 from tests.fixtures import repo_root
 
@@ -29,22 +31,48 @@ class MakerPipelineTests(TestCase):
         output = ToolCatalogFormatter().process(catalog[:2])
         self.assertIn("maker/", output)
 
-    def test_module_runner_invokes_python_module(self):
-        req = ToolRequest(module="maker.card.gen_snug_variants", args=["--dry-run"])
+    def test_tool_runner_imports_and_calls_entry_point(self):
+        req = ToolRequest(module="test_module", entry_point="main")
         consumer = ToolRequestConsumer(req)
-        processor = ModuleRunnerProcessor()
-        with patch("maker.pipeline.subprocess.call", return_value=0) as fake_call:
-            with patch("maker.pipeline.sys.executable", "python"):
-                envelope = processor.process(consumer.consume())
-        fake_call.assert_called_once_with(["python", "-m", req.module, "--dry-run"])
-        self.assertTrue(envelope.ok())
+        processor = ToolRunnerProcessor()
 
-    def test_module_result_producer_reports_failure(self):
+        mock_module = SimpleNamespace(main=MagicMock(return_value=0))
+        with patch("maker.pipeline.import_module", return_value=mock_module) as fake_import:
+            envelope = processor.process(consumer.consume())
+
+        fake_import.assert_called_once_with("test_module")
+        mock_module.main.assert_called_once()
+        self.assertTrue(envelope.ok())
+        self.assertEqual(envelope.payload.return_code, 0)
+
+    def test_tool_runner_handles_missing_entry_point(self):
+        req = ToolRequest(module="test_module", entry_point="nonexistent")
+        processor = ToolRunnerProcessor()
+
+        mock_module = SimpleNamespace()  # No 'nonexistent' attribute
+        with patch("maker.pipeline.import_module", return_value=mock_module):
+            envelope = processor.process(ToolRequestConsumer(req).consume())
+
+        self.assertFalse(envelope.ok())
+        self.assertIn("no callable", envelope.payload.error)
+
+    def test_tool_runner_handles_exception(self):
+        req = ToolRequest(module="test_module")
+        processor = ToolRunnerProcessor()
+
+        with patch("maker.pipeline.import_module", side_effect=ImportError("No such module")):
+            envelope = processor.process(ToolRequestConsumer(req).consume())
+
+        self.assertFalse(envelope.ok())
+        self.assertIn("No such module", envelope.payload.error)
+
+    def test_tool_result_producer_reports_failure(self):
         buf = io.StringIO()
-        envelope = ResultEnvelope(status="error", payload=2)
+        result = ToolResult(module="test.module", return_code=2, error="Something went wrong")
+        envelope = ResultEnvelope(status="error", payload=result)
         with redirect_stdout(buf):
-            ModuleResultProducer().produce(envelope)
-        self.assertIn("tool exited with code 2", buf.getvalue())
+            ToolResultProducer().produce(envelope)
+        self.assertIn("Something went wrong", buf.getvalue())
 
     def test_console_producer_prints_text(self):
         buf = io.StringIO()
