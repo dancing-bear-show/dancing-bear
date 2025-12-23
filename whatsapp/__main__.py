@@ -13,8 +13,9 @@ from typing import Optional
 
 from core.assistant import BaseAssistant
 
-from . import search as _wa
 from .meta import APP_ID, PURPOSE
+from .pipeline import SearchProcessor, SearchProducer, SearchRequest, SearchRequestConsumer
+from .search import default_db_path
 
 
 assistant = BaseAssistant(
@@ -53,19 +54,40 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    try:
-        return _wa.run_search_cli(args)
-    except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+    # Determine from_me filter
+    from_me_filter: Optional[bool] = None
+    if getattr(args, "from_me", False):
+        from_me_filter = True
+    elif getattr(args, "from_them", False):
+        from_me_filter = False
+
+    request = SearchRequest(
+        db_path=getattr(args, "db", None),
+        contains=getattr(args, "contains", None) or [],
+        match_all=bool(getattr(args, "match_all", False) and not getattr(args, "match_any", False)),
+        contact=getattr(args, "contact", None),
+        from_me=from_me_filter,
+        since_days=getattr(args, "since_days", None),
+        limit=max(1, int(getattr(args, "limit", 50) or 50)),
+        emit_json=getattr(args, "json", False),
+    )
+
+    envelope = SearchProcessor().process(SearchRequestConsumer(request).consume())
+    SearchProducer().produce(envelope)
+
+    if envelope.ok():
+        return 0
+    # Handle errors from envelope
+    diag = envelope.diagnostics or {}
+    error_msg = diag.get("error", "Unknown error")
+    print(error_msg, file=sys.stderr)
+    if diag.get("hint") == "db_not_found":
         print(
             "Hint: use --db to specify the path. Default macOS path is:",
-            _wa.default_db_path(),
+            default_db_path(),
             file=sys.stderr,
         )
-        return 2
-    except Exception as exc:  # pragma: no cover - defensive
-        print(f"WhatsApp search error: {exc}", file=sys.stderr)
-        return 1
+    return int(diag.get("code", 1))
 
 
 def main(argv: Optional[list[str]] = None) -> int:

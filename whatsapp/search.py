@@ -146,24 +146,3 @@ def format_rows_json(rows: Iterable[MessageRow], indent: int = 2) -> str:
     return _json.dumps(rows_to_dicts(rows), ensure_ascii=False, indent=indent)
 
 
-def run_search_cli(args) -> int:  # argparse.Namespace
-    # Determine from_me filter
-    from_me: Optional[bool] = None
-    if getattr(args, "from_me", False):
-        from_me = True
-    elif getattr(args, "from_them", False):
-        from_me = False
-    rows = search_messages(
-        db_path=getattr(args, "db", None),
-        contains=getattr(args, "contains", None) or [],
-        match_all=bool(getattr(args, "match_all", False) and not getattr(args, "match_any", False)),
-        contact=getattr(args, "contact", None),
-        from_me=from_me,
-        since_days=getattr(args, "since_days", None),
-        limit=max(1, int(getattr(args, "limit", 50) or 50)),
-    )
-    if getattr(args, "json", False):
-        print(format_rows_json(rows))
-        return 0
-    print(format_rows_text(rows))
-    return 0
