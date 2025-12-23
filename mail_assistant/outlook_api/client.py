@@ -135,7 +135,7 @@ class OutlookClientBase:
             with open(p, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, ensure_ascii=False)
         except Exception:
-            pass  # Non-fatal cache write failure
+            pass  # nosec B110 - non-fatal cache write
 
     def cfg_clear(self) -> None:
         p = self._cfg_path(".")
@@ -147,7 +147,7 @@ class OutlookClientBase:
             if os.path.isdir(config_dir):
                 shutil.rmtree(config_dir)
         except Exception:
-            pass  # Non-fatal cache clear failure
+            pass  # nosec B110 - non-fatal cache clear
 
     # -------------------- Auth --------------------
     def authenticate(self) -> None:
@@ -170,7 +170,7 @@ class OutlookClientBase:
                         )
                         return
             except Exception:
-                pass  # Token file read failed; proceed with fresh auth
+                pass  # nosec B110 - token read failed, proceed with fresh auth
 
         app = _msal().PublicClientApplication(
             self.client_id,

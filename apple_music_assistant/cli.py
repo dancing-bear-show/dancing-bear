@@ -376,12 +376,12 @@ def _create_from_seeds(
 
 
 # Add global arguments for auth
+@app.command("ping", help="Verify tokens and return storefront info")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
 @app.argument("--out", help="Path to write JSON output (default stdout)")
 @app.argument("--pretty", action="store_true", help="Pretty-print JSON")
-@app.command("ping", help="Verify tokens and return storefront info")
 def cmd_ping(args) -> int:
     """Verify tokens and return storefront info."""
     client = _get_client(args)
@@ -390,13 +390,13 @@ def cmd_ping(args) -> int:
     return _output_json(args, payload)
 
 
+@app.command("list", help="List playlists (id and name)")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
 @app.argument("--out", help="Path to write JSON output (default stdout)")
 @app.argument("--pretty", action="store_true", help="Pretty-print JSON")
 @app.argument("--playlist-limit", type=int, help="Maximum playlists to fetch")
-@app.command("list", help="List playlists (id and name)")
 def cmd_list(args) -> int:
     """List playlists (id and name)."""
     client = _get_client(args)
@@ -405,6 +405,7 @@ def cmd_list(args) -> int:
     return _output_json(args, payload)
 
 
+@app.command("tracks", help="List all tracks with playlist context")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
@@ -412,7 +413,6 @@ def cmd_list(args) -> int:
 @app.argument("--pretty", action="store_true", help="Pretty-print JSON")
 @app.argument("--playlist-limit", type=int, help="Maximum playlists to fetch")
 @app.argument("--track-limit", type=int, help="Maximum tracks per playlist to fetch")
-@app.command("tracks", help="List all tracks with playlist context")
 def cmd_tracks(args) -> int:
     """List all tracks with playlist context."""
     client = _get_client(args)
@@ -436,6 +436,7 @@ def cmd_tracks(args) -> int:
     return _output_json(args, {"tracks": tracks_out})
 
 
+@app.command("export", help="Export playlists and tracks")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
 @app.argument("--user-token", help="Music user token (overrides credentials.ini / env)")
@@ -443,7 +444,6 @@ def cmd_tracks(args) -> int:
 @app.argument("--pretty", action="store_true", help="Pretty-print JSON")
 @app.argument("--playlist-limit", type=int, help="Maximum playlists to fetch")
 @app.argument("--track-limit", type=int, help="Maximum tracks per playlist to fetch")
-@app.command("export", help="Export playlists and tracks")
 def cmd_export(args) -> int:
     """Export playlists and tracks."""
     client = _get_client(args)
