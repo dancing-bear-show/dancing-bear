@@ -143,6 +143,165 @@ def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | No
     return renderer.get_bullet_config(sec)
 
 
+def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
+    """Apply compact page styles (margins and fonts)."""
+    if not page_cfg.get("compact"):
+        return
+
+    try:
+        sec = doc.sections[0]
+        m = float(page_cfg.get("margins_in", 0.5))
+        sec.top_margin = Inches(m)
+        sec.bottom_margin = Inches(m)
+        sec.left_margin = Inches(m)
+        sec.right_margin = Inches(m)
+    except Exception:
+        pass  # nosec B110 - margin setting failure
+
+    try:
+        body_pt = float(page_cfg.get("body_pt", 10.5))
+        h1_pt = float(page_cfg.get("h1_pt", 12))
+        title_pt = float(page_cfg.get("title_pt", 14))
+        h1_color = page_cfg.get("h1_color") or page_cfg.get("heading_color")
+        h1_bg = page_cfg.get("h1_bg") or page_cfg.get("heading_bg")
+        title_color = page_cfg.get("title_color")
+
+        doc.styles["Normal"].font.size = Pt(body_pt)
+
+        if "Heading 1" in doc.styles:
+            doc.styles["Heading 1"].font.size = Pt(h1_pt)
+            doc.styles["Heading 1"].font.bold = True
+            rgb = _parse_hex_color(h1_color)
+            bg = _parse_hex_color(h1_bg)
+            if (not rgb) and bg:
+                rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
+            if rgb:
+                doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
+
+        if "Title" in doc.styles:
+            doc.styles["Title"].font.size = Pt(title_pt)
+            doc.styles["Title"].font.bold = True
+            rgbt = _parse_hex_color(title_color)
+            if rgbt:
+                doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
+    except Exception:
+        pass  # nosec B110 - style setting failure
+
+
+def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) -> None:
+    """Set document core properties (title, author, keywords)."""
+    try:
+        name = data.get("name") or ""
+        contact = data.get("contact") or {}
+        email = data.get("email") or contact.get("email") or ""
+        phone = data.get("phone") or contact.get("phone") or ""
+        location = data.get("location") or contact.get("location") or ""
+
+        cp = doc.core_properties
+        contact_line = " | ".join([p for p in [email, phone, location] if p])
+        cp.title = " - ".join([p for p in [name, contact_line] if p]) or "Resume"
+        cp.subject = "Resume"
+        if name:
+            cp.author = name
+
+        kw = [k for k in [name, email, phone, location] if k]
+        include_exp_locs = bool((template.get("page") or {}).get("metadata_include_locations", True))
+
+        if include_exp_locs:
+            locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
+            uniq_locs = list(dict.fromkeys([loc for loc in locs if loc]))
+            kw.extend(uniq_locs)
+            if uniq_locs:
+                try:
+                    cp.category = "; ".join(uniq_locs)
+                except Exception:
+                    pass  # nosec B110 - category set failure
+
+        cp.keywords = "; ".join(kw)
+    except Exception:
+        pass  # nosec B110 - metadata set failure
+
+
+def _render_document_header(doc, data: Dict[str, Any]) -> None:
+    """Render the name, headline, and contact line at the top of the resume."""
+    name = data.get("name") or ""
+    contact = data.get("contact") or {}
+    headline = data.get("headline") or contact.get("headline") or ""
+    email = data.get("email") or contact.get("email") or ""
+    phone = data.get("phone") or contact.get("phone") or ""
+    display_phone = _format_phone_display(phone) if phone else ""
+    location = data.get("location") or contact.get("location") or ""
+    website = data.get("website") or contact.get("website") or ""
+    linkedin = data.get("linkedin") or contact.get("linkedin") or ""
+    github = data.get("github") or contact.get("github") or ""
+    links_list = data.get("links") or contact.get("links") or []
+
+    # Name heading
+    if name:
+        doc.add_heading(name, level=0)
+        _tight_paragraph(doc.paragraphs[-1], after_pt=2)
+        try:
+            doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pf = doc.paragraphs[-1].paragraph_format
+            pf.left_indent = Pt(0)
+            pf.first_line_indent = Pt(0)
+        except Exception:
+            pass  # nosec B110 - alignment failure
+
+    # Headline
+    if headline:
+        p_head = doc.add_paragraph(str(headline))
+        _tight_paragraph(p_head, after_pt=2)
+        try:
+            p_head.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pf = p_head.paragraph_format
+            pf.left_indent = Pt(0)
+            pf.first_line_indent = Pt(0)
+        except Exception:
+            pass  # nosec B110 - alignment failure
+
+    # Contact line with links
+    extras = []
+    for val in [website, linkedin, github]:
+        if isinstance(val, str) and val.strip():
+            extras.append(_format_link_display(val))
+    for val in (links_list if isinstance(links_list, list) else []):
+        if isinstance(val, str) and val.strip():
+            extras.append(_format_link_display(val))
+
+    subtitle_parts = [p for p in [email, display_phone, location] if p]
+    if extras:
+        subtitle_parts.extend(extras)
+
+    if subtitle_parts:
+        p = doc.add_paragraph(" | ".join(subtitle_parts))
+        _tight_paragraph(p, after_pt=6)
+        try:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pf = p.paragraph_format
+            pf.left_indent = Pt(0)
+            pf.first_line_indent = Pt(0)
+        except Exception:
+            pass  # nosec B110 - alignment failure
+
+
+def _resolve_sections(template: Dict[str, Any], structure: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Resolve section order and configuration from template/structure."""
+    sections = template.get("sections") or []
+
+    if structure and isinstance(structure.get("order"), list):
+        order_keys: List[str] = structure.get("order", [])
+        key_to_title: Dict[str, str] = structure.get("titles", {})
+        tpl_by_key = {s.get("key"): s for s in sections if s.get("key")}
+        sections = [
+            {**tpl_by_key.get(k, {"key": k, "title": key_to_title.get(k, k.title())})}
+            for k in order_keys
+            if k in tpl_by_key or key_to_title.get(k)
+        ]
+
+    return sections
+
+
 def write_resume_docx(
     data: Dict[str, Any],
     template: Dict[str, Any],

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, Generic, Optional, TypeVar
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
 
@@ -20,6 +20,37 @@ from .diagnostics import (
     run_diagnosis,
 )
 
+# Generic RequestConsumer (mirrors calendar_assistant.pipeline_base.RequestConsumer)
+RequestT = TypeVar("RequestT")
+
+
+class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
+    """Generic consumer that wraps any request object."""
+
+    def __init__(self, request: RequestT) -> None:
+        self._request = request
+
+    def consume(self) -> RequestT:  # pragma: no cover - trivial
+        return self._request
+
+
+class BaseProducer:
+    """Base class for pipeline producers with common error handling."""
+
+    def produce(self, result: ResultEnvelope) -> None:
+        """Template method: handle errors, delegate success to subclass."""
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg)
+            return
+        if result.payload is not None:
+            self._produce_success(result.payload, result.diagnostics)
+
+    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
+        """Override in subclass to handle successful result output."""
+        raise NotImplementedError("Subclass must implement _produce_success")
+
 
 @dataclass
 class DiagnoseRequest:
@@ -28,12 +59,8 @@ class DiagnoseRequest:
     out_path: Optional[Path] = None
 
 
-class DiagnoseRequestConsumer(Consumer[DiagnoseRequest]):
-    def __init__(self, request: DiagnoseRequest) -> None:
-        self._request = request
-
-    def consume(self) -> DiagnoseRequest:  # pragma: no cover - trivial
-        return self._request
+# Type alias for backward compatibility
+DiagnoseRequestConsumer = RequestConsumer[DiagnoseRequest]
 
 
 @dataclass
@@ -80,20 +107,14 @@ class DiagnoseProcessor(Processor[DiagnoseRequest, ResultEnvelope[DiagnoseResult
         )
 
 
-class DiagnoseProducer(Producer[ResultEnvelope[DiagnoseResult]]):
-    def produce(self, result: ResultEnvelope[DiagnoseResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        if result.payload.emit_json:
-            content = json.dumps(report_to_dict(result.payload.report), indent=2)
+class DiagnoseProducer(BaseProducer):
+    def _produce_success(self, payload: DiagnoseResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.emit_json:
+            content = json.dumps(report_to_dict(payload.report), indent=2)
         else:
-            content = render_report(result.payload.report)
-        if result.payload.out_path:
-            out_path = result.payload.out_path
+            content = render_report(payload.report)
+        if payload.out_path:
+            out_path = payload.out_path
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(content, encoding="utf-8")
         print(content, end="")
