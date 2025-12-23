@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from core.cli_framework import CLIApp
+from core.assistant import BaseAssistant
 
 from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .pipeline import (
@@ -82,6 +83,12 @@ app = CLIApp(
     "phone-assistant",
     "Phone Assistant CLI for iOS Home Screen layout planning.",
     add_common_args=True,
+)
+
+# Create assistant for agentic support
+assistant = BaseAssistant(
+    "phone",
+    "agentic: phone\npurpose: Home Screen layout planning + manifest helpers",
 )
 
 # Create command groups
@@ -526,7 +533,36 @@ def main(argv: list[str] | None = None) -> int:
         _install_mask()
     except Exception:
         pass  # nosec B110 - best-effort masking
-    return app.run(argv)
+
+    # Build parser and add agentic flags
+    parser = app.build_parser()
+    assistant.add_agentic_flags(parser)
+
+    # Parse args
+    args = parser.parse_args(argv)
+
+    # Handle agentic output
+    agentic_result = assistant.maybe_emit_agentic(
+        args,
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+    )
+    if agentic_result is not None:
+        return agentic_result
+
+    # Get the command function
+    cmd_func = getattr(args, "_cmd_func", None)
+    if cmd_func is None:
+        parser.print_help()
+        return 0
+
+    # Run the command
+    return cmd_func(args)
+
+
+def _lazy_agentic():
+    """Lazy loader for agentic emit function."""
+    from .agentic import emit_agentic
+    return emit_agentic
 
 
 if __name__ == "__main__":
