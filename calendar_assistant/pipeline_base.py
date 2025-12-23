@@ -80,7 +80,30 @@ class DateWindowResolver:
 
 
 class BaseProducer:
-    """Base class for pipeline producers with common error handling."""
+    """Base class for pipeline producers with common error handling.
+
+    Provides a template method pattern: subclasses override _produce_success()
+    to handle successful results while error handling is centralized here.
+
+    Example usage:
+        class MyProducer(BaseProducer[ResultEnvelope[MyResult]]):
+            def _produce_success(self, payload: MyResult, diagnostics: Optional[dict]) -> None:
+                print(f"Success: {payload.message}")
+    """
+
+    def produce(self, result: ResultEnvelope) -> None:
+        """Template method: handle errors, delegate success to subclass."""
+        if not result.ok():
+            msg = (result.diagnostics or {}).get("message")
+            if msg:
+                print(msg)
+            return
+        assert result.payload is not None
+        self._produce_success(result.payload, result.diagnostics)
+
+    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
+        """Override in subclass to handle successful result output."""
+        raise NotImplementedError("Subclass must implement _produce_success")
 
     @staticmethod
     def print_error(result: ResultEnvelope) -> bool:

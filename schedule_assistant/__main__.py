@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from core.assistant import BaseAssistant
 from core.auth import build_outlook_service_from_args
-from core.cli_args import add_outlook_auth_args as _add_outlook_auth_args
+from core.cli_framework import CLIApp
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 from .pipeline import (
@@ -59,6 +59,14 @@ def _write_yaml(path: str | Path, data: Dict[str, Any]) -> None:
     _dump_yaml(str(p), data)
 
 
+# Create the CLI app
+app = CLIApp(
+    "schedule-assistant",
+    "Schedule Assistant CLI for calendar plan generation and application.",
+    add_common_args=True,
+)
+
+# Create assistant for agentic support
 assistant = BaseAssistant(
     "schedule_assistant",
     "agentic: schedule_assistant\npurpose: Generate/verify/apply calendar plans (dry-run first)",
@@ -71,7 +79,11 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
     return emit_agentic_context(fmt, compact)
 
 
-def _cmd_plan(args: argparse.Namespace) -> int:
+@app.command("plan", help="Generate a canonical schedule plan from sources")
+@app.argument("--source", action="append", default=[], help="Source path/URL (repeatable); supports CSV/XLSX/PDF/website")
+@app.argument("--kind", choices=["auto", "csv", "xlsx", "pdf", "website"], default="auto", help="Force parser kind (default auto)")
+@app.argument("--out", default="out/schedule.plan.yaml", help="Output YAML path (default out/schedule.plan.yaml)")
+def cmd_plan(args: argparse.Namespace) -> int:
     out_path = Path(getattr(args, "out", "out/schedule.plan.yaml"))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sources = getattr(args, "source", []) or []
@@ -95,7 +107,16 @@ def _build_outlook_service_from_args(args: argparse.Namespace):
         return None
 
 
-def _cmd_verify(args: argparse.Namespace) -> int:
+@app.command("verify", help="Verify a schedule plan against Outlook calendar within a window")
+@app.argument("--plan", required=True, help="Plan YAML path")
+@app.argument("--calendar", required=True, help="Target calendar name")
+@app.argument("--from", dest="from_date", required=True, help="Start date (YYYY-MM-DD)")
+@app.argument("--to", dest="to_date", required=True, help="End date (YYYY-MM-DD)")
+@app.argument("--match", choices=["subject", "subject-time"], default="subject", help="Verification mode (default subject)")
+@app.argument("--client-id", help="Outlook client ID")
+@app.argument("--tenant", help="Azure tenant (default consumers)")
+@app.argument("--token", help="Path to Outlook token cache")
+def cmd_verify(args: argparse.Namespace) -> int:
     auth = OutlookAuth(
         profile=getattr(args, "profile", None),
         client_id=getattr(args, "client_id", None),
@@ -117,7 +138,19 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-def _cmd_sync(args: argparse.Namespace) -> int:
+@app.command("sync", help="Create missing items from plan; optionally delete extraneous one-offs (dry-run by default)")
+@app.argument("--plan", required=True, help="Plan YAML path")
+@app.argument("--calendar", required=True, help="Target calendar name")
+@app.argument("--from", dest="from_date", required=True, help="Start date (YYYY-MM-DD)")
+@app.argument("--to", dest="to_date", required=True, help="End date (YYYY-MM-DD)")
+@app.argument("--match", choices=["subject", "subject-time"], default="subject-time", help="Matching mode for sync (default subject-time)")
+@app.argument("--delete-missing", action="store_true", help="Delete calendar items not present in plan (respects --match)")
+@app.argument("--delete-unplanned-series", action="store_true", help="Also delete entire recurring series with no matching occurrences in window")
+@app.argument("--apply", action="store_true", help="Perform changes (omit for dry-run)")
+@app.argument("--client-id", help="Outlook client ID")
+@app.argument("--tenant", help="Azure tenant (default consumers)")
+@app.argument("--token", help="Path to Outlook token cache")
+def cmd_sync(args: argparse.Namespace) -> int:
     auth = OutlookAuth(
         profile=getattr(args, "profile", None),
         client_id=getattr(args, "client_id", None),
@@ -142,7 +175,15 @@ def _cmd_sync(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-def _cmd_export(args: argparse.Namespace) -> int:
+@app.command("export", help="Export Outlook calendar events to a plan YAML (one-offs for backup)")
+@app.argument("--calendar", required=True, help="Outlook calendar name (e.g., 'Activities')")
+@app.argument("--from", dest="from_date", required=True, help="Start date YYYY-MM-DD")
+@app.argument("--to", dest="to_date", required=True, help="End date YYYY-MM-DD")
+@app.argument("--out", required=True, help="Output YAML path (e.g., config/calendar/activities.yaml)")
+@app.argument("--client-id", help="Outlook client ID")
+@app.argument("--tenant", help="Azure tenant (default consumers)")
+@app.argument("--token", help="Path to Outlook token cache")
+def cmd_export(args: argparse.Namespace) -> int:
     import datetime as _dt
     svc = _build_outlook_service_from_args(args)
     if not svc:
@@ -182,7 +223,12 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_compress(args: argparse.Namespace) -> int:
+@app.command("compress", help="Infer recurring weekly series from one-off plan events")
+@app.argument("--in", dest="in_path", required=True, help="Input plan YAML with one-offs (events: [])")
+@app.argument("--out", required=True, help="Output compressed plan YAML")
+@app.argument("--calendar", help="Calendar name to set on series (optional)")
+@app.argument("--min-occur", type=int, default=2, help="Minimum occurrences to form a series (default 2)")
+def cmd_compress(args: argparse.Namespace) -> int:
     inp = Path(getattr(args, 'in_path'))
     if not inp.exists():
         print(f"Input not found: {inp}")
@@ -303,7 +349,15 @@ def _cmd_compress(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_apply(args: argparse.Namespace) -> int:
+@app.command("apply", help="Apply a schedule plan (dry-run by default)")
+@app.argument("--plan", "--config", dest="plan", help="Plan YAML path")
+@app.argument("--calendar", help="Target calendar name (optional)")
+@app.argument("--provider", choices=["outlook", "gmail"], help="Provider (default outlook)")
+@app.argument("--apply", action="store_true", help="Perform changes (omit for dry-run)")
+@app.argument("--client-id", help="Outlook client ID")
+@app.argument("--tenant", help="Azure tenant (default consumers)")
+@app.argument("--token", help="Path to Outlook token cache")
+def cmd_apply(args: argparse.Namespace) -> int:
     plan_value = getattr(args, "plan", None)
     if not plan_value:
         print("Missing --plan PATH")
@@ -328,96 +382,37 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-def _add_common_outlook_auth_args(sp: argparse.ArgumentParser) -> None:
-    _add_outlook_auth_args(
-        sp,
-        include_profile=True,
-        profile_help="Credentials profile (e.g., outlook_personal)",
-        tenant_help="Azure tenant (default consumers if not set)",
-        tenant_default=None,
-        token_help="Path to Outlook token cache (defaults from profile)",
-    )
-
-
-def build_parser() -> argparse.ArgumentParser:
-    epilog = (
-        "Examples:\n"
-        "  schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml\n"
-        "  schedule-assistant apply --plan out/schedule.plan.yaml --dry-run\n"
-        "  schedule-assistant apply --plan out/schedule.plan.yaml --apply --calendar 'Your Family'\n"
-    )
-    p = argparse.ArgumentParser(
-        description="Schedule Assistant CLI",
-        epilog=epilog,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    assistant.add_agentic_flags(p)
-    sub = p.add_subparsers(dest="cmd", required=False)
-
-    sp = sub.add_parser("plan", help="Generate a canonical schedule plan from sources")
-    sp.add_argument("--source", action="append", default=[], help="Source path/URL (repeatable); supports CSV/XLSX/PDF/website")
-    sp.add_argument("--kind", choices=["auto", "csv", "xlsx", "pdf", "website"], default="auto", help="Force parser kind (default auto)")
-    sp.add_argument("--out", default="out/schedule.plan.yaml", help="Output YAML path (default out/schedule.plan.yaml)")
-    sp.set_defaults(func=_cmd_plan)
-
-    sa = sub.add_parser("apply", help="Apply a schedule plan (dry-run by default)")
-    sa.add_argument("--plan", "--config", dest="plan", help="Plan YAML path")
-    sa.add_argument("--calendar", help="Target calendar name (optional)")
-    sa.add_argument("--provider", choices=["outlook", "gmail"], help="Provider (default outlook)")
-    sa.add_argument("--apply", action="store_true", help="Perform changes (omit for dry-run)")
-    _add_common_outlook_auth_args(sa)
-    sa.set_defaults(func=_cmd_apply)
-
-    sv = sub.add_parser("verify", help="Verify a schedule plan against Outlook calendar within a window")
-    sv.add_argument("--plan", required=True, help="Plan YAML path")
-    sv.add_argument("--calendar", required=True, help="Target calendar name")
-    sv.add_argument("--from", dest="from_date", required=True, help="Start date (YYYY-MM-DD)")
-    sv.add_argument("--to", dest="to_date", required=True, help="End date (YYYY-MM-DD)")
-    sv.add_argument("--match", choices=["subject", "subject-time"], default="subject", help="Verification mode (default subject)")
-    _add_common_outlook_auth_args(sv)
-    sv.set_defaults(func=_cmd_verify)
-
-    sy = sub.add_parser("sync", help="Create missing items from plan; optionally delete extraneous one-offs (dry-run by default)")
-    sy.add_argument("--plan", required=True, help="Plan YAML path")
-    sy.add_argument("--calendar", required=True, help="Target calendar name")
-    sy.add_argument("--from", dest="from_date", required=True, help="Start date (YYYY-MM-DD)")
-    sy.add_argument("--to", dest="to_date", required=True, help="End date (YYYY-MM-DD)")
-    sy.add_argument("--match", choices=["subject", "subject-time"], default="subject-time", help="Matching mode for sync (default subject-time)")
-    sy.add_argument("--delete-missing", action="store_true", help="Delete calendar items not present in plan (respects --match)")
-    sy.add_argument("--delete-unplanned-series", action="store_true", help="Also delete entire recurring series with no matching occurrences in window")
-    sy.add_argument("--apply", action="store_true", help="Perform changes (omit for dry-run)")
-    _add_common_outlook_auth_args(sy)
-    sy.set_defaults(func=_cmd_sync)
-
-    ex = sub.add_parser("export", help="Export Outlook calendar events to a plan YAML (one-offs for backup)")
-    ex.add_argument("--calendar", required=True, help="Outlook calendar name (e.g., 'Activities')")
-    ex.add_argument("--from", dest="from_date", required=True, help="Start date YYYY-MM-DD")
-    ex.add_argument("--to", dest="to_date", required=True, help="End date YYYY-MM-DD")
-    ex.add_argument("--out", required=True, help="Output YAML path (e.g., config/calendar/activities.yaml)")
-    _add_common_outlook_auth_args(ex)
-    ex.set_defaults(func=_cmd_export)
-
-    cp = sub.add_parser("compress", help="Infer recurring weekly series from one-off plan events")
-    cp.add_argument("--in", dest="in_path", required=True, help="Input plan YAML with one-offs (events: [])")
-    cp.add_argument("--out", required=True, help="Output compressed plan YAML")
-    cp.add_argument("--calendar", help="Calendar name to set on series (optional)")
-    cp.add_argument("--min-occur", type=int, default=2, help="Minimum occurrences to form a series (default 2)")
-    cp.set_defaults(func=_cmd_compress)
-
-    return p
+# Backward compatibility aliases for tests
+_cmd_plan = cmd_plan
+_cmd_verify = cmd_verify
+_cmd_sync = cmd_sync
+_cmd_export = cmd_export
+_cmd_compress = cmd_compress
+_cmd_apply = cmd_apply
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = build_parser()
+    """Run the CLI."""
+    # Build parser and add agentic flags
+    parser = app.build_parser()
+    assistant.add_agentic_flags(parser)
+
+    # Parse args
     args = parser.parse_args(argv)
+
+    # Handle agentic output
     agentic_result = assistant.maybe_emit_agentic(args, emit_func=_emit_agentic)
     if agentic_result is not None:
         return int(agentic_result)
-    func = getattr(args, "func", None)
-    if not func:
+
+    # Get the command function
+    cmd_func = getattr(args, "_cmd_func", None)
+    if cmd_func is None:
         parser.print_help()
         return 0
-    return int(func(args))
+
+    # Run the command
+    return int(cmd_func(args))
 
 
 if __name__ == "__main__":

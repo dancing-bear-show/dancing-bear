@@ -54,7 +54,7 @@ class TestAddFromConfigFlow(unittest.TestCase):
         stub_osvc = types.ModuleType('calendar_assistant.outlook_service')
         stub_osvc.OutlookService = FakeService  # type: ignore[attr-defined]
         sys.modules['calendar_assistant.outlook_service'] = stub_osvc
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_add_from_config
         try:
             buf = io.StringIO()
             args = SimpleNamespace(
@@ -68,7 +68,7 @@ class TestAddFromConfigFlow(unittest.TestCase):
                 token=None,
             )
             with redirect_stdout(buf):
-                rc = cli._cmd_outlook_add_from_config(args)
+                rc = run_outlook_add_from_config(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn("Planned 2 events/series", out)
