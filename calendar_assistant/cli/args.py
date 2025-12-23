@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+"""CLI argument helpers and help string constants for calendar_assistant."""
+
 from core.cli_args import add_gmail_auth_args as _add_gmail_auth_args
 from core.cli_args import add_outlook_auth_args as _add_outlook_auth_args
+
+
+# Help string constants to avoid duplication
+HELP_START_DATE = "Start date YYYY-MM-DD (default: 30 days ago)"
+HELP_END_DATE = "End date YYYY-MM-DD (default: 180 days ahead)"
+HELP_CALENDAR_DEFAULT = "Calendar name (defaults to event.calendar or primary)"
+HELP_CONFIG_EVENTS = "YAML with events: [] entries"
+HELP_DRY_RUN = "Preview changes without writing"
+HELP_DEFAULT_CALENDAR = "Default calendar name to include in plan entries"
+HELP_INBOX_ONLY = "Restrict to Inbox (adds in:inbox)"
 
 
 def add_common_outlook_args(sp):
