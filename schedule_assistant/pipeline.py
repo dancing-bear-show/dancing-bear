@@ -184,71 +184,103 @@ def _weekday_code_to_py(d: str) -> Optional[int]:
     return m.get(d.upper())
 
 
-def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[tuple[str, str]]:
+def _to_date(d: Any) -> _dt.date:
+    """Parse a date string to a date object."""
+    return _dt.date.fromisoformat(str(d))
+
+
+def _to_datetime(d: _dt.date, t: str) -> _dt.datetime:
+    """Combine a date and time string into a datetime."""
+    hh, mm = (t or "00:00").split(":", 1)
+    return _dt.datetime(d.year, d.month, d.day, int(hh), int(mm))
+
+
+def _parse_exdates(exdates_raw: List[Any]) -> set:
+    """Parse exclusion dates into a set of ISO date strings."""
+    ex_set: set = set()
+    for x in exdates_raw:
+        try:
+            xs = str(x).strip()
+            if xs:
+                ex_set.add(xs.split("T", 1)[0])
+        except (TypeError, ValueError):
+            continue  # Skip malformed entries
+    return ex_set
+
+
+def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, str]:
+    """Create a start/end ISO string pair for a single occurrence."""
+    sdt = _to_datetime(d, start_time)
+    edt = _to_datetime(d, end_time)
+    if edt <= sdt:
+        edt = edt + _dt.timedelta(days=1)
+    if (edt - sdt).total_seconds() >= 4 * 3600:
+        edt = sdt + _dt.timedelta(hours=3, minutes=59)
+    return (sdt.strftime(_FMT_DATETIME), edt.strftime(_FMT_DATETIME))
+
+
+def _expand_daily(
+    cur: _dt.date, end: _dt.date, start_time: str, end_time: str, ex_set: set
+) -> List[Tuple[str, str]]:
+    """Expand daily occurrences within a date range."""
+    out: List[Tuple[str, str]] = []
+    d = cur
+    while d <= end:
+        if d.isoformat() not in ex_set:
+            out.append(_make_occurrence(d, start_time, end_time))
+        d = d + _dt.timedelta(days=1)
+    return out
+
+
+def _expand_weekly(
+    cur: _dt.date, end: _dt.date, start_time: str, end_time: str, ex_set: set, days_idx: List[int]
+) -> List[Tuple[str, str]]:
+    """Expand weekly occurrences within a date range."""
+    out: List[Tuple[str, str]] = []
+    d = cur
+    while d <= end:
+        if d.weekday() in days_idx and d.isoformat() not in ex_set:
+            out.append(_make_occurrence(d, start_time, end_time))
+        d = d + _dt.timedelta(days=1)
+    return out
+
+
+def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[Tuple[str, str]]:
     """Expand recurring event (weekly/daily) to list of (start_iso, end_iso) within window."""
-    out: List[tuple[str, str]] = []
     rpt = (ev.get("repeat") or "").strip().lower()
     if rpt not in ("daily", "weekly"):
-        return out
+        return []
+
     start_time = ev.get("start_time")
     end_time = ev.get("end_time") or start_time
     rng = ev.get("range") or {}
     range_start = rng.get("start_date") or win_from
     range_until = rng.get("until") or win_to
+
     if not (start_time and end_time and range_start):
-        return out
-    def _to_date_str(d: Any) -> _dt.date:
-        return _dt.date.fromisoformat(str(d))
-    def to_dt(d: _dt.date, t: str) -> _dt.datetime:
-        hh, mm = (t or "00:00").split(":", 1)
-        return _dt.datetime(d.year, d.month, d.day, int(hh), int(mm))
-    win_start = _to_date_str(win_from)
-    win_end = _to_date_str(win_to)
-    cur = max(_to_date_str(range_start), win_start)
-    end = min(_to_date_str(range_until), win_end)
+        return []
+
+    win_start = _to_date(win_from)
+    win_end = _to_date(win_to)
+    cur = max(_to_date(range_start), win_start)
+    end = min(_to_date(range_until), win_end)
+
     if cur > end:
-        return out
-    exdates_raw = ev.get("exdates") or []
-    ex_set = set()
-    try:
-        for x in exdates_raw:
-            xs = str(x).strip()
-            if not xs:
-                continue
-            ex_set.add(xs.split("T", 1)[0])
-    except Exception:
-        ex_set = set()
+        return []
+
+    ex_set = _parse_exdates(ev.get("exdates") or [])
+
     if rpt == "daily":
-        d = cur
-        while d <= end:
-            if d.isoformat() not in ex_set:
-                sdt = to_dt(d, start_time)
-                edt = to_dt(d, end_time)
-                if edt <= sdt:
-                    edt = edt + _dt.timedelta(days=1)
-                if (edt - sdt).total_seconds() >= 4 * 3600:
-                    edt = sdt + _dt.timedelta(hours=3, minutes=59)
-                out.append((sdt.strftime(_FMT_DATETIME), edt.strftime(_FMT_DATETIME)))
-            d = d + _dt.timedelta(days=1)
-        return out
+        return _expand_daily(cur, end, start_time, end_time, ex_set)
+
     if rpt == "weekly":
         byday = ev.get("byday") or []
         days_idx = [x for x in (_weekday_code_to_py(d) for d in byday) if x is not None]
         if not days_idx:
-            return out
-        d = cur
-        while d <= end:
-            if d.weekday() in days_idx and d.isoformat() not in ex_set:
-                sdt = to_dt(d, start_time)
-                edt = to_dt(d, end_time)
-                if edt <= sdt:
-                    edt = edt + _dt.timedelta(days=1)
-                if (edt - sdt).total_seconds() >= 4 * 3600:
-                    edt = sdt + _dt.timedelta(hours=3, minutes=59)
-                out.append((sdt.strftime(_FMT_DATETIME), edt.strftime(_FMT_DATETIME)))
-            d = d + _dt.timedelta(days=1)
-        return out
-    return out
+            return []
+        return _expand_weekly(cur, end, start_time, end_time, ex_set, days_idx)
+
+    return []
 
 
 def _apply_outlook_events(

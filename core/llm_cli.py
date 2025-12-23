@@ -117,7 +117,7 @@ _APP_MODULES = {
     "phone": "phone.llm_cli",
     "whatsapp": "whatsapp.llm_cli",
     "mail": "mail_assistant.llm_cli",
-    "wifi": "wifi_assistant.llm_cli",
+    "wifi": "wifi.llm_cli",
 }
 
 
