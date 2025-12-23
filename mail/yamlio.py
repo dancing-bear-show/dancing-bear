@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Compatibility shim that re-exports shared YAML helpers."""
+from __future__ import annotations
 
 from core.yamlio import dump_config, load_config  # noqa: F401
 

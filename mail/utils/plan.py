@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Plan output helpers shared across assistants."""
+from __future__ import annotations
 
 from typing import Optional
 

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Pipeline primitives for accounts commands."""
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path

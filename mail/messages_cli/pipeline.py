@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Pipeline primitives for messages commands."""
+from __future__ import annotations
 
 import json as _json
 from dataclasses import dataclass, field

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Consumers for forwarding pipelines."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 

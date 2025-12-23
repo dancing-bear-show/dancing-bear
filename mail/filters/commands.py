@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Convenience orchestration helpers for filters commands."""
+from __future__ import annotations
 
 from ..context import MailContext
 from .consumers import (

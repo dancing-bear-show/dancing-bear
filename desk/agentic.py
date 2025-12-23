@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Agentic capsule builders for the Desk Assistant CLI."""
+from __future__ import annotations
 
 from functools import lru_cache
 from typing import List

@@ -9,6 +9,8 @@ from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from core.pipeline import RequestConsumer
 
+from .extractors import MetalsAmount, OrderExtraction
+
 T = TypeVar("T")
 
 
@@ -38,9 +40,6 @@ class Producer(Generic[ResultT]):
     """Base producer class."""
     def produce(self, result: Result[ResultT]) -> None:
         raise NotImplementedError
-
-
-from .extractors import MetalsAmount, OrderExtraction
 
 
 # ============================================================================

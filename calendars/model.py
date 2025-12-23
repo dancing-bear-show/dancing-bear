@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Event plan normalization utilities.
 
 Helpers to coerce loose, human-authored YAML/dicts into a canonical event
 shape used by Outlook operations. Keep dependency-light and focused.
 """
+from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

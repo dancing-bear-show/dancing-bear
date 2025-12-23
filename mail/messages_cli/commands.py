@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Messages command orchestration helpers."""
+from __future__ import annotations
 
 import argparse
 from pathlib import Path

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Shared consumer/processor/producer scaffolding."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar

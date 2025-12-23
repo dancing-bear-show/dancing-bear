@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Forwarding CLI registration.
 
 Centralized wiring for the `forwarding` command group to keep `__main__` lean
 and consistent with other CLI modules.
 """
+from __future__ import annotations
 
 from .args import add_gmail_common_args as _add_gmail_args
 

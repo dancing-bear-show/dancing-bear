@@ -1,3 +1,2 @@
-from __future__ import annotations
-
 """Signatures pipeline module."""
+from __future__ import annotations

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Desk assistant pipeline components (scan/plan/apply)."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional

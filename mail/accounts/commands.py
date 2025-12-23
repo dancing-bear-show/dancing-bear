@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Accounts command orchestration helpers for multi-account operations."""
+from __future__ import annotations
 
 from .pipeline import (
     AccountsListRequest,

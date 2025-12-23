@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Higher-level helpers for location sync (plan/apply)."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple

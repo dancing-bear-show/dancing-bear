@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 """Lightweight summarization adapter.
 
 Defaults to a heuristic (extractive) summary to avoid optional deps.
 If an external LLM is configured via environment variables, this module can
 be extended to call out to that provider. Keep imports lazy.
 """
+from __future__ import annotations
 
 from typing import Optional
 

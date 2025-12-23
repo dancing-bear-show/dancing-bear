@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Thin Gmail service wrapper built on provider helpers.
 
 Centralizes provider construction and basic operations used by CLI
 parsers for Gmail scans.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Union

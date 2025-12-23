@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Testing helpers for consumers/processors/producers."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable

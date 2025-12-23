@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 """Agentic capsule builders for the Calendar Assistant.
 
 These functions dynamically introspect the CLI to produce concise
 capsules and domain maps for LLM agents. They avoid heavy imports and
 execute only lightweight parsing logic.
 """
+from __future__ import annotations
 
 from functools import lru_cache
 from typing import List

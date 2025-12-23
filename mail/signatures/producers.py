@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Producers for signatures pipelines."""
+from __future__ import annotations
 
 from typing import Any, Dict
 

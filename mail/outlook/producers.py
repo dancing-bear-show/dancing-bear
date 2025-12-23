@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Producers for Outlook pipelines."""
+from __future__ import annotations
 
 from core.pipeline import Producer, ResultEnvelope
 
