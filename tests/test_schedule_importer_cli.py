@@ -4,7 +4,8 @@ import subprocess
 
 class TestScheduleImporterCLI(unittest.TestCase):
     def test_help_contains_schedule_import(self):
-        out = subprocess.check_output(["./bin/assistant", "calendar", "--help"], text=True)  # nosec B603
+        # schedule-import is now under the outlook subgroup
+        out = subprocess.check_output(["./bin/assistant", "calendar", "outlook", "--help"], text=True)  # nosec B603
         self.assertIn("schedule-import", out)
 
 

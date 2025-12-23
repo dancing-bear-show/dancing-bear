@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 from core.pipeline import ResultEnvelope
 from calendar_assistant.pipeline import (
+    BaseProducer,
+    RequestConsumer,
     GmailAuth,
     GmailPlanProducer,
     GmailPlanResult,
@@ -681,3 +683,116 @@ Tuesday from 6:00 pm to 6:30 pm"""
         env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
         self.assertFalse(env.ok())
         self.assertEqual(env.diagnostics["code"], 2)
+
+
+class RequestConsumerTests(TestCase):
+    """Tests for the generic RequestConsumer class."""
+
+    def test_request_consumer_returns_request(self):
+        """RequestConsumer.consume() returns the original request object."""
+        request = GmailMailListRequest(
+            auth=GmailAuth(None, None, None, None),
+            query="test",
+            from_text=None,
+            days=7,
+            pages=1,
+            page_size=10,
+            inbox_only=True,
+        )
+        consumer = RequestConsumer(request)
+        result = consumer.consume()
+        self.assertIs(result, request)
+
+    def test_request_consumer_works_with_type_alias(self):
+        """Type alias consumers work correctly with RequestConsumer."""
+        request = OutlookVerifyRequest(
+            config_path=Path("/tmp/test.yaml"),
+            calendar="Family",
+            service=MagicMock(),
+        )
+        # Using the type alias
+        consumer = OutlookVerifyRequestConsumer(request)
+        result = consumer.consume()
+        self.assertIs(result, request)
+        self.assertEqual(result.calendar, "Family")
+
+    def test_request_consumer_preserves_all_fields(self):
+        """RequestConsumer preserves all request fields."""
+        auth = GmailAuth("profile", "creds", "token", "cache")
+        request = GmailSweepTopRequest(
+            auth=auth,
+            query="from:test",
+            from_text="alerts",
+            days=30,
+            pages=5,
+            page_size=50,
+            inbox_only=False,
+            top=10,
+            out_path=Path("/tmp/out.yaml"),
+        )
+        consumer = GmailSweepTopRequestConsumer(request)
+        result = consumer.consume()
+        self.assertEqual(result.auth.profile, "profile")
+        self.assertEqual(result.query, "from:test")
+        self.assertEqual(result.days, 30)
+        self.assertEqual(result.top, 10)
+
+
+class BaseProducerTests(TestCase):
+    """Tests for the BaseProducer template method pattern."""
+
+    def test_base_producer_handles_error_result(self):
+        """BaseProducer.produce() prints error message for failed results."""
+        env = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong", "code": 1})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookVerifyProducer().produce(env)
+        self.assertIn("Something went wrong", buf.getvalue())
+
+    def test_base_producer_handles_error_without_message(self):
+        """BaseProducer.produce() handles errors without message gracefully."""
+        env = ResultEnvelope(status="error", diagnostics={"code": 1})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookVerifyProducer().produce(env)
+        # Should not raise, just return without printing
+        self.assertEqual("", buf.getvalue())
+
+    def test_base_producer_calls_produce_success(self):
+        """BaseProducer.produce() delegates to _produce_success for successful results."""
+        payload = OutlookVerifyResult(logs=["test log"], total=5, duplicates=2, missing=1)
+        env = ResultEnvelope(status="success", payload=payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookVerifyProducer().produce(env)
+        output = buf.getvalue()
+        self.assertIn("test log", output)
+        self.assertIn("Checked 5 recurring entries", output)
+        self.assertIn("Duplicates: 2", output)
+        self.assertIn("Missing: 1", output)
+
+    def test_base_producer_print_logs_helper(self):
+        """BaseProducer.print_logs() prints each log line."""
+        producer = OutlookVerifyProducer()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            producer.print_logs(["line1", "line2", "line3"])
+        output = buf.getvalue()
+        self.assertIn("line1", output)
+        self.assertIn("line2", output)
+        self.assertIn("line3", output)
+
+    def test_base_producer_print_error_returns_true_on_error(self):
+        """BaseProducer.print_error() returns True when result has error."""
+        env = ResultEnvelope(status="error", diagnostics={"message": "fail"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = BaseProducer.print_error(env)
+        self.assertTrue(result)
+        self.assertIn("fail", buf.getvalue())
+
+    def test_base_producer_print_error_returns_false_on_success(self):
+        """BaseProducer.print_error() returns False when result is successful."""
+        env = ResultEnvelope(status="success", payload=None)
+        result = BaseProducer.print_error(env)
+        self.assertFalse(result)
