@@ -19,12 +19,13 @@ Familiarize Mode (Strict + Tiers)
 
 Architecture Overview
 ```
-mail_assistant/           # Gmail/Outlook providers, CLI wiring, helpers
-calendar_assistant/       # Outlook calendar CLI + Gmail scans
-schedule_assistant/       # plan/apply calendar schedules
-resume_assistant/         # extract/summarize/render resumes
+mail/                     # Gmail/Outlook providers, CLI wiring, helpers
+calendars/                # Outlook calendar CLI + Gmail scans
+schedule/                 # plan/apply calendar schedules
+resume/                   # extract/summarize/render resumes
 phone/                    # iOS layout tooling
 whatsapp/                 # local-only ChatStorage search
+desk/                     # desktop/workspace tooling
 maker/                    # utility generators
 bin/                      # entry wrappers and helper scripts
 core/, personal_core/     # shared helpers
@@ -78,13 +79,13 @@ Familiarization Policy (Fast + Lean)
   1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
   2) Entry points: `bin/assistant`, `bin/mail-assistant`, `bin/calendar-assistant`, `bin/schedule-assistant`, `bin/phone`, `bin/whatsapp`
   3) Shared helpers: `core/`, `personal_core/`
-  4) Mail config/DSL: `mail_assistant/dsl.py`, `mail_assistant/config_resolver.py`, `mail_assistant/utils/filters.py`
-  5) Providers/APIs: `mail_assistant/providers/*.py`, `mail_assistant/gmail_api.py`, `mail_assistant/outlook_api.py`
+  4) Mail config/DSL: `mail/dsl.py`, `mail/config_resolver.py`, `mail/utils/filters.py`
+  5) Providers/APIs: `mail/providers/*.py`, `mail/gmail_api.py`, `mail/outlook_api/`
   6) Tests for shape: `tests/test_cli.py`, `tests/test_cli_filters.py`, `tests/test_workflows*.py`
 - Ripgrep quick searches (exclude heavy dirs):
-  - `rg -n "(def main\(|argparse|click)" mail_assistant/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
-  - `rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail_assistant/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
-  - `rg -n "filters_unified.yaml|derive|audit|optimize" mail_assistant/ README.md -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
+  - `rg -n "(def main\(|argparse|click)" mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
+  - `rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
+  - `rg -n "filters_unified.yaml|derive|audit|optimize" mail/ README.md -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
 
 Agentic Shortcuts
 - `./bin/assistant mail --agentic` or direct `./bin/mail-assistant --agentic` - compact agentic capsule from main parser

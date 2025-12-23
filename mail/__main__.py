@@ -11,8 +11,6 @@ This CLI provides Gmail and Outlook mail management operations including:
 
 from __future__ import annotations
 
-import argparse
-import sys
 from typing import Optional, List
 
 from core.assistant import BaseAssistant
