@@ -231,7 +231,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     cert_pem = None
     for use_legacy in [True, False]:
         try:
-            cmd = ["openssl", "pkcs12"]
+            cmd = ["openssl", "pkcs12"]  # nosec B607
             if use_legacy:
                 cmd.append("-legacy")
             cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])
@@ -249,7 +249,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     subject = ""
     issuer = ""
     try:
-        subj_out = subprocess.check_output(  # nosec B603
+        subj_out = subprocess.check_output(  # nosec B603 B607
             ["openssl", "x509", "-noout", "-subject"],
             input=cert_pem,
             stderr=subprocess.DEVNULL,
@@ -259,7 +259,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
         pass  # nosec B110 - cert parsing failure
 
     try:
-        iss_out = subprocess.check_output(  # nosec B603
+        iss_out = subprocess.check_output(  # nosec B603 B607
             ["openssl", "x509", "-noout", "-issuer"],
             input=cert_pem,
             stderr=subprocess.DEVNULL,
