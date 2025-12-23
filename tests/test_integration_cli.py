@@ -168,7 +168,7 @@ class LLMCLIIntegrationTests(unittest.TestCase):
         proc = self._run_llm(["domain-map", "--stdout"])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         # Domain map contains CLI tree or flows
-        self.assertTrue(len(proc.stdout) > 100)
+        self.assertGreater(len(proc.stdout), 100)
 
     def test_llm_familiar_stdout(self):
         proc = self._run_llm(["familiar", "--stdout"])

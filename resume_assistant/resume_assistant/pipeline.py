@@ -73,7 +73,7 @@ class FilterPipeline:
                 if syn:
                     self._synonyms.update(syn)
             except Exception:
-                pass
+                pass  # Job config load failed; continue without synonyms
         return self
 
     def with_skill_filter(
@@ -106,7 +106,7 @@ class FilterPipeline:
                     synonyms=self._synonyms,
                 )
         except Exception:
-            pass
+            pass  # Alignment load or filter failed; keep original data
 
         return self
 
@@ -149,7 +149,7 @@ class FilterPipeline:
                     min_score=min_score,
                 )
         except Exception:
-            pass
+            pass  # Alignment load or filter failed; keep original data
 
         return self
 
