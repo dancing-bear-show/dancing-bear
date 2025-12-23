@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
-from ..outlook_api import OutlookClient
+from mail.outlook_api import OutlookClient
 
 
 G_PER_OZ = 31.1035

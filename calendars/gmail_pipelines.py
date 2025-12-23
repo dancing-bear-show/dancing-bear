@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import Processor, ResultEnvelope
 
 from .gmail_service import GmailService
 from .text_utils import to_24h, extract_email_address

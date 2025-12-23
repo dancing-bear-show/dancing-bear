@@ -325,21 +325,24 @@ class DeriveLabelsTests(TestCase):
             self.assertTrue(out_gmail.exists())
             self.assertTrue(out_outlook.exists())
 
-    def test_derive_labels_processor_missing_labels(self):
-        """DeriveLabelsProcessor handles missing labels list."""
+    def test_derive_labels_processor_empty_labels(self):
+        """DeriveLabelsProcessor handles empty labels list."""
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "empty.yaml"
-            in_path.write_text("other: data\n")
+            in_path.write_text("labels: []\n")
+
+            out_gmail = Path(tmpdir) / "g.yaml"
+            out_outlook = Path(tmpdir) / "o.yaml"
 
             request = DeriveLabelsRequest(
                 in_path=str(in_path),
-                out_gmail=str(Path(tmpdir) / "g.yaml"),
-                out_outlook=str(Path(tmpdir) / "o.yaml"),
+                out_gmail=str(out_gmail),
+                out_outlook=str(out_outlook),
             )
             result = DeriveLabelsProcessor().process(request)
 
-            self.assertFalse(result.ok())
-            self.assertIn("missing labels", result.diagnostics.get("message", ""))
+            self.assertTrue(result.ok())
+            self.assertEqual(0, result.payload.labels_count)
 
     def test_derive_labels_producer_output(self):
         """DeriveLabelsProducer prints paths."""
@@ -389,21 +392,24 @@ class DeriveFiltersTests(TestCase):
             self.assertTrue(out_gmail.exists())
             self.assertTrue(out_outlook.exists())
 
-    def test_derive_filters_processor_missing_filters(self):
-        """DeriveFiltersProcessor handles missing filters list."""
+    def test_derive_filters_processor_empty_filters(self):
+        """DeriveFiltersProcessor handles empty filters list."""
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "empty.yaml"
-            in_path.write_text("other: data\n")
+            in_path.write_text("filters: []\n")
+
+            out_gmail = Path(tmpdir) / "g.yaml"
+            out_outlook = Path(tmpdir) / "o.yaml"
 
             request = DeriveFiltersRequest(
                 in_path=str(in_path),
-                out_gmail=str(Path(tmpdir) / "g.yaml"),
-                out_outlook=str(Path(tmpdir) / "o.yaml"),
+                out_gmail=str(out_gmail),
+                out_outlook=str(out_outlook),
             )
             result = DeriveFiltersProcessor().process(request)
 
-            self.assertFalse(result.ok())
-            self.assertIn("missing filters", result.diagnostics.get("message", ""))
+            self.assertTrue(result.ok())
+            self.assertEqual(0, result.payload.filters_count)
 
     def test_derive_filters_producer_output(self):
         """DeriveFiltersProducer prints paths."""
@@ -472,20 +478,23 @@ class OptimizeFiltersTests(TestCase):
             self.assertEqual("Label1", result.payload.merged_groups[0].destination)
             self.assertEqual(3, result.payload.merged_groups[0].rules_merged)
 
-    def test_optimize_filters_processor_missing_filters(self):
-        """OptimizeFiltersProcessor handles missing filters list."""
+    def test_optimize_filters_processor_empty_filters(self):
+        """OptimizeFiltersProcessor handles empty filters list."""
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = Path(tmpdir) / "empty.yaml"
-            in_path.write_text("other: data\n")
+            in_path.write_text("filters: []\n")
+
+            out_path = Path(tmpdir) / "out.yaml"
 
             request = OptimizeFiltersRequest(
                 in_path=str(in_path),
-                out_path=str(Path(tmpdir) / "out.yaml"),
+                out_path=str(out_path),
             )
             result = OptimizeFiltersProcessor().process(request)
 
-            self.assertFalse(result.ok())
-            self.assertIn("missing filters", result.diagnostics.get("message", ""))
+            self.assertTrue(result.ok())
+            self.assertEqual(0, result.payload.original_count)
+            self.assertEqual(0, result.payload.optimized_count)
 
     def test_optimize_filters_producer_output(self):
         """OptimizeFiltersProducer prints results."""

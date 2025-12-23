@@ -74,16 +74,15 @@ costs_group = app.group("costs", help="Extract and manage purchase costs")
 @app.argument("--profile", "-p", default="gmail_personal", help="Gmail profile")
 @app.argument("--out", "-o", default="out/metals/costs.csv", help="Output CSV path")
 def cmd_costs_gmail(args) -> int:
-    # Delegate to existing implementation for now
-    from mail.utils.metals_costs import main as metals_costs_main
-    return metals_costs_main(["--profile", args.profile, "--out", args.out])
+    from .costs import main as costs_main
+    return costs_main(["--profile", args.profile, "--out", args.out])
 
 
 @costs_group.command("outlook", help="Extract costs from Outlook (RCM)")
 @app.argument("--profile", "-p", default="outlook_personal", help="Outlook profile")
 @app.argument("--out", "-o", default="out/metals/costs.csv", help="Output CSV path")
 def cmd_costs_outlook(args) -> int:
-    from mail.utils.outlook_metals_costs import main as outlook_costs_main
+    from .outlook_costs import main as outlook_costs_main
     return outlook_costs_main(["--profile", args.profile, "--out", args.out])
 
 
@@ -99,7 +98,7 @@ spot_group = app.group("spot", help="Fetch and manage spot prices")
 @app.argument("--start", "-s", help="Start date (YYYY-MM-DD)")
 @app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
 def cmd_spot_fetch(args) -> int:
-    from mail.utils.metals_spot_series import main as spot_main
+    from .spot import main as spot_main
     argv = ["--metal", args.metal, "--out-dir", args.out_dir]
     if args.start:
         argv.extend(["--start", args.start])
@@ -118,7 +117,7 @@ premium_group = app.group("premium", help="Calculate purchase premiums")
 @app.argument("--costs", default="out/metals/costs.csv", help="Costs CSV path")
 @app.argument("--spot-dir", default="out/metals", help="Spot prices directory")
 def cmd_premium_calc(args) -> int:
-    from mail.utils.metals_premium import main as premium_main
+    from .premium import main as premium_main
     argv = ["--costs", args.costs, "--spot-dir", args.spot_dir]
     if args.metal:
         argv.extend(["--metal", args.metal])
@@ -128,7 +127,7 @@ def cmd_premium_calc(args) -> int:
 @premium_group.command("summary", help="Summarize premiums")
 @app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
 def cmd_premium_summary(args) -> int:
-    from mail.utils.metals_premium_summary import main as summary_main
+    from .premium_summary import main as summary_main
     return summary_main(["--out-dir", args.out_dir])
 
 
@@ -143,7 +142,7 @@ build_group = app.group("build", help="Build summary files")
 @app.argument("--costs", default="out/metals/costs.csv", help="Costs CSV path")
 @app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
 def cmd_build_summaries(args) -> int:
-    from mail.utils.metals_build_summaries import main as build_main
+    from .build_summaries import main as build_main
     return build_main(["--costs", args.costs, "--out-dir", args.out_dir])
 
 
@@ -160,7 +159,7 @@ excel_group = app.group("excel", help="Excel/OneDrive integration")
 @app.argument("--gold", default="out/metals/gold_summary.csv", help="Gold summary CSV")
 @app.argument("--silver", default="out/metals/silver_summary.csv", help="Silver summary CSV")
 def cmd_excel_merge(args) -> int:
-    from mail.utils.metals_excel_merge import main as merge_main
+    from .excel_merge import main as merge_main
     argv = ["--workbook", args.workbook, "--gold", args.gold, "--silver", args.silver]
     if args.out:
         argv.extend(["--out", args.out])
@@ -174,7 +173,7 @@ def cmd_excel_merge(args) -> int:
 @app.command("scan", help="Scan for metals emails (Outlook)")
 @app.argument("--profile", "-p", default="outlook_personal", help="Outlook profile")
 def cmd_scan(args) -> int:
-    from mail.utils.outlook_metals_scan import main as scan_main
+    from .outlook_scan import main as scan_main
     return scan_main(["--profile", args.profile])
 
 

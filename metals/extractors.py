@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Tuple
 
 # Grams per troy ounce
 G_PER_OZ = 31.1035

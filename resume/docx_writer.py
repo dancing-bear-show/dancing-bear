@@ -15,14 +15,10 @@ from .docx_styles import (
     _parse_hex_color,
     _is_dark,
     _tight_paragraph,
-    _compact_bullet,
     _flush_left,
     _apply_paragraph_shading,
-    _normalize_present,
     _format_phone_display,
     _format_link_display,
-    _clean_inline_text,
-    _normalize_bullet_text,
 )
 from .docx_sections import (
     BulletRenderer,

@@ -22,7 +22,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
-from ..outlook_api import OutlookClient
+from mail.outlook_api import OutlookClient
 
 
 def _col_letter(idx: int) -> str:
@@ -645,12 +645,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         [
             "gold",
             "=SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000)",
-            f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"gold\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000),\"\")",
+            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"gold\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
         [
             "silver",
             "=SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000)",
-            f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"silver\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000),\"\")",
+            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"silver\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
         [""],
         ["Totals by Vendor"],
@@ -658,12 +658,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         [
             "TD",
             "=SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000)",
-            f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"TD\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000),\"\")",
+            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"TD\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
         [
             "Costco",
             "=SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000)",
-            f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"Costco\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000),\"\")",
+            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"Costco\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
     ]
     _write_range(client, new_did, new_iid, sum_name, sum_formulas)

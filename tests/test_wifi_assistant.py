@@ -72,7 +72,8 @@ class WifiAssistantTests(unittest.TestCase):
 
         def resolver(host):
             return DnsResult(host=host, success=True, addresses=["142.0.0.1"], elapsed_ms=8.5)
-        http_probe = lambda url: HttpResult(url=url, success=True, status=200, elapsed_ms=180.0, bytes_read=2048)
+        def http_probe(url):
+            return HttpResult(url=url, success=True, status=200, elapsed_ms=180.0, bytes_read=2048)
         cfg = DiagnoseConfig(
             ping_targets=["1.1.1.1", "8.8.8.8"],
             ping_count=5,
@@ -128,7 +129,8 @@ class WifiAssistantTests(unittest.TestCase):
         cfg = DiagnoseConfig(ping_targets=["1.1.1.1"], ping_count=12)
         def resolver(host):
             return DnsResult(host=host, success=True, addresses=["1.2.3.4"], elapsed_ms=5.0)
-        http_probe = lambda url: HttpResult(url=url, success=True, status=200, elapsed_ms=100.0, bytes_read=1024)
+        def http_probe(url):
+            return HttpResult(url=url, success=True, status=200, elapsed_ms=100.0, bytes_read=1024)
         report = run_diagnosis(cfg, runner=runner, resolver=resolver, http_probe_fn=http_probe)
         self.assertTrue(any("ICMP" in f and "filtered" in f for f in report.findings), report.findings)
         self.assertEqual(report.condition, "n/a (icmp filtered)")
