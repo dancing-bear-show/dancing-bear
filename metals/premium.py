@@ -27,7 +27,7 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .metals_spot_series import _fetch_stooq_series, _fetch_yahoo_series
+from .spot import _fetch_stooq_series, _fetch_yahoo_series
 
 
 @dataclass
