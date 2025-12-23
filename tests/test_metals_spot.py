@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -37,7 +37,7 @@ class TestAutoStartDate(unittest.TestCase):
 
     def test_returns_none_when_no_files(self):
         """Test returns None when no cost files exist."""
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory():
             with patch("metals.spot.Path") as mock_path:
                 # Make paths not exist
                 mock_path.return_value.exists.return_value = False
