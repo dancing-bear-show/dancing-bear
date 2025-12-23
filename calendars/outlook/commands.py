@@ -6,65 +6,52 @@ import argparse
 from pathlib import Path
 
 from core.auth import build_outlook_service_from_args
+from core.pipeline import run_pipeline
 
 from ..outlook_pipelines import (
     OutlookAddProcessor,
     OutlookAddProducer,
     OutlookAddRequest,
-    OutlookAddRequestConsumer,
     OutlookAddEventProcessor,
     OutlookAddEventProducer,
     OutlookAddEventRequest,
-    OutlookAddEventRequestConsumer,
     OutlookAddRecurringProcessor,
     OutlookAddRecurringProducer,
     OutlookAddRecurringRequest,
-    OutlookAddRecurringRequestConsumer,
     OutlookDedupProcessor,
     OutlookDedupProducer,
     OutlookDedupRequest,
-    OutlookDedupRequestConsumer,
     OutlookRemoveProcessor,
     OutlookRemoveProducer,
     OutlookRemoveRequest,
-    OutlookRemoveRequestConsumer,
     OutlookRemindersProcessor,
     OutlookRemindersProducer,
     OutlookRemindersRequest,
-    OutlookRemindersRequestConsumer,
     OutlookSettingsProcessor,
     OutlookSettingsProducer,
     OutlookSettingsRequest,
-    OutlookSettingsRequestConsumer,
     OutlookScheduleImportProcessor,
     OutlookScheduleImportProducer,
     OutlookScheduleImportRequest,
-    OutlookScheduleImportRequestConsumer,
     OutlookListOneOffsProcessor,
     OutlookListOneOffsProducer,
     OutlookListOneOffsRequest,
-    OutlookListOneOffsRequestConsumer,
     OutlookCalendarShareProcessor,
     OutlookCalendarShareProducer,
     OutlookCalendarShareRequest,
-    OutlookCalendarShareRequestConsumer,
     OutlookLocationsApplyProcessor,
     OutlookLocationsProducer,
     OutlookLocationsRequest,
-    OutlookLocationsRequestConsumer,
     OutlookLocationsUpdateProcessor,
     OutlookLocationsEnrichProcessor,
     OutlookLocationsEnrichProducer,
     OutlookLocationsEnrichRequest,
-    OutlookLocationsEnrichRequestConsumer,
     OutlookVerifyProcessor,
     OutlookVerifyProducer,
     OutlookVerifyRequest,
-    OutlookVerifyRequestConsumer,
     OutlookMailListProcessor,
     OutlookMailListProducer,
     OutlookMailListRequest,
-    OutlookMailListRequestConsumer,
 )
 from ..scan_common import (
     DAY_MAP,
@@ -98,11 +85,7 @@ def run_outlook_mail_list(args: argparse.Namespace) -> int:
         top=int(getattr(args, "top", 5)),
         pages=int(getattr(args, "pages", 1)),
     )
-    envelope = OutlookMailListProcessor().process(OutlookMailListRequestConsumer(request).consume())
-    OutlookMailListProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookMailListProcessor, OutlookMailListProducer)
 
 
 def run_outlook_add(args: argparse.Namespace) -> int:
@@ -122,11 +105,7 @@ def run_outlook_add(args: argparse.Namespace) -> int:
         no_reminder=bool(getattr(args, "no_reminder", False)),
         reminder_minutes=getattr(args, "reminder_minutes", None),
     )
-    envelope = OutlookAddEventProcessor().process(OutlookAddEventRequestConsumer(request).consume())
-    OutlookAddEventProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookAddEventProcessor, OutlookAddEventProducer)
 
 
 def run_outlook_locations_enrich(args: argparse.Namespace) -> int:
@@ -140,11 +119,7 @@ def run_outlook_locations_enrich(args: argparse.Namespace) -> int:
         to_date=getattr(args, "to_date", None),
         dry_run=bool(getattr(args, "dry_run", False)),
     )
-    envelope = OutlookLocationsEnrichProcessor().process(OutlookLocationsEnrichRequestConsumer(request).consume())
-    OutlookLocationsEnrichProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookLocationsEnrichProcessor, OutlookLocationsEnrichProducer)
 
 
 def run_outlook_calendar_share(args: argparse.Namespace) -> int:
@@ -157,11 +132,7 @@ def run_outlook_calendar_share(args: argparse.Namespace) -> int:
         recipient=getattr(args, "recipient", None),
         role=getattr(args, "role", "write"),
     )
-    envelope = OutlookCalendarShareProcessor().process(OutlookCalendarShareRequestConsumer(request).consume())
-    OutlookCalendarShareProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookCalendarShareProcessor, OutlookCalendarShareProducer)
 
 
 def run_outlook_schedule_import(args: argparse.Namespace) -> int:
@@ -178,11 +149,7 @@ def run_outlook_schedule_import(args: argparse.Namespace) -> int:
         no_reminder=bool(getattr(args, "no_reminder", False)),
         service=svc,
     )
-    envelope = OutlookScheduleImportProcessor().process(OutlookScheduleImportRequestConsumer(request).consume())
-    OutlookScheduleImportProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookScheduleImportProcessor, OutlookScheduleImportProducer)
 
 
 def run_outlook_add_recurring(args: argparse.Namespace) -> int:
@@ -217,11 +184,7 @@ def run_outlook_add_recurring(args: argparse.Namespace) -> int:
         no_reminder=bool(getattr(args, "no_reminder", False)),
         reminder_minutes=getattr(args, "reminder_minutes", None),
     )
-    envelope = OutlookAddRecurringProcessor().process(OutlookAddRecurringRequestConsumer(request).consume())
-    OutlookAddRecurringProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookAddRecurringProcessor, OutlookAddRecurringProducer)
 
 
 def run_outlook_add_from_config(args: argparse.Namespace) -> int:
@@ -234,11 +197,7 @@ def run_outlook_add_from_config(args: argparse.Namespace) -> int:
         force_no_reminder=bool(getattr(args, "no_reminder", False)),
         service=svc,
     )
-    envelope = OutlookAddProcessor().process(OutlookAddRequestConsumer(request).consume())
-    OutlookAddProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookAddProcessor, OutlookAddProducer)
 
 
 def run_outlook_verify_from_config(args: argparse.Namespace) -> int:
@@ -250,11 +209,7 @@ def run_outlook_verify_from_config(args: argparse.Namespace) -> int:
         calendar=getattr(args, "calendar", None),
         service=svc,
     )
-    envelope = OutlookVerifyProcessor().process(OutlookVerifyRequestConsumer(request).consume())
-    OutlookVerifyProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookVerifyProcessor, OutlookVerifyProducer)
 
 
 def run_outlook_update_locations(args: argparse.Namespace) -> int:
@@ -267,11 +222,7 @@ def run_outlook_update_locations(args: argparse.Namespace) -> int:
         dry_run=bool(getattr(args, "dry_run", False)),
         service=svc,
     )
-    envelope = OutlookLocationsUpdateProcessor().process(OutlookLocationsRequestConsumer(request).consume())
-    OutlookLocationsProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookLocationsUpdateProcessor, OutlookLocationsProducer)
 
 
 def run_outlook_apply_locations(args: argparse.Namespace) -> int:
@@ -285,11 +236,7 @@ def run_outlook_apply_locations(args: argparse.Namespace) -> int:
         all_occurrences=bool(getattr(args, "all_occurrences", False)),
         service=svc,
     )
-    envelope = OutlookLocationsApplyProcessor().process(OutlookLocationsRequestConsumer(request).consume())
-    OutlookLocationsProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookLocationsApplyProcessor, OutlookLocationsProducer)
 
 
 def run_outlook_reminders_off(args: argparse.Namespace) -> int:
@@ -306,11 +253,7 @@ def run_outlook_reminders_off(args: argparse.Namespace) -> int:
         set_off=True,
         minutes=None,
     )
-    envelope = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
-    OutlookRemindersProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookRemindersProcessor, OutlookRemindersProducer)
 
 
 def run_outlook_list_one_offs(args: argparse.Namespace) -> int:
@@ -325,11 +268,7 @@ def run_outlook_list_one_offs(args: argparse.Namespace) -> int:
         limit=int(getattr(args, "limit", 200) or 200),
         out_path=Path(getattr(args, "out")) if getattr(args, "out", None) else None,
     )
-    envelope = OutlookListOneOffsProcessor().process(OutlookListOneOffsRequestConsumer(request).consume())
-    OutlookListOneOffsProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookListOneOffsProcessor, OutlookListOneOffsProducer)
 
 
 def run_outlook_reminders_set(args: argparse.Namespace) -> int:
@@ -350,11 +289,7 @@ def run_outlook_reminders_set(args: argparse.Namespace) -> int:
         set_off=bool(getattr(args, "off", False)),
         minutes=None if getattr(args, "off", False) else int(minutes),
     )
-    envelope = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
-    OutlookRemindersProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookRemindersProcessor, OutlookRemindersProducer)
 
 
 def run_outlook_settings_apply(args: argparse.Namespace) -> int:
@@ -369,11 +304,7 @@ def run_outlook_settings_apply(args: argparse.Namespace) -> int:
         dry_run=bool(getattr(args, "dry_run", False)),
         service=svc,
     )
-    envelope = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
-    OutlookSettingsProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookSettingsProcessor, OutlookSettingsProducer)
 
 
 def run_outlook_dedup(args: argparse.Namespace) -> int:
@@ -390,11 +321,7 @@ def run_outlook_dedup(args: argparse.Namespace) -> int:
         prefer_delete_nonstandard=bool(getattr(args, "prefer_delete_nonstandard", False)),
         delete_standardized=bool(getattr(args, "delete_standardized", False)),
     )
-    envelope = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
-    OutlookDedupProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookDedupProcessor, OutlookDedupProducer)
 
 
 def run_outlook_remove_from_config(args: argparse.Namespace) -> int:
@@ -408,11 +335,7 @@ def run_outlook_remove_from_config(args: argparse.Namespace) -> int:
         apply=bool(getattr(args, "apply", False)),
         service=svc,
     )
-    envelope = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
-    OutlookRemoveProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+    return run_pipeline(request, OutlookRemoveProcessor, OutlookRemoveProducer)
 
 
 def run_outlook_scan_classes(args: argparse.Namespace) -> int:

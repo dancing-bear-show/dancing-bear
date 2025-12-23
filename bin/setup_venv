@@ -18,7 +18,7 @@ fi
 ./.venv/bin/python -m pip install -e .
 
 # Make wrapper executable for direct invocation
-chmod +x bin/mail_assistant || true
+chmod +x bin/mail || true
 
 echo "Virtual env ready: .venv"
 echo "Console script available after install: mail-assistant"

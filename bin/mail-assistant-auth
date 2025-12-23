@@ -52,4 +52,4 @@ fi
 
 mkdir -p "$(dirname "$tok")"
 echo "Running auth with --credentials $cred --token $tok" >&2
-exec "$SCRIPT_DIR/mail_assistant" auth --credentials "$cred" --token "$tok"
+exec "$SCRIPT_DIR/mail" auth --credentials "$cred" --token "$tok"
