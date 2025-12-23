@@ -21,6 +21,11 @@ from calendar_assistant.selection import compute_window, filter_events_by_day_ti
 from .location_sync import LocationSync
 from .pipeline_base import DateWindowResolver, to_iso_str
 
+# Error message constants
+ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"
+ERR_CONFIG_MUST_CONTAIN_EVENTS = "Config must contain events: [] list"
+MSG_PREVIEW_COMPLETE = "Preview complete."
+
 
 # =============================================================================
 # Outlook Verify Pipeline
@@ -60,7 +65,7 @@ class OutlookVerifyProcessor(Processor[OutlookVerifyRequest, ResultEnvelope[Outl
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
         items = cfg.get("events") if isinstance(cfg, dict) else None
         if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": "Config must contain events: [] list", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
         svc = payload.service
         logs: List[str] = []
         total = duplicates = missing = 0
@@ -151,7 +156,7 @@ class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAdd
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
         items = cfg.get("events") if isinstance(cfg, dict) else None
         if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": "Config must contain events: [] list", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
         svc = payload.service
         logs: List[str] = []
         created = 0
@@ -291,7 +296,7 @@ class OutlookScheduleImportProcessor(
     def process(self, payload: OutlookScheduleImportRequest) -> ResultEnvelope[OutlookScheduleImportResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         cal_name = payload.calendar or "Imported Schedules"
         try:
             cal_id = svc.ensure_calendar_exists(cal_name)
@@ -391,7 +396,7 @@ class OutlookScheduleImportProducer(Producer[ResultEnvelope[OutlookScheduleImpor
         for line in result.payload.logs:
             print(line)
         if result.payload.dry_run:
-            print("Preview complete.")
+            print(MSG_PREVIEW_COMPLETE)
         else:
             print(f"Created {result.payload.created} event series in '{result.payload.calendar}'.")
 
@@ -434,7 +439,7 @@ class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnv
     def process(self, payload: OutlookListOneOffsRequest) -> ResultEnvelope[OutlookListOneOffsResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         start_date = payload.from_date or start_iso[:10]
         end_date = payload.to_date or end_iso[:10]
@@ -523,7 +528,7 @@ class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, Resul
     def process(self, payload: OutlookCalendarShareRequest) -> ResultEnvelope[OutlookCalendarShareResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         cal_name = payload.calendar
         try:
             cal_id = svc.find_calendar_id(cal_name)
@@ -620,7 +625,7 @@ class OutlookAddEventProcessor(Processor[OutlookAddEventRequest, ResultEnvelope[
     def process(self, payload: OutlookAddEventRequest) -> ResultEnvelope[OutlookAddEventResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         try:
             evt = svc.create_event(
                 calendar_id=None,
@@ -698,7 +703,7 @@ class OutlookAddRecurringProcessor(
     def process(self, payload: OutlookAddRecurringRequest) -> ResultEnvelope[OutlookAddRecurringResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         try:
             evt = svc.create_recurring_event(
                 calendar_id=None,
@@ -775,7 +780,7 @@ class OutlookLocationsEnrichProcessor(
     def process(self, payload: OutlookLocationsEnrichRequest) -> ResultEnvelope[OutlookLocationsEnrichResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         cal_id = svc.find_calendar_id(payload.calendar)
         if not cal_id:
             return ResultEnvelope(status="error", diagnostics={"message": f"Calendar not found: {payload.calendar}", "code": 3})
@@ -842,7 +847,7 @@ class OutlookLocationsEnrichProducer(Producer[ResultEnvelope[OutlookLocationsEnr
         for line in logs:
             print(line)
         if result.payload.dry_run:
-            print("Preview complete.")
+            print(MSG_PREVIEW_COMPLETE)
         else:
             print(f"Updated locations on {result.payload.updated} series.")
 
@@ -877,7 +882,7 @@ class OutlookMailListProcessor(Processor[OutlookMailListRequest, ResultEnvelope[
     def process(self, payload: OutlookMailListRequest) -> ResultEnvelope[OutlookMailListResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
         try:
             msgs = svc.list_messages(folder=payload.folder, top=payload.top, pages=payload.pages)
         except Exception as exc:
@@ -944,7 +949,7 @@ class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultE
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
         items = cfg.get("events") if isinstance(cfg, dict) else None
         if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": "Config must contain events: [] list", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
         sync = LocationSync(payload.service)
         updated = sync.plan_from_config(items, calendar=payload.calendar, dry_run=payload.dry_run)
         if payload.dry_run:
@@ -971,7 +976,7 @@ class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEn
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
         items = cfg.get("events") if isinstance(cfg, dict) else None
         if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": "Config must contain events: [] list", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
         sync = LocationSync(payload.service)
         updated = sync.apply_from_config(
             items,
@@ -980,7 +985,7 @@ class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEn
             dry_run=payload.dry_run,
         )
         if payload.dry_run:
-            msg = "Preview complete."
+            msg = MSG_PREVIEW_COMPLETE
         else:
             msg = f"Applied {updated} location update(s)."
         return ResultEnvelope(status="success", payload=OutlookLocationsResult(message=msg))
@@ -1044,10 +1049,10 @@ class OutlookRemoveProcessor(Processor[OutlookRemoveRequest, ResultEnvelope[Outl
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
         items = cfg.get("events") if isinstance(cfg, dict) else None
         if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": "Config must contain events: [] list", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
 
         plan: List[OutlookRemovePlanEntry] = []
         logs: List[str] = []
@@ -1233,7 +1238,7 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
     def process(self, payload: OutlookRemindersRequest) -> ResultEnvelope[OutlookRemindersResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
 
         calendar_name = payload.calendar
         cal_id = None
@@ -1333,7 +1338,7 @@ class OutlookRemindersProducer(Producer[ResultEnvelope[OutlookRemindersResult]])
         for line in result.payload.logs:
             print(line)
         if result.payload.dry_run:
-            print("Preview complete.")
+            print(MSG_PREVIEW_COMPLETE)
         else:
             if result.payload.set_off:
                 print(f"Disabled reminders on {result.payload.updated} item(s).")
@@ -1393,7 +1398,7 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
 
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         try:
@@ -1592,7 +1597,7 @@ class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[Outloo
     def process(self, payload: OutlookDedupRequest) -> ResultEnvelope[OutlookDedupResult]:
         svc = payload.service
         if svc is None:  # pragma: no cover - defensive
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook service is required", "code": 1})
+            return ResultEnvelope(status="error", diagnostics={"message": ERR_OUTLOOK_SERVICE_REQUIRED, "code": 1})
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         cal_id = None

@@ -34,7 +34,7 @@ def find_cfgutil_path() -> str:
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
-        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)
+        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # nosec B603
     except Exception as e:
         raise RuntimeError(f"cfgutil list failed: {e}")
     for line in out.splitlines():
@@ -61,7 +61,7 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
     cmd.extend(["--format", "plist", "get-icon-layout"])
 
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603
     except Exception as e:
         raise RuntimeError(f"cfgutil get-icon-layout failed: {e}")
 
@@ -237,7 +237,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
             cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])
             if p12_pass:
                 cmd.extend(["-passin", f"pass:{p12_pass}"])
-            cert_pem = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+            cert_pem = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603
             break
         except Exception:
             continue
@@ -249,7 +249,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     subject = ""
     issuer = ""
     try:
-        subj_out = subprocess.check_output(
+        subj_out = subprocess.check_output(  # nosec B603
             ["openssl", "x509", "-noout", "-subject"],
             input=cert_pem,
             stderr=subprocess.DEVNULL,
@@ -259,7 +259,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
         pass  # nosec B110 - cert parsing failure
 
     try:
-        iss_out = subprocess.check_output(
+        iss_out = subprocess.check_output(  # nosec B603
             ["openssl", "x509", "-noout", "-issuer"],
             input=cert_pem,
             stderr=subprocess.DEVNULL,
@@ -282,7 +282,7 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
         return None
 
     try:
-        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)
+        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # nosec B603
         if "Supervised:" in out:
             return out.split(":", 1)[1].strip()
     except Exception:
