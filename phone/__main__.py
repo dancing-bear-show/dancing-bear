@@ -23,6 +23,10 @@ from core.assistant import BaseAssistant
 
 from .helpers import LayoutLoadError, load_layout, read_lines_file, read_yaml, write_yaml
 from .pipeline import (
+    AnalyzeProducer,
+    AnalyzeProcessor,
+    AnalyzeRequest,
+    AnalyzeRequestConsumer,
     ChecklistProducer,
     ChecklistProcessor,
     ChecklistRequest,
@@ -35,6 +39,14 @@ from .pipeline import (
     PlanProcessor,
     PlanRequest,
     PlanRequestConsumer,
+    PruneProducer,
+    PruneProcessor,
+    PruneRequest,
+    PruneRequestConsumer,
+    UnusedProducer,
+    UnusedProcessor,
+    UnusedRequest,
+    UnusedRequestConsumer,
 )
 
 from .layout import (
@@ -42,8 +54,6 @@ from .layout import (
     to_yaml_export,
     scaffold_plan,
     checklist_from_plan,
-    rank_unused_candidates,
-    analyze_layout,
     auto_folderize,
     distribute_folders_across_pages,
 )
@@ -88,59 +98,38 @@ def cmd_checklist(args: argparse.Namespace) -> int:
 
 
 def cmd_unused(args: argparse.Namespace) -> int:
-    try:
-        layout = load_layout(getattr(args, "layout", None), getattr(args, "backup", None))
-    except LayoutLoadError as err:
-        print(err, file=sys.stderr)
-        return err.code
-    recent = read_lines_file(getattr(args, "recent", None))
-    keep = read_lines_file(getattr(args, "keep", None))
-    rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
-    rows = [r for r in rows if r[1] >= 0.8][: int(getattr(args, "limit", 50))]
-    if getattr(args, "format", "text") == "csv":
-        out_lines = ["app,score,location"]
-        out_lines.extend([f"{a},{score:.2f},{loc}" for a, score, loc in rows])
-        print("\n".join(out_lines))
+    request = UnusedRequest(
+        layout=getattr(args, "layout", None),
+        backup=getattr(args, "backup", None),
+        recent_path=getattr(args, "recent", None),
+        keep_path=getattr(args, "keep", None),
+        limit=int(getattr(args, "limit", 50)),
+        threshold=0.8,
+        format=getattr(args, "format", "text"),
+    )
+    envelope = UnusedProcessor().process(UnusedRequestConsumer(request).consume())
+    UnusedProducer().produce(envelope)
+    if envelope.ok():
         return 0
-    # text table-ish
-    print("Likely unused app candidates (heuristic):")
-    print("score  app                                   location")
-    for a, score, loc in rows:
-        print(f"{score:4.1f}  {a:36}  {loc}")
-    return 0
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 
 def cmd_prune(args: argparse.Namespace) -> int:
-    try:
-        layout = load_layout(getattr(args, "layout", None), getattr(args, "backup", None))
-    except LayoutLoadError as err:
-        print(err, file=sys.stderr)
-        return err.code
-    recent = read_lines_file(getattr(args, "recent", None))
-    keep = read_lines_file(getattr(args, "keep", None))
-    rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
-    thr = float(getattr(args, "threshold", 1.0))
-    rows = [r for r in rows if r[1] >= thr][: int(getattr(args, "limit", 50))]
-    mode = getattr(args, "mode", "offload")
-    out = Path(getattr(args, "out", "out/ios.unused.prune_checklist.txt"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    lines.append(f"Unused apps checklist — mode: {mode.upper()}")
-    lines.append("")
-    lines.append("Instructions:")
-    if mode == "offload":
-        lines.append("1) Settings → General → iPhone Storage → search for app → Offload App")
-        lines.append("   or long‑press app icon → Remove App → Offload App")
-    else:
-        lines.append("1) Long‑press app icon → Remove App → Delete App")
-        lines.append("   or Settings → General → iPhone Storage → Delete App")
-    lines.append("")
-    lines.append("Candidates:")
-    for a, score, loc in rows:
-        lines.append(f"- {a}  (score {score:.1f}; location: {loc})")
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Wrote {mode} checklist to {out}")
-    return 0
+    request = PruneRequest(
+        layout=getattr(args, "layout", None),
+        backup=getattr(args, "backup", None),
+        recent_path=getattr(args, "recent", None),
+        keep_path=getattr(args, "keep", None),
+        limit=int(getattr(args, "limit", 50)),
+        threshold=float(getattr(args, "threshold", 1.0)),
+        mode=getattr(args, "mode", "offload"),
+        out_path=Path(getattr(args, "out", "out/ios.unused.prune_checklist.txt")),
+    )
+    envelope = PruneProcessor().process(PruneRequestConsumer(request).consume())
+    PruneProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 def cmd_profile_build(args: argparse.Namespace) -> int:
     plan = read_yaml(Path(args.plan))
@@ -183,43 +172,17 @@ def cmd_profile_build(args: argparse.Namespace) -> int:
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
-    try:
-        layout = load_layout(getattr(args, "layout", None), getattr(args, "backup", None))
-    except LayoutLoadError as err:
-        print(err, file=sys.stderr)
-        return err.code
-    plan = None
-    if getattr(args, "plan", None):
-        plan = read_yaml(Path(args.plan))
-    metrics = analyze_layout(layout, plan)
-    fmt = getattr(args, "format", "text")
-    if fmt == "json":
-        import json as _json
-        print(_json.dumps(metrics, indent=2))
+    request = AnalyzeRequest(
+        layout=getattr(args, "layout", None),
+        backup=getattr(args, "backup", None),
+        plan_path=getattr(args, "plan", None),
+        format=getattr(args, "format", "text"),
+    )
+    envelope = AnalyzeProcessor().process(AnalyzeRequestConsumer(request).consume())
+    AnalyzeProducer().produce(envelope)
+    if envelope.ok():
         return 0
-    # text output
-    print("Layout Summary")
-    print(f"Dock: {metrics['dock_count']} apps")
-    if metrics.get("dock"):
-        print("  - " + ", ".join(metrics["dock"]))
-    print(f"Pages: {metrics['pages_count']}")
-    for p in metrics.get("pages", []):
-        print(f"  Page {p['page']}: {p['root_apps']} apps, {p['folders']} folders (items {p['items_total']})")
-    print(f"Folders: {metrics['totals']['folders']}")
-    if metrics.get("folders"):
-        # show top 5 by app_count
-        top = sorted(metrics["folders"], key=lambda x: x.get("app_count", 0), reverse=True)[:5]
-        for f in top:
-            print(f"  - {f['name']} (page {f['page']}, {f['app_count']} apps)")
-    if metrics.get("duplicates"):
-        print("Duplicates:")
-        for a in metrics["duplicates"]:
-            print(f"  - {a}")
-    if metrics.get("observations"):
-        print("Observations:")
-        for o in metrics["observations"]:
-            print(f"- {o}")
-    return 0
+    return int((envelope.diagnostics or {}).get("code", 2))
 
 
 def cmd_auto_folders(args: argparse.Namespace) -> int:

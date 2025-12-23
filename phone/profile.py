@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
 
+from .classify import classify_app
+
 
 def _app_item(bundle_id: str) -> Dict[str, Any]:
     return AppItem(bundle_id).as_spec()
@@ -84,21 +86,6 @@ def _list_apps_from_export(layout_export: Dict[str, Any]) -> List[str]:
                     apps.append(a)
                     seen.add(a)
     return apps
-
-
-def _categorize_app(bundle_id: str) -> str:
-    """Heuristic category for an app bundle id."""
-    mapping: Dict[str, str] = {
-        "com.apple.news": "News",
-        "com.apple.stocks": "Financials",
-        "com.apple.AppStore": "Retail",
-        "com.apple.MobileStore": "Retail",
-        "com.apple.facetime": "Socials",
-        "com.apple.Music": "Media",
-        "com.apple.podcasts": "Media",
-        "com.apple.tv": "Media",
-    }
-    return mapping.get(bundle_id, "Utilities")
 
 
 @dataclass
@@ -355,7 +342,7 @@ def build_mobileconfig(
         remaining = [a for a in _list_apps_from_export(layout_export) if a and a not in assigned]
         buckets: Dict[str, List[str]] = {cat: [] for cat in auto_categories}
         for app_id in remaining:
-            cat = _categorize_app(app_id)
+            cat = classify_app(app_id)
             if cat not in buckets:
                 buckets.setdefault("Utilities", [])
                 cat = "Utilities"
