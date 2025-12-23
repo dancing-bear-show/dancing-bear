@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Processors for auto pipelines."""
+from __future__ import annotations
 
 import time
 from collections import Counter, defaultdict

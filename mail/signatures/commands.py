@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Convenience orchestration helpers for signatures commands."""
+from __future__ import annotations
 
 from pathlib import Path
 

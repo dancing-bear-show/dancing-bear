@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Labels command orchestration helpers."""
+from __future__ import annotations
 
 import argparse
 import time

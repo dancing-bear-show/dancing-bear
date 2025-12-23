@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Registration helper for Gmail calendar-related subcommands."""
+from __future__ import annotations
 
 
 def register(

@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Outlook calendar command implementations."""
+from __future__ import annotations
 
 import argparse
 from pathlib import Path

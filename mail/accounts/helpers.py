@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Helper utilities for accounts commands."""
+from __future__ import annotations
 
 from typing import Iterable, Optional
 

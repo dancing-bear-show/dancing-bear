@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Registration helper for Outlook calendar subcommands."""
+from __future__ import annotations
 
 
 def register(

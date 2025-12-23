@@ -1,10 +1,9 @@
-from __future__ import annotations
-
 """Labels CLI registration.
 
 Keeps `__main__` lean by wiring the `labels` group here while preserving
 existing flags and subcommands.
 """
+from __future__ import annotations
 
 
 def register(
