@@ -11,7 +11,7 @@ class TestLLMDepsStale(unittest.TestCase):
         sys.path.insert(0, str(pkg_parent))
 
     def test_deps_json_structure(self):
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -29,7 +29,7 @@ class TestLLMDepsStale(unittest.TestCase):
             self.assertIn("combined", data[0])
 
     def test_stale_json_structure(self):
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:

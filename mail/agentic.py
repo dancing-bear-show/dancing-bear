@@ -33,9 +33,9 @@ def build_agentic_capsule() -> str:
         "setup venv: python3 -m venv .venv && source .venv/bin/activate",
         "install: pip install -e .",
         "help: ./bin/mail-assistant --help",
-        "labels export: python3 -m mail_assistant labels export --out labels.yaml",
-        "labels sync: python3 -m mail_assistant labels sync --config labels.yaml --dry-run",
-        "filters export: python3 -m mail_assistant filters export --out filters.yaml",
+        "labels export: python3 -m mail labels export --out labels.yaml",
+        "labels sync: python3 -m mail labels sync --config labels.yaml --dry-run",
+        "filters export: python3 -m mail filters export --out filters.yaml",
     ]
 
     sections: List[Tuple[str, str]] = []
@@ -51,7 +51,7 @@ def build_agentic_capsule() -> str:
     flows_idx = _build_flows_index()
     if flows_idx.strip():
         sections.append(("Flows Index", flows_idx + "\n\nUse './bin/llm flows --list' or '--id <flow_id>' for details."))
-    return _build_capsule("mail_assistant", "Gmail/Outlook CLI (labels, filters, signatures)", commands, sections)
+    return _build_capsule("mail", "Gmail/Outlook CLI (labels, filters, signatures)", commands, sections)
 
 
 def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:

@@ -529,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
     # Install conservative secret shielding for stdout/stderr (env-toggled)
     try:
-        from mail_assistant.utils.secrets import install_output_masking_from_env as _install_mask
+        from mail.utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
     except Exception:
         pass  # nosec B110 - best-effort masking

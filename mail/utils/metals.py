@@ -7,7 +7,7 @@ Searches for TD Precious Metals and Costco order emails and extracts total
 ounces of gold and silver from message bodies using simple heuristics.
 
 Usage (defaults to profile=gmail_personal):
-  python -m mail_assistant.utils.metals [--profile gmail_personal] [--days 365]
+  python -m mail.utils.metals [--profile gmail_personal] [--days 365]
 """
 
 import argparse

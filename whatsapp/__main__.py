@@ -96,7 +96,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     """Main entry point for the WhatsApp CLI."""
     # Install conservative secret shielding for stdout/stderr (env-toggled)
     try:
-        from mail_assistant.utils.secrets import install_output_masking_from_env as _install_mask
+        from mail.utils.secrets import install_output_masking_from_env as _install_mask
 
         _install_mask()
     except Exception:  # pragma: no cover

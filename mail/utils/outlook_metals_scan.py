@@ -7,7 +7,7 @@ Uses Microsoft Graph $search with simple KQL-like queries. Prints counts per sou
 and lists recent matches with received time, from, and subject.
 
 Usage:
-  python -m mail_assistant.utils.outlook_metals_scan --profile outlook_personal --days 365 --top 50 --pages 3
+  python -m mail.utils.outlook_metals_scan --profile outlook_personal --days 365 --top 50 --pages 3
 """
 
 import argparse
@@ -28,7 +28,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
     client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
     token = token or ".cache/.msal_token.json"
     if not client_id:
-        raise SystemExit("No Outlook client_id configured; set it under [mail_assistant.<profile>] in credentials.ini")
+        raise SystemExit("No Outlook client_id configured; set it under [mail.<profile>] in credentials.ini")
     cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
     cli.authenticate()
 

@@ -6,7 +6,7 @@ Follows the LLM patterns used in cars-sre-utils:
 - YAML IO helpers kept minimal and human-friendly
 
 Initial scope: generate a canonical schedule plan from simple sources
-(CSV/XLSX/PDF/website via calendar_assistant.importer) and simulate
+(CSV/XLSX/PDF/website via calendar.importer) and simulate
 application (dry-run by default). This provides a stable CLI surface
 to extend later with real calendar integrations.
 """
@@ -198,8 +198,8 @@ app = CLIApp(
 
 # Create assistant for agentic support
 assistant = BaseAssistant(
-    "schedule_assistant",
-    "agentic: schedule_assistant\npurpose: Generate/verify/apply calendar plans (dry-run first)",
+    "schedule",
+    "agentic: schedule\npurpose: Generate/verify/apply calendar plans (dry-run first)",
 )
 
 

@@ -8,8 +8,8 @@ import os
 import sys
 import webbrowser
 
-from apple_music_assistant.config import DEFAULT_PROFILE, load_profile
-from apple_music_assistant.token_helpers import build_data_url, build_html
+from apple_music.config import DEFAULT_PROFILE, load_profile
+from apple_music.token_helpers import build_data_url, build_html
 
 
 def build_parser() -> argparse.ArgumentParser:

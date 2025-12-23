@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
-from desk_assistant.cli import main
+from desk.cli import main
 
 
 class TestCLI(unittest.TestCase):
@@ -34,7 +34,7 @@ class TestCLI(unittest.TestCase):
         with redirect_stdout(f):
             main(["--agentic"])
         out = f.getvalue()
-        self.assertIn("agentic: desk_assistant", out)
+        self.assertIn("agentic: desk", out)
 
 
 if __name__ == "__main__":  # pragma: no cover

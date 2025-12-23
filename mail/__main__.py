@@ -122,8 +122,8 @@ from .config_cli.commands import (
 
 
 assistant = BaseAssistant(
-    "mail_assistant",
-    "agentic: mail_assistant\n- Use .llm/UNIFIED.llm and CONTEXT.md if present\n- Key commands: ./bin/mail-assistant --help, make test",
+    "mail",
+    "agentic: mail\n- Use .llm/UNIFIED.llm and CONTEXT.md if present\n- Key commands: ./bin/mail-assistant --help, make test",
 )
 
 app = CLIApp(
@@ -567,7 +567,7 @@ config_group = app.group("config", help="Inspect and manage configuration")
 @config_group.command("inspect", help="Show config with redacted secrets")
 @config_group.argument("--path", default="~/.config/credentials.ini", help="Path to INI file")
 @config_group.argument("--section", help="Only show a specific section")
-@config_group.argument("--only-mail", action="store_true", help="Restrict to mail_assistant.* sections")
+@config_group.argument("--only-mail", action="store_true", help="Restrict to mail.* sections")
 def cmd_config_inspect(args) -> int:
     return run_config_inspect(args)
 

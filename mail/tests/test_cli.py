@@ -6,10 +6,10 @@ import unittest
 
 
 def load_main_module():
-    # Ensure parent of package dir is importable so `import mail_assistant` works
+    # Ensure parent of package dir is importable so `import mail` works
     pkg_parent = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(pkg_parent))
-    mod = importlib.import_module("mail_assistant.__main__")
+    mod = importlib.import_module("mail.__main__")
     return mod
 
 
@@ -25,7 +25,7 @@ class TestAgenticFlag(unittest.TestCase):
             sys.stdout = sys_stdout
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("agentic: mail_assistant", out)
+        self.assertIn("agentic: mail", out)
 
 
 if __name__ == "__main__":

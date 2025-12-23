@@ -10,7 +10,7 @@ emits:
 Also prints a concise text summary.
 
 Usage:
-  python -m mail_assistant.utils.metals_premium_summary \
+  python -m mail.utils.metals_premium_summary \
     --silver out/metals/premium_silver.csv \
     --gold out/metals/premium_gold.csv \
     --out-summary out/metals/premium_overview_summary.csv \
