@@ -21,7 +21,7 @@ APP_MODULES: Dict[str, str] = {
     "maker": "maker.__main__",
     "music": "apple_music_assistant.__main__",
     "apple-music": "apple_music_assistant.__main__",
-    "wifi": "wifi_assistant.__main__",
+    "wifi": "wifi.__main__",
 }
 
 

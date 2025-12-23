@@ -13,8 +13,9 @@ to extend later with real calendar integrations.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.assistant import BaseAssistant
 from core.auth import build_outlook_service_from_args
