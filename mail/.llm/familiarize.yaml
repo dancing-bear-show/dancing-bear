@@ -1,5 +1,5 @@
 meta:
-  name: mail_assistant_familiarize
+  name: mail_familiarize
   version: 2
 
 # Adapted from cars-sre-utils familiarize capsule (capsule-only policy)
@@ -10,10 +10,10 @@ identity:
 familiarize_policy: capsule_only
 
 read_order:
-  - mail_assistant/.llm/DOMAIN_MAP.md
+  - mail/.llm/DOMAIN_MAP.md
 
 capsules_optional:
-  - mail_assistant/.llm/CONTEXT.md
+  - mail/.llm/CONTEXT.md
   - .llm/PR_POLICIES.yaml
 
 unified_clis:
@@ -29,7 +29,7 @@ imperatives_quickstart:
   - ./bin/llm domain-map --write .llm/DOMAIN_MAP.md
 
 directory_map:
-  core: mail_assistant
+  core: mail
   bin: bin
 
 notes:

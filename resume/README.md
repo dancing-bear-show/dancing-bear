@@ -6,8 +6,8 @@ Overview
  - Header and bullet rendering are abstracted for consistent, tunable styling.
 
 Quick Start
-- Repo path: `cd resume_assistant`
-- Show help: `./bin/resume-assistant -h` (preferred) or `python -m resume_assistant -h`
+- Repo path: `cd resume`
+- Show help: `./bin/resume-assistant -h` (preferred) or `python -m resume -h`
 - Make targets:
   - `make venv` — create `.venv`
   - `make deps` — install optional deps (python-docx, pyyaml, pdfminer.six)
@@ -21,8 +21,8 @@ Quick Start
 
 Testing
 - Run from this subdirectory so module resolution matches tests:
-  - `cd resume_assistant && python3 -m unittest -v`
-  - Or invoke a single file: `cd resume_assistant && python3 -m unittest tests/test_cli.py -v`
+  - `cd resume && python3 -m unittest -v`
+  - Or invoke a single file: `cd resume && python3 -m unittest tests/test_cli.py -v`
 
 Source Normalization
 - Move transcript files into `_data/sources/` with clear names:
@@ -31,35 +31,35 @@ Source Normalization
 
 Commands
 - `extract` — Parse LinkedIn and resume sources into unified YAML/JSON
-  - Example: `python -m resume_assistant extract --linkedin linkedin.txt --resume resume.txt --out out/data.json`
+  - Example: `python -m resume extract --linkedin linkedin.txt --resume resume.txt --out out/data.json`
 - `summarize` — Build a concise summary from unified data
-  - Example: `python -m resume_assistant summarize --data out/data.json --seed 'keywords=Python Kubernetes AWS' --out out/summary.md`
+  - Example: `python -m resume summarize --data out/data.json --seed 'keywords=Python Kubernetes AWS' --out out/summary.md`
   - With profile overlays: add `--profile <prefix>` to overlay `config/profiles/<prefix>/profile.yaml` (plus grouped skills and experience). Legacy `config/profile.<prefix>.yaml` is still supported.
 - `render` — Render a `.docx` using a YAML/JSON template (optionally mimic a reference resume’s structure)
-  - Example: `python -m resume_assistant render --data out/data.json --template config/template.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
+  - Example: `python -m resume render --data out/data.json --template config/template.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
   - Mimic structure: add `--structure-from reference.docx` to align section order and headings.
-  - With profile prefix (writes to `out/<prefix>/`): `python -m resume_assistant render --data out/sample/data.json --template config/template.example.yaml --profile sample`
+  - With profile prefix (writes to `out/<prefix>/`): `python -m resume render --data out/sample/data.json --template config/template.example.yaml --profile sample`
   - Priority cutoff (dynamic sizing): add `--min-priority 0.8` to keep only items with `priority >= 0.8` across Skills/Technologies, summary lists, and experience roles/bullets.
   - Reuse saved structure automatically: when `--profile <prefix>` is set and `out/<prefix>/structure.(json|yaml)` exists, render will apply it unless `--structure-from` is provided. Fallback to legacy `out/<prefix>.structure.*` is supported.
   - Alignment-based filtering (optional): provide `--filter-skills-alignment align.json` and/or `--filter-exp-alignment align.json` (optionally with `--filter-*-job job.yaml`) to filter Skills/Experience to matched keywords from an alignment report.
   - Example alignment (align + render, priority-trim):
-    - `python -m resume_assistant align --data out/sample/data.json --job config/job.example.yaml --out out/sample/alignment.example.json --tailored out/sample/tailored.example.json --profile sample`
-    - `python -m resume_assistant render --data out/sample/data.json --template config/template.onepage.yaml --profile sample --structure-from out/sample/structure.json --filter-skills-alignment out/sample/alignment.example.json --filter-exp-alignment out/sample/alignment.example.json --min-priority 0.9 --out out/sample/resume.example.onepage.docx`
+    - `python -m resume align --data out/sample/data.json --job config/job.example.yaml --out out/sample/alignment.example.json --tailored out/sample/tailored.example.json --profile sample`
+    - `python -m resume render --data out/sample/data.json --template config/template.onepage.yaml --profile sample --structure-from out/sample/structure.json --filter-skills-alignment out/sample/alignment.example.json --filter-exp-alignment out/sample/alignment.example.json --min-priority 0.9 --out out/sample/resume.example.onepage.docx`
 - `structure` — Infer section order and headings from a reference `.docx`
-  - Example: `python -m resume_assistant structure --source reference.docx --out out/structure.yaml`
+  - Example: `python -m resume structure --source reference.docx --out out/structure.yaml`
 - `align` — Align candidate data to a job posting and produce a tailored dataset
-  - Example: `python -m resume_assistant align --data out/data.json --job config/job.yaml --out out/alignment.json --tailored out/tailored.json`
+  - Example: `python -m resume align --data out/data.json --job config/job.yaml --out out/alignment.json --tailored out/tailored.json`
   - With profile overlays: add `--profile <prefix>` to align using the overlaid candidate (profile + grouped skills + canonical experience).
  - LLM capsules (agentic/domain-map/familiar/policies): `./bin/llm --app resume agentic --stdout`, `./bin/llm --app resume domain-map --stdout`, and `./bin/llm --app resume derive-all --out-dir .llm --include-generated --stdout`.
 - `candidate-init` — Generate a candidate skills YAML from unified data for curation
-  - Example: `python -m resume_assistant candidate-init --data out/data.json --out config/candidate.yaml --include-experience --max-bullets 3`
+  - Example: `python -m resume candidate-init --data out/data.json --out config/candidate.yaml --include-experience --max-bullets 3`
   - With profile overlays: add `--profile <prefix>` to seed from overlaid data.
 - `experience` — Tools for job history summaries
-  - Export summary: `python -m resume_assistant experience export --data out/<prefix>/data.json --out config/experience.<prefix>.yaml`
-  - Or parse from resume: `python -m resume_assistant experience export --resume ~/Downloads/your_resume.docx --out config/experience.<prefix>.yaml`
+  - Export summary: `python -m resume experience export --data out/<prefix>/data.json --out config/experience.<prefix>.yaml`
+  - Or parse from resume: `python -m resume experience export --resume ~/Downloads/your_resume.docx --out config/experience.<prefix>.yaml`
 - `experience` — Tools for job history summaries
-  - Export summary: `python -m resume_assistant experience export --data out/<prefix>/data.json --out config/experience.<prefix>.yaml`
-  - Or parse from resume: `python -m resume_assistant experience export --resume ~/Downloads/your_resume.docx --out config/experience.<prefix>.yaml`
+  - Export summary: `python -m resume experience export --data out/<prefix>/data.json --out config/experience.<prefix>.yaml`
+  - Or parse from resume: `python -m resume experience export --resume ~/Downloads/your_resume.docx --out config/experience.<prefix>.yaml`
 
 Template (YAML)
 - Minimal example (keys are canonical; titles are display text):
@@ -113,7 +113,7 @@ Notes
 
 Modern Template
 - Use `config/template.modern.yaml` for a streamlined, modern layout emphasizing profile, core skills, and quantified experience.
-- Render: `./bin/resume_assistant render --data out/<prefix>/data.json --template config/template.modern.yaml --structure-from ~/Downloads/your_resume.docx --profile <prefix>`
+- Render: `./bin/resume render --data out/<prefix>/data.json --template config/template.modern.yaml --structure-from ~/Downloads/your_resume.docx --profile <prefix>`
 
 Abilities + One‑Page Templates
 - Abilities: `config/template.abilities.yaml` (descriptive Skills/Technologies, compact bullets, identical job/education headers)
@@ -229,29 +229,29 @@ Profiles & Outputs
 - Default profile is `sample`; override with `--profile <prefix>`.
 
 Internals
-- Overlays: `resume_assistant/overlays.py` centralizes profile/grouped-skills/experience overlays.
-- Priority filtering: `resume_assistant/priority.py` applies `--min-priority` cutoff across known lists.
+- Overlays: `resume/overlays.py` centralizes profile/grouped-skills/experience overlays.
+- Priority filtering: `resume/priority.py` applies `--min-priority` cutoff across known lists.
 - Build sample DOCX: `make sample-docx` (outputs `out/sample/data.json` and `out/sample/resume.docx`)
 - Export experience summary: `make exp-export` (writes `config/experience.$(TIDY_PREFIX).yaml`)
 
 PII Handling
 - Use `_data/` (gitignored) for any personal artifacts:
-  - Extract to `_data/`: `./bin/resume_assistant extract --resume ~/Downloads/your_resume.docx --out _data/candidate.json`
-  - Curate skills YAML: `./bin/resume_assistant candidate-init --data _data/candidate.json --out _data/candidate.yaml --include-experience`
-  - Align: `./bin/resume_assistant align --data _data/candidate.yaml --job config/job.yaml --out _data/alignment.json --tailored _data/tailored.json`
-  - Render: `./bin/resume_assistant render --data _data/tailored.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --out _data/your_name.tailored.docx`
+  - Extract to `_data/`: `./bin/resume extract --resume ~/Downloads/your_resume.docx --out _data/candidate.json`
+  - Curate skills YAML: `./bin/resume candidate-init --data _data/candidate.json --out _data/candidate.yaml --include-experience`
+  - Align: `./bin/resume align --data _data/candidate.yaml --job config/job.yaml --out _data/alignment.json --tailored _data/tailored.json`
+  - Render: `./bin/resume render --data _data/tailored.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --out _data/your_name.tailored.docx`
 - Keep `out/` gitignored for generated artifacts. Use `out/` for curated outputs you want to keep (tracked at repo root policy).
 
 Workflow (skills-first → job → tailored)
 - Build skills input:
-  - Extract baseline: `./bin/resume_assistant extract --resume ~/Downloads/your_resume.docx --out out/candidate.json`
-  - Generate skills YAML: `./bin/resume_assistant candidate-init --data out/candidate.json --out config/candidate.yaml --include-experience`
+  - Extract baseline: `./bin/resume extract --resume ~/Downloads/your_resume.docx --out out/candidate.json`
+  - Generate skills YAML: `./bin/resume candidate-init --data out/candidate.json --out config/candidate.yaml --include-experience`
   - Manually curate `config/candidate.yaml` (focus on keywords; avoid prose)
 - Provide a job posting YAML (see example under Job Posting YAML), save as `config/job.yaml`
 - Align and tailor:
-  - `./bin/resume_assistant align --data config/candidate.yaml --job config/job.yaml --out out/alignment.json --tailored out/tailored.json --max-bullets 4`
+  - `./bin/resume align --data config/candidate.yaml --job config/job.yaml --out out/alignment.json --tailored out/tailored.json --max-bullets 4`
 - Render tailored DOCX:
-  - `./bin/resume_assistant render --data out/tailored.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --out out/your_name.tailored.docx`
+  - `./bin/resume render --data out/tailored.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --out out/your_name.tailored.docx`
 
 Job Posting YAML
 - Minimal example to drive alignment and tailoring:
@@ -286,7 +286,7 @@ keywords:
 Style Corpus
 - Put public-safe writing samples in `corpus/`; put personal/private samples under `_data/corpus/`.
 - Build a style profile JSON:
-  - `./bin/resume_assistant style build --corpus-dir corpus --profile sample`
+  - `./bin/resume style build --corpus-dir corpus --profile sample`
 - Use with summarize/render to bias keyword selection:
-  - `./bin/resume_assistant summarize --data out/sample/data.json --style-profile out/sample/style.json --profile sample`
-  - `./bin/resume_assistant render --data out/sample/data.json --style-profile out/sample/style.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --profile sample`
+  - `./bin/resume summarize --data out/sample/data.json --style-profile out/sample/style.json --profile sample`
+  - `./bin/resume render --data out/sample/data.json --style-profile out/sample/style.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --profile sample`

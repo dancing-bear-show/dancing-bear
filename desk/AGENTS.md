@@ -3,7 +3,7 @@
 These instructions guide LLM agents working in this repository.
 
 ## Project Structure & Module Organization
-- `desk_assistant/` — Core library and CLI entrypoints.
+- `desk/` — Core library and CLI entrypoints.
 - `bin/` — Wrapper scripts (e.g., `bin/desk-assistant`).
 - `tests/` — Minimal CLI smoke/unit tests.
 - `_disasm/` — Reserved for references; do not modify.
@@ -13,13 +13,13 @@ These instructions guide LLM agents working in this repository.
 - Install package (editable): `make venv` or `pip install -e .[yaml]`
 - CLI help: `./bin/desk-assistant --help` or `.venv/bin/desk-assistant --help`
 - Scan:
-  - `python3 -m desk_assistant scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates`
+  - `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates`
 - Rules
-  - Export: `python3 -m desk_assistant rules export --out rules.yaml`
+  - Export: `python3 -m desk rules export --out rules.yaml`
 - Planning
-  - Plan: `python3 -m desk_assistant plan --config rules.yaml --out plan.yaml`
+  - Plan: `python3 -m desk plan --config rules.yaml --out plan.yaml`
 - Apply
-  - `python3 -m desk_assistant apply --plan plan.yaml [--dry-run]`
+  - `python3 -m desk apply --plan plan.yaml [--dry-run]`
 - Tests: `make test` or `python3 -m unittest tests/test_cli.py -v`
 
 ## Coding Style & Conventions
@@ -50,7 +50,7 @@ These instructions guide LLM agents working in this repository.
   - `./bin/llm --app desk derive-all --out-dir .llm --include-generated`
 
 ## Deduplication & Modular Design
-- Apply DRY: factor repeated logic into small helpers under `desk_assistant/`.
+- Apply DRY: factor repeated logic into small helpers under `desk/`.
 - Extract shared CLI argument definitions into helper functions; preserve existing flag names and semantics.
 - Prefer OO when it improves cohesion/encapsulation; keep methods small.
 - Keep lazy imports inside functions/methods for optional deps.

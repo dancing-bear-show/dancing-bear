@@ -7,6 +7,8 @@ from ..gmail_api import GmailClient
 
 
 class GmailProvider(BaseProvider):
+    _provider_name = "gmail"
+
     def __init__(self, *, credentials_path: str, token_path: str, cache_dir: Optional[str] = None) -> None:
         super().__init__(credentials_path=credentials_path, token_path=token_path, cache_dir=cache_dir)
         self._client = GmailClient(credentials_path=credentials_path, token_path=token_path, cache_dir=cache_dir)

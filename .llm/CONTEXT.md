@@ -120,8 +120,8 @@ LLM Maintenance & SLA
 
 File-First Credentials (Preferred)
 - Use profiles in `~/.config/credentials.ini` (or `$XDG_CONFIG_HOME/credentials.ini`).
-- Gmail profile example: `[mail_assistant.gmail_personal]` with `credentials` and `token` file paths.
-- Outlook profile example: `[mail_assistant.outlook_personal]` with `outlook_client_id`, `tenant`, and `outlook_token`.
+- Gmail profile example: `[mail.gmail_personal]` with `credentials` and `token` file paths.
+- Outlook profile example: `[mail.outlook_personal]` with `outlook_client_id`, `tenant`, and `outlook_token`.
 - Search order: `$CREDENTIALS` -> `$XDG_CONFIG_HOME/credentials.ini` -> `~/.config/credentials.ini` -> `~/.config/sre-utils/credentials.ini` -> `~/.config/sreutils/credentials.ini` -> `~/.sre-utils/credentials.ini`.
 
 Testing

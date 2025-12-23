@@ -43,4 +43,4 @@ For safe auto-approvals, follow `configs/llm/copilot-yolo.md` guidance (shared w
   ```
 - **Auth**: Stored in `~/.config/credentials.ini` (use `--profile gmail_personal|outlook_personal`).
 - **Tests**: `python3 -m unittest tests/test_cli.py -v` or `make test`.
-- **Code patterns**: Extend helpers in `mail_assistant/providers`, `mail_assistant/utils`, keep CLIs thin, and reuse YAML DSLs.
+- **Code patterns**: Extend helpers in `mail/providers`, `mail/utils`, keep CLIs thin, and reuse YAML DSLs.

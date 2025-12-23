@@ -7,7 +7,7 @@ Overview
 Quick Start
 - Venv: `python3 -m venv .venv && source .venv/bin/activate && pip install -e .`
 - Help: `./bin/mail-assistant --help`
-- Agentic capsule (LLM): `python3 -m mail_assistant --agentic`
+- Agentic capsule (LLM): `python3 -m mail --agentic`
 - LLM utilities wrapper: `./bin/llm agentic --stdout` (or `--write .llm/AGENTIC.md`)
 - Initialize LLM meta: `./bin/llm derive-all --out-dir .llm` (or `--stdout`). Generated files (AGENTIC.md, DOMAIN_MAP.md) are built on demand; pass `--include-generated` to write them.
 - LLM domain map: `./bin/llm domain-map --stdout` (or `--write .llm/DOMAIN_MAP.md`)
@@ -26,8 +26,8 @@ Outlook Authentication (first time)
 
 Profiles
 - Configure credentials/token paths and Outlook client ID via `~/.config/credentials.ini` under sections:
-  - `[mail_assistant.gmail_personal]` → `credentials`, `token`
-  - `[mail_assistant.outlook_personal]` → `outlook_client_id`, `tenant`, `outlook_token`
+  - `[mail.gmail_personal]` → `credentials`, `token`
+  - `[mail.outlook_personal]` → `outlook_client_id`, `tenant`, `outlook_token`
 
 Notes
 - Optional deps lazily imported: Google API client, PyYAML, MSAL, requests.

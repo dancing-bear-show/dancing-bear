@@ -2,54 +2,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-import os
-import json
-import time
 
+from core.cache import ConfigCacheMixin
 from ..cache import MailCache
 
 
-class CacheMixin:
-    """Lightweight config/message cache helpers shared by providers.
+class CacheMixin(ConfigCacheMixin):
+    """Provider cache mixin combining ConfigCacheMixin with MailCache.
 
-    Uses `MailCache` for message metadata/full. Adds a simple JSON cache for
-    provider config endpoints with TTL under `{cache_dir}/{provider}/config/*`.
+    Uses `MailCache` for message metadata/full. Inherits JSON config caching
+    from `ConfigCacheMixin` for provider config endpoints.
     """
 
-    def __init__(self, cache_dir: Optional[str]) -> None:
+    def __init__(self, cache_dir: Optional[str], provider: str = "default") -> None:
+        ConfigCacheMixin.__init__(self, cache_dir, provider)
         self.cache_dir = cache_dir
         self.cache = MailCache(cache_dir) if cache_dir else None
-
-    # ---- Config JSON cache ----
-    def _cfg_cache_path(self, provider: str, name: str) -> Optional[str]:
-        if not self.cache_dir:
-            return None
-        return os.path.join(self.cache_dir, provider, "config", f"{name}.json")
-
-    def cfg_get_json(self, provider: str, name: str, ttl: int) -> Optional[Any]:
-        p = self._cfg_cache_path(provider, name)
-        if not p or not os.path.exists(p):
-            return None
-        try:
-            if ttl > 0:
-                age = time.time() - os.path.getmtime(p)
-                if age > ttl:
-                    return None
-            with open(p, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except Exception:
-            return None
-
-    def cfg_put_json(self, provider: str, name: str, data: Any) -> None:
-        p = self._cfg_cache_path(provider, name)
-        if not p:
-            return
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        try:
-            with open(p, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False)
-        except Exception:
-            pass  # nosec B110 - non-fatal cache write
 
 
 class BaseProvider(ABC, CacheMixin):
@@ -58,8 +26,11 @@ class BaseProvider(ABC, CacheMixin):
     Providers should implement the minimal surface needed by current commands.
     """
 
+    # Subclasses should override this to set their provider name for caching
+    _provider_name: str = "mail"
+
     def __init__(self, *, credentials_path: str, token_path: str, cache_dir: Optional[str] = None) -> None:
-        CacheMixin.__init__(self, cache_dir)
+        CacheMixin.__init__(self, cache_dir, self._provider_name)
         self.credentials_path = credentials_path
         self.token_path = token_path
 

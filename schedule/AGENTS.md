@@ -1,5 +1,5 @@
 Scope
-- Applies to files under `schedule_assistant/`.
+- Applies to files under `schedule/`.
 
 Guidelines
 - Follow repo conventions: small helpers, stable CLI, YAML inputs.

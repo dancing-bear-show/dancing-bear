@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Optional
-import json as _json
-import time as _time
 
 try:
     # Imported here; CLI avoids importing this module on --help unless used.
@@ -19,6 +17,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     Request = Credentials = InstalledAppFlow = build = None  # type: ignore
 
+from core.cache import ConfigCacheMixin
 from .cache import MailCache
 
 SCOPES = [
@@ -44,8 +43,9 @@ def ensure_google_api() -> None:
         )
 
 
-class GmailClient:
+class GmailClient(ConfigCacheMixin):
     def __init__(self, credentials_path: str, token_path: str, cache_dir: Optional[str] = None) -> None:
+        ConfigCacheMixin.__init__(self, cache_dir, provider="gmail")
         self.credentials_path = os.path.expanduser(credentials_path)
         self.token_path = os.path.expanduser(token_path)
         self.creds: Optional[Credentials] = None  # type: ignore
@@ -82,37 +82,6 @@ class GmailClient:
         self.creds = creds
         self._service = build("gmail", "v1", credentials=self.creds)
 
-    # --- lightweight JSON cache for config endpoints ---
-    def _cfg_cache_path(self, name: str) -> Optional[str]:
-        if not self.cache_dir:
-            return None
-        return os.path.join(self.cache_dir, "gmail", "config", f"{name}.json")
-
-    def _cache_get_json(self, name: str, ttl: int) -> Optional[Any]:
-        p = self._cfg_cache_path(name)
-        if not p or not os.path.exists(p):
-            return None
-        try:
-            if ttl > 0:
-                age = _time.time() - os.path.getmtime(p)
-                if age > ttl:
-                    return None
-            with open(p, "r", encoding="utf-8") as fh:
-                return _json.load(fh)
-        except Exception:
-            return None
-
-    def _cache_put_json(self, name: str, data: Any) -> None:
-        p = self._cfg_cache_path(name)
-        if not p:
-            return
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        try:
-            with open(p, "w", encoding="utf-8") as fh:
-                _json.dump(data, fh, ensure_ascii=False)
-        except Exception:
-            pass  # nosec B110 - non-critical cache write
-
     @property
     def service(self):
         if not self._service:
@@ -124,13 +93,13 @@ class GmailClient:
 
     def list_labels(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
         if use_cache:
-            cached = self._cache_get_json("labels", ttl)
+            cached = self.cfg_get_json("labels", ttl)
             if isinstance(cached, list):
                 return cached
         resp = self.service.users().labels().list(userId="me").execute()
         labs = resp.get("labels", [])
         if use_cache:
-            self._cache_put_json("labels", labs)
+            self.cfg_put_json("labels", labs)
         return labs
 
     def get_label_id_map(self) -> Dict[str, str]:
@@ -226,13 +195,13 @@ class GmailClient:
     # --- Filters and forwarding ---
     def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
         if use_cache:
-            cached = self._cache_get_json("filters", ttl)
+            cached = self.cfg_get_json("filters", ttl)
             if isinstance(cached, list):
                 return cached
         resp = self.service.users().settings().filters().list(userId="me").execute()
         flt = resp.get("filter", resp.get("filters", []))
         if use_cache:
-            self._cache_put_json("filters", flt)
+            self.cfg_put_json("filters", flt)
         return flt
 
     def create_filter(self, criteria: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
