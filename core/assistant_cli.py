@@ -19,6 +19,7 @@ APP_MODULES: Dict[str, str] = {
     "phone": "phone.__main__",
     "whatsapp": "whatsapp.__main__",
     "maker": "maker.__main__",
+    "metals": "metals.__main__",
     "music": "apple_music.__main__",
     "apple-music": "apple_music.__main__",
     "wifi": "wifi.__main__",
