@@ -30,6 +30,7 @@ from .pipeline_base import (
     BaseProducer,
     GmailAuth,
     GmailServiceBuilder,
+    RequestConsumer,
     dedupe_events,
     parse_month,
     DAY_TO_CODE,
@@ -52,12 +53,7 @@ class GmailReceiptsRequest:
     out_path: Path
 
 
-class GmailReceiptsRequestConsumer(Consumer[GmailReceiptsRequest]):
-    def __init__(self, request: GmailReceiptsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> GmailReceiptsRequest:  # pragma: no cover - trivial
-        return self._request
+GmailReceiptsRequestConsumer = RequestConsumer[GmailReceiptsRequest]
 
 
 @dataclass
@@ -219,12 +215,7 @@ class GmailScanClassesRequest:
     out_path: Optional[Path]
 
 
-class GmailScanClassesRequestConsumer(Consumer[GmailScanClassesRequest]):
-    def __init__(self, request: GmailScanClassesRequest) -> None:
-        self._request = request
-
-    def consume(self) -> GmailScanClassesRequest:  # pragma: no cover - trivial
-        return self._request
+GmailScanClassesRequestConsumer = RequestConsumer[GmailScanClassesRequest]
 
 
 @dataclass
@@ -364,12 +355,7 @@ class GmailMailListRequest:
     inbox_only: bool
 
 
-class GmailMailListRequestConsumer(Consumer[GmailMailListRequest]):
-    def __init__(self, request: GmailMailListRequest) -> None:
-        self._request = request
-
-    def consume(self) -> GmailMailListRequest:  # pragma: no cover - trivial
-        return self._request
+GmailMailListRequestConsumer = RequestConsumer[GmailMailListRequest]
 
 
 @dataclass
@@ -443,12 +429,7 @@ class GmailSweepTopRequest:
     out_path: Optional[Path]
 
 
-class GmailSweepTopRequestConsumer(Consumer[GmailSweepTopRequest]):
-    def __init__(self, request: GmailSweepTopRequest) -> None:
-        self._request = request
-
-    def consume(self) -> GmailSweepTopRequest:  # pragma: no cover - trivial
-        return self._request
+GmailSweepTopRequestConsumer = RequestConsumer[GmailSweepTopRequest]
 
 
 @dataclass

@@ -462,12 +462,7 @@ class OutlookCalendarShareRequest:
     role: str
 
 
-class OutlookCalendarShareRequestConsumer(Consumer[OutlookCalendarShareRequest]):
-    def __init__(self, request: OutlookCalendarShareRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookCalendarShareRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookCalendarShareRequestConsumer = RequestConsumer[OutlookCalendarShareRequest]
 
 
 @dataclass
@@ -554,12 +549,7 @@ class OutlookAddEventRequest:
     reminder_minutes: Optional[int]
 
 
-class OutlookAddEventRequestConsumer(Consumer[OutlookAddEventRequest]):
-    def __init__(self, request: OutlookAddEventRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookAddEventRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookAddEventRequestConsumer = RequestConsumer[OutlookAddEventRequest]
 
 
 @dataclass
@@ -624,12 +614,7 @@ class OutlookAddRecurringRequest:
     reminder_minutes: Optional[int]
 
 
-class OutlookAddRecurringRequestConsumer(Consumer[OutlookAddRecurringRequest]):
-    def __init__(self, request: OutlookAddRecurringRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookAddRecurringRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookAddRecurringRequestConsumer = RequestConsumer[OutlookAddRecurringRequest]
 
 
 @dataclass
@@ -691,12 +676,7 @@ class OutlookLocationsEnrichRequest:
     dry_run: bool
 
 
-class OutlookLocationsEnrichRequestConsumer(Consumer[OutlookLocationsEnrichRequest]):
-    def __init__(self, request: OutlookLocationsEnrichRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookLocationsEnrichRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookLocationsEnrichRequestConsumer = RequestConsumer[OutlookLocationsEnrichRequest]
 
 
 @dataclass
@@ -792,12 +772,7 @@ class OutlookMailListRequest:
     pages: int
 
 
-class OutlookMailListRequestConsumer(Consumer[OutlookMailListRequest]):
-    def __init__(self, request: OutlookMailListRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookMailListRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookMailListRequestConsumer = RequestConsumer[OutlookMailListRequest]
 
 
 @dataclass
@@ -847,12 +822,7 @@ class OutlookLocationsRequest:
     service: Any = None
 
 
-class OutlookLocationsRequestConsumer(Consumer[OutlookLocationsRequest]):
-    def __init__(self, request: OutlookLocationsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookLocationsRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookLocationsRequestConsumer = RequestConsumer[OutlookLocationsRequest]
 
 
 @dataclass
@@ -931,12 +901,7 @@ class OutlookRemoveRequest:
     service: Any
 
 
-class OutlookRemoveRequestConsumer(Consumer[OutlookRemoveRequest]):
-    def __init__(self, request: OutlookRemoveRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookRemoveRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookRemoveRequestConsumer = RequestConsumer[OutlookRemoveRequest]
 
 
 @dataclass
@@ -1123,12 +1088,7 @@ class OutlookRemindersRequest:
     minutes: Optional[int] = None
 
 
-class OutlookRemindersRequestConsumer(Consumer[OutlookRemindersRequest]):
-    def __init__(self, request: OutlookRemindersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookRemindersRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookRemindersRequestConsumer = RequestConsumer[OutlookRemindersRequest]
 
 
 @dataclass
@@ -1261,12 +1221,7 @@ class OutlookSettingsRequest:
     service: Any
 
 
-class OutlookSettingsRequestConsumer(Consumer[OutlookSettingsRequest]):
-    def __init__(self, request: OutlookSettingsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookSettingsRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookSettingsRequestConsumer = RequestConsumer[OutlookSettingsRequest]
 
 
 @dataclass
@@ -1458,12 +1413,7 @@ class OutlookDedupRequest:
     delete_standardized: bool = False
 
 
-class OutlookDedupRequestConsumer(Consumer[OutlookDedupRequest]):
-    def __init__(self, request: OutlookDedupRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OutlookDedupRequest:  # pragma: no cover - trivial
-        return self._request
+OutlookDedupRequestConsumer = RequestConsumer[OutlookDedupRequest]
 
 
 @dataclass
