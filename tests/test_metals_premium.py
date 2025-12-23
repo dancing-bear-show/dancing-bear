@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from metals.premium import (
     CostRow,

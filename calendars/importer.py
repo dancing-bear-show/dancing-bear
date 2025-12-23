@@ -116,6 +116,7 @@ def parse_xlsx(path: str) -> List[ScheduleItem]:
 
 
 def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
+    import datetime as _dt
     try:
         from pdfminer.high_level import extract_text  # type: ignore
     except Exception as e:  # pragma: no cover - optional
