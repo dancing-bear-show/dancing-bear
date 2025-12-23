@@ -19,7 +19,7 @@ from calendar_assistant.model import normalize_event
 from calendar_assistant.selection import compute_window, filter_events_by_day_time
 
 from .location_sync import LocationSync
-from .pipeline_base import DateWindowResolver, to_iso_str
+from .pipeline_base import BaseProducer, DateWindowResolver, to_iso_str
 
 # Error message constants
 ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"
@@ -102,19 +102,12 @@ class OutlookVerifyProcessor(Processor[OutlookVerifyRequest, ResultEnvelope[Outl
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookVerifyProducer(Producer[ResultEnvelope[OutlookVerifyResult]]):
-    def produce(self, result: ResultEnvelope[OutlookVerifyResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        for line in result.payload.logs:
-            print(line)
+class OutlookVerifyProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookVerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        self.print_logs(payload.logs)
         print(
-            f"Checked {result.payload.total} recurring entries. "
-            f"Duplicates: {result.payload.duplicates}, Missing: {result.payload.missing}."
+            f"Checked {payload.total} recurring entries. "
+            f"Duplicates: {payload.duplicates}, Missing: {payload.missing}."
         )
 
 
@@ -241,18 +234,11 @@ class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAdd
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookAddProducer(Producer[ResultEnvelope[OutlookAddResult]]):
-    def produce(self, result: ResultEnvelope[OutlookAddResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        for line in result.payload.logs:
-            print(line)
-        suffix = " (dry-run)" if result.payload.dry_run else ""
-        print(f"Planned {result.payload.created} events/series from config{suffix}")
+class OutlookAddProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookAddResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        self.print_logs(payload.logs)
+        suffix = " (dry-run)" if payload.dry_run else ""
+        print(f"Planned {payload.created} events/series from config{suffix}")
 
 
 # =============================================================================
@@ -385,20 +371,13 @@ class OutlookScheduleImportProcessor(
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookScheduleImportProducer(Producer[ResultEnvelope[OutlookScheduleImportResult]]):
-    def produce(self, result: ResultEnvelope[OutlookScheduleImportResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        for line in result.payload.logs:
-            print(line)
-        if result.payload.dry_run:
+class OutlookScheduleImportProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookScheduleImportResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        self.print_logs(payload.logs)
+        if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)
         else:
-            print(f"Created {result.payload.created} event series in '{result.payload.calendar}'.")
+            print(f"Created {payload.created} event series in '{payload.calendar}'.")
 
 
 # =============================================================================
@@ -473,28 +452,21 @@ class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnv
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookListOneOffsProducer(Producer[ResultEnvelope[OutlookListOneOffsResult]]):
-    def produce(self, result: ResultEnvelope[OutlookListOneOffsResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        rows = result.payload.rows
-        print(f"Found {len(rows)} single events from {result.payload.start} to {result.payload.end}.")
-        for ev in rows[: result.payload.limit]:
+class OutlookListOneOffsProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookListOneOffsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        rows = payload.rows
+        print(f"Found {len(rows)} single events from {payload.start} to {payload.end}.")
+        for ev in rows[: payload.limit]:
             st = (ev.get("start") or "")[:16]
             en = (ev.get("end") or "")[:16]
             subj = ev.get("subject") or ""
             loc = ev.get("location") or ""
-            arrow = "→"
-            print(f"- {st} {arrow} {en} | {subj} | {loc}")
-        if result.payload.out_path:
+            print(f"- {st} → {en} | {subj} | {loc}")
+        if payload.out_path:
             from calendar_assistant.yamlio import dump_config
 
-            dump_config(str(result.payload.out_path), {"events": rows})
-            print(f"Wrote one-offs to {result.payload.out_path}")
+            dump_config(str(payload.out_path), {"events": rows})
+            print(f"Wrote one-offs to {payload.out_path}")
 
 
 # =============================================================================
@@ -577,15 +549,9 @@ class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, Resul
         return camel_map.get(cleaned, cleaned)
 
 
-class OutlookCalendarShareProducer(Producer[ResultEnvelope[OutlookCalendarShareResult]]):
-    def produce(self, result: ResultEnvelope[OutlookCalendarShareResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        print(f"Shared '{result.payload.calendar}' with {result.payload.recipient} role={result.payload.role}")
+class OutlookCalendarShareProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookCalendarShareResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Shared '{payload.calendar}' with {payload.recipient} role={payload.role}")
 
 
 # =============================================================================
@@ -647,15 +613,9 @@ class OutlookAddEventProcessor(Processor[OutlookAddEventRequest, ResultEnvelope[
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookAddEventProducer(Producer[ResultEnvelope[OutlookAddEventResult]]):
-    def produce(self, result: ResultEnvelope[OutlookAddEventResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        print(f"Created event: {result.payload.event_id} subject={result.payload.subject}")
+class OutlookAddEventProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookAddEventResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Created event: {payload.event_id} subject={payload.subject}")
 
 
 # =============================================================================
@@ -732,15 +692,9 @@ class OutlookAddRecurringProcessor(
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookAddRecurringProducer(Producer[ResultEnvelope[OutlookAddRecurringResult]]):
-    def produce(self, result: ResultEnvelope[OutlookAddRecurringResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        print(f"Created recurring series: {result.payload.event_id} subject={result.payload.subject}")
+class OutlookAddRecurringProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookAddRecurringResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Created recurring series: {payload.event_id} subject={payload.subject}")
 
 
 # =============================================================================
@@ -835,21 +789,14 @@ class OutlookLocationsEnrichProcessor(
         return env
 
 
-class OutlookLocationsEnrichProducer(Producer[ResultEnvelope[OutlookLocationsEnrichResult]]):
-    def produce(self, result: ResultEnvelope[OutlookLocationsEnrichResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        logs = (result.diagnostics or {}).get("logs") or []
-        for line in logs:
-            print(line)
-        if result.payload.dry_run:
+class OutlookLocationsEnrichProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookLocationsEnrichResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        logs = (diagnostics or {}).get("logs") or []
+        self.print_logs(logs)
+        if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)
         else:
-            print(f"Updated locations on {result.payload.updated} series.")
+            print(f"Updated locations on {payload.updated} series.")
 
 
 # =============================================================================
@@ -892,15 +839,9 @@ class OutlookMailListProcessor(Processor[OutlookMailListRequest, ResultEnvelope[
         return ResultEnvelope(status="success", payload=result)
 
 
-class OutlookMailListProducer(Producer[ResultEnvelope[OutlookMailListResult]]):
-    def produce(self, result: ResultEnvelope[OutlookMailListResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        msgs = result.payload.messages
+class OutlookMailListProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookMailListResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        msgs = payload.messages
         if not msgs:
             print("No messages.")
             return
@@ -991,15 +932,9 @@ class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEn
         return ResultEnvelope(status="success", payload=OutlookLocationsResult(message=msg))
 
 
-class OutlookLocationsProducer(Producer[ResultEnvelope[OutlookLocationsResult]]):
-    def produce(self, result: ResultEnvelope[OutlookLocationsResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        print(result.payload.message)
+class OutlookLocationsProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookLocationsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(payload.message)
 
 
 # =============================================================================
@@ -1176,15 +1111,8 @@ class OutlookRemoveProcessor(Processor[OutlookRemoveRequest, ResultEnvelope[Outl
         return deleted
 
 
-class OutlookRemoveProducer(Producer[ResultEnvelope[OutlookRemoveResult]]):
-    def produce(self, result: ResultEnvelope[OutlookRemoveResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        payload = result.payload
+class OutlookRemoveProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookRemoveResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         if not payload.apply:
             print("Planned deletions:")
             for entry in payload.plan:
@@ -1194,8 +1122,7 @@ class OutlookRemoveProducer(Producer[ResultEnvelope[OutlookRemoveResult]]):
                     print(f"- {entry.subject}: delete events {len(entry.event_ids)}")
             print("Re-run with --apply to delete.")
             return
-        for line in payload.logs:
-            print(line)
+        self.print_logs(payload.logs)
         print(f"Deleted {payload.deleted} items.")
 
 
@@ -1327,23 +1254,16 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
         return updated
 
 
-class OutlookRemindersProducer(Producer[ResultEnvelope[OutlookRemindersResult]]):
-    def produce(self, result: ResultEnvelope[OutlookRemindersResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        for line in result.payload.logs:
-            print(line)
-        if result.payload.dry_run:
+class OutlookRemindersProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookRemindersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        self.print_logs(payload.logs)
+        if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)
         else:
-            if result.payload.set_off:
-                print(f"Disabled reminders on {result.payload.updated} item(s).")
+            if payload.set_off:
+                print(f"Disabled reminders on {payload.updated} item(s).")
             else:
-                print(f"Updated reminders on {result.payload.updated} item(s).")
+                print(f"Updated reminders on {payload.updated} item(s).")
 
 
 # =============================================================================
@@ -1532,20 +1452,13 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
         return [str(value)] if str(value).strip() else []
 
 
-class OutlookSettingsProducer(Producer[ResultEnvelope[OutlookSettingsResult]]):
-    def produce(self, result: ResultEnvelope[OutlookSettingsResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        assert result.payload is not None
-        for line in result.payload.logs:
-            print(line)
-        if result.payload.dry_run:
-            print(f"Preview complete. {result.payload.selected} item(s) matched.")
+class OutlookSettingsProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookSettingsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        self.print_logs(payload.logs)
+        if payload.dry_run:
+            print(f"Preview complete. {payload.selected} item(s) matched.")
         else:
-            print(f"Applied settings to {result.payload.changed} item(s).")
+            print(f"Applied settings to {payload.changed} item(s).")
 
 
 # =============================================================================
@@ -1735,29 +1648,21 @@ class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[Outloo
         return keep, delete
 
 
-class OutlookDedupProducer(Producer[ResultEnvelope[OutlookDedupResult]]):
-    def produce(self, result: ResultEnvelope[OutlookDedupResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-
-        assert result.payload is not None
-        duplicates = result.payload.duplicates
+class OutlookDedupProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookDedupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        duplicates = payload.duplicates
         if not duplicates:
             print("No duplicate series detected in window.")
             return
 
-        print("Found {0} duplicate groups. (subject,day,time)-> keep + delete list".format(len(duplicates)))
+        print(f"Found {len(duplicates)} duplicate groups. (subject,day,time)-> keep + delete list")
         for dup in duplicates:
             deletes = ", ".join(dup.delete)
             print(f"- {dup.subject} {dup.weekday} {dup.start_time}-{dup.end_time}: keep {dup.keep} delete {deletes}")
 
-        if not result.payload.apply:
+        if not payload.apply:
             print("Dry plan only. Re-run with --apply to delete duplicates (keep oldest).")
             return
 
-        for line in result.payload.logs:
-            print(line)
-        print(f"Deleted {result.payload.deleted} duplicate series.")
+        self.print_logs(payload.logs)
+        print(f"Deleted {payload.deleted} duplicate series.")

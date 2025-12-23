@@ -60,32 +60,32 @@ class TestDedupFlow(unittest.TestCase):
         # nothing else to restore here
 
     def test_dedup_plan(self):
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_dedup
         args = SimpleNamespace(calendar='Your Family', from_date='2025-01-01', to_date='2025-02-01', apply=False,
-                               prefer_delete_nonstandard=False, keep_newest=False,
+                               prefer_delete_nonstandard=False, keep_newest=False, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = cli._cmd_outlook_dedup(args)
+            rc = run_outlook_dedup(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn('Found 1 duplicate groups', out)
         self.assertIn('Dry plan only', out)
 
     def test_dedup_apply(self):
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_dedup
         args = SimpleNamespace(calendar='Your Family', from_date='2025-01-01', to_date='2025-02-01', apply=True,
-                               prefer_delete_nonstandard=False, keep_newest=False,
+                               prefer_delete_nonstandard=False, keep_newest=False, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = cli._cmd_outlook_dedup(args)
+            rc = run_outlook_dedup(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn('Deleted', out)
 
     def test_dedup_prefer_delete_nonstandard_and_keep_newest(self):
-        from calendar_assistant import __main__ as cli
+        from calendar_assistant.outlook.commands import run_outlook_dedup
         import sys
         # Provide occurrences where one master has standardized location
         vals = [
@@ -98,11 +98,11 @@ class TestDedupFlow(unittest.TestCase):
         mod.OutlookService = factory  # type: ignore
         sys.modules['calendar_assistant.outlook_service'] = mod
         args = SimpleNamespace(calendar=None, from_date='2025-01-01', to_date='2025-02-01', apply=True,
-                               prefer_delete_nonstandard=True, keep_newest=True,
+                               prefer_delete_nonstandard=True, keep_newest=True, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = cli._cmd_outlook_dedup(args)
+            rc = run_outlook_dedup(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         # Should choose to delete the non-standard master (A)
