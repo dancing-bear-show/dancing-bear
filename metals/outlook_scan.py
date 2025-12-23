@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Search Outlook Inbox for precious-metals order emails (TD, Costco, RCM) and report matches.
 
@@ -9,6 +7,7 @@ and lists recent matches with received time, from, and subject.
 Usage:
   python -m mail.utils.outlook_metals_scan --profile outlook_personal --days 365 --top 50 --pages 3
 """
+from __future__ import annotations
 
 import argparse
 from typing import Dict, List, Tuple

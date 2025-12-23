@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Push gold/silver summary CSVs into an Excel workbook (OneDrive/SharePoint) via Microsoft Graph.
 
@@ -14,6 +12,7 @@ Usage:
 
 This overwrites the respective sheets starting at A1 with CSV contents.
 """
+from __future__ import annotations
 
 import argparse
 import csv

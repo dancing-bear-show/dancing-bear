@@ -5,14 +5,40 @@ Uses the core pipeline pattern with processors and producers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from core.pipeline import (
-    Processor,
-    Producer,
-    Result,
-    RequestConsumer,
-)
+from core.pipeline import RequestConsumer
+
+T = TypeVar("T")
+
+
+@dataclass
+class Result(Generic[T]):
+    """Result envelope for pipeline operations."""
+    payload: Optional[T] = None
+    error: Optional[str] = None
+    diagnostics: Optional[Dict[str, Any]] = None
+
+    def ok(self) -> bool:
+        return self.error is None and self.payload is not None
+
+
+# Protocol definitions for type hints
+RequestT = TypeVar("RequestT")
+ResultT = TypeVar("ResultT")
+
+
+class Processor(Generic[RequestT, ResultT]):
+    """Base processor class."""
+    def process(self, request: RequestT) -> Result[ResultT]:
+        raise NotImplementedError
+
+
+class Producer(Generic[ResultT]):
+    """Base producer class."""
+    def produce(self, result: Result[ResultT]) -> None:
+        raise NotImplementedError
+
 
 from .extractors import MetalsAmount, OrderExtraction
 

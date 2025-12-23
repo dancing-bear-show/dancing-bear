@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Extract per-order costs from Outlook Royal Canadian Mint (RCM) emails and merge into costs.csv.
 
@@ -16,6 +14,7 @@ Usage:
     --profile outlook_personal \
     --out out/metals/costs.csv
 """
+from __future__ import annotations
 
 import argparse
 import csv
