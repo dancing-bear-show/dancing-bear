@@ -1,21 +1,16 @@
+"""Skills filtering by keyword matching.
+
+Uses KeywordMatcher for consistent matching behavior across the codebase.
+"""
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional
 
-from .text_match import expand_keywords, keyword_match
-
-
-def _item_matches(item_text: str, keywords: Set[str]) -> bool:
-    for kw in keywords:
-        if not kw:
-            continue
-        # match whole or substring to be forgiving
-        if keyword_match(item_text, kw, normalize=True, word_boundary=False):
-            return True
-    return False
+from .keyword_matcher import KeywordMatcher
 
 
 def _flatten_keywords(spec: Dict[str, Any]) -> List[str]:
+    """Extract all keywords from a keyword spec."""
     out: List[str] = []
     for tier in ("required", "preferred", "nice"):
         for item in spec.get(tier, []) or []:
@@ -47,11 +42,24 @@ def filter_skills_by_keywords(
     - Filters skills_groups items whose name/desc contains any keyword or synonym.
     - Filters flat skills list similarly if groups are absent.
     - Drops empty groups.
+
+    Args:
+        data: Candidate data dict.
+        matched_keywords: Keywords to match against.
+        synonyms: Optional synonym mapping.
+
+    Returns:
+        Filtered data with only matching skills.
     """
-    kw: Set[str] = set(expand_keywords(matched_keywords or [], synonyms=synonyms))
+    # Build matcher with expanded keywords
+    matcher = KeywordMatcher()
+    matcher.add_synonyms(synonyms or {})
+    keywords = list(matched_keywords or [])
+    expanded = matcher.expand_all(keywords)
 
     out = dict(data)
-    groups = (data.get("skills_groups") or [])
+    groups = data.get("skills_groups") or []
+
     if groups:
         new_groups = []
         for g in groups:
@@ -63,15 +71,21 @@ def filter_skills_by_keywords(
                     name = it.get("name") or it.get("title") or it.get("label") or ""
                     desc = it.get("desc") or it.get("description") or ""
                     text = f"{name} {desc}".strip()
-                    if _item_matches(text, kw):
-                        keep_items.append(it)
                 else:
-                    if _item_matches(str(it), kw):
-                        keep_items.append(it)
+                    text = str(it)
+
+                # Match using KeywordMatcher (substring match, normalized)
+                if matcher.matches_any(text, expanded, expand_synonyms=False):
+                    keep_items.append(it)
+
             if keep_items:
                 new_groups.append({"title": title, "items": keep_items})
         out["skills_groups"] = new_groups
     else:
         skills = [str(s) for s in (data.get("skills") or [])]
-        out["skills"] = [s for s in skills if _item_matches(s, kw)]
+        out["skills"] = [
+            s for s in skills
+            if matcher.matches_any(s, expanded, expand_synonyms=False)
+        ]
+
     return out

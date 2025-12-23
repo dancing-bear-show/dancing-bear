@@ -22,7 +22,7 @@ class TestExperienceExport(unittest.TestCase):
                 ],
             }
             data.write_text(json.dumps(payload), encoding="utf-8")
-            r = subprocess.run(CLI + ["experience", "export", "--data", str(data), "--out", str(out)], capture_output=True)
+            r = subprocess.run(CLI + ["experience", "export", "--data", str(data), "--out", str(out)], capture_output=True)  # nosec B603
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertTrue(out.exists())
             # basic content check

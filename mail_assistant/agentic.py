@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any
 import ast
 
 from core.agentic import (
@@ -448,14 +448,13 @@ def render_flow(flow: Dict[str, Any], fmt: str = 'md') -> str:
             import json as _json
             return _json.dumps(flow, indent=2)
         except Exception:
-            pass
+            pass  # nosec B110 - fallback to other format
     if fmt == 'yaml':
         try:
             import yaml as _yaml  # type: ignore
             return _yaml.safe_dump(flow, sort_keys=False)
         except Exception:
-            # fall back to md
-            pass
+            pass  # nosec B110 - fallback to md format
     # md
     lines = [f"# {flow.get('title', flow.get('id'))}"]
     lines.append(f"id: {flow.get('id')}")

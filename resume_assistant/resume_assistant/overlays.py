@@ -48,7 +48,7 @@ def apply_profile_overlays(data: Dict[str, Any], profile: str | None) -> Dict[st
                     out["presentations"] = prof_data["presentations"]
                 break
             except Exception:
-                pass
+                pass  # nosec B110 - profile load failure
 
     # Skills groups
     skills_groups_new = prof_dir / "skills_groups.yaml"
@@ -59,7 +59,7 @@ def apply_profile_overlays(data: Dict[str, Any], profile: str | None) -> Dict[st
                 out["skills_groups"] = read_yaml_or_json(str(skills_groups)).get("groups", [])
                 break
             except Exception:
-                pass
+                pass  # nosec B110 - skills_groups load failure
 
     # Experience
     exp_cfg_new = prof_dir / "experience.yaml"
@@ -73,7 +73,7 @@ def apply_profile_overlays(data: Dict[str, Any], profile: str | None) -> Dict[st
                     out["experience"] = exp_list
                 break
             except Exception:
-                pass
+                pass  # nosec B110 - experience load failure
 
     # Simple list overlays
     for key in ("interests", "presentations", "languages", "coursework", "education", "certifications"):
@@ -89,6 +89,6 @@ def apply_profile_overlays(data: Dict[str, Any], profile: str | None) -> Dict[st
                         out[key] = d
                     break
                 except Exception:
-                    pass
+                    pass  # nosec B110 - overlay load failure
 
     return out

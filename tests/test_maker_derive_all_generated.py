@@ -1,4 +1,3 @@
-import io
 import sys
 import tempfile
 import unittest

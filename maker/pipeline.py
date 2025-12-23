@@ -3,10 +3,9 @@ from __future__ import annotations
 """Maker pipeline primitives built on shared core scaffolding."""
 
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-import subprocess
-import sys
-from typing import List
+from typing import Any, Callable, List, Optional
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
 
@@ -58,10 +57,17 @@ class ConsoleProducer(Producer[str]):
         print(result)
 
 
+# -----------------------------------------------------------------------------
+# Tool execution pipeline (direct import pattern)
+# -----------------------------------------------------------------------------
+
+
 @dataclass
 class ToolRequest:
+    """Request to run a maker tool."""
+
     module: str
-    args: List[str]
+    entry_point: str = "main"
 
 
 class ToolRequestConsumer(Consumer[ToolRequest]):
@@ -74,20 +80,54 @@ class ToolRequestConsumer(Consumer[ToolRequest]):
         return self._request
 
 
-class ModuleRunnerProcessor(Processor[ToolRequest, ResultEnvelope[int]]):
-    """Run maker modules via `python -m` and capture their exit status."""
+@dataclass
+class ToolResult:
+    """Result from running a maker tool."""
 
-    def process(self, payload: ToolRequest) -> ResultEnvelope[int]:
-        cmd = [sys.executable, "-m", payload.module, *payload.args]
-        rc = subprocess.call(cmd)
-        status = "success" if rc == 0 else "error"
-        return ResultEnvelope(status=status, payload=rc)
+    module: str
+    return_code: int
+    error: Optional[str] = None
 
 
-class ModuleResultProducer(Producer[ResultEnvelope[int]]):
-    """Emit diagnostics for module execution."""
+class ToolRunnerProcessor(Processor[ToolRequest, ResultEnvelope[ToolResult]]):
+    """Run maker modules via direct import and call their entry point."""
 
-    def produce(self, result: ResultEnvelope[int]) -> None:
-        if not result.ok():
-            code = result.payload if result.payload is not None else "unknown"
-            print(f"[maker] tool exited with code {code}")
+    def process(self, payload: ToolRequest) -> ResultEnvelope[ToolResult]:
+        try:
+            mod = import_module(payload.module)
+            entry: Callable[[], Any] = getattr(mod, payload.entry_point, None)
+            if not callable(entry):
+                return ResultEnvelope(
+                    status="error",
+                    payload=ToolResult(
+                        module=payload.module,
+                        return_code=1,
+                        error=f"Module {payload.module} has no callable '{payload.entry_point}'",
+                    ),
+                )
+            result = entry()
+            rc = int(result) if isinstance(result, int) else 0
+            return ResultEnvelope(
+                status="success",
+                payload=ToolResult(module=payload.module, return_code=rc),
+            )
+        except Exception as e:
+            return ResultEnvelope(
+                status="error",
+                payload=ToolResult(
+                    module=payload.module,
+                    return_code=1,
+                    error=str(e),
+                ),
+            )
+
+
+class ToolResultProducer(Producer[ResultEnvelope[ToolResult]]):
+    """Emit diagnostics for tool execution."""
+
+    def produce(self, result: ResultEnvelope[ToolResult]) -> None:
+        if not result.ok() and result.payload:
+            if result.payload.error:
+                print(f"[maker] {result.payload.module}: {result.payload.error}")
+            else:
+                print(f"[maker] {result.payload.module} exited with code {result.payload.return_code}")

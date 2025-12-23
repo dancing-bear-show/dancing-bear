@@ -6,7 +6,6 @@ Requires: numpy, trimesh
 from pathlib import Path
 import argparse
 import trimesh
-import numpy as np
 
 
 def make_rod(length_mm: float, diameter_mm: float, chamfer_mm: float = 1.0) -> trimesh.Trimesh:
