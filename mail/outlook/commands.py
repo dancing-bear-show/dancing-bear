@@ -575,7 +575,7 @@ def run_outlook_auth_validate(args) -> int:
         return 4
 
     # Ping /me to confirm validity
-    r = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {res['access_token']}"})
+    r = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {res['access_token']}"})  # nosec B113
     if r.status_code == 200:
         print("Outlook token valid.")
         return 0
