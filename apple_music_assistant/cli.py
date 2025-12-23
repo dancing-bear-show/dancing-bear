@@ -8,13 +8,11 @@ import random
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from core.cli_framework import CLIApp
 
 from .client import AppleMusicClient, AppleMusicError
 from .config import DEFAULT_PROFILE, load_profile
-from .user_token_cli import build_data_url  # re-export for convenience
 
 # Create the CLI app
 app = CLIApp(

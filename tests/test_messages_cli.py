@@ -71,7 +71,7 @@ class MessagesCLITests(unittest.TestCase):
                     out=outp,
                     max_words=30,
                 )
-                with capture_stdout() as buf:
+                with capture_stdout():
                     rc = run_messages_summarize(args)
 
                 self.assertEqual(rc, 0)
@@ -103,7 +103,7 @@ class MessagesCLITests(unittest.TestCase):
                     draft_out=eml,
                     apply=False,
                 )
-                with capture_stdout() as buf:
+                with capture_stdout():
                     rc = run_messages_reply(args)
 
                 self.assertEqual(rc, 0)

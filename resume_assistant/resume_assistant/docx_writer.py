@@ -12,18 +12,13 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
 
 # Import from new abstraction modules
 from .docx_styles import (
-    StyleManager,
-    TextFormatter,
-    # Backward-compatible aliases
     _parse_hex_color,
-    _hex_fill,
     _is_dark,
     _tight_paragraph,
     _compact_bullet,
     _flush_left,
     _apply_paragraph_shading,
     _normalize_present,
-    _format_date_location,
     _format_phone_display,
     _format_link_display,
     _clean_inline_text,
@@ -32,7 +27,6 @@ from .docx_styles import (
 from .docx_sections import (
     BulletRenderer,
     HeaderRenderer,
-    ListSectionRenderer,
     InterestsSectionRenderer,
     LanguagesSectionRenderer,
     CourseworkSectionRenderer,
@@ -134,7 +128,7 @@ def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | Non
         if page_cfg and isinstance(page_cfg.get("header_level"), int):
             return int(page_cfg.get("header_level"))
     except Exception:
-        pass
+        pass  # nosec B110 - invalid header_level
     return 1
 
 
@@ -169,7 +163,7 @@ def write_resume_docx(
             sec.left_margin = Inches(m)
             sec.right_margin = Inches(m)
         except Exception:
-            pass
+            pass  # nosec B110 - margin setting failure
         try:
             body_pt = float(page_cfg.get("body_pt", 10.5))
             h1_pt = float(page_cfg.get("h1_pt", 12))
@@ -197,7 +191,7 @@ def write_resume_docx(
                 if rgbt:
                     doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
         except Exception:
-            pass
+            pass  # nosec B110 - style setting failure
     # Core metadata
     name = data.get("name") or ""
     # Contact fields (accept top-level or under contact)
@@ -238,10 +232,10 @@ def write_resume_docx(
                 try:
                     cp.category = "; ".join(uniq_locs)
                 except Exception:
-                    pass
+                    pass  # nosec B110 - category set failure
         cp.keywords = "; ".join(kw)
     except Exception:
-        pass
+        pass  # nosec B110 - metadata set failure
 
     # Header
     if name:
@@ -253,7 +247,7 @@ def write_resume_docx(
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
     # Optional headline line directly under the name
     if headline:
         p_head = doc.add_paragraph(str(headline))
@@ -264,7 +258,7 @@ def write_resume_docx(
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
     # Build compact contact line with auto-included extras
     extras = []
     for val in [website, linkedin, github]:
@@ -285,7 +279,7 @@ def write_resume_docx(
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
 
     sections = template.get("sections") or []
     keywords = []
@@ -640,7 +634,7 @@ def write_resume_docx(
             role_style = str(sec.get("role_style", "Normal"))
             bullet_style = str(sec.get("bullet_style", "List Bullet"))
             max_bullets = int(sec.get("max_bullets", 999))
-            item_color_hex = sec.get("item_color") or sec.get("header_color")
+            sec.get("item_color") or sec.get("header_color")
             # Per-recency bullet controls
             recent_roles_count = int(sec.get("recent_roles_count", 0) or 0)
             recent_max_bullets = int(sec.get("recent_max_bullets", max_bullets))

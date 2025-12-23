@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import sys
 import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
@@ -16,20 +15,14 @@ from core.cli_errors import (
     UsageError,
     ExitCode,
     handle_error,
-    die,
 )
 from core.cli_output import (
     OutputConfig,
     OutputFormat,
     OutputWriter,
-    output,
-    output_json,
 )
 from core.cli_framework import (
     CLIApp,
-    CommandGroup,
-    Argument,
-    CommandDef,
     quick_cli,
 )
 from core.cli_args import (
@@ -38,7 +31,6 @@ from core.cli_args import (
     add_date_range_args,
     add_profile_args,
     add_filter_args,
-    ArgumentGroup,
 )
 
 

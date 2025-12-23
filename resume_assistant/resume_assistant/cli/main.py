@@ -1,5 +1,4 @@
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -13,12 +12,10 @@ from ..docx_writer import write_resume_docx
 from ..structure import infer_structure_from_docx
 from ..job import load_job_config, build_keyword_spec
 from ..aligner import align_candidate_to_job, build_tailored_candidate
-from ..skills_filter import filter_skills_by_keywords
 from ..experience_filter import filter_experience_by_keywords
 from ..cleanup import build_tidy_plan, execute_archive, execute_delete, purge_temp_files
 from ..experience_summary import build_experience_summary
 from ..overlays import apply_profile_overlays
-from ..priority import filter_by_min_priority
 from ..pipeline import FilterPipeline
 
 # Default profile used when --profile is not provided
@@ -44,8 +41,7 @@ def _extend_seed_with_style(seed: dict, style_profile_path) -> dict:
                 cur = [cur]
             seed["keywords"] = list(dict.fromkeys(list(cur) + style_kws))
     except Exception:
-        # Non-fatal; keep seed as-is
-        pass
+        pass  # nosec B110 - non-fatal seed extension
     return seed
 
 
@@ -231,7 +227,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     try:
         out_docx.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
-        pass
+        pass  # nosec B110 - mkdir failure
     write_resume_docx(
         data=data,
         template=template,

@@ -256,7 +256,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
         )
         subject = subj_out.decode().strip().replace("subject=", "")
     except Exception:
-        pass
+        pass  # nosec B110 - cert parsing failure
 
     try:
         iss_out = subprocess.check_output(
@@ -266,7 +266,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
         )
         issuer = iss_out.decode().strip().replace("issuer=", "")
     except Exception:
-        pass
+        pass  # nosec B110 - cert parsing failure
 
     return CertInfo(subject=subject, issuer=issuer)
 
@@ -286,7 +286,7 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
         if "Supervised:" in out:
             return out.split(":", 1)[1].strip()
     except Exception:
-        pass
+        pass  # nosec B110 - cfgutil query failure
 
     return None
 

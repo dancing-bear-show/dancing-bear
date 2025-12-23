@@ -10,11 +10,9 @@ dependencies (like PyYAML or Google APIs) at module import time so that
 from __future__ import annotations
 
 import argparse
-import sys
 import os
 from pathlib import Path
 from typing import Optional, Iterable
-from .utils.cli_helpers import with_gmail_client as _with_gmail_client
 from core.assistant import BaseAssistant
 from core.auth import resolve_outlook_credentials
 from .config_resolver import (
@@ -22,8 +20,6 @@ from .config_resolver import (
     default_gmail_token_path,
     default_outlook_flow_path,
     default_outlook_token_path,
-    expand_path,
-    resolve_paths_profile,
 )
 # Pipeline command imports
 from .signatures.commands import (
@@ -62,7 +58,6 @@ from .outlook.commands import (
     run_outlook_auth_ensure,
     run_outlook_auth_validate,
 )
-from .outlook.helpers import resolve_outlook_args as _resolve_outlook_args
 from .labels.commands import (
     run_labels_plan,
     run_labels_sync,

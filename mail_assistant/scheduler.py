@@ -5,7 +5,7 @@ import os
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 
 
 def _queue_path() -> Path:

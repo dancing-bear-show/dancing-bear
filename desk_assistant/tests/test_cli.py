@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
-from desk_assistant import __version__
 from desk_assistant.cli import main
 
 

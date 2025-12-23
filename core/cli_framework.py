@@ -19,9 +19,7 @@ from typing import (
     List,
     Optional,
     Sequence,
-    Type,
     TypeVar,
-    Union,
 )
 
 from .cli_errors import CLIError, ExitCode, handle_error

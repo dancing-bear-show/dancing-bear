@@ -42,7 +42,8 @@ class TestGmailScanFlows(unittest.TestCase):
         old_mod = sys.modules.get('mail_assistant.utils.cli_helpers')
         sys.modules['mail_assistant.utils.cli_helpers'] = stub_gmail_provider(fake)
         from calendar_assistant import __main__ as cli
-        import tempfile, os
+        import tempfile
+        import os
         try:
             tf = tempfile.NamedTemporaryFile('w+', delete=False, suffix='.yaml')
             tf.close()
@@ -86,7 +87,9 @@ class TestGmailScanFlows(unittest.TestCase):
                 sys.modules['mail_assistant.utils.cli_helpers'] = old_mod
 
     def test_scan_activerh_builds_query_delegates(self):
-        import sys, tempfile, os
+        import sys
+        import tempfile
+        import os
         text = (
             "Enrollment in Swim Kids 2",
             "Meeting Dates: From January 5, 2025 to March 5, 2025",

@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 import json
@@ -50,7 +49,7 @@ MS Computer Science, Institute of Tech, 2017
 
 class TestCLI(unittest.TestCase):
     def test_help(self):
-        out = subprocess.run(CLI + ["-h"], capture_output=True, text=True)
+        out = subprocess.run(CLI + ["-h"], capture_output=True, text=True)  # nosec B603
         self.assertEqual(out.returncode, 0)
         self.assertIn("resume-assistant", out.stdout)
 
@@ -65,7 +64,7 @@ class TestCLI(unittest.TestCase):
             rs.write_text(SAMPLE_RESUME, encoding="utf-8")
 
             # extract
-            r = subprocess.run(CLI + ["extract", "--linkedin", str(li), "--resume", str(rs), "--out", str(data_out)])
+            r = subprocess.run(CLI + ["extract", "--linkedin", str(li), "--resume", str(rs), "--out", str(data_out)])  # nosec B603
             self.assertEqual(r.returncode, 0)
             self.assertTrue(data_out.exists(), "data.json should be created")
             data = json.loads(data_out.read_text(encoding="utf-8"))
@@ -73,7 +72,7 @@ class TestCLI(unittest.TestCase):
             self.assertIn("skills", data)
 
             # summarize
-            r = subprocess.run(CLI + [
+            r = subprocess.run(CLI + [  # nosec B603
                 "summarize", "--data", str(data_out), "--seed", "keywords=Python Kubernetes AWS", "--out", str(summary_out)
             ])
             self.assertEqual(r.returncode, 0)
@@ -117,7 +116,7 @@ sections:
     title: Education
 """.strip(), encoding="utf-8")
 
-            r = subprocess.run(CLI + [
+            r = subprocess.run(CLI + [  # nosec B603
                 "render", "--data", str(data), "--template", str(template), "--seed", "keywords=AWS Go", "--out", str(out)
             ])
             self.assertEqual(r.returncode, 0)
@@ -130,7 +129,6 @@ sections:
             from docx import Document  # type: ignore
         except Exception:
             self.skipTest("python-docx not installed")
-        import docx  # type: ignore # ensure import ok
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
             ref = td / "ref.docx"
@@ -147,7 +145,7 @@ sections:
             doc.add_paragraph("...")
             doc.save(str(ref))
 
-            r = subprocess.run(CLI + ["structure", "--source", str(ref), "--out", str(out)])
+            r = subprocess.run(CLI + ["structure", "--source", str(ref), "--out", str(out)])  # nosec B603
             self.assertEqual(r.returncode, 0)
             self.assertTrue(out.exists())
             data = json.loads(out.read_text(encoding="utf-8"))
@@ -195,7 +193,7 @@ keywords:
             align_out = td / "align.json"
             tailored = td / "tailored.json"
 
-            r = subprocess.run(CLI + [
+            r = subprocess.run(CLI + [  # nosec B603
                 "align", "--data", str(cand), "--job", str(job), "--out", str(align_out), "--tailored", str(tailored), "--max-bullets", "2"
             ])
             self.assertEqual(r.returncode, 0)

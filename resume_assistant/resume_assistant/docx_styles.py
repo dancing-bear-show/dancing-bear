@@ -88,7 +88,7 @@ class StyleManager:
             pf.space_after = Pt(after_pt)
             pf.line_spacing = line_spacing
         except Exception:
-            pass
+            pass  # nosec B110 - paragraph format failure
 
     @staticmethod
     def compact_bullet(paragraph) -> None:
@@ -101,7 +101,7 @@ class StyleManager:
             pf.space_after = Pt(0)
             pf.line_spacing = 1.0
         except Exception:
-            pass
+            pass  # nosec B110 - bullet format failure
 
     @staticmethod
     def flush_left(paragraph) -> None:
@@ -112,7 +112,7 @@ class StyleManager:
             pf.first_line_indent = Pt(0)
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         except Exception:
-            pass
+            pass  # nosec B110 - alignment failure
 
     @staticmethod
     def center_paragraph(paragraph) -> None:
@@ -123,7 +123,7 @@ class StyleManager:
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
         except Exception:
-            pass
+            pass  # nosec B110 - center alignment failure
 
     # -------------------------------------------------------------------------
     # Shading and colors
@@ -145,7 +145,7 @@ class StyleManager:
                     pPr.remove(child)
             pPr.append(shd)
         except Exception:
-            pass
+            pass  # nosec B110 - shading failure
 
     @staticmethod
     def apply_run_color(run, hex_color: Optional[str]) -> None:
@@ -157,7 +157,7 @@ class StyleManager:
             try:
                 run.font.color.rgb = RGBColor(*rgb)
             except Exception:
-                pass
+                pass  # nosec B110 - color apply failure
 
     @staticmethod
     def apply_run_size(run, size_pt: Optional[float]) -> None:
@@ -166,7 +166,7 @@ class StyleManager:
             try:
                 run.font.size = Pt(size_pt)
             except Exception:
-                pass
+                pass  # nosec B110 - font size failure
 
 
 class TextFormatter:

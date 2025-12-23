@@ -1,4 +1,3 @@
-import json
 import unittest
 from pathlib import Path
 
@@ -93,11 +92,11 @@ class TestProfileOverlays(unittest.TestCase):
             try:
                 (prof_dir / "__pycache__").rmdir()
             except Exception:
-                pass
+                pass  # nosec B110 - test cleanup
             try:
                 prof_dir.rmdir()
             except Exception:
-                pass
+                pass  # nosec B110 - test cleanup
 
 
 if __name__ == "__main__":
