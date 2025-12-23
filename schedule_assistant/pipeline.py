@@ -355,8 +355,102 @@ class VerifyResult:
     lines: List[str]
 
 
+def _key_subject_time(subj: str, st: Optional[str], en: Optional[str]) -> str:
+    """Build a key from subject and start/end times."""
+    ns = (subj or "").strip().lower()
+    ks = _norm_dt_minute(st or "") or ""
+    ke = _norm_dt_minute(en or "") or ""
+    return f"{ns}|{ks}|{ke}"
+
+
+def _build_have_st_keys(occ: List[Dict[str, Any]]) -> set:
+    """Build subject-time keys from calendar occurrences."""
+    have_st_keys: set = set()
+    for o in occ:
+        sub = (o.get("subject") or "").strip()
+        st = (o.get("start") or {}).get("dateTime") if isinstance(o.get("start"), dict) else None
+        en = (o.get("end") or {}).get("dateTime") if isinstance(o.get("end"), dict) else None
+        have_st_keys.add(_key_subject_time(sub, st, en))
+    return have_st_keys
+
+
+def _build_plan_st_keys(events: List[Dict[str, Any]], from_date: str, to_date: str) -> set:
+    """Build subject-time keys from plan events."""
+    plan_st_keys: set = set()
+    for e in events or []:
+        subj = (e.get("subject") or "").strip()
+        if not subj:
+            continue
+        if e.get("start") and e.get("end"):
+            plan_st_keys.add(_key_subject_time(subj, e.get("start"), e.get("end")))
+            continue
+        for st, en in _expand_recurring_occurrences(e, from_date, to_date):
+            plan_st_keys.add(_key_subject_time(subj, st, en))
+    return plan_st_keys
+
+
+def _build_verify_lines_subject_time(
+    payload: "VerifyRequest", plan_st_keys: set, have_st_keys: set
+) -> List[str]:
+    """Build verification output lines for subject-time mode."""
+    missing_keys = sorted(k for k in plan_st_keys if k not in have_st_keys)
+    extra_keys = sorted(k for k in have_st_keys if k not in plan_st_keys)
+    lines = [
+        f"Verified window {payload.from_date} → {payload.to_date} on '{payload.calendar}' (match=subject-time)",
+        f"Planned occurrences: {len(plan_st_keys)}; Found occurrences: {len(have_st_keys)}",
+    ]
+    if missing_keys:
+        lines.append("Missing (subject@time):")
+        lines.extend(f"  - {k}" for k in missing_keys[:20])
+    else:
+        lines.append("Missing: none")
+    if extra_keys:
+        lines.append(f"Extras not in plan (sample {min(20, len(extra_keys))}/{len(extra_keys)}):")
+        lines.extend(f"  - {k}" for k in extra_keys[:20])
+    else:
+        lines.append("Extras not in plan: none")
+    return lines
+
+
+def _build_verify_lines_subject(
+    payload: "VerifyRequest",
+    events: List[Dict[str, Any]],
+    occ: List[Dict[str, Any]],
+) -> List[str]:
+    """Build verification output lines for subject-only mode."""
+    planned_subjects = [
+        (e.get("subject") or "").strip() for e in events or []
+        if (e.get("subject") or "").strip()
+    ]
+    have_subjects = {(o.get("subject") or "").strip().lower() for o in occ}
+
+    missing = [s for s in planned_subjects if s.strip().lower() not in have_subjects]
+    extras = [
+        (o.get("subject") or "").strip() for o in occ
+        if (o.get("subject") or "").strip().lower() not in {ps.lower() for ps in planned_subjects}
+    ]
+
+    lines = [
+        f"Verified window {payload.from_date} → {payload.to_date} on '{payload.calendar}'",
+        f"Planned subjects: {len(planned_subjects)}; Found subjects: {len(have_subjects)}",
+    ]
+    if missing:
+        lines.append("Missing (by subject):")
+        lines.extend(f"  - {s}" for s in sorted(set(missing)))
+    else:
+        lines.append("Missing: none")
+    if extras:
+        sample = sorted(set(extras))[:10]
+        lines.append(f"Extras not in plan (sample {len(sample)}/{len(set(extras))}):")
+        lines.extend(f"  - {s}" for s in sample)
+    else:
+        lines.append("Extras not in plan: none")
+    return lines
+
+
 class VerifyProcessor(Processor[VerifyRequest, ResultEnvelope[VerifyResult]]):
     def process(self, payload: VerifyRequest) -> ResultEnvelope[VerifyResult]:
+        # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
         if err:
             return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
@@ -376,92 +470,25 @@ class VerifyProcessor(Processor[VerifyRequest, ResultEnvelope[VerifyResult]]):
                 diagnostics={"message": "Invalid --from/--to date format; expected YYYY-MM-DD", "code": 2},
             )
 
+        # Fetch calendar events
         svc, err = _build_outlook_service(payload.auth)
         if err:
             return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
         try:
             occ = svc.list_events_in_range(
-                calendar_name=payload.calendar,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                top=400,
+                calendar_name=payload.calendar, start_iso=start_iso, end_iso=end_iso, top=400
             )
         except Exception as exc:
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 2})
 
-        planned_subjects = [((e.get("subject") or "").strip()) for e in events or [] if (e.get("subject") or "").strip()]
-        have_subjects = {((o.get("subject") or "").strip().lower()) for o in occ}
-
-        def key_subject_time(subj: str, st: Optional[str], en: Optional[str]) -> str:
-            ns = (subj or "").strip().lower()
-            ks = _norm_dt_minute(st or "") or ""
-            ke = _norm_dt_minute(en or "") or ""
-            return f"{ns}|{ks}|{ke}"
-
-        have_st_keys = set()
-        for o in occ:
-            sub = (o.get("subject") or "").strip()
-            st = None
-            en = None
-            if isinstance(o.get("start"), dict):
-                st = (o.get("start") or {}).get("dateTime")
-            if isinstance(o.get("end"), dict):
-                en = (o.get("end") or {}).get("dateTime")
-            have_st_keys.add(key_subject_time(sub, st, en))
-
-        plan_st_keys = set()
-        for e in events or []:
-            subj = (e.get("subject") or "").strip()
-            if not subj:
-                continue
-            if e.get("start") and e.get("end"):
-                plan_st_keys.add(key_subject_time(subj, e.get("start"), e.get("end")))
-                continue
-            for st, en in _expand_recurring_occurrences(e, payload.from_date, payload.to_date):
-                plan_st_keys.add(key_subject_time(subj, st, en))
-
-        lines: List[str] = []
+        # Build output based on match mode
         if payload.match == "subject-time":
-            missing_keys = sorted(k for k in plan_st_keys if k not in have_st_keys)
-            extra_keys = sorted(k for k in have_st_keys if k not in plan_st_keys)
-            lines.append(f"Verified window {payload.from_date} → {payload.to_date} on '{payload.calendar}' (match=subject-time)")
-            lines.append(f"Planned occurrences: {len(plan_st_keys)}; Found occurrences: {len(have_st_keys)}")
-            if missing_keys:
-                lines.append("Missing (subject@time):")
-                for k in missing_keys[:20]:
-                    lines.append(f"  - {k}")
-            else:
-                lines.append("Missing: none")
-            if extra_keys:
-                lines.append(f"Extras not in plan (sample {min(20, len(extra_keys))}/{len(extra_keys)}):")
-                for k in extra_keys[:20]:
-                    lines.append(f"  - {k}")
-            else:
-                lines.append("Extras not in plan: none")
-            return ResultEnvelope(status="success", payload=VerifyResult(lines=lines))
-
-        missing = [s for s in planned_subjects if s.strip().lower() not in have_subjects]
-        extras = [
-            ((o.get("subject") or "").strip())
-            for o in occ
-            if ((o.get("subject") or "").strip().lower()) not in {ps.lower() for ps in planned_subjects}
-        ]
-
-        lines.append(f"Verified window {payload.from_date} → {payload.to_date} on '{payload.calendar}'")
-        lines.append(f"Planned subjects: {len(planned_subjects)}; Found subjects: {len(have_subjects)}")
-        if missing:
-            lines.append("Missing (by subject):")
-            for s in sorted(set(missing)):
-                lines.append(f"  - {s}")
+            have_st_keys = _build_have_st_keys(occ)
+            plan_st_keys = _build_plan_st_keys(events, payload.from_date, payload.to_date)
+            lines = _build_verify_lines_subject_time(payload, plan_st_keys, have_st_keys)
         else:
-            lines.append("Missing: none")
-        if extras:
-            sample = sorted(set(extras))[:10]
-            lines.append(f"Extras not in plan (sample {len(sample)}/{len(set(extras))}):")
-            for s in sample:
-                lines.append(f"  - {s}")
-        else:
-            lines.append("Extras not in plan: none")
+            lines = _build_verify_lines_subject(payload, events, occ)
+
         return ResultEnvelope(status="success", payload=VerifyResult(lines=lines))
 
 
@@ -569,6 +596,82 @@ def _determine_creates(
     return to_create_series, to_create_oneoffs
 
 
+def _find_occurrences_to_delete_by_time(
+    extra_keys: List[str], have_map: Dict[str, Dict[str, Any]]
+) -> List[str]:
+    """Find occurrence IDs to delete using subject-time matching."""
+    to_delete: List[str] = []
+    for k in extra_keys:
+        o = have_map.get(k) or {}
+        typ = (o.get("type") or "").strip().lower()
+        has_recur = bool(o.get("recurrence"))
+        oid = o.get("id")
+        if oid and (typ in ("singleinstance",) or not has_recur) and not o.get("seriesMasterId"):
+            to_delete.append(oid)
+            continue
+        if oid and (typ in ("occurrence", "exception") or o.get("seriesMasterId")):
+            to_delete.append(oid)
+    return to_delete
+
+
+def _find_occurrences_to_delete_by_subject(
+    have_map: Dict[str, Dict[str, Any]], planned_subjects_set: set
+) -> List[str]:
+    """Find occurrence IDs to delete using subject-only matching."""
+    to_delete: List[str] = []
+    for _k, o in have_map.items():
+        subj = (o.get("subject") or "").strip().lower()
+        if subj in planned_subjects_set:
+            continue
+        oid = o.get("id")
+        if oid:
+            to_delete.append(oid)
+    return to_delete
+
+
+def _build_series_maps(
+    have_map: Dict[str, Dict[str, Any]]
+) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
+    """Build series keys and subject mappings from occurrences."""
+    series_keys: Dict[str, List[str]] = {}
+    series_subject: Dict[str, str] = {}
+    for k, o in have_map.items():
+        sid = o.get("seriesMasterId")
+        if sid:
+            series_keys.setdefault(sid, []).append(k)
+            subj = (o.get("subject") or "").strip()
+            if subj:
+                series_subject.setdefault(sid, subj)
+    return series_keys, series_subject
+
+
+def _should_delete_series(
+    sid: str, keys: List[str], series_subject: Dict[str, str],
+    plan_st_keys: set, planned_subjects_set: set, match_mode: str
+) -> bool:
+    """Check if a series should be deleted."""
+    subj = (series_subject.get(sid) or "").strip().lower()
+    if subj in planned_subjects_set:
+        return False
+    if match_mode == "subject-time":
+        return all(k not in plan_st_keys for k in keys)
+    return True
+
+
+def _find_series_to_delete(
+    have_map: Dict[str, Dict[str, Any]],
+    plan_st_keys: set,
+    planned_subjects_set: set,
+    match_mode: str,
+) -> List[str]:
+    """Find series master IDs to delete."""
+    series_keys, series_subject = _build_series_maps(have_map)
+    return [
+        sid for sid, keys in series_keys.items()
+        if _should_delete_series(sid, keys, series_subject, plan_st_keys, planned_subjects_set, match_mode)
+    ]
+
+
 def _determine_deletes(
     payload: "SyncRequest",
     have_map: Dict[str, Dict[str, Any]],
@@ -578,51 +681,20 @@ def _determine_deletes(
     match_mode: str,
 ) -> Tuple[List[str], List[str]]:
     """Determine which occurrences and series masters to delete."""
-    to_delete_occurrence_ids: List[str] = []
-    to_delete_series_master_ids: List[str] = []
     if not payload.delete_missing:
-        return to_delete_occurrence_ids, to_delete_series_master_ids
+        return [], []
 
     extra_keys = [k for k in have_keys if k not in plan_st_keys]
     if match_mode == "subject-time":
-        for k in extra_keys:
-            o = have_map.get(k) or {}
-            typ = (o.get("type") or "").strip().lower()
-            has_recur = bool(o.get("recurrence"))
-            oid = o.get("id")
-            if oid and (typ in ("singleinstance",) or not has_recur) and not o.get("seriesMasterId"):
-                to_delete_occurrence_ids.append(oid)
-                continue
-            if oid and (typ in ("occurrence", "exception") or o.get("seriesMasterId")):
-                to_delete_occurrence_ids.append(oid)
+        to_delete_occurrence_ids = _find_occurrences_to_delete_by_time(extra_keys, have_map)
     else:
-        for k, o in have_map.items():
-            subj = (o.get("subject") or "").strip().lower()
-            if subj in planned_subjects_set:
-                continue
-            oid = o.get("id")
-            if oid:
-                to_delete_occurrence_ids.append(oid)
+        to_delete_occurrence_ids = _find_occurrences_to_delete_by_subject(have_map, planned_subjects_set)
 
+    to_delete_series_master_ids: List[str] = []
     if payload.delete_unplanned_series:
-        series_keys: Dict[str, List[str]] = {}
-        series_subject: Dict[str, str] = {}
-        for k, o in have_map.items():
-            sid = o.get("seriesMasterId")
-            if sid:
-                series_keys.setdefault(sid, []).append(k)
-                subj = (o.get("subject") or "").strip()
-                if subj:
-                    series_subject.setdefault(sid, subj)
-        for sid, keys in series_keys.items():
-            subj = (series_subject.get(sid) or "").strip()
-            if subj.strip().lower() in planned_subjects_set:
-                continue
-            if match_mode == "subject-time":
-                if all((k not in plan_st_keys) for k in keys):
-                    to_delete_series_master_ids.append(sid)
-            else:
-                to_delete_series_master_ids.append(sid)
+        to_delete_series_master_ids = _find_series_to_delete(
+            have_map, plan_st_keys, planned_subjects_set, match_mode
+        )
 
     return to_delete_occurrence_ids, to_delete_series_master_ids
 
@@ -712,6 +784,7 @@ def _execute_sync_deletes(
 
 class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
     def process(self, payload: SyncRequest) -> ResultEnvelope[SyncResult]:
+        # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
         if err:
             return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
@@ -723,24 +796,13 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
                 diagnostics={"message": "--from and --to are required (YYYY-MM-DD)", "code": 2},
             )
 
+        # Build plan keys
         match_mode = payload.match or "subject-time"
-        plan_st_keys = set()
-        series_by_subject: Dict[str, Dict[str, Any]] = {}
-        planned_subjects_set = set()
-        for e in events or []:
-            subj = (e.get("subject") or "").strip()
-            if not subj:
-                continue
-            planned_subjects_set.add(subj.strip().lower())
-            if e.get("start") and e.get("end"):
-                plan_st_keys.add(
-                    f"{subj.strip().lower()}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
-                )
-            elif e.get("repeat") and e.get("start_time") and (e.get("range") or {}).get("start_date"):
-                series_by_subject.setdefault(subj.strip().lower(), e)
-                for st, en in _expand_recurring_occurrences(e, payload.from_date, payload.to_date):
-                    plan_st_keys.add(f"{subj.strip().lower()}|{_norm_dt_minute(st)}|{_norm_dt_minute(en)}")
+        plan_st_keys, series_by_subject, planned_subjects_set = _build_plan_keys(
+            events, payload.from_date, payload.to_date
+        )
 
+        # Connect to Outlook
         svc, err = _build_outlook_service(payload.auth)
         if err:
             return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
@@ -763,134 +825,40 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
         except Exception as exc:
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 2})
 
-        have_map: Dict[str, Dict[str, Any]] = {}
-        have_keys = set()
-        for o in occ:
-            sub = (o.get("subject") or "").strip()
-            st = (o.get("start") or {}).get("dateTime") if isinstance(o.get("start"), dict) else None
-            en = (o.get("end") or {}).get("dateTime") if isinstance(o.get("end"), dict) else None
-            k = f"{sub.strip().lower()}|{_norm_dt_minute(st)}|{_norm_dt_minute(en)}"
-            have_map[k] = o
-            have_keys.add(k)
-
-        to_create_series: List[Dict[str, Any]] = []
-        to_create_oneoffs: List[Dict[str, Any]] = []
-        missing_occ = [k for k in plan_st_keys if k not in have_keys]
+        # Build existing calendar state
+        have_map, have_keys = _build_have_map(occ)
         present_subjects = {(o.get("subject") or "").strip().lower() for o in occ}
-        for subj, e in series_by_subject.items():
-            if subj not in present_subjects:
-                to_create_series.append(e)
-        for e in events or []:
-            subj = (e.get("subject") or "").strip().lower()
-            if e.get("start") and e.get("end"):
-                if match_mode == "subject-time":
-                    k = f"{subj}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
-                    if k in missing_occ:
-                        to_create_oneoffs.append(e)
-                else:
-                    if subj not in present_subjects:
-                        to_create_oneoffs.append(e)
 
-        extra_keys = [k for k in have_keys if k not in plan_st_keys]
-        to_delete_occurrence_ids: List[str] = []
-        to_delete_series_master_ids: List[str] = []
-        if payload.delete_missing:
-            if match_mode == "subject-time":
-                for k in extra_keys:
-                    o = have_map.get(k) or {}
-                    typ = (o.get("type") or "").strip().lower()
-                    has_recur = bool(o.get("recurrence"))
-                    oid = o.get("id")
-                    if oid and (typ in ("singleinstance",) or not has_recur) and not o.get("seriesMasterId"):
-                        to_delete_occurrence_ids.append(oid)
-                        continue
-                    if oid and (typ in ("occurrence", "exception") or o.get("seriesMasterId")):
-                        to_delete_occurrence_ids.append(oid)
-            else:
-                for k, o in have_map.items():
-                    subj = (o.get("subject") or "").strip().lower()
-                    if subj in planned_subjects_set:
-                        continue
-                    oid = o.get("id")
-                    if oid:
-                        to_delete_occurrence_ids.append(oid)
+        # Determine creates and deletes
+        to_create_series, to_create_oneoffs = _determine_creates(
+            events, series_by_subject, present_subjects, plan_st_keys, have_keys, match_mode
+        )
+        to_delete_occurrence_ids, to_delete_series_master_ids = _determine_deletes(
+            payload, have_map, have_keys, plan_st_keys, planned_subjects_set, match_mode
+        )
 
-            if payload.delete_unplanned_series:
-                series_keys: Dict[str, List[str]] = {}
-                series_subject: Dict[str, str] = {}
-                for k, o in have_map.items():
-                    sid = o.get("seriesMasterId")
-                    if sid:
-                        series_keys.setdefault(sid, []).append(k)
-                        subj = (o.get("subject") or "").strip()
-                        if subj:
-                            series_subject.setdefault(sid, subj)
-                for sid, keys in series_keys.items():
-                    subj = (series_subject.get(sid) or "").strip()
-                    if subj.strip().lower() in planned_subjects_set:
-                        continue
-                    if match_mode == "subject-time":
-                        if all((k not in plan_st_keys) for k in keys):
-                            to_delete_series_master_ids.append(sid)
-                    else:
-                        to_delete_series_master_ids.append(sid)
-
+        # Dry-run mode
         if not payload.apply:
-            lines = [
-                f"[DRY-RUN] Sync window {payload.from_date} → {payload.to_date} on '{payload.calendar}'",
-                f"Would create series: {len(to_create_series)}",
-            ]
-            for e in to_create_series[:10]:
-                lines.append(
-                    f"  - {e.get('subject')} (repeat={e.get('repeat')}, byday={e.get('byday')}, start_time={e.get('start_time')})"
-                )
-            lines.append(f"Would create one-offs: {len(to_create_oneoffs)}")
-            for e in to_create_oneoffs[:10]:
-                lines.append(f"  - {e.get('subject')} @ {e.get('start')}→{e.get('end')}")
-            if payload.delete_missing:
-                lines.append(
-                    f"Would delete extraneous occurrences: {len(to_delete_occurrence_ids)} (match={match_mode})"
-                )
-                if payload.delete_unplanned_series:
-                    lines.append(f"Would delete entire unplanned series: {len(to_delete_series_master_ids)}")
-            else:
-                lines.append("Delete extraneous: disabled (pass --delete-missing)")
+            lines = _build_dry_run_lines(
+                payload, to_create_series, to_create_oneoffs,
+                to_delete_occurrence_ids, to_delete_series_master_ids, match_mode
+            )
             return ResultEnvelope(status="success", payload=SyncResult(lines=lines))
 
-        lines: List[str] = []
-        created = 0
-        deleted = 0
-        for e in to_create_series:
-            rc, logs = _apply_outlook_events([e], calendar_name=payload.calendar, service=svc)
-            lines.extend(logs)
-            if rc == 0:
-                created += 1
-        for e in to_create_oneoffs:
-            rc, logs = _apply_outlook_events([e], calendar_name=payload.calendar, service=svc)
-            lines.extend(logs)
-            if rc == 0:
-                created += 1
+        # Execute creates
+        lines, created = _execute_sync_creates(svc, payload, to_create_series, to_create_oneoffs)
 
+        # Execute deletes
         raw_client = getattr(svc, "client", None)
         if raw_client is None:
             return ResultEnvelope(status="error", diagnostics={"message": "Outlook client unavailable; cannot delete events.", "code": 2})
-        if to_delete_occurrence_ids:
-            for oid in to_delete_occurrence_ids:
-                try:
-                    raw_client.delete_event(oid, calendar_id=cal_id)
-                    deleted += 1
-                except Exception as exc:
-                    return ResultEnvelope(status="error", diagnostics={"message": f"Failed deleting event id={oid}: {exc}", "code": 2})
-        if payload.delete_unplanned_series and to_delete_series_master_ids:
-            for sid in to_delete_series_master_ids:
-                try:
-                    raw_client.delete_event(sid, calendar_id=cal_id)
-                    deleted += 1
-                except Exception as exc:
-                    return ResultEnvelope(
-                        status="error",
-                        diagnostics={"message": f"Failed deleting series master id={sid}: {exc}", "code": 2},
-                    )
+
+        deleted, error_env = _execute_sync_deletes(
+            raw_client, cal_id, payload, to_delete_occurrence_ids, to_delete_series_master_ids
+        )
+        if error_env:
+            return error_env
+
         lines.append(f"Sync complete. Created: {created}; Deleted: {deleted}")
         return ResultEnvelope(status="success", payload=SyncResult(lines=lines))
 
