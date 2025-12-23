@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Build gold/silver summary CSVs from costs.csv for Excel merge/publish.
 
@@ -9,6 +7,7 @@ Reads out/metals/costs.csv and writes:
 
 Each summary has columns: date,order_id,vendor,total_oz,cost_per_oz
 """
+from __future__ import annotations
 
 import argparse
 import csv

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Read an existing OneDrive Excel workbook, merge in local metals summaries, and write to a new file
 with polished sheets (tables, header formatting, autofit, frozen header).
@@ -12,6 +10,7 @@ Usage example:
     --gold-csv out/metals/gold_summary.csv --gold-sheet Gold \
     --out-name Metals Summary (Merged).xlsx
 """
+from __future__ import annotations
 
 import argparse
 import csv
