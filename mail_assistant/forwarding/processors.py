@@ -3,7 +3,7 @@ from __future__ import annotations
 """Processors for forwarding pipelines."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from core.pipeline import Processor, ResultEnvelope
 
