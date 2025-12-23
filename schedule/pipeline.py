@@ -600,6 +600,26 @@ def _build_have_map(occurrences: List[Dict[str, Any]]) -> Tuple[Dict[str, Dict[s
     return have_map, have_keys
 
 
+def _find_missing_series(
+    series_by_subject: Dict[str, Dict[str, Any]], present_subjects: set
+) -> List[Dict[str, Any]]:
+    """Find series that need to be created (not present in calendar)."""
+    return [e for subj, e in series_by_subject.items() if subj not in present_subjects]
+
+
+def _should_create_oneoff(
+    e: Dict[str, Any], match_mode: str, missing_occ: List[str], present_subjects: set
+) -> bool:
+    """Check if a one-off event should be created."""
+    if not (e.get("start") and e.get("end")):
+        return False
+    subj = (e.get("subject") or "").strip().lower()
+    if match_mode == "subject-time":
+        k = f"{subj}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
+        return k in missing_occ
+    return subj not in present_subjects
+
+
 def _determine_creates(
     events: List[Dict[str, Any]],
     series_by_subject: Dict[str, Dict[str, Any]],
@@ -609,22 +629,12 @@ def _determine_creates(
     match_mode: str,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Determine which series and one-offs need to be created."""
-    to_create_series: List[Dict[str, Any]] = []
-    to_create_oneoffs: List[Dict[str, Any]] = []
+    to_create_series = _find_missing_series(series_by_subject, present_subjects)
     missing_occ = [k for k in plan_st_keys if k not in have_keys]
-    for subj, e in series_by_subject.items():
-        if subj not in present_subjects:
-            to_create_series.append(e)
-    for e in events or []:
-        subj = (e.get("subject") or "").strip().lower()
-        if e.get("start") and e.get("end"):
-            if match_mode == "subject-time":
-                k = f"{subj}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
-                if k in missing_occ:
-                    to_create_oneoffs.append(e)
-            else:
-                if subj not in present_subjects:
-                    to_create_oneoffs.append(e)
+    to_create_oneoffs = [
+        e for e in (events or [])
+        if _should_create_oneoff(e, match_mode, missing_occ, present_subjects)
+    ]
     return to_create_series, to_create_oneoffs
 
 
