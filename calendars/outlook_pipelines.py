@@ -19,10 +19,10 @@ from calendars.model import normalize_event
 from calendars.selection import compute_window, filter_events_by_day_time
 
 from .location_sync import LocationSync
-from .pipeline_base import BaseProducer, DateWindowResolver, RequestConsumer, to_iso_str
+from .pipeline_base import BaseProducer, DateWindowResolver, RequestConsumer, check_service_required, to_iso_str
 
 # Error message constants
-ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"
+ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"  # kept for backward compat
 ERR_CONFIG_MUST_CONTAIN_EVENTS = "Config must contain events: [] list"
 MSG_PREVIEW_COMPLETE = "Preview complete."
 

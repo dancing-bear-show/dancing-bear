@@ -14,7 +14,22 @@ from core.auth import build_gmail_service as _build_gmail_service
 from .gmail_service import GmailService
 
 # Re-export for backward compatibility
-__all__ = ["RequestConsumer", "BaseProducer", "GmailAuth", "GmailServiceBuilder", "DateWindowResolver"]
+__all__ = ["RequestConsumer", "BaseProducer", "GmailAuth", "GmailServiceBuilder", "DateWindowResolver", "check_service_required"]
+
+# Error message constant
+ERR_SERVICE_REQUIRED = "Outlook service is required"
+
+
+def check_service_required(service: Any, error_msg: str = ERR_SERVICE_REQUIRED) -> Optional[ResultEnvelope]:
+    """Return error envelope if service is None, otherwise None.
+
+    Usage:
+        if err := check_service_required(payload.service):
+            return err
+    """
+    if service is None:
+        return ResultEnvelope(status="error", diagnostics={"message": error_msg, "code": 1})
+    return None
 
 
 @dataclass
