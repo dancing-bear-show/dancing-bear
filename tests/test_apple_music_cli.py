@@ -73,7 +73,7 @@ class AppleMusicCLITests(unittest.TestCase):
                 )
 
             with mock.patch("apple_music_assistant.cli.AppleMusicClient", side_effect=stub_client):
-                rc = cli.main(["--config", str(cfg), "--out", str(out_path)])
+                rc = cli.main(["export", "--config", str(cfg), "--out", str(out_path)])
             self.assertEqual(rc, 0)
             data = json.loads(out_path.read_text())
             self.assertEqual(data["playlists"][0]["name"], "My Mix")
@@ -116,7 +116,7 @@ class AppleMusicCLITests(unittest.TestCase):
             with mock.patch("apple_music_assistant.cli.AppleMusicClient", side_effect=stub_client):
                 buf = io.StringIO()
                 with redirect_stdout(buf):
-                    rc = cli.main(["--config", str(cfg), "ping"])
+                    rc = cli.main(["ping", "--config", str(cfg)])
         self.assertEqual(rc, 0)
         payload = json.loads(buf.getvalue().strip())
         self.assertEqual(payload["status"], "ok")
