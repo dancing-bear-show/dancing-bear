@@ -26,6 +26,8 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Filters prune-empty uses the pipeline (counts + retry deletes).
   - [x] Filters add-forward-by-label now uses pipeline consumers/processors/producers.
   - [x] Filters add-from-token / rm-from-token now use the pipeline.
+  - [x] `messages_cli` search and summarize now use pipeline processors/producers.
+  - [x] `accounts` multi-account commands (list, export-labels, sync-labels, export-filters, sync-filters, plan-labels, plan-filters, export-signatures, sync-signatures) now use pipeline processors/producers.
   - [ ] Slim `mail_assistant/__main__.py` to CLI shim → domain orchestrator. (Filters + labels now delegate; other commands pending.)
   - [x] Update docs/tests (`tests/test_llm_*`, CLI tests) to cover new pathway.
 

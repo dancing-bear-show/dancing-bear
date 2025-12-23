@@ -121,7 +121,7 @@ def run_cache_stats(args: argparse.Namespace) -> int:
             try:
                 total += p.stat().st_size
             except Exception:
-                pass
+                pass  # nosec B110 - non-critical stat failure
     print(f"Cache: {root} files={files} size={total} bytes")
     return 0
 
@@ -153,7 +153,7 @@ def run_cache_prune(args: argparse.Namespace) -> int:
                 p.unlink()
                 removed += 1
         except Exception:
-            pass
+            pass  # nosec B110 - non-critical prune failure
     print(f"Pruned {removed} files older than {args.days} days from {root}")
     return 0
 
@@ -470,7 +470,7 @@ def run_env_setup(args: argparse.Namespace) -> int:
                 if p.exists():
                     os.chmod(p, (p.stat().st_mode | 0o111))
             except Exception:
-                pass
+                pass  # nosec B110 - non-critical chmod failure
 
     prof = getattr(args, 'profile', None)
     cred_path = getattr(args, 'credentials', None)
@@ -495,7 +495,7 @@ def run_env_setup(args: argparse.Namespace) -> int:
             try:
                 Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
-                pass
+                pass  # nosec B110 - non-critical mkdir failure
 
     if any([cred_path, tok_path, getattr(args, 'outlook_client_id', None), getattr(args, 'tenant', None), getattr(args, 'outlook_token', None)]):
         persist_profile_settings(
