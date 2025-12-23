@@ -1,4 +1,4 @@
-# GitHub Copilot / Codex Familiarize
+# GitHub Copilot Familiarize
 
 Minimal-token approach for Copilot to get oriented in this repository.
 

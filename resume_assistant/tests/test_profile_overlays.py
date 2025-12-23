@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from resume_assistant.overlays import apply_profile_overlays
+from resume_assistant.resume_assistant.overlays import apply_profile_overlays
 
 
 class TestProfileOverlays(unittest.TestCase):
