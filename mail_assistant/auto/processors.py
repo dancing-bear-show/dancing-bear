@@ -6,7 +6,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -70,7 +70,7 @@ def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
         try:
             f = f.split("<")[-1].split(">")[0]
         except Exception:
-            pass
+            pass  # Malformed "From" header; fall back to original value
     f = f.strip()
     dom = f.split("@")[-1] if "@" in f else f
 

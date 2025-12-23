@@ -1,11 +1,17 @@
-"""Device I/O helpers for iOS via cfgutil (Apple Configurator)."""
+"""Device I/O helpers for iOS via cfgutil (Apple Configurator).
+
+Also includes credential and certificate utilities for supervision identity management.
+"""
 
 from __future__ import annotations
 
+import configparser
+import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .layout import normalize_iconstate, to_yaml_export
 

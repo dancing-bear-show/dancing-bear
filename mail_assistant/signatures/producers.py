@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Producers for signatures pipelines."""
 
-from pathlib import Path
 from typing import Any, Dict
 
 from core.pipeline import Producer, ResultEnvelope

@@ -15,7 +15,7 @@ from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -321,11 +321,8 @@ def make_outlook_client(
 # Pipeline testing helpers (re-exports from core.testing)
 # -----------------------------------------------------------------------------
 
-try:
-    from core.testing import StubConsumer, StubProcessor, CaptureProducer
-except ImportError:
-    # Fallback if core.testing not available
-    pass
+# Re-exports from core.testing available when needed:
+# from core.testing import StubConsumer, StubProcessor, CaptureProducer
 
 
 # -----------------------------------------------------------------------------
