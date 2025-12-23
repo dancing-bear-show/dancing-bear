@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from docx.shared import Pt, RGBColor  # type: ignore
+# docx.shared imports available if needed: Pt, RGBColor
 
 from .docx_styles import StyleManager, TextFormatter
 

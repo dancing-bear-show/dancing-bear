@@ -7,6 +7,10 @@ import unittest
 from unittest.mock import patch
 
 from tests.fixtures import FakeGmailClient, capture_stdout, make_args
+from mail_assistant.messages_cli.commands import (
+    run_messages_reply,
+    run_messages_apply_scheduled,
+)
 
 
 def _make_messages_client():
@@ -38,7 +42,6 @@ class MessagesScheduleTests(unittest.TestCase):
             client = _make_messages_client()
 
             with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-                import mail_assistant.__main__ as m
 
                 args = make_args(
                     id="MSG1",
@@ -63,7 +66,7 @@ class MessagesScheduleTests(unittest.TestCase):
                 )
 
                 with capture_stdout() as buf:
-                    rc = m._cmd_messages_reply(args)
+                    rc = run_messages_reply(args)
 
                 self.assertEqual(rc, 0)
                 # Queue should contain one item
@@ -93,12 +96,11 @@ class MessagesScheduleTests(unittest.TestCase):
             client = _make_messages_client()
 
             with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-                import mail_assistant.__main__ as m
 
                 args = make_args(max=5, profile="gmail_personal")
 
                 with capture_stdout() as buf:
-                    rc = m._cmd_messages_apply_scheduled(args)
+                    rc = run_messages_apply_scheduled(args)
 
                 self.assertEqual(rc, 0)
                 self.assertEqual(len(client.sent_messages), 1)
