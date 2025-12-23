@@ -59,6 +59,136 @@ def _write_yaml(path: str | Path, data: Dict[str, Any]) -> None:
     _dump_yaml(str(p), data)
 
 
+# Compress command helpers
+def _iso_to_date(iso: Any) -> _dt.date:
+    """Parse ISO datetime string to date."""
+    s = str(iso).replace('Z', '').strip()
+    if 'T' in s:
+        s = s.split('T', 1)[0]
+    elif ' ' in s:
+        s = s.split(' ', 1)[0]
+    return _dt.date.fromisoformat(s)
+
+
+def _iso_to_time(iso: Any) -> str:
+    """Extract HH:MM time from ISO datetime string."""
+    s = str(iso).replace('Z', '').strip()
+    t = s
+    if 'T' in s:
+        t = s.split('T', 1)[1]
+    elif ' ' in s:
+        t = s.split(' ', 1)[1]
+    return t[:5]
+
+
+def _weekday_code(d: _dt.date) -> str:
+    """Get weekday code (MO, TU, etc.) from date."""
+    return ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d.weekday()]
+
+
+def _group_one_offs(
+    one_offs: List[Dict[str, Any]]
+) -> Tuple[Dict[tuple, List[_dt.date]], Dict[tuple, Dict[str, Any]]]:
+    """Group one-off events by (subject, start_time, end_time, weekday, location)."""
+    groups: Dict[tuple, List[_dt.date]] = {}
+    meta: Dict[tuple, Dict[str, Any]] = {}
+    for ev in one_offs:
+        subj = (ev.get('subject') or '').strip()
+        st = str(ev.get('start') or '')
+        en = str(ev.get('end') or '')
+        if not subj or not st or not en:
+            continue
+        d = _iso_to_date(st)
+        key = (subj, _iso_to_time(st), _iso_to_time(en), _weekday_code(d), (ev.get('location') or '').strip())
+        groups.setdefault(key, []).append(d)
+        if key not in meta:
+            meta[key] = {'calendar': ev.get('calendar'), 'subject': subj, 'location': key[4]}
+    return groups, meta
+
+
+def _compute_exdates(dates_sorted: List[_dt.date], start_date: _dt.date, end_date: _dt.date) -> List[str]:
+    """Compute exclusion dates for weekly series."""
+    exdates: List[str] = []
+    cur = start_date
+    while cur <= end_date:
+        if cur not in dates_sorted:
+            exdates.append(cur.isoformat())
+        cur = cur + _dt.timedelta(days=7)
+    return exdates
+
+
+def _build_one_off_event(
+    subj: str, st_time: str, en_time: str, d: _dt.date, loc: str, cal: Optional[str]
+) -> Dict[str, Any]:
+    """Build a one-off event dict."""
+    ev: Dict[str, Any] = {
+        'subject': subj,
+        'start': f"{d.isoformat()}T{st_time}",
+        'end': f"{d.isoformat()}T{en_time}",
+    }
+    if loc:
+        ev['location'] = loc
+    if cal:
+        ev['calendar'] = cal
+    return ev
+
+
+def _build_series_event(
+    subj: str, st_time: str, en_time: str, dow: str, loc: str,
+    start_date: _dt.date, end_date: _dt.date, exdates: List[str], cal: Optional[str]
+) -> Dict[str, Any]:
+    """Build a recurring series event dict."""
+    ev: Dict[str, Any] = {
+        'subject': subj,
+        'repeat': 'weekly',
+        'byday': [dow],
+        'start_time': st_time,
+        'end_time': en_time,
+        'range': {'start_date': start_date.isoformat(), 'until': end_date.isoformat()},
+    }
+    if loc:
+        ev['location'] = loc
+    if exdates:
+        ev['exdates'] = exdates
+    if cal:
+        ev['calendar'] = cal
+    return ev
+
+
+def _compress_events(
+    groups: Dict[tuple, List[_dt.date]],
+    meta: Dict[tuple, Dict[str, Any]],
+    min_occur: int,
+    override_cal: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Compress grouped events into series or keep as one-offs."""
+    out_events: List[Dict[str, Any]] = []
+    for key, dates in groups.items():
+        subj, st_time, en_time, dow, loc = key
+        dates_sorted = sorted(set(dates))
+        cal = override_cal or meta[key].get('calendar')
+
+        if len(dates_sorted) < min_occur:
+            for d in dates_sorted:
+                out_events.append(_build_one_off_event(subj, st_time, en_time, d, loc, cal))
+        else:
+            start_date, end_date = dates_sorted[0], dates_sorted[-1]
+            exdates = _compute_exdates(dates_sorted, start_date, end_date)
+            out_events.append(_build_series_event(subj, st_time, en_time, dow, loc, start_date, end_date, exdates, cal))
+    return out_events
+
+
+def _compress_sort_key(e: Dict[str, Any]) -> tuple:
+    """Sort key for compressed events."""
+    subj = e.get('subject') or ''
+    if e.get('repeat'):
+        dow = (e.get('byday') or [''])[0]
+        sd = (e.get('range') or {}).get('start_date') or ''
+        tm = e.get('start_time') or ''
+        return (subj, dow, sd, tm)
+    return (subj, '', e.get('start') or '', '')
+
+
 # Create the CLI app
 app = CLIApp(
     "schedule-assistant",
@@ -233,119 +363,30 @@ def cmd_compress(args: argparse.Namespace) -> int:
     if not inp.exists():
         print(f"Input not found: {inp}")
         return 2
+
     data = _read_yaml(inp)
     items = data.get('events') or []
     if not isinstance(items, list):
         print("Invalid input: events must be a list")
         return 2
-    # Separate one-offs and ignore existing series entries
-    one_offs: List[Dict[str, Any]] = []
-    for ev in items:
-        if ev.get('start') and ev.get('end'):
-            one_offs.append(ev)
+
+    # Filter to one-offs only (events with start and end)
+    one_offs = [ev for ev in items if ev.get('start') and ev.get('end')]
     if not one_offs:
         print("No one-off events found to compress.")
         return 0
-    # Group by (subject, start_time, end_time, weekday-code, location)
-    import datetime as _dt
-    def iso_to_date(iso: Any) -> _dt.date:
-        s = str(iso).replace('Z','').strip()
-        if 'T' in s:
-            s = s.split('T', 1)[0]
-        elif ' ' in s:
-            s = s.split(' ', 1)[0]
-        return _dt.date.fromisoformat(s)
-    def iso_to_time(iso: Any) -> str:
-        s = str(iso).replace('Z','').strip()
-        t = s
-        if 'T' in s:
-            t = s.split('T',1)[1]
-        elif ' ' in s:
-            t = s.split(' ',1)[1]
-        # Extract HH:MM prefix
-        return t[:5]
-    def weekday_code(d: _dt.date) -> str:
-        return ['MO','TU','WE','TH','FR','SA','SU'][d.weekday()]
 
-    groups: Dict[tuple, List[_dt.date]] = {}
-    meta: Dict[tuple, Dict[str, Any]] = {}
-    for ev in one_offs:
-        subj = (ev.get('subject') or '').strip()
-        st = str(ev.get('start') or '')
-        en = str(ev.get('end') or '')
-        if not subj or not st or not en:
-            continue
-        d = iso_to_date(st)
-        st_time = iso_to_time(st)
-        en_time = iso_to_time(en)
-        dow = weekday_code(d)
-        loc = (ev.get('location') or '').strip()
-        cal = ev.get('calendar')
-        key = (subj, st_time, en_time, dow, loc)
-        groups.setdefault(key, []).append(d)
-        if key not in meta:
-            meta[key] = {'calendar': cal, 'subject': subj, 'location': loc}
-
+    # Group and compress
+    groups, meta = _group_one_offs(one_offs)
     min_occur = max(1, int(getattr(args, 'min_occur', 2)))
-    out_events: List[Dict[str, Any]] = []
-    # Build series for groups with >= min_occur, else keep as one-offs
-    for key, dates in groups.items():
-        subj, st_time, en_time, dow, loc = key
-        dates_sorted = sorted(set(dates))
-        if len(dates_sorted) < min_occur:
-            # Re-emit as one-offs
-            for d in dates_sorted:
-                start_iso = f"{d.isoformat()}T{st_time}"
-                end_iso = f"{d.isoformat()}T{en_time}"
-                ev = {'subject': subj, 'start': start_iso, 'end': end_iso}
-                if loc:
-                    ev['location'] = loc
-                cal = getattr(args, 'calendar', None) or meta[key].get('calendar')
-                if cal:
-                    ev['calendar'] = cal
-                out_events.append(ev)
-            continue
-        # Compute range and exdates (weekly cadence for this weekday)
-        start_date = dates_sorted[0]
-        end_date = dates_sorted[-1]
-        exdates: List[str] = []
-        cur = start_date
-        while cur <= end_date:
-            if cur not in dates_sorted:
-                exdates.append(cur.isoformat())
-            cur = cur + _dt.timedelta(days=7)
-        ev: Dict[str, Any] = {
-            'subject': subj,
-            'repeat': 'weekly',
-            'byday': [dow],
-            'start_time': st_time,
-            'end_time': en_time,
-            'range': {'start_date': start_date.isoformat(), 'until': end_date.isoformat()},
-        }
-        if loc:
-            ev['location'] = loc
-        if exdates:
-            ev['exdates'] = exdates
-        cal = getattr(args, 'calendar', None) or meta[key].get('calendar')
-        if cal:
-            ev['calendar'] = cal
-        out_events.append(ev)
+    override_cal = getattr(args, 'calendar', None)
+    out_events = _compress_events(groups, meta, min_occur, override_cal)
+    out_events.sort(key=_compress_sort_key)
 
-    # Sort by subject, weekday, start_date
-    def sort_key(e: Dict[str, Any]) -> tuple:
-        subj = (e.get('subject') or '')
-        if e.get('repeat'):
-            dow = (e.get('byday') or [''])[0]
-            sd = ((e.get('range') or {}).get('start_date') or '')
-            tm = e.get('start_time') or ''
-            return (subj, dow, sd, tm)
-        # one-off
-        st = e.get('start') or ''
-        return (subj, '', st, '')
-    out_events.sort(key=sort_key)
-
+    # Write output
     _write_yaml(Path(getattr(args, 'out')), {'events': out_events})
-    print(f"Compressed {sum(len(v) for v in groups.values())} one-offs into {len(out_events)} entries → {getattr(args, 'out')}")
+    total_input = sum(len(v) for v in groups.values())
+    print(f"Compressed {total_input} one-offs into {len(out_events)} entries → {getattr(args, 'out')}")
     return 0
 
 

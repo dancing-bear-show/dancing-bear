@@ -6,8 +6,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from wifi_assistant import cli
-from wifi_assistant.diagnostics import (
+from wifi import cli
+from wifi.diagnostics import (
     CommandResult,
     CommandRunner,
     DiagnoseConfig,
@@ -99,7 +99,7 @@ class WifiAssistantTests(unittest.TestCase):
             http=None,
             findings=["ok"],
         )
-        with patch("wifi_assistant.cli.run_diagnosis", return_value=report):
+        with patch("wifi.cli.run_diagnosis", return_value=report):
             with tempfile.TemporaryDirectory() as tmpdir:
                 out_path = Path(tmpdir) / "diag.json"
                 buf = io.StringIO()

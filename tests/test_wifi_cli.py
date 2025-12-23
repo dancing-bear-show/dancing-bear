@@ -6,7 +6,7 @@ from tests.fixtures import bin_path, repo_root, run
 
 class WifiCLITests(unittest.TestCase):
     def test_help_via_module_invocation(self):
-        proc = run([sys.executable, "-m", "wifi_assistant", "--help"])
+        proc = run([sys.executable, "-m", "wifi", "--help"])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("Wi-Fi + network diagnostic helper", proc.stdout)
 
