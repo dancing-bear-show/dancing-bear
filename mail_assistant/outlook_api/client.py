@@ -237,7 +237,7 @@ class OutlookClientBase:
                             with open(self.token_path, "w", encoding="utf-8") as f:
                                 f.write(self._cache.serialize())
         except Exception:
-            pass  # Silent refresh failed; use existing token
+            pass  # nosec B110 - silent token refresh failure
         return {
             "Authorization": f"Bearer {self._token['access_token']}",
             "Content-Type": "application/json"

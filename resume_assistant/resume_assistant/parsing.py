@@ -230,7 +230,8 @@ def _extract_sections(lines: List[str]) -> Dict[str, List[str]]:
 def _parse_experience(lines: List[str]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     buf: List[str] = []
-    push = lambda: (items.append(_parse_experience_block(buf.copy())), buf.clear()) if buf else None
+    def push():
+        return (items.append(_parse_experience_block(buf.copy())), buf.clear()) if buf else None
     for ln in lines:
         # simple delimiter between roles: blank line or leading dash indicator of new role
         if not ln.strip():
@@ -690,7 +691,7 @@ def parse_resume_pdf(path: str) -> Dict[str, Any]:
     if not pdfminer:
         raise RuntimeError("Parsing .pdf requires pdfminer.six; install pdfminer.six.")
 
-    from pdfminer.high_level import extract_text, extract_pages  # type: ignore
+    from pdfminer.high_level import extract_text  # type: ignore
     from pdfminer.layout import LAParams, LTTextContainer, LTChar  # type: ignore
 
     # Use layout analysis for better text extraction

@@ -142,7 +142,8 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
 
 
 def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> Dict[str, str]:
-    import requests, time  # type: ignore
+    import requests
+    import time  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Try get by name
     r = requests.get(f"{base}/worksheets('{sheet}')", headers=client._headers())
@@ -491,7 +492,7 @@ def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
     """Return values for a Profit sheet with columns:
     Date, Gold_Oz, Gold_AvgCost, Gold_Spot, Gold_PnL, Silver_Oz, Silver_AvgCost, Silver_Spot, Silver_PnL, Portfolio_PnL
     """
-    from datetime import date, timedelta
+    from datetime import date
 
     # Collect purchases by date
     by_date = defaultdict(lambda: {"gold": {"oz": 0.0, "cost": 0.0}, "silver": {"oz": 0.0, "cost": 0.0}})
@@ -643,12 +644,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         ["Metal", "Total Ounces", "Avg Cost/Oz"],
         [
             "gold",
-            f"=SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000)",
+            "=SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000)",
             f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"gold\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
         [
             "silver",
-            f"=SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000)",
+            "=SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000)",
             f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"silver\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
         [""],
@@ -656,12 +657,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         ["Vendor", "Total Ounces", "Avg Cost/Oz"],
         [
             "TD",
-            f"=SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000)",
+            "=SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000)",
             f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"TD\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
         [
             "Costco",
-            f"=SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000)",
+            "=SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000)",
             f"=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"Costco\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000),\"\")",
         ],
     ]
@@ -694,11 +695,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         _set_sheet_position(client, new_did, new_iid, gold_name, 1)
         _set_sheet_position(client, new_did, new_iid, silver_name, 2)
     except Exception:
-        pass
+        pass  # nosec B110 - non-critical sheet positioning
     try:
         _set_sheet_visibility(client, new_did, new_iid, all_name, False)
     except Exception:
-        pass
+        pass  # nosec B110 - non-critical sheet visibility
 
     print("created consolidated workbook:", new_did, new_iid, "(Summary, Gold, Silver; All hidden)")
     return 0

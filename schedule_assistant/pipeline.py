@@ -169,7 +169,7 @@ def _to_iso_str(v: Any) -> Optional[str]:
         if isinstance(v, _dt.date):
             return v.strftime("%Y-%m-%dT00:00:00")
     except Exception:
-        pass
+        pass  # nosec B110 - datetime format failure
     return str(v)
 
 

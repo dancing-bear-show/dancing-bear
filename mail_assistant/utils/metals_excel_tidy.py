@@ -119,7 +119,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$')
             _set_chart_data(client, drive, item, profit, ch['id'], f"J2:J{rows}")
         except Exception:
-            pass
+            pass  # nosec B110 - non-critical chart update
         if len(charts) > 1:
             try:
                 ch = charts[1]
@@ -127,7 +127,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
                 _set_chart_data(client, drive, item, profit, ch['id'], f"C2:D{rows}")
             except Exception:
-                pass
+                pass  # nosec B110 - non-critical chart update
         if len(charts) > 2:
             try:
                 ch = charts[2]
@@ -135,7 +135,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
                 _set_chart_data(client, drive, item, profit, ch['id'], f"G2:H{rows}")
             except Exception:
-                pass
+                pass  # nosec B110 - non-critical chart update
 
     print('tidied workbook charts and sheets')
     return 0

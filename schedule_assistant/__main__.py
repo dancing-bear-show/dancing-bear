@@ -40,7 +40,7 @@ from .pipeline import (
     VerifyProcessor,
     VerifyRequest,
     VerifyRequestConsumer,
-    _expand_recurring_occurrences,
+    _expand_recurring_occurrences,  # noqa: F401 - re-exported for tests
 )
 
 

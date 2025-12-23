@@ -30,7 +30,8 @@ class ScheduleCLITests(unittest.TestCase):
         # Requires PyYAML for reading the plan
         if not has_pyyaml():  # pragma: no cover
             self.skipTest('requires PyYAML to parse plan')
-        import tempfile, textwrap
+        import tempfile
+        import textwrap
         root = repo_root()
         wrapper = bin_path('schedule_assistant')
         with tempfile.TemporaryDirectory() as td:

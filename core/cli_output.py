@@ -9,7 +9,7 @@ import json
 import sys
 from dataclasses import dataclass, asdict, is_dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, TextIO, Union
+from typing import Any, Dict, List, Optional, Sequence, TextIO
 
 
 class OutputFormat(str, Enum):

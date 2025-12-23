@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict
 
 import time
-from pathlib import Path
 from typing import Dict
 
 from core.pipeline import Producer, ResultEnvelope
@@ -19,7 +18,6 @@ from ..utils.filters import action_to_label_changes
 from ..utils.plan import print_plan_summary
 from .processors import (
     FilterPlanEntry,
-    FilterImpactRecord,
     FiltersPlanResult,
     FiltersSyncResult,
     FiltersImpactResult,
