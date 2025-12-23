@@ -35,48 +35,56 @@ def select_message_id(args: argparse.Namespace, client) -> tuple[Optional[str], 
 def run_messages_search(args) -> int:
     """Search for messages and list candidates."""
     from ..utils.cli_helpers import gmail_provider_from_args
-    from ..messages import candidates_from_metadata
-    import json as _json
+    from .pipeline import (
+        MessagesSearchRequest,
+        MessagesSearchRequestConsumer,
+        MessagesSearchProcessor,
+        MessagesSearchProducer,
+    )
 
     client = gmail_provider_from_args(args)
     client.authenticate()
-    crit = {"query": getattr(args, "query", "") or ""}
-    q = build_gmail_query(crit, days=getattr(args, "days", None), only_inbox=getattr(args, "only_inbox", False))
-    max_results = int(getattr(args, "max_results", 5) or 5)
-    ids = client.list_message_ids(query=q, max_pages=1, page_size=max_results)
-    msgs = client.get_messages_metadata(ids, use_cache=True)
-    cands = candidates_from_metadata(msgs)
-    if getattr(args, "json", False):
-        print(_json.dumps([c.__dict__ for c in cands], ensure_ascii=False, indent=2))
-    else:
-        for c in cands:
-            print(f"{c.id}\t{c.subject}\t{c.from_header}\t{c.snippet}")
-    return 0
+
+    request = MessagesSearchRequest(
+        query=getattr(args, "query", "") or "",
+        days=getattr(args, "days", None),
+        only_inbox=getattr(args, "only_inbox", False),
+        max_results=int(getattr(args, "max_results", 5) or 5),
+        output_json=getattr(args, "json", False),
+    )
+    envelope = MessagesSearchProcessor(client).process(
+        MessagesSearchRequestConsumer(request).consume()
+    )
+    MessagesSearchProducer(output_json=request.output_json).produce(envelope)
+    return 0 if envelope.ok() else 1
 
 
 def run_messages_summarize(args) -> int:
     """Summarize a message's content."""
     from ..utils.cli_helpers import gmail_provider_from_args
-    from ..llm_adapter import summarize_text
+    from .pipeline import (
+        MessagesSummarizeRequest,
+        MessagesSummarizeRequestConsumer,
+        MessagesSummarizeProcessor,
+        MessagesSummarizeProducer,
+    )
 
     client = gmail_provider_from_args(args)
     client.authenticate()
-    mid, _thread = select_message_id(args, client)
-    if not mid:
-        print("No message found. Provide --id or a --query with --latest.")
-        return 1
-    text = client.get_message_text(mid)
-    summary = summarize_text(text, max_words=int(getattr(args, "max_words", 120) or 120))
-    summary_out = f"Summary: {summary}" if summary and not summary.lower().startswith("summary:") else summary
-    outp = getattr(args, "out", None)
-    if outp:
-        p = Path(outp)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(summary_out, encoding="utf-8")
-        print(f"Summary written to {p}")
-    else:
-        print(summary_out)
-    return 0
+
+    request = MessagesSummarizeRequest(
+        message_id=getattr(args, "id", None),
+        query=getattr(args, "query", None),
+        days=getattr(args, "days", None),
+        only_inbox=getattr(args, "only_inbox", False),
+        max_words=int(getattr(args, "max_words", 120) or 120),
+        out_path=getattr(args, "out", None),
+    )
+    envelope = MessagesSummarizeProcessor(client).process(
+        MessagesSummarizeRequestConsumer(request).consume()
+    )
+    MessagesSummarizeProducer(out_path=request.out_path).produce(envelope)
+    return 0 if envelope.ok() else 1
 
 
 def run_messages_reply(args) -> int:
