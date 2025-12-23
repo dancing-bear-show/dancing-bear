@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Optional
 msal = None  # type: ignore
 requests = None  # type: ignore
 
+# Default timeout for HTTP requests (connect, read) in seconds
+DEFAULT_TIMEOUT = (10, 30)
+
 
 def _msal():  # type: ignore
     global msal
@@ -20,12 +23,49 @@ def _msal():  # type: ignore
     return msal
 
 
+class _TimeoutRequestsWrapper:
+    """Wrapper around requests module that adds default timeout to all calls."""
+
+    def __init__(self, requests_module, default_timeout):
+        self._requests = requests_module
+        self._timeout = default_timeout
+
+    def get(self, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._requests.get(url, **kwargs)
+
+    def post(self, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._requests.post(url, **kwargs)
+
+    def patch(self, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._requests.patch(url, **kwargs)
+
+    def delete(self, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._requests.delete(url, **kwargs)
+
+    def put(self, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._requests.put(url, **kwargs)
+
+    def head(self, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._requests.head(url, **kwargs)
+
+
+_requests_wrapper = None  # type: ignore
+
+
 def _requests():  # type: ignore
-    global requests
-    if requests is None:  # pragma: no cover - optional import
-        import requests as _requests  # type: ignore
-        requests = _requests
-    return requests
+    """Return requests module wrapped with default timeout."""
+    global requests, _requests_wrapper
+    if _requests_wrapper is None:  # pragma: no cover - optional import
+        import requests as _req  # type: ignore
+        requests = _req
+        _requests_wrapper = _TimeoutRequestsWrapper(_req, DEFAULT_TIMEOUT)
+    return _requests_wrapper
 
 
 GRAPH = "https://graph.microsoft.com/v1.0"

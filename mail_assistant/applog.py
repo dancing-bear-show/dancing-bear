@@ -25,8 +25,7 @@ class AppLogger:
             with open(self.path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception:
-            # Logging must never crash the app; swallow errors.
-            pass
+            pass  # nosec B110 - logging must never crash the app
 
     def start(self, cmd: str, argv: Optional[List[str]] = None) -> str:
         sid = str(uuid.uuid4())
