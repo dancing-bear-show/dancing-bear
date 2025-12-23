@@ -6,7 +6,7 @@ aggregations and charts, based on an existing OneDrive Excel workbook. The tool 
 existing workbook, merges with local summaries, and writes to a new file.
 
 Usage:
-  python -m mail_assistant.utils.metals_excel_all \
+  python -m mail.utils.metals_excel_all \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
     --silver-csv out/metals/silver_summary.csv \

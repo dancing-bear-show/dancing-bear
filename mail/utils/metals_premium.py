@@ -14,10 +14,10 @@ Outputs a detailed CSV and prints a summary grouped by unit class:
   - mixed (mixture of sizes)
 
 Usage examples:
-  python -m mail_assistant.utils.metals_premium \
+  python -m mail.utils.metals_premium \
     --metal gold --out out/metals/premium_gold.csv
 
-  python -m mail_assistant.utils.metals_premium \
+  python -m mail.utils.metals_premium \
     --metal silver --costs out/metals/costs.csv --out out/metals/premium_silver.csv
 """
 

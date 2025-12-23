@@ -17,7 +17,7 @@ class TestScheduleVerifySync(unittest.TestCase):
         # Plan: weekly Monday 18:00–19:00 from 2025-10-06 to 2025-10-20 with exdate 2025-10-13
         import tempfile
         import textwrap
-        from schedule_assistant import __main__ as sa
+        from schedule import __main__ as sa
 
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
@@ -49,7 +49,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
-            with patch("mail_assistant.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa._cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -58,7 +58,7 @@ class TestScheduleVerifySync(unittest.TestCase):
     def test_verify_subject_time_reports_missing(self):
         import tempfile
         import textwrap
-        from schedule_assistant import __main__ as sa
+        from schedule import __main__ as sa
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
                 """
@@ -86,7 +86,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = SimpleNamespace(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
-            with patch("mail_assistant.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa._cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -95,7 +95,7 @@ class TestScheduleVerifySync(unittest.TestCase):
     def test_sync_dry_run_counts_subject_time(self):
         import tempfile
         import textwrap
-        from schedule_assistant import __main__ as sa
+        from schedule import __main__ as sa
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
                 """
@@ -130,7 +130,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False, profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
-            with patch("mail_assistant.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa._cmd_sync(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -140,7 +140,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
     def test_export_writes_yaml(self):
         import tempfile
-        from schedule_assistant import __main__ as sa
+        from schedule import __main__ as sa
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "activities.yaml"
             evs = [
@@ -158,7 +158,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             args = SimpleNamespace(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out), profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
-            with patch("mail_assistant.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa._cmd_export(args)
             self.assertEqual(rc, 0)
             self.assertTrue(out.exists())

@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 
 class TestLlmFlowsCLI(unittest.TestCase):
     def test_flows_list_stdout(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['flows', '--list', '--stdout'])
@@ -18,7 +18,7 @@ class TestLlmFlowsCLI(unittest.TestCase):
         )
 
     def test_flows_get_by_id_md(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['flows', '--id', 'ios_export_layout', '--stdout'])
@@ -28,7 +28,7 @@ class TestLlmFlowsCLI(unittest.TestCase):
         self.assertTrue('id:' in out or 'ios_export_layout' in out or '(flow not found)' not in out)
 
     def test_flows_list_by_tags(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['flows', '--list', '--tags', 'ios,phone', '--stdout'])

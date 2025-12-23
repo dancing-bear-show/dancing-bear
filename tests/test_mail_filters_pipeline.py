@@ -8,8 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import List
 
-from mail_assistant.context import MailContext
-from mail_assistant.filters.consumers import (
+from mail.context import MailContext
+from mail.filters.consumers import (
     FiltersPlanConsumer,
     FiltersPlanPayload,
     FiltersSyncPayload,
@@ -22,7 +22,7 @@ from mail_assistant.filters.consumers import (
     FiltersAddTokenConsumer,
     FiltersRemoveTokenConsumer,
 )
-from mail_assistant.filters.processors import (
+from mail.filters.processors import (
     FiltersPlanProcessor,
     FiltersSyncProcessor,
     FiltersImpactProcessor,
@@ -34,7 +34,7 @@ from mail_assistant.filters.processors import (
     FiltersAddTokenProcessor,
     FiltersRemoveTokenProcessor,
 )
-from mail_assistant.filters.producers import (
+from mail.filters.producers import (
     FiltersPlanProducer,
     FiltersSyncProducer,
     FiltersImpactProducer,

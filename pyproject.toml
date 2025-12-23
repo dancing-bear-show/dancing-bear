@@ -27,16 +27,16 @@ dependencies = [
 
 [project.scripts]
 assistant = "core.assistant_cli:main"
-mail-assistant = "mail_assistant.__main__:main"
-calendar = "calendar_assistant.__main__:main"
-calendar-assistant = "calendar_assistant.__main__:main"
-schedule-assistant = "schedule_assistant.__main__:main"
+mail-assistant = "mail.__main__:main"
+calendar = "calendars.__main__:main"
+calendar-assistant = "calendars.__main__:main"
+schedule-assistant = "schedule.__main__:main"
 phone = "phone.__main__:main"
 phone-assistant = "phone.__main__:main"
 whatsapp = "whatsapp.__main__:main"
-resume-assistant = "resume_assistant.resume_assistant.cli.main:main"
-apple-music-assistant = "apple_music_assistant.__main__:main"
-apple-music-user-token = "apple_music_assistant.user_token_cli:main"
+resume-assistant = "resume.resume.cli.main:main"
+apple-music-assistant = "apple_music.__main__:main"
+apple-music-user-token = "apple_music.user_token_cli:main"
 wifi-assistant = "wifi.__main__:main"
 wifi = "wifi.__main__:main"
 
@@ -47,12 +47,12 @@ package-dir = {"" = "."}
 include = [
   "core*",
   "personal_core*",
-  "mail_assistant*",
-  "resume_assistant*",
-  "schedule_assistant*",
-  "calendar_assistant*",
+  "mail*",
+  "resume*",
+  "schedule*",
+  "calendars*",
   "phone*",
   "whatsapp*",
-  "apple_music_assistant*",
+  "apple_music*",
   "wifi*",
 ]

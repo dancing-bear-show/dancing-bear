@@ -109,14 +109,14 @@ ASSISTANT_AGENTIC_EXTENDED_CMDS = [
 ]
 
 _APP_MODULES = {
-    "calendar": "calendar_assistant.llm_cli",
-    "schedule": "schedule_assistant.llm_cli",
-    "resume": "resume_assistant.llm_cli",
-    "desk": "desk_assistant.llm_cli",
+    "calendar": "calendars.llm_cli",
+    "schedule": "schedule.llm_cli",
+    "resume": "resume.llm_cli",
+    "desk": "desk.llm_cli",
     "maker": "maker.llm_cli",
     "phone": "phone.llm_cli",
     "whatsapp": "whatsapp.llm_cli",
-    "mail": "mail_assistant.llm_cli",
+    "mail": "mail.llm_cli",
     "wifi": "wifi.llm_cli",
 }
 
@@ -251,16 +251,16 @@ def _build_repo_parser() -> argparse.ArgumentParser:
 
 def _mail_agentic_capsule() -> str:
     try:
-        from mail_assistant.agentic import build_agentic_capsule
+        from mail.agentic import build_agentic_capsule
 
         return build_agentic_capsule()
     except Exception:
-        return "agentic: mail_assistant\n(pending capsule)"
+        return "agentic: mail\n(pending capsule)"
 
 
 def _mail_domain_map() -> str:
     try:
-        from mail_assistant.agentic import build_domain_map
+        from mail.agentic import build_domain_map
 
         return build_domain_map()
     except Exception:
@@ -269,7 +269,7 @@ def _mail_domain_map() -> str:
 
 def _mail_flows() -> List[Dict[str, any]]:
     try:
-        from mail_assistant.agentic import build_flows
+        from mail.agentic import build_flows
 
         return build_flows()
     except Exception:
@@ -560,8 +560,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if getattr(args, "format", "md") == "json":
             data = {
                 "wrappers": ["bin/mail-assistant"],
-                "areas": ["mail_assistant", "calendar_assistant"],
-                "mail_assistant_groups": ["labels", "filters", "messages"],
+                "areas": ["mail", "calendar"],
+                "mail_groups": ["labels", "filters", "messages"],
             }
             print(json.dumps(data, indent=2))
             return 0

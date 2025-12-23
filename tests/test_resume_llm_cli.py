@@ -12,7 +12,7 @@ class TestResumeLLMCLI(unittest.TestCase):
         root = repo_root()
         sys.path.insert(0, str(root))
         sys.path.insert(0, str(root.parent))
-        import resume_assistant.llm_cli as mod  # type: ignore
+        import resume.llm_cli as mod  # type: ignore
 
         return mod
 
@@ -26,7 +26,7 @@ class TestResumeLLMCLI(unittest.TestCase):
         finally:
             sys.stdout = old
         self.assertEqual(rc, 0)
-        self.assertIn("agentic: resume_assistant", buf.getvalue())
+        self.assertIn("agentic: resume", buf.getvalue())
 
     def test_derive_all_outputs_files(self):
         mod = self._import_mod()

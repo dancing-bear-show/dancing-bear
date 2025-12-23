@@ -50,7 +50,7 @@ def gmail_client_authenticated(args):
 
 
 def add_outlook_common_args(parser):
-    # Backward shim: kept for compatibility; prefer mail_assistant.cli.args
+    # Backward shim: kept for compatibility; prefer mail.cli.args
     from ..cli.args import add_outlook_common_args as _impl
     return _impl(parser)
 

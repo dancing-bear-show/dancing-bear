@@ -22,4 +22,4 @@ dependencies = []
 yaml = ["PyYAML>=6.0"]
 
 [project.scripts]
-desk-assistant = "desk_assistant.cli:main"
+desk-assistant = "desk.cli:main"

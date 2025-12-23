@@ -16,7 +16,7 @@ def _agentic() -> str:
     try:
         return build_agentic_capsule()
     except Exception:
-        return "agentic: desk_assistant\npurpose: Scan/plan/apply desk cleanup flows"
+        return "agentic: desk\npurpose: Scan/plan/apply desk cleanup flows"
 
 
 def _domain_map() -> str:
@@ -35,14 +35,14 @@ def _inventory() -> str:
 def _familiar_compact() -> str:
     return (
         read_text(LLM_DIR / "familiarize.yaml")
-        or "meta:\n  name: desk_assistant_familiarize\n  version: 1\nsteps:\n  - run: ./bin/desk-assistant --help\n  - run: ./bin/desk-assistant scan --help\n"
+        or "meta:\n  name: desk_familiarize\n  version: 1\nsteps:\n  - run: ./bin/desk-assistant --help\n  - run: ./bin/desk-assistant scan --help\n"
     )
 
 
 def _familiar_extended() -> str:
     return (
         "meta:\n"
-        "  name: desk_assistant_familiarize\n"
+        "  name: desk_familiarize\n"
         "  version: 1\n"
         "steps:\n"
         "  - run: ./bin/desk-assistant scan --paths ~/Downloads ~/Desktop --duplicates --out out/desk.scan.yaml\n"

@@ -5,7 +5,7 @@ from tests.fixtures import FakeGmailClient
 
 class TestUtilsFiltersMore(unittest.TestCase):
     def test_build_criteria_from_match(self):
-        from mail_assistant.utils.filters import build_criteria_from_match
+        from mail.utils.filters import build_criteria_from_match
 
         crit = build_criteria_from_match({
             "from": "a@b", "to": "c@d", "subject": "Hello",
@@ -22,7 +22,7 @@ class TestUtilsFiltersMore(unittest.TestCase):
         self.assertEqual(crit["sizeComparison"], "larger")
 
     def test_build_gmail_query(self):
-        from mail_assistant.utils.filters import build_gmail_query
+        from mail.utils.filters import build_gmail_query
 
         q = build_gmail_query({
             "from": "a@b", "to": "c@d", "subject": "hi there",
@@ -39,7 +39,7 @@ class TestUtilsFiltersMore(unittest.TestCase):
         self.assertIn("in:inbox", q)
 
     def test_action_to_label_changes(self):
-        from mail_assistant.utils.filters import action_to_label_changes
+        from mail.utils.filters import action_to_label_changes
 
         client = FakeGmailClient(labels=[
             {"id": "L1", "name": "Work"},

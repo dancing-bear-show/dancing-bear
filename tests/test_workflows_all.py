@@ -49,11 +49,11 @@ class WorkflowAllProvidersTests(unittest.TestCase):
         fake = FakeGmailClient()
 
         # Patch Gmail provider construction inside plan/sync path
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
-            from mail_assistant.config_cli.commands import run_workflows_from_unified
-            from mail_assistant.outlook import helpers as outlook_helpers
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
+            from mail.config_cli.commands import run_workflows_from_unified
+            from mail.outlook import helpers as outlook_helpers
             # Force Gmail detection by pointing credentials to a temp file that exists
-            from mail_assistant import config_resolver as cr
+            from mail import config_resolver as cr
             td = tempfile.mkdtemp()
             cred = os.path.join(td, "cred.json")
             with open(cred, "w", encoding="utf-8") as fh:

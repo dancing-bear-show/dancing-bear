@@ -10,7 +10,7 @@ class TestCLITreeIntegrity(unittest.TestCase):
         sys.path.insert(0, str(pkg_parent))
 
     def test_cli_tree_contains_core_subcommands(self):
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:

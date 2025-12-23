@@ -10,7 +10,7 @@ class TestLLMTableOutput(unittest.TestCase):
         sys.path.insert(0, str(pkg_parent))
 
     def test_stale_table_with_status_has_header(self):
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -23,7 +23,7 @@ class TestLLMTableOutput(unittest.TestCase):
         self.assertIn("| Target | Staleness (days) | SLA (days) | Status |", out)
 
     def test_deps_text_sorted_by_dependents_asc(self):
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:

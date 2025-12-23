@@ -6,7 +6,7 @@ Push gold/silver summary CSVs into an Excel workbook (OneDrive/SharePoint) via M
 Requires an Outlook/Graph profile (client_id, tenant, token cache) to acquire tokens with MSAL.
 
 Usage:
-  python -m mail_assistant.utils.metals_excel \
+  python -m mail.utils.metals_excel \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
     --silver-csv out/metals/silver_summary.csv --silver-sheet Silver \
@@ -86,7 +86,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     token = token or ".cache/.msal_token.json"
     if not client_id:
-        raise SystemExit("No Outlook client_id found in credentials.ini; configure [mail_assistant.<profile>]")
+        raise SystemExit("No Outlook client_id found in credentials.ini; configure [mail.<profile>]")
 
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
     client.authenticate()

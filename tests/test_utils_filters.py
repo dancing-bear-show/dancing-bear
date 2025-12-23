@@ -3,7 +3,7 @@ import unittest
 
 class TestUtilsFilters(unittest.TestCase):
     def test_categories_to_system_labels(self):
-        from mail_assistant.utils.filters import categories_to_system_labels
+        from mail.utils.filters import categories_to_system_labels
 
         self.assertEqual(categories_to_system_labels({}), [])
         self.assertEqual(categories_to_system_labels({"categorizeAs": "promotions"}), ["CATEGORY_PROMOTIONS"])

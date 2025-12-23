@@ -69,7 +69,7 @@ def build_agentic_capsule() -> str:
     if flows:
         sections.append(("Flow Map", flows))
     return _build_capsule(
-        "schedule_assistant",
+        "schedule",
         "Generate/verify/apply calendar plans (dry-run first)",
         commands,
         sections,
@@ -78,7 +78,7 @@ def build_agentic_capsule() -> str:
 
 def build_domain_map() -> str:
     sections: List[str] = []
-    sections.append("Top-Level\n- schedule_assistant/__main__.py — CLI entry\n- schedule_assistant/README.md — usage examples\n- config/calendar/ — canonical plans")
+    sections.append("Top-Level\n- schedule/__main__.py — CLI entry\n- schedule/README.md — usage examples\n- config/calendar/ — canonical plans")
     tree = _cli_tree()
     if tree:
         sections.append(_section("CLI Tree", tree))

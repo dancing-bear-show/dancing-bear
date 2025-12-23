@@ -11,7 +11,7 @@ class TestLLMDomainMap(unittest.TestCase):
         sys.path.insert(0, str(pkg_parent))
 
     def test_llm_domain_map_stdout(self):
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -27,7 +27,7 @@ class TestLLMDomainMap(unittest.TestCase):
 
     def test_llm_derive_all_includes_generated(self):
         import tempfile
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         with tempfile.TemporaryDirectory() as td:
             rc = mod.main(["derive-all", "--out-dir", td, "--include-generated", "--stdout"])  # generate files
             self.assertEqual(rc, 0)

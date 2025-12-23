@@ -1,7 +1,7 @@
 """Mail assistant LLM CLI shim.
 
 Delegates to the shared repo-level LLM CLI implementation so tests that import
-`mail_assistant.llm_cli` can exercise inventory, familiar, flows, and other
+`mail.llm_cli` can exercise inventory, familiar, flows, and other
 subcommands without duplicating logic.
 """
 

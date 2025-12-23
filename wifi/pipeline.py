@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Generic, Optional, TypeVar
+from typing import Any, Callable, Dict, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import BaseProducer, Processor, RequestConsumer, ResultEnvelope
 
 from .diagnostics import (
     CommandRunner,
@@ -19,37 +19,6 @@ from .diagnostics import (
     report_to_dict,
     run_diagnosis,
 )
-
-# Generic RequestConsumer (mirrors calendar_assistant.pipeline_base.RequestConsumer)
-RequestT = TypeVar("RequestT")
-
-
-class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
-    """Generic consumer that wraps any request object."""
-
-    def __init__(self, request: RequestT) -> None:
-        self._request = request
-
-    def consume(self) -> RequestT:  # pragma: no cover - trivial
-        return self._request
-
-
-class BaseProducer:
-    """Base class for pipeline producers with common error handling."""
-
-    def produce(self, result: ResultEnvelope) -> None:
-        """Template method: handle errors, delegate success to subclass."""
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        if result.payload is not None:
-            self._produce_success(result.payload, result.diagnostics)
-
-    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
-        """Override in subclass to handle successful result output."""
-        raise NotImplementedError("Subclass must implement _produce_success")
 
 
 @dataclass

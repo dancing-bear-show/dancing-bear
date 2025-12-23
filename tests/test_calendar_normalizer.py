@@ -1,6 +1,6 @@
 import unittest
 
-from calendar_assistant.model import normalize_event
+from calendars.model import normalize_event
 
 
 class NormalizeEventTests(unittest.TestCase):

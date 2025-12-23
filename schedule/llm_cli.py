@@ -16,7 +16,7 @@ def _agentic() -> str:
     try:
         return build_agentic_capsule()
     except Exception:
-        return "agentic: schedule_assistant\npurpose: Generate/verify/apply calendar plans (dry-run first)"
+        return "agentic: schedule\npurpose: Generate/verify/apply calendar plans (dry-run first)"
 
 
 def _domain_map() -> str:
@@ -35,14 +35,14 @@ def _inventory() -> str:
 def _familiar_compact() -> str:
     return (
         read_text(LLM_DIR / "familiarize.yaml")
-        or "meta:\n  name: schedule_assistant_familiarize\n  version: 1\nsteps:\n  - run: ./bin/schedule-assistant --help\n  - run: ./bin/schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml --dry-run\n"
+        or "meta:\n  name: schedule_familiarize\n  version: 1\nsteps:\n  - run: ./bin/schedule-assistant --help\n  - run: ./bin/schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml --dry-run\n"
     )
 
 
 def _familiar_extended() -> str:
     return (
         "meta:\n"
-        "  name: schedule_assistant_familiarize\n"
+        "  name: schedule_familiarize\n"
         "  version: 1\n"
         "steps:\n"
         "  - run: ./bin/schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml\n"

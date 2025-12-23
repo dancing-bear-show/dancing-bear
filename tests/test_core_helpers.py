@@ -138,9 +138,9 @@ class CoreAuthTests(unittest.TestCase):
                 "MAIL_ASSISTANT_OUTLOOK_TENANT": "env_tenant",
             },
         ):
-            with patch("mail_assistant.config_resolver.get_outlook_client_id", return_value="profile_client"), \
-                 patch("mail_assistant.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
-                 patch("mail_assistant.config_resolver.get_outlook_token_path", return_value="~/token.json"):
+            with patch("mail.config_resolver.get_outlook_client_id", return_value="profile_client"), \
+                 patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
+                 patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"):
                 client, tenant, token = core_auth.resolve_outlook_credentials(None, None, None, None)
 
         self.assertEqual(client, "env_client")
@@ -157,9 +157,9 @@ class CoreAuthTests(unittest.TestCase):
                 "MAIL_ASSISTANT_OUTLOOK_TENANT": "env_tenant",
             },
         ):
-            with patch("mail_assistant.config_resolver.get_outlook_client_id", return_value="profile_client"), \
-                 patch("mail_assistant.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
-                 patch("mail_assistant.config_resolver.get_outlook_token_path", return_value="~/token.json"):
+            with patch("mail.config_resolver.get_outlook_client_id", return_value="profile_client"), \
+                 patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
+                 patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"):
                 client, tenant, token = core_auth.resolve_outlook_credentials(
                     "profile", "cli_client", "cli_tenant", "/tmp/token.json"
                 )

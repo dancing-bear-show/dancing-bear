@@ -5,32 +5,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Dict, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import (
+    BaseProducer as _CoreBaseProducer,
+    Processor,
+    RequestConsumer,
+    ResultEnvelope,
+)
 
 from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
 
-# Generic RequestConsumer (mirrors calendar_assistant.pipeline_base.RequestConsumer)
-RequestT = TypeVar("RequestT")
 
-
-class RequestConsumer(Generic[RequestT], Consumer[RequestT]):
-    """Generic consumer that wraps any request object."""
-
-    def __init__(self, request: RequestT) -> None:
-        self._request = request
-
-    def consume(self) -> RequestT:  # pragma: no cover - trivial
-        return self._request
-
-
-class BaseProducer:
-    """Base class for pipeline producers with common error handling."""
+class BaseProducer(_CoreBaseProducer):
+    """Phone-specific base producer that prints errors to stderr."""
 
     def produce(self, result: ResultEnvelope) -> None:
-        """Template method: handle errors, delegate success to subclass."""
+        """Template method: handle errors to stderr, delegate success to subclass."""
         if not result.ok():
             msg = (result.diagnostics or {}).get("message")
             if msg:
@@ -38,10 +30,6 @@ class BaseProducer:
             return
         if result.payload is not None:
             self._produce_success(result.payload, result.diagnostics)
-
-    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
-        """Override in subclass to handle successful result output."""
-        raise NotImplementedError("Subclass must implement _produce_success")
 
 
 @dataclass

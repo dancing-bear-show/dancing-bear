@@ -7,7 +7,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock
 
 from core.pipeline import ResultEnvelope
-from calendar_assistant.pipeline import (
+from calendars.pipeline import (
     BaseProducer,
     RequestConsumer,
     GmailAuth,

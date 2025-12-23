@@ -13,7 +13,7 @@ def _queue_path() -> Path:
     if env:
         return Path(env)
     xdg = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
-    base = Path(os.path.join(os.path.expanduser(xdg), "mail_assistant"))
+    base = Path(os.path.join(os.path.expanduser(xdg), "mail"))
     base.mkdir(parents=True, exist_ok=True)
     return base / "scheduled_sends.json"
 

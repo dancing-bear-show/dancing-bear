@@ -18,7 +18,7 @@ def register(
     p_cfg_inspect = sub_cfg.add_parser("inspect", help="Show config with redacted secrets")
     p_cfg_inspect.add_argument("--path", default="~/.config/credentials.ini", help="Path to INI file")
     p_cfg_inspect.add_argument("--section", help="Only show a specific section")
-    p_cfg_inspect.add_argument("--only-mail", action="store_true", help="Restrict to mail_assistant.* sections")
+    p_cfg_inspect.add_argument("--only-mail", action="store_true", help="Restrict to mail.* sections")
     p_cfg_inspect.set_defaults(func=f_inspect)
 
     # config derive

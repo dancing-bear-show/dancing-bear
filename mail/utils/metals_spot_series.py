@@ -10,11 +10,11 @@ summaries under out/metals/ (prefers <metal>_summary.csv, else costs.csv).
 
 Usage examples:
   # Silver spot CAD since first purchase → CSV
-  python -m mail_assistant.utils.metals_spot_series \
+  python -m mail.utils.metals_spot_series \
     --metal silver --out out/metals/silver_spot_cad_daily.csv
 
   # Explicit window
-  python -m mail_assistant.utils.metals_spot_series \
+  python -m mail.utils.metals_spot_series \
     --metal silver --start-date 2025-04-23 --end-date 2025-10-20 \
     --out out/metals/silver_spot_cad_daily.csv
 

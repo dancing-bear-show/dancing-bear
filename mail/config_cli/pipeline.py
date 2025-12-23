@@ -458,7 +458,7 @@ class ConfigInspectProcessor(Processor[ConfigInspectRequest, ResultEnvelope[Conf
                     diagnostics={"message": f"Section not found: {payload.section}"},
                 )
         elif payload.only_mail:
-            sections = [s for s in sections if s.startswith("mail_assistant")]
+            sections = [s for s in sections if s.startswith("mail")]
 
         result_sections = []
         for s in sections:
@@ -992,7 +992,7 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
                         status="error",
                         payload=EnvSetupResult(venv_created=False, profile_saved=False, message=f"Venv/setup failed: {e}"),
                     )
-                for fname in ('bin/mail_assistant', 'bin/mail-assistant'):
+                for fname in ('bin/mail', 'bin/mail-assistant'):
                     try:
                         p = Path(fname)
                         if p.exists():

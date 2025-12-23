@@ -58,7 +58,7 @@ def build_agentic_capsule() -> str:
     if flows:
         sections.append(("Flow Map", flows))
     return _build_capsule(
-        "desk_assistant",
+        "desk",
         "Scan, plan, and tidy macOS folders (Downloads, Desktop)",
         commands,
         sections,
@@ -67,7 +67,7 @@ def build_agentic_capsule() -> str:
 
 def build_domain_map() -> str:
     sections: List[str] = []
-    sections.append("Top-Level\n- desk_assistant/scan.py — disk scan logic\n- desk_assistant/planner.py — rules → plan\n- desk_assistant/apply_ops.py — filesystem actions\n- config/desk_rules.yaml — example rules\n- out/desk.* — scan/plan artifacts")
+    sections.append("Top-Level\n- desk/scan.py — disk scan logic\n- desk/planner.py — rules → plan\n- desk/apply_ops.py — filesystem actions\n- config/desk_rules.yaml — example rules\n- out/desk.* — scan/plan artifacts")
     tree = _cli_tree()
     if tree:
         sections.append(_section("CLI Tree", tree))

@@ -11,7 +11,7 @@ class TestLLMInventory(unittest.TestCase):
 
     def test_inventory_json(self):
         import json
-        import mail_assistant.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -24,5 +24,5 @@ class TestLLMInventory(unittest.TestCase):
         # Expected top-level keys
         self.assertIn('wrappers', data)
         self.assertIn('areas', data)
-        self.assertIn('mail_assistant_groups', data)
+        self.assertIn('mail_groups', data)
 

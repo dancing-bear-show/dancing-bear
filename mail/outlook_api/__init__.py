@@ -6,7 +6,7 @@ This package provides a modular client for Outlook mail and calendar operations:
 - mail.py: Messages, folders, rules, and categories
 
 Usage:
-    from mail_assistant.outlook_api import OutlookClient
+    from mail.outlook_api import OutlookClient
 
     client = OutlookClient(client_id="...", tenant="consumers", token_path="...")
     client.authenticate()

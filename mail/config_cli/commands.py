@@ -227,7 +227,7 @@ def run_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
         print("\n[Apply] Syncing Gmail filters to match derived …")
         run_filters_sync(ns_sync)
         print("\nDone. Consider exporting and comparing for drift:")
-        print(f"  python3 -m mail_assistant filters export --out {out_dir}/filters.gmail.export.after.yaml")
+        print(f"  python3 -m mail filters export --out {out_dir}/filters.gmail.export.after.yaml")
         print(f"  Compare to {out_gmail}")
     else:
         print("\nNo changes applied (omit --apply to keep planning only).")

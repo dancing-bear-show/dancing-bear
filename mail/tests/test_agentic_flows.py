@@ -9,7 +9,7 @@ class TestAgenticFlows(unittest.TestCase):
         # Ensure parent of package dir is importable
         pkg_parent = Path(__file__).resolve().parents[2]
         sys.path.insert(0, str(pkg_parent))
-        import mail_assistant.__main__ as mod  # type: ignore
+        import mail.__main__ as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -26,7 +26,7 @@ class TestAgenticFlows(unittest.TestCase):
     def test_agentic_includes_outlook_categories_and_folders(self):
         pkg_parent = Path(__file__).resolve().parents[2]
         sys.path.insert(0, str(pkg_parent))
-        import mail_assistant.__main__ as mod  # type: ignore
+        import mail.__main__ as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:

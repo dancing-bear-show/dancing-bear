@@ -9,7 +9,7 @@ class TestCalendarLLMCLI(unittest.TestCase):
     def test_llm_calendar_agentic(self):
         root = repo_root()
         sys.path.insert(0, str(root.parent))
-        import calendar_assistant.llm_cli as mod  # type: ignore
+        import calendars.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
@@ -19,12 +19,12 @@ class TestCalendarLLMCLI(unittest.TestCase):
             sys.stdout = old
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("agentic: calendar_assistant", out)
+        self.assertIn("agentic: calendar", out)
 
     def test_llm_calendar_derive_all(self):
         root = repo_root()
         sys.path.insert(0, str(root.parent))
-        import calendar_assistant.llm_cli as mod  # type: ignore
+        import calendars.llm_cli as mod  # type: ignore
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             buf = io.StringIO()

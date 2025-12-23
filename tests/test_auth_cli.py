@@ -82,7 +82,7 @@ class AuthCLITests(unittest.TestCase):
         }
 
         with patch.dict("sys.modules", fake_modules, clear=False):
-            from mail_assistant.config_cli.commands import run_auth
+            from mail.config_cli.commands import run_auth
 
             args = SimpleNamespace(validate=True, token=tok_path, credentials=None, profile=None)
             buf = io.StringIO()
@@ -140,7 +140,7 @@ class AuthCLITests(unittest.TestCase):
         requests.get = _get
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
-            from mail_assistant.outlook.commands import run_outlook_auth_validate
+            from mail.outlook.commands import run_outlook_auth_validate
 
             args = SimpleNamespace(client_id="fake", tenant="consumers", token=tok_path, profile=None)
             buf = io.StringIO()

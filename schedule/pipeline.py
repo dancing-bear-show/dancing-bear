@@ -18,8 +18,8 @@ _FMT_DAY_END = "%Y-%m-%dT23:59:59"
 
 
 def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, dict]]:
-    from calendar_assistant.importer import load_schedule
-    from calendar_assistant.model import normalize_event
+    from calendars.importer import load_schedule
+    from calendars.model import normalize_event
 
     items = load_schedule(source, kind)
     events: List[Dict[str, dict]] = []

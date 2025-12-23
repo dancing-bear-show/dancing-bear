@@ -12,15 +12,15 @@ from typing import Callable, Dict, List
 
 # Map shorthand app names to their CLI modules (each exposes a main() entry).
 APP_MODULES: Dict[str, str] = {
-    "mail": "mail_assistant.__main__",
-    "calendar": "calendar_assistant.__main__",
-    "schedule": "schedule_assistant.__main__",
-    "resume": "resume_assistant.__main__",
+    "mail": "mail.__main__",
+    "calendar": "calendars.__main__",
+    "schedule": "schedule.__main__",
+    "resume": "resume.__main__",
     "phone": "phone.__main__",
     "whatsapp": "whatsapp.__main__",
     "maker": "maker.__main__",
-    "music": "apple_music_assistant.__main__",
-    "apple-music": "apple_music_assistant.__main__",
+    "music": "apple_music.__main__",
+    "apple-music": "apple_music.__main__",
     "wifi": "wifi.__main__",
 }
 
