@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Create a single consolidated 'All' data sheet (gold + silver) and a 'Summary' sheet with
 aggregations and charts, based on an existing OneDrive Excel workbook. The tool reads the
@@ -14,6 +12,7 @@ Usage:
     --all-sheet All --summary-sheet Summary \
     --out-name "Metals Summary (Merged).xlsx"
 """
+from __future__ import annotations
 
 import argparse
 import csv

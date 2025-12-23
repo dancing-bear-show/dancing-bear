@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Daily spot series for precious metals with USD->CAD conversion.
 
@@ -23,6 +21,7 @@ Notes:
   - Fills missing days by forward-fill; back-fills the beginning to the first
     available value, so downstream charts have a continuous series.
 """
+from __future__ import annotations
 
 import argparse
 import csv

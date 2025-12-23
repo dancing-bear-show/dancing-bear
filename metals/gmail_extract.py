@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Gmail precious-metals extractor.
 
@@ -9,6 +7,7 @@ ounces of gold and silver from message bodies using simple heuristics.
 Usage (defaults to profile=gmail_personal):
   python -m mail.utils.metals [--profile gmail_personal] [--days 365]
 """
+from __future__ import annotations
 
 import argparse
 import re

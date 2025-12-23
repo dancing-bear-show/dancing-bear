@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Analyze purchase premium over spot and estimate 'fractional premium'.
 
@@ -20,6 +18,7 @@ Usage examples:
   python -m mail.utils.metals_premium \
     --metal silver --costs out/metals/costs.csv --out out/metals/premium_silver.csv
 """
+from __future__ import annotations
 
 import argparse
 import csv

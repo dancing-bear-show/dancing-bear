@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Summarize overall premium paid and costs over time (monthly) for metals.
 
@@ -16,6 +14,7 @@ Usage:
     --out-summary out/metals/premium_overview_summary.csv \
     --out-monthly out/metals/premium_overview_monthly.csv
 """
+from __future__ import annotations
 
 import argparse
 import csv

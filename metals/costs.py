@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Extract per-order cost per ounce from Gmail order emails (TD Precious Metals and Costco).
 
@@ -15,6 +13,7 @@ Heuristics:
 Usage:
   python -m mail.utils.metals_costs --profile gmail_personal --out out/metals/costs.csv
 """
+from __future__ import annotations
 
 import argparse
 import csv
