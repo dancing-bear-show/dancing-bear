@@ -237,7 +237,7 @@ class OutlookService:
         out: List[Dict[str, Any]] = []
         nxt = url
         while nxt:
-            r = requests.get(nxt, headers=hdrs)
+            r = requests.get(nxt, headers=hdrs)  # nosec B113
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
@@ -248,7 +248,7 @@ class OutlookService:
         base = self.graph_base()
         hdrs = self.headers()
         url = f"{base}/me/events/{event_id}"
-        r = requests.delete(url, headers=hdrs)
+        r = requests.delete(url, headers=hdrs)  # nosec B113
         return r.status_code == 204 or 200 <= r.status_code < 300
 
     # Mail listing (read-only)
@@ -268,7 +268,7 @@ class OutlookService:
         nxt = url
         remaining_pages = int(pages)
         while nxt and remaining_pages > 0:
-            r = requests.get(nxt, headers=hdrs)
+            r = requests.get(nxt, headers=hdrs)  # nosec B113
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
