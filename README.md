@@ -63,9 +63,9 @@ Filters:
 
 Unified filters source of truth:
 - Gmail only:
-  - `python3 -m mail_assistant workflows gmail-from-unified --config config/filters_unified.yaml [--delete-missing] [--apply]`
+  - `python3 -m mail workflows gmail-from-unified --config config/filters_unified.yaml [--delete-missing] [--apply]`
 - Gmail + Outlook (auto-detect):
-  - `python3 -m mail_assistant workflows from-unified --config config/filters_unified.yaml [--delete-missing] [--apply]`
+  - `python3 -m mail workflows from-unified --config config/filters_unified.yaml [--delete-missing] [--apply]`
   - `--providers gmail,outlook` to control providers
   - `--no-outlook-move-to-folders` to disable Outlook folder moves
 
