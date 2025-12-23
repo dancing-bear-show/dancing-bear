@@ -7,7 +7,6 @@ If an external LLM is configured via environment variables, this module can
 be extended to call out to that provider. Keep imports lazy.
 """
 
-import os
 from typing import Optional
 
 

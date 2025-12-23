@@ -8,7 +8,6 @@ without changing flags or subcommands.
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +21,6 @@ from .scan_common import (
     CLASS_PAT,
     LOC_LABEL_PAT,
     FACILITIES,
-    MONTH_MAP,
     DATE_RANGE_PAT,
     html_to_text,
     norm_time,

@@ -8,7 +8,6 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from ..context import MailContext
-from ..utils.plan import print_plan_summary
 from .consumers import (
     LabelsPlanConsumer,
     LabelsSyncConsumer,

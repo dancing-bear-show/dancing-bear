@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json as _json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
 

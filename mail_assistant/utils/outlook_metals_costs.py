@@ -81,7 +81,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                         if 1 <= n <= 200:
                             return float(n)
                     except Exception:
-                        pass
+                        pass  # nosec B110 - invalid quantity
         return None
 
     def infer_metal(ctx: str) -> str:
@@ -133,7 +133,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                     if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
                         cur['qty'] = it.get('qty')
                 except Exception:
-                    pass
+                    pass  # nosec B110 - invalid qty comparison
                 if (it.get('metal') or '') and not (cur.get('metal') or ''):
                     cur['metal'] = it.get('metal')
         items = list(buckets.values())
@@ -279,7 +279,8 @@ def _merge_write(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
             pruned.extend(rows)
 
     # Now dedupe within pruned list by (vendor|order_id|metal|cost_total|units_breakdown)
-    key2 = lambda d: f"{(d.get('vendor') or '').upper()}|{d.get('order_id') or ''}|{(d.get('metal') or '').lower()}|{d.get('cost_total') or ''}|{d.get('units_breakdown') or ''}"
+    def key2(d):
+        return f"{(d.get('vendor') or '').upper()}|{d.get('order_id') or ''}|{(d.get('metal') or '').lower()}|{d.get('cost_total') or ''}|{d.get('units_breakdown') or ''}"
     idx2: Dict[str, Dict[str, str]] = {}
     for r in pruned:
         idx2[key2(r)] = r
@@ -318,7 +319,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                 break
             data = r.json() or {}
             for m in data.get('value', []) or []:
-                mid = m.get('id');
+                mid = m.get('id')
                 if mid:
                     ids.append(mid)
             nxt = data.get('@odata.nextLink')

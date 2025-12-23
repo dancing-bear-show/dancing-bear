@@ -7,7 +7,6 @@ capsules and domain maps for LLM agents. They avoid heavy imports and
 execute only lightweight parsing logic.
 """
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import List

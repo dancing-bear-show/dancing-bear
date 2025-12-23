@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Producers for labels pipelines."""
 
-from pathlib import Path
 from typing import Dict, List
 
 from core.pipeline import Producer, ResultEnvelope

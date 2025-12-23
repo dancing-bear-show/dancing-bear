@@ -82,9 +82,6 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
             '3796875': 25.0,  # 25 x 1 oz tube
         }
         # Known item-number → unit-ounce override map (Costco)
-        sku_unit_map = {
-            '2796876': 10.0,  # single 10 oz
-        }
         pat_list = [
             re.compile(r"(?i)\b(\d{1,3})\s*[- ]?pack\b"),
             re.compile(r"(?i)\bpack\s*of\s*(\d{1,3})\b"),

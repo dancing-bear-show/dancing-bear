@@ -398,7 +398,6 @@ class OutlookCalendarMixin:
 def _parse_location(loc: str) -> Dict[str, Any]:
     """Parse a location string into Outlook location with structured address when possible."""
     disp = (loc or "").strip()
-    out: Dict[str, Any] = {"displayName": disp}
 
     def _split_name_and_addr(s: str) -> Tuple[str, str]:
         if "(" in s and ")" in s:

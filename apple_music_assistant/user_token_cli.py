@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import http.server
 import os
-import socket
 import sys
 import webbrowser
 

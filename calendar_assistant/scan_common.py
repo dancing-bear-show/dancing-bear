@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from html import unescape as _html_unescape
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 DAY_MAP = {
     "monday": "MO",

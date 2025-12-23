@@ -1,6 +1,5 @@
 import io
 import json
-import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -84,7 +83,7 @@ class AppleMusicCLITests(unittest.TestCase):
         self.assertIn("data:text/html,", url)
         self.assertIn("DEV_TOKEN", url)
 
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory():
             with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "DEV_TOKEN"}):
                 with mock.patch.object(user_token_cli, "build_data_url", return_value="URL") as m_build:
                     with mock.patch("webbrowser.open") as m_open:
@@ -158,7 +157,6 @@ class AppleMusicCLITests(unittest.TestCase):
         self.assertEqual(len(data["playlists"]), 2)
 
     def test_create_playlist_with_shuffle_and_dry_run(self):
-        seeds_order = []
 
         class StubClient:
             def __init__(self):

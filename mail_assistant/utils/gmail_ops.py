@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple, Optional, Protocol, Any
+from typing import List, Tuple, Optional, Protocol
 
 
 class _ListMessagesClient(Protocol):

@@ -13,7 +13,7 @@ class LocationsMapTests(unittest.TestCase):
             import calendar_assistant.locations_map as lm
             lm._CACHED_MAP = None  # type: ignore[attr-defined]
         except Exception:
-            pass
+            pass  # nosec B110 - test setup
 
         key = 'Ed Sackfield Arena'
         expected = ADDRESS_MAP[key]

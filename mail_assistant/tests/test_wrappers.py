@@ -1,4 +1,3 @@
-import os
 import sys
 import subprocess
 import unittest
@@ -6,7 +5,7 @@ from pathlib import Path
 
 
 def run(cmd, cwd=None):
-    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
 
 
 class TestWrappers(unittest.TestCase):

@@ -180,7 +180,7 @@ class HeaderRenderer:
         try:
             meta_pt = float(cfg.get("meta_pt")) if cfg.get("meta_pt") else None
         except Exception:
-            pass
+            pass  # nosec B110 - invalid meta_pt
 
         # Title
         if title_text:

@@ -65,7 +65,7 @@ class MessagesScheduleTests(unittest.TestCase):
                     profile="gmail_personal",
                 )
 
-                with capture_stdout() as buf:
+                with capture_stdout():
                     rc = run_messages_reply(args)
 
                 self.assertEqual(rc, 0)
@@ -99,7 +99,7 @@ class MessagesScheduleTests(unittest.TestCase):
 
                 args = make_args(max=5, profile="gmail_personal")
 
-                with capture_stdout() as buf:
+                with capture_stdout():
                     rc = run_messages_apply_scheduled(args)
 
                 self.assertEqual(rc, 0)

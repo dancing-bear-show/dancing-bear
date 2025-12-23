@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 import subprocess
@@ -75,7 +74,7 @@ experience:
                 try:
                     cfg.unlink()
                 except Exception:
-                    pass
+                    pass  # nosec B110 - test cleanup
 
 
 if __name__ == "__main__":

@@ -17,11 +17,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 import os
-import subprocess
 
 from core.assistant import BaseAssistant
 
-from .helpers import LayoutLoadError, load_layout, read_lines_file, read_yaml, write_yaml
+from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .pipeline import (
     AnalyzeProducer,
     AnalyzeProcessor,
@@ -74,10 +73,6 @@ from .pipeline import (
 )
 
 from .layout import (
-    normalize_iconstate,
-    to_yaml_export,
-    scaffold_plan,
-    checklist_from_plan,
     auto_folderize,
     distribute_folders_across_pages,
 )
@@ -419,7 +414,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         from mail_assistant.utils.secrets import install_output_masking_from_env as _install_mask  # reuse module
         _install_mask()
     except Exception:
-        pass
+        pass  # nosec B110 - best-effort masking
     parser = build_parser()
     args = parser.parse_args(argv)
     agentic_result = assistant.maybe_emit_agentic(

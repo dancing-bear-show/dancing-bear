@@ -99,8 +99,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         from mail_assistant.utils.secrets import install_output_masking_from_env as _install_mask
 
         _install_mask()
-    except Exception:  # pragma: no cover - best effort
-        pass
+    except Exception:  # pragma: no cover
+        pass  # nosec B110 - best-effort masking
 
     # Build parser and add agentic flags
     parser = app.build_parser()
