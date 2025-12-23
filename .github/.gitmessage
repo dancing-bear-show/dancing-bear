@@ -1,0 +1,26 @@
+# <type>(<scope>): <subject>
+# |<----  Using a Maximum Of 50 Characters  ---->|
+
+# Body: Explain *why* this change is being made
+# |<----   Try To Limit Each Line to 72 Characters   ---->|
+
+# Footer: Reference issues, breaking changes, co-authors
+# Fixes #123
+# BREAKING CHANGE: description
+# Co-Authored-By: Name <email>
+
+# --- COMMIT TYPES ---
+# feat     New feature
+# fix      Bug fix
+# docs     Documentation only
+# refactor Code change (no feature/fix)
+# test     Adding/updating tests
+# chore    Maintenance (deps, CI, configs)
+# perf     Performance improvement
+# ci       CI/CD changes
+# style    Formatting only
+# revert   Reverting a commit
+
+# --- SCOPES ---
+# mail, calendar, schedule, phone, resume, whatsapp, wifi, desk
+# core, tests, ci, deps
