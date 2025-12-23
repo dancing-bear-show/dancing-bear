@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import TestCase
 
-from desk.desk.pipeline import (
+from desk.pipeline import (
     ApplyProcessor,
     ApplyRequest,
     ApplyRequestConsumer,

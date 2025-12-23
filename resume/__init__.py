@@ -1,4 +1,11 @@
-# Source Generated with Decompyle++
-# File: __init__.cpython-39.pyc (Python 3.9)
+"""resume package.
 
-__all__ = []
+Lightweight CLI utilities to extract, summarize, and render resumes
+from LinkedIn profiles and existing resumes using simple heuristics.
+
+Public entrypoint: `python -m resume` or `bin/resume-assistant`.
+"""
+
+__all__ = [
+    "cli",
+]
