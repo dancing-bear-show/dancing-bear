@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Helper utilities for accounts commands."""
 
-from pathlib import Path
 from typing import Iterable, Optional
 
 from ..config_resolver import (
