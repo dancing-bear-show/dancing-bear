@@ -60,7 +60,8 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Define consumers for scan/rules YAML, processors for ranking, producers for plan/apply.
   - [x] Wire CLI shim to new orchestrator (`desk_assistant/pipeline.py`, CLI now delegates to pipeline components).
 - Resume:
-  - [ ] Consumers for LinkedIn/resume sources, processors for summarize/render, producers for DOCX/YAML.
+  - [x] Pipeline module (`resume_assistant/pipeline.py`) with FilterPipeline for chainable transforms.
+  - [x] Commands (extract, summarize, render, structure, align, etc.) use pipeline pattern.
 
 ## Phase 4 — Phone & WhatsApp (after core + example apps done)
 - Phone:
@@ -72,11 +73,13 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] App classification extracted to `phone/classify.py` for shared use.
   - [x] Full pipeline coverage: 12/12 commands use Consumer/Processor/Producer pattern.
 - WhatsApp:
-  - [ ] Sqlite consumer, search processors, text/JSON producers.
+  - [x] Pipeline module (`whatsapp/pipeline.py`) with SearchProcessor/SearchRequestConsumer/SearchProducer.
+  - [x] Search command uses pipeline pattern for local ChatStorage queries.
 
 ## Phase 5 — Maker & Misc (optional)
 - [x] Maker CLI now uses pipeline consumers/processors/producers for listing + tool execution.
-- Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
+- [x] Maker migrated to CLIApp decorator pattern with direct imports (no subprocess).
+- [ ] Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
 
 ## Phase 6 — Wi-Fi (optional)
 - [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi_assistant/pipeline.py` + CLI shim).
