@@ -261,7 +261,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         for r in recs:
             for k in r.keys():
                 if k not in seen:
-                    seen.add(k); out.append(k)
+                    seen.add(k)
+                    out.append(k)
         return out
     hs_final = union_headers(base_s, s_merged)
     hg_final = union_headers(base_g, g_merged)

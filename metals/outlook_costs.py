@@ -210,7 +210,8 @@ def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
                 found = None
                 for m in money_pat.finditer(ln):
                     if m.start() >= pos:
-                        found = m; break
+                        found = m
+                        break
                 if not found:
                     allm = list(money_pat.finditer(ln))
                     found = allm[-1] if allm else None
@@ -291,7 +292,8 @@ def _merge_write(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
     # Write
     with p.open('w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=['vendor','date','metal','currency','cost_total','cost_per_oz','order_id','subject','total_oz','unit_count','units_breakdown','alloc'])
-        w.writeheader(); w.writerows(merged)
+        w.writeheader()
+        w.writerows(merged)
 
 
 def run(profile: str, out_path: str, days: int = 365) -> int:
@@ -386,7 +388,8 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                     continue
                 sub = (mm.get('subject') or '').lower()
                 if 'confirmation for order number' in sub:
-                    chosen = mid; break
+                    chosen = mid
+                    break
             best_mid = chosen or ids[0]
             try:
                 m = cli.get_message(best_mid, select_body=True)
@@ -466,9 +469,11 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                 # Find the next total in band
                 chosen = None
                 while k < len(totals_seq):
-                    v = float(totals_seq[k]); k += 1
+                    v = float(totals_seq[k])
+                    k += 1
                     if lb <= v <= ub:
-                        chosen = v; break
+                        chosen = v
+                        break
                 if chosen is not None:
                     amt = float(chosen)
                     line_cost += amt * max(qty, 1.0)
