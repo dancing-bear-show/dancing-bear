@@ -28,7 +28,8 @@ class TestScheduleCompress(unittest.TestCase):
             """
         ).strip()
         with tempfile.TemporaryDirectory() as td:
-            inp = Path(td) / "in.yaml"; inp.write_text(plan, encoding="utf-8")
+            inp = Path(td) / "in.yaml"
+            inp.write_text(plan, encoding="utf-8")
             outp = Path(td) / "out.yaml"
             args = type("Args", (), {"in_path": str(inp), "out": str(outp), "calendar": "Activities", "min_occur": 2})
             buf = io.StringIO()

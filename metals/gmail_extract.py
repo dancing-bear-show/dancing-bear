@@ -5,7 +5,7 @@ Searches for TD Precious Metals and Costco order emails and extracts total
 ounces of gold and silver from message bodies using simple heuristics.
 
 Usage (defaults to profile=gmail_personal):
-  python -m mail.utils.metals [--profile gmail_personal] [--days 365]
+  python -m metals.gmail_extract [--profile gmail_personal] [--days 365]
 """
 from __future__ import annotations
 
@@ -39,7 +39,8 @@ def _extract_amounts(text: str) -> Tuple[float, float]:
 
     for ln in lines:
         for m in pat_frac.finditer(ln):
-            num = float(m.group(1)); den = float(m.group(2) or 1)
+            num = float(m.group(1))
+            den = float(m.group(2) or 1)
             metal = (m.group(3) or '').lower()
             qty = float(m.group(4) or 1)
             oz_unit = num / max(den, 1.0)

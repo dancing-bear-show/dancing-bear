@@ -4,7 +4,7 @@ aggregations and charts, based on an existing OneDrive Excel workbook. The tool 
 existing workbook, merges with local summaries, and writes to a new file.
 
 Usage:
-  python -m mail.utils.metals_excel_all \
+  python -m metals.excel_all \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
     --silver-csv out/metals/silver_summary.csv \
@@ -123,7 +123,8 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
     loc = resp.headers.get("Location") or resp.headers.get("Operation-Location")
     if not loc:
         try:
-            it = resp.json(); return drive_id, it.get("id")
+            it = resp.json()
+            return drive_id, it.get("id")
         except Exception:
             raise RuntimeError("Copy returned no body and no monitor location")
     for _ in range(60):
@@ -136,7 +137,8 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
             if rloc:
                 it = requests.get(rloc, headers=client._headers()).json()  # nosec B113
                 return drive_id, it.get("id")
-        import time as _t; _t.sleep(1.5)
+        import time as _t
+        _t.sleep(1.5)
     raise RuntimeError("Timed out waiting for copy")
 
 
@@ -304,7 +306,8 @@ def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str
             oz = float(r.get("total_oz", 0) or 0)
             cpo = float(r.get("cost_per_oz", 0) or 0)
         except Exception:
-            oz = 0.0; cpo = 0.0
+            oz = 0.0
+            cpo = 0.0
         metal = (r.get("metal") or "").lower()
         vendor = r.get("vendor") or ""
         date = r.get("date") or ""
@@ -331,13 +334,15 @@ def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str
     # 2) Totals by Vendor
     bv_rows = [["Vendor", "Total Ounces", "Avg Cost/Oz"]]
     for vendor, d in by_vendor.items():
-        oz = d["oz"]; avg = (d["cost"] / oz) if oz else 0.0
+        oz = d["oz"]
+        avg = (d["cost"] / oz) if oz else 0.0
         bv_rows.append([vendor, f"{oz:.2f}", f"{avg:.2f}"])
     blocks.append(bv_rows)
     # 3) Monthly Avg Cost by Metal
     mm_rows = [["Month", "Gold Avg", "Silver Avg"]]
     for month in sorted(by_month_metal.keys()):
-        g = by_month_metal[month]["gold"]; s = by_month_metal[month]["silver"]
+        g = by_month_metal[month]["gold"]
+        s = by_month_metal[month]["silver"]
         gavg = (g["cost"] / g["oz"]) if g["oz"] else 0.0
         savg = (s["cost"] / s["oz"]) if s["oz"] else 0.0
         mm_rows.append([month, f"{gavg:.2f}", f"{savg:.2f}"])
@@ -345,7 +350,8 @@ def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str
     # 4) Monthly Ounces by Metal
     mo_rows = [["Month", "Gold Ounces", "Silver Ounces"]]
     for month in sorted(by_month_metal.keys()):
-        g = by_month_metal[month]["gold"]; s = by_month_metal[month]["silver"]
+        g = by_month_metal[month]["gold"]
+        s = by_month_metal[month]["silver"]
         mo_rows.append([month, f"{g['oz']:.2f}", f"{s['oz']:.2f}"])
     blocks.append(mo_rows)
 
@@ -530,8 +536,10 @@ def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
     ]]
 
     # Running inventory
-    g_oz = 0.0; g_cost = 0.0
-    s_oz = 0.0; s_cost = 0.0
+    g_oz = 0.0
+    g_cost = 0.0
+    s_oz = 0.0
+    s_cost = 0.0
 
     cur = date.fromisoformat(min_date)
     end = date.fromisoformat(max_date)
@@ -591,7 +599,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
     client.authenticate()
 
-    drive_id = getattr(args, "drive_id"); item_id = getattr(args, "item_id")
+    drive_id = getattr(args, "drive_id")
+    item_id = getattr(args, "item_id")
     # Read existing workbook sheets and consolidate to All
     sheet_names = _list_worksheets(client, drive_id, item_id)
     existing_all: List[Dict[str, str]] = []
@@ -628,8 +637,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     new_did, new_iid = _copy_item(client, drive_id, item_id, getattr(args, "out_name"))
 
     # Ensure sheets
-    all_name = getattr(args, "all_sheet"); sum_name = getattr(args, "summary_sheet")
-    gold_name = "Gold"; silver_name = "Silver"
+    all_name = getattr(args, "all_sheet")
+    sum_name = getattr(args, "summary_sheet")
+    gold_name = "Gold"
+    silver_name = "Silver"
     _ensure_sheet(client, new_did, new_iid, all_name)
     _ensure_sheet(client, new_did, new_iid, sum_name)
     _ensure_sheet(client, new_did, new_iid, gold_name)

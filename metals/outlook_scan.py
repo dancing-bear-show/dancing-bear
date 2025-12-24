@@ -5,7 +5,7 @@ Uses Microsoft Graph $search with simple KQL-like queries. Prints counts per sou
 and lists recent matches with received time, from, and subject.
 
 Usage:
-  python -m mail.utils.outlook_metals_scan --profile outlook_personal --days 365 --top 50 --pages 3
+  python -m metals.outlook_scan --profile outlook_personal --days 365 --top 50 --pages 3
 """
 from __future__ import annotations
 
