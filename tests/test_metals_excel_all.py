@@ -4,7 +4,6 @@ from __future__ import annotations
 import csv
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
 
 from metals.excel_all import (
     _col_letter,
