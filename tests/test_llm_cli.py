@@ -15,7 +15,7 @@ class TestLlmCli(unittest.TestCase):
         self.assertIn('Unified LLM utilities', proc.stdout)
 
     def test_inventory_stdout(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['inventory', '--stdout'])
@@ -24,7 +24,7 @@ class TestLlmCli(unittest.TestCase):
         self.assertIn('LLM Agent Inventory', out)
 
     def test_familiar_stdout(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['familiar', '--stdout'])
@@ -33,7 +33,7 @@ class TestLlmCli(unittest.TestCase):
         self.assertIn('agent_note:', out)
 
     def test_inventory_json(self):
-        from mail_assistant import llm_cli
+        from mail import llm_cli
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = llm_cli.main(['inventory', '--format', 'json', '--stdout'])
@@ -42,7 +42,7 @@ class TestLlmCli(unittest.TestCase):
         data = json.loads(buf.getvalue())
         self.assertIn('wrappers', data)
         self.assertIn('areas', data)
-        self.assertIn('mail_assistant_groups', data)
+        self.assertIn('mail_groups', data)
 
     def test_check_respects_sla_env(self):
         import subprocess

@@ -3,7 +3,7 @@ import unittest
 
 class GmailScopesTests(unittest.TestCase):
     def test_gmail_scopes_include_send_and_compose(self):
-        from mail_assistant.gmail_api import SCOPES
+        from mail.gmail_api import SCOPES
 
         required = {
             "https://www.googleapis.com/auth/gmail.settings.basic",

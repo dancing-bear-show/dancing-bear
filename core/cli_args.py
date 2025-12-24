@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Shared CLI argument helpers for auth flags and common arguments.
 
 Provides reusable argument groups for:
@@ -8,6 +6,7 @@ Provides reusable argument groups for:
 - Date ranges (--from-date, --to-date, --days-back)
 - Operation modes (--dry-run, --force)
 """
+from __future__ import annotations
 
 from typing import Optional, List, Any
 import argparse
