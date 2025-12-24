@@ -11,7 +11,7 @@ Heuristics:
   over-approximate if costs differ by metal; most orders contain a single metal).
 
 Usage:
-  python -m mail.utils.metals_costs --profile gmail_personal --out out/metals/costs.csv
+  python -m metals.costs --profile gmail_personal --out out/metals/costs.csv
 """
 from __future__ import annotations
 

@@ -3,7 +3,7 @@ Read an existing OneDrive Excel workbook, merge in local metals summaries, and w
 with polished sheets (tables, header formatting, autofit, frozen header).
 
 Usage example:
-  python -m mail.utils.metals_excel_merge \
+  python -m metals.excel_merge \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
     --silver-csv out/metals/silver_summary.csv --silver-sheet Silver \

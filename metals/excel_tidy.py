@@ -90,7 +90,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir='.cache')
     client.authenticate()
 
-    drive = getattr(args, 'drive_id'); item = getattr(args, 'item_id')
+    drive = getattr(args, 'drive_id')
+    item = getattr(args, 'item_id')
     # Remove untitled/default sheets (anything not in allowed set and with default-like names)
     allowed = {getattr(args, 'summary_sheet'), getattr(args, 'gold_sheet'), getattr(args, 'silver_sheet'), getattr(args, 'all_sheet'), getattr(args, 'profit_sheet')}
     sheets = _list_sheets(client, drive, item)
