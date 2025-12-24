@@ -49,15 +49,15 @@ def normalize_label_color_outlook(color: Optional[dict | str]) -> Optional[dict]
 def normalize_labels_for_outlook(labels: List[dict], name_mode: str = "join-dash") -> List[dict]:
     seen = set()
     out: List[Dict] = []
-    for l in labels or []:
-        if not isinstance(l, dict):
+    for lbl in labels or []:
+        if not isinstance(lbl, dict):
             continue
-        name = _norm_label_name_outlook(l.get("name", ""), name_mode)
+        name = _norm_label_name_outlook(lbl.get("name", ""), name_mode)
         if not name or name in seen:
             continue
         seen.add(name)
         entry: Dict = {"name": name}
-        c = normalize_label_color_outlook(l.get("color"))
+        c = normalize_label_color_outlook(lbl.get("color"))
         if c:
             entry["color"] = c
         out.append(entry)

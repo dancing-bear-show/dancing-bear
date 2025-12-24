@@ -26,16 +26,16 @@ from .producers import (
 
 def _analyze_labels(labels: list) -> dict:
     """Analyze labels for the doctor command."""
-    names = [l.get("name", "") for l in labels if isinstance(l, dict)]
+    names = [lbl.get("name", "") for lbl in labels if isinstance(lbl, dict)]
     counts = Counter(names)
     dups = [n for n, c in counts.items() if c > 1]
     parts = [n.split('/') for n in names]
     max_depth = max((len(ps) for ps in parts), default=0)
     top_counts = Counter(ps[0] for ps in parts if ps)
-    vis_l = Counter((l.get('labelListVisibility') or 'unset') for l in labels if isinstance(l, dict))
-    vis_m = Counter((l.get('messageListVisibility') or 'unset') for l in labels if isinstance(l, dict))
+    vis_l = Counter((lbl.get('labelListVisibility') or 'unset') for lbl in labels if isinstance(lbl, dict))
+    vis_m = Counter((lbl.get('messageListVisibility') or 'unset') for lbl in labels if isinstance(lbl, dict))
     imapish = [n for n in names if n.startswith('[Gmail]') or n.lower().startswith('imap/')]
-    unset_vis = [l.get('name') for l in labels if not l.get('labelListVisibility') or not l.get('messageListVisibility')]
+    unset_vis = [lbl.get('name') for lbl in labels if not lbl.get('labelListVisibility') or not lbl.get('messageListVisibility')]
     return {
         'total': len(names),
         'duplicates': dups,
@@ -132,20 +132,20 @@ def run_labels_doctor(args) -> int:
 
     changed = 0
     if getattr(args, 'set_visibility', False):
-        for l in labs:
-            if l.get('type') == 'system':
+        for lbl in labs:
+            if lbl.get('type') == 'system':
                 continue
-            name = l.get('name')
+            name = lbl.get('name')
             body = {"name": name}
             need = False
-            if not l.get('labelListVisibility'):
+            if not lbl.get('labelListVisibility'):
                 body['labelListVisibility'] = 'labelShow'
                 need = True
-            if not l.get('messageListVisibility'):
+            if not lbl.get('messageListVisibility'):
                 body['messageListVisibility'] = 'show'
                 need = True
             if need:
-                client.update_label(l.get('id', ''), body)
+                client.update_label(lbl.get('id', ''), body)
                 print(f"Updated visibility: {name}")
                 changed += 1
 
