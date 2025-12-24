@@ -40,7 +40,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
     t = t.replace('\u2013', '-')  # en dash
     t = t.replace('\u2014', '-')  # em dash
     t = t.replace('\u00A0', ' ')
-    lines: List[str] = [l.strip() for l in t.splitlines() if l.strip()]
+    lines: List[str] = [line.strip() for line in t.splitlines() if line.strip()]
 
     pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
     pat_oz = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
@@ -382,7 +382,7 @@ def _extract_order_amount(text: str) -> Tuple[str, float] | None:
     Returns the first 'Total' if available, else 'Subtotal', else the largest currency amount.
     """
     t = (text or '').replace('\u00A0', ' ')
-    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    lines = [line.strip() for line in t.splitlines() if line.strip()]
     # Matches C$1,234.56 or CAD$1,234.56 or CAD $1,234.56 or $1,234.56
     money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
 
@@ -514,7 +514,7 @@ def main(argv: List[str] | None = None) -> int:
             items, lines_here = _extract_line_items(text)
             # Build per-message quantity map and gather price hits for this message
             qmap: Dict[Tuple[str, float], float] = {}
-            lines_msg = [l.strip() for l in (text or '').splitlines() if l.strip()]
+            lines_msg = [ln.strip() for ln in (text or '').splitlines() if ln.strip()]
             for it in items:
                 metal = str(it.get('metal'))
                 unit_oz = float(it.get('unit_oz') or 0.0)
