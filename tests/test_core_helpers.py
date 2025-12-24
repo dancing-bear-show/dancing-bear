@@ -182,7 +182,7 @@ class CoreAuthTests(unittest.TestCase):
             def __init__(self, ctx):
                 self.ctx = ctx
 
-        args = SimpleNamespace(profile="profile", client_id="cli_id", tenant="cli_tenant", token="cli_token")
+        args = SimpleNamespace(profile="profile", client_id="cli_id", tenant="cli_tenant", token="cli_token")  # nosec B106
         with patch("core.auth.resolve_outlook_credentials", return_value=("cid", "ten", "tok")) as mocked:
             svc = core_auth.build_outlook_service_from_args(
                 args,
@@ -209,7 +209,7 @@ class CoreAuthTests(unittest.TestCase):
             def authenticate(self):
                 self.authed = True
 
-        args = SimpleNamespace(profile="profile", credentials="cred", token="tok", cache="cache")
+        args = SimpleNamespace(profile="profile", credentials="cred", token="tok", cache="cache")  # nosec B106
         svc = core_auth.build_gmail_service_from_args(args, service_cls=DummyService)
         self.assertTrue(getattr(svc, "authed", False))
         self.assertEqual(DummyService.seen_args.profile, "profile")

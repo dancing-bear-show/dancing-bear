@@ -11,7 +11,7 @@ class TestResolveGmailCredentials(unittest.TestCase):
     """Tests for resolve_gmail_credentials."""
 
     def test_explicit_args_take_priority(self):
-        creds, token = resolve_gmail_credentials(
+        creds, token = resolve_gmail_credentials(  # nosec B106
             profile=None,
             credentials_path="/explicit/creds.json",
             token_path="/explicit/token.json",
@@ -38,7 +38,7 @@ class TestResolveOutlookCredentials(unittest.TestCase):
     """Tests for resolve_outlook_credentials."""
 
     def test_explicit_args_take_priority(self):
-        client_id, tenant, token = resolve_outlook_credentials(
+        client_id, tenant, token = resolve_outlook_credentials(  # nosec B106
             profile=None,
             client_id="explicit-client-id",
             tenant="explicit-tenant",

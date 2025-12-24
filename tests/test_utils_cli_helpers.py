@@ -19,7 +19,7 @@ class TestCLIHelpers(unittest.TestCase):
         from mail.utils.cli_helpers import gmail_provider_from_args
         from mail.providers.gmail import GmailProvider
 
-        args = SimpleNamespace(credentials="cred.json", token="tok.json", cache=".cache/x")
+        args = SimpleNamespace(credentials="cred.json", token="tok.json", cache=".cache/x")  # nosec B106
         prov = gmail_provider_from_args(args)
         self.assertIsInstance(prov, GmailProvider)
 
