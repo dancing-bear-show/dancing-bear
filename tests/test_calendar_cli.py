@@ -6,7 +6,7 @@ from tests.fixtures import bin_path, has_pyyaml, repo_root, run
 
 class CalendarCLITests(unittest.TestCase):
     def test_help_via_module_invocation(self):
-        proc = run([sys.executable, '-m', 'calendar_assistant', '--help'])
+        proc = run([sys.executable, '-m', 'calendars', '--help'])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Calendar Assistant CLI', proc.stdout)
 

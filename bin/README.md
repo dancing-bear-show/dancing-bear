@@ -4,8 +4,8 @@ Overview
 - Thin entry points to run local package CLIs without installing system‑wide.
 
 Included
-- `mail_assistant` — Mail (Gmail/Outlook) CLI.
-- `calendar_assistant` — Calendar helper CLI.
+- `mail` — Mail (Gmail/Outlook) CLI.
+- `calendars` — Calendar helper CLI.
 - `apply-calendar-locations` — Apply locations for Blas, Bruce (+ beginners), Bennet plans.
 
 Usage

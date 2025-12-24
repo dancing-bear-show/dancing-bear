@@ -1,0 +1,30 @@
+# Modern resume template for resume
+#
+# Guidance
+# - Keep the summary 2–4 lines: outcomes, scope, specialties.
+# - Skills should be concise, comma‑separated keywords (10–18 items).
+# - Experience bullets: 4–6 per role, each with a lever + metric + context.
+# - Education minimal; move certs to skills unless central to role.
+
+sections:
+  - key: summary
+    title: Professional Profile
+  - key: skills
+    title: Core Skills
+  - key: experience
+    title: Experience
+    max_items: 8
+  - key: education
+    title: Education
+  - key: interests
+    title: Personal Interests
+    bullets: true
+  - key: presentations
+    title: Public Presentations
+    bullets: true
+  - key: languages
+    title: Languages
+    bullets: true
+  - key: coursework
+    title: Selected Coursework
+    bullets: true

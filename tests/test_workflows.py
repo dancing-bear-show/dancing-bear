@@ -60,8 +60,8 @@ class WorkflowTests(unittest.TestCase):
         out_dir = tempfile.mkdtemp()
         fake = FakeClient()
         args = SimpleNamespace(config=cfg_path, out_dir=out_dir, delete_missing=False, apply=False, credentials=None, token=None, cache=None)
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
-            from mail_assistant.config_cli.commands import run_workflows_gmail_from_unified
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", new=lambda _args: fake):
+            from mail.config_cli.commands import run_workflows_gmail_from_unified
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = run_workflows_gmail_from_unified(args)

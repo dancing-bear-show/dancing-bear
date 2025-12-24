@@ -7,18 +7,18 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
-from mail_assistant.context import MailContext
-from mail_assistant.labels.consumers import (
+from mail.context import MailContext
+from mail.labels.consumers import (
     LabelsPlanConsumer,
     LabelsSyncConsumer,
     LabelsExportConsumer,
 )
-from mail_assistant.labels.processors import (
+from mail.labels.processors import (
     LabelsPlanProcessor,
     LabelsSyncProcessor,
     LabelsExportProcessor,
 )
-from mail_assistant.labels.producers import (
+from mail.labels.producers import (
     LabelsPlanProducer,
     LabelsSyncProducer,
     LabelsExportProducer,

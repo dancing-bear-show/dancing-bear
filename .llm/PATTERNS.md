@@ -41,21 +41,21 @@ Agentic Shortcuts (LLM CLI)
 Familiarization: Reading Order
 ```
 1) .llm/CONTEXT.md, .llm/DOMAIN_MAP.md, README.md
-2) bin/mail-assistant → mail_assistant/__main__.py
-3) mail_assistant/dsl.py, mail_assistant/config_resolver.py, mail_assistant/utils/filters.py
-4) mail_assistant/providers/*.py, mail_assistant/gmail_api.py, mail_assistant/outlook_api.py
+2) bin/mail-assistant → mail/__main__.py
+3) mail/dsl.py, mail/config_resolver.py, mail/utils/filters.py
+4) mail/providers/*.py, mail/gmail_api.py, mail/outlook_api.py
 5) tests/test_cli.py, tests/test_cli_filters.py, tests/test_workflows*.py
 ```
 
 Familiarization: Ripgrep Quick Searches (exclude heavy dirs)
 ```
-rg -n "(def main\(|argparse|click)" mail_assistant/ bin/ \
+rg -n "(def main\(|argparse|click)" mail/ bin/ \
   -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'
 
-rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail_assistant/ bin/ \
+rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail/ bin/ \
   -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'
 
-rg -n "filters_unified.yaml|derive|audit|optimize" mail_assistant/ README.md \
+rg -n "filters_unified.yaml|derive|audit|optimize" mail/ README.md \
   -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'
 ```
 
@@ -85,11 +85,11 @@ Schedule Planning/Apply
 Profile-Based Credentials
 ```
 # ~/.config/sre-utils/credentials.ini
-[mail_assistant.gmail_personal]
+[mail.gmail_personal]
 credentials = /Users/you/.config/sre-utils/google_credentials.gmail_personal.json
 token = /Users/you/.config/sre-utils/token.gmail_personal.json
 
-[mail_assistant.outlook_personal]
+[mail.outlook_personal]
 outlook_client_id = <YOUR_APP_ID>
 tenant = consumers
 outlook_token = /Users/you/.config/sre-utils/outlook_token.json
@@ -125,9 +125,9 @@ if not provider.capabilities().get("signatures"):
 Plan/Apply Flow
 ```
 # plan
-python3 -m mail_assistant filters plan --config filters.yaml --out plan.json
+python3 -m mail filters plan --config filters.yaml --out plan.json
 # apply (dry-run by default; require --apply to write)
-python3 -m mail_assistant filters sync --config filters.yaml --dry-run
+python3 -m mail filters sync --config filters.yaml --dry-run
 ```
 
 Minimal Test (unittest)
@@ -141,4 +141,26 @@ class TestCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+```
+
+Code Quality (qlty)
+```bash
+# Check a specific file for issues
+~/.qlty/bin/qlty check path/to/file.py
+
+# Check entire module
+~/.qlty/bin/qlty check schedule/
+
+# Common issue types:
+# - ruff:E402 - imports not at top of file (fix: move docstring before imports)
+# - python:S3776 - cognitive complexity too high (fix: extract helper functions)
+
+# Extract metrics for a file
+~/.qlty/bin/qlty metrics path/to/file.py
+
+# Show all available linters
+~/.qlty/bin/qlty plugins
+
+# Fix auto-fixable issues
+~/.qlty/bin/qlty check --fix path/to/file.py
 ```

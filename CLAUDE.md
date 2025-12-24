@@ -24,12 +24,13 @@ make test
 ## Architecture
 
 ```
-mail_assistant/           # Gmail/Outlook providers, CLI wiring, helpers
-calendar_assistant/       # Outlook calendar CLI + Gmail scans
-schedule_assistant/       # plan/apply calendar schedules
-resume_assistant/         # extract/summarize/render resumes
+mail/                     # Gmail/Outlook providers, CLI wiring, helpers
+calendars/                # Outlook calendar CLI + Gmail scans
+schedule/                 # plan/apply calendar schedules
+resume/                   # extract/summarize/render resumes
 phone/                    # iOS layout tooling
 whatsapp/                 # local-only ChatStorage search
+desk/                     # desktop/workspace tooling
 maker/                    # utility generators
 bin/                      # entry wrappers and helper scripts
 core/, personal_core/     # shared helpers
@@ -89,11 +90,11 @@ Read in order for best context:
 Use profiles in `~/.config/credentials.ini`:
 
 ```ini
-[mail_assistant.gmail_personal]
+[mail.gmail_personal]
 credentials = /path/to/google_credentials.json
 token = /path/to/token.json
 
-[mail_assistant.outlook_personal]
+[mail.outlook_personal]
 outlook_client_id = <YOUR_APP_ID>
 tenant = consumers
 outlook_token = /path/to/outlook_token.json

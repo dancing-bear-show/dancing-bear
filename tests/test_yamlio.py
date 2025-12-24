@@ -9,14 +9,14 @@ from tests.fixtures import has_pyyaml
 @unittest.skipUnless(has_pyyaml(), "requires PyYAML")
 class YamlIOTests(unittest.TestCase):
     def test_load_config_missing_returns_empty(self):
-        from mail_assistant.yamlio import load_config
+        from mail.yamlio import load_config
 
         with tempfile.TemporaryDirectory() as td:
             missing = os.path.join(td, "nope.yaml")
             self.assertEqual(load_config(missing), {})
 
     def test_dump_and_load_roundtrip(self):
-        from mail_assistant.yamlio import load_config, dump_config
+        from mail.yamlio import load_config, dump_config
 
         data = {
             "filters": [
