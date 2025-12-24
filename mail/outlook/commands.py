@@ -231,7 +231,7 @@ def run_outlook_categories_sync(args) -> int:
     base = doc.get("labels") or []
     desired = normalize_labels_for_outlook(base)
 
-    existing = {l.get("name", ""): l for l in client.list_labels()}
+    existing = {lbl.get("name", ""): lbl for lbl in client.list_labels()}
 
     created = 0
     updated = 0
