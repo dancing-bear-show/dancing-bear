@@ -548,8 +548,10 @@ def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
         # Apply any purchases on this day
         add = by_date.get(ds)
         if add:
-            g_oz += add["gold"]["oz"]; g_cost += add["gold"]["cost"]
-            s_oz += add["silver"]["oz"]; s_cost += add["silver"]["cost"]
+            g_oz += add["gold"]["oz"]
+            g_cost += add["gold"]["cost"]
+            s_oz += add["silver"]["oz"]
+            s_cost += add["silver"]["cost"]
         g_avg = (g_cost / g_oz) if g_oz > 0 else 0.0
         s_avg = (s_cost / s_oz) if s_oz > 0 else 0.0
         g_spot = spot_gold.get(ds)
