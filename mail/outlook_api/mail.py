@@ -89,7 +89,7 @@ class OutlookMailMixin:
         r.raise_for_status()
 
     def get_label_id_map(self: OutlookClientBase) -> Dict[str, str]:
-        return {l.get("name", ""): l.get("id", "") for l in self.list_labels()}
+        return {lbl.get("name", ""): lbl.get("id", "") for lbl in self.list_labels()}
 
     def ensure_label(self: OutlookClientBase, name: str, **kwargs: Any) -> str:
         m = self.get_label_id_map()
