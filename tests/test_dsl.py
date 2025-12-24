@@ -1,6 +1,6 @@
 import unittest
 
-from mail_assistant.dsl import (
+from mail.dsl import (
     normalize_label_color_outlook,
     normalize_labels_for_outlook,
     normalize_filter_for_outlook,

@@ -29,14 +29,14 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] `messages_cli` search and summarize now use pipeline processors/producers.
   - [x] `accounts` multi-account commands (list, export-labels, sync-labels, export-filters, sync-filters, plan-labels, plan-filters, export-signatures, sync-signatures) now use pipeline processors/producers.
   - [x] `config_cli` commands (auth, backup, cache-stats, cache-clear, cache-prune, config-inspect, derive-labels, derive-filters, optimize-filters, audit-filters, env-setup, workflows) now use pipeline processors/producers.
-  - [ ] Slim `mail_assistant/__main__.py` to CLI shim → domain orchestrator. (Filters + labels now delegate; other commands pending.)
+  - [ ] Slim `mail/__main__.py` to CLI shim → domain orchestrator. (Filters + labels now delegate; other commands pending.)
   - [x] Update docs/tests (`tests/test_llm_*`, CLI tests) to cover new pathway.
 
 ## Phase 2 — Calendar & Schedule (can proceed once core is ready; mail optional)
 - Depends on: Phase 0 (Mail optional but recommended for reference).
 - Calendar:
   - [ ] Add `calendar/context.py`.
-  - [x] Implement processors for Gmail receipt scans (see `calendar_assistant/pipeline.py`).
+  - [x] Implement processors for Gmail receipt scans (see `calendars/pipeline.py`).
   - [x] Outlook verify-from-config now uses pipeline processor/producer.
   - [x] `outlook add-from-config` now runs through `OutlookAddProcessor`/`OutlookAddProducer`.
   - [x] Location sync commands use `OutlookLocations*` processors/producers.
@@ -55,15 +55,15 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Gmail `sweep-top` now uses pipeline processor/producer.
   - [ ] CLI shim delegates to new domain orchestrator.
 - Schedule:
-  - [x] Plan command uses dedicated pipeline consumers/processors/producers (`schedule_assistant/pipeline.py` + new tests).
+  - [x] Plan command uses dedicated pipeline consumers/processors/producers (`schedule/pipeline.py` + new tests).
 - [x] Update remaining commands (verify/sync/apply) + docs once calendar migration is done.
 
 ## Phase 3 — Desk & Resume (parallel-friendly)
 - Desk:
   - [x] Define consumers for scan/rules YAML, processors for ranking, producers for plan/apply.
-  - [x] Wire CLI shim to new orchestrator (`desk_assistant/pipeline.py`, CLI now delegates to pipeline components).
+  - [x] Wire CLI shim to new orchestrator (`desk/pipeline.py`, CLI now delegates to pipeline components).
 - Resume:
-  - [x] Pipeline module (`resume_assistant/pipeline.py`) with FilterPipeline for chainable transforms.
+  - [x] Pipeline module (`resume/pipeline.py`) with FilterPipeline for chainable transforms.
   - [x] Commands (extract, summarize, render, structure, align, etc.) use pipeline pattern.
 
 ## Phase 4 — Phone & WhatsApp (after core + example apps done)
@@ -85,7 +85,7 @@ so multiple engineers can work in parallel without stepping on each other.
 - [ ] Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
 
 ## Phase 6 — Wi-Fi (optional)
-- [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi_assistant/pipeline.py` + CLI shim).
+- [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi/pipeline.py` + CLI shim).
 
 ## Coordination Notes
 - Each phase should leave CLI behavior unchanged (backward compatible).

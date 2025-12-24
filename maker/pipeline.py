@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Maker pipeline primitives built on shared core scaffolding."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module

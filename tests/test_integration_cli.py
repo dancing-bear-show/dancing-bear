@@ -40,22 +40,22 @@ class IntegrationCLITests(unittest.TestCase):
             cmd = [sys.executable, str(wrapper)] + (args or ["--help"])
         return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
 
-    def test_mail_assistant_underscore_help(self):
-        proc = self._run_wrapper("mail_assistant")
+    def test_mail_underscore_help(self):
+        proc = self._run_wrapper("mail")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("Mail Assistant CLI", proc.stdout)
 
-    def test_mail_assistant_hyphen_help(self):
+    def test_mail_hyphen_help(self):
         proc = self._run_wrapper("mail-assistant")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("Mail Assistant CLI", proc.stdout)
 
-    def test_calendar_assistant_help(self):
+    def test_calendar_help(self):
         proc = self._run_wrapper("calendar-assistant")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("calendar", proc.stdout.lower())
 
-    def test_schedule_assistant_help(self):
+    def test_schedule_help(self):
         proc = self._run_wrapper("schedule-assistant")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("schedule", proc.stdout.lower())

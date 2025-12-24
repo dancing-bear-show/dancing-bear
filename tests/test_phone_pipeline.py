@@ -422,11 +422,13 @@ class PhonePipelineTests(TestCase):
         from phone.device import CertInfo
 
         mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
-        with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
-             patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")), \
-             patch("phone.device.extract_p12_cert_info", return_value=mock_cert), \
-             patch("phone.device.get_device_supervision_status", return_value="true"):
-            request = IdentityVerifyRequest(
+        with (
+            patch("phone.device.read_credentials_ini", return_value=(None, {})),
+            patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # nosec B106
+            patch("phone.device.extract_p12_cert_info", return_value=mock_cert),
+            patch("phone.device.get_device_supervision_status", return_value="true"),
+        ):
+            request = IdentityVerifyRequest(  # nosec B106
                 p12_path="/path/to/cert.p12",
                 p12_pass="pass",
                 creds_profile=None,

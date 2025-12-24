@@ -12,7 +12,7 @@ class TestScheduleLLMCLI(unittest.TestCase):
         root = repo_root()
         sys.path.insert(0, str(root))
         sys.path.insert(0, str(root.parent))
-        import schedule_assistant.llm_cli as mod  # type: ignore
+        import schedule.llm_cli as mod  # type: ignore
 
         return mod
 
@@ -26,7 +26,7 @@ class TestScheduleLLMCLI(unittest.TestCase):
         finally:
             sys.stdout = old
         self.assertEqual(rc, 0)
-        self.assertIn("agentic: schedule_assistant", buf.getvalue())
+        self.assertIn("agentic: schedule", buf.getvalue())
 
     def test_derive_all_outputs_files(self):
         mod = self._import_mod()

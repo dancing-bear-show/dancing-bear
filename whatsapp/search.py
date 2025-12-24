@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """WhatsApp local database helpers (macOS).
 
 Read-only utilities to query the local desktop app database to find
@@ -10,12 +8,14 @@ Notes
 - Timestamps: Apple epoch seconds (since 2001-01-01). Convert by adding
   978307200 to get Unix epoch seconds.
 """
+from __future__ import annotations
 
+import json
 import os
-import time
 import sqlite3
+import time
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple, Dict, Any
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 APPLE_EPOCH_OFFSET = 978307200  # seconds to add to get Unix epoch
@@ -141,8 +141,6 @@ def rows_to_dicts(rows: Iterable[MessageRow]) -> List[Dict[str, Any]]:
 
 
 def format_rows_json(rows: Iterable[MessageRow], indent: int = 2) -> str:
-    import json as _json
-
-    return _json.dumps(rows_to_dicts(rows), ensure_ascii=False, indent=indent)
+    return json.dumps(rows_to_dicts(rows), ensure_ascii=False, indent=indent)
 
 

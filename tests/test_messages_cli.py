@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.fixtures import FakeGmailClient, capture_stdout, make_args
-from mail_assistant.messages_cli.commands import (
+from mail.messages_cli.commands import (
     run_messages_search,
     run_messages_summarize,
     run_messages_reply,
@@ -39,7 +39,7 @@ def _make_messages_client():
 class MessagesCLITests(unittest.TestCase):
     def test_messages_search_lists_candidates(self):
         client = _make_messages_client()
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
             args = make_args(
                 query="from:sender@example.com",
@@ -58,7 +58,7 @@ class MessagesCLITests(unittest.TestCase):
 
     def test_messages_summarize_writes_file(self):
         client = _make_messages_client()
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
             with tempfile.TemporaryDirectory() as td:
                 outp = os.path.join(td, "sum.txt")
@@ -81,7 +81,7 @@ class MessagesCLITests(unittest.TestCase):
 
     def test_messages_reply_dry_run_writes_eml(self):
         client = _make_messages_client()
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
             with tempfile.TemporaryDirectory() as td:
                 eml = os.path.join(td, "reply.eml")
@@ -112,7 +112,7 @@ class MessagesCLITests(unittest.TestCase):
 
     def test_messages_reply_plan_only(self):
         client = _make_messages_client()
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
             args = make_args(
                 id="MSG1",
@@ -146,7 +146,7 @@ class MessagesCLITests(unittest.TestCase):
 
     def test_messages_reply_create_draft(self):
         client = _make_messages_client()
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
 
             args = make_args(
                 id="MSG1",

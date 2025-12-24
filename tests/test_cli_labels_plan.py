@@ -30,8 +30,8 @@ class CLILabelPlanTests(unittest.TestCase):
         cfg_path = write_yaml(desired, filename="labels.yaml")
         args = make_args(config=cfg_path, delete_missing=True)
 
-        with patch("mail_assistant.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-            from mail_assistant.labels.commands import run_labels_plan
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            from mail.labels.commands import run_labels_plan
 
             with capture_stdout() as buf:
                 rc = run_labels_plan(args)

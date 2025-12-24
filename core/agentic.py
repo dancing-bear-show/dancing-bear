@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 """Common helpers for building agentic capsules across assistants."""
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple

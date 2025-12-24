@@ -18,15 +18,15 @@ import importlib
 import sys
 
 APP_MODULES = {
-    "mail": "mail_assistant.llm_cli",
-    "calendar": "calendar_assistant.llm_cli",
-    "schedule": "schedule_assistant.llm_cli",
-    "resume": "resume_assistant.llm_cli",
-    "desk": "desk_assistant.llm_cli",
+    "mail": "mail.llm_cli",
+    "calendar": "calendars.llm_cli",
+    "schedule": "schedule.llm_cli",
+    "resume": "resume.llm_cli",
+    "desk": "desk.llm_cli",
     "maker": "maker.llm_cli",
     "phone": "phone.llm_cli",
     "whatsapp": "whatsapp.llm_cli",
-    "wifi": "wifi_assistant.llm_cli",
+    "wifi": "wifi.llm_cli",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

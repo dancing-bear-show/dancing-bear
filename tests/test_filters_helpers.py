@@ -1,4 +1,4 @@
-import mail_assistant.__main__ as cli
+import mail.__main__ as cli
 
 from tests.fixtures import FakeGmailClient
 

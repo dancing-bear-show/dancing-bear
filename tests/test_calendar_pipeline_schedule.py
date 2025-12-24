@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from calendar_assistant.pipeline import (
+from calendars.pipeline import (
     OutlookScheduleImportProcessor,
     OutlookScheduleImportProducer,
     OutlookScheduleImportRequest,
@@ -32,7 +32,7 @@ from calendar_assistant.pipeline import (
 
 class CalendarExtraPipelineTests(TestCase):
     def _make_schedule_items(self):
-        from calendar_assistant.importer import ScheduleItem
+        from calendars.importer import ScheduleItem
 
         return [
             ScheduleItem(subject="OneOff", start_iso="2025-01-01T10:00:00", end_iso="2025-01-01T11:00:00"),

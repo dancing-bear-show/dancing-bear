@@ -8,10 +8,10 @@ from tests.fixtures import repo_root
 class TestCalendarFamiliarVerbose(unittest.TestCase):
     def test_calendar_familiar_verbose_includes_outlook_steps(self):
         root = repo_root()
-        # Ensure repo root is importable for calendar_assistant
+        # Ensure repo root is importable for calendar
         sys.path.insert(0, str(root))
         sys.path.insert(0, str(root.parent))
-        import calendar_assistant.llm_cli as mod  # type: ignore
+        import calendars.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:

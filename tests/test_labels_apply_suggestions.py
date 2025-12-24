@@ -22,7 +22,7 @@ class LabelsApplySuggestionsTests(unittest.TestCase):
             ]
         }
         cfg_path = write_yaml(cfg, filename="suggestions.yaml")
-        args = make_args(
+        args = make_args(  # nosec B106
             credentials="cred.json",
             token="tok.json",
             config=cfg_path,
@@ -32,8 +32,8 @@ class LabelsApplySuggestionsTests(unittest.TestCase):
             batch_size=2,
         )
 
-        with patch("mail_assistant.gmail_api.GmailClient", ConstructableFakeGmailClient):
-            from mail_assistant.labels.commands import run_labels_apply_suggestions
+        with patch("mail.gmail_api.GmailClient", ConstructableFakeGmailClient):
+            from mail.labels.commands import run_labels_apply_suggestions
 
             with capture_stdout() as buf:
                 rc = run_labels_apply_suggestions(args)

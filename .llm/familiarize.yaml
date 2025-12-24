@@ -1,15 +1,8 @@
-agent_note: Familiarization is read-only; skip running unit tests and skim this capsule plus .llm context files before executing CLI commands.
+agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context.
 meta:
   name: assistants_familiarize
-  version: 1
+  version: 2
 steps:
   - run: ./bin/llm agentic --stdout
-  - run: ./bin/mail-assistant --agentic || true
   - run: ./bin/llm --app calendar agentic --stdout || true
   - run: ./bin/llm --app schedule agentic --stdout || true
-  - run: ./bin/llm --app resume agentic --stdout || true
-  - run: ./bin/llm --app desk agentic --stdout || true
-  - run: ./bin/llm --app maker agentic --stdout || true
-  - run: ./bin/llm --app phone agentic --stdout || true
-  - run: ./bin/llm --app wifi agentic --stdout || true
-  - run: ./bin/llm --app whatsapp agentic --stdout || true

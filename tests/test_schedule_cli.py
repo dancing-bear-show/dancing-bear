@@ -1,4 +1,4 @@
-# Lightweight smoke tests for schedule_assistant CLI
+# Lightweight smoke tests for schedule CLI
 
 import sys
 import unittest
@@ -10,14 +10,14 @@ from tests.fixtures import bin_path, has_pyyaml, repo_root, run
 class ScheduleCLITests(unittest.TestCase):
 
     def test_help_via_module_invocation(self):
-        proc = run([sys.executable, '-m', 'schedule_assistant', '--help'])
+        proc = run([sys.executable, '-m', 'schedule', '--help'])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Schedule Assistant CLI', proc.stdout)
 
     def test_help_via_executable_script(self):
         root = repo_root()
-        wrapper = bin_path('schedule_assistant')
-        self.assertTrue(wrapper.exists(), 'bin/schedule_assistant not found')
+        wrapper = bin_path('schedule')
+        self.assertTrue(wrapper.exists(), 'bin/schedule not found')
         proc = run([sys.executable, str(wrapper), '--help'], cwd=str(root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Schedule Assistant CLI', proc.stdout)
@@ -33,7 +33,7 @@ class ScheduleCLITests(unittest.TestCase):
         import tempfile
         import textwrap
         root = repo_root()
-        wrapper = bin_path('schedule_assistant')
+        wrapper = bin_path('schedule')
         with tempfile.TemporaryDirectory() as td:
             plan_path = Path(td) / 'plan.yaml'
             plan_yaml = textwrap.dedent(
@@ -58,9 +58,9 @@ class ScheduleCLITests(unittest.TestCase):
             self.assertIn('[DRY-RUN] Would apply 2 events', proc.stdout)
 
     def test_agentic_flag(self):
-        proc = run([sys.executable, str(bin_path('schedule_assistant')), '--agentic'])
+        proc = run([sys.executable, str(bin_path('schedule')), '--agentic'])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn('agentic: schedule_assistant', proc.stdout)
+        self.assertIn('agentic: schedule', proc.stdout)
 
 
 if __name__ == "__main__":

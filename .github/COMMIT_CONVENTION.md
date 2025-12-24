@@ -31,14 +31,14 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 
 Use the assistant or module name:
 
-- `mail` - mail_assistant
-- `calendar` - calendar_assistant
-- `schedule` - schedule_assistant
+- `mail` - mail
+- `calendar` - calendars
+- `schedule` - schedule
 - `phone` - phone assistant
-- `resume` - resume_assistant
+- `resume` - resume
 - `whatsapp` - whatsapp assistant
-- `wifi` - wifi_assistant
-- `desk` - desk_assistant
+- `wifi` - wifi
+- `desk` - desk
 - `core` - core/ shared modules
 - `tests` - test infrastructure
 - `ci` - GitHub Actions, workflows

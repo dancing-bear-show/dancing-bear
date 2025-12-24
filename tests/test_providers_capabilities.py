@@ -3,9 +3,9 @@ import unittest
 
 class TestProviderCapabilities(unittest.TestCase):
     def test_gmail_capabilities(self):
-        from mail_assistant.providers.gmail import GmailProvider
+        from mail.providers.gmail import GmailProvider
 
-        p = GmailProvider(credentials_path="c.json", token_path="t.json")
+        p = GmailProvider(credentials_path="c.json", token_path="t.json")  # nosec B106
         caps = p.capabilities()
         self.assertIn("labels", caps)
         self.assertIn("filters", caps)
@@ -14,7 +14,7 @@ class TestProviderCapabilities(unittest.TestCase):
         self.assertIn("signatures", caps)
 
     def test_outlook_capabilities(self):
-        from mail_assistant.providers.outlook import OutlookProvider
+        from mail.providers.outlook import OutlookProvider
 
         p = OutlookProvider(client_id="dummy", tenant="consumers")
         caps = p.capabilities()

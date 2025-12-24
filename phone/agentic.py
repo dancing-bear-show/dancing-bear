@@ -1,9 +1,8 @@
+"""Agentic capsule builders for the Phone Assistant CLI."""
 from __future__ import annotations
 
-"""Agentic capsule builders for the Phone Assistant CLI."""
-
 from functools import lru_cache
-from typing import List
+from typing import List, Tuple
 
 from core.agentic import (
     build_capsule as _build_capsule,

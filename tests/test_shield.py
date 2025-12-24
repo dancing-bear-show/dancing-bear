@@ -1,6 +1,6 @@
 import unittest
 
-from mail_assistant.utils.shield import mask_value
+from mail.utils.shield import mask_value
 
 
 class ShieldTests(unittest.TestCase):

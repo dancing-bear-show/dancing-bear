@@ -1,11 +1,10 @@
+"""WhatsApp pipeline primitives built on shared core scaffolding."""
 from __future__ import annotations
 
-"""WhatsApp pipeline primitives built on shared core scaffolding."""
-
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import BaseProducer, Processor, RequestConsumer, ResultEnvelope
 
 from .search import MessageRow, format_rows_json, format_rows_text, search_messages
 
@@ -24,14 +23,8 @@ class SearchRequest:
     emit_json: bool = False
 
 
-class SearchRequestConsumer(Consumer[SearchRequest]):
-    """Return the pre-parsed SearchRequest (keeps pipeline structure uniform)."""
-
-    def __init__(self, request: SearchRequest) -> None:
-        self._request = request
-
-    def consume(self) -> SearchRequest:
-        return self._request
+# Type alias for backward compatibility
+SearchRequestConsumer = RequestConsumer[SearchRequest]
 
 
 @dataclass
@@ -72,14 +65,11 @@ class SearchProcessor(Processor[SearchRequest, ResultEnvelope[SearchResult]]):
             )
 
 
-class SearchProducer(Producer[ResultEnvelope[SearchResult]]):
+class SearchProducer(BaseProducer):
     """Output search results to stdout (text or JSON)."""
 
-    def produce(self, result: ResultEnvelope[SearchResult]) -> None:
-        if not result.ok() or result.payload is None:
-            return  # errors handled by caller
-        sr = result.payload
-        if sr.emit_json:
-            print(format_rows_json(sr.rows))
+    def _produce_success(self, payload: SearchResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.emit_json:
+            print(format_rows_json(payload.rows))
         else:
-            print(format_rows_text(sr.rows))
+            print(format_rows_text(payload.rows))
