@@ -4,7 +4,7 @@ Push gold/silver summary CSVs into an Excel workbook (OneDrive/SharePoint) via M
 Requires an Outlook/Graph profile (client_id, tenant, token cache) to acquire tokens with MSAL.
 
 Usage:
-  python -m mail.utils.metals_excel \
+  python -m metals.excel \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
     --silver-csv out/metals/silver_summary.csv --silver-sheet Silver \

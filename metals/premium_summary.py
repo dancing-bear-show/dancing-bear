@@ -8,7 +8,7 @@ emits:
 Also prints a concise text summary.
 
 Usage:
-  python -m mail.utils.metals_premium_summary \
+  python -m metals.premium_summary \
     --silver out/metals/premium_silver.csv \
     --gold out/metals/premium_gold.csv \
     --out-summary out/metals/premium_overview_summary.csv \
@@ -153,14 +153,18 @@ def run(silver_csv: Optional[str], gold_csv: Optional[str], out_summary: str, ou
         "avg_cost_per_oz", "avg_spot_per_oz", "avg_premium_per_oz",
     ]]
     for mo, b in sorted(ms.items()):
-        spent = b["spent"]; spot = b["spot"]; oz = b["total_oz"]
+        spent = b["spent"]
+        spot = b["spot"]
+        oz = b["total_oz"]
         prem = spent - spot
         mrows.append([
             mo, "silver", int(b["orders"]), f"{oz:.3f}", f"{spent:.2f}", f"{spot:.2f}", f"{prem:.2f}",
             f"{(spent/oz) if oz else 0:.2f}", f"{(spot/oz) if oz else 0:.2f}", f"{(prem/oz) if oz else 0:.2f}",
         ])
     for mo, b in sorted(mg.items()):
-        spent = b["spent"]; spot = b["spot"]; oz = b["total_oz"]
+        spent = b["spent"]
+        spot = b["spot"]
+        oz = b["total_oz"]
         prem = spent - spot
         mrows.append([
             mo, "gold", int(b["orders"]), f"{oz:.3f}", f"{spent:.2f}", f"{spot:.2f}", f"{prem:.2f}",

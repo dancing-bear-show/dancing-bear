@@ -183,7 +183,9 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                                     def to24(x: str) -> str:
                                         x = x.strip().lower().replace(' ', '')
                                         mm = _re.match(r'^(\d{1,2})(?::(\d{2}))?((?:a\.?m\.?|p\.?m\.?))$', x)
-                                        hh = int(mm.group(1)); mi = int(mm.group(2) or 0); ap = mm.group(3)
+                                        hh = int(mm.group(1))
+                                        mi = int(mm.group(2) or 0)
+                                        ap = mm.group(3)
                                         amp = ap[0]  # 'a' or 'p'
                                         if amp == 'p' and hh < 12:
                                             hh += 12
@@ -240,7 +242,9 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                 def to24(x: str) -> str:
                     x = x.strip().lower().replace(' ', '')
                     mm = re.match(r'^(\d{1,2})(?::(\d{2}))?([ap])\.m\.$', x)
-                    hh = int(mm.group(1)); mi = int(mm.group(2) or 0); ap = mm.group(3)
+                    hh = int(mm.group(1))
+                    mi = int(mm.group(2) or 0)
+                    ap = mm.group(3)
                     if ap == 'p' and hh < 12: hh += 12
                     if ap == 'a' and hh == 12: hh = 0
                     return f"{hh:02d}:{mi:02d}"
@@ -445,11 +449,14 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                     m=re.match(RE_TIME, t)
                     if not m:
                         return None
-                    hh=int(m.group(1)); mm=int(m.group(2) or 0)
+                    hh = int(m.group(1))
+                    mm = int(m.group(2) or 0)
                     if suf is None:
-                        suf='pm' if hh>=7 else 'am'
-                    if suf.startswith('p') and hh<12: hh+=12
-                    if suf.startswith('a') and hh==12: hh=0
+                        suf = 'pm' if hh >= 7 else 'am'
+                    if suf.startswith('p') and hh < 12:
+                        hh += 12
+                    if suf.startswith('a') and hh == 12:
+                        hh = 0
                     return f"{hh:02d}:{mm:02d}"
                 left_suf = 'am' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
                 right_suf = 'pm' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
@@ -494,11 +501,14 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 m=re.match(RE_TIME, t)
                 if not m:
                     return None
-                hh=int(m.group(1)); mm=int(m.group(2) or 0)
+                hh = int(m.group(1))
+                mm = int(m.group(2) or 0)
                 if suf is None:
-                    suf='pm' if hh>=7 else 'am'
-                if suf.startswith('p') and hh<12: hh+=12
-                if suf.startswith('a') and hh==12: hh=0
+                    suf = 'pm' if hh >= 7 else 'am'
+                if suf.startswith('p') and hh < 12:
+                    hh += 12
+                if suf.startswith('a') and hh == 12:
+                    hh = 0
                 return f"{hh:02d}:{mm:02d}"
             left_suf = 'am' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
             right_suf = 'pm' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
@@ -570,7 +580,8 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                     m = re.match(RE_TIME, t)
                     if not m:
                         return None
-                    hh = int(m.group(1)); mm = int(m.group(2) or 0)
+                    hh = int(m.group(1))
+                    mm = int(m.group(2) or 0)
                     if suf is None:
                         suf = 'pm' if hh >= 7 else 'am'
                     if suf.startswith('p') and hh < 12:
@@ -580,7 +591,8 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                     return f"{hh:02d}:{mm:02d}"
                 left = 'am' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
                 right = 'pm' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-                st = to24(seg[0], left); en = to24(seg[1], right)
+                st = to24(seg[0], left)
+                en = to24(seg[1], right)
                 if st and en:
                     out.append((st, en))
             return out
@@ -598,7 +610,8 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 if first_row:
                     headers = [strip_tags(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
             # Find Day and Leisure indices
-            day_idx = None; leisure_idx = None
+            day_idx = None
+            leisure_idx = None
             for i, h in enumerate(headers):
                 hl = h.lower()
                 if day_idx is None and 'day' in hl:

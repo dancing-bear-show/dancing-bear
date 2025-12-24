@@ -10,7 +10,7 @@ Heuristics:
 - Focus: only emit GOLD rows for RCM (skip silver).
 
 Usage:
-  python -m mail.utils.outlook_metals_costs \
+  python -m metals.outlook_costs \
     --profile outlook_personal \
     --out out/metals/costs.csv
 """
@@ -42,7 +42,8 @@ def _strip_html(s: str) -> str:
 
 
 def _extract_order_id(subject: str, body_text: str) -> Optional[str]:
-    s = subject or ""; b = body_text or ""
+    s = subject or ""
+    b = body_text or ""
     m = re.search(r"(?i)\bPO\d{5,}\b", s) or re.search(r"(?i)\bPO\d{5,}\b", b)
     return m.group(0) if m else None
 
@@ -99,7 +100,8 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
             items.append({'metal': metal or 'gold', 'unit_oz': 0.1, 'qty': qty, 'idx': idx})
         for m in pat_frac.finditer(ln):
             try:
-                num = float(m.group(1) or m.group(4)); den = float(m.group(2) or m.group(5) or 1)
+                num = float(m.group(1) or m.group(4))
+                den = float(m.group(2) or m.group(5) or 1)
             except Exception:
                 continue
             oz = num / max(den, 1.0)
@@ -213,12 +215,14 @@ def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
                     allm = list(money_pat.finditer(ln))
                     found = allm[-1] if allm else None
                 if found:
-                    cur = found.group(1).upper(); amt = parse_amount(found.group(2))
+                    cur = found.group(1).upper()
+                    amt = parse_amount(found.group(2))
                     return cur, amt
     best: Optional[Tuple[str, float]] = None
     for ln in lines:
         for m in money_pat.finditer(ln):
-            cur = m.group(1).upper(); amt = parse_amount(m.group(2))
+            cur = m.group(1).upper()
+            amt = parse_amount(m.group(2))
             if (best is None) or (amt > best[1]):
                 best = (cur, amt)
     return best
@@ -409,7 +413,9 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
 
     out_rows: List[Dict[str, str | float]] = []
     for oid, rec in by_order.items():
-        sub = rec['sub']; body = rec['body']; recv = rec['recv']
+        sub = rec['sub']
+        body = rec['body']
+        recv = rec['recv']
         items, lines = _extract_line_items(body)
         # Trim disclaimer/tail sections that contain non-item amounts (e.g., $500 free-shipping thresholds)
         cut_at = None
@@ -428,7 +434,8 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
             m = (it.get('metal') or metal_guess or '').lower()
             if m not in oz_by_metal:
                 continue
-            uoz = float(it.get('unit_oz') or 0.0); qty = float(it.get('qty') or 1.0)
+            uoz = float(it.get('unit_oz') or 0.0)
+            qty = float(it.get('qty') or 1.0)
             oz_by_metal[m] += uoz * qty
             units = units_by_metal[m]
             units[uoz] = units.get(uoz, 0.0) + qty
