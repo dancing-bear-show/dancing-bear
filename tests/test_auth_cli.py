@@ -134,7 +134,7 @@ class AuthCLITests(unittest.TestCase):
             status_code = 200
             text = "OK"
 
-        def _get(url, headers=None):
+        def _get(url, headers=None, **kwargs):
             return _Resp()
 
         requests.get = _get

@@ -531,8 +531,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from mail.utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
-    except Exception:
-        pass  # noqa: S110 - best-effort masking
+    except Exception:  # noqa: S110 - best-effort masking
+        pass
 
     # Build parser and add agentic flags
     parser = app.build_parser()

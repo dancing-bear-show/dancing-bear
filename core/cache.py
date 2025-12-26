@@ -80,8 +80,8 @@ class ConfigCacheMixin:
         try:
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, ensure_ascii=False)
-        except Exception:
-            pass  # noqa: S110 - non-fatal cache write
+        except Exception:  # noqa: S110 - non-fatal cache write
+            pass
 
     def cfg_clear(self) -> None:
         """Remove all cached config files for this provider."""
@@ -93,5 +93,5 @@ class ConfigCacheMixin:
         try:
             if os.path.isdir(config_dir):
                 shutil.rmtree(config_dir)
-        except Exception:
-            pass  # noqa: S110 - non-fatal cache clear
+        except Exception:  # noqa: S110 - non-fatal cache clear
+            pass

@@ -243,8 +243,8 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
             stderr=subprocess.DEVNULL,
         )
         subject = subj_out.decode().strip().replace("subject=", "")
-    except Exception:
-        pass  # noqa: S110 - cert parsing failure
+    except Exception:  # noqa: S110 - cert parsing failure
+        pass
 
     try:
         iss_out = subprocess.check_output(  # noqa: S603 B607
@@ -253,8 +253,8 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
             stderr=subprocess.DEVNULL,
         )
         issuer = iss_out.decode().strip().replace("issuer=", "")
-    except Exception:
-        pass  # noqa: S110 - cert parsing failure
+    except Exception:  # noqa: S110 - cert parsing failure
+        pass
 
     return CertInfo(subject=subject, issuer=issuer)
 
@@ -273,8 +273,8 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
         out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # noqa: S603
         if "Supervised:" in out:
             return out.split(":", 1)[1].strip()
-    except Exception:
-        pass  # noqa: S110 - cfgutil query failure
+    except Exception:  # noqa: S110 - cfgutil query failure
+        pass
 
     return None
 

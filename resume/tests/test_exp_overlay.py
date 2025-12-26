@@ -73,8 +73,8 @@ experience:
             finally:
                 try:
                     cfg.unlink()
-                except Exception:
-                    pass  # noqa: S110 - test cleanup
+                except Exception:  # noqa: S110 - test cleanup
+                    pass
 
 
 if __name__ == "__main__":
