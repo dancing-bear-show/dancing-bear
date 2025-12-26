@@ -18,7 +18,8 @@ def _try_load_from_paths(paths: Tuple[Path, ...]) -> Optional[Dict[str, Any]]:
             try:
                 return read_yaml_or_json(str(p))
             except Exception:
-                pass  # nosec B110
+                # nosec B110 - skip malformed/unreadable files, try next path
+                pass
     return None
 
 
