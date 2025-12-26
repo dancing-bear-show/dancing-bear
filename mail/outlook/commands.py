@@ -576,7 +576,7 @@ def run_outlook_auth_validate(args) -> int:
         return 4
 
     # Ping /me to confirm validity
-    r = requests.get(f"{GRAPH_API_URL}/me", headers={"Authorization": f"Bearer {res['access_token']}"}, timeout=30)
+    r = requests.get(f"{GRAPH_API_URL}/me", headers={"Authorization": f"Bearer {res['access_token']}"}, timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code == 200:
         print("Outlook token valid.")
         return 0
