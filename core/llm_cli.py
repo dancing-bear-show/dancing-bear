@@ -163,6 +163,7 @@ def _default_policies() -> str:
 
 
 def _familiar_content(verbose: bool, compact: bool = False) -> str:
+    # Version history: v1=initial, v2=calendar/schedule cmds, v3=--compact flag
     if compact:
         return (
             "agent_note: Read-only familiarization. Open heavy files only when needed.\n"
@@ -174,10 +175,6 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
             "steps:\n"
             "  - run: ./bin/llm agentic --stdout\n"
         )
-    # Version history:
-    #   v1: initial familiarize capsule
-    #   v2: added calendar/schedule core commands
-    #   v3: added --compact flag support
     base = (
         "agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context.\n"
         "meta:\n"

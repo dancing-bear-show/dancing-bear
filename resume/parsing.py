@@ -822,7 +822,12 @@ def _pdf_extract_experience(exp_lines: List[str]) -> List[Dict[str, Any]]:
 
 def _pdf_extract_education(edu_lines: List[str]) -> List[Dict[str, str]]:
     """Extract education entries from PDF lines."""
-    return [e for ln in edu_lines if (e := _parse_education_entry(ln))]
+    entries = []
+    for ln in edu_lines:
+        entry = _parse_education_entry(ln)
+        if entry:
+            entries.append(entry)
+    return entries
 
 
 def parse_resume_pdf(path: str) -> Dict[str, Any]:
