@@ -46,7 +46,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
         nxt = url
         ids: List[str] = []
         for _ in range(max(1, int(pages))):
-            r = requests.get(nxt, headers=cli._headers_search(), timeout=30)
+            r = requests.get(nxt, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
             r.raise_for_status()
             data = r.json()
             vals = data.get("value", [])

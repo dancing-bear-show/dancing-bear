@@ -67,7 +67,7 @@ def _get_used_range_values(client: OutlookClient, drive_id: str, item_id: str, s
     import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     url = f"{base}/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=client._headers(), timeout=30)
+    r = requests.get(url, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code >= 400:
         # If sheet doesn't exist, return empty
         return []
@@ -80,14 +80,14 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
     Returns (new_drive_id, new_item_id)."""
     import requests  # type: ignore
     # Discover parent
-    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers(), timeout=30).json()
+    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
     parent = ((meta or {}).get("parentReference") or {})
     parent_id = parent.get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
     copy_url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/copy"
-    resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body), timeout=30)
+    resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
     if resp.status_code not in (202, 200):
         raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
     # Poll the monitor URL until finished
@@ -100,7 +100,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
         except Exception:
             raise RuntimeError("Copy returned no monitor location and no body")
     for _ in range(60):
-        st = requests.get(loc, headers=client._headers(), timeout=30).json()
+        st = requests.get(loc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
         # When complete, final resource location is in 'resourceId' or 'resourceLocation'
         if st.get("status") in ("succeeded", "completed"):
             rid = st.get("resourceId")
@@ -109,7 +109,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
             rloc = st.get("resourceLocation")
             if rloc:
                 # GET the item to fetch id
-                item = requests.get(rloc, headers=client._headers(), timeout=30).json()
+                item = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
                 return drive_id, item.get("id")
         time.sleep(1.5)
     raise RuntimeError("Timed out waiting for copy to complete")
@@ -120,7 +120,7 @@ def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Try to add; if exists, just continue
     add_url = f"{base}/worksheets/add"
-    requests.post(add_url, headers=client._headers(), data=json.dumps({"name": sheet}), timeout=30)
+    requests.post(add_url, headers=client._headers(), data=json.dumps({"name": sheet}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
@@ -139,7 +139,7 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     end_col = _col_letter(cols)
     addr = f"A1:{end_col}{rows}"
     url = f"{base}/worksheets('{sheet}')/range(address='{addr}')"
-    r = requests.patch(url, headers=client._headers(), data=json.dumps({"values": values}), timeout=30)
+    r = requests.patch(url, headers=client._headers(), data=json.dumps({"values": values}), timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code >= 400:
         raise RuntimeError(f"Failed writing sheet {sheet}: {r.status_code} {r.text}")
 

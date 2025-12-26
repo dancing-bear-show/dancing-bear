@@ -16,7 +16,7 @@ def _headers(client: OutlookClient) -> Dict[str, str]:
 def _list_sheets(client: OutlookClient, drive_id: str, item_id: str) -> List[Dict[str, str]]:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets?$select=id,name,position,visibility"
-    r = requests.get(url, headers=_headers(client), timeout=30)
+    r = requests.get(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
     r.raise_for_status()
     return (r.json() or {}).get("value", [])
 
@@ -24,13 +24,13 @@ def _list_sheets(client: OutlookClient, drive_id: str, item_id: str) -> List[Dic
 def _delete_sheet(client: OutlookClient, drive_id: str, item_id: str, name: str) -> None:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{name}')"
-    requests.delete(url, headers=_headers(client), timeout=30)
+    requests.delete(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def _list_charts(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> List[Dict[str, str]]:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts?$select=id,name"
-    r = requests.get(url, headers=_headers(client), timeout=30)
+    r = requests.get(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code >= 400:
         return []
     return (r.json() or {}).get("value", [])
@@ -39,22 +39,22 @@ def _list_charts(client: OutlookClient, drive_id: str, item_id: str, sheet: str)
 def _set_chart_title(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, title: str) -> None:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/title"
-    requests.patch(url, headers=_headers(client), data=json.dumps({"text": title, "visible": True}), timeout=30)
+    requests.patch(url, headers=_headers(client), data=json.dumps({"text": title, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def _set_axis_titles(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, category: Optional[str], value: Optional[str]) -> None:
     import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/axes"
     if category:
-        requests.patch(f"{base}/categoryAxis/title", headers=_headers(client), data=json.dumps({"text": category, "visible": True}), timeout=30)
+        requests.patch(f"{base}/categoryAxis/title", headers=_headers(client), data=json.dumps({"text": category, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
     if value:
-        requests.patch(f"{base}/valueAxis/title", headers=_headers(client), data=json.dumps({"text": value, "visible": True}), timeout=30)
+        requests.patch(f"{base}/valueAxis/title", headers=_headers(client), data=json.dumps({"text": value, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def _used_rows(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> int:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=_headers(client), timeout=30)
+    r = requests.get(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code >= 400:
         return 0
     vals = (r.json() or {}).get('values') or []
@@ -64,7 +64,7 @@ def _used_rows(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -
 def _set_chart_data(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, addr: str) -> None:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/setData"
-    requests.post(url, headers=_headers(client), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=30)
+    requests.post(url, headers=_headers(client), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
