@@ -1,11 +1,10 @@
 # bin/ wrapper definitions
 # Regenerate wrappers with: make bin-wrappers
 #
-# Types:
-#   bash: exec "$SCRIPT_DIR/<base>" <args> "$@"
-#   python: from <module>.__main__ import main
-#
-# Wrappers with custom logic are NOT generated; they're listed in `manual` for reference.
+# Only Python entry points are generated. Use the CLI directly for subcommands:
+#   ./bin/mail filters export       (not gmail-filters-export)
+#   ./bin/mail outlook rules.sync   (not outlook-rules-sync)
+#   ./bin/phone plan                (not ios-plan)
 
 python:
   # Primary entry points (short names)
@@ -25,49 +24,6 @@ python:
   calendar-assistant: {module: calendars, doc: "Legacy alias for bin/calendar."}
   schedule-assistant: {module: schedule, doc: "Legacy alias for bin/schedule."}
   wifi-assistant: {module: wifi, doc: "Legacy alias for bin/wifi."}
-
-bash:
-  # Gmail wrappers -> mail
-  gmail-auth: {base: mail, args: "auth"}
-  gmail-filters-export: {base: mail, args: "filters export"}
-  gmail-filters-impact: {base: mail, args: "filters impact"}
-  gmail-filters-sweep: {base: mail, args: "filters sweep"}
-  gmail-filters-sync: {base: mail, args: "filters sync"}
-  gmail-labels-export: {base: mail, args: "labels export"}
-  gmail-labels-sync: {base: mail, args: "labels sync"}
-
-  # Outlook wrappers -> mail
-  outlook-auth-device-code: {base: mail, args: "outlook auth.device-code"}
-  outlook-auth-ensure: {base: mail, args: "outlook auth.ensure"}
-  outlook-auth-poll: {base: mail, args: "outlook auth.poll"}
-  outlook-auth-validate: {base: mail, args: "outlook auth.validate"}
-  outlook-rules-list: {base: mail, args: "outlook rules.list"}
-  outlook-rules-export: {base: mail, args: "outlook rules.export"}
-  outlook-rules-plan: {base: mail, args: "outlook rules.plan"}
-  outlook-rules-sweep: {base: mail, args: "outlook rules.sweep"}
-  outlook-rules-sync: {base: mail, args: "outlook rules.sync"}
-  outlook-rules-delete: {base: mail, args: "outlook rules.delete"}
-  outlook-categories-list: {base: mail, args: "outlook categories.list"}
-  outlook-categories-export: {base: mail, args: "outlook categories.export"}
-  outlook-categories-sync: {base: mail, args: "outlook categories.sync"}
-  outlook-folders-sync: {base: mail, args: "outlook folders.sync"}
-  outlook-calendar-add: {base: mail, args: "outlook calendar.add"}
-  outlook-calendar-add-recurring: {base: mail, args: "outlook calendar.add-recurring"}
-  outlook-calendar-add-from-config: {base: mail, args: "outlook calendar.add-from-config"}
-
-  # iOS/Phone wrappers -> phone
-  ios-analyze: {base: phone, args: "analyze"}
-  ios-auto-folders: {base: phone, args: "auto-folders"}
-  ios-checklist: {base: phone, args: "checklist"}
-  ios-export: {base: phone, args: "export-device"}
-  ios-plan: {base: phone, args: "plan"}
-  ios-prune: {base: phone, args: "prune"}
-  ios-unused: {base: phone, args: "unused"}
-  ios-profile-build: {base: phone, args: "profile build"}
-  ios-manifest-create: {base: phone, args: "manifest create"}
-  ios-manifest-build-profile: {base: phone, args: "manifest build-profile"}
-  ios-manifest-from-device: {base: phone, args: "manifest from-device"}
-  ios-manifest-install: {base: phone, args: "manifest install"}
 
 # Manual scripts (not generated - have custom logic)
 manual:
