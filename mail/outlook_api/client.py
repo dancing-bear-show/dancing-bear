@@ -11,6 +11,7 @@ from core.cache import ConfigCacheMixin
 from core.constants import (
     GRAPH_API_URL,
     GRAPH_API_SCOPES,
+    GRAPH_DEFAULT_SCOPE,
     DEFAULT_REQUEST_TIMEOUT,
 )
 
@@ -104,7 +105,7 @@ class OutlookClientBase(ConfigCacheMixin):
         self._token: Optional[Dict[str, Any]] = None
         self._cache: Optional["msal.SerializableTokenCache"] = None
         self._app: Optional["msal.PublicClientApplication"] = None
-        self._scopes: List[str] = ["https://graph.microsoft.com/.default"]
+        self._scopes: List[str] = [GRAPH_DEFAULT_SCOPE]
         self.GRAPH = GRAPH
 
     # -------------------- Auth --------------------

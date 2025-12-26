@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from .context import OutlookContext
-from core.constants import DEFAULT_REQUEST_TIMEOUT
+from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL
 
 # Backwards-compat alias
 _REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
@@ -222,7 +222,7 @@ class OutlookService:
         return self.client._headers()
 
     def graph_base(self) -> str:
-        return getattr(self.client, "GRAPH", "https://graph.microsoft.com/v1.0")
+        return getattr(self.client, "GRAPH", GRAPH_API_URL)
 
     # Calendar view pagination + deletion helpers
     def list_calendar_view(

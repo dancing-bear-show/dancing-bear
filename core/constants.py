@@ -62,6 +62,7 @@ def credential_ini_paths() -> list[str]:
 # -----------------------------------------------------------------------------
 
 GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
+GRAPH_DEFAULT_SCOPE = "https://graph.microsoft.com/.default"
 
 GRAPH_API_SCOPES = [
     "Mail.ReadWrite",
