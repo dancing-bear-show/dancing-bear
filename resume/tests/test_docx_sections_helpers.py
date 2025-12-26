@@ -4,7 +4,6 @@ These tests focus on helper methods that can be tested without a full DOCX docum
 Mock objects are used where document interaction is needed.
 """
 import unittest
-from unittest.mock import Mock, MagicMock
 
 from resume.docx_sections import (
     BulletRenderer,
