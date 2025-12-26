@@ -283,8 +283,8 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 if not payload.dry_run:
                     try:
                         client.create_filter(criteria, action)
-                    except Exception:
-                        pass  # noqa: S110 - filter creation failure logged elsewhere
+                    except Exception:  # noqa: S110 - filter creation failure logged elsewhere
+                        pass
                 created += 1
 
             deleted = 0
@@ -296,8 +296,8 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                             try:
                                 client.delete_filter(rid)
                                 deleted += 1
-                            except Exception:
-                                pass  # noqa: S110 - filter deletion failure
+                            except Exception:  # noqa: S110 - filter deletion failure
+                                pass
                         else:
                             deleted += 1
 
@@ -417,8 +417,8 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
             if payload.clear_cache:
                 try:
                     client.cfg_clear()
-                except Exception:
-                    pass  # noqa: S110 - non-critical cache clear
+                except Exception:  # noqa: S110 - non-critical cache clear
+                    pass
 
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
@@ -485,8 +485,8 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
                         try:
                             client.move_message(mid, dest_id)
                             total_moves += 1
-                        except Exception:
-                            pass  # noqa: S110 - individual move failure
+                        except Exception:  # noqa: S110 - individual move failure
+                            pass
 
             return ResultEnvelope(
                 status="success",
@@ -587,8 +587,8 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
                         color = entry.get("color") if isinstance(entry, dict) else None
                         client.create_label(name, color=color)
                         created += 1
-                    except Exception:
-                        pass  # noqa: S110 - category creation failure
+                    except Exception:  # noqa: S110 - category creation failure
+                        pass
 
             return ResultEnvelope(
                 status="success",
@@ -772,8 +772,8 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
                             no_reminder=payload.no_reminder,
                         )
                         created += 1
-                    except Exception:
-                        pass  # noqa: S110 - recurring event creation failure
+                    except Exception:  # noqa: S110 - recurring event creation failure
+                        pass
                 else:
                     start_iso = ev.get("start")
                     end_iso = ev.get("end")
@@ -793,8 +793,8 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
                             no_reminder=payload.no_reminder,
                         )
                         created += 1
-                    except Exception:
-                        pass  # noqa: S110 - event creation failure
+                    except Exception:  # noqa: S110 - event creation failure
+                        pass
 
             return ResultEnvelope(
                 status="success",

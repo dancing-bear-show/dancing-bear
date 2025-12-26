@@ -120,24 +120,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             _set_chart_title(client, drive, item, profit, ch['id'], 'Portfolio PnL (CAD)')
             _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$')
             _set_chart_data(client, drive, item, profit, ch['id'], f"J2:J{rows}")
-        except Exception:
-            pass  # noqa: S110 - non-critical chart update
+        except Exception:  # noqa: S110 - non-critical chart update
+            pass
         if len(charts) > 1:
             try:
                 ch = charts[1]
                 _set_chart_title(client, drive, item, profit, ch['id'], 'Gold: Spot vs Avg (C$/oz)')
                 _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
                 _set_chart_data(client, drive, item, profit, ch['id'], f"C2:D{rows}")
-            except Exception:
-                pass  # noqa: S110 - non-critical chart update
+            except Exception:  # noqa: S110 - non-critical chart update
+                pass
         if len(charts) > 2:
             try:
                 ch = charts[2]
                 _set_chart_title(client, drive, item, profit, ch['id'], 'Silver: Spot vs Avg (C$/oz)')
                 _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
                 _set_chart_data(client, drive, item, profit, ch['id'], f"G2:H{rows}")
-            except Exception:
-                pass  # noqa: S110 - non-critical chart update
+            except Exception:  # noqa: S110 - non-critical chart update
+                pass
 
     print('tidied workbook charts and sheets')
     return 0

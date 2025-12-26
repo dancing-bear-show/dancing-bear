@@ -95,8 +95,8 @@ class SignaturesExportProcessor(Processor[SignaturesExportPayload, ResultEnvelop
                     ios_path = payload.assets_dir / "ios_signature.html"
                     ios_path.write_text(prim["signature_html"], encoding="utf-8")
                     result.ios_asset_path = ios_path
-            except Exception:
-                pass  # noqa: S110 - no Gmail credentials
+            except Exception:  # noqa: S110 - no Gmail credentials
+                pass
 
             return ResultEnvelope(status="success", payload=result)
         except Exception as exc:
@@ -153,8 +153,8 @@ class SignaturesSyncProcessor(Processor[SignaturesSyncPayload, ResultEnvelope[Si
                         else:
                             client.update_signature(email, html_final)
                             result.gmail_updates.append(f"Updated {email}")
-            except Exception:
-                pass  # noqa: S110 - no Gmail credentials
+            except Exception:  # noqa: S110 - no Gmail credentials
+                pass
 
             # iOS asset
             ios = sigs.get("ios")

@@ -21,7 +21,7 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
-from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
 
 
@@ -401,7 +401,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     # Add one day to include end
     p2 = to_unix(end_date) + 24 * 3600
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={p1}&period2={p2}&interval=1d"
-    r = requests.get(url, timeout=30)
+    r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
     try:
         data = r.json() or {}
     except Exception:
@@ -707,12 +707,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         _set_sheet_position(client, new_did, new_iid, sum_name, 0)
         _set_sheet_position(client, new_did, new_iid, gold_name, 1)
         _set_sheet_position(client, new_did, new_iid, silver_name, 2)
-    except Exception:
-        pass  # noqa: S110 - non-critical sheet positioning
+    except Exception:  # noqa: S110 - non-critical sheet positioning
+        pass
     try:
         _set_sheet_visibility(client, new_did, new_iid, all_name, False)
-    except Exception:
-        pass  # noqa: S110 - non-critical sheet visibility
+    except Exception:  # noqa: S110 - non-critical sheet visibility
+        pass
 
     print("created consolidated workbook:", new_did, new_iid, "(Summary, Gold, Silver; All hidden)")
     return 0

@@ -80,7 +80,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
     Returns (new_drive_id, new_item_id)."""
     import requests  # type: ignore
     # Discover parent
-    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers()).json(, timeout=30)
+    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers(), timeout=30).json()
     parent = ((meta or {}).get("parentReference") or {})
     parent_id = parent.get("id")
     body = {"name": new_name}
@@ -100,7 +100,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
         except Exception:
             raise RuntimeError("Copy returned no monitor location and no body")
     for _ in range(60):
-        st = requests.get(loc, headers=client._headers()).json(, timeout=30)
+        st = requests.get(loc, headers=client._headers(), timeout=30).json()
         # When complete, final resource location is in 'resourceId' or 'resourceLocation'
         if st.get("status") in ("succeeded", "completed"):
             rid = st.get("resourceId")
@@ -109,7 +109,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
             rloc = st.get("resourceLocation")
             if rloc:
                 # GET the item to fetch id
-                item = requests.get(rloc, headers=client._headers()).json(, timeout=30)
+                item = requests.get(rloc, headers=client._headers(), timeout=30).json()
                 return drive_id, item.get("id")
         time.sleep(1.5)
     raise RuntimeError("Timed out waiting for copy to complete")
