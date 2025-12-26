@@ -1,6 +1,6 @@
 LLM Agent Context Cache
 Concise reference for agent behavior and repo architecture
-Last Reviewed: 2025-12-20
+Last Reviewed: 2025-12-26
 
 Project Goal (Reminder)
 - Provide unified, dependable CLIs for personal workflows (mail, calendar, schedule, resume, phone, WhatsApp, maker).
