@@ -19,6 +19,15 @@ SECTION_PATTERNS = {
 # =============================================================================
 
 
+def _split_date_range(date_range: str) -> tuple[str, str]:
+    """Split a date range string like '2020 - Present' into (start, end)."""
+    if "–" in date_range or "-" in date_range:
+        parts = re.split(r"\s*[-–]\s*", date_range)
+        if len(parts) == 2:
+            return parts[0].strip(), parts[1].strip()
+    return "", ""
+
+
 def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
     """Parse a job header line into structured data.
 
@@ -52,12 +61,7 @@ def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
         text, re.I
     )
     if m:
-        date_range = m.group(3).strip()
-        start, end = "", ""
-        if "–" in date_range or "-" in date_range:
-            parts = re.split(r"\s*[-–]\s*", date_range)
-            if len(parts) == 2:
-                start, end = parts[0].strip(), parts[1].strip()
+        start, end = _split_date_range(m.group(3).strip())
         return {
             "title": m.group(1).strip(),
             "company": m.group(2).strip().rstrip(","),
@@ -69,23 +73,16 @@ def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
     # Pattern 3: "Title | Company | dates"
     parts = [p.strip() for p in re.split(r"\s*[|•·]\s*", text)]
     if len(parts) >= 2:
-        date_idx = -1
-        for i, p in enumerate(parts):
-            if re.search(r"\d{4}\s*[-–]\s*(?:\d{4}|Present|Current)", p, re.I):
-                date_idx = i
-                break
+        date_idx = next(
+            (i for i, p in enumerate(parts)
+             if re.search(r"\d{4}\s*[-–]\s*(?:\d{4}|Present|Current)", p, re.I)),
+            -1
+        )
         if date_idx >= 0:
-            title = parts[0]
-            company = parts[1] if len(parts) > 1 and date_idx != 1 else ""
-            date_range = parts[date_idx]
-            start, end = "", ""
-            if "–" in date_range or "-" in date_range:
-                dr_parts = re.split(r"\s*[-–]\s*", date_range)
-                if len(dr_parts) == 2:
-                    start, end = dr_parts[0].strip(), dr_parts[1].strip()
+            start, end = _split_date_range(parts[date_idx])
             return {
-                "title": title,
-                "company": company,
+                "title": parts[0],
+                "company": parts[1] if len(parts) > 1 and date_idx != 1 else "",
                 "location": "",
                 "start": start,
                 "end": end,
@@ -411,23 +408,219 @@ def parse_resume_text(text: str) -> Dict[str, Any]:
     }
 
 
+# =============================================================================
+# DOCX parsing helpers
+# =============================================================================
+
+
+class _DocxParaHelper:
+    """Helper for accessing paragraph style and text by index."""
+
+    def __init__(self, paragraphs):
+        self._paragraphs = paragraphs
+
+    def style(self, i: int) -> str:
+        return (getattr(self._paragraphs[i].style, "name", "") or "").lower()
+
+    def text(self, i: int) -> str:
+        return self._paragraphs[i].text.strip()
+
+    def __len__(self) -> int:
+        return len(self._paragraphs)
+
+
+def _docx_find_sections(helper: _DocxParaHelper) -> tuple[List[int], Dict[str, Dict[str, int]]]:
+    """Find H1 section indices and their bounds."""
+    h1_indices = [i for i in range(len(helper)) if helper.style(i).startswith("heading 1")]
+    sections: Dict[str, Dict[str, int]] = {}
+    for idx in h1_indices:
+        key = _key_from_heading(helper.text(idx))
+        if key:
+            sections[key] = {"start": idx}
+    # Mark end bounds
+    sorted_h1 = sorted([v["start"] for v in sections.values()])
+    for key, info in sections.items():
+        starts_after = [s for s in sorted_h1 if s > info["start"]]
+        info["end"] = (starts_after[0] - 1) if starts_after else (len(helper) - 1)
+    return h1_indices, sections
+
+
+def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple[str, str, List[str]]:
+    """Extract name, headline, and early lines from docx."""
+    name = ""
+    headline = ""
+    if len(helper) and helper.style(0) in {"title", "heading 0"}:
+        nm = helper.text(0)
+        if any(c.isalpha() for c in nm) and len(nm) < 80:
+            name = nm
+
+    early_lines: List[str] = []
+    for i in range(min(first_h1, 10)):
+        txt = helper.text(i)
+        if txt:
+            early_lines.append(txt)
+            if i == 1 and helper.style(0) in {"title", "heading 0"} and helper.style(1) == "normal":
+                if not re.search(r"[@|]", txt) and len(txt) < 100:
+                    headline = txt
+    return name, headline, early_lines
+
+
+def _docx_extract_summary(
+    helper: _DocxParaHelper,
+    sections: Dict[str, Dict[str, int]],
+    h1_indices: List[int],
+    first_h1: int,
+) -> str:
+    """Extract summary/profile from docx."""
+    if "summary" in sections:
+        s = sections["summary"]
+        block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]
+        return " ".join(block).strip()
+
+    if not h1_indices:
+        return ""
+
+    start_idx = 1 if helper.style(0) in {"title", "heading 0"} else 0
+    if first_h1 <= start_idx:
+        return ""
+
+    preface = [helper.text(i) for i in range(start_idx, first_h1) if helper.text(i)]
+    return " ".join(_filter_summary_lines(preface)).strip()
+
+
+def _filter_summary_lines(lines: List[str]) -> List[str]:
+    """Filter out contact/name/label lines from potential summary text."""
+    cleaned = []
+    for ln in lines:
+        if re.search(r"[\w.\-+]+@[\w.\-]+", ln):
+            continue
+        if re.search(r"\+?\d[\d\s\-()]{6,}\d", ln):
+            continue
+        if "\u2022" in ln or "•" in ln:
+            continue
+        if ln.strip().lower().startswith("profile"):
+            ln = ln.split(":", 1)[-1].strip()
+            if not ln:
+                continue
+        cleaned.append(ln)
+    return cleaned
+
+
+def _docx_extract_education(
+    helper: _DocxParaHelper, sections: Dict[str, Dict[str, int]]
+) -> List[Dict[str, str]]:
+    """Extract education entries from docx."""
+    if "education" not in sections:
+        return []
+
+    education: List[Dict[str, str]] = []
+    s = sections["education"]
+    for i in range(s["start"] + 1, s["end"] + 1):
+        line = helper.text(i)
+        if not line:
+            continue
+        edu_entry = _parse_education_entry(line)
+        if edu_entry:
+            education.append(edu_entry)
+            continue
+        if helper.style(i).startswith("heading 2"):
+            education.append(_parse_h2_education(line))
+    return education
+
+
+def _parse_h2_education(line: str) -> Dict[str, str]:
+    """Parse education from H2-style heading."""
+    parts = [p.strip() for p in re.split(r"\t+|\s{2,}", line)]
+    degree = parts[0] if parts else line
+    year = ""
+    if len(parts) > 1:
+        m = re.search(r"(\d{4})(?!.*\d{4})", parts[-1])
+        if m:
+            year = m.group(1)
+    return {"degree": degree, "institution": "", "year": year}
+
+
+def _process_exp_paragraph(
+    style: str, text: str, current: Optional[Dict[str, Any]], last_company: str,
+    is_next_h2: bool
+) -> tuple[Optional[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
+    """Process a single experience paragraph. Returns (current, last_company, completed_role)."""
+    completed = None
+
+    # Try shared experience entry parser
+    exp_entry = _parse_experience_entry(text)
+    if exp_entry and style in {"normal", "list paragraph"}:
+        if current:
+            completed = current
+        return {**exp_entry, "bullets": []}, last_company, completed
+
+    if style.startswith("heading 2"):
+        if current:
+            completed = current
+        new_current, last_company = _parse_h2_experience(text, last_company)
+        return new_current, last_company, completed
+
+    if style.startswith("list"):
+        bullet_text = re.sub(r"^[•\-\*]\s*", "", text).strip()
+        if current and bullet_text:
+            current.setdefault("bullets", []).append(bullet_text)
+    elif _looks_like_company_line(text) and (current is None or is_next_h2):
+        last_company = text.split("\t")[0].strip()
+    elif current:
+        current.setdefault("bullets", []).append(text)
+
+    return current, last_company, completed
+
+
+def _docx_extract_experience(
+    helper: _DocxParaHelper, sections: Dict[str, Dict[str, int]]
+) -> List[Dict[str, Any]]:
+    """Extract experience entries from docx."""
+    exp_key = next((k for k in ("experience", "work experiences", "work experience") if k in sections), None)
+    if not exp_key:
+        return []
+
+    s = sections[exp_key]
+    experience: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    last_company = ""
+
+    for i in range(s["start"] + 1, s["end"] + 1):
+        text = helper.text(i)
+        if not text:
+            continue
+        is_next_h2 = (i + 1) <= s["end"] and helper.style(i + 1).startswith("heading 2")
+        current, last_company, completed = _process_exp_paragraph(
+            helper.style(i), text, current, last_company, is_next_h2
+        )
+        if completed:
+            experience.append(completed)
+
+    if current:
+        experience.append(current)
+    return experience
+
+
+def _parse_h2_experience(text: str, last_company: str) -> tuple[Dict[str, Any], str]:
+    """Parse experience role from H2-style heading."""
+    parts = [p.strip() for p in re.split(r"\t+|\s{2,}", text)]
+    title = parts[0] if parts else text
+    start, end = "", ""
+    if len(parts) > 1 and "-" in parts[1]:
+        start, end = _split_date_range(parts[1])
+    role = {
+        "title": title,
+        "company": last_company,
+        "start": start,
+        "end": end,
+        "location": "",
+        "bullets": [],
+    }
+    return role, last_company
+
+
 def parse_resume_docx(path: str) -> Dict[str, Any]:
-    """Parse resume directly from a .docx using heading styles.
-
-    Heuristics tuned for common structures:
-    - H1: section titles like Education, Technical Skills, Work Experience(s)
-    - H2 under Work Experience: role with date span (tab-separated)
-      Preceded by a normal paragraph with company and location
-      Following normal paragraphs are bullets/achievements until next H2 or H1
-    - H2 under Education: degree line (tab-separated with dates)
-    - Skills: paragraphs under Technical Skills until next H1
-
-    Also handles generated resume format:
-    - Title style: Name
-    - Normal after title: Headline
-    - Normal with pipes: Contact line (email | phone | location | links)
-    - Normal under Experience: "Title at Company — [Location] — (Start – End)"
-    """
+    """Parse resume directly from a .docx using heading styles."""
     from .io_utils import safe_import
 
     docx = safe_import("docx")
@@ -436,186 +629,23 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
     from docx import Document  # type: ignore
 
     doc = Document(path)
-    paragraphs = doc.paragraphs
+    helper = _DocxParaHelper(doc.paragraphs)
 
-    def para_style(i: int) -> str:
-        return (getattr(paragraphs[i].style, "name", "") or "").lower()
+    h1_indices, sections = _docx_find_sections(helper)
+    first_h1 = min(h1_indices) if h1_indices else len(helper)
 
-    def para_text(i: int) -> str:
-        return paragraphs[i].text.strip()
-
-    # Identify H1 sections (exclude the document Title)
-    h1_indices: List[int] = [i for i, p in enumerate(paragraphs) if para_style(i).startswith("heading 1")]
-    sections: Dict[str, Dict[str, int]] = {}
-    for idx in h1_indices:
-        title = para_text(idx)
-        key = _key_from_heading(title)
-        if key:
-            sections[key] = {"start": idx}
-    # mark end bounds
-    sorted_h1 = sorted([v["start"] for v in sections.values()])
-    for key, info in sections.items():
-        starts_after = [s for s in sorted_h1 if s > info["start"]]
-        info["end"] = (starts_after[0] - 1) if starts_after else (len(paragraphs) - 1)
-
-    # Name: first title paragraph if present and not generic
-    name = ""
-    headline = ""
-    if paragraphs and para_style(0) in {"title", "heading 0"}:
-        nm = para_text(0)
-        # Avoid capturing filenames
-        if any(c.isalpha() for c in nm) and len(nm) < 80:
-            name = nm
-
-    # Extract contact info and headline from early paragraphs (before first H1)
-    first_h1 = min(h1_indices) if h1_indices else len(paragraphs)
-    early_lines: List[str] = []
-    for i in range(min(first_h1, 10)):
-        txt = para_text(i)
-        if txt:
-            early_lines.append(txt)
-            # Check for headline: normal paragraph right after title, no special chars
-            if i == 1 and para_style(0) in {"title", "heading 0"} and para_style(1) == "normal":
-                # Headline if it doesn't look like contact info
-                if not re.search(r"[@|]", txt) and len(txt) < 100:
-                    headline = txt
-
-    # Extract contact from early lines
+    name, headline, early_lines = _docx_extract_name_headline(helper, first_h1)
     contact = _extract_contact(early_lines)
+    summary = _docx_extract_summary(helper, sections, h1_indices, first_h1)
 
-    # Summary/Profile
-    summary = ""
-    if "summary" in sections:
-        s = sections["summary"]
-        block = [para_text(i) for i in range(s["start"] + 1, s["end"] + 1) if para_text(i)]
-        summary = " ".join(block).strip()
-    else:
-        # If no explicit summary section, use text before first H1 as profile
-        if h1_indices:
-            # Skip first paragraph if it's a title/filename
-            start_idx = 1 if para_style(0) in {"title", "heading 0"} else 0
-            if first_h1 > start_idx:
-                preface = [para_text(i) for i in range(start_idx, first_h1) if para_text(i)]
-                # Drop likely contact/name/label lines
-                cleaned = []
-                for ln in preface:
-                    if re.search(r"[\w.\-+]+@[\w.\-]+", ln):
-                        continue
-                    if re.search(r"\+?\d[\d\s\-()]{6,}\d", ln):
-                        continue
-                    if "\u2022" in ln or "•" in ln:
-                        continue
-                    if ln.strip().lower().startswith("profile"):
-                        ln = ln.split(":", 1)[-1].strip()
-                        if not ln:
-                            continue
-                    cleaned.append(ln)
-                summary = " ".join(cleaned).strip()
-
-    # Skills
     skills: List[str] = []
     if "skills" in sections:
         s = sections["skills"]
-        block = [para_text(i) for i in range(s["start"] + 1, s["end"] + 1) if para_text(i)]
+        block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]
         skills = _parse_skills(block)
 
-    # Education
-    education: List[Dict[str, str]] = []
-    if "education" in sections:
-        s = sections["education"]
-        i = s["start"] + 1
-        while i <= s["end"]:
-            line = para_text(i)
-            if not line:
-                i += 1
-                continue
-            # Try shared education entry parser
-            edu_entry = _parse_education_entry(line)
-            if edu_entry:
-                education.append(edu_entry)
-                i += 1
-                continue
-            # Try Heading 2 style format (fallback for original DOCX format)
-            if para_style(i).startswith("heading 2"):
-                parts = [p.strip() for p in re.split(r"\t+|\s{2,}", line)]
-                degree = parts[0] if parts else line
-                year = ""
-                if len(parts) > 1:
-                    m = re.search(r"(\d{4})(?!.*\d{4})", parts[-1])
-                    if m:
-                        year = m.group(1)
-                education.append({"degree": degree, "institution": "", "year": year})
-            i += 1
-
-    # Experience
-    experience: List[Dict[str, Any]] = []
-    exp_key = None
-    for k in ("experience", "work experiences", "work experience"):
-        if k in sections:
-            exp_key = k
-            break
-    if exp_key:
-        s = sections[exp_key]
-        i = s["start"] + 1
-        current: Optional[Dict[str, Any]] = None
-        last_company: str = ""
-        while i <= s["end"]:
-            style = para_style(i)
-            text = para_text(i)
-            if not text:
-                i += 1
-                continue
-
-            # Try shared experience entry parser for common formats
-            exp_entry = _parse_experience_entry(text)
-            if exp_entry and style in {"normal", "list paragraph"}:
-                # Save previous role if exists
-                if current:
-                    experience.append(current)
-                current = {**exp_entry, "bullets": []}
-                i += 1
-                continue
-
-            if style.startswith("heading 2"):
-                # start new role (original format)
-                if current:
-                    experience.append(current)
-                title = text
-                # split by tab or multiple spaces for dates
-                parts = [p.strip() for p in re.split(r"\t+|\s{2,}", text)]
-                if parts:
-                    title = parts[0]
-                start = end = ""
-                if len(parts) > 1 and "-" in parts[1]:
-                    se = [p.strip() for p in parts[1].split("-")]
-                    if len(se) == 2:
-                        start, end = se
-                current = {
-                    "title": title,
-                    "company": last_company,
-                    "start": start,
-                    "end": end,
-                    "location": "",
-                    "bullets": [],
-                }
-            elif style.startswith("list"):
-                # Bullet point - strip bullet glyph
-                bullet_text = re.sub(r"^[•\-\*]\s*", "", text).strip()
-                if current and bullet_text:
-                    current.setdefault("bullets", []).append(bullet_text)
-            else:
-                # normal paragraph; treat as company line in two cases:
-                # 1) before first role (current is None)
-                # 2) immediately preceding a new role heading (next is Heading 2)
-                next_is_h2 = (i + 1) <= s["end"] and para_style(i + 1).startswith("heading 2")
-                if _looks_like_company_line(text) and (current is None or next_is_h2):
-                    last_company = text.split("\t")[0].strip()
-                else:
-                    if current:
-                        current.setdefault("bullets", []).append(text)
-            i += 1
-        if current:
-            experience.append(current)
+    education = _docx_extract_education(helper, sections)
+    experience = _docx_extract_experience(helper, sections)
 
     return {
         "name": name,
@@ -679,12 +709,124 @@ def _looks_like_section_heading(text: str) -> bool:
     return False
 
 
-def parse_resume_pdf(path: str) -> Dict[str, Any]:
-    """Parse resume from a PDF file.
+# =============================================================================
+# PDF parsing helpers
+# =============================================================================
 
-    Uses pdfminer.six for text extraction with layout analysis,
-    then applies heuristics to identify sections and structure.
-    """
+
+def _pdf_empty_result() -> Dict[str, Any]:
+    """Return empty resume structure for PDF parsing."""
+    return {
+        "name": "", "headline": "", "email": "", "phone": "",
+        "location": "", "linkedin": "", "github": "", "website": "",
+        "summary": "", "skills": [], "experience": [], "education": [],
+    }
+
+
+def _pdf_extract_name_headline(lines: List[str]) -> tuple[str, str]:
+    """Extract name and headline from first lines of PDF."""
+    name = ""
+    headline = ""
+    if not lines:
+        return name, headline
+
+    first_line = lines[0]
+    if first_line and len(first_line) < 60:
+        if not _looks_like_section_heading(first_line):
+            if not re.search(r"[@()\d]{3,}", first_line):
+                name = first_line
+
+    if len(lines) > 1 and name:
+        second = lines[1]
+        if len(second) < 80 and not _looks_like_section_heading(second):
+            if not re.search(r"[@|]", second):
+                headline = second
+
+    return name, headline
+
+
+def _pdf_find_sections(lines: List[str]) -> tuple[Dict[str, int], List[tuple[str, int]]]:
+    """Find section indices and sorted section list."""
+    section_indices: Dict[str, int] = {}
+    for i, ln in enumerate(lines):
+        if _looks_like_section_heading(ln):
+            key = _key_from_heading(ln)
+            if key and key not in section_indices:
+                section_indices[key] = i
+    sorted_sections = sorted(section_indices.items(), key=lambda x: x[1])
+    return section_indices, sorted_sections
+
+
+def _pdf_get_section_lines(
+    key: str, lines: List[str], section_indices: Dict[str, int],
+    sorted_sections: List[tuple[str, int]]
+) -> List[str]:
+    """Get lines for a specific section."""
+    if key not in section_indices:
+        return []
+    start = section_indices[key] + 1
+    end = len(lines)
+    for k, idx in sorted_sections:
+        if idx > section_indices[key]:
+            end = idx
+            break
+    return lines[start:end]
+
+
+def _pdf_extract_summary(
+    lines: List[str], section_indices: Dict[str, int],
+    sorted_sections: List[tuple[str, int]], has_name: bool
+) -> str:
+    """Extract summary from PDF."""
+    summary_lines = _pdf_get_section_lines("summary", lines, section_indices, sorted_sections)
+    if summary_lines:
+        return " ".join(summary_lines).strip()
+
+    if not sorted_sections:
+        return ""
+
+    first_section_idx = sorted_sections[0][1]
+    start_idx = 2 if has_name else 0
+    if first_section_idx <= start_idx:
+        return ""
+
+    candidate = lines[start_idx:first_section_idx]
+    filtered = [
+        ln for ln in candidate
+        if not re.search(r"[@()\d]{5,}", ln)
+        and not re.search(r"linkedin|github", ln, re.I)
+    ]
+    return " ".join(filtered).strip()
+
+
+def _pdf_extract_experience(exp_lines: List[str]) -> List[Dict[str, Any]]:
+    """Extract experience entries from PDF lines."""
+    experience: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+
+    for ln in exp_lines:
+        job = _parse_experience_entry(ln)
+        if job:
+            if current:
+                experience.append(current)
+            current = {**job, "bullets": []}
+        elif current:
+            bullet = re.sub(r"^[•\-\*▪▸►]\s*", "", ln).strip()
+            if bullet:
+                current["bullets"].append(bullet)
+
+    if current:
+        experience.append(current)
+    return experience
+
+
+def _pdf_extract_education(edu_lines: List[str]) -> List[Dict[str, str]]:
+    """Extract education entries from PDF lines."""
+    return [e for ln in edu_lines if (e := _parse_education_entry(ln))]
+
+
+def parse_resume_pdf(path: str) -> Dict[str, Any]:
+    """Parse resume from a PDF file."""
     from .io_utils import safe_import
 
     pdfminer = safe_import("pdfminer.high_level")
@@ -694,123 +836,25 @@ def parse_resume_pdf(path: str) -> Dict[str, Any]:
     from pdfminer.high_level import extract_text  # type: ignore
     from pdfminer.layout import LAParams  # type: ignore
 
-    # Use layout analysis for better text extraction
-    laparams = LAParams(
-        line_margin=0.5,
-        word_margin=0.1,
-        char_margin=2.0,
-        boxes_flow=0.5,
-    )
-
+    laparams = LAParams(line_margin=0.5, word_margin=0.1, char_margin=2.0, boxes_flow=0.5)
     text = extract_text(path, laparams=laparams)
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
     if not lines:
-        return {
-            "name": "",
-            "headline": "",
-            "email": "",
-            "phone": "",
-            "location": "",
-            "linkedin": "",
-            "github": "",
-            "website": "",
-            "summary": "",
-            "skills": [],
-            "experience": [],
-            "education": [],
-        }
+        return _pdf_empty_result()
 
-    # Extract contact info from early lines
     contact = _extract_contact(lines[:15])
+    name, headline = _pdf_extract_name_headline(lines)
+    section_indices, sorted_sections = _pdf_find_sections(lines)
 
-    # Name: usually first line if it's short and looks like a name
-    name = ""
-    headline = ""
-    first_line = lines[0] if lines else ""
-    if first_line and len(first_line) < 60:
-        # Check it's not a section heading or contact
-        if not _looks_like_section_heading(first_line):
-            if not re.search(r"[@()\d]{3,}", first_line):  # Not phone/email
-                name = first_line
-
-    # Second line might be headline
-    if len(lines) > 1 and name:
-        second = lines[1]
-        if len(second) < 80 and not _looks_like_section_heading(second):
-            if not re.search(r"[@|]", second):  # Not contact line
-                headline = second
-
-    # Find section boundaries
-    section_indices: Dict[str, int] = {}
-    for i, ln in enumerate(lines):
-        if _looks_like_section_heading(ln):
-            key = _key_from_heading(ln)
-            if key and key not in section_indices:
-                section_indices[key] = i
-
-    # Sort section starts
-    sorted_sections = sorted(section_indices.items(), key=lambda x: x[1])
-
-    def get_section_lines(key: str) -> List[str]:
-        if key not in section_indices:
-            return []
-        start = section_indices[key] + 1
-        # Find next section
-        end = len(lines)
-        for k, idx in sorted_sections:
-            if idx > section_indices[key]:
-                end = idx
-                break
-        return lines[start:end]
-
-    # Summary
-    summary_lines = get_section_lines("summary")
-    if not summary_lines and sorted_sections:
-        # Use lines before first section as summary
-        first_section_idx = sorted_sections[0][1]
-        start_idx = 2 if name else 0  # Skip name/headline
-        if first_section_idx > start_idx:
-            candidate = lines[start_idx:first_section_idx]
-            # Filter out contact-like lines
-            summary_lines = [
-                ln for ln in candidate
-                if not re.search(r"[@()\d]{5,}", ln)
-                and not re.search(r"linkedin|github", ln, re.I)
-            ]
-    summary = " ".join(summary_lines).strip()
-
-    # Skills
-    skills = _parse_skills(get_section_lines("skills"))
-
-    # Experience (using shared parser)
-    experience: List[Dict[str, Any]] = []
-    exp_lines = get_section_lines("experience")
-    current: Optional[Dict[str, Any]] = None
-
-    for ln in exp_lines:
-        # Check if this looks like a job header using shared parser
-        job = _parse_experience_entry(ln)
-        if job:
-            if current:
-                experience.append(current)
-            current = {**job, "bullets": []}
-        elif current:
-            # This is a bullet or description
-            bullet = re.sub(r"^[•\-\*▪▸►]\s*", "", ln).strip()
-            if bullet:
-                current["bullets"].append(bullet)
-
-    if current:
-        experience.append(current)
-
-    # Education (using shared parser)
-    education: List[Dict[str, str]] = []
-    edu_lines = get_section_lines("education")
-    for ln in edu_lines:
-        edu_entry = _parse_education_entry(ln)
-        if edu_entry:
-            education.append(edu_entry)
+    summary = _pdf_extract_summary(lines, section_indices, sorted_sections, bool(name))
+    skills = _parse_skills(_pdf_get_section_lines("skills", lines, section_indices, sorted_sections))
+    experience = _pdf_extract_experience(
+        _pdf_get_section_lines("experience", lines, section_indices, sorted_sections)
+    )
+    education = _pdf_extract_education(
+        _pdf_get_section_lines("education", lines, section_indices, sorted_sections)
+    )
 
     return {
         "name": name,

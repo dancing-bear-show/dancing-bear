@@ -9,26 +9,28 @@ from typing import Any, Dict, Iterable, List, Optional
 from .keyword_matcher import KeywordMatcher
 
 
+def _extract_item_name(item: Any) -> Optional[str]:
+    """Extract keyword name from an item (dict or str)."""
+    if isinstance(item, dict):
+        name = item.get("skill") or item.get("name")
+        return str(name) if name else None
+    if isinstance(item, str):
+        return item
+    return None
+
+
 def _flatten_keywords(spec: Dict[str, Any]) -> List[str]:
     """Extract all keywords from a keyword spec."""
     out: List[str] = []
     for tier in ("required", "preferred", "nice"):
         for item in spec.get(tier, []) or []:
-            if isinstance(item, dict):
-                name = item.get("skill") or item.get("name")
-                if name:
-                    out.append(str(name))
-            elif isinstance(item, str):
-                out.append(item)
+            if (name := _extract_item_name(item)):
+                out.append(name)
     cats = spec.get("categories") or {}
     for _, lst in (cats.items() if isinstance(cats, dict) else []):
         for item in lst or []:
-            if isinstance(item, dict):
-                name = item.get("skill") or item.get("name")
-                if name:
-                    out.append(str(name))
-            elif isinstance(item, str):
-                out.append(item)
+            if (name := _extract_item_name(item)):
+                out.append(name)
     return out
 
 
