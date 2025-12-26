@@ -29,6 +29,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from core.constants import DEFAULT_REQUEST_TIMEOUT
+
 
 def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str, float]:
     """Fetch daily closes from Yahoo chart API between inclusive dates (YYYY-MM-DD).

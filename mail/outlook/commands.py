@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..config_resolver import expand_path, default_outlook_token_path
 from core.auth import resolve_outlook_credentials
+from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
 from .helpers import get_outlook_client, resolve_outlook_args
 from .consumers import (
     OutlookRulesListConsumer,
@@ -398,7 +399,7 @@ def run_outlook_auth_device_code(args) -> int:
 
     authority = f"https://login.microsoftonline.com/{tenant}"
     app = msal.PublicClientApplication(client_id, authority=authority)
-    flow = app.initiate_device_flow(scopes=["https://graph.microsoft.com/.default"])
+    flow = app.initiate_device_flow(scopes=[GRAPH_DEFAULT_SCOPE])
     if "user_code" not in flow:
         print("Failed to start device flow.")
         return 1
@@ -489,7 +490,7 @@ def run_outlook_auth_ensure(args) -> int:
             pass
 
     app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
-    scopes = ["https://graph.microsoft.com/.default"]
+    scopes = [GRAPH_DEFAULT_SCOPE]
 
     accounts = []
     try:
@@ -569,13 +570,13 @@ def run_outlook_auth_validate(args) -> int:
         print("No account in token cache.")
         return 3
 
-    res = app.acquire_token_silent(["https://graph.microsoft.com/.default"], account=accounts[0])
+    res = app.acquire_token_silent([GRAPH_DEFAULT_SCOPE], account=accounts[0])
     if not (res and res.get("access_token")):
         print("Silent token acquisition failed.")
         return 4
 
     # Ping /me to confirm validity
-    r = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {res['access_token']}"}, timeout=30)
+    r = requests.get(f"{GRAPH_API_URL}/me", headers={"Authorization": f"Bearer {res['access_token']}"}, timeout=30)
     if r.status_code == 200:
         print("Outlook token valid.")
         return 0

@@ -13,7 +13,7 @@ import argparse
 from typing import Dict, List, Tuple
 
 from core.auth import resolve_outlook_credentials
-from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
 
 
