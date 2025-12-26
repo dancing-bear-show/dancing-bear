@@ -5,6 +5,7 @@ import json
 from typing import Dict, List, Optional
 
 from core.auth import resolve_outlook_credentials
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE
 from mail.outlook_api import OutlookClient
 
 
@@ -15,7 +16,7 @@ def _headers(client: OutlookClient) -> Dict[str, str]:
 def _list_sheets(client: OutlookClient, drive_id: str, item_id: str) -> List[Dict[str, str]]:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets?$select=id,name,position,visibility"
-    r = requests.get(url, headers=_headers(client))  # nosec B113
+    r = requests.get(url, headers=_headers(client), timeout=30)
     r.raise_for_status()
     return (r.json() or {}).get("value", [])
 
@@ -23,13 +24,13 @@ def _list_sheets(client: OutlookClient, drive_id: str, item_id: str) -> List[Dic
 def _delete_sheet(client: OutlookClient, drive_id: str, item_id: str, name: str) -> None:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{name}')"
-    requests.delete(url, headers=_headers(client))  # nosec B113
+    requests.delete(url, headers=_headers(client), timeout=30)
 
 
 def _list_charts(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> List[Dict[str, str]]:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts?$select=id,name"
-    r = requests.get(url, headers=_headers(client))  # nosec B113
+    r = requests.get(url, headers=_headers(client), timeout=30)
     if r.status_code >= 400:
         return []
     return (r.json() or {}).get("value", [])
@@ -38,22 +39,22 @@ def _list_charts(client: OutlookClient, drive_id: str, item_id: str, sheet: str)
 def _set_chart_title(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, title: str) -> None:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/title"
-    requests.patch(url, headers=_headers(client), data=json.dumps({"text": title, "visible": True}))  # nosec B113
+    requests.patch(url, headers=_headers(client), data=json.dumps({"text": title, "visible": True}), timeout=30)
 
 
 def _set_axis_titles(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, category: Optional[str], value: Optional[str]) -> None:
     import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/axes"
     if category:
-        requests.patch(f"{base}/categoryAxis/title", headers=_headers(client), data=json.dumps({"text": category, "visible": True}))  # nosec B113
+        requests.patch(f"{base}/categoryAxis/title", headers=_headers(client), data=json.dumps({"text": category, "visible": True}), timeout=30)
     if value:
-        requests.patch(f"{base}/valueAxis/title", headers=_headers(client), data=json.dumps({"text": value, "visible": True}))  # nosec B113
+        requests.patch(f"{base}/valueAxis/title", headers=_headers(client), data=json.dumps({"text": value, "visible": True}), timeout=30)
 
 
 def _used_rows(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> int:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=_headers(client))  # nosec B113
+    r = requests.get(url, headers=_headers(client), timeout=30)
     if r.status_code >= 400:
         return 0
     vals = (r.json() or {}).get('values') or []
@@ -63,7 +64,7 @@ def _used_rows(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -
 def _set_chart_data(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, addr: str) -> None:
     import requests  # type: ignore
     url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/setData"
-    requests.post(url, headers=_headers(client), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}))  # nosec B113
+    requests.post(url, headers=_headers(client), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=30)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -84,7 +85,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         getattr(args, "tenant", None),
         getattr(args, "token", None),
     )
-    token = token or '.cache/.msal_token.json'
+    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
     if not client_id:
         raise SystemExit('No Outlook client_id configured')
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir='.cache')
@@ -120,7 +121,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$')
             _set_chart_data(client, drive, item, profit, ch['id'], f"J2:J{rows}")
         except Exception:
-            pass  # nosec B110 - non-critical chart update
+            pass  # noqa: S110 - non-critical chart update
         if len(charts) > 1:
             try:
                 ch = charts[1]
@@ -128,7 +129,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
                 _set_chart_data(client, drive, item, profit, ch['id'], f"C2:D{rows}")
             except Exception:
-                pass  # nosec B110 - non-critical chart update
+                pass  # noqa: S110 - non-critical chart update
         if len(charts) > 2:
             try:
                 ch = charts[2]
@@ -136,7 +137,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
                 _set_chart_data(client, drive, item, profit, ch['id'], f"G2:H{rows}")
             except Exception:
-                pass  # nosec B110 - non-critical chart update
+                pass  # noqa: S110 - non-critical chart update
 
     print('tidied workbook charts and sheets')
     return 0

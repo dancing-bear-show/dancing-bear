@@ -8,13 +8,18 @@ import time
 from typing import Any, Dict, List, Optional
 
 from core.cache import ConfigCacheMixin
+from core.constants import (
+    GRAPH_API_URL,
+    GRAPH_API_SCOPES,
+    DEFAULT_REQUEST_TIMEOUT,
+)
 
 # Lazy optional deps: avoid importing on --help to prevent warnings/overhead
 msal = None  # type: ignore
 requests = None  # type: ignore
 
-# Default timeout for HTTP requests (connect, read) in seconds
-DEFAULT_TIMEOUT = (10, 30)
+# Backwards-compat alias
+DEFAULT_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
 
 
 def _msal():  # type: ignore
@@ -70,13 +75,9 @@ def _requests():  # type: ignore
     return _requests_wrapper
 
 
-GRAPH = "https://graph.microsoft.com/v1.0"
-SCOPES = [
-    "Mail.ReadWrite",
-    "Mail.ReadWrite.Shared",
-    "MailboxSettings.ReadWrite",
-    "Calendars.ReadWrite",
-]
+# Backwards-compat aliases for GRAPH and SCOPES
+GRAPH = GRAPH_API_URL
+SCOPES = GRAPH_API_SCOPES
 
 
 class OutlookClientBase(ConfigCacheMixin):
@@ -127,7 +128,7 @@ class OutlookClientBase(ConfigCacheMixin):
                         )
                         return
             except Exception:
-                pass  # nosec B110 - token read failed, proceed with fresh auth
+                pass  # noqa: S110 - token read failed, proceed with fresh auth
 
         app = _msal().PublicClientApplication(
             self.client_id,
@@ -194,7 +195,7 @@ class OutlookClientBase(ConfigCacheMixin):
                             with open(self.token_path, "w", encoding="utf-8") as f:
                                 f.write(self._cache.serialize())
         except Exception:
-            pass  # nosec B110 - silent token refresh failure
+            pass  # noqa: S110 - silent token refresh failure
         return {
             "Authorization": f"Bearer {self._token['access_token']}",
             "Content-Type": "application/json"

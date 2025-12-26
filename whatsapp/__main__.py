@@ -100,7 +100,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         _install_mask()
     except Exception:  # pragma: no cover
-        pass  # nosec B110 - best-effort masking
+        pass  # noqa: S110 - best-effort masking
 
     # Build parser and add agentic flags
     parser = app.build_parser()

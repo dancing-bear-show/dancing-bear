@@ -34,7 +34,7 @@ def find_cfgutil_path() -> str:
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
-        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # nosec B603
+        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # noqa: S603
     except Exception as e:
         raise RuntimeError(f"cfgutil list failed: {e}")
     for line in out.splitlines():
@@ -61,7 +61,7 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
     cmd.extend(["--format", "plist", "get-icon-layout"])
 
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # noqa: S603
     except Exception as e:
         raise RuntimeError(f"cfgutil get-icon-layout failed: {e}")
 
@@ -147,14 +147,7 @@ def _fallback_parse(data: Any) -> Dict[str, Any]:
 # Credentials and certificate helpers
 # -----------------------------------------------------------------------------
 
-_CREDENTIALS_PATHS = [
-    "{xdg}/credentials.ini",
-    "~/.config/credentials.ini",
-    "{xdg}/sre-utils/credentials.ini",
-    "~/.config/sre-utils/credentials.ini",
-    "~/.config/sreutils/credentials.ini",
-    "~/.sre-utils/credentials.ini",
-]
+from core.constants import credential_ini_paths
 
 
 def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Dict[str, str]]]:
@@ -162,12 +155,7 @@ def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str],
     candidates: List[str] = []
     if explicit:
         candidates.append(explicit)
-    if os.environ.get("CREDENTIALS"):
-        candidates.append(os.environ["CREDENTIALS"])
-
-    xdg = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
-    for template in _CREDENTIALS_PATHS:
-        candidates.append(template.format(xdg=xdg).replace("~", os.path.expanduser("~")))
+    candidates.extend(credential_ini_paths())
 
     for path in candidates:
         if path and os.path.exists(path):
@@ -237,9 +225,9 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
             cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])
             if p12_pass:
                 cmd.extend(["-passin", f"pass:{p12_pass}"])
-            cert_pem = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603
+            cert_pem = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # noqa: S603
             break
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
 
     if cert_pem is None:
@@ -249,24 +237,24 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     subject = ""
     issuer = ""
     try:
-        subj_out = subprocess.check_output(  # nosec B603 B607
+        subj_out = subprocess.check_output(  # noqa: S603 B607
             ["openssl", "x509", "-noout", "-subject"],
             input=cert_pem,
             stderr=subprocess.DEVNULL,
         )
         subject = subj_out.decode().strip().replace("subject=", "")
     except Exception:
-        pass  # nosec B110 - cert parsing failure
+        pass  # noqa: S110 - cert parsing failure
 
     try:
-        iss_out = subprocess.check_output(  # nosec B603 B607
+        iss_out = subprocess.check_output(  # noqa: S603 B607
             ["openssl", "x509", "-noout", "-issuer"],
             input=cert_pem,
             stderr=subprocess.DEVNULL,
         )
         issuer = iss_out.decode().strip().replace("issuer=", "")
     except Exception:
-        pass  # nosec B110 - cert parsing failure
+        pass  # noqa: S110 - cert parsing failure
 
     return CertInfo(subject=subject, issuer=issuer)
 
@@ -282,11 +270,11 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
         return None
 
     try:
-        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # nosec B603
+        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # noqa: S603
         if "Supervised:" in out:
             return out.split(":", 1)[1].strip()
     except Exception:
-        pass  # nosec B110 - cfgutil query failure
+        pass  # noqa: S110 - cfgutil query failure
 
     return None
 

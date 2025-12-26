@@ -4,40 +4,11 @@ import os
 from pathlib import Path
 from typing import Tuple, Optional, Dict
 
-
-def _config_roots() -> list[str]:
-    roots: list[str] = []
-    env_cfg = os.environ.get("CREDENTIALS")
-    if env_cfg:
-        roots.append(os.path.expanduser(os.path.dirname(env_cfg)))
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        roots.append(os.path.expanduser(xdg))
-    roots.append(os.path.expanduser("~/.config"))
-    return roots
+from core.constants import credential_ini_paths, _config_roots
 
 
-def _dedupe(paths: list[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for p in paths:
-        if not p:
-            continue
-        if p in seen:
-            continue
-        seen.add(p)
-        ordered.append(p)
-    return ordered
-
-
-# Support new defaults plus legacy paths; merge values where possible.
-_INI_PATHS = _dedupe([
-    os.path.expanduser(os.environ.get("CREDENTIALS", "")) if os.environ.get("CREDENTIALS") else "",
-    *(os.path.join(root, "credentials.ini") for root in _config_roots()),
-    *(os.path.join(root, "sre-utils", "credentials.ini") for root in _config_roots()),
-    *(os.path.join(root, "sreutils", "credentials.ini") for root in _config_roots()),
-    os.path.expanduser("~/.sre-utils/credentials.ini"),
-])
+# Use shared credential paths from core.constants
+_INI_PATHS = credential_ini_paths()
 _SECTION = "mail"
 _DEFAULT_CONFIG_DIR = _config_roots()[0]
 DEFAULT_GMAIL_CREDENTIALS = os.path.join(_DEFAULT_CONFIG_DIR, "credentials.json")
@@ -81,7 +52,7 @@ def _read_ini() -> Dict[str, Dict[str, str]]:
         cp = configparser.ConfigParser()
         try:
             cp.read(p)
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
         for section in cp.sections():
             sec = merged_sections.setdefault(section, {})

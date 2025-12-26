@@ -126,7 +126,7 @@ class GmailReceiptsProcessor(Processor[GmailReceiptsRequest, ResultEnvelope[Gmai
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
-            except Exception:
+            except Exception:  # noqa: S112 - skip unreadable messages
                 continue
             m_cls = cls_pat.search(text or "")
             m_dates = dates_pat.search(text or "")
@@ -261,7 +261,7 @@ class GmailScanClassesProcessor(Processor[GmailScanClassesRequest, ResultEnvelop
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
-            except Exception:
+            except Exception:  # noqa: S112 - skip unreadable messages
                 continue
             extracted.extend(self._extract_events(text, payload.calendar))
         events = dedupe_events(extracted)
