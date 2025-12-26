@@ -1,6 +1,5 @@
 """Tests for bin/_gen_wrappers.py wrapper generator."""
 
-import os
 import stat
 import tempfile
 import unittest
