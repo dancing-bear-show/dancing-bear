@@ -68,7 +68,7 @@ def execute_delete(plan: TidyPlan) -> List[Path]:
             p.unlink()
             deleted.append(p)
         except Exception:
-            pass  # nosec B110 - file deletion failure
+            pass  # noqa: S110 - file deletion failure
     return deleted
 
 
@@ -84,5 +84,5 @@ def purge_temp_files(dir_path: str | Path) -> List[Path]:
                 p.unlink()
                 removed.append(p)
             except Exception:
-                pass  # nosec B110 - temp file deletion failure
+                pass  # noqa: S110 - temp file deletion failure
     return removed

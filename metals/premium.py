@@ -53,7 +53,7 @@ def _parse_costs(path: str, metal: str) -> List[CostRow]:
             try:
                 cpo = float(row.get("cost_per_oz") or 0)
                 toz = float(row.get("total_oz") or 0)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             if cpo <= 0 or toz <= 0:
                 continue
@@ -92,7 +92,7 @@ def _parse_units_breakdown(s: str) -> List[Tuple[float, float]]:
                 # Fallback: '<oz>oz'
                 oz = float(tok[:-2])
                 out.append((oz, 1.0))
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
     return out
 

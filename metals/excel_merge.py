@@ -19,6 +19,7 @@ import time
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE
 from mail.outlook_api import OutlookClient
 
 
@@ -66,7 +67,7 @@ def _get_used_range_values(client: OutlookClient, drive_id: str, item_id: str, s
     import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     url = f"{base}/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=client._headers())  # nosec B113
+    r = requests.get(url, headers=client._headers(), timeout=30)
     if r.status_code >= 400:
         # If sheet doesn't exist, return empty
         return []
@@ -79,14 +80,14 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
     Returns (new_drive_id, new_item_id)."""
     import requests  # type: ignore
     # Discover parent
-    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers()).json()  # nosec B113
+    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers()).json(, timeout=30)
     parent = ((meta or {}).get("parentReference") or {})
     parent_id = parent.get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
     copy_url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/copy"
-    resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body))  # nosec B113
+    resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body), timeout=30)
     if resp.status_code not in (202, 200):
         raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
     # Poll the monitor URL until finished
@@ -99,7 +100,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
         except Exception:
             raise RuntimeError("Copy returned no monitor location and no body")
     for _ in range(60):
-        st = requests.get(loc, headers=client._headers()).json()  # nosec B113
+        st = requests.get(loc, headers=client._headers()).json(, timeout=30)
         # When complete, final resource location is in 'resourceId' or 'resourceLocation'
         if st.get("status") in ("succeeded", "completed"):
             rid = st.get("resourceId")
@@ -108,7 +109,7 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
             rloc = st.get("resourceLocation")
             if rloc:
                 # GET the item to fetch id
-                item = requests.get(rloc, headers=client._headers()).json()  # nosec B113
+                item = requests.get(rloc, headers=client._headers()).json(, timeout=30)
                 return drive_id, item.get("id")
         time.sleep(1.5)
     raise RuntimeError("Timed out waiting for copy to complete")
@@ -119,14 +120,14 @@ def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Try to add; if exists, just continue
     add_url = f"{base}/worksheets/add"
-    requests.post(add_url, headers=client._headers(), data=json.dumps({"name": sheet}))  # nosec B113
+    requests.post(add_url, headers=client._headers(), data=json.dumps({"name": sheet}), timeout=30)
 
 
 def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
     import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Clear a generous range
-    requests.post(  # nosec B113
+    requests.post(  # noqa: S113
         f"{base}/worksheets('{sheet}')/range(address='A1:Z10000')/clear",
         headers=client._headers(),
         data=json.dumps({"applyTo": "contents"}),
@@ -138,13 +139,13 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     end_col = _col_letter(cols)
     addr = f"A1:{end_col}{rows}"
     url = f"{base}/worksheets('{sheet}')/range(address='{addr}')"
-    r = requests.patch(url, headers=client._headers(), data=json.dumps({"values": values}))  # nosec B113
+    r = requests.patch(url, headers=client._headers(), data=json.dumps({"values": values}), timeout=30)
     if r.status_code >= 400:
         raise RuntimeError(f"Failed writing sheet {sheet}: {r.status_code} {r.text}")
 
     # Spiff it up: convert to table, format, autofit, freeze header
     # Add table
-    tadd = requests.post(  # nosec B113
+    tadd = requests.post(  # noqa: S113
         f"{base}/tables/add",
         headers=client._headers(),
         data=json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
@@ -156,18 +157,18 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
         tid = None
     if tid:
         # Apply a table style
-        requests.patch(  # nosec B113
+        requests.patch(  # noqa: S113
             f"{base}/tables/{tid}",
             headers=client._headers(),
             data=json.dumps({"style": "TableStyleMedium2"}),
         )
     # Autofit columns
-    requests.post(  # nosec B113
+    requests.post(  # noqa: S113
         f"{base}/worksheets('{sheet}')/range(address='{sheet}!A:{end_col}')/format/autofitColumns",
         headers=client._headers(),
     )
     # Freeze header row
-    requests.post(  # nosec B113
+    requests.post(  # noqa: S113
         f"{base}/worksheets('{sheet}')/freezePanes/freeze",
         headers=client._headers(),
         data=json.dumps({"top": 1, "left": 0}),
@@ -227,7 +228,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         getattr(args, "tenant", None),
         getattr(args, "token", None),
     )
-    token = token or ".cache/.msal_token.json"
+    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
     if not client_id:
         raise SystemExit("No Outlook client_id configured; set it in credentials.ini under [mail.<profile>]")
 

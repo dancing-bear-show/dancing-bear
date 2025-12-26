@@ -486,7 +486,7 @@ def run_outlook_auth_ensure(args) -> int:
         try:
             cache.deserialize(tp.read_text(encoding="utf-8"))
         except Exception:
-            pass  # nosec B110 - corrupt token cache, start fresh
+            pass  # noqa: S110 - corrupt token cache, start fresh
 
     app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
     scopes = ["https://graph.microsoft.com/.default"]
@@ -575,7 +575,7 @@ def run_outlook_auth_validate(args) -> int:
         return 4
 
     # Ping /me to confirm validity
-    r = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {res['access_token']}"})  # nosec B113
+    r = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {res['access_token']}"}, timeout=30)
     if r.status_code == 200:
         print("Outlook token valid.")
         return 0
