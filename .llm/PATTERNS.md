@@ -23,19 +23,24 @@ Agentic Shortcuts (LLM CLI)
 ./bin/llm agentic --stdout
 
 # Generate domain map (CLI tree + flows)
-./bin/llm domain-map --write .llm/DOMAIN_MAP.md
+./bin/llm domain-map --stdout
 
 # Ensure core .llm files exist (and generate AGENTIC/DOMAIN_MAP)
-./bin/llm derive-all --out-dir .llm --include-generated --stdout
+./bin/llm derive-all --out-dir .llm --include-generated
 
 # Familiarization capsules
 ./bin/llm familiar --stdout
-./bin/llm familiar --verbose --write .llm/familiarize.yaml
+./bin/llm familiar --verbose
+
+# Flows (curated workflows)
+./bin/llm flows --list
+./bin/llm flows --id gmail_filters_plan_apply_verify --format md
+./bin/llm flows --tags mail,gmail
 
 # Staleness/Dependencies for prioritization
-./bin/llm stale --by area --limit 10 --with-status --format table
-./bin/llm deps --by combined --order desc --format table --limit 10
-./bin/llm check --limit 50 --agg max --with-status --fail-on-stale
+./bin/llm stale --with-status --limit 10
+./bin/llm deps --by combined --order desc --limit 10
+./bin/llm check --fail-on-stale
 ```
 
 Familiarization: Reading Order
@@ -84,15 +89,16 @@ Schedule Planning/Apply
 
 Profile-Based Credentials
 ```
-# ~/.config/sre-utils/credentials.ini
+# ~/.config/credentials.ini (preferred)
+# Legacy paths also supported: ~/.config/sre-utils/, ~/.config/sreutils/
 [mail.gmail_personal]
-credentials = /Users/you/.config/sre-utils/google_credentials.gmail_personal.json
-token = /Users/you/.config/sre-utils/token.gmail_personal.json
+credentials = /Users/you/.config/google_credentials.gmail_personal.json
+token = /Users/you/.config/token.gmail_personal.json
 
 [mail.outlook_personal]
 outlook_client_id = <YOUR_APP_ID>
 tenant = consumers
-outlook_token = /Users/you/.config/sre-utils/outlook_token.json
+outlook_token = /Users/you/.config/outlook_token.json
 ```
 
 Lazy Imports for Optional Deps
@@ -122,12 +128,22 @@ if not provider.capabilities().get("signatures"):
     raise SystemExit("Signatures not supported by this provider")
 ```
 
-Plan/Apply Flow
+Plan/Apply Flow (Safe by Default)
 ```
-# plan
-python3 -m mail filters plan --config filters.yaml --out plan.json
-# apply (dry-run by default; require --apply to write)
-python3 -m mail filters sync --config filters.yaml --dry-run
+# Always: plan → dry-run → apply
+# Mail filters
+./bin/mail-assistant filters plan --config filters.yaml
+./bin/mail-assistant filters sync --config filters.yaml --dry-run
+./bin/mail-assistant filters sync --config filters.yaml
+
+# Mail labels
+./bin/mail-assistant labels plan --config labels.yaml --delete-missing
+./bin/mail-assistant labels sync --config labels.yaml --dry-run
+./bin/mail-assistant labels sync --config labels.yaml
+
+# Outlook rules
+./bin/mail-assistant outlook rules plan --config filters.outlook.yaml
+./bin/mail-assistant outlook rules sync --config filters.outlook.yaml --dry-run
 ```
 
 Minimal Test (unittest)
@@ -163,4 +179,46 @@ Code Quality (qlty)
 
 # Fix auto-fixable issues
 ~/.qlty/bin/qlty check --fix path/to/file.py
+```
+
+Phone/iOS Patterns
+```
+# Export → Plan → Checklist → Profile
+./bin/phone-assistant export --out out/ios.IconState.yaml
+./bin/phone-assistant plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
+./bin/phone-assistant checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml
+./bin/phone-assistant profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig
+
+# Analyze and prune unused apps
+./bin/phone-assistant analyze --layout out/ios.IconState.yaml
+./bin/phone-assistant unused --layout out/ios.IconState.yaml --limit 50
+./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode offload
+```
+
+Calendar Patterns
+```
+# Outlook calendar operations
+./bin/calendar --profile outlook_personal outlook verify-from-config --config out/plan.yaml
+./bin/calendar --profile outlook_personal outlook add-from-config --config out/plan.yaml
+./bin/calendar --profile outlook_personal outlook update-locations --config out/plan.yaml
+
+# Dedup series
+./bin/calendar --profile outlook_personal outlook dedup --calendar "Family" \
+  --from 2025-01-01 --to 2025-12-31 --prefer-delete-nonstandard --keep-newest
+```
+
+Metals Patterns
+```
+# Extract and build summaries
+./bin/extract-metals --profile gmail_personal --out out/metals.json
+./bin/build-metals-summaries --in out/metals.json --out out/metals-summary.xlsx
+./bin/metals-premium --in out/metals.json
+./bin/metals-spot-series --days 30
+```
+
+WiFi Patterns
+```
+# Diagnostics
+./bin/wifi-assistant scan
+./bin/wifi-assistant diagnose
 ```
