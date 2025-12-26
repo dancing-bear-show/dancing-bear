@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Unified assistant entry point (dispatches to app CLIs)."""
-
 from pathlib import Path
 import sys
 

@@ -3,31 +3,14 @@ VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html
+.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check
 
 venv:
 	$(PYTHON) -m venv $(VENV)
 	$(PY) -m pip install -U pip
 	$(PY) -m pip install -e .
-	# Ensure wrapper is executable for direct runs
-	chmod +x bin/mail_assistant bin/mail-assistant bin/mail-assistant-auth bin/assistant || true
-	chmod +x bin/calendar bin/calendar-assistant bin/calendar_assistant || true
-	chmod +x bin/phone bin/phone-assistant || true
-	chmod +x bin/wifi bin/wifi-assistant || true
-	chmod +x bin/apple-music-assistant bin/apple-music-user-token || true
-	# Cars-style convenience wrappers
-	chmod +x bin/gmail-auth bin/gmail-labels-export bin/gmail-labels-sync || true
-	chmod +x bin/gmail-filters-export bin/gmail-filters-sync bin/gmail-filters-impact bin/gmail-filters-sweep || true
-	# Outlook wrappers
-	chmod +x bin/outlook-auth-device-code bin/outlook-auth-poll bin/outlook-auth-ensure bin/outlook-auth-validate || true
-	chmod +x bin/outlook-rules-list bin/outlook-rules-export bin/outlook-rules-plan bin/outlook-rules-sweep bin/outlook-rules-sync bin/outlook-rules-delete || true
-	chmod +x bin/outlook-categories-list bin/outlook-categories-export bin/outlook-categories-sync || true
-	chmod +x bin/outlook-folders-sync bin/outlook-calendar-add bin/outlook-calendar-add-recurring bin/outlook-calendar-add-from-config || true
-	# iOS/Phone wrappers
-	chmod +x bin/ios-install-profile bin/ios-setup-device || true
-	chmod +x bin/ios-export bin/ios-plan bin/ios-checklist bin/ios-profile-build || true
-	chmod +x bin/ios-manifest-create bin/ios-manifest-build-profile bin/ios-manifest-from-device bin/ios-manifest-install || true
-	chmod +x bin/ios-analyze bin/ios-auto-folders bin/ios-unused bin/ios-prune || true
+	# Ensure wrappers are executable
+	chmod +x bin/* 2>/dev/null || true
 
 dev-venv:
 	$(PYTHON) -m venv $(VENV)
@@ -94,3 +77,11 @@ agentic-md:
 	@./bin/llm-maker domain-map --write .llm/DOMAIN_MAP_MAKER.md || true
 	@echo "Done. Files:"
 	@ls -1 .llm/AGENTIC*.md .llm/DOMAIN_MAP*.md 2>/dev/null || true
+
+bin-wrappers:
+	@echo "Regenerating bin/ wrappers from _wrappers.yaml..."
+	@$(PYTHON) bin/_gen_wrappers.py
+	@echo "Done."
+
+bin-wrappers-check:
+	@$(PYTHON) bin/_gen_wrappers.py --check
