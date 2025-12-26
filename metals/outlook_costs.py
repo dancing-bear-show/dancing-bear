@@ -56,7 +56,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
     t = t.replace('\u2013', '-')  # en dash
     t = t.replace('\u2014', '-')  # em dash
     t = t.replace('\u00A0', ' ')
-    lines: List[str] = [l.strip() for l in t.splitlines() if l.strip()]
+    lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
 
     # Support 1/10-oz, 0.1 oz, 1 oz, grams
     pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b|\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b")
@@ -196,7 +196,7 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
 
 def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
     t = (text or '').replace('\u00A0', ' ')
-    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
 
     def parse_amount(s: str) -> float:
@@ -235,7 +235,7 @@ def _extract_confirmation_item_totals(text: str) -> List[float]:
     Returns amounts in the order they appear. Intended to pair with items in sequence.
     """
     t = (text or '').replace('\u00A0', ' ')
-    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     amounts: List[float] = []
     pat = re.compile(r"(?i)\btotal\b[^\n]*?(?:C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))\s*CAD")
     ban = re.compile(r"(?i)(orders?\s+over|threshold|free\s+shipping|subtotal|savings)")
