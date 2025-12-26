@@ -49,7 +49,7 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Clear a large range first to avoid stale content
     clear_url = f"{base}/worksheets('{sheet}')/range(address='A1:Z10000')/clear"
-    requests.post(clear_url, headers=client._headers(), json={"applyTo": "contents"}, timeout=30)
+    requests.post(clear_url, headers=client._headers(), json={"applyTo": "contents"}, timeout=DEFAULT_REQUEST_TIMEOUT)
 
     if not values:
         return
@@ -59,7 +59,7 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     addr = f"A1:{end_col}{rows}"
     url = f"{base}/worksheets('{sheet}')/range(address='{addr}')"
     body = {"values": values}
-    res = requests.patch(url, headers=client._headers(), data=json.dumps(body), timeout=30)
+    res = requests.patch(url, headers=client._headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
     try:
         res.raise_for_status()
     except Exception as e:
