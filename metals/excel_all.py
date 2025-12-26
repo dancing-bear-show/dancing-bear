@@ -400,7 +400,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     # Add one day to include end
     p2 = to_unix(end_date) + 24 * 3600
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={p1}&period2={p2}&interval=1d"
-    r = requests.get(url, timeout=20)  # nosec B113
+    r = requests.get(url, timeout=30)
     try:
         data = r.json() or {}
     except Exception:
@@ -417,7 +417,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
                 v = cl[i]
                 if v is not None:
                     out[d] = float(v)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
     except Exception:
         return out
@@ -481,7 +481,7 @@ def _spot_cad_series(metal: str, start_date: str, end_date: str) -> Dict[str, fl
         for k in keys:
             try:
                 cad_from_usd[k] = float(usd[k]) * float(usdcad[k])
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
     # Compose: prefer primary when available; otherwise use converted
     if not primary and cad_from_usd:
@@ -509,7 +509,7 @@ def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
             m = (r.get("metal") or "").lower()
             oz = float(r.get("total_oz") or 0)
             cpo = float(r.get("cost_per_oz") or 0)
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
         if not d or m not in ("gold", "silver") or oz <= 0 or cpo <= 0:
             continue
@@ -707,11 +707,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         _set_sheet_position(client, new_did, new_iid, gold_name, 1)
         _set_sheet_position(client, new_did, new_iid, silver_name, 2)
     except Exception:
-        pass  # nosec B110 - non-critical sheet positioning
+        pass  # noqa: S110 - non-critical sheet positioning
     try:
         _set_sheet_visibility(client, new_did, new_iid, all_name, False)
     except Exception:
-        pass  # nosec B110 - non-critical sheet visibility
+        pass  # noqa: S110 - non-critical sheet visibility
 
     print("created consolidated workbook:", new_did, new_iid, "(Summary, Gold, Silver; All hidden)")
     return 0
