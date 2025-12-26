@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Thin wrapper to run the Maker CLI."""
-
 from pathlib import Path
 import sys
 
