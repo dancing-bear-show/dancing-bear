@@ -218,6 +218,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     agent = sp.add_parser("agentic", help="Show/write aggregated agentic capsule")
     agent.add_argument("--write", help="Write path (default .llm/AGENTIC.md)")
     agent.add_argument("--stdout", action="store_true")
+    agent.add_argument("--compact", action="store_true", help="Emit a more compact capsule")
 
     dmap = sp.add_parser("domain-map", help="Show/write domain map")
     dmap.add_argument("--write", help="Write path (default .llm/DOMAIN_MAP.md)")
@@ -259,11 +260,11 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _mail_agentic_capsule() -> str:
+def _mail_agentic_capsule(compact: bool = False) -> str:
     try:
         from mail.agentic import build_agentic_capsule
 
-        return build_agentic_capsule()
+        return build_agentic_capsule(compact=compact)
     except Exception:
         return "agentic: mail\n(pending capsule)"
 
@@ -605,7 +606,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.cmd == "agentic":
-        content = _mail_agentic_capsule()
+        compact = getattr(args, "compact", False)
+        content = _mail_agentic_capsule(compact=compact)
         target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
         if args.write:
             _write_text(target, content)
