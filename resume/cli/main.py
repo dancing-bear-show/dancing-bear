@@ -181,6 +181,68 @@ def cmd_summarize(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- render helpers ---
+
+
+def _try_load_structure(path: Path) -> Optional[dict]:
+    """Try to load structure from a file, return None on failure."""
+    if not path.exists():
+        return None
+    try:
+        return read_yaml_or_json(str(path))
+    except Exception:
+        return None
+
+
+def _find_structure_in_dirs(
+    profile: str, out_dirs: List[Path], extensions: tuple = (".json", ".yaml", ".yml")
+) -> Optional[dict]:
+    """Search for structure file in output directories (nested and legacy flat)."""
+    # Try nested location first: out_dir/profile/structure.ext
+    for out_dir in out_dirs:
+        for ext in extensions:
+            if (structure := _try_load_structure(out_dir / profile / f"structure{ext}")):
+                return structure
+    # Fallback to legacy flat naming: out_dir/profile.structure.ext
+    for out_dir in out_dirs:
+        for ext in extensions:
+            if (structure := _try_load_structure(out_dir / f"{profile}.structure{ext}")):
+                return structure
+    return None
+
+
+def _find_structure_in_config(
+    profile: str, extensions: tuple = (".json", ".yaml", ".yml")
+) -> Optional[dict]:
+    """Search for structure file in config folder."""
+    for ext in extensions:
+        if (structure := _try_load_structure(Path("config") / "profiles" / profile / f"structure{ext}")):
+            return structure
+    return None
+
+
+def _load_structure(args: argparse.Namespace) -> Optional[dict]:
+    """Load structure from explicit path or auto-discover for profile."""
+    if args.structure_from:
+        sf = str(args.structure_from)
+        if sf.lower().endswith((".json", ".yaml", ".yml")):
+            return _try_load_structure(Path(sf))
+        return infer_structure_from_docx(sf)
+
+    profile = getattr(args, "profile", None)
+    if not profile:
+        return None
+
+    # Build list of output directories to search
+    base_out_dir = Path(getattr(args, "out_dir", "out") or "out")
+    out_dirs = [base_out_dir]
+    legacy_out_dir = Path("_out")
+    if legacy_out_dir != base_out_dir:
+        out_dirs.append(legacy_out_dir)
+
+    return _find_structure_in_dirs(profile, out_dirs) or _find_structure_in_config(profile)
+
+
 # --- render command ---
 @app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")
 @app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
@@ -219,60 +281,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         .execute()
     )
 
-    structure = None
-    if args.structure_from:
-        sf = str(args.structure_from)
-        if sf.lower().endswith((".json", ".yaml", ".yml")):
-            try:
-                structure = read_yaml_or_json(sf)
-            except Exception:
-                structure = None
-        else:
-            structure = infer_structure_from_docx(sf)
-    else:
-        # If no structure explicitly provided, attempt to reuse saved structure for this profile
-        prof = getattr(args, "profile", None)
-        base_out_dir = Path(getattr(args, "out_dir", "out") or "out")
-        candidate_out_dirs = [base_out_dir]
-        legacy_out_dir = Path("_out")
-        if legacy_out_dir not in candidate_out_dirs:
-            candidate_out_dirs.append(legacy_out_dir)
-        if prof:
-            # New nested location first
-            for out_dir in candidate_out_dirs:
-                for ext in (".json", ".yaml", ".yml"):
-                    sfile_new = out_dir / prof / f"structure{ext}"
-                    if sfile_new.exists():
-                        try:
-                            structure = read_yaml_or_json(str(sfile_new))
-                            break
-                        except Exception:
-                            structure = None
-                if structure is not None:
-                    break
-            # Fallback to legacy flat naming
-            if structure is None:
-                for out_dir in candidate_out_dirs:
-                    for ext in (".json", ".yaml", ".yml"):
-                        sfile_old = out_dir / f"{prof}.structure{ext}"
-                        if sfile_old.exists():
-                            try:
-                                structure = read_yaml_or_json(str(sfile_old))
-                                break
-                            except Exception:
-                                structure = None
-                    if structure is not None:
-                        break
-            # Also consider a config-provided structure file in the profile folder
-            if structure is None:
-                for ext in (".json", ".yaml", ".yml"):
-                    sfile_cfg = Path("config") / "profiles" / prof / f"structure{ext}"
-                    if sfile_cfg.exists():
-                        try:
-                            structure = read_yaml_or_json(str(sfile_cfg))
-                            break
-                        except Exception:
-                            structure = None
+    structure = _load_structure(args)
     out_docx = _resolve_out(args, ".docx", kind="resume")
     out_suf = out_docx.suffix.lower()
     if out_suf == ".pdf":

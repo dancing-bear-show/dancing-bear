@@ -25,47 +25,48 @@ def _filter_items(items: List[Any], cutoff: float) -> List[Any]:
     return out
 
 
+def _filter_skills_groups(groups: List[Any], cutoff: float) -> List[Any]:
+    """Filter skills_groups items by priority cutoff."""
+    new_groups = []
+    for g in groups or []:
+        items = g.get("items") if isinstance(g, dict) else None
+        if isinstance(items, list):
+            fi = _filter_items(items, cutoff)
+            if fi:
+                new_groups.append({**g, "items": fi})
+        else:
+            new_groups.append(g)
+    return new_groups
+
+
+def _filter_experience(exp: List[Any], cutoff: float) -> List[Any]:
+    """Filter experience roles and bullets by priority cutoff."""
+    new_exp = []
+    for e in exp or []:
+        if not isinstance(e, dict):
+            continue
+        role_pr = _score(e.get("priority")) if e.get("priority") is not None else 1.0
+        if role_pr < cutoff:
+            continue
+        if isinstance(e.get("bullets"), list):
+            e = {**e, "bullets": _filter_items(e["bullets"], cutoff)}
+        new_exp.append(e)
+    return new_exp
+
+
 def filter_by_min_priority(data: Dict[str, Any], min_prio: float) -> Dict[str, Any]:
-    """Apply priority/usefulness cutoff across known lists in candidate data.
-
-    Applies to: skills_groups.items, technologies, interests, presentations,
-    languages, coursework, summary (list), and experience roles+bullets.
-    """
+    """Apply priority/usefulness cutoff across known lists in candidate data."""
     d = dict(data)
-    # Skills groups
-    if isinstance(d.get("skills_groups"), list):
-        new_groups = []
-        for g in d.get("skills_groups") or []:
-            items = g.get("items") if isinstance(g, dict) else None
-            if isinstance(items, list):
-                fi = _filter_items(items, min_prio)
-                if fi:
-                    g2 = dict(g)
-                    g2["items"] = fi
-                    new_groups.append(g2)
-            else:
-                new_groups.append(g)
-        d["skills_groups"] = new_groups
 
-    # Flat lists
+    if isinstance(d.get("skills_groups"), list):
+        d["skills_groups"] = _filter_skills_groups(d["skills_groups"], min_prio)
+
     for key in ("technologies", "interests", "presentations", "languages", "coursework", "summary"):
         if isinstance(d.get(key), list):
-            d[key] = _filter_items(d.get(key) or [], min_prio)
+            d[key] = _filter_items(d[key], min_prio)
 
-    # Experience roles and bullets
     if isinstance(d.get("experience"), list):
-        new_exp = []
-        for e in d.get("experience") or []:
-            if not isinstance(e, dict):
-                continue
-            role_pr = _score(e.get("priority")) if e.get("priority") is not None else 1.0
-            if role_pr < min_prio:
-                continue
-            bl = e.get("bullets")
-            if isinstance(bl, list):
-                e = dict(e)
-                e["bullets"] = _filter_items(bl, min_prio)
-            new_exp.append(e)
-        d["experience"] = new_exp
+        d["experience"] = _filter_experience(d["experience"], min_prio)
+
     return d
 
