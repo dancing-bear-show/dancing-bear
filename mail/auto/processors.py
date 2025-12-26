@@ -68,8 +68,8 @@ def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
     if "<" in f and ">" in f:
         try:
             f = f.split("<")[-1].split(">")[0]
-        except Exception:
-            pass  # noqa: S110 - malformed From header, fall back to original
+        except Exception:  # noqa: S110 - malformed From header, fall back to original
+            pass
     f = f.strip()
     dom = f.split("@")[-1] if "@" in f else f
 

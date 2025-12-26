@@ -30,8 +30,8 @@ class IntegrationCLITests(unittest.TestCase):
         try:
             mode = os.stat(wrapper).st_mode
             os.chmod(wrapper, mode | 0o111)
-        except Exception:
-            pass  # noqa: S110 - chmod in tests
+        except Exception:  # noqa: S110 - chmod in tests
+            pass
 
         # Use bash for shell scripts, Python for Python scripts
         if _is_shell_script(wrapper):

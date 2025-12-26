@@ -175,8 +175,8 @@ class OutlookCalendarMixin:
             try:
                 payload["isReminderOn"] = True
                 payload["reminderMinutesBeforeStart"] = int(reminder_minutes)
-            except Exception:
-                pass  # noqa: S110 - invalid reminder_minutes
+            except Exception:  # noqa: S110 - invalid reminder_minutes
+                pass
         r = _requests().post(endpoint, headers=self._headers(), json=payload)
         r.raise_for_status()
         return r.json()
@@ -245,8 +245,8 @@ class OutlookCalendarMixin:
             try:
                 payload["isReminderOn"] = True
                 payload["reminderMinutesBeforeStart"] = int(reminder_minutes)
-            except Exception:
-                pass  # noqa: S110 - invalid reminder_minutes
+            except Exception:  # noqa: S110 - invalid reminder_minutes
+                pass
 
         r = _requests().post(endpoint, headers=self._headers(), json=payload)
         r.raise_for_status()
@@ -257,8 +257,8 @@ class OutlookCalendarMixin:
                 sid = series.get("id")
                 if sid:
                     self._apply_exdate_deletions(cal_id, sid, exdates, tz_final, rng)
-            except Exception:
-                pass  # noqa: S110 - non-fatal exdate deletion
+            except Exception:  # noqa: S110 - non-fatal exdate deletion
+                pass
         return series
 
     def _apply_exdate_deletions(
@@ -405,8 +405,8 @@ def _parse_location(loc: str) -> Dict[str, Any]:
                 nm, rest = s.split("(", 1)
                 addr = rest.rsplit(")", 1)[0]
                 return nm.strip(), addr.strip()
-            except Exception:
-                pass  # noqa: S110 - malformed parens, try other patterns
+            except Exception:  # noqa: S110 - malformed parens, try other patterns
+                pass
         if " at " in s:
             head, addr = s.rsplit(" at ", 1)
             return head.strip(), addr.strip()

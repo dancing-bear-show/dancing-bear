@@ -72,8 +72,8 @@ class FilterPipeline:
                 spec, syn = build_keyword_spec(load_job_config(str(job_path)))
                 if syn:
                     self._synonyms.update(syn)
-            except Exception:
-                pass  # noqa: S110 - job config load failure
+            except Exception:  # noqa: S110 - job config load failure
+                pass
         return self
 
     def with_skill_filter(
@@ -105,8 +105,8 @@ class FilterPipeline:
                     matched_keywords=matched,
                     synonyms=self._synonyms,
                 )
-        except Exception:
-            pass  # noqa: S110 - alignment load failure
+        except Exception:  # noqa: S110 - alignment load failure
+            pass
 
         return self
 
@@ -148,8 +148,8 @@ class FilterPipeline:
                     max_bullets_per_role=max_bullets_per_role,
                     min_score=min_score,
                 )
-        except Exception:
-            pass  # noqa: S110 - experience filter failure
+        except Exception:  # noqa: S110 - experience filter failure
+            pass
 
         return self
 

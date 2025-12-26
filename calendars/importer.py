@@ -308,8 +308,8 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                                         recurrence='weekly', byday=[code], start_time=st, end_time=en,
                                         range_start=_dt.date.today().isoformat(), location='Aurora Pools', notes=f'Imported from PDF {path}',
                                     ))
-        except Exception:
-            pass  # noqa: S110 - pdfplumber failure falls through to text extraction
+        except Exception:  # noqa: S110 - pdfplumber failure falls through to text extraction
+            pass
         if items:
             return items
     try:

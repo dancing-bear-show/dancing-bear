@@ -127,8 +127,8 @@ class OutlookClientBase(ConfigCacheMixin):
                             authority=f"https://login.microsoftonline.com/{self.tenant}"
                         )
                         return
-            except Exception:
-                pass  # noqa: S110 - token read failed, proceed with fresh auth
+            except Exception:  # noqa: S110 - token read failed, proceed with fresh auth
+                pass
 
         app = _msal().PublicClientApplication(
             self.client_id,
@@ -194,8 +194,8 @@ class OutlookClientBase(ConfigCacheMixin):
                         if self._cache and self.token_path:
                             with open(self.token_path, "w", encoding="utf-8") as f:
                                 f.write(self._cache.serialize())
-        except Exception:
-            pass  # noqa: S110 - silent token refresh failure
+        except Exception:  # noqa: S110 - silent token refresh failure
+            pass
         return {
             "Authorization": f"Bearer {self._token['access_token']}",
             "Content-Type": "application/json"

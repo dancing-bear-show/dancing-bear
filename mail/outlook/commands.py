@@ -485,8 +485,8 @@ def run_outlook_auth_ensure(args) -> int:
     if tp.exists():
         try:
             cache.deserialize(tp.read_text(encoding="utf-8"))
-        except Exception:
-            pass  # noqa: S110 - corrupt token cache, start fresh
+        except Exception:  # noqa: S110 - corrupt token cache, start fresh
+            pass
 
     app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
     scopes = ["https://graph.microsoft.com/.default"]

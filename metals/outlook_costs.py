@@ -81,8 +81,8 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                         n = int(m.group(1))
                         if 1 <= n <= 200:
                             return float(n)
-                    except Exception:
-                        pass  # noqa: S110 - invalid quantity
+                    except Exception:  # noqa: S110 - invalid quantity
+                        pass
         return None
 
     def infer_metal(ctx: str) -> str:
@@ -134,8 +134,8 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                 try:
                     if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
                         cur['qty'] = it.get('qty')
-                except Exception:
-                    pass  # noqa: S110 - invalid qty comparison
+                except Exception:  # noqa: S110 - invalid qty comparison
+                    pass
                 if (it.get('metal') or '') and not (cur.get('metal') or ''):
                     cur['metal'] = it.get('metal')
         items = list(buckets.values())

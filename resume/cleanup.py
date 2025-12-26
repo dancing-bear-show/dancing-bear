@@ -67,8 +67,8 @@ def execute_delete(plan: TidyPlan) -> List[Path]:
         try:
             p.unlink()
             deleted.append(p)
-        except Exception:
-            pass  # noqa: S110 - file deletion failure
+        except Exception:  # noqa: S110 - file deletion failure
+            pass
     return deleted
 
 
@@ -83,6 +83,6 @@ def purge_temp_files(dir_path: str | Path) -> List[Path]:
             try:
                 p.unlink()
                 removed.append(p)
-            except Exception:
-                pass  # noqa: S110 - temp file deletion failure
+            except Exception:  # noqa: S110 - temp file deletion failure
+                pass
     return removed
