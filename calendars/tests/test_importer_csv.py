@@ -49,6 +49,53 @@ class TestImporterCSV(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_load_schedule_auto_detects_csv(self):
+        """Test that load_schedule auto-detects CSV files by extension."""
+        with tempfile.NamedTemporaryFile('w+', suffix='.csv', delete=False) as tf:
+            tf.write(CSV_REC_CONTENT)
+            tf.flush()
+            path = tf.name
+        try:
+            # kind='auto' or kind='' should auto-detect
+            items = load_schedule(path, kind='auto')
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].subject, 'Swim Kids')
+
+            items2 = load_schedule(path, kind='')
+            self.assertEqual(len(items2), 1)
+
+            items3 = load_schedule(path)  # no kind specified
+            self.assertEqual(len(items3), 1)
+        finally:
+            os.unlink(path)
+
+    def test_load_schedule_unknown_kind_raises(self):
+        """Test that unknown kind raises ValueError."""
+        with tempfile.NamedTemporaryFile('w+', suffix='.csv', delete=False) as tf:
+            tf.write(CSV_REC_CONTENT)
+            tf.flush()
+            path = tf.name
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                load_schedule(path, kind='unknown_format')
+            self.assertIn('unknown_format', str(ctx.exception).lower())
+        finally:
+            os.unlink(path)
+
+    def test_load_schedule_explicit_csv_kind(self):
+        """Test that explicit kind='csv' works regardless of extension."""
+        # Create file without .csv extension
+        with tempfile.NamedTemporaryFile('w+', suffix='.txt', delete=False) as tf:
+            tf.write(CSV_REC_CONTENT)
+            tf.flush()
+            path = tf.name
+        try:
+            items = load_schedule(path, kind='csv')
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].subject, 'Swim Kids')
+        finally:
+            os.unlink(path)
+
 
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()

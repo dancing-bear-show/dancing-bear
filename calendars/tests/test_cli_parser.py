@@ -1,6 +1,6 @@
 import unittest
 
-from calendars.__main__ import build_parser
+from calendars.__main__ import app
 
 
 def _has_subcommand(parser, path):
@@ -21,7 +21,7 @@ def _has_subcommand(parser, path):
 
 class TestCLIParser(unittest.TestCase):
     def setUp(self) -> None:
-        self.parser = build_parser()
+        self.parser = app.build_parser()
 
     def test_outlook_add_exists(self):
         self.assertTrue(_has_subcommand(self.parser, ["outlook", "add"]))
