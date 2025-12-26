@@ -69,7 +69,7 @@ def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
         try:
             f = f.split("<")[-1].split(">")[0]
         except Exception:
-            pass  # nosec B110 - malformed From header, fall back to original
+            pass  # noqa: S110 - malformed From header, fall back to original
     f = f.strip()
     dom = f.split("@")[-1] if "@" in f else f
 

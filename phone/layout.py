@@ -179,7 +179,7 @@ def checklist_from_plan(layout: NormalizedLayout, plan: Dict[str, Any]) -> List[
         for page_key in sorted(pages_spec.keys(), key=_to_int):
             try:
                 target_page = int(page_key)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             spec = pages_spec.get(page_key) or {}
             # folders

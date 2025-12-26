@@ -309,7 +309,7 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                                         range_start=_dt.date.today().isoformat(), location='Aurora Pools', notes=f'Imported from PDF {path}',
                                     ))
         except Exception:
-            pass  # nosec B110 - pdfplumber failure falls through to text extraction
+            pass  # noqa: S110 - pdfplumber failure falls through to text extraction
         if items:
             return items
     try:

@@ -974,7 +974,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
     except Exception:
-        pass  # nosec B110 - best-effort masking
+        pass  # noqa: S110 - best-effort masking
 
     parser = app.build_parser()
     # Add top-level args before agentic flags

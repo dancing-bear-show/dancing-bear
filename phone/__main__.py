@@ -298,7 +298,7 @@ def cmd_auto_folders(args) -> int:
         try:
             if int(k) >= start_page:
                 del pages[k]
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
     new_pages = distribute_folders_across_pages(folder_names, per_page=per_page, start_page=start_page)
     # Merge in new pages
@@ -532,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         from mail.utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
     except Exception:
-        pass  # nosec B110 - best-effort masking
+        pass  # noqa: S110 - best-effort masking
 
     # Build parser and add agentic flags
     parser = app.build_parser()

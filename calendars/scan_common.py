@@ -108,7 +108,7 @@ def infer_meta_from_text(
             end_date = f"{y2f:04d}-{MONTH_MAP[m2.lower()]:02d}-{int(d2):02d}"
             meta["range"] = {"start_date": start_date, "until": end_date}
         except Exception:
-            pass  # nosec B110 - non-critical metadata extraction
+            pass  # noqa: S110 - non-critical metadata extraction
     class_match = class_pat.search(text or "")
     if class_match:
         meta["subject"] = class_match.group(0).strip().title()

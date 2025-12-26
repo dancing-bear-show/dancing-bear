@@ -278,7 +278,7 @@ class GmailClient(ConfigCacheMixin):
             try:
                 self.cache.put_meta(msg_id, msg)
             except Exception:
-                pass  # nosec B110 - non-critical cache write
+                pass  # noqa: S110 - non-critical cache write
         return msg
 
     def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict[str, Any]]:
@@ -286,7 +286,7 @@ class GmailClient(ConfigCacheMixin):
         for mid in ids:
             try:
                 out.append(self.get_message_metadata(mid, use_cache=use_cache))
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
         return out
 
@@ -300,7 +300,7 @@ class GmailClient(ConfigCacheMixin):
                 if name and value is not None:
                     hdrs[name.lower()] = value
         except Exception:
-            pass  # nosec B110 - malformed headers
+            pass  # noqa: S110 - malformed headers
         return hdrs
 
     # --- Message content helpers ---

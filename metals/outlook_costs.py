@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE
 from mail.outlook_api import OutlookClient
 
 
@@ -81,7 +82,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                         if 1 <= n <= 200:
                             return float(n)
                     except Exception:
-                        pass  # nosec B110 - invalid quantity
+                        pass  # noqa: S110 - invalid quantity
         return None
 
     def infer_metal(ctx: str) -> str:
@@ -102,7 +103,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
             try:
                 num = float(m.group(1) or m.group(4))
                 den = float(m.group(2) or m.group(5) or 1)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             oz = num / max(den, 1.0)
             metal = (m.group(3) or '').lower()
@@ -134,7 +135,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                     if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
                         cur['qty'] = it.get('qty')
                 except Exception:
-                    pass  # nosec B110 - invalid qty comparison
+                    pass  # noqa: S110 - invalid qty comparison
                 if (it.get('metal') or '') and not (cur.get('metal') or ''):
                     cur['metal'] = it.get('metal')
         items = list(buckets.values())
@@ -164,7 +165,7 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
         for m in money_pat.finditer(ln):
             try:
                 amt = float(m.group(1).replace(",", ""))
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             # Filter obvious non-item amounts based on expected ranges
             if (metal or '').lower() == 'gold':
@@ -247,7 +248,7 @@ def _extract_confirmation_item_totals(text: str) -> List[float]:
             try:
                 val = float((m.group(1) or '0').replace(',', ''))
                 amounts.append(val)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
     return amounts
 
@@ -298,7 +299,7 @@ def _merge_write(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
 
 def run(profile: str, out_path: str, days: int = 365) -> int:
     client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
-    token = token or '.cache/.msal_token.json'
+    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
     if not client_id:
         raise SystemExit('No Outlook client_id configured; set it under [mail.<profile>] in credentials.ini')
     cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir='.cache')
@@ -319,7 +320,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
     for q in queries:
         url = base + '?' + '&'.join([f'$search="{q}"', '$top=50'])
         for _ in range(3):
-            r = requests.get(url, headers=cli._headers_search())  # nosec B113
+            r = requests.get(url, headers=cli._headers_search(), timeout=30)
             if r.status_code >= 400:
                 break
             data = r.json() or {}
@@ -374,7 +375,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
         if not ids:
             import requests as _req
             url = f"{cli.GRAPH}/me/messages?$search=\"Confirmation for order number {oid}\"&$top=10"
-            r = _req.get(url, headers=cli._headers_search())  # nosec B113
+            r = _req.get(url, headers=cli._headers_search(), timeout=30)
             if r.status_code < 400:
                 data = r.json() or {}
                 ids = [m.get('id') for m in (data.get('value') or []) if m.get('id')]
@@ -384,7 +385,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
             for mid in ids:
                 try:
                     mm = cli.get_message(mid, select_body=False)
-                except Exception:
+                except Exception:  # noqa: S112 - skip on error
                     continue
                 sub = (mm.get('subject') or '').lower()
                 if 'confirmation for order number' in sub:

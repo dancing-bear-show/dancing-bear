@@ -129,7 +129,7 @@ def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | Non
         if page_cfg and isinstance(page_cfg.get("header_level"), int):
             return int(page_cfg.get("header_level"))
     except Exception:
-        pass  # nosec B110 - invalid header_level
+        pass  # noqa: S110 - invalid header_level
     return 1
 
 
@@ -152,7 +152,7 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
         sec.left_margin = Inches(m)
         sec.right_margin = Inches(m)
     except Exception:
-        pass  # nosec B110 - margin setting failure
+        pass  # noqa: S110 - margin setting failure
 
     try:
         body_pt = float(page_cfg.get("body_pt", 10.5))
@@ -181,7 +181,7 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
             if rgbt:
                 doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
     except Exception:
-        pass  # nosec B110 - style setting failure
+        pass  # noqa: S110 - style setting failure
 
 
 def _extract_experience_locations(data: Dict[str, Any]) -> List[str]:
@@ -216,11 +216,11 @@ def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) 
                 try:
                     cp.category = "; ".join(uniq_locs)
                 except Exception:
-                    pass  # nosec B110 - category set failure
+                    pass  # noqa: S110 - category set failure
 
         cp.keywords = "; ".join(kw)
     except Exception:
-        pass  # nosec B110 - metadata set failure
+        pass  # noqa: S110 - metadata set failure
 
 
 def _center_paragraph(para) -> None:
@@ -231,7 +231,7 @@ def _center_paragraph(para) -> None:
         pf.left_indent = Pt(0)
         pf.first_line_indent = Pt(0)
     except Exception:
-        pass  # nosec B110 - alignment failure
+        pass  # noqa: S110 - alignment failure
 
 
 def _get_contact_field(data: Dict[str, Any], field: str) -> str:
