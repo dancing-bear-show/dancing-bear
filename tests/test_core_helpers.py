@@ -161,12 +161,12 @@ class CoreAuthTests(unittest.TestCase):
                  patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
                  patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"):
                 client, tenant, token = core_auth.resolve_outlook_credentials(
-                    "profile", "cli_client", "cli_tenant", "/tmp/token.json"
+                    "profile", "cli_client", "cli_tenant", "/tmp/token.json"  # noqa: S108
                 )
 
         self.assertEqual(client, "cli_client")
         self.assertEqual(tenant, "cli_tenant")
-        self.assertEqual(token, "/tmp/token.json")
+        self.assertEqual(token, "/tmp/token.json")  # noqa: S108
 
     def test_build_outlook_service_from_args_passes_values(self):
         from core import auth as core_auth

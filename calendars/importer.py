@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 import os
 
+from core.constants import DEFAULT_REQUEST_TIMEOUT
+
 # Regex pattern constants for HTML parsing
 RE_STRIP_TAGS = r'<[^>]+>'
 RE_AMPM = r'(?i)\b(a\.?m\.?|p\.?m\.?)\b'
@@ -357,7 +359,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
 
     u = str(url or '')
     if 'richmondhill.ca' in u and 'Skating.aspx' in u:
-        html = requests.get(u, timeout=30).text
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
         # Prefer BeautifulSoup when available for robust parsing
         if BeautifulSoup is not None:
             soup = BeautifulSoup(html, 'html.parser')
@@ -456,7 +458,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 ))
         return items
     if 'richmondhill.ca' in u and 'Swimming.aspx' in u:
-        html = requests.get(u, timeout=30).text
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
         items: List[ScheduleItem] = []
         # Simple regex-driven fallback parse to avoid hard deps
         blocks = re.split(r'data-name=\"accParent\"', html)
@@ -485,7 +487,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                     ))
         return items
     if 'aurora.ca' in u and 'aquatics-and-swim-programs' in u:
-        html = requests.get(u, timeout=30).text
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
         items: List[ScheduleItem] = []
         today = _dt.date.today().isoformat()
         # Locate tables containing a "Leisure Swim" header
