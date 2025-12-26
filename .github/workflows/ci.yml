@@ -8,9 +8,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: qltysh/qlty-check-action@v1
-        with:
-          token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
+      - uses: qltysh/qlty-action/install@main
+      - name: Run qlty check
+        run: qlty check --no-progress
 
   tests:
     runs-on: ubuntu-latest
@@ -31,7 +31,7 @@ jobs:
           mkdir -p reports
           coverage lcov -o reports/lcov.info
       - name: Upload coverage to qlty
-        uses: qltysh/qlty-coverage-action@v1
+        uses: qltysh/qlty-action/coverage@main
         with:
           token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
           files: reports/lcov.info
