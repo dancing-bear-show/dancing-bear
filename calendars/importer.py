@@ -245,8 +245,10 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                     hh = int(mm.group(1))
                     mi = int(mm.group(2) or 0)
                     ap = mm.group(3)
-                    if ap == 'p' and hh < 12: hh += 12
-                    if ap == 'a' and hh == 12: hh = 0
+                    if ap == 'p' and hh < 12:
+                        hh += 12
+                    if ap == 'a' and hh == 12:
+                        hh = 0
                     return f"{hh:02d}:{mi:02d}"
                 outs.append((to24(a), to24(b)))
             return outs

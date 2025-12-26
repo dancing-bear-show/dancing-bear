@@ -10,15 +10,12 @@ from . import __version__
 from .pipeline import (
     ApplyProcessor,
     ApplyRequest,
-    ApplyRequestConsumer,
     ApplyResultProducer,
     PlanProcessor,
     PlanRequest,
-    PlanRequestConsumer,
     ReportProducer,
     ScanProcessor,
     ScanRequest,
-    ScanRequestConsumer,
 )
 
 
@@ -68,7 +65,7 @@ def cmd_scan(args) -> int:
         top_dirs=args.top_dirs,
         debug=args.debug,
     )
-    report = ScanProcessor().process(ScanRequestConsumer(request).consume())
+    report = ScanProcessor().process(request)
     ReportProducer(args.out).produce(report)
     return 0
 
@@ -81,7 +78,7 @@ def cmd_scan(args) -> int:
 def cmd_plan(args) -> int:
     """Create a move/trash plan from config rules."""
     request = PlanRequest(config_path=args.config)
-    plan = PlanProcessor().process(PlanRequestConsumer(request).consume())
+    plan = PlanProcessor().process(request)
     ReportProducer(args.out).produce(plan)
     return 0
 
@@ -94,7 +91,7 @@ def cmd_plan(args) -> int:
 def cmd_apply(args) -> int:
     """Apply a previously generated plan."""
     request = ApplyRequest(plan_path=args.plan, dry_run=args.dry_run)
-    result = ApplyProcessor().process(ApplyRequestConsumer(request).consume())
+    result = ApplyProcessor().process(request)
     ApplyResultProducer().produce(result)
     return 0
 
