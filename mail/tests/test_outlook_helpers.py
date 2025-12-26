@@ -1,7 +1,6 @@
 """Tests for mail/outlook/helpers.py."""
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-import os
+from unittest.mock import Mock, patch
 
 from mail.outlook.helpers import (
     norm_label_name_outlook,

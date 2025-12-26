@@ -1,9 +1,8 @@
 """Tests for mail/outlook/processors.py."""
 import tempfile
 import unittest
-from dataclasses import fields
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 
 from mail.outlook.processors import (
     # Result dataclasses
