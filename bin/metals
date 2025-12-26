@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Thin wrapper to run the Metals Assistant CLI."""
-
+"""Thin wrapper to run the Metals CLI."""
 from pathlib import Path
 import sys
 

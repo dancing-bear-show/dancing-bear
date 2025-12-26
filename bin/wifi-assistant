@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Thin wrapper to run the Wi-Fi Assistant CLI."""
-
+"""Legacy alias for bin/wifi."""
 from pathlib import Path
 import sys
 
