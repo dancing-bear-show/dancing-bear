@@ -320,7 +320,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
     for q in queries:
         url = base + '?' + '&'.join([f'$search="{q}"', '$top=50'])
         for _ in range(3):
-            r = requests.get(url, headers=cli._headers_search(), timeout=30)
+            r = requests.get(url, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
             if r.status_code >= 400:
                 break
             data = r.json() or {}
@@ -375,7 +375,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
         if not ids:
             import requests as _req
             url = f"{cli.GRAPH}/me/messages?$search=\"Confirmation for order number {oid}\"&$top=10"
-            r = _req.get(url, headers=cli._headers_search(), timeout=30)
+            r = _req.get(url, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
             if r.status_code < 400:
                 data = r.json() or {}
                 ids = [m.get('id') for m in (data.get('value') or []) if m.get('id')]
