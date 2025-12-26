@@ -116,19 +116,6 @@ class FiltersRemoveTokenPayload:
     client: object
 
 
-@dataclass
-class FiltersSweepRangePayload:
-    filters: List[dict]
-    from_days: int
-    to_days: int
-    step_days: int
-    pages: int
-    max_msgs: int | None
-    batch_size: int
-    dry_run: bool
-    client: object
-
-
 class FiltersPlanConsumer(Consumer[FiltersPlanPayload]):
     """Load YAML + Gmail state for filters plan operations."""
 
