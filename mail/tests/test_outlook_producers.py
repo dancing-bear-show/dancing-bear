@@ -2,7 +2,6 @@
 import io
 import sys
 import unittest
-from unittest.mock import Mock
 
 from core.pipeline import ResultEnvelope
 
