@@ -1,10 +1,8 @@
-name: "CodeQL"
+name: CodeQL
 
 on:
   push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
   schedule:
     - cron: "0 2 * * 1"
 
@@ -18,15 +16,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ "python" ]
+        language: [python]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-        with:
-          upload: false
