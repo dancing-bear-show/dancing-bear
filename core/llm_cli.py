@@ -342,7 +342,7 @@ def _latest_mtime(path: Path) -> float:
     for sub in path.rglob("*"):
         try:
             latest = max(latest, sub.stat().st_mtime)
-        except Exception:
+        except Exception:  # noqa: S112 - skip inaccessible files (permissions, broken symlinks)
             continue
     return latest
 
