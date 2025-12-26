@@ -3,6 +3,9 @@ curated:
     - id: inventory_refresh
       desc: Refresh inventory
       cmd: ./bin/llm inventory --preserve
+    - id: derive_all
+      desc: Regenerate all .llm artifacts
+      cmd: ./bin/llm derive-all --out-dir .llm --include-generated
     - id: stale_most
       desc: Most-stale (by area)
       cmd: ./bin/llm stale --with-status --limit 10
@@ -12,6 +15,12 @@ curated:
     - id: sla_check
       desc: Fail build on stale
       cmd: ./bin/llm check --fail-on-stale
+    - id: agentic_full
+      desc: Full agentic capsule
+      cmd: ./bin/llm agentic --stdout
+    - id: agentic_compact
+      desc: Compact agentic capsule (token-efficient)
+      cmd: ./bin/llm agentic --stdout --compact
 
   onboarding:
     - id: creds_example
@@ -70,38 +79,38 @@ curated:
         - ./bin/mail-assistant auto summary --proposal out/auto.proposal.json
         - ./bin/mail-assistant auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run
 
-testing:
-  - id: tests_all
-    desc: Run all tests (verbose)
-    cmd: python3 -m unittest -v
+  testing:
+    - id: tests_all
+      desc: Run all tests (verbose)
+      cmd: python3 -m unittest -v
 
   ios_phone:
-  - id: ios_export_layout
-    desc: Export current Home Screen layout from Finder backup
-    cmd: ./bin/phone-assistant export --out out/ios.IconState.yaml
-  - id: ios_scaffold_plan
-    desc: Scaffold plan (pins + folders) from exported layout
-    cmd: ./bin/phone-assistant plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
-  - id: ios_manual_checklist
-    desc: Generate manual move checklist from plan + layout
-    cmd: ./bin/phone-assistant checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt
-  - id: ios_profile_build
-    desc: Build Home Screen Layout configuration profile (.mobileconfig)
-    cmd: ./bin/phone-assistant profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig --identifier com.example.profile --hs-identifier com.example.hslayout --display-name "Home Screen Layout" --organization "Personal"
-  - id: ios_unused_candidates
-    desc: Suggest rarely-used app candidates (heuristic)
-    cmd: ./bin/phone-assistant unused --layout out/ios.IconState.yaml --limit 50
-  - id: ios_unused_prune_offload
-    desc: Generate OFFLOAD checklist (no device writes)
-    cmd: ./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode offload --limit 50
-  - id: ios_unused_prune_delete
-    desc: Generate DELETE checklist (no device writes)
-    cmd: ./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode delete --limit 50
-  - id: ios_analyze_layout
-    desc: Analyze layout balance and folder structure
-    cmd: ./bin/phone-assistant analyze --layout out/ios.IconState.yaml
-  - id: ios_auto_folders
-    desc: Auto-assign apps into folders and distribute folders across pages
-    steps:
-      - ./bin/phone-assistant auto-folders --layout out/ipad.IconState.yaml --plan out/ipad.plan.yaml --place-folders-from-page 2
-      - ./bin/ios-pages-sync --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out out/ipad.hslayout.mobileconfig
+    - id: ios_export_layout
+      desc: Export current Home Screen layout from Finder backup
+      cmd: ./bin/phone-assistant export --out out/ios.IconState.yaml
+    - id: ios_scaffold_plan
+      desc: Scaffold plan (pins + folders) from exported layout
+      cmd: ./bin/phone-assistant plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
+    - id: ios_manual_checklist
+      desc: Generate manual move checklist from plan + layout
+      cmd: ./bin/phone-assistant checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt
+    - id: ios_profile_build
+      desc: Build Home Screen Layout configuration profile (.mobileconfig)
+      cmd: ./bin/phone-assistant profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig --identifier com.example.profile --hs-identifier com.example.hslayout --display-name "Home Screen Layout" --organization "Personal"
+    - id: ios_unused_candidates
+      desc: Suggest rarely-used app candidates (heuristic)
+      cmd: ./bin/phone-assistant unused --layout out/ios.IconState.yaml --limit 50
+    - id: ios_unused_prune_offload
+      desc: Generate OFFLOAD checklist (no device writes)
+      cmd: ./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode offload --limit 50
+    - id: ios_unused_prune_delete
+      desc: Generate DELETE checklist (no device writes)
+      cmd: ./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode delete --limit 50
+    - id: ios_analyze_layout
+      desc: Analyze layout balance and folder structure
+      cmd: ./bin/phone-assistant analyze --layout out/ios.IconState.yaml
+    - id: ios_auto_folders
+      desc: Auto-assign apps into folders and distribute folders across pages
+      steps:
+        - ./bin/phone-assistant auto-folders --layout out/ipad.IconState.yaml --plan out/ipad.plan.yaml --place-folders-from-page 2
+        - ./bin/ios-pages-sync --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out out/ipad.hslayout.mobileconfig
