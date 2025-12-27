@@ -1,58 +1,30 @@
 """Mail-specific test fixtures.
 
-Gmail client fakes, YAML helpers, and output capture utilities.
+Gmail client fakes and CLI arg helpers.
 """
 
 from __future__ import annotations
 
-import io
-import os
-import tempfile
-from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Dict, List, Optional
 
+# Re-export shared fixtures for backwards compatibility
+from tests.fixtures import capture_stdout, temp_yaml_file, write_yaml
 
-# -----------------------------------------------------------------------------
-# YAML config helpers
-# -----------------------------------------------------------------------------
-
-
-def write_yaml(data: dict, dir: Optional[str] = None, filename: str = "config.yaml") -> str:
-    """Write a dict to a temporary YAML file, return the path."""
-    import yaml
-
-    td = dir or tempfile.mkdtemp()
-    p = os.path.join(td, filename)
-    with open(p, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, sort_keys=False)
-    return p
-
-
-@contextmanager
-def temp_yaml_file(data: dict, suffix: str = ".yaml"):
-    """Context manager that yields a path to a temporary YAML file."""
-    import yaml
-
-    with tempfile.NamedTemporaryFile("w+", delete=False, suffix=suffix) as tf:
-        yaml.safe_dump(data, tf)
-        tf.flush()
-        yield tf.name
-    os.unlink(tf.name)
+__all__ = [
+    "capture_stdout",
+    "temp_yaml_file",
+    "write_yaml",
+    "make_args",
+    "FakeGmailClient",
+    "make_gmail_client",
+]
 
 
 # -----------------------------------------------------------------------------
-# Output capture helpers
+# CLI arg helpers
 # -----------------------------------------------------------------------------
-
-
-@contextmanager
-def capture_stdout():
-    """Context manager that captures stdout and yields a StringIO buffer."""
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        yield buf
 
 
 def make_args(**kwargs) -> SimpleNamespace:
