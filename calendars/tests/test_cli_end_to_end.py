@@ -1,22 +1,8 @@
-import io
 import types
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
 
-
-class FakeService:
-    def __init__(self, ctx):  # matches OutlookService(OutlookContext(...))
-        self.ctx = ctx
-        self.created = []
-
-    def create_event(self, **kwargs):
-        self.created.append(("single", kwargs))
-        return {"id": "evt_single", "subject": kwargs.get("subject")}
-
-    def create_recurring_event(self, **kwargs):
-        self.created.append(("recurring", kwargs))
-        return {"id": "evt_recurring", "subject": kwargs.get("subject")}
+from tests.fixtures import capture_stdout, FakeCalendarService
 
 
 class TestAddFromConfigFlow(unittest.TestCase):
@@ -49,14 +35,13 @@ class TestAddFromConfigFlow(unittest.TestCase):
         old_load_yaml = pipelines._load_yaml
         pipelines._load_yaml = fake_load_config
 
-        # Stub module for calendar.outlook_service to return our FakeService
+        # Stub module for calendar.outlook_service to return our FakeCalendarService
         old_osvc_mod = sys.modules.get('calendars.outlook_service')
         stub_osvc = types.ModuleType('calendars.outlook_service')
-        stub_osvc.OutlookService = FakeService  # type: ignore[attr-defined]
+        stub_osvc.OutlookService = lambda ctx: FakeCalendarService()  # type: ignore[attr-defined]
         sys.modules['calendars.outlook_service'] = stub_osvc
         from calendars.outlook.commands import run_outlook_add_from_config
         try:
-            buf = io.StringIO()
             args = SimpleNamespace(
                 config="dummy.yaml",
                 calendar=None,
@@ -67,7 +52,7 @@ class TestAddFromConfigFlow(unittest.TestCase):
                 tenant=None,
                 token=None,
             )
-            with redirect_stdout(buf):
+            with capture_stdout() as buf:
                 rc = run_outlook_add_from_config(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)

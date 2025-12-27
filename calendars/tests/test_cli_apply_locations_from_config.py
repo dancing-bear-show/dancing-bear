@@ -1,35 +1,8 @@
-import io
 import types
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
 
-
-class FakeService:
-    def __init__(self, ctx):
-        self.ctx = ctx
-        self.updated = []
-
-    def list_events_in_range(self, **kwargs):
-        # Two matching events in the window: one series occurrence, one single
-        return [
-            {
-                'id': 'occ-1',
-                'seriesMasterId': 'ser-123',
-                'start': {'dateTime': '2025-01-06T17:00:00+00:00'},  # Monday
-                'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
-                'location': {'displayName': 'Old'},
-            },
-            {
-                'id': 'single-1',
-                'start': {'dateTime': '2025-01-13T17:00:00+00:00'},  # Monday next week
-                'end': {'dateTime': '2025-01-13T17:30:00+00:00'},
-                'location': {'displayName': 'Old Single'},
-            },
-        ]
-
-    def update_event_location(self, *, event_id, calendar_name=None, calendar_id=None, location_str):
-        self.updated.append((event_id, location_str))
+from tests.fixtures import capture_stdout, FakeCalendarService
 
 
 class TestApplyLocationsFromConfig(unittest.TestCase):
@@ -49,9 +22,26 @@ class TestApplyLocationsFromConfig(unittest.TestCase):
         old_load_yaml = pipelines._load_yaml
         pipelines._load_yaml = fake_load
 
+        # Two matching events in the window: one series occurrence, one single
+        events = [
+            {
+                'id': 'occ-1',
+                'seriesMasterId': 'ser-123',
+                'start': {'dateTime': '2025-01-06T17:00:00+00:00'},  # Monday
+                'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
+                'location': {'displayName': 'Old'},
+            },
+            {
+                'id': 'single-1',
+                'start': {'dateTime': '2025-01-13T17:00:00+00:00'},  # Monday next week
+                'end': {'dateTime': '2025-01-13T17:30:00+00:00'},
+                'location': {'displayName': 'Old Single'},
+            },
+        ]
+
         # Stub service
         osvc_mod = types.ModuleType('calendars.outlook_service')
-        osvc_mod.OutlookService = FakeService  # type: ignore
+        osvc_mod.OutlookService = lambda ctx: FakeCalendarService(events=events)  # type: ignore
         old_osvc = sys.modules.get('calendars.outlook_service')
         sys.modules['calendars.outlook_service'] = osvc_mod
 
@@ -62,15 +52,12 @@ class TestApplyLocationsFromConfig(unittest.TestCase):
                 profile=None, client_id=None, tenant=None, token=None,
                 dry_run=False, all_occurrences=True,
             )
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with capture_stdout() as buf:
                 rc = run_outlook_apply_locations(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('Applied', out)
             # Both series master and single occurrence updated
-            # FakeService stores updates on instance; we can't access it directly here
-            # but we can assert message contains both update lines
             self.assertIn('Updated series', out)
             self.assertIn('Updated occurrence', out)
         finally:
@@ -84,4 +71,3 @@ class TestApplyLocationsFromConfig(unittest.TestCase):
 
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
-
