@@ -30,6 +30,21 @@ from mail.outlook_api import OutlookClient
 
 G_PER_OZ = 31.1035
 
+# Subject classification for email priority ranking
+SUBJECT_RANK = {'confirmation': 3, 'shipping': 2, 'request': 1, 'other': 0}
+
+
+def _classify_subject(subject: str) -> str:
+    """Classify email subject for priority ranking."""
+    s = (subject or '').lower()
+    if 'confirmation for order number' in s:
+        return 'confirmation'
+    if 'shipping confirmation' in s or 'was shipped' in s:
+        return 'shipping'
+    if 'we received your request' in s:
+        return 'request'
+    return 'other'
+
 
 def _strip_html(s: str) -> str:
     if not s:
@@ -336,17 +351,6 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
 
     # Filter to mint.ca sender and group by order id
     by_order: Dict[str, Dict[str, str]] = {}
-    pref_rank = {'confirmation': 3, 'shipping': 2, 'request': 1, 'other': 0}
-    def classify_subject(sub: str) -> str:
-        s = (sub or '').lower()
-        if 'confirmation for order' in s:
-            return 'confirmation'
-        if 'shipping confirmation' in s or 'was shipped' in s:
-            return 'shipping'
-        if 'we received your request' in s:
-            return 'request'
-        return 'other'
-
     for mid in ids:
         msg = cli.get_message(mid, select_body=True)
         frm = (((msg.get('from') or {}).get('emailAddress') or {}).get('address') or '').lower()
@@ -359,9 +363,9 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
         if not oid:
             continue
         recv = (msg.get('receivedDateTime') or '')
-        cat = classify_subject(sub)
+        cat = _classify_subject(sub)
         cur = by_order.get(oid)
-        if (not cur) or (pref_rank[cat] > pref_rank.get(cur.get('cat','other'),0)):
+        if (not cur) or (SUBJECT_RANK[cat] > SUBJECT_RANK.get(cur.get('cat', 'other'), 0)):
             by_order[oid] = {'id': mid, 'recv': recv, 'sub': sub, 'body': body, 'cat': cat}
 
     # Try to upgrade each order to use the Confirmation email when available
