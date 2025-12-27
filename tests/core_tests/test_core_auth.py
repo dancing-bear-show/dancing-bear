@@ -11,10 +11,10 @@ class TestResolveGmailCredentials(unittest.TestCase):
     """Tests for resolve_gmail_credentials."""
 
     def test_explicit_args_take_priority(self):
-        creds, token = resolve_gmail_credentials(  # noqa: S106
+        creds, token = resolve_gmail_credentials(
             profile=None,
             credentials_path="/explicit/creds.json",
-            token_path="/explicit/token.json",
+            token_path="/explicit/token.json",  # noqa: S106 - test file path
         )
         self.assertEqual(creds, "/explicit/creds.json")
         self.assertEqual(token, "/explicit/token.json")
@@ -38,11 +38,11 @@ class TestResolveOutlookCredentials(unittest.TestCase):
     """Tests for resolve_outlook_credentials."""
 
     def test_explicit_args_take_priority(self):
-        client_id, tenant, token = resolve_outlook_credentials(  # noqa: S106
+        client_id, tenant, token = resolve_outlook_credentials(
             profile=None,
             client_id="explicit-client-id",
             tenant="explicit-tenant",
-            token_path="/explicit/outlook_token.json",
+            token_path="/explicit/outlook_token.json",  # noqa: S106 - test file path
         )
         self.assertEqual(client_id, "explicit-client-id")
         self.assertEqual(tenant, "explicit-tenant")
