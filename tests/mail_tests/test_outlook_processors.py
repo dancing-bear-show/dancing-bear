@@ -11,15 +11,8 @@ from mail.outlook.processors import (
     OutlookRulesExportResult,
     OutlookRulesSyncResult,
     OutlookRulesPlanResult,
-    OutlookRulesDeleteResult,
-    OutlookRulesSweepResult,
-    OutlookCategoriesListResult,
-    OutlookCategoriesExportResult,
     OutlookCategoriesSyncResult,
-    OutlookFoldersSyncResult,
     OutlookCalendarAddResult,
-    OutlookCalendarAddRecurringResult,
-    OutlookCalendarAddFromConfigResult,
     OutlookRulesListProcessor,
     OutlookRulesExportProcessor,
     OutlookRulesSyncProcessor,
@@ -184,8 +177,8 @@ class TestOutlookRulesExportProcessor(unittest.TestCase):
 class TestOutlookRulesSyncProcessor(unittest.TestCase):
     """Tests for OutlookRulesSyncProcessor."""
 
-    @patch("mail.outlook.processors.load_config")
-    @patch("mail.outlook.processors.normalize_filters_for_outlook")
+    @patch("mail.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
     def test_process_success(self, mock_norm, mock_load):
         """Test successful rules sync."""
         mock_load.return_value = {"filters": []}
@@ -202,7 +195,7 @@ class TestOutlookRulesSyncProcessor(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.created, 1)
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_error(self, mock_load):
         """Test error handling."""
         mock_load.side_effect = Exception("Config error")
@@ -214,8 +207,8 @@ class TestOutlookRulesSyncProcessor(unittest.TestCase):
 class TestOutlookRulesPlanProcessor(unittest.TestCase):
     """Tests for OutlookRulesPlanProcessor."""
 
-    @patch("mail.outlook.processors.load_config")
-    @patch("mail.outlook.processors.normalize_filters_for_outlook")
+    @patch("mail.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
     def test_process_success(self, mock_norm, mock_load):
         """Test successful rules plan."""
         mock_load.return_value = {"filters": []}
@@ -260,8 +253,8 @@ class TestOutlookRulesDeleteProcessor(unittest.TestCase):
 class TestOutlookRulesSweepProcessor(unittest.TestCase):
     """Tests for OutlookRulesSweepProcessor."""
 
-    @patch("mail.outlook.processors.load_config")
-    @patch("mail.outlook.processors.normalize_filters_for_outlook")
+    @patch("mail.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
     def test_process_success_dry_run(self, mock_norm, mock_load):
         """Test successful rules sweep dry run."""
         mock_load.return_value = {"filters": []}
@@ -313,8 +306,8 @@ class TestOutlookCategoriesExportProcessor(unittest.TestCase):
 class TestOutlookCategoriesSyncProcessor(unittest.TestCase):
     """Tests for OutlookCategoriesSyncProcessor."""
 
-    @patch("mail.outlook.processors.load_config")
-    @patch("mail.outlook.processors.normalize_labels_for_outlook")
+    @patch("mail.yamlio.load_config")
+    @patch("mail.dsl.normalize_labels_for_outlook")
     def test_process_success(self, mock_norm, mock_load):
         """Test successful categories sync."""
         mock_load.return_value = {"labels": []}
@@ -329,7 +322,7 @@ class TestOutlookCategoriesSyncProcessor(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.created, 1)
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_invalid_labels(self, mock_load):
         """Test error on invalid labels format."""
         mock_load.return_value = {"labels": "not a list"}
@@ -342,7 +335,7 @@ class TestOutlookCategoriesSyncProcessor(unittest.TestCase):
 class TestOutlookFoldersSyncProcessor(unittest.TestCase):
     """Tests for OutlookFoldersSyncProcessor."""
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_success(self, mock_load):
         """Test successful folders sync."""
         mock_load.return_value = {"labels": [{"name": "NewFolder"}]}
@@ -357,7 +350,7 @@ class TestOutlookFoldersSyncProcessor(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.created, 1)
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_skips_existing(self, mock_load):
         """Test skipping existing folders."""
         mock_load.return_value = {"labels": [{"name": "Existing"}]}
@@ -421,7 +414,7 @@ class TestOutlookCalendarAddRecurringProcessor(unittest.TestCase):
 class TestOutlookCalendarAddFromConfigProcessor(unittest.TestCase):
     """Tests for OutlookCalendarAddFromConfigProcessor."""
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_success_single(self, mock_load):
         """Test successful single event creation."""
         mock_load.return_value = {"events": [{"subject": "Meet", "start": "2024-01-15T10:00", "end": "2024-01-15T11:00"}]}
@@ -435,7 +428,7 @@ class TestOutlookCalendarAddFromConfigProcessor(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.created, 1)
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_success_recurring(self, mock_load):
         """Test successful recurring event creation."""
         mock_load.return_value = {"events": [{"subject": "Weekly", "repeat": "weekly", "start_time": "09:00", "end_time": "09:30", "start_date": "2024-01-15"}]}
@@ -449,7 +442,7 @@ class TestOutlookCalendarAddFromConfigProcessor(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.created, 1)
 
-    @patch("mail.outlook.processors.load_config")
+    @patch("mail.yamlio.load_config")
     def test_process_invalid_events(self, mock_load):
         """Test error on invalid events format."""
         mock_load.return_value = {"events": "not a list"}
