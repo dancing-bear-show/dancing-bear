@@ -22,7 +22,7 @@ from phone.layout import (
     scaffold_plan,
     to_yaml_export,
 )
-from tests.phone.fixtures import (
+from tests.phone_tests.fixtures import (
     make_app_item,
     make_folder_item,
     make_iconstate,

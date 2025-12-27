@@ -1,35 +1,25 @@
 """Outlook API client for Microsoft Graph operations.
 
-This package provides a modular client for Outlook mail and calendar operations:
-- client.py: Base authentication and config caching
-- calendars.py: Calendar and event operations
-- mail.py: Messages, folders, rules, and categories
+This module re-exports from core.outlook for backward compatibility.
+New code should import directly from core.outlook.
 
 Usage:
-    from mail.outlook_api import OutlookClient
-
-    client = OutlookClient(client_id="...", tenant="consumers", token_path="...")
-    client.authenticate()
-    calendars = client.list_calendars()
+    from mail.outlook_api import OutlookClient  # Legacy
+    from core.outlook import OutlookClient      # Preferred
 """
 
-from .client import OutlookClientBase, GRAPH, SCOPES
-from .calendars import OutlookCalendarMixin
-from .mail import OutlookMailMixin
+# Re-export everything from core.outlook for backward compatibility
+from core.outlook import (
+    OutlookClient,
+    OutlookClientBase,
+    OutlookCalendarMixin,
+    OutlookMailMixin,
+    GRAPH,
+    SCOPES,
+)
 
-
-class OutlookClient(OutlookClientBase, OutlookCalendarMixin, OutlookMailMixin):
-    """Microsoft Graph client for Outlook mail and calendar operations.
-
-    Combines base auth/caching with calendar and mail mixins.
-
-    Maps Gmail-like operations to nearest Outlook constructs:
-    - Labels -> Outlook categories (many-to-many on messages)
-    - Filters -> Inbox rules (messageRules on Inbox)
-    - Forwarding -> Rule action forwardTo
-    """
-    pass
-
+# Also re-export from submodules for code that imports from mail.outlook_api.client etc
+from core.outlook.client import _requests, DEFAULT_TIMEOUT
 
 __all__ = [
     "OutlookClient",
@@ -38,4 +28,6 @@ __all__ = [
     "OutlookMailMixin",
     "GRAPH",
     "SCOPES",
+    "_requests",
+    "DEFAULT_TIMEOUT",
 ]
