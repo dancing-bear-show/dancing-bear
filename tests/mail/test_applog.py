@@ -2,21 +2,18 @@
 
 import json
 import os
-import tempfile
 import unittest
+
+from tests.fixtures import TempDirMixin
 
 from mail.applog import AppLogger
 
 
-class AppLoggerTests(unittest.TestCase):
+class AppLoggerTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.log_path = os.path.join(self.tmpdir, "app.log")
         self.logger = AppLogger(self.log_path)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _read_records(self):
         if not os.path.exists(self.log_path):

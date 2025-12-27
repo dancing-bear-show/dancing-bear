@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
-import tempfile
+import time
 import unittest
 from pathlib import Path
+
+from tests.fixtures import TempDirMixin
 
 from resume.cleanup import (
     TidyPlan,
@@ -27,21 +29,17 @@ class TestTidyPlan(unittest.TestCase):
         self.assertEqual(plan.archive_dir, Path("archive"))
 
 
-class TestMatchFiles(unittest.TestCase):
+class TestMatchFiles(TempDirMixin, unittest.TestCase):
     """Tests for _match_files function."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         # Create test files
         Path(self.tmpdir, "resume_v1.docx").touch()
         Path(self.tmpdir, "resume_v2.docx").touch()
         Path(self.tmpdir, "resume_v3.pdf").touch()
         Path(self.tmpdir, "cover_letter.docx").touch()
         Path(self.tmpdir, "notes.txt").touch()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_match_by_prefix(self):
         result = _match_files(Path(self.tmpdir), "resume", None)
@@ -80,22 +78,17 @@ class TestMatchFiles(unittest.TestCase):
         self.assertIn("resume_v1.docx", names)
 
 
-class TestBuildTidyPlan(unittest.TestCase):
+class TestBuildTidyPlan(TempDirMixin, unittest.TestCase):
     """Tests for build_tidy_plan function."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         # Create files with different mtimes
-        import time
         for i, name in enumerate(["old.txt", "medium.txt", "new.txt"]):
             p = Path(self.tmpdir, name)
             p.touch()
             # Set mtime to ensure ordering
             os.utime(p, (time.time() - (3 - i) * 100, time.time() - (3 - i) * 100))
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_keeps_newest_files(self):
         plan = build_tidy_plan(self.tmpdir, keep=2)
@@ -126,20 +119,16 @@ class TestBuildTidyPlan(unittest.TestCase):
         self.assertEqual(len(plan.move), 0)
 
 
-class TestExecuteArchive(unittest.TestCase):
+class TestExecuteArchive(TempDirMixin, unittest.TestCase):
     """Tests for execute_archive function."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.file1 = Path(self.tmpdir, "file1.txt")
         self.file2 = Path(self.tmpdir, "file2.txt")
         self.file1.write_text("content1")
         self.file2.write_text("content2")
         self.archive = Path(self.tmpdir, "archive")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_moves_files_to_archive(self):
         plan = TidyPlan(keep=[], move=[self.file1, self.file2], archive_dir=self.archive)
@@ -170,19 +159,15 @@ class TestExecuteArchive(unittest.TestCase):
         self.assertTrue((self.archive / "file1.1.txt").exists())
 
 
-class TestExecuteDelete(unittest.TestCase):
+class TestExecuteDelete(TempDirMixin, unittest.TestCase):
     """Tests for execute_delete function."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.file1 = Path(self.tmpdir, "file1.txt")
         self.file2 = Path(self.tmpdir, "file2.txt")
         self.file1.write_text("content1")
         self.file2.write_text("content2")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_deletes_files(self):
         plan = TidyPlan(keep=[], move=[self.file1, self.file2], archive_dir=Path(self.tmpdir))
@@ -198,11 +183,11 @@ class TestExecuteDelete(unittest.TestCase):
         self.assertEqual(len(deleted), 0)
 
 
-class TestPurgeTempFiles(unittest.TestCase):
+class TestPurgeTempFiles(TempDirMixin, unittest.TestCase):
     """Tests for purge_temp_files function."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         # Create temp files
         Path(self.tmpdir, "~$resume.docx").touch()
         Path(self.tmpdir, ".DS_Store").touch()
@@ -211,10 +196,6 @@ class TestPurgeTempFiles(unittest.TestCase):
         subdir = Path(self.tmpdir, "subdir")
         subdir.mkdir()
         Path(subdir, "~$other.docx").touch()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_removes_tilde_dollar_files(self):
         removed = purge_temp_files(self.tmpdir)

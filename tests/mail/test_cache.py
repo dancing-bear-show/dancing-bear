@@ -1,20 +1,17 @@
 """Tests for mail/cache.py JSON-based cache."""
 
 import os
-import tempfile
 import unittest
+
+from tests.fixtures import TempDirMixin
 
 from mail.cache import MailCache
 
 
-class MailCacheTests(unittest.TestCase):
+class MailCacheTests(TempDirMixin, unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.cache = MailCache(self.tmpdir)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_init_creates_directories(self):
         self.assertTrue(os.path.isdir(self.cache.meta_dir))

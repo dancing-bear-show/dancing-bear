@@ -1,23 +1,20 @@
 """Tests for core/cache.py ConfigCacheMixin."""
 
 import os
-import tempfile
 import time
 import unittest
+
+from tests.fixtures import TempDirMixin
 
 from core.cache import ConfigCacheMixin
 
 
-class TestConfigCacheMixin(unittest.TestCase):
+class TestConfigCacheMixin(TempDirMixin, unittest.TestCase):
     """Tests for ConfigCacheMixin JSON caching."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
+        super().setUp()
         self.mixin = ConfigCacheMixin(self.tmpdir, provider="testprovider")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_cfg_get_json_returns_none_when_no_cache_dir(self):
         mixin = ConfigCacheMixin(None, provider="test")
