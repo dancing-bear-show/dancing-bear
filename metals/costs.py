@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import re
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
@@ -142,6 +143,35 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                         return float(uoz)
         return None
 
+    def apply_qty_heuristics(ln: str, m, idx: int, unit_oz: float, metal: str, qty: float, explicit_qty: bool) -> Tuple[float, float]:
+        """Apply quantity and unit-oz heuristics. Returns (qty, unit_oz)."""
+        if math.isclose(qty, 1.0) and not explicit_qty:
+            # Check for a leading quantity like "25 x 1 oz ..."
+            pre = ln[max(0, m.start()-120):m.start()]
+            mpre = re.search(r"(?i)\b(\d{1,3})\s*x\b", pre)
+            pre_q = None
+            if mpre:
+                try:
+                    pre_q = float(mpre.group(1))
+                except Exception:
+                    pre_q = None
+            eq = explicit_qty_near(lines, idx)
+            if eq:
+                if pre_q and (0.98 <= unit_oz <= 1.02) and float(eq) < pre_q:
+                    qty = pre_q
+                else:
+                    qty = eq
+            elif pre_q:
+                qty = pre_q
+            else:
+                bq = bundle_qty_near(lines, idx)
+                if bq and (0.98 <= unit_oz <= 1.02):
+                    qty = bq
+        uov = unit_oz_override_near(lines, idx, metal)
+        if uov:
+            unit_oz = uov
+        return qty, unit_oz
+
     for idx, ln in enumerate(lines):
         for m in pat_frac.finditer(ln):
             num = float(m.group(1))
@@ -150,66 +180,14 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
             qty = float(m.group(4) or 1)
             explicit_qty = m.group(4) is not None
             unit_oz = num / max(den, 1.0)
-            if qty == 1.0 and not explicit_qty:
-                # Check for a leading quantity like "25 x 1/10 oz ..."
-                pre = ln[max(0, m.start()-120):m.start()]
-                mpre = re.search(r"(?i)\b(\d{1,3})\s*x\b", pre)
-                pre_q = None
-                if mpre:
-                    try:
-                        pre_q = float(mpre.group(1))
-                    except Exception:
-                        pre_q = None
-                # Prefer explicit quantity (any unit size)
-                eq = explicit_qty_near(lines, idx)
-                if eq:
-                    # If we have a leading multiplier and it's bigger (e.g., tube packs), keep it
-                    if pre_q and (0.98 <= unit_oz <= 1.02) and float(eq) < pre_q:
-                        qty = pre_q
-                    else:
-                        qty = eq
-                elif pre_q:
-                    qty = pre_q
-                else:
-                    # Bundle cues (roll/tube) for ~1 oz items only
-                    bq = bundle_qty_near(lines, idx)
-                    if bq and (0.98 <= unit_oz <= 1.02):
-                        qty = bq
-                # Apply unit-oz override from SKU if present
-                uov = unit_oz_override_near(lines, idx, metal)
-                if uov:
-                    unit_oz = uov
+            qty, unit_oz = apply_qty_heuristics(ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
         for m in pat_oz.finditer(ln):
             unit_oz = float(m.group(1))
             metal = (m.group(2) or '').lower()
             qty = float(m.group(3) or 1)
             explicit_qty = m.group(3) is not None
-            if qty == 1.0 and not explicit_qty:
-                # Check for a leading quantity like "25 x 1 oz ..."
-                pre = ln[max(0, m.start()-120):m.start()]
-                mpre = re.search(r"(?i)\b(\d{1,3})\s*x\b", pre)
-                pre_q = None
-                if mpre:
-                    try:
-                        pre_q = float(mpre.group(1))
-                    except Exception:
-                        pre_q = None
-                eq = explicit_qty_near(lines, idx)
-                if eq:
-                    if pre_q and (0.98 <= unit_oz <= 1.02) and float(eq) < pre_q:
-                        qty = pre_q
-                    else:
-                        qty = eq
-                elif pre_q:
-                    qty = pre_q
-                else:
-                    bq = bundle_qty_near(lines, idx)
-                    if bq and (0.98 <= unit_oz <= 1.02):
-                        qty = bq
-                uov = unit_oz_override_near(lines, idx, metal)
-                if uov:
-                    unit_oz = uov
+            qty, unit_oz = apply_qty_heuristics(ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
         for m in pat_g.finditer(ln):
             wt_g = float(m.group(1))
@@ -217,30 +195,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
             qty = float(m.group(4) or 1)
             explicit_qty = m.group(4) is not None
             unit_oz = wt_g / G_PER_OZ
-            if qty == 1.0 and not explicit_qty:
-                pre = ln[max(0, m.start()-120):m.start()]
-                mpre = re.search(r"(?i)\b(\d{1,3})\s*x\b", pre)
-                pre_q = None
-                if mpre:
-                    try:
-                        pre_q = float(mpre.group(1))
-                    except Exception:
-                        pre_q = None
-                eq = explicit_qty_near(lines, idx)
-                if eq:
-                    if pre_q and (0.98 <= unit_oz <= 1.02) and float(eq) < pre_q:
-                        qty = pre_q
-                    else:
-                        qty = eq
-                elif pre_q:
-                    qty = pre_q
-                else:
-                    bq = bundle_qty_near(lines, idx)
-                    if bq and (0.98 <= unit_oz <= 1.02):
-                        qty = bq
-                uov = unit_oz_override_near(lines, idx, metal)
-                if uov:
-                    unit_oz = uov
+            qty, unit_oz = apply_qty_heuristics(ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
         return items, lines
 
