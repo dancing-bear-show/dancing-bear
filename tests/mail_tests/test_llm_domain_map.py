@@ -21,9 +21,9 @@ class TestLLMDomainMap(unittest.TestCase):
             sys.stdout = old
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        # Should include CLI Tree and Flow Map headings
+        # Should include CLI Tree and Flows Index headings
         self.assertIn("CLI Tree", out)
-        self.assertIn("Flow Map", out)
+        self.assertIn("Flows Index", out)
 
     def test_llm_derive_all_includes_generated(self):
         import tempfile
