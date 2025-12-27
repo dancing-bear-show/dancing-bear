@@ -1,10 +1,10 @@
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import (
+from tests.fixtures import has_pyyaml
+from tests.mail.fixtures import (
     FakeGmailClient,
     capture_stdout,
-    has_pyyaml,
     make_args,
     write_yaml,
 )

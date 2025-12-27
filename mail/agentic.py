@@ -81,7 +81,7 @@ def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
 def _get_parser():
     try:
         from . import __main__ as main_mod
-        return main_mod.build_parser()
+        return main_mod.app.build_parser()
     except Exception:
         return None
 

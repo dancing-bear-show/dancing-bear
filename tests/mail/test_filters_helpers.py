@@ -1,6 +1,6 @@
 import mail.__main__ as cli
 
-from tests.fixtures import FakeGmailClient
+from tests.mail.fixtures import FakeGmailClient
 
 
 def test_build_gmail_query_negated_and_attach():
