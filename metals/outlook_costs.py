@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import argparse
 import csv
-import html
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.text_utils import html_to_text, normalize_unicode
 from mail.outlook_api import OutlookClient
 
 
@@ -37,24 +37,13 @@ SUBJECT_RANK = {'confirmation': 3, 'shipping': 2, 'request': 1, 'other': 0}
 def _classify_subject(subject: str) -> str:
     """Classify email subject for priority ranking."""
     s = (subject or '').lower()
-    if 'confirmation for order number' in s:
+    if 'confirmation for order number' in s or 'confirmation for order' in s:
         return 'confirmation'
     if 'shipping confirmation' in s or 'was shipped' in s:
         return 'shipping'
     if 'we received your request' in s:
         return 'request'
     return 'other'
-
-
-def _strip_html(s: str) -> str:
-    if not s:
-        return ""
-    t = html.unescape(s)
-    t = re.sub(r"<\s*br\s*/?>", "\n", t, flags=re.I)
-    t = re.sub(r"<\s*p\s*/?>", "\n", t, flags=re.I)
-    t = re.sub(r"<[^>]+>", " ", t)
-    t = re.sub(r"\s+", " ", t)
-    return t.strip()
 
 
 def _extract_order_id(subject: str, body_text: str) -> Optional[str]:
@@ -66,12 +55,7 @@ def _extract_order_id(subject: str, body_text: str) -> Optional[str]:
 
 def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
     items: List[Dict] = []
-    t = (text or '')
-    # Normalize unicode
-    t = t.replace('\u2011', '-')  # non-breaking hyphen
-    t = t.replace('\u2013', '-')  # en dash
-    t = t.replace('\u2014', '-')  # em dash
-    t = t.replace('\u00A0', ' ')
+    t = normalize_unicode(text or '')
     lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
 
     # Support 1/10-oz, 0.1 oz, 1 oz, grams
@@ -357,7 +341,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
         if 'mint.ca' not in frm:
             continue
         body_html = ((msg.get('body') or {}).get('content') or '')
-        body = _strip_html(body_html)
+        body = html_to_text(body_html)
         sub = (msg.get('subject') or '')
         oid = _extract_order_id(sub, body)
         if not oid:
@@ -399,7 +383,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
             try:
                 m = cli.get_message(best_mid, select_body=True)
                 body_html = ((m.get('body') or {}).get('content') or '')
-                body = _strip_html(body_html)
+                body = html_to_text(body_html)
                 return {
                     'id': best_mid,
                     'recv': (m.get('receivedDateTime') or ''),
