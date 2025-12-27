@@ -178,7 +178,7 @@ class TestBuildSummaryValues(unittest.TestCase):
             {"date": "2024-01-16", "metal": "gold", "total_oz": "2.0", "cost_per_oz": "2600.00"},
             {"date": "2024-01-17", "metal": "silver", "total_oz": "10.0", "cost_per_oz": "30.00"},
         ]
-        values, anchors = _build_summary_values(recs)
+        values, _ = _build_summary_values(recs)
         # Find the metal totals section
         metal_idx = None
         for i, row in enumerate(values):
@@ -215,14 +215,14 @@ class TestBuildSummaryValues(unittest.TestCase):
             {"date": "2024-01-15", "metal": "gold", "total_oz": "1.0", "cost_per_oz": "2500.00"},
             {"date": "2024-02-15", "metal": "gold", "total_oz": "2.0", "cost_per_oz": "2600.00"},
         ]
-        values, anchors = _build_summary_values(recs)
+        _, anchors = _build_summary_values(recs)
         # Check monthly sections exist
         self.assertIn("Monthly Avg Cost by Metal", anchors)
         self.assertIn("Monthly Ounces by Metal", anchors)
 
     def test_handles_empty_records(self):
         """Test handles empty records."""
-        values, anchors = _build_summary_values([])
+        values, _ = _build_summary_values([])
         self.assertGreater(len(values), 0)  # Should still have section headers
 
     def test_handles_invalid_numbers(self):
@@ -230,7 +230,7 @@ class TestBuildSummaryValues(unittest.TestCase):
         recs = [
             {"date": "2024-01-15", "metal": "gold", "total_oz": "invalid", "cost_per_oz": "also_invalid"},
         ]
-        values, anchors = _build_summary_values(recs)
+        values, _ = _build_summary_values(recs)
         # Should not raise, just skip invalid values
         self.assertGreater(len(values), 0)
 
@@ -240,7 +240,7 @@ class TestBuildSummaryValues(unittest.TestCase):
             {"date": "2024-01-15", "metal": "gold", "total_oz": "0", "cost_per_oz": "2500.00"},
             {"date": "2024-01-16", "metal": "silver", "total_oz": "10.0", "cost_per_oz": "0"},
         ]
-        values, anchors = _build_summary_values(recs)
+        values, _ = _build_summary_values(recs)
         # Zero values should be skipped in aggregations
         self.assertGreater(len(values), 0)
 
