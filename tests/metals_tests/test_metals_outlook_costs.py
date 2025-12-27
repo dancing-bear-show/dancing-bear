@@ -11,6 +11,7 @@ from core.text_utils import html_to_text
 from metals.outlook_costs import (
     G_PER_OZ,
     _amount_near_item,
+    _classify_subject,
     _extract_confirmation_item_totals,
     _extract_line_items,
     _extract_order_amount,
@@ -25,6 +26,55 @@ class TestConstants(unittest.TestCase):
     def test_grams_per_oz(self):
         """Test grams per troy ounce constant."""
         self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
+
+
+class TestClassifySubject(unittest.TestCase):
+    """Tests for _classify_subject function."""
+
+    def test_confirmation_with_order_number(self):
+        """Test detects confirmation for order number."""
+        result = _classify_subject("Confirmation for order number PO1234567")
+        self.assertEqual(result, "confirmation")
+
+    def test_confirmation_without_number(self):
+        """Test detects confirmation for order (without 'number')."""
+        result = _classify_subject("Confirmation for order PO1234567")
+        self.assertEqual(result, "confirmation")
+
+    def test_confirmation_case_insensitive(self):
+        """Test confirmation detection is case insensitive."""
+        result = _classify_subject("CONFIRMATION FOR ORDER NUMBER PO123")
+        self.assertEqual(result, "confirmation")
+
+    def test_shipping_confirmation(self):
+        """Test detects shipping confirmation."""
+        result = _classify_subject("Shipping Confirmation for your order")
+        self.assertEqual(result, "shipping")
+
+    def test_was_shipped(self):
+        """Test detects 'was shipped' pattern."""
+        result = _classify_subject("Your order was shipped")
+        self.assertEqual(result, "shipping")
+
+    def test_request_received(self):
+        """Test detects request received."""
+        result = _classify_subject("We received your request")
+        self.assertEqual(result, "request")
+
+    def test_other_subject(self):
+        """Test returns 'other' for unrecognized subjects."""
+        result = _classify_subject("Random email subject")
+        self.assertEqual(result, "other")
+
+    def test_empty_subject(self):
+        """Test handles empty subject."""
+        result = _classify_subject("")
+        self.assertEqual(result, "other")
+
+    def test_none_subject(self):
+        """Test handles None subject."""
+        result = _classify_subject(None)
+        self.assertEqual(result, "other")
 
 
 class TestHtmlToText(unittest.TestCase):
