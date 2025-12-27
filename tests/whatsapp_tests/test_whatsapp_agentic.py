@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import io
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from whatsapp import agentic
 
@@ -69,7 +69,7 @@ class TestBuildAgenticCapsule(unittest.TestCase):
         """Test contains purpose."""
         result = agentic.build_agentic_capsule()
         # Should contain some indication of purpose
-        self.assertTrue(len(result) > 0)
+        self.assertGreater(len(result), 0)
 
 
 class TestBuildDomainMap(unittest.TestCase):

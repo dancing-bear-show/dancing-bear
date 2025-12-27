@@ -22,7 +22,7 @@ class TestAgenticFunction(unittest.TestCase):
     def test_result_is_nonempty(self):
         """Test returns non-empty content."""
         result = llm_cli._agentic()
-        self.assertTrue(len(result) > 0)
+        self.assertGreater(len(result), 0)
 
 
 class TestDomainMapFunction(unittest.TestCase):
@@ -46,7 +46,7 @@ class TestInventoryFunction(unittest.TestCase):
         """Test contains WhatsApp or inventory content."""
         result = llm_cli._inventory()
         # Should contain some content
-        self.assertTrue(len(result) > 0)
+        self.assertGreater(len(result), 0)
 
 
 class TestFamiliarCompactFunction(unittest.TestCase):
@@ -61,7 +61,8 @@ class TestFamiliarCompactFunction(unittest.TestCase):
         """Test contains YAML-like structure."""
         result = llm_cli._familiar_compact()
         # Should have meta or steps
-        self.assertTrue("meta:" in result or "steps:" in result or len(result) > 0)
+        self.assertGreater(len(result), 0)
+        self.assertTrue("meta:" in result or "steps:" in result)
 
 
 class TestFamiliarExtendedFunction(unittest.TestCase):
