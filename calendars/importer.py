@@ -29,6 +29,12 @@ RE_TABLE_ROW = r'<tr[\s\S]*?>([\s\S]*?)</tr>'
 DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 
 
+def strip_html_tags(s: str) -> str:
+    """Remove HTML tags and normalize whitespace."""
+    import re
+    return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
+
+
 def normalize_day(day_name: str) -> str:
     """Convert day name to two-letter code (e.g., 'Monday' -> 'MO')."""
     return DAY_MAP.get(day_name.lower().strip(), '')
