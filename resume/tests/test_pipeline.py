@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from resume.pipeline import (
     FilterPipeline,
@@ -106,7 +106,7 @@ class TestFilterPipelineSkillFilter(unittest.TestCase):
     def test_none_alignment_is_noop(self):
         data = {"skills": ["Python"]}
         pipeline = FilterPipeline(data)
-        result = pipeline.with_skill_filter(None)
+        pipeline.with_skill_filter(None)
         self.assertEqual(pipeline._data["skills"], ["Python"])
 
     def test_with_alignment_file(self):
@@ -234,7 +234,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
     def test_applies_profile_when_provided(self, mock_apply):
         mock_apply.return_value = {"name": "Overlaid"}
         data = {"name": "Original"}
-        result = apply_filters_from_args(data, profile="work")
+        apply_filters_from_args(data, profile="work")
         mock_apply.assert_called_once()
 
 
