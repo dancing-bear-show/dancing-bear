@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional, Sequence
 
+from core.text_utils import html_to_text
+
 
 DAY_MAP = {
     "monday": "MO",
