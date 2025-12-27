@@ -218,12 +218,12 @@ def build_flows() -> List[Dict[str, Any]]:
         })
 
     # Outlook rules plan/apply/verify
-    if all(_cli_path_exists(p) for p in [["outlook","rules","plan"],["outlook","rules","sync"],["outlook","rules","list"]]):
+    if all(_cli_path_exists(p) for p in [["outlook","rules.plan"],["outlook","rules.sync"],["outlook","rules.list"]]):
         add({
             'id': 'outlook.rules.plan-apply-verify',
             'title': 'Outlook Rules — Plan → Apply → Verify',
             'tags': ['outlook','rules','plan','apply','verify','safe'],
-            'requires': [["outlook","rules","plan"],["outlook","rules","sync"],["outlook","rules","list"]],
+            'requires': [["outlook","rules.plan"],["outlook","rules.sync"],["outlook","rules.list"]],
             'commands': [
                 "./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders",
                 "./bin/mail-assistant outlook rules sync --config out/filters.outlook.from_unified.yaml --move-to-folders --delete-missing",
@@ -284,24 +284,24 @@ def build_flows() -> List[Dict[str, Any]]:
         })
 
     # Outlook categories and folders
-    if all(_cli_path_exists(p) for p in [["outlook","categories","list"],["outlook","categories","export"],["outlook","categories","sync"]]):
+    if all(_cli_path_exists(p) for p in [["outlook","categories.list"],["outlook","categories.export"],["outlook","categories.sync"]]):
         add({
             'id': 'outlook.categories.list-export-sync',
             'title': 'Outlook Categories — List → Export → Sync',
             'tags': ['outlook','categories','list','export','sync','safe'],
-            'requires': [["outlook","categories","list"],["outlook","categories","export"],["outlook","categories","sync"]],
+            'requires': [["outlook","categories.list"],["outlook","categories.export"],["outlook","categories.sync"]],
             'commands': [
                 "./bin/mail-assistant outlook categories list",
                 "./bin/mail-assistant outlook categories export --out out/outlook.categories.export.yaml",
                 "./bin/mail-assistant outlook categories sync --config out/labels.outlook.from_unified.yaml",
             ],
         })
-    if _cli_path_exists(["outlook","folders","sync"]):
+    if _cli_path_exists(["outlook","folders.sync"]):
         add({
             'id': 'outlook.folders.sync',
             'title': 'Outlook Folders — Sync from labels',
             'tags': ['outlook','folders','sync','safe'],
-            'requires': [["outlook","folders","sync"]],
+            'requires': [["outlook","folders.sync"]],
             'commands': [
                 "./bin/mail-assistant outlook folders sync --config out/labels.outlook.from_unified.yaml --dry-run",
             ],
