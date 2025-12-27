@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from .outlook.helpers import OUTLOOK_COLOR_NAMES, norm_label_name_outlook
+from .outlook.helpers import norm_label_name_outlook
 
 # Re-export for backwards compatibility
 _norm_label_name_outlook = norm_label_name_outlook
