@@ -47,7 +47,7 @@ from mail.filters.producers import (
     FiltersRemoveTokenProducer,
 )
 
-from tests.fixtures import FakeGmailClient
+from tests.mail.fixtures import FakeGmailClient
 
 
 def _make_pipeline_client():

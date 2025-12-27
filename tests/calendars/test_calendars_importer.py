@@ -3,7 +3,8 @@
 import os
 import unittest
 
-from tests.fixtures import TempDirMixin, write_csv_content
+from tests.fixtures import TempDirMixin
+from tests.calendars.fixtures import write_csv_content
 
 from calendars.importer import (
     ScheduleItem,
