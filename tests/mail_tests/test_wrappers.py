@@ -23,4 +23,4 @@ class TestWrappers(unittest.TestCase):
         proc = run([str(wrapper), 'domain-map', '--stdout'], cwd=str(repo_root))
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('CLI Tree', proc.stdout)
-        self.assertIn('Flow Map', proc.stdout)
+        self.assertIn('Flows Index', proc.stdout)
