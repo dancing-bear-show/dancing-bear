@@ -337,6 +337,7 @@ def make_outlook_event(
     series_id: Optional[str] = None,
     location: Optional[str] = None,
     created: Optional[str] = None,
+    event_type: Optional[str] = None,
 ) -> Dict:
     """Create a fake Outlook event dict for testing."""
     event = {
@@ -350,4 +351,163 @@ def make_outlook_event(
         event["location"] = {"displayName": location}
     if created:
         event["createdDateTime"] = created
+    if event_type:
+        event["type"] = event_type
     return event
+
+
+# -----------------------------------------------------------------------------
+# Calendar service fakes
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class FakeCalendarService:
+    """Configurable fake calendar service for CLI testing.
+
+    Consolidates the FakeService pattern used across calendar CLI tests.
+
+    Example usage:
+        svc = FakeCalendarService(events=[...])
+        svc.list_calendar_view(calendar_id="cal-1", start_iso="...", end_iso="...")
+    """
+
+    events: List[Dict] = field(default_factory=list)
+    deleted_ids: List[str] = field(default_factory=list)
+    updated_reminders: List[tuple] = field(default_factory=list)
+    created_events: List[tuple] = field(default_factory=list)
+    updated_locations: List[tuple] = field(default_factory=list)
+    calendar_id: str = "cal-1"
+
+    def get_calendar_id_by_name(self, name: str) -> Optional[str]:
+        return self.calendar_id if name else None
+
+    def find_calendar_id(self, name: str) -> Optional[str]:
+        return self.get_calendar_id_by_name(name)
+
+    def list_calendar_view(
+        self, *, calendar_id: str, start_iso: str, end_iso: str,
+        select: str = "", top: int = 200
+    ) -> List[Dict]:
+        return list(self.events)
+
+    def delete_event_by_id(self, event_id: str) -> bool:
+        self.deleted_ids.append(event_id)
+        return True
+
+    def list_events_in_range(
+        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,
+        **kwargs
+    ) -> List[Dict]:
+        return list(self.events)
+
+    def update_event_reminder(
+        self, *, event_id: str, calendar_id: Optional[str] = None,
+        calendar_name: Optional[str] = None, is_on: bool,
+        minutes_before_start: Optional[int] = None
+    ) -> None:
+        self.updated_reminders.append((event_id, is_on, minutes_before_start))
+
+    def create_event(self, **kwargs) -> Dict:
+        evt = {"id": f"evt_{len(self.created_events)}", **kwargs}
+        self.created_events.append(("single", kwargs))
+        return evt
+
+    def create_recurring_event(self, **kwargs) -> Dict:
+        evt = {"id": f"evt_rec_{len(self.created_events)}", **kwargs}
+        self.created_events.append(("recurring", kwargs))
+        return evt
+
+    def update_event_location(
+        self, *, event_id: str, calendar_name: Optional[str] = None,
+        calendar_id: Optional[str] = None, location_str: str
+    ) -> None:
+        self.updated_locations.append((event_id, location_str))
+
+
+# -----------------------------------------------------------------------------
+# Temporary directory mixin
+# -----------------------------------------------------------------------------
+
+
+class TempDirMixin:
+    """Mixin providing a temporary directory that's cleaned up after each test.
+
+    Usage:
+        class MyTest(TempDirMixin, unittest.TestCase):
+            def test_something(self):
+                path = os.path.join(self.tmpdir, "file.txt")
+                ...
+    """
+
+    tmpdir: str
+
+    def setUp(self):
+        super().setUp()
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        super().tearDown()
+
+
+# -----------------------------------------------------------------------------
+# CSV helpers
+# -----------------------------------------------------------------------------
+
+
+def write_csv(
+    path: str,
+    headers: List[str],
+    rows: List[List],
+) -> str:
+    """Write a CSV file with headers and rows.
+
+    Args:
+        path: Full path to write the CSV file
+        headers: List of column header names
+        rows: List of row data (each row is a list of values)
+
+    Returns:
+        The path to the written file
+    """
+    import csv
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(headers)
+        w.writerows(rows)
+    return path
+
+
+def write_csv_content(path: str, content: str) -> str:
+    """Write raw CSV content to a file.
+
+    Args:
+        path: Full path to write the file
+        content: Raw CSV content string
+
+    Returns:
+        The path to the written file
+    """
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
+@contextmanager
+def temp_csv(headers: List[str], rows: List[List], suffix: str = ".csv"):
+    """Context manager that yields a path to a temporary CSV file.
+
+    Example:
+        with temp_csv(["name", "value"], [["a", "1"], ["b", "2"]]) as path:
+            result = parse_csv(path)
+    """
+    import csv
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=suffix, newline="") as tf:
+        w = csv.writer(tf)
+        w.writerow(headers)
+        w.writerows(rows)
+        tf.flush()
+        yield tf.name
+    os.unlink(tf.name)
