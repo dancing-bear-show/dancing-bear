@@ -1,21 +1,8 @@
-import io
 import types
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
 
-
-class FakeService:
-    def __init__(self, ctx):
-        self.ctx = ctx
-    def list_events_in_range(self, **kwargs):
-        # Return one Monday 17:00-17:30 event; nothing else
-        return [
-            {
-                'start': {'dateTime': '2025-01-06T17:00:00+00:00'},  # Monday
-                'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
-            }
-        ]
+from tests.fixtures import capture_stdout, FakeCalendarService
 
 
 class TestVerifyFromConfigFlow(unittest.TestCase):
@@ -48,10 +35,18 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
         old_load_yaml = pipelines._load_yaml
         pipelines._load_yaml = fake_load_config
 
+        # Return one Monday 17:00-17:30 event
+        events = [
+            {
+                'start': {'dateTime': '2025-01-06T17:00:00+00:00'},  # Monday
+                'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
+            }
+        ]
+
         # Stub OutlookService used by the command
         old_osvc_mod = sys.modules.get('calendars.outlook_service')
         stub_osvc = types.ModuleType('calendars.outlook_service')
-        stub_osvc.OutlookService = FakeService  # type: ignore
+        stub_osvc.OutlookService = lambda ctx: FakeCalendarService(events=events)  # type: ignore
         sys.modules['calendars.outlook_service'] = stub_osvc
 
         from calendars.outlook.commands import run_outlook_verify_from_config
@@ -60,8 +55,7 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
                 config='dummy.yaml', calendar=None,
                 profile=None, client_id=None, tenant=None, token=None
             )
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with capture_stdout() as buf:
                 rc = run_outlook_verify_from_config(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
