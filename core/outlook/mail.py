@@ -203,7 +203,7 @@ class OutlookMailMixin:
         """Return message IDs in Inbox matching $search query, optional days filter."""
         if self.cache_dir and use_cache:
             import hashlib
-            key = f"search_{hashlib.sha1(f'{search_query}|{top}|{pages}|{days}'.encode()).hexdigest()}"
+            key = f"search_{hashlib.sha256(f'{search_query}|{top}|{pages}|{days}'.encode()).hexdigest()}"
             cached = self.cfg_get_json(key, ttl)
             if isinstance(cached, list):
                 return [str(x) for x in cached]

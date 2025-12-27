@@ -349,7 +349,7 @@ def _create_from_seeds(
     if not store:
         store = client.ping().get("data", [{}])[0].get("id")
     seeds_copy = list(seeds)
-    rng = random.Random(shuffle_seed)
+    rng = random.Random(shuffle_seed)  # noqa: S311 - used for playlist shuffling, not security
     rng.shuffle(seeds_copy)
     seeds_copy = seeds_copy[: min(count, len(seeds_copy))]
 
