@@ -300,6 +300,7 @@ class TestCalendarPermissions(unittest.TestCase):
         client = FakeClient()
         result = OutlookCalendarMixin.ensure_calendar_permission(client, "cal-id", "user@example.com", "write")
 
+        self.assertEqual(result["role"], "write")
         mock_requests.patch.assert_called_once()
 
 
@@ -564,7 +565,7 @@ class TestEventUpdates(unittest.TestCase):
         mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
         client = FakeClient()
-        result = OutlookCalendarMixin.update_event_location(
+        OutlookCalendarMixin.update_event_location(
             client,
             event_id="event-1",
             location_str="New Location",
