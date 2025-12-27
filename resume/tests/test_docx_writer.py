@@ -163,6 +163,171 @@ class TestResolveSections(unittest.TestCase):
         self.assertEqual(len(sections), 1)
         self.assertEqual(sections[0]["title"], "My Custom Section")
 
+    def test_empty_template_sections(self):
+        from resume.docx_writer import _resolve_sections
+        template = {}
+        sections = _resolve_sections(template, None)
+        self.assertEqual(sections, [])
+
+    def test_structure_order_filters_missing_keys(self):
+        from resume.docx_writer import _resolve_sections
+        template = {"sections": [{"key": "summary"}]}
+        structure = {"order": ["summary", "nonexistent"]}
+        sections = _resolve_sections(template, structure)
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0]["key"], "summary")
+
+
+class TestGetHeaderLevel(unittest.TestCase):
+    """Tests for _get_header_level helper."""
+
+    def test_returns_section_header_level(self):
+        from resume.docx_writer import _get_header_level
+        sec = {"header_level": 2}
+        self.assertEqual(_get_header_level(sec, None), 2)
+
+    def test_returns_page_cfg_header_level(self):
+        from resume.docx_writer import _get_header_level
+        page_cfg = {"header_level": 3}
+        self.assertEqual(_get_header_level(None, page_cfg), 3)
+
+    def test_section_overrides_page_cfg(self):
+        from resume.docx_writer import _get_header_level
+        sec = {"header_level": 2}
+        page_cfg = {"header_level": 3}
+        self.assertEqual(_get_header_level(sec, page_cfg), 2)
+
+    def test_defaults_to_1(self):
+        from resume.docx_writer import _get_header_level
+        self.assertEqual(_get_header_level(None, None), 1)
+        self.assertEqual(_get_header_level({}, {}), 1)
+
+    def test_handles_invalid_header_level(self):
+        from resume.docx_writer import _get_header_level
+        sec = {"header_level": "invalid"}
+        self.assertEqual(_get_header_level(sec, None), 1)
+
+
+class TestUsePlainBullets(unittest.TestCase):
+    """Tests for _use_plain_bullets helper."""
+
+    def test_returns_tuple(self):
+        from resume.docx_writer import _use_plain_bullets
+        result = _use_plain_bullets(None, None)
+        self.assertIsInstance(result, tuple)
+
+
+class TestApplyPageStyles(unittest.TestCase):
+    """Tests for _apply_page_styles helper."""
+
+    def test_skips_non_compact(self):
+        from resume.docx_writer import _apply_page_styles
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        page_cfg = {"compact": False}
+        _apply_page_styles(doc, page_cfg)
+        # Should not access sections if not compact
+        doc.sections.__getitem__.assert_not_called()
+
+    def test_skips_empty_config(self):
+        from resume.docx_writer import _apply_page_styles
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        _apply_page_styles(doc, {})
+        doc.sections.__getitem__.assert_not_called()
+
+
+class TestSetDocumentMetadata(unittest.TestCase):
+    """Tests for _set_document_metadata helper."""
+
+    def test_sets_title_from_name(self):
+        from resume.docx_writer import _set_document_metadata
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        doc.core_properties = MagicMock()
+        data = {"name": "John Doe", "email": "john@example.com"}
+        template = {}
+        _set_document_metadata(doc, data, template)
+        self.assertIn("John Doe", doc.core_properties.title)
+
+    def test_sets_author_from_name(self):
+        from resume.docx_writer import _set_document_metadata
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        doc.core_properties = MagicMock()
+        data = {"name": "Jane Smith"}
+        template = {}
+        _set_document_metadata(doc, data, template)
+        self.assertEqual(doc.core_properties.author, "Jane Smith")
+
+    def test_includes_experience_locations_in_keywords(self):
+        from resume.docx_writer import _set_document_metadata
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        doc.core_properties = MagicMock()
+        data = {
+            "name": "Test User",
+            "experience": [{"location": "NYC"}, {"location": "LA"}]
+        }
+        template = {"page": {"metadata_include_locations": True}}
+        _set_document_metadata(doc, data, template)
+        self.assertIn("NYC", doc.core_properties.keywords)
+        self.assertIn("LA", doc.core_properties.keywords)
+
+    def test_excludes_locations_when_disabled(self):
+        from resume.docx_writer import _set_document_metadata
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        doc.core_properties = MagicMock()
+        data = {
+            "name": "Test User",
+            "experience": [{"location": "NYC"}]
+        }
+        template = {"page": {"metadata_include_locations": False}}
+        _set_document_metadata(doc, data, template)
+        self.assertNotIn("NYC", doc.core_properties.keywords)
+
+    def test_handles_missing_data(self):
+        from resume.docx_writer import _set_document_metadata
+        from unittest.mock import MagicMock
+        doc = MagicMock()
+        doc.core_properties = MagicMock()
+        _set_document_metadata(doc, {}, {})
+        self.assertEqual(doc.core_properties.title, "Resume")
+
+
+class TestCenterParagraph(unittest.TestCase):
+    """Tests for _center_paragraph helper."""
+
+    def test_centers_paragraph(self):
+        from resume.docx_writer import _center_paragraph
+        from unittest.mock import MagicMock
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        para = MagicMock()
+        para.paragraph_format = MagicMock()
+        _center_paragraph(para)
+        self.assertEqual(para.alignment, WD_ALIGN_PARAGRAPH.CENTER)
+
+    def test_handles_exception_gracefully(self):
+        from resume.docx_writer import _center_paragraph
+        from unittest.mock import MagicMock, PropertyMock
+        para = MagicMock()
+        type(para).alignment = PropertyMock(side_effect=Exception("test"))
+        # Should not raise
+        _center_paragraph(para)
+
+
+class TestWriteResumeDocx(unittest.TestCase):
+    """Tests for write_resume_docx main function."""
+
+    def test_raises_without_docx_module(self):
+        from resume.docx_writer import write_resume_docx
+        from unittest.mock import patch
+        with patch("resume.docx_writer.safe_import", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                write_resume_docx({}, {}, "/tmp/test.docx")  # noqa: S108
+            self.assertIn("python-docx", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
