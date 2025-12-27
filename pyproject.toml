@@ -46,7 +46,6 @@ package-dir = {"" = "."}
 [tool.setuptools.packages.find]
 include = [
   "core*",
-  "personal_core*",
   "mail*",
   "resume*",
   "schedule*",

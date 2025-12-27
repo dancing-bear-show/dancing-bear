@@ -28,7 +28,7 @@ whatsapp/                 # local-only ChatStorage search
 desk/                     # desktop/workspace tooling
 maker/                    # utility generators
 bin/                      # entry wrappers and helper scripts
-core/, personal_core/     # shared helpers
+core/                     # shared helpers
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
 _disasm/                  # decompiled refs (read-only)
@@ -78,7 +78,7 @@ Familiarization Policy (Fast + Lean)
 - Reading order for new contexts:
   1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
   2) Entry points: `bin/assistant`, `bin/mail-assistant`, `bin/calendar-assistant`, `bin/schedule-assistant`, `bin/phone`, `bin/whatsapp`
-  3) Shared helpers: `core/`, `personal_core/`
+  3) Shared helpers: `core/`
   4) Mail config/DSL: `mail/dsl.py`, `mail/config_resolver.py`, `mail/utils/filters.py`
   5) Providers/APIs: `mail/providers/*.py`, `mail/gmail_api.py`, `mail/outlook_api/`
   6) Tests for shape: `tests/test_cli.py`, `tests/test_cli_filters.py`, `tests/test_workflows*.py`
