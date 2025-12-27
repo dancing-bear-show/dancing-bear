@@ -11,11 +11,10 @@ from ._base import (
     Path,
     Processor,
     ResultEnvelope,
-    _load_yaml,
     normalize_event,
     BaseProducer,
     RequestConsumer,
-    ERR_CONFIG_MUST_CONTAIN_EVENTS,
+    load_events_config,
     to_iso_str,
 )
 
@@ -40,16 +39,12 @@ class OutlookAddResult:
 
 class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAddResult]]):
     def __init__(self, config_loader=None) -> None:
-        self._config_loader = config_loader if config_loader is not None else _load_yaml
+        self._config_loader = config_loader
 
     def process(self, payload: OutlookAddRequest) -> ResultEnvelope[OutlookAddResult]:
-        try:
-            cfg = self._config_loader(str(payload.config_path))
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
-        items = cfg.get("events") if isinstance(cfg, dict) else None
-        if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
+        items, err = load_events_config(payload.config_path, self._config_loader)
+        if err:
+            return err
         svc = payload.service
         logs: List[str] = []
         created = 0

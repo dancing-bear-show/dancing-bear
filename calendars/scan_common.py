@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
-from html import unescape as _html_unescape
 from typing import Any, Dict, Optional, Sequence
+
+from core.text_utils import html_to_text
+
 
 DAY_MAP = {
     "monday": "MO",
@@ -57,16 +59,6 @@ DATE_RANGE_PAT = re.compile(
     r"(?:(?:from)\s+)?([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",
     re.I,
 )
-
-
-def html_to_text(html: str) -> str:
-    if not html:
-        return ""
-    s = re.sub(r"<\s*br\s*/?>", "\n", html, flags=re.I)
-    s = re.sub(r"<\s*p\s*>", "\n", s, flags=re.I)
-    s = re.sub(r"<[^>]+>", " ", s)
-    s = _html_unescape(s)
-    return re.sub(r"\s+", " ", s).strip()
 
 
 def norm_time(hour: str, minute: Optional[str], ampm: Optional[str]) -> str:

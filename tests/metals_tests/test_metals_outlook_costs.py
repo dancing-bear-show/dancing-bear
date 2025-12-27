@@ -7,15 +7,16 @@ import unittest
 
 from tests.fixtures import TempDirMixin
 
+from core.text_utils import html_to_text
 from metals.outlook_costs import (
     G_PER_OZ,
     _amount_near_item,
+    _classify_subject,
     _extract_confirmation_item_totals,
     _extract_line_items,
     _extract_order_amount,
     _extract_order_id,
     _merge_write,
-    _strip_html,
 )
 
 
@@ -27,13 +28,62 @@ class TestConstants(unittest.TestCase):
         self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
 
 
-class TestStripHtml(unittest.TestCase):
-    """Tests for _strip_html function."""
+class TestClassifySubject(unittest.TestCase):
+    """Tests for _classify_subject function."""
+
+    def test_confirmation_with_order_number(self):
+        """Test detects confirmation for order number."""
+        result = _classify_subject("Confirmation for order number PO1234567")
+        self.assertEqual(result, "confirmation")
+
+    def test_confirmation_without_number(self):
+        """Test detects confirmation for order (without 'number')."""
+        result = _classify_subject("Confirmation for order PO1234567")
+        self.assertEqual(result, "confirmation")
+
+    def test_confirmation_case_insensitive(self):
+        """Test confirmation detection is case insensitive."""
+        result = _classify_subject("CONFIRMATION FOR ORDER NUMBER PO123")
+        self.assertEqual(result, "confirmation")
+
+    def test_shipping_confirmation(self):
+        """Test detects shipping confirmation."""
+        result = _classify_subject("Shipping Confirmation for your order")
+        self.assertEqual(result, "shipping")
+
+    def test_was_shipped(self):
+        """Test detects 'was shipped' pattern."""
+        result = _classify_subject("Your order was shipped")
+        self.assertEqual(result, "shipping")
+
+    def test_request_received(self):
+        """Test detects request received."""
+        result = _classify_subject("We received your request")
+        self.assertEqual(result, "request")
+
+    def test_other_subject(self):
+        """Test returns 'other' for unrecognized subjects."""
+        result = _classify_subject("Random email subject")
+        self.assertEqual(result, "other")
+
+    def test_empty_subject(self):
+        """Test handles empty subject."""
+        result = _classify_subject("")
+        self.assertEqual(result, "other")
+
+    def test_none_subject(self):
+        """Test handles None subject."""
+        result = _classify_subject(None)
+        self.assertEqual(result, "other")
+
+
+class TestHtmlToText(unittest.TestCase):
+    """Tests for html_to_text function (from core.text_utils)."""
 
     def test_strips_html_tags(self):
         """Test strips HTML tags."""
         html = "<p>Hello <b>World</b></p>"
-        result = _strip_html(html)
+        result = html_to_text(html)
         self.assertNotIn("<", result)
         self.assertIn("Hello", result)
         self.assertIn("World", result)
@@ -41,7 +91,7 @@ class TestStripHtml(unittest.TestCase):
     def test_converts_br_to_space(self):
         """Test converts <br> tags (whitespace collapsed)."""
         html = "Line1<br>Line2<br/>Line3"
-        result = _strip_html(html)
+        result = html_to_text(html)
         # After br->newline and whitespace collapse, should have content
         self.assertIn("Line1", result)
         self.assertIn("Line2", result)
@@ -49,12 +99,12 @@ class TestStripHtml(unittest.TestCase):
 
     def test_handles_empty_string(self):
         """Test handles empty string."""
-        self.assertEqual(_strip_html(""), "")
+        self.assertEqual(html_to_text(""), "")
 
     def test_unescapes_html_entities(self):
         """Test unescapes HTML entities."""
         html = "Price: &amp; discount"
-        result = _strip_html(html)
+        result = html_to_text(html)
         self.assertIn("&", result)
         self.assertIn("discount", result)
 
