@@ -1,7 +1,11 @@
 """Tests for metals outlook_costs extraction module."""
 from __future__ import annotations
 
+import csv
+import os
 import unittest
+
+from tests.fixtures import TempDirMixin
 
 from metals.outlook_costs import (
     G_PER_OZ,
@@ -265,21 +269,11 @@ class TestExtractConfirmationItemTotals(unittest.TestCase):
         self.assertEqual(totals[0], 350.00)
 
 
-class TestMergeWrite(unittest.TestCase):
+class TestMergeWrite(TempDirMixin, unittest.TestCase):
     """Tests for _merge_write function."""
-
-    def setUp(self):
-        import tempfile
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_writes_new_file(self):
         """Test writes new CSV file."""
-        import os
-        import csv
         path = os.path.join(self.tmpdir, "costs.csv")
         rows = [
             {
@@ -309,8 +303,6 @@ class TestMergeWrite(unittest.TestCase):
 
     def test_merges_with_existing_file(self):
         """Test merges new rows with existing file."""
-        import os
-        import csv
         path = os.path.join(self.tmpdir, "costs.csv")
 
         # Write initial file
@@ -365,8 +357,6 @@ class TestMergeWrite(unittest.TestCase):
 
     def test_deduplicates_rows(self):
         """Test deduplicates identical rows."""
-        import os
-        import csv
         path = os.path.join(self.tmpdir, "costs.csv")
 
         rows = [
@@ -408,8 +398,6 @@ class TestMergeWrite(unittest.TestCase):
 
     def test_prefers_confirmation_over_shipping(self):
         """Test prefers confirmation emails over shipping."""
-        import os
-        import csv
         path = os.path.join(self.tmpdir, "costs.csv")
 
         rows = [

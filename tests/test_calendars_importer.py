@@ -1,8 +1,9 @@
 """Tests for calendars/importer.py schedule parsing."""
 
 import os
-import tempfile
 import unittest
+
+from tests.fixtures import TempDirMixin, write_csv_content
 
 from calendars.importer import (
     ScheduleItem,
@@ -56,21 +57,11 @@ class TestScheduleItem(unittest.TestCase):
         self.assertEqual(item.location, "Conference Room A")
 
 
-class TestParseCsv(unittest.TestCase):
+class TestParseCsv(TempDirMixin, unittest.TestCase):
     """Tests for parse_csv function."""
 
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
     def _write_csv(self, name: str, content: str) -> str:
-        path = os.path.join(self.tmpdir, name)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return path
+        return write_csv_content(os.path.join(self.tmpdir, name), content)
 
     def test_parse_csv_basic(self):
         csv_content = """subject,start,end,location
@@ -185,21 +176,11 @@ Swim Class,weekly,14:00,15:00,2025-01-01,2025-06-30,Community Pool
         self.assertEqual(item.location, "Community Pool")
 
 
-class TestLoadSchedule(unittest.TestCase):
+class TestLoadSchedule(TempDirMixin, unittest.TestCase):
     """Tests for load_schedule routing function."""
 
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
     def _write_csv(self, name: str, content: str) -> str:
-        path = os.path.join(self.tmpdir, name)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return path
+        return write_csv_content(os.path.join(self.tmpdir, name), content)
 
     def test_load_schedule_auto_csv_by_extension(self):
         csv_content = """subject,start,end
