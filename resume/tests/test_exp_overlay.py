@@ -46,7 +46,7 @@ experience:
                 encoding="utf-8",
             )
             try:
-                r = subprocess.run(  # nosec B603
+                r = subprocess.run(  # noqa: S603
                     CLI
                     + [
                         "render",
@@ -73,8 +73,8 @@ experience:
             finally:
                 try:
                     cfg.unlink()
-                except Exception:
-                    pass  # nosec B110 - test cleanup
+                except Exception:  # noqa: S110 - test cleanup
+                    pass
 
 
 if __name__ == "__main__":

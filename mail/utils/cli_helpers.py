@@ -32,8 +32,8 @@ def with_gmail_client(func):
         client.authenticate()
         try:
             setattr(args, "_gmail_client", client)
-        except Exception:
-            pass  # nosec B110 - non-critical attribute set
+        except Exception:  # noqa: S110 - non-critical attribute set
+            pass
         return func(args, *a, **kw)
 
     return wrapper

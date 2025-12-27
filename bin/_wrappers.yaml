@@ -1,0 +1,56 @@
+# bin/ wrapper definitions
+# Regenerate wrappers with: make bin-wrappers
+#
+# Only Python entry points are generated. Use the CLI directly for subcommands:
+#   ./bin/mail filters export       (not gmail-filters-export)
+#   ./bin/mail outlook rules.sync   (not outlook-rules-sync)
+#   ./bin/phone plan                (not ios-plan)
+
+python:
+  # Primary entry points (short names)
+  mail: {module: mail, doc: "Thin wrapper to run the Mail Assistant CLI."}
+  phone: {module: phone, doc: "Thin wrapper to run the Phone CLI."}
+  calendar: {module: calendars, doc: "Thin wrapper to run the Calendar CLI."}
+  schedule: {module: schedule, doc: "Thin wrapper to run the Schedule Assistant CLI."}
+  whatsapp: {module: whatsapp, doc: "Thin wrapper to run the WhatsApp CLI."}
+  wifi: {module: wifi, doc: "Thin wrapper to run the Wi-Fi CLI."}
+  maker: {module: maker, doc: "Thin wrapper to run the Maker CLI."}
+  assistant: {module: core.assistant_cli, doc: "Unified assistant entry point (dispatches to app CLIs)."}
+  metals: {module: metals, doc: "Thin wrapper to run the Metals CLI."}
+
+  # Legacy -assistant aliases
+  mail-assistant: {module: mail, doc: "Legacy alias for bin/mail."}
+  phone-assistant: {module: phone, doc: "Legacy alias for bin/phone."}
+  calendar-assistant: {module: calendars, doc: "Legacy alias for bin/calendar."}
+  schedule-assistant: {module: schedule, doc: "Legacy alias for bin/schedule."}
+  wifi-assistant: {module: wifi, doc: "Legacy alias for bin/wifi."}
+
+# Manual scripts (not generated - have custom logic)
+manual:
+  - llm
+  - ios-install-profile
+  - ios-p12-to-der
+  - ios-setup-device
+  - ios-pages-sync
+  - ios-hotlabel
+  - ios-use-device
+  - ios-verify-layout
+  - ios-identity-verify
+  - ios-iconmap-refresh
+  - phone-profile-refresh
+  - mail-assistant-auth
+  - setup_venv
+  - uuidgen-pair
+  - apply-calendar-locations
+  - reminders-off-sweep
+  - outlook-metals-scan
+  - extract-metals
+  - extract-metals-costs
+  - extract-metals-costs-outlook
+  - build-metals-summaries
+  - metals-premium
+  - metals-premium-summary
+  - metals-spot-series
+  - metals-excel-merge
+  - apple-music-assistant
+  - apple-music-user-token

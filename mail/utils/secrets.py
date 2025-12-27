@@ -147,8 +147,8 @@ class MaskingWriter:
         except Exception:
             try:
                 self._buffer = ""
-            except Exception:
-                pass  # nosec B110 - buffer reset failure
+            except Exception:  # noqa: S110 - buffer reset failure
+                pass
 
     def isatty(self) -> bool:
         try:

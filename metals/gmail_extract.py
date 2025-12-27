@@ -24,7 +24,7 @@ def _extract_amounts(text: str) -> Tuple[float, float]:
     gold_oz = 0.0
     silver_oz = 0.0
     t = (text or "").replace("\u2013", "-").replace("\u2014", "-")
-    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
 
     # Track unique line items to avoid double counting repeated summaries
     seen_items: set[Tuple[str, float, float]] = set()  # (metal, oz_per_unit, qty)

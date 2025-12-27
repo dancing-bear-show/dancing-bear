@@ -39,8 +39,8 @@ def _default_locations_yaml_paths() -> list[Path]:
     try:
         repo_root = Path(__file__).resolve().parents[1]
         paths.append(repo_root / 'config' / 'locations.yaml')
-    except Exception:
-        pass  # nosec B110 - fallback to other paths
+    except Exception:  # noqa: S110 - fallback to other paths
+        pass
     return paths
 
 
@@ -66,8 +66,8 @@ def get_locations_map() -> Dict[str, str]:
                     if isinstance(locs, dict) and all(isinstance(k, (str, int)) and isinstance(v, str) for k, v in locs.items()):
                         _CACHED_MAP = {str(k): str(v) for k, v in locs.items()}
                         return _CACHED_MAP
-            except Exception:
-                pass  # nosec B110 - continue to fallback
+            except Exception:  # noqa: S110 - continue to fallback
+                pass
     _CACHED_MAP = dict(ADDRESS_MAP)
     return _CACHED_MAP
 

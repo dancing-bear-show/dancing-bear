@@ -1,8 +1,8 @@
-import io
 import types
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
+
+from tests.fixtures import capture_stdout, FakeCalendarService
 
 
 ADDR = {
@@ -14,26 +14,12 @@ ADDR = {
 }
 
 
-class FakeService:
-    def __init__(self, ctx):
-        self.ctx = ctx
-    def list_events_in_range(self, **kwargs):
-        # Monday 17:00 event with address
-        return [{
-            'start': {'dateTime': '2025-01-06T17:00:00+00:00'},
-            'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
-            'location': {'displayName': 'Elgin West', 'address': ADDR},
-            'id': 'occ1',
-            'seriesMasterId': 'ser1',
-        }]
-
-
 class TestUpdateLocationsFromConfig(unittest.TestCase):
     def test_updates_yaml_with_address(self):
         import sys
         import calendars.outlook_pipelines as pipelines
 
-        events = [{
+        events_cfg = [{
             'subject': 'Class',
             'repeat': 'weekly',
             'byday': ['MO'],
@@ -42,14 +28,16 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
             'range': {'start_date': '2025-01-01', 'until': '2025-02-01'},
             'location': 'Old Name',
         }]
+
         def fake_load(_):
-            return {'events': events}
+            return {'events': events_cfg}
         # Stub the imported function directly in the pipelines module
         old_load_yaml = pipelines._load_yaml
         pipelines._load_yaml = fake_load
 
         # Stub yamlio module for dump_config (imported inside the function)
         captured = {}
+
         def fake_dump(path, obj):
             captured['path'] = path
             captured['obj'] = obj
@@ -59,10 +47,19 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
         old_yamlio = sys.modules.get('calendars.yamlio')
         sys.modules['calendars.yamlio'] = yamlio
 
+        # Monday 17:00 event with address
+        events = [{
+            'start': {'dateTime': '2025-01-06T17:00:00+00:00'},
+            'end': {'dateTime': '2025-01-06T17:30:00+00:00'},
+            'location': {'displayName': 'Elgin West', 'address': ADDR},
+            'id': 'occ1',
+            'seriesMasterId': 'ser1',
+        }]
+
         # Stub service
         old_osvc = sys.modules.get('calendars.outlook_service')
         stub_osvc = types.ModuleType('calendars.outlook_service')
-        stub_osvc.OutlookService = FakeService  # type: ignore
+        stub_osvc.OutlookService = lambda ctx: FakeCalendarService(events=events)  # type: ignore
         sys.modules['calendars.outlook_service'] = stub_osvc
 
         from calendars.outlook.commands import run_outlook_update_locations
@@ -72,8 +69,7 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
                 profile=None, client_id=None, tenant=None, token=None,
                 dry_run=False,
             )
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with capture_stdout() as buf:
                 rc = run_outlook_update_locations(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
@@ -99,4 +95,3 @@ class TestUpdateLocationsFromConfig(unittest.TestCase):
 
 if __name__ == '__main__':  # pragma: no cover
     unittest.main()
-

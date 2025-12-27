@@ -13,6 +13,7 @@ import argparse
 from typing import Dict, List, Tuple
 
 from core.auth import resolve_outlook_credentials
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
 
 
@@ -25,7 +26,7 @@ QUERIES: List[Tuple[str, str]] = [
 
 def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
     client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
-    token = token or ".cache/.msal_token.json"
+    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
     if not client_id:
         raise SystemExit("No Outlook client_id configured; set it under [mail.<profile>] in credentials.ini")
     cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
@@ -45,7 +46,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
         nxt = url
         ids: List[str] = []
         for _ in range(max(1, int(pages))):
-            r = requests.get(nxt, headers=cli._headers_search())  # nosec B113
+            r = requests.get(nxt, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
             r.raise_for_status()
             data = r.json()
             vals = data.get("value", [])
@@ -81,7 +82,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
         for mid in ids[:10]:
             try:
                 msg = cli.get_message(mid, select_body=False)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             sub = (msg.get("subject") or "").strip()
             recv = (msg.get("receivedDateTime") or "")

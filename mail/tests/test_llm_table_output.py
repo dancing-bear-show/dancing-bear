@@ -38,7 +38,7 @@ class TestLLMTableOutput(unittest.TestCase):
             try:
                 area, val = ln.split("\t", 1)
                 vals.append(int(val.strip()))
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
         self.assertTrue(all(vals[i] <= vals[i+1] for i in range(len(vals)-1)))
 

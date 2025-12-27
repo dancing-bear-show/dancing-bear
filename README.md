@@ -19,9 +19,11 @@ with a single YAML source of truth for Gmail and Outlook filters.
 - Mail (Gmail and Outlook): `./bin/mail-assistant`
 - Calendar (Outlook + Gmail scans): `./bin/calendar-assistant`
 - Schedule (plan/apply calendar events): `./bin/schedule-assistant`
-- Resume: `./bin/resume-assistant`
-- Phone (iOS layout tooling): `./bin/phone`
+- Phone (iOS layout tooling): `./bin/phone` or `./bin/phone-assistant`
 - WhatsApp (local-only search): `./bin/whatsapp`
+- WiFi (diagnostics): `./bin/wifi` or `./bin/wifi-assistant`
+- Metals (precious metals tracking): `./bin/metals`
+- Apple Music: `./bin/apple-music-assistant`
 - Maker tools: `./bin/maker`
 
 ## Credentials and Profiles
@@ -108,26 +110,45 @@ Plan, apply, verify, and sync events:
 
 ## LLM Utilities
 
+Context and navigation:
+- Domain map: `./bin/llm domain-map --stdout`
 - Inventory: `./bin/llm inventory --stdout`
-- Familiarize capsule: `./bin/llm familiar --stdout`
-- Policies: `./bin/llm policies --stdout`
-- Derive all capsules: `./bin/llm derive-all --out-dir .llm`
+- Familiarize: `./bin/llm familiar --stdout` (compact) or `--verbose`
+- Agentic capsule: `./bin/llm agentic --stdout`
 
-Per-app capsules:
-- `./bin/llm --app calendar derive-all --out-dir .llm --include-generated`
-- `./bin/llm --app schedule derive-all --out-dir .llm --include-generated`
-- `./bin/llm --app resume derive-all --out-dir .llm --include-generated`
-- `./bin/llm --app desk derive-all --out-dir .llm --include-generated`
-- `./bin/llm --app phone derive-all --out-dir .llm --include-generated`
-- `./bin/llm --app whatsapp derive-all --out-dir .llm --include-generated`
+Flows (curated workflows):
+- List all: `./bin/llm flows --list`
+- Show flow: `./bin/llm flows --id <flow_id> --format md`
+- Filter by tags: `./bin/llm flows --tags mail,gmail`
+
+Code health:
+- Staleness: `./bin/llm stale --with-status --limit 10`
+- Dependencies: `./bin/llm deps --by combined --order desc --limit 10`
+- CI check: `./bin/llm check --fail-on-stale`
+
+Derive capsules:
+- `./bin/llm derive-all --out-dir .llm`
+- Per-app: `./bin/llm --app <app> derive-all --out-dir .llm --include-generated`
 
 ## Directory Layout
 
-- `bin/` - CLI wrappers
-- `config/` - canonical YAML inputs
+- `bin/` - CLI wrappers and entry points
+- `config/` - canonical YAML inputs (source of truth)
 - `out/` - derived outputs and plans
 - `.llm/` - agent context, flows, capsules
 - `tests/` - unittest suite
+
+App modules:
+- `mail/` - Gmail/Outlook providers, filters, labels, signatures
+- `calendars/` - Outlook calendar + Gmail scans
+- `schedule/` - plan/apply calendar schedules
+- `phone/` - iOS layout tooling
+- `whatsapp/` - local-only ChatStorage search
+- `wifi/` - WiFi diagnostics
+- `metals/` - precious metals tracking
+- `apple_music/` - Apple Music API
+- `maker/` - utility generators
+- `core/` - shared helpers
 
 ## Cleaning and Tests
 
@@ -135,51 +156,31 @@ Per-app capsules:
 - Deep clean: `make distclean`
 - Tests: `make test` or `python3 -m unittest -v`
 
-## Convenience Wrappers (cars-sre-utils style)
+## Specialty Binaries
 
-Mail wrappers:
-- `bin/gmail-auth` -> `mail-assistant auth`
-- `bin/gmail-labels-export` -> `mail-assistant labels export`
-- `bin/gmail-labels-sync` -> `mail-assistant labels sync`
-- `bin/gmail-filters-export` -> `mail-assistant filters export`
-- `bin/gmail-filters-sync` -> `mail-assistant filters sync`
-- `bin/gmail-filters-impact` -> `mail-assistant filters impact`
-- `bin/gmail-filters-sweep` -> `mail-assistant filters sweep`
+iOS device tooling:
+- `bin/ios-install-profile` - Install .mobileconfig profiles
+- `bin/ios-setup-device` - Initial device setup
+- `bin/ios-use-device` - Switch active device
+- `bin/ios-verify-layout` - Verify layout against plan
+- `bin/ios-pages-sync` - Sync pages layout
+- `bin/ios-iconmap-refresh` - Refresh icon map from device
+- `bin/ios-hotlabel` - Hot-label app icons
+- `bin/ios-identity-verify` - Verify signing identity
+- `bin/ios-p12-to-der` - Convert P12 to DER format
 
-Outlook wrappers:
-- `bin/outlook-auth-device-code` -> `mail-assistant outlook auth device-code`
-- `bin/outlook-auth-poll` -> `mail-assistant outlook auth poll`
-- `bin/outlook-auth-ensure` -> `mail-assistant outlook auth ensure`
-- `bin/outlook-auth-validate` -> `mail-assistant outlook auth validate`
-- `bin/outlook-rules-list` -> `mail-assistant outlook rules list`
-- `bin/outlook-rules-export` -> `mail-assistant outlook rules export`
-- `bin/outlook-rules-plan` -> `mail-assistant outlook rules plan`
-- `bin/outlook-rules-sweep` -> `mail-assistant outlook rules sweep`
-- `bin/outlook-rules-sync` -> `mail-assistant outlook rules sync`
-- `bin/outlook-rules-delete` -> `mail-assistant outlook rules delete`
-- `bin/outlook-categories-list` -> `mail-assistant outlook categories list`
-- `bin/outlook-categories-export` -> `mail-assistant outlook categories export`
-- `bin/outlook-categories-sync` -> `mail-assistant outlook categories sync`
-- `bin/outlook-folders-sync` -> `mail-assistant outlook folders sync`
-- `bin/outlook-calendar-add` -> `mail-assistant outlook calendar add`
-- `bin/outlook-calendar-add-recurring` -> `mail-assistant outlook calendar add-recurring`
-- `bin/outlook-calendar-add-from-config` -> `mail-assistant outlook calendar add-from-config`
+Metals:
+- `bin/extract-metals` - Extract metals data from Gmail
+- `bin/extract-metals-costs` - Extract cost data
+- `bin/outlook-metals-scan` - Scan Outlook for metals emails
+- `bin/metals-premium` - Calculate premiums
+- `bin/metals-spot-series` - Spot price series
+- `bin/build-metals-summaries` - Build summary reports
 
-Phone wrappers:
-- `bin/ios-export` -> `phone export-device`
-- `bin/ios-plan` -> `phone plan`
-- `bin/ios-checklist` -> `phone checklist`
-- `bin/ios-profile-build` -> `phone profile build`
-- `bin/ios-manifest-create` -> `phone manifest create`
-- `bin/ios-manifest-build-profile` -> `phone manifest build-profile`
-- `bin/ios-manifest-from-device` -> `phone manifest from-device`
-- `bin/ios-manifest-install` -> `phone manifest install`
-- `bin/ios-analyze` -> `phone analyze`
-- `bin/ios-auto-folders` -> `phone auto-folders`
-- `bin/ios-unused` -> `phone unused`
-- `bin/ios-prune` -> `phone prune`
-- `bin/ios-iconmap-refresh` -> `cfgutil get-icon-layout + phone export-device`
+Calendar:
+- `bin/apply-calendar-locations` - Batch apply locations
 
-Security:
+## Security
+
 - Never commit credentials or tokens.
 - Keep secrets under `~/.config/` or other local-only paths.

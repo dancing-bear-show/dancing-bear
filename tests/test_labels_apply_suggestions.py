@@ -22,7 +22,7 @@ class LabelsApplySuggestionsTests(unittest.TestCase):
             ]
         }
         cfg_path = write_yaml(cfg, filename="suggestions.yaml")
-        args = make_args(  # nosec B106
+        args = make_args(  # noqa: S106
             credentials="cred.json",
             token="tok.json",
             config=cfg_path,
