@@ -14,6 +14,7 @@ from core.pipeline import Processor, ResultEnvelope
 
 from .gmail_service import GmailService
 from .text_utils import to_24h, extract_email_address
+from core.text_utils import html_to_text
 from .scan_common import (
     DAY_MAP,
     RANGE_PAT,
@@ -22,7 +23,6 @@ from .scan_common import (
     FACILITIES,
     MONTH_MAP,
     DATE_RANGE_PAT,
-    html_to_text as _html_to_text_common,
     norm_time as _norm_time_common,
     infer_meta_from_text,
 )
@@ -301,7 +301,7 @@ class GmailScanClassesProcessor(Processor[GmailScanClassesRequest, ResultEnvelop
         return events
 
     def _html_to_text(self, html: str) -> str:
-        return _html_to_text_common(html)
+        return html_to_text(html)
 
     def _norm_time(self, hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
         return _norm_time_common(hour, minute, ampm)

@@ -41,6 +41,6 @@ class TestLLMDepsStale(unittest.TestCase):
         data = json.loads(buf.getvalue())
         self.assertIsInstance(data, list)
         if data:
-            self.assertIn("key", data[0])
+            self.assertIn("area", data[0])
             self.assertIn("staleness_days", data[0])
 

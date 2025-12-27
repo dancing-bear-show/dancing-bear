@@ -22,6 +22,7 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
+from core.text_utils import normalize_unicode
 from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
@@ -35,12 +36,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
     and grams, each with optional trailing 'x N' quantity.
     """
     items: List[Dict] = []
-    t = (text or '')
-    # Normalize dashes/hyphens and NBSP so regexes match consistently
-    t = t.replace('\u2011', '-')  # non-breaking hyphen
-    t = t.replace('\u2013', '-')  # en dash
-    t = t.replace('\u2014', '-')  # em dash
-    t = t.replace('\u00A0', ' ')
+    t = normalize_unicode(text or '')
     lines: List[str] = [line.strip() for line in t.splitlines() if line.strip()]
 
     pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")

@@ -7,11 +7,14 @@ Heavy parsers (PDF/HTML) are optional and lazily imported.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
 import os
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
+from core.text_utils import html_to_text, normalize_unicode
+
+from .scan_common import DAY_MAP
 
 # Regex pattern constants for HTML parsing
 RE_STRIP_TAGS = r'<[^>]+>'
@@ -22,13 +25,8 @@ RE_TIME = r'^(\d{1,2})(?::(\d{2}))?'
 RE_TABLE_CELL = r'<t[dh][^>]*>([\s\S]*?)</t[dh]>'
 RE_TABLE_ROW = r'<tr[\s\S]*?>([\s\S]*?)</tr>'
 
-# Day name mappings
+# Day name sequence for iteration
 DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-DAY_CODES = {'mon': 'MO', 'tue': 'TU', 'wed': 'WE', 'thu': 'TH', 'fri': 'FR', 'sat': 'SA', 'sun': 'SU'}
-FULL_DAY_CODES = {
-    'sunday': 'SU', 'monday': 'MO', 'tuesday': 'TU', 'wednesday': 'WE',
-    'thursday': 'TH', 'friday': 'FR', 'saturday': 'SA'
-}
 
 
 def strip_html_tags(s: str) -> str:
@@ -38,8 +36,8 @@ def strip_html_tags(s: str) -> str:
 
 
 def normalize_day(day_name: str) -> str:
-    """Convert full day name to two-letter code (e.g., 'Monday' -> 'MO')."""
-    return FULL_DAY_CODES.get(day_name.lower().strip(), '')
+    """Convert day name to two-letter code (e.g., 'Monday' -> 'MO')."""
+    return DAY_MAP.get(day_name.lower().strip(), '')
 
 
 def normalize_days(spec: str) -> List[str]:
@@ -58,12 +56,12 @@ def normalize_days(spec: str) -> List[str]:
         a, b = m.group(1), m.group(2)
         i1, i2 = DAY_NAMES.index(a), DAY_NAMES.index(b)
         rng = DAY_NAMES[i1:i2+1] if i1 <= i2 else (DAY_NAMES[i1:] + DAY_NAMES[:i2+1])
-        return [DAY_CODES[d] for d in rng]
+        return [DAY_MAP[d] for d in rng]
 
     # Check for individual days (supports both abbreviated and full names)
     for d in DAY_NAMES:
         if re.search(rf'\b{d}\w*\b', s):
-            c = DAY_CODES[d]
+            c = DAY_MAP[d]
             if c not in out:
                 out.append(c)
     return out
@@ -119,9 +117,8 @@ def parse_time_range(s: str) -> tuple[Optional[str], Optional[str]]:
     if not s or s == '\xa0':
         return None, None
 
-    # Normalize separators
-    s = s.replace('\u00a0', ' ').replace('\xa0', ' ')
-    s = s.replace('–', '-').replace('—', '-').replace(' to ', '-')
+    # Normalize unicode and separators
+    s = normalize_unicode(s).replace(' to ', '-')
 
     # Detect am/pm for each side
     has_am = re.search(RE_AM_ONLY, s) is not None
@@ -447,7 +444,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
             tail = b[mpos.end():]
             cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
             for i, cell in enumerate(cells[:7]):
-                cell_text = strip_html_tags(cell)
+                cell_text = html_to_text(cell)
                 st, en = parse_time_range(cell_text)
                 if not st or not en:
                     continue
@@ -475,7 +472,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 tail = b[mpos.end():]
                 cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
                 for i, cell in enumerate(cells):
-                    cell_text = strip_html_tags(cell)
+                    cell_text = html_to_text(cell)
                     st, en = parse_time_range(cell_text)
                     if not st or not en:
                         continue
@@ -499,12 +496,12 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
             header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', tbl, re.I)
             headers = []
             if header:
-                headers = [strip_html_tags(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
+                headers = [html_to_text(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
             if not headers:
                 # Try the first row as headers
                 first_row = re.search(RE_TABLE_ROW, tbl, re.I)
                 if first_row:
-                    headers = [strip_html_tags(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
+                    headers = [html_to_text(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
             # Find Day and Leisure indices
             day_idx = None
             leisure_idx = None
@@ -523,9 +520,9 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 cols = re.findall(RE_TABLE_CELL, row, re.I)
                 if len(cols) <= max(day_idx, leisure_idx):
                     continue
-                day_spec = strip_html_tags(cols[day_idx])
+                day_spec = html_to_text(cols[day_idx])
                 leisure_cell = cols[leisure_idx]
-                if not strip_html_tags(leisure_cell):
+                if not html_to_text(leisure_cell):
                     continue
                 for code in normalize_days(day_spec):
                     for st, en in extract_time_ranges(leisure_cell):

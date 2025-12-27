@@ -1,30 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
 
+from .outlook.helpers import norm_label_name_outlook
 
-def _norm_label_name_outlook(name: str, mode: str = "join-dash") -> str:
-    parts = (name or "").split("/")
-    if not parts:
-        return name
-    if mode == "first":
-        return parts[0]
-    if mode == "join-colon":
-        return ":".join(parts)
-    return "-".join(parts)
-
-
-OUTLOOK_COLOR_NAMES = {
-    # Subset of known Outlook category color names
-    "preset0",
-    "preset1",
-    "preset2",
-    "preset3",
-    "preset4",
-    "preset5",
-    "preset6",
-    "preset7",
-}
+# Re-export for backwards compatibility
+_norm_label_name_outlook = norm_label_name_outlook
 
 
 def normalize_label_color_outlook(color: Optional[dict | str]) -> Optional[dict]:

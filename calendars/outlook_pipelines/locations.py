@@ -9,13 +9,12 @@ from ._base import (
     Optional,
     Processor,
     ResultEnvelope,
-    _load_yaml,
     LocationSync,
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
     check_service_required,
-    ERR_CONFIG_MUST_CONTAIN_EVENTS,
+    load_events_config,
     MSG_PREVIEW_COMPLETE,
 )
 
@@ -140,16 +139,12 @@ class OutlookLocationsResult:
 
 class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
     def __init__(self, config_loader=None) -> None:
-        self._config_loader = config_loader if config_loader is not None else _load_yaml
+        self._config_loader = config_loader
 
     def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
-        try:
-            cfg = self._config_loader(str(payload.config_path))
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
-        items = cfg.get("events") if isinstance(cfg, dict) else None
-        if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
+        items, err = load_events_config(payload.config_path, self._config_loader)
+        if err:
+            return err
         sync = LocationSync(payload.service)
         updated = sync.plan_from_config(items, calendar=payload.calendar, dry_run=payload.dry_run)
         if payload.dry_run:
@@ -167,16 +162,12 @@ class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultE
 
 class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
     def __init__(self, config_loader=None) -> None:
-        self._config_loader = config_loader if config_loader is not None else _load_yaml
+        self._config_loader = config_loader
 
     def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
-        try:
-            cfg = self._config_loader(str(payload.config_path))
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to read config: {exc}", "code": 2})
-        items = cfg.get("events") if isinstance(cfg, dict) else None
-        if not isinstance(items, list):
-            return ResultEnvelope(status="error", diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2})
+        items, err = load_events_config(payload.config_path, self._config_loader)
+        if err:
+            return err
         sync = LocationSync(payload.service)
         updated = sync.apply_from_config(
             items,
