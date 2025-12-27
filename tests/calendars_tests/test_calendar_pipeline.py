@@ -6,6 +6,9 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
+from tests.fixtures import write_yaml
+from tests.calendars_tests.fixtures import NoOpProducer, make_mock_processor
+
 from core.pipeline import ResultEnvelope
 from calendars.pipeline import (
     BaseProducer,
@@ -75,12 +78,6 @@ class CalendarPipelineTests(TestCase):
         svc.list_message_ids.return_value = list(texts.keys())
         svc.get_message_text.side_effect = lambda mid: texts[mid]
         return svc
-
-    def _write_config(self, data):
-        import yaml
-        with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml") as tf:
-            yaml.safe_dump(data, tf)
-            return Path(tf.name)
 
     def test_receipts_processor_success(self):
         sample = {
@@ -415,7 +412,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
                 {"subject": "OneOff", "start": "2025-02-01T12:00:00", "end": "2025-02-01T13:00:00"},
             ]
         }
-        cfg_path = self._write_config(cfg)
+        cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.side_effect = [
             [
@@ -452,7 +449,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
                 {"subject": "Series", "repeat": "weekly", "byday": ["MO"], "start_time": "10:00", "end_time": "11:00", "range": {"start_date": "2025-01-01", "until": "2025-01-31"}},
             ]
         }
-        cfg_path = self._write_config(cfg)
+        cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
             {"seriesMasterId": "S1", "start": {"dateTime": "2025-01-06T10:00:00"}, "end": {"dateTime": "2025-01-06T11:00:00"}},
@@ -477,7 +474,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         self.assertIn("Deleted 1 items", text)
 
     def test_outlook_remove_processor_handles_bad_config(self):
-        cfg_path = self._write_config({"foo": "bar"})
+        cfg_path = write_yaml({"foo": "bar"})
         svc = MagicMock()
         request = OutlookRemoveRequest(
             config_path=cfg_path,
@@ -607,7 +604,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
                 ],
             }
         }
-        cfg_path = self._write_config(cfg)
+        cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
             {"id": "E1", "subject": "Swim Practice", "location": {"displayName": "Pool"}},
@@ -640,7 +637,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
                 }
             ],
         }
-        cfg_path = self._write_config(cfg)
+        cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
             {"id": "E2", "subject": "Hockey", "location": {"displayName": "Community Arena"}},
@@ -670,7 +667,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         self.assertIn("Applied settings to 1 item(s).", buf.getvalue())
 
     def test_outlook_settings_processor_bad_config(self):
-        cfg_path = self._write_config({"settings": {"rules": "nope"}})
+        cfg_path = write_yaml({"settings": {"rules": "nope"}})
         svc = MagicMock()
         request = OutlookSettingsRequest(
             config_path=cfg_path,
@@ -805,45 +802,24 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns 0 when processor returns success."""
         from core.pipeline import run_pipeline
 
-        class MockProcessor:
-            def process(self, req):
-                return ResultEnvelope(status="success", payload={"data": req})
-
-        class MockProducer:
-            def produce(self, env):
-                pass  # No output needed for test
-
-        result = run_pipeline({"test": 123}, MockProcessor, MockProducer)
+        Processor = make_mock_processor(ResultEnvelope(status="success", payload={"data": "test"}))
+        result = run_pipeline({"test": 123}, Processor, NoOpProducer)
         self.assertEqual(0, result)
 
     def test_run_pipeline_returns_error_code_on_failure(self):
         """run_pipeline() returns error code from diagnostics on failure."""
         from core.pipeline import run_pipeline
 
-        class MockProcessor:
-            def process(self, req):
-                return ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"})
-
-        class MockProducer:
-            def produce(self, env):
-                pass
-
-        result = run_pipeline({}, MockProcessor, MockProducer)
+        Processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
+        result = run_pipeline({}, Processor, NoOpProducer)
         self.assertEqual(42, result)
 
     def test_run_pipeline_returns_default_code_on_failure_without_code(self):
         """run_pipeline() returns 2 when error has no code in diagnostics."""
         from core.pipeline import run_pipeline
 
-        class MockProcessor:
-            def process(self, req):
-                return ResultEnvelope(status="error", diagnostics={"message": "fail"})
-
-        class MockProducer:
-            def produce(self, env):
-                pass
-
-        result = run_pipeline({}, MockProcessor, MockProducer)
+        Processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
+        result = run_pipeline({}, Processor, NoOpProducer)
         self.assertEqual(2, result)
 
     def test_run_pipeline_calls_producer_with_envelope(self):
@@ -856,11 +832,11 @@ class RunPipelineTests(TestCase):
             def process(self, req):
                 return ResultEnvelope(status="success", payload={"from_request": req})
 
-        class MockProducer:
+        class CapturingProducer:
             def produce(self, env):
                 captured_envelope.append(env)
 
-        run_pipeline({"key": "value"}, MockProcessor, MockProducer)
+        run_pipeline({"key": "value"}, MockProcessor, CapturingProducer)
         self.assertEqual(1, len(captured_envelope))
         self.assertEqual({"from_request": {"key": "value"}}, captured_envelope[0].payload)
 
@@ -870,17 +846,13 @@ class RunPipelineTests(TestCase):
 
         captured_request = []
 
-        class MockProcessor:
+        class CapturingProcessor:
             def process(self, req):
                 captured_request.append(req)
                 return ResultEnvelope(status="success", payload=None)
 
-        class MockProducer:
-            def produce(self, env):
-                pass
-
         test_request = {"field1": "a", "field2": 42}
-        run_pipeline(test_request, MockProcessor, MockProducer)
+        run_pipeline(test_request, CapturingProcessor, NoOpProducer)
         self.assertEqual(1, len(captured_request))
         self.assertEqual(test_request, captured_request[0])
 

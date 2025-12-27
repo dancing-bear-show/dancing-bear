@@ -19,6 +19,8 @@ __all__ = [
     "FakeOutlookClient",
     "make_outlook_client",
     "FakeCalendarService",
+    "NoOpProducer",
+    "make_mock_processor",
 ]
 
 
@@ -195,3 +197,30 @@ class FakeCalendarService:
         calendar_id: Optional[str] = None, location_str: str
     ) -> None:
         self.updated_locations.append((event_id, location_str))
+
+
+# -----------------------------------------------------------------------------
+# Pipeline testing helpers
+# -----------------------------------------------------------------------------
+
+
+class NoOpProducer:
+    """A producer that does nothing - for testing pipelines."""
+
+    def produce(self, env):
+        pass
+
+
+def make_mock_processor(envelope):
+    """Create a mock processor that returns the given envelope.
+
+    Args:
+        envelope: The ResultEnvelope to return from process()
+
+    Returns:
+        A class (not instance) that can be passed to run_pipeline
+    """
+    class MockProcessor:
+        def process(self, req):
+            return envelope
+    return MockProcessor
