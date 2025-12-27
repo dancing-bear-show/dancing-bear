@@ -2,13 +2,13 @@
 
 import unittest
 
-from tests.mail.fixtures import (
+from tests.mail_tests.fixtures import (
     FakeGmailClient,
     capture_stdout,
     make_args,
     make_gmail_client,
 )
-from tests.calendars.fixtures import (
+from tests.calendars_tests.fixtures import (
     FakeOutlookClient,
     make_outlook_client,
     make_outlook_event,
