@@ -1,6 +1,5 @@
 """Tests for mail/scheduler.py scheduled send queue."""
 
-import json
 import os
 import tempfile
 import time
@@ -12,7 +11,6 @@ from mail.scheduler import (
     parse_send_in,
     enqueue,
     pop_due,
-    _queue_path,
     _load_queue,
     _save_queue,
 )
@@ -51,7 +49,7 @@ class ParseSendAtTests(unittest.TestCase):
 
     def test_returns_epoch_seconds(self):
         result = parse_send_at("2025-01-01 00:00")
-        # Should be a reasonable epoch timestamp
+        # 2025-01-01 00:00 UTC should be after epoch 1700000000 (~2023-11-14 UTC)
         self.assertGreater(result, 1700000000)
 
 

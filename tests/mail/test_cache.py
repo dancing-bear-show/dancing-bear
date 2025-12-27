@@ -1,6 +1,5 @@
 """Tests for mail/cache.py JSON-based cache."""
 
-import json
 import os
 import tempfile
 import unittest
