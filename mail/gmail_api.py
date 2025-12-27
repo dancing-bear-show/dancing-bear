@@ -18,6 +18,7 @@ except Exception:  # pragma: no cover - optional dependency
     Request = Credentials = InstalledAppFlow = build = None  # type: ignore
 
 from core.cache import ConfigCacheMixin
+from core.text_utils import html_to_text
 from .cache import MailCache
 
 SCOPES = [
@@ -310,21 +311,12 @@ class GmailClient(ConfigCacheMixin):
     def get_message_text(self, msg_id: str) -> str:
         """Return a best-effort text content from a message (plain preferred, else HTML stripped)."""
         import base64
-        import re
-        from html import unescape
 
         def decode_data(s: str) -> str:
             try:
                 return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8", errors="replace")
             except Exception:
                 return ""
-
-        def strip_html(s: str) -> str:
-            s = re.sub(r"<\s*br\s*/?>", "\n", s, flags=re.I)
-            s = re.sub(r"<\s*p\s*>", "\n", s, flags=re.I)
-            s = re.sub(r"<[^>]+>", " ", s)
-            s = unescape(s)
-            return re.sub(r"\s+", " ", s).strip()
 
         msg = self.get_message(msg_id, fmt="full")
         payload = msg.get("payload") or {}
@@ -356,7 +348,7 @@ class GmailClient(ConfigCacheMixin):
         if text_plain:
             return text_plain
         if text_html:
-            return strip_html(text_html)
+            return html_to_text(text_html)
         # Fallback to snippet
         return (msg.get("snippet") or "").strip()
 

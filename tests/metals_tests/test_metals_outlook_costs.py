@@ -7,6 +7,7 @@ import unittest
 
 from tests.fixtures import TempDirMixin
 
+from core.text_utils import html_to_text
 from metals.outlook_costs import (
     G_PER_OZ,
     _amount_near_item,
@@ -15,7 +16,6 @@ from metals.outlook_costs import (
     _extract_order_amount,
     _extract_order_id,
     _merge_write,
-    _strip_html,
 )
 
 
@@ -27,13 +27,13 @@ class TestConstants(unittest.TestCase):
         self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
 
 
-class TestStripHtml(unittest.TestCase):
-    """Tests for _strip_html function."""
+class TestHtmlToText(unittest.TestCase):
+    """Tests for html_to_text function (from core.text_utils)."""
 
     def test_strips_html_tags(self):
         """Test strips HTML tags."""
         html = "<p>Hello <b>World</b></p>"
-        result = _strip_html(html)
+        result = html_to_text(html)
         self.assertNotIn("<", result)
         self.assertIn("Hello", result)
         self.assertIn("World", result)
@@ -41,7 +41,7 @@ class TestStripHtml(unittest.TestCase):
     def test_converts_br_to_space(self):
         """Test converts <br> tags (whitespace collapsed)."""
         html = "Line1<br>Line2<br/>Line3"
-        result = _strip_html(html)
+        result = html_to_text(html)
         # After br->newline and whitespace collapse, should have content
         self.assertIn("Line1", result)
         self.assertIn("Line2", result)
@@ -49,12 +49,12 @@ class TestStripHtml(unittest.TestCase):
 
     def test_handles_empty_string(self):
         """Test handles empty string."""
-        self.assertEqual(_strip_html(""), "")
+        self.assertEqual(html_to_text(""), "")
 
     def test_unescapes_html_entities(self):
         """Test unescapes HTML entities."""
         html = "Price: &amp; discount"
-        result = _strip_html(html)
+        result = html_to_text(html)
         self.assertIn("&", result)
         self.assertIn("discount", result)
 
