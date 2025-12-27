@@ -22,6 +22,7 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
+from core.text_utils import normalize_unicode
 from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
