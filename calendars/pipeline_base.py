@@ -146,29 +146,16 @@ def dedupe_events(events: List[Dict[str, Any]], key_fn=None) -> List[Dict[str, A
     return uniq
 
 
-# Month name mappings for date parsing
-MONTH_MAP_FULL = {
-    m.lower(): i for i, m in enumerate(
-        ["January", "February", "March", "April", "May", "June",
-         "July", "August", "September", "October", "November", "December"],
-        start=1
-    )
-}
-MONTH_MAP_ABBREV = {k[:3]: v for k, v in MONTH_MAP_FULL.items()}
+# Import shared mappings from scan_common
+from .scan_common import DAY_MAP, MONTH_MAP
 
-# Day name to RFC code mappings
-DAY_TO_CODE = {
-    "monday": "MO",
-    "tuesday": "TU",
-    "wednesday": "WE",
-    "thursday": "TH",
-    "friday": "FR",
-    "saturday": "SA",
-    "sunday": "SU",
-}
+# Backwards-compatible aliases
+MONTH_MAP_FULL = MONTH_MAP  # scan_common.MONTH_MAP includes both full and abbreviated
+MONTH_MAP_ABBREV = MONTH_MAP
+DAY_TO_CODE = DAY_MAP  # DAY_MAP is a superset of DAY_TO_CODE
 
 
 def parse_month(month_str: str) -> Optional[int]:
     """Parse month name (full or abbreviated) to number (1-12)."""
     cleaned = (month_str or "").strip().lower()
-    return MONTH_MAP_FULL.get(cleaned) or MONTH_MAP_ABBREV.get(cleaned[:3])
+    return MONTH_MAP.get(cleaned) or MONTH_MAP.get(cleaned[:3])
