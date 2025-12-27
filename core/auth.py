@@ -120,7 +120,7 @@ def build_outlook_service_from_args(
     profile_attr: str = "profile",
     client_id_attr: str = "client_id",
     tenant_attr: str = "tenant",
-    token_attr: str = "token",
+    token_attr: str = "token",  # noqa: S107 - attribute name, not a secret
     context_cls=None,
     service_cls=None,
 ):
@@ -140,7 +140,7 @@ def build_gmail_service_from_args(
     *,
     profile_attr: str = "profile",
     credentials_attr: str = "credentials",
-    token_attr: str = "token",
+    token_attr: str = "token",  # noqa: S107 - attribute name, not a secret
     cache_attr: str = "cache",
     service_cls=None,
 ):

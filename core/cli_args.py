@@ -20,7 +20,7 @@ def add_outlook_auth_args(
     client_id_help: Optional[str] = "Azure app (client) ID; defaults from profile or env",
     tenant_help: Optional[str] = "AAD tenant (default: consumers)",
     tenant_default: Optional[str] = "consumers",
-    token_help: Optional[str] = "Path to token cache JSON (optional)",
+    token_help: Optional[str] = "Path to token cache JSON (optional)",  # noqa: S107 - help text, not a secret
 ):
     if include_profile:
         if profile_help is None:

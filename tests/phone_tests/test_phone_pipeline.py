@@ -428,9 +428,9 @@ class PhonePipelineTests(TestCase):
             patch("phone.device.extract_p12_cert_info", return_value=mock_cert),
             patch("phone.device.get_device_supervision_status", return_value="true"),
         ):
-            request = IdentityVerifyRequest(  # noqa: S106
+            request = IdentityVerifyRequest(
                 p12_path="/path/to/cert.p12",
-                p12_pass="pass",
+                p12_pass="pass",  # noqa: S106 - test password
                 creds_profile=None,
                 config=None,
                 device_label=None,

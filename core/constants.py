@@ -72,7 +72,7 @@ GRAPH_API_SCOPES = [
 ]
 
 # Default token cache path for Outlook/MSAL
-DEFAULT_OUTLOOK_TOKEN_CACHE = ".cache/.msal_token.json"
+DEFAULT_OUTLOOK_TOKEN_CACHE = ".cache/.msal_token.json"  # noqa: S105 - file path, not a secret
 
 
 # -----------------------------------------------------------------------------

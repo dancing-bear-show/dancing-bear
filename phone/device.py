@@ -237,8 +237,8 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     subject = ""
     issuer = ""
     try:
-        subj_out = subprocess.check_output(  # noqa: S603 B607
-            ["openssl", "x509", "-noout", "-subject"],
+        subj_out = subprocess.check_output(
+            ["openssl", "x509", "-noout", "-subject"],  # noqa: S603 S607 - openssl is trusted system binary
             input=cert_pem,
             stderr=subprocess.DEVNULL,
         )
@@ -247,8 +247,8 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
         pass
 
     try:
-        iss_out = subprocess.check_output(  # noqa: S603 B607
-            ["openssl", "x509", "-noout", "-issuer"],
+        iss_out = subprocess.check_output(
+            ["openssl", "x509", "-noout", "-issuer"],  # noqa: S603 S607 - openssl is trusted system binary
             input=cert_pem,
             stderr=subprocess.DEVNULL,
         )
