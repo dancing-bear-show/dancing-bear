@@ -58,7 +58,7 @@ class TestFormatRowsText(unittest.TestCase):
         self.assertIn("me", result)
         self.assertIn("Hello", result)
 
-    def test_formats_them_correctly(self):
+    def test_from_me_false_shows_them(self):
         """Test from_me=0 shows as 'them'."""
         rows = [search.MessageRow(ts="2024-01-02", partner="Bob", from_me=0, text="Hi")]
         result = search.format_rows_text(rows)
@@ -69,7 +69,8 @@ class TestFormatRowsText(unittest.TestCase):
         long_text = "A" * 200
         rows = [search.MessageRow(ts="2024-01-02", partner="Bob", from_me=0, text=long_text)]
         result = search.format_rows_text(rows)
-        self.assertLess(len(result.split("\t")[-1]), 150)
+        last_field = result.split("\t")[-1]
+        self.assertLess(len(last_field), 150)
         self.assertIn("…", result)
 
     def test_replaces_newlines(self):

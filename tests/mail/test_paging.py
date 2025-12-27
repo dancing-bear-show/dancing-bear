@@ -43,9 +43,12 @@ class GatherPagesTests(unittest.TestCase):
 
     def test_max_pages_and_limit_combined(self):
         pages = [["id1", "id2"], ["id3", "id4"], ["id5", "id6"]]
-        # max_pages=2 breaks after 2 pages (4 items), limit check happens after
+        # max_pages is checked after each full page is added; with max_pages=2
+        # we consume exactly 2 full pages (4 items) and then break, before
+        # the limit=3 check can truncate the accumulated results.
         result = gather_pages(pages, max_pages=2, limit=3)
-        # max_pages takes precedence when it breaks first
+        # In this case max_pages stops iteration after a full page, so limit
+        # does not apply and the final output contains 4 items.
         self.assertEqual(result, ["id1", "id2", "id3", "id4"])
 
     def test_works_with_generator(self):

@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import io
-import sys
-import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from whatsapp.pipeline import (
     SearchRequest,
