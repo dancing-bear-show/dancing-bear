@@ -5,7 +5,7 @@ class TestProviderCapabilities(unittest.TestCase):
     def test_gmail_capabilities(self):
         from mail.providers.gmail import GmailProvider
 
-        p = GmailProvider(credentials_path="c.json", token_path="t.json")  # nosec B106
+        p = GmailProvider(credentials_path="c.json", token_path="t.json")  # noqa: S106
         caps = p.capabilities()
         self.assertIn("labels", caps)
         self.assertIn("filters", caps)

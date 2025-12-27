@@ -25,7 +25,7 @@ def _iter_texts(corpus_dir: str | os.PathLike[str]) -> Iterable[str]:
         for f in p.rglob(ext):
             try:
                 yield read_text_any(f)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
 
 

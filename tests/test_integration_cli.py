@@ -30,15 +30,15 @@ class IntegrationCLITests(unittest.TestCase):
         try:
             mode = os.stat(wrapper).st_mode
             os.chmod(wrapper, mode | 0o111)
-        except Exception:
-            pass  # nosec B110 - chmod in tests
+        except Exception:  # noqa: S110 - chmod in tests
+            pass
 
         # Use bash for shell scripts, Python for Python scripts
         if _is_shell_script(wrapper):
             cmd = ["bash", str(wrapper)] + (args or ["--help"])
         else:
             cmd = [sys.executable, str(wrapper)] + (args or ["--help"])
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 
     def test_mail_underscore_help(self):
         proc = self._run_wrapper("mail")
@@ -92,7 +92,7 @@ class AssistantDispatcherIntegrationTests(unittest.TestCase):
     def _run_assistant(self, args: list[str]) -> subprocess.CompletedProcess:
         wrapper = bin_path("assistant")
         cmd = [sys.executable, str(wrapper)] + args
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 
     def test_assistant_no_args(self):
         proc = self._run_assistant([])
@@ -157,7 +157,7 @@ class LLMCLIIntegrationTests(unittest.TestCase):
     def _run_llm(self, args: list[str]) -> subprocess.CompletedProcess:
         wrapper = bin_path("llm")
         cmd = [sys.executable, str(wrapper)] + args
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 
     def test_llm_agentic_stdout(self):
         proc = self._run_llm(["agentic", "--stdout"])
@@ -223,7 +223,7 @@ class IOSWrapperIntegrationTests(unittest.TestCase):
             self.skipTest(f"bin/{name} not found")
         # iOS wrappers are bash scripts
         cmd = ["bash", str(wrapper), "--help"]
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 
     def test_ios_export_help(self):
         proc = self._run_wrapper("ios-export")
@@ -269,7 +269,7 @@ class OutlookWrapperIntegrationTests(unittest.TestCase):
             cmd = ["bash", str(wrapper), "--help"]
         else:
             cmd = [sys.executable, str(wrapper), "--help"]
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 
     def test_outlook_rules_list_help(self):
         proc = self._run_wrapper("outlook-rules-list")
@@ -295,7 +295,7 @@ class GmailWrapperIntegrationTests(unittest.TestCase):
             cmd = ["bash", str(wrapper), "--help"]
         else:
             cmd = [sys.executable, str(wrapper), "--help"]
-        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 
     def test_gmail_labels_export_help(self):
         proc = self._run_wrapper("gmail-labels-export")

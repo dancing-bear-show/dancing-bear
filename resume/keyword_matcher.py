@@ -223,6 +223,17 @@ class KeywordMatcher:
                 self.add_keyword(kw, tier=tier, weight=weight, category=category)
         return self
 
+    def _add_keyword_item(
+        self, item: Any, tier: str, category: Optional[str] = None
+    ) -> None:
+        """Add a single keyword item from a spec."""
+        if isinstance(item, dict):
+            kw = item.get("skill") or item.get("name") or ""
+            if kw:
+                self.add_keyword(kw, tier=tier, weight=int(item.get("weight", 1)), category=category)
+        elif isinstance(item, str) and item:
+            self.add_keyword(item, tier=tier, category=category)
+
     def add_keywords_from_spec(
         self,
         spec: Dict[str, Any],
@@ -230,36 +241,14 @@ class KeywordMatcher:
         """Register keywords from a job/keyword spec.
 
         Handles spec format with required/preferred/nice tiers and categories.
-
-        Args:
-            spec: Keyword spec dict with optional keys:
-                - required: List of keyword dicts
-                - preferred: List of keyword dicts
-                - nice: List of keyword dicts
-                - categories: Dict of category -> keyword list
-
-        Returns:
-            Self for chaining.
         """
         for tier in ("required", "preferred", "nice"):
             for item in spec.get(tier, []) or []:
-                if isinstance(item, dict):
-                    kw = item.get("skill") or item.get("name") or ""
-                    weight = int(item.get("weight", 1))
-                    if kw:
-                        self.add_keyword(kw, tier=tier, weight=weight)
-                elif isinstance(item, str) and item:
-                    self.add_keyword(item, tier=tier)
+                self._add_keyword_item(item, tier)
 
         for cat_name, items in (spec.get("categories") or {}).items():
             for item in items or []:
-                if isinstance(item, dict):
-                    kw = item.get("skill") or item.get("name") or ""
-                    weight = int(item.get("weight", 1))
-                    if kw:
-                        self.add_keyword(kw, tier="preferred", weight=weight, category=cat_name)
-                elif isinstance(item, str) and item:
-                    self.add_keyword(item, tier="preferred", category=cat_name)
+                self._add_keyword_item(item, "preferred", category=cat_name)
 
         return self
 

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 import os
 
+from core.constants import DEFAULT_REQUEST_TIMEOUT
+
 # Regex pattern constants for HTML parsing
 RE_STRIP_TAGS = r'<[^>]+>'
 RE_AMPM = r'(?i)\b(a\.?m\.?|p\.?m\.?)\b'
@@ -19,6 +21,152 @@ RE_PM_ONLY = r'(?i)\b(p\.?m\.?)\b'
 RE_TIME = r'^(\d{1,2})(?::(\d{2}))?'
 RE_TABLE_CELL = r'<t[dh][^>]*>([\s\S]*?)</t[dh]>'
 RE_TABLE_ROW = r'<tr[\s\S]*?>([\s\S]*?)</tr>'
+
+# Day name mappings
+DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+DAY_CODES = {'mon': 'MO', 'tue': 'TU', 'wed': 'WE', 'thu': 'TH', 'fri': 'FR', 'sat': 'SA', 'sun': 'SU'}
+FULL_DAY_CODES = {
+    'sunday': 'SU', 'monday': 'MO', 'tuesday': 'TU', 'wednesday': 'WE',
+    'thursday': 'TH', 'friday': 'FR', 'saturday': 'SA'
+}
+
+
+def strip_html_tags(s: str) -> str:
+    """Remove HTML tags and normalize whitespace."""
+    import re
+    return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
+
+
+def normalize_day(day_name: str) -> str:
+    """Convert full day name to two-letter code (e.g., 'Monday' -> 'MO')."""
+    return FULL_DAY_CODES.get(day_name.lower().strip(), '')
+
+
+def normalize_days(spec: str) -> List[str]:
+    """Parse day specification to list of two-letter codes.
+
+    Handles ranges like 'Mon to Fri' and lists like 'Mon & Wed'.
+    Also handles full day names like 'Monday', 'Saturday'.
+    """
+    import re
+    s = (spec or '').lower().replace('&', ' & ').replace('to', ' to ').replace('&amp;', '&')
+    out: List[str] = []
+
+    # Check for ranges like "Mon to Fri" or "Mon-Fri"
+    m = re.search(r'\b(mon|tue|wed|thu|fri|sat|sun)\w*\b\s*(?:-|to)\s*\b(mon|tue|wed|thu|fri|sat|sun)\w*\b', s)
+    if m:
+        a, b = m.group(1), m.group(2)
+        i1, i2 = DAY_NAMES.index(a), DAY_NAMES.index(b)
+        rng = DAY_NAMES[i1:i2+1] if i1 <= i2 else (DAY_NAMES[i1:] + DAY_NAMES[:i2+1])
+        return [DAY_CODES[d] for d in rng]
+
+    # Check for individual days (supports both abbreviated and full names)
+    for d in DAY_NAMES:
+        if re.search(rf'\b{d}\w*\b', s):
+            c = DAY_CODES[d]
+            if c not in out:
+                out.append(c)
+    return out
+
+
+def to_24h(time_str: str, am_pm: Optional[str] = None) -> Optional[str]:
+    """Convert time string to 24-hour format (e.g., '1:45 p.m.' -> '13:45').
+
+    If am_pm is None and not detectable, uses heuristic: hour >= 7 assumes PM.
+    """
+    import re
+    t = (time_str or '').strip().lower().replace(' ', '')
+
+    # Try to extract am/pm from the string itself
+    detected_ampm = am_pm
+    if detected_ampm is None:
+        if re.search(r'p\.?m\.?', t):
+            detected_ampm = 'pm'
+        elif re.search(r'a\.?m\.?', t):
+            detected_ampm = 'am'
+
+    # Remove am/pm markers
+    t_clean = re.sub(r'[ap]\.?m\.?', '', t).strip(' .')
+
+    m = re.match(r'^(\d{1,2})(?::(\d{2}))?$', t_clean)
+    if not m:
+        return None
+
+    hh = int(m.group(1))
+    mm = int(m.group(2) or 0)
+
+    # Apply am/pm conversion
+    suf = detected_ampm
+    if suf is None:
+        # Heuristic: if hour >= 7 and <= 11, assume PM for evening schedules
+        suf = 'pm' if 7 <= hh <= 11 else 'am'
+
+    if suf.startswith('p') and hh < 12:
+        hh += 12
+    if suf.startswith('a') and hh == 12:
+        hh = 0
+
+    return f"{hh:02d}:{mm:02d}"
+
+
+def parse_time_range(s: str) -> tuple[Optional[str], Optional[str]]:
+    """Parse time range string to (start_24h, end_24h) tuple.
+
+    Examples: '1:45 - 3:15 p.m.', '11:15 a.m. - 12:15 p.m.', '7 - 8:30 p.m.'
+    """
+    import re
+    s = (s or '').strip()
+    if not s or s == '\xa0':
+        return None, None
+
+    # Normalize separators
+    s = s.replace('\u00a0', ' ').replace('\xa0', ' ')
+    s = s.replace('–', '-').replace('—', '-').replace(' to ', '-')
+
+    # Detect am/pm for each side
+    has_am = re.search(RE_AM_ONLY, s) is not None
+    has_pm = re.search(RE_PM_ONLY, s) is not None
+
+    # Strip am/pm text for splitting
+    s_clean = re.sub(RE_AMPM, '', s)
+    parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
+    if len(parts) != 2:
+        return None, None
+
+    # Determine am/pm for left and right sides
+    if has_am and has_pm:
+        left_suf, right_suf = 'am', 'pm'
+    elif has_am:
+        left_suf = right_suf = 'am'
+    elif has_pm:
+        left_suf = right_suf = 'pm'
+    else:
+        left_suf = right_suf = None
+
+    start = to_24h(parts[0], left_suf)
+    end = to_24h(parts[1], right_suf)
+    return start, end
+
+
+def extract_time_ranges(text: str) -> List[tuple[str, str]]:
+    """Extract all time ranges from text.
+
+    Finds patterns like '10:00 a.m. - 12:00 p.m.' or '9:00pm - 10:30pm'.
+    Returns list of (start_24h, end_24h) tuples.
+    """
+    import re
+    text = (text or '').replace('*', ' ').replace('\n', ' ')
+    results: List[tuple[str, str]] = []
+
+    # Match time range patterns with am/pm
+    pattern = r'(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))\s*(?:-|to)\s*(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))'
+    for m in re.finditer(pattern, text, re.I):
+        start = to_24h(m.group(1))
+        end = to_24h(m.group(2))
+        if start and end:
+            results.append((start, end))
+
+    return results
 
 
 @dataclass
@@ -129,7 +277,6 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
         pdfplumber = None  # type: ignore
     if pdfplumber is not None:
         try:
-            import re as _re
             with pdfplumber.open(str(path)) as pdf:
                 for page in pdf.pages:
                     tables = page.extract_tables() or []
@@ -152,57 +299,19 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
                         for row in tbl[1:]:
                             if not row or len(row) <= max(day_idx, leisure_idx):
                                 continue
-                            day_spec = str(row[day_idx] or '').replace('\n',' ').strip()
-                            leisure_cell = str(row[leisure_idx] or '').replace('\n',' ').strip()
+                            day_spec = str(row[day_idx] or '').replace('\n', ' ').strip()
+                            leisure_cell = str(row[leisure_idx] or '').replace('\n', ' ').strip()
                             if not leisure_cell:
                                 continue
-                            # Normalize day tokens to weekday codes
-                            def _norm_days(spec: str) -> List[str]:
-                                s = (spec or '').lower().replace('&',' & ').replace('to',' to ')
-                                days = ['mon','tue','wed','thu','fri','sat','sun']
-                                code = {'mon':'MO','tue':'TU','wed':'WE','thu':'TH','fri':'FR','sat':'SA','sun':'SU'}
-                                out: List[str] = []
-                                m = _re.search(r'\b(mon|tue|wed|thu|fri|sat|sun)\b\s*(?:-|to)\s*\b(mon|tue|wed|thu|fri|sat|sun)\b', s)
-                                if m:
-                                    a, b = m.group(1), m.group(2)
-                                    i1, i2 = days.index(a), days.index(b)
-                                    rng = days[i1:i2+1] if i1 <= i2 else (days[i1:]+days[:i2+1])
-                                    return [code[d] for d in rng]
-                                for d in days:
-                                    if _re.search(rf'\b{d}(?:day)?\b', s):
-                                        c = code[d]
-                                        if c not in out:
-                                            out.append(c)
-                                return out
-                            # Extract one or more time ranges from the leisure cell
-                            def _ranges(cell: str) -> List[tuple[str,str]]:
-                                s = (cell or '').replace('*',' ')
-                                outs: List[tuple[str,str]] = []
-                                for m in _re.finditer(r'(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))\s*(?:-|to)\s*(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))', s, _re.I):
-                                    a, b = m.group(1), m.group(2)
-                                    def to24(x: str) -> str:
-                                        x = x.strip().lower().replace(' ', '')
-                                        mm = _re.match(r'^(\d{1,2})(?::(\d{2}))?((?:a\.?m\.?|p\.?m\.?))$', x)
-                                        hh = int(mm.group(1))
-                                        mi = int(mm.group(2) or 0)
-                                        ap = mm.group(3)
-                                        amp = ap[0]  # 'a' or 'p'
-                                        if amp == 'p' and hh < 12:
-                                            hh += 12
-                                        if amp == 'a' and hh == 12:
-                                            hh = 0
-                                        return f"{hh:02d}:{mi:02d}"
-                                    outs.append((to24(a), to24(b)))
-                                return outs
-                            for code in _norm_days(day_spec):
-                                for st, en in _ranges(leisure_cell):
+                            for code in normalize_days(day_spec):
+                                for st, en in extract_time_ranges(leisure_cell):
                                     items.append(ScheduleItem(
                                         subject='Leisure Swim',
                                         recurrence='weekly', byday=[code], start_time=st, end_time=en,
                                         range_start=_dt.date.today().isoformat(), location='Aurora Pools', notes=f'Imported from PDF {path}',
                                     ))
-        except Exception:
-            pass  # nosec B110 - pdfplumber failure falls through to text extraction
+        except Exception:  # noqa: S110 - pdfplumber failure falls through to text extraction
+            pass
         if items:
             return items
     try:
@@ -215,44 +324,7 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
         import re
         t = re.sub(r"\r", "\n", text)
         t = re.sub(r"\n{2,}", "\n", t)
-        # Helper: day spec to weekday codes
-        def norm_days(spec: str) -> List[str]:
-            s = (spec or '').lower().replace('&', ' & ').replace('to', ' to ')
-            days = ['mon','tue','wed','thu','fri','sat','sun']
-            code = {'mon':'MO','tue':'TU','wed':'WE','thu':'TH','fri':'FR','sat':'SA','sun':'SU'}
-            out: List[str] = []
-            m = re.search(r'\b(mon|tue|wed|thu|fri|sat|sun)\b\s*(?:-|to)\s*\b(mon|tue|wed|thu|fri|sat|sun)\b', s)
-            if m:
-                a, b = m.group(1), m.group(2)
-                i1, i2 = days.index(a), days.index(b)
-                rng = days[i1:i2+1] if i1 <= i2 else (days[i1:]+days[:i2+1])
-                return [code[d] for d in rng]
-            for d in days:
-                if re.search(rf'\b{d}(?:day)?\b', s):
-                    c = code[d]
-                    if c not in out:
-                        out.append(c)
-            return out
-        # Helper: parse time blocks like "10:00 a.m. - 12:00 p.m." or "9:00pm - 10:30pm"
-        def parse_ranges(txt: str) -> List[tuple[str, str]]:
-            s = (txt or '').replace('\n', ' ')
-            outs: List[tuple[str,str]] = []
-            for m in re.finditer(r'(\d{1,2}(?::\d{2})?\s*(?:a|p)\.m\.)\s*(?:to|-)\s*(\d{1,2}(?::\d{2})?\s*(?:a|p)\.m\.)', s, re.I):
-                a, b = m.group(1), m.group(2)
-                def to24(x: str) -> str:
-                    x = x.strip().lower().replace(' ', '')
-                    mm = re.match(r'^(\d{1,2})(?::(\d{2}))?([ap])\.m\.$', x)
-                    hh = int(mm.group(1))
-                    mi = int(mm.group(2) or 0)
-                    ap = mm.group(3)
-                    if ap == 'p' and hh < 12: hh += 12
-                    if ap == 'a' and hh == 12: hh = 0
-                    return f"{hh:02d}:{mi:02d}"
-                outs.append((to24(a), to24(b)))
-            return outs
-        # Find Public Skating in Aurora Skating PDF as a baseline (optional), but focus on Leisure Swim in Aquatics PDF if present.
-        # Look for blocks that mention "Day" and both "Lane" and "Leisure" headers.
-        # Split into rough sections by headers and process rows.
+        # Split into rough sections by headers and process rows
         blocks = re.split(r'\n\s*Day\s*\n', t)
         for blk in blocks[1:]:
             # Heuristic: check if block contains "Leisure" header and at least one weekday
@@ -264,9 +336,8 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
             rows = re.findall(r'((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n]*?(?:\bto\b[^\n]*)?)\n([\s\S]*?)(?=\n(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)|\Z)', blk, re.I)
             for day_spec, rest in rows:
                 # Extract Leisure Swim times from rest
-                # If the block has multiple columns, "Leisure" may be after the Day => capture all times and let the user filter manually if needed.
-                for st, en in parse_ranges(rest):
-                    for code in norm_days(day_spec):
+                for st, en in extract_time_ranges(rest):
+                    for code in normalize_days(day_spec):
                         items.append(ScheduleItem(
                             subject='Leisure Swim',
                             recurrence='weekly', byday=[code], start_time=st, end_time=en,
@@ -288,7 +359,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
 
     u = str(url or '')
     if 'richmondhill.ca' in u and 'Skating.aspx' in u:
-        html = requests.get(u, timeout=30).text
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
         # Prefer BeautifulSoup when available for robust parsing
         if BeautifulSoup is not None:
             soup = BeautifulSoup(html, 'html.parser')
@@ -337,60 +408,6 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 if len(days) < len(cells)-1:
                     days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][:len(cells)-1]
 
-                def norm_day(d: str) -> str:
-                    m = {
-                        'sunday':'SU','monday':'MO','tuesday':'TU','wednesday':'WE','thursday':'TH','friday':'FR','saturday':'SA'
-                    }
-                    return m.get(d.lower(), '')
-
-                def parse_time_range(s: str) -> tuple[Optional[str], Optional[str]]:
-                    # Examples: "1:45 - 3:15 p.m.", "7:15 - 8:45 p.m.", "11:15 a.m. - 12:15 p.m.", "7 - 8:30 p.m."
-                    s = (s or '').strip()
-                    if not s or s == '\xa0':
-                        return None, None
-                    s = s.replace('\u00a0',' ').replace('\xa0',' ')
-                    s = s.replace('–','-').replace('—','-').replace('to','-')
-                    ampm = None
-                    if 'a.m' in s.lower():
-                        ampm = 'am'
-                    if 'p.m' in s.lower():
-                        ampm = 'pm'
-                    # Strip am/pm text for split
-                    s_clean = re.sub(RE_AMPM,'',s)
-                    parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
-                    if len(parts)!=2:
-                        return None, None
-                    def to24(t: str, suffix: Optional[str]) -> Optional[str]:
-                        m = re.match(RE_TIME, t)
-                        if not m:
-                            return None
-                        hh = int(m.group(1))
-                        mm = int(m.group(2) or 0)
-                        suf = suffix
-                        if suf is None:
-                            # Heuristic: if hour <=7 assume pm for evening; else am
-                            suf = 'pm' if hh>=7 else 'am'
-                        if suf.lower().startswith('p') and hh < 12:
-                            hh += 12
-                        if suf.lower().startswith('a') and hh == 12:
-                            hh = 0
-                        return f"{hh:02d}:{mm:02d}"
-                    # Try to detect am/pm for each side separately
-                    ampm_left = None
-                    ampm_right = None
-                    if re.search(r'\b(a\.m\.|am)\b', s, re.I):
-                        ampm_left = 'am'
-                    if re.search(r'\b(p\.m\.|pm)\b', s, re.I):
-                        ampm_right = 'pm'
-                    # If only one side present, propagate
-                    if ampm_left and not ampm_right:
-                        ampm_right = ampm_left
-                    if ampm_right and not ampm_left:
-                        ampm_left = ampm_right
-                    start = to24(parts[0], ampm_left or ampm)
-                    end = to24(parts[1], ampm_right or ampm)
-                    return start, end
-
                 today = _dt.date.today().isoformat()
                 for i, td in enumerate(cells[1:], start=0):
                     day = days[i] if i < len(days) else None
@@ -406,7 +423,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                         ScheduleItem(
                             subject="Public Skating",
                             recurrence='weekly',
-                            byday=[norm_day(day)],
+                            byday=[normalize_day(day)],
                             start_time=st,
                             end_time=en,
                             range_start=today,
@@ -419,6 +436,7 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
         blocks = re.split(r'data-name="accParent"', html)
         items: List[ScheduleItem] = []
         today = _dt.date.today().isoformat()
+        day_list = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
         for b in blocks[1:]:
             mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
             arena = (mname.group(1).strip() if mname else 'Arena')
@@ -428,174 +446,52 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 continue
             tail = b[mpos.end():]
             cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
-            days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-            def norm_day(d: str) -> str:
-                m = {'Sunday':'SU','Monday':'MO','Tuesday':'TU','Wednesday':'WE','Thursday':'TH','Friday':'FR','Saturday':'SA'}
-                return m[d]
-            def strip_tags(s: str) -> str:
-                return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0',' ').replace('&nbsp;',' ').strip()
-            def parse_range(s: str):
-                s = strip_tags(s)
-                if not s:
-                    return None, None
-                s = s.replace('–','-').replace('—','-').replace('to','-')
-                has_am = re.search(RE_AM_ONLY, s) is not None
-                has_pm = re.search(RE_PM_ONLY, s) is not None
-                s_clean = re.sub(RE_AMPM,'',s)
-                parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
-                if len(parts)!=2:
-                    return None, None
-                def to24(t, suf):
-                    m=re.match(RE_TIME, t)
-                    if not m:
-                        return None
-                    hh = int(m.group(1))
-                    mm = int(m.group(2) or 0)
-                    if suf is None:
-                        suf = 'pm' if hh >= 7 else 'am'
-                    if suf.startswith('p') and hh < 12:
-                        hh += 12
-                    if suf.startswith('a') and hh == 12:
-                        hh = 0
-                    return f"{hh:02d}:{mm:02d}"
-                left_suf = 'am' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-                right_suf = 'pm' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-                start=to24(parts[0], left_suf)
-                end=to24(parts[1], right_suf)
-                return start, end
             for i, cell in enumerate(cells[:7]):
-                s,e = parse_range(cell)
-                if not s or not e:
+                cell_text = strip_html_tags(cell)
+                st, en = parse_time_range(cell_text)
+                if not st or not en:
                     continue
                 items.append(ScheduleItem(
                     subject="Public Skating",
-                    recurrence='weekly', byday=[norm_day(days[i])], start_time=s, end_time=e, range_start=today, location=arena,
+                    recurrence='weekly', byday=[normalize_day(day_list[i])], start_time=st, end_time=en, range_start=today, location=arena,
                     notes=f"Imported from {u}",
                 ))
         return items
     if 'richmondhill.ca' in u and 'Swimming.aspx' in u:
-        html = requests.get(u, timeout=30).text
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
         items: List[ScheduleItem] = []
         # Simple regex-driven fallback parse to avoid hard deps
         blocks = re.split(r'data-name=\"accParent\"', html)
         today = _dt.date.today().isoformat()
-        # Day order appears as: Activity, Sunday..Saturday
-        days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-        def norm_day(d: str) -> str:
-            m = {'Sunday':'SU','Monday':'MO','Tuesday':'TU','Wednesday':'WE','Thursday':'TH','Friday':'FR','Saturday':'SA'}
-            return m.get(d, '')
-        def strip_tags(s: str) -> str:
-            return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0',' ').strip()
-        def parse_range(s: str):
-            s = strip_tags(s)
-            if not s:
-                return None, None
-            s = s.replace('–','-').replace('—','-').replace('to','-')
-            has_am = re.search(RE_AM_ONLY, s) is not None
-            has_pm = re.search(RE_PM_ONLY, s) is not None
-            s_clean = re.sub(RE_AMPM,'',s)
-            parts = [t.strip(' .') for t in s_clean.split('-') if t.strip()]
-            if len(parts)!=2:
-                return None, None
-            def to24(t, suf):
-                m=re.match(RE_TIME, t)
-                if not m:
-                    return None
-                hh = int(m.group(1))
-                mm = int(m.group(2) or 0)
-                if suf is None:
-                    suf = 'pm' if hh >= 7 else 'am'
-                if suf.startswith('p') and hh < 12:
-                    hh += 12
-                if suf.startswith('a') and hh == 12:
-                    hh = 0
-                return f"{hh:02d}:{mm:02d}"
-            left_suf = 'am' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-            right_suf = 'pm' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-            return to24(parts[0], left_suf), to24(parts[1], right_suf)
+        day_list = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
         for b in blocks[1:]:
             mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
-            facility = (re.sub(r'&nbsp;',' ', mname.group(1)).strip() if mname else 'Pool')
+            facility = (re.sub(r'&nbsp;', ' ', mname.group(1)).strip() if mname else 'Pool')
             # Look for rows with activity names we care about
-            for label in ('Leisure Swim','Fun N Fit','Fun N Fit & Leisure Swim'):
+            for label in ('Leisure Swim', 'Fun N Fit', 'Fun N Fit & Leisure Swim'):
                 mpos = re.search(rf'<td[^>]*>\s*<strong>\s*{label}\s*</strong>\s*</td>', b, re.I | re.S)
                 if not mpos:
                     continue
                 tail = b[mpos.end():]
                 cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
                 for i, cell in enumerate(cells):
-                    st,en = parse_range(cell)
+                    cell_text = strip_html_tags(cell)
+                    st, en = parse_time_range(cell_text)
                     if not st or not en:
                         continue
                     subj = 'Leisure Swim' if 'Leisure' in label and 'Fun' not in label else 'Fun N Fit'
                     items.append(ScheduleItem(
                         subject=subj,
-                        recurrence='weekly', byday=[norm_day(days[i])], start_time=st, end_time=en,
+                        recurrence='weekly', byday=[normalize_day(day_list[i])], start_time=st, end_time=en,
                         range_start=today, location=facility, notes=f"Imported from {u}",
                     ))
         return items
     if 'aurora.ca' in u and 'aquatics-and-swim-programs' in u:
-        html = requests.get(u, timeout=30).text
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
         items: List[ScheduleItem] = []
         today = _dt.date.today().isoformat()
         # Locate tables containing a "Leisure Swim" header
         tables = re.findall(r'<table[\s\S]*?</table>', html, re.I)
-        def strip_tags(s: str) -> str:
-            return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0',' ').replace('&nbsp;',' ').strip()
-        def norm_days(spec: str) -> List[str]:
-            s = (spec or '').lower().replace('&amp;','&')
-            days = ['mon','tue','wed','thu','fri','sat','sun']
-            code = {'mon':'MO','tue':'TU','wed':'WE','thu':'TH','fri':'FR','sat':'SA','sun':'SU'}
-            out: List[str] = []
-            # Ranges like Mon to Fri
-            m = re.search(r'\b(mon|tue|wed|thu|fri|sat|sun)\b\s*(?:to|-)\s*\b(mon|tue|wed|thu|fri|sat|sun)\b', s)
-            if m:
-                a, b = m.group(1), m.group(2)
-                i1, i2 = days.index(a), days.index(b)
-                if i1 <= i2:
-                    return [code[d] for d in days[i1:i2+1]]
-                return [code[d] for d in (days[i1:]+days[:i2+1])]
-            # Conjunctions like Mon & Wed
-            for d in days:
-                if re.search(rf'\b{d}(?:day)?\b', s):
-                    c = code[d]
-                    if c not in out:
-                        out.append(c)
-            return out
-        def parse_time_blocks(cell_html: str) -> List[tuple[str,str]]:
-            txt = strip_tags(cell_html)
-            if not txt:
-                return []
-            parts = re.split(r'\s*(?:\n|;|\|)\s*', txt)
-            out = []
-            for part in parts:
-                part = part.replace('–','-').replace('—','-').replace('to','-')
-                has_am = re.search(RE_AM_ONLY, part) is not None
-                has_pm = re.search(RE_PM_ONLY, part) is not None
-                sc = re.sub(RE_AMPM,'', part)
-                seg = [t.strip(' .') for t in sc.split('-') if t.strip()]
-                if len(seg) != 2:
-                    continue
-                def to24(t: str, suf: str|None) -> str|None:
-                    m = re.match(RE_TIME, t)
-                    if not m:
-                        return None
-                    hh = int(m.group(1))
-                    mm = int(m.group(2) or 0)
-                    if suf is None:
-                        suf = 'pm' if hh >= 7 else 'am'
-                    if suf.startswith('p') and hh < 12:
-                        hh += 12
-                    if suf.startswith('a') and hh == 12:
-                        hh = 0
-                    return f"{hh:02d}:{mm:02d}"
-                left = 'am' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-                right = 'pm' if (has_am and has_pm) else ('am' if has_am else ('pm' if has_pm else None))
-                st = to24(seg[0], left)
-                en = to24(seg[1], right)
-                if st and en:
-                    out.append((st, en))
-            return out
         for tbl in tables:
             if not re.search(r'Leisure\s*Swim', tbl, re.I):
                 continue
@@ -603,12 +499,12 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
             header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', tbl, re.I)
             headers = []
             if header:
-                headers = [strip_tags(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
+                headers = [strip_html_tags(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
             if not headers:
                 # Try the first row as headers
                 first_row = re.search(RE_TABLE_ROW, tbl, re.I)
                 if first_row:
-                    headers = [strip_tags(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
+                    headers = [strip_html_tags(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
             # Find Day and Leisure indices
             day_idx = None
             leisure_idx = None
@@ -627,12 +523,12 @@ def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Rich
                 cols = re.findall(RE_TABLE_CELL, row, re.I)
                 if len(cols) <= max(day_idx, leisure_idx):
                     continue
-                day_spec = strip_tags(cols[day_idx])
+                day_spec = strip_html_tags(cols[day_idx])
                 leisure_cell = cols[leisure_idx]
-                if not strip_tags(leisure_cell):
+                if not strip_html_tags(leisure_cell):
                     continue
-                for code in norm_days(day_spec):
-                    for st, en in parse_time_blocks(leisure_cell):
+                for code in normalize_days(day_spec):
+                    for st, en in extract_time_ranges(leisure_cell):
                         items.append(ScheduleItem(
                             subject='Leisure Swim',
                             recurrence='weekly', byday=[code], start_time=st, end_time=en,

@@ -266,8 +266,8 @@ def run_labels_learn(args) -> int:
         if '<' in f and '>' in f:
             try:
                 f = f.split('<')[-1].split('>')[0]
-            except Exception:
-                pass  # nosec B110 - malformed From header
+            except Exception:  # noqa: S110 - malformed From header
+                pass
         f = f.strip()
         dom = f.split('@')[-1] if '@' in f else f
         for p in prot:
@@ -291,8 +291,8 @@ def run_labels_learn(args) -> int:
         if '<' in f and '>' in f:
             try:
                 f = f.split('<')[-1].split('>')[0]
-            except Exception:
-                pass  # nosec B110 - malformed From header
+            except Exception:  # noqa: S110 - malformed From header
+                pass
         dom = f.split('@')[-1].lower().strip() if '@' in f else f.lower().strip()
         if not dom:
             continue

@@ -1,0 +1,19 @@
+# Default owner for everything
+* @brian-sherwin
+
+# Module owners
+/mail/ @brian-sherwin
+/phone/ @brian-sherwin
+/calendars/ @brian-sherwin
+/schedule/ @brian-sherwin
+/resume/ @brian-sherwin
+/metals/ @brian-sherwin
+/whatsapp/ @brian-sherwin
+/wifi/ @brian-sherwin
+/desk/ @brian-sherwin
+/maker/ @brian-sherwin
+
+# Core infrastructure
+/core/ @brian-sherwin
+/bin/ @brian-sherwin
+/.github/ @brian-sherwin

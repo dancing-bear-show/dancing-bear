@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Thin wrapper to run the Wi-Fi CLI."""
-
 from pathlib import Path
 import sys
 

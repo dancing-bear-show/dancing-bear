@@ -223,8 +223,8 @@ class TestRun(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(
                 metal="platinum",
-                costs_path="/tmp/costs.csv",
-                out_path="/tmp/premium.csv",
+                costs_path="/tmp/costs.csv",  # noqa: S108
+                out_path="/tmp/premium.csv",  # noqa: S108
             )
 
     @patch("metals.premium._spot_series_cad")

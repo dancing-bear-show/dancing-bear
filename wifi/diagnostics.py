@@ -27,7 +27,7 @@ class CommandRunner:
 class SubprocessRunner(CommandRunner):
     def run(self, cmd: Sequence[str], timeout: Optional[float] = None) -> CommandResult:
         try:
-            proc = subprocess.run(  # nosec B603 - cmd is controlled by caller
+            proc = subprocess.run(  # noqa: S603 - cmd is controlled by caller
                 cmd,
                 capture_output=True,
                 text=True,

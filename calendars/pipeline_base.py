@@ -108,8 +108,8 @@ def to_iso_str(v: Any) -> Optional[str]:
             return v.strftime("%Y-%m-%dT%H:%M:%S")
         if isinstance(v, _dt.date):
             return v.strftime("%Y-%m-%dT00:00:00")
-    except Exception:
-        pass  # nosec B110 - fallback to str(v)
+    except Exception:  # noqa: S110 - fallback to str(v)
+        pass
     return str(v)
 
 

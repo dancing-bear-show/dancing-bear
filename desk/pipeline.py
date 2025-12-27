@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import Processor, Producer, ResultEnvelope
 from .apply_ops import apply_plan_file
 from .planner import plan_from_config
 from .scan import run_scan
@@ -19,14 +19,6 @@ class ScanRequest:
     include_duplicates: bool
     top_dirs: int
     debug: bool
-
-
-class ScanRequestConsumer(Consumer[ScanRequest]):
-    def __init__(self, request: ScanRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ScanRequest:  # pragma: no cover - trivial
-        return self._request
 
 
 class ScanProcessor(Processor[ScanRequest, Dict[str, Any]]):
@@ -49,14 +41,6 @@ class PlanRequest:
     config_path: str
 
 
-class PlanRequestConsumer(Consumer[PlanRequest]):
-    def __init__(self, request: PlanRequest) -> None:
-        self._request = request
-
-    def consume(self) -> PlanRequest:  # pragma: no cover
-        return self._request
-
-
 class PlanProcessor(Processor[PlanRequest, Dict[str, Any]]):
     def __init__(self, planner: Callable[[str], Dict[str, Any]] = plan_from_config) -> None:
         self._planner = planner
@@ -69,14 +53,6 @@ class PlanProcessor(Processor[PlanRequest, Dict[str, Any]]):
 class ApplyRequest:
     plan_path: str
     dry_run: bool
-
-
-class ApplyRequestConsumer(Consumer[ApplyRequest]):
-    def __init__(self, request: ApplyRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ApplyRequest:  # pragma: no cover
-        return self._request
 
 
 class ApplyProcessor(Processor[ApplyRequest, ResultEnvelope[None]]):

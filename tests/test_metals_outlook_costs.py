@@ -1,14 +1,21 @@
 """Tests for metals outlook_costs extraction module."""
 from __future__ import annotations
 
+import csv
+import os
 import unittest
+
+from tests.fixtures import TempDirMixin
 
 from metals.outlook_costs import (
     G_PER_OZ,
-    _strip_html,
-    _extract_order_id,
+    _amount_near_item,
+    _extract_confirmation_item_totals,
     _extract_line_items,
     _extract_order_amount,
+    _extract_order_id,
+    _merge_write,
+    _strip_html,
 )
 
 
@@ -144,6 +151,293 @@ class TestExtractOrderAmount(unittest.TestCase):
         """Test handles empty text."""
         result = _extract_order_amount("")
         self.assertIsNone(result)
+
+
+class TestAmountNearItem(unittest.TestCase):
+    """Tests for _amount_near_item function."""
+
+    def test_finds_total_on_same_line(self):
+        """Test finds 'total' labeled amount."""
+        lines = [
+            "1/10 oz Gold Maple Leaf",
+            "Total C$350.00",
+        ]
+        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        self.assertIsNotNone(result)
+        amt, kind = result
+        self.assertEqual(amt, 350.00)
+        self.assertEqual(kind, "total")
+
+    def test_finds_unit_price(self):
+        """Test finds unit price when no 'total' label."""
+        lines = [
+            "1/10 oz Gold Maple Leaf",
+            "C$350.00",
+        ]
+        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        self.assertIsNotNone(result)
+        amt, kind = result
+        self.assertEqual(amt, 350.00)
+        self.assertEqual(kind, "unit")
+
+    def test_skips_banned_lines(self):
+        """Test skips subtotal/tax/shipping lines."""
+        lines = [
+            "1/10 oz Gold Maple Leaf",
+            "Subtotal C$350.00",
+            "Shipping C$15.00",
+            "Tax C$45.00",
+            "Total C$410.00",
+        ]
+        # The function should skip subtotal/shipping/tax
+        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        self.assertIsNotNone(result)
+        amt, kind = result
+        self.assertEqual(amt, 410.00)  # Should get the Total, not subtotal
+        self.assertEqual(kind, "total")
+
+    def test_returns_none_when_no_amount(self):
+        """Test returns None when no valid amount found."""
+        lines = ["1/10 oz Gold Maple Leaf", "Description only"]
+        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        self.assertIsNone(result)
+
+    def test_filters_by_price_range_for_gold(self):
+        """Test filters amounts by expected price range."""
+        lines = [
+            "1/10 oz Gold Maple Leaf",
+            "C$50.00",  # Too low for gold
+        ]
+        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        self.assertIsNone(result)  # Should reject $50 as too low
+
+
+class TestExtractConfirmationItemTotals(unittest.TestCase):
+    """Tests for _extract_confirmation_item_totals function."""
+
+    def test_extracts_single_total(self):
+        """Test extracts single item total."""
+        text = "Product: Gold Coin\nTotal $350.00 CAD"
+        totals = _extract_confirmation_item_totals(text)
+        self.assertEqual(len(totals), 1)
+        self.assertEqual(totals[0], 350.00)
+
+    def test_extracts_multiple_totals(self):
+        """Test extracts multiple item totals."""
+        text = """
+        Product 1: Gold Coin
+        Total $350.00 CAD
+        Product 2: Gold Bar
+        Total $1,500.00 CAD
+        """
+        totals = _extract_confirmation_item_totals(text)
+        self.assertEqual(len(totals), 2)
+        self.assertEqual(totals[0], 350.00)
+        self.assertEqual(totals[1], 1500.00)
+
+    def test_skips_free_shipping_threshold(self):
+        """Test skips lines with free shipping threshold."""
+        text = """
+        Product: Gold Coin
+        Total $350.00 CAD
+        Orders over $500 qualify for free shipping
+        """
+        totals = _extract_confirmation_item_totals(text)
+        self.assertEqual(len(totals), 1)
+        self.assertEqual(totals[0], 350.00)
+
+    def test_skips_subtotal_lines(self):
+        """Test skips subtotal lines."""
+        text = """
+        Item Total $350.00 CAD
+        Subtotal $350.00 CAD
+        """
+        # Only the item total, not subtotal
+        totals = _extract_confirmation_item_totals(text)
+        self.assertEqual(len(totals), 1)
+
+    def test_handles_empty_text(self):
+        """Test handles empty text."""
+        totals = _extract_confirmation_item_totals("")
+        self.assertEqual(totals, [])
+
+    def test_handles_cad_formats(self):
+        """Test handles various CAD formats."""
+        text = "Total C$350.00 CAD"
+        totals = _extract_confirmation_item_totals(text)
+        self.assertEqual(len(totals), 1)
+        self.assertEqual(totals[0], 350.00)
+
+
+class TestMergeWrite(TempDirMixin, unittest.TestCase):
+    """Tests for _merge_write function."""
+
+    def test_writes_new_file(self):
+        """Test writes new CSV file."""
+        path = os.path.join(self.tmpdir, "costs.csv")
+        rows = [
+            {
+                "vendor": "RCM",
+                "date": "2024-01-15",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": 350.00,
+                "cost_per_oz": 3500.00,
+                "order_id": "PO1234567",
+                "subject": "Confirmation",
+                "total_oz": 0.1,
+                "unit_count": 1,
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            }
+        ]
+        _merge_write(path, rows)
+
+        self.assertTrue(os.path.exists(path))
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            result = list(reader)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["vendor"], "RCM")
+        self.assertEqual(result[0]["order_id"], "PO1234567")
+
+    def test_merges_with_existing_file(self):
+        """Test merges new rows with existing file."""
+        path = os.path.join(self.tmpdir, "costs.csv")
+
+        # Write initial file
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "vendor", "date", "metal", "currency", "cost_total",
+                    "cost_per_oz", "order_id", "subject", "total_oz",
+                    "unit_count", "units_breakdown", "alloc"
+                ],
+            )
+            w.writeheader()
+            w.writerow({
+                "vendor": "RCM",
+                "date": "2024-01-10",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": "300.00",
+                "cost_per_oz": "3000.00",
+                "order_id": "PO1111111",
+                "subject": "First Order",
+                "total_oz": "0.1",
+                "unit_count": "1",
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            })
+
+        # Merge new rows
+        new_rows = [
+            {
+                "vendor": "RCM",
+                "date": "2024-01-15",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": 350.00,
+                "cost_per_oz": 3500.00,
+                "order_id": "PO2222222",
+                "subject": "Second Order",
+                "total_oz": 0.1,
+                "unit_count": 1,
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            }
+        ]
+        _merge_write(path, new_rows)
+
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            result = list(reader)
+        self.assertEqual(len(result), 2)
+
+    def test_deduplicates_rows(self):
+        """Test deduplicates identical rows."""
+        path = os.path.join(self.tmpdir, "costs.csv")
+
+        rows = [
+            {
+                "vendor": "RCM",
+                "date": "2024-01-15",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": 350.00,
+                "cost_per_oz": 3500.00,
+                "order_id": "PO1234567",
+                "subject": "Confirmation",
+                "total_oz": 0.1,
+                "unit_count": 1,
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            },
+            {
+                "vendor": "RCM",
+                "date": "2024-01-15",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": 350.00,
+                "cost_per_oz": 3500.00,
+                "order_id": "PO1234567",
+                "subject": "Confirmation",
+                "total_oz": 0.1,
+                "unit_count": 1,
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            },
+        ]
+        _merge_write(path, rows)
+
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            result = list(reader)
+        self.assertEqual(len(result), 1)  # Should dedupe
+
+    def test_prefers_confirmation_over_shipping(self):
+        """Test prefers confirmation emails over shipping."""
+        path = os.path.join(self.tmpdir, "costs.csv")
+
+        rows = [
+            {
+                "vendor": "RCM",
+                "date": "2024-01-15",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": 350.00,
+                "cost_per_oz": 3500.00,
+                "order_id": "PO1234567",
+                "subject": "Shipping confirmation",
+                "total_oz": 0.1,
+                "unit_count": 1,
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            },
+            {
+                "vendor": "RCM",
+                "date": "2024-01-15",
+                "metal": "gold",
+                "currency": "C$",
+                "cost_total": 350.00,
+                "cost_per_oz": 3500.00,
+                "order_id": "PO1234567",
+                "subject": "Confirmation for order number PO1234567",
+                "total_oz": 0.1,
+                "unit_count": 1,
+                "units_breakdown": "0.1ozx1",
+                "alloc": "line-item",
+            },
+        ]
+        _merge_write(path, rows)
+
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            result = list(reader)
+        # Should keep the confirmation, drop shipping
+        self.assertEqual(len(result), 1)
+        self.assertIn("Confirmation for order", result[0]["subject"])
 
 
 if __name__ == "__main__":

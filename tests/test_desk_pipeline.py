@@ -8,15 +8,12 @@ from unittest import TestCase
 from desk.pipeline import (
     ApplyProcessor,
     ApplyRequest,
-    ApplyRequestConsumer,
     ApplyResultProducer,
     PlanProcessor,
     PlanRequest,
-    PlanRequestConsumer,
     ReportProducer,
     ScanProcessor,
     ScanRequest,
-    ScanRequestConsumer,
 )
 
 
@@ -36,8 +33,7 @@ class DeskPipelineTests(TestCase):
             top_dirs=5,
             debug=False,
         )
-        consumer = ScanRequestConsumer(request)
-        result = ScanProcessor(runner=fake_runner).process(consumer.consume())
+        result = ScanProcessor(runner=fake_runner).process(request)
         self.assertEqual(result, {"ok": True})
         self.assertEqual(captured["min_size"], "10MB")
 
@@ -46,8 +42,7 @@ class DeskPipelineTests(TestCase):
             return {"generated_from": path}
 
         request = PlanRequest(config_path="~/rules.yaml")
-        consumer = PlanRequestConsumer(request)
-        result = PlanProcessor(planner=fake_planner).process(consumer.consume())
+        result = PlanProcessor(planner=fake_planner).process(request)
         self.assertEqual(result["generated_from"], "~/rules.yaml")
 
     def test_report_producer_writes_json(self):
@@ -59,24 +54,20 @@ class DeskPipelineTests(TestCase):
 
     def test_apply_processor_success_and_failure(self):
         request = ApplyRequest(plan_path="plan.yaml", dry_run=True)
-        success = ApplyProcessor(applier=lambda p, dry_run=False: None).process(
-            ApplyRequestConsumer(request).consume()
-        )
+        success = ApplyProcessor(applier=lambda p, dry_run=False: None).process(request)
         self.assertTrue(success.ok())
 
         def boom(_path, dry_run=False):
             raise RuntimeError("fail")
 
-        failure = ApplyProcessor(applier=boom).process(
-            ApplyRequestConsumer(request).consume()
-        )
+        failure = ApplyProcessor(applier=boom).process(request)
         self.assertFalse(failure.ok())
         self.assertIn("fail", failure.diagnostics["error"])
 
     def test_apply_result_producer_reports_error(self):
         buf = io.StringIO()
         envelope = ApplyProcessor(applier=lambda *_: None).process(
-            ApplyRequestConsumer(ApplyRequest("plan.yaml", False)).consume()
+            ApplyRequest("plan.yaml", False)
         )
         envelope.status = "error"
         envelope.diagnostics = {"error": "oops"}

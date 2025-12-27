@@ -151,6 +151,30 @@ class HeaderRenderer:
         self.doc = doc
         self.styles = StyleManager()
 
+    def _parse_meta_pt(self, cfg: Dict[str, Any]) -> Optional[float]:
+        """Parse meta_pt from config, returning None if invalid."""
+        val = cfg.get("meta_pt")
+        if not val:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    def _add_meta_run(self, p, text: str, brackets: bool, open_br: str, close_br: str,
+                      meta_pt: Optional[float], color: Optional[str], italic: bool = False):
+        """Add a metadata run (location or duration) with optional brackets."""
+        p.add_run(" — ")
+        if brackets:
+            p.add_run(open_br)
+        r = p.add_run(text)
+        if italic:
+            r.italic = True
+        self.styles.apply_run_size(r, meta_pt)
+        self.styles.apply_run_color(r, color)
+        if brackets:
+            p.add_run(close_br)
+
     def add_header_line(
         self,
         *,
@@ -173,14 +197,7 @@ class HeaderRenderer:
         item_color = cfg.get("item_color") or cfg.get("header_color")
         loc_color = cfg.get("location_color") or item_color
         dur_color = cfg.get("duration_color") or cfg.get("location_color") or item_color
-        loc_brackets = bool(cfg.get("location_brackets", True))
-        dur_brackets = bool(cfg.get("duration_brackets", True))
-
-        meta_pt = None
-        try:
-            meta_pt = float(cfg.get("meta_pt")) if cfg.get("meta_pt") else None
-        except Exception:
-            pass  # nosec B110 - invalid meta_pt
+        meta_pt = self._parse_meta_pt(cfg)
 
         # Title
         if title_text:
@@ -198,26 +215,13 @@ class HeaderRenderer:
 
         # Location
         if loc_text:
-            p.add_run(" — ")
-            if loc_brackets:
-                p.add_run("[")
-            r_loc = p.add_run(loc_text)
-            r_loc.italic = True
-            self.styles.apply_run_size(r_loc, meta_pt)
-            self.styles.apply_run_color(r_loc, loc_color)
-            if loc_brackets:
-                p.add_run("]")
+            self._add_meta_run(p, loc_text, cfg.get("location_brackets", True),
+                               "[", "]", meta_pt, loc_color, italic=True)
 
         # Duration
         if span_text:
-            p.add_run(" — ")
-            if dur_brackets:
-                p.add_run("(")
-            r_span = p.add_run(span_text)
-            self.styles.apply_run_size(r_span, meta_pt)
-            self.styles.apply_run_color(r_span, dur_color)
-            if dur_brackets:
-                p.add_run(")")
+            self._add_meta_run(p, span_text, cfg.get("duration_brackets", True),
+                               "(", ")", meta_pt, dur_color)
 
         return p
 
@@ -264,6 +268,20 @@ class ListSectionRenderer:
         self.bullets = BulletRenderer(doc, page_cfg)
         self.text = TextFormatter()
 
+    def _extract_item_text(
+        self, it: Any, name_keys: tuple, desc_key: Optional[str], desc_sep: str
+    ) -> Optional[str]:
+        """Extract and format text from a single item."""
+        if isinstance(it, dict):
+            name = next((str(it.get(k) or "").strip() for k in name_keys if it.get(k)), "")
+            if desc_key and name:
+                desc = str(it.get(desc_key) or "").strip()
+                if desc:
+                    name = f"{name}{desc_sep}{desc}"
+            return self.text.clean_inline(name) if name else None
+        s = str(it).strip()
+        return self.text.clean_inline(s) if s else None
+
     def render_simple_list(
         self,
         items: List[Any],
@@ -273,48 +291,20 @@ class ListSectionRenderer:
         desc_key: Optional[str] = None,
         desc_sep: str = " — ",
     ) -> List[str]:
-        """Normalize and render a simple list section.
-
-        Args:
-            items: Raw items (strings or dicts).
-            sec: Section config.
-            name_keys: Keys to try for item name.
-            desc_key: Optional key for description (e.g., "level" for languages).
-            desc_sep: Separator between name and description.
-
-        Returns:
-            List of normalized string items.
-        """
+        """Normalize and render a simple list section."""
         cfg = sec or {}
-        lines: List[str] = []
-
-        for it in items:
-            if isinstance(it, dict):
-                name = ""
-                for key in name_keys:
-                    name = str(it.get(key) or "").strip()
-                    if name:
-                        break
-                if desc_key:
-                    desc = str(it.get(desc_key) or "").strip()
-                    if desc:
-                        name = f"{name}{desc_sep}{desc}"
-                if name:
-                    lines.append(self.text.clean_inline(name))
-            else:
-                s = str(it).strip()
-                if s:
-                    lines.append(self.text.clean_inline(s))
+        lines = [
+            txt for it in items
+            if (txt := self._extract_item_text(it, name_keys, desc_key, desc_sep))
+        ]
 
         if lines:
-            as_bullets = bool(cfg.get("bullets", True))
-            sep = cfg.get("separator") or " • "
-
-            if as_bullets:
+            if cfg.get("bullets", True):
                 plain, glyph = self.bullets.get_bullet_config(sec)
                 self.bullets.add_bullets(lines, sec=sec, plain=plain, glyph=glyph)
             else:
                 from .docx_styles import StyleManager
+                sep = cfg.get("separator") or " • "
                 p = self.doc.add_paragraph(sep.join(lines))
                 StyleManager.tight_paragraph(p, after_pt=2)
 

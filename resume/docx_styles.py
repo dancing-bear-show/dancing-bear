@@ -87,8 +87,8 @@ class StyleManager:
             pf.space_before = Pt(before_pt)
             pf.space_after = Pt(after_pt)
             pf.line_spacing = line_spacing
-        except Exception:
-            pass  # nosec B110 - paragraph format failure
+        except Exception:  # noqa: S110 - paragraph format failure
+            pass
 
     @staticmethod
     def compact_bullet(paragraph) -> None:
@@ -100,8 +100,8 @@ class StyleManager:
             pf.space_before = Pt(0)
             pf.space_after = Pt(0)
             pf.line_spacing = 1.0
-        except Exception:
-            pass  # nosec B110 - bullet format failure
+        except Exception:  # noqa: S110 - bullet format failure
+            pass
 
     @staticmethod
     def flush_left(paragraph) -> None:
@@ -111,8 +111,8 @@ class StyleManager:
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        except Exception:
-            pass  # nosec B110 - alignment failure
+        except Exception:  # noqa: S110 - alignment failure
+            pass
 
     @staticmethod
     def center_paragraph(paragraph) -> None:
@@ -122,8 +122,8 @@ class StyleManager:
             pf = paragraph.paragraph_format
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
-        except Exception:
-            pass  # nosec B110 - center alignment failure
+        except Exception:  # noqa: S110 - center alignment failure
+            pass
 
     # -------------------------------------------------------------------------
     # Shading and colors
@@ -144,8 +144,8 @@ class StyleManager:
                 if child.tag == qn('w:shd'):
                     pPr.remove(child)
             pPr.append(shd)
-        except Exception:
-            pass  # nosec B110 - shading failure
+        except Exception:  # noqa: S110 - shading failure
+            pass
 
     @staticmethod
     def apply_run_color(run, hex_color: Optional[str]) -> None:
@@ -156,8 +156,8 @@ class StyleManager:
         if rgb:
             try:
                 run.font.color.rgb = RGBColor(*rgb)
-            except Exception:
-                pass  # nosec B110 - color apply failure
+            except Exception:  # noqa: S110 - color apply failure
+                pass
 
     @staticmethod
     def apply_run_size(run, size_pt: Optional[float]) -> None:
@@ -165,8 +165,8 @@ class StyleManager:
         if size_pt:
             try:
                 run.font.size = Pt(size_pt)
-            except Exception:
-                pass  # nosec B110 - font size failure
+            except Exception:  # noqa: S110 - font size failure
+                pass
 
 
 class TextFormatter:

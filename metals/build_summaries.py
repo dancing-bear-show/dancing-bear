@@ -19,7 +19,8 @@ def run(costs_path: str, out_dir: str) -> int:
     p = Path(costs_path)
     if not p.exists():
         raise SystemExit(f"costs file not found: {p}")
-    rows = list(csv.DictReader(p.open(encoding="utf-8")))
+    with p.open(encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
     gold: List[List[str]] = [["date", "order_id", "vendor", "total_oz", "cost_per_oz"]]
     silver: List[List[str]] = [["date", "order_id", "vendor", "total_oz", "cost_per_oz"]]
     for r in rows:

@@ -33,7 +33,7 @@ whatsapp/                 # local-only ChatStorage search
 desk/                     # desktop/workspace tooling
 maker/                    # utility generators
 bin/                      # entry wrappers and helper scripts
-core/, personal_core/     # shared helpers
+core/                     # shared helpers
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
 config/                   # YAML inputs (canonical source of truth)
@@ -62,6 +62,7 @@ Read in order for best context:
 - Broad refactors that rename modules or move public entry points
 - Heavy new dependencies; global imports for optional modules
 - Emitting secrets/tokens in logs or passing them via flags
+- Bare `except Exception: continue/pass` blocks without a `# nosec` comment explaining the intent (e.g., `# nosec B110 - skip malformed entries silently`)
 
 ## Testing
 

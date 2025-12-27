@@ -29,6 +29,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from core.constants import DEFAULT_REQUEST_TIMEOUT
+
 
 def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str, float]:
     """Fetch daily closes from Yahoo chart API between inclusive dates (YYYY-MM-DD).
@@ -52,7 +54,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     data = {}
     for attempt in range(6):
         try:
-            r = requests.get(url, timeout=20, headers=headers)
+            r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT, headers=headers)
             if r.status_code == 429 or r.status_code >= 500:
                 import time as _t
                 _t.sleep(2 + attempt * 2)
@@ -73,7 +75,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
                 v = cl[i]
                 if v is not None:
                     out[d] = float(v)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
     except Exception:
         # If shape unexpected, return empty
@@ -111,7 +113,7 @@ def _fetch_stooq_series(symbol: str, start_date: str, end_date: str) -> Dict[str
 
     url = f"https://stooq.com/q/d/l/?s={symbol.lower()}&i=d"
     try:
-        r = requests.get(url, timeout=30)
+        r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
         if r.status_code >= 400:
             return {}
         text = r.text or ""
@@ -130,7 +132,7 @@ def _fetch_stooq_series(symbol: str, start_date: str, end_date: str) -> Dict[str
         ds = parts[0]
         try:
             close = float(parts[4])
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
         out_raw[ds] = close
 
@@ -193,7 +195,7 @@ def _auto_start_date(metal: str) -> Optional[str]:
                         continue
                     if earliest is None or d < earliest:
                         earliest = d
-        except Exception:
+        except Exception:  # noqa: S112 - skip on error
             continue
         if earliest:
             break
