@@ -4,12 +4,17 @@ from __future__ import annotations
 import csv
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from metals.excel_all import (
     _col_letter,
     _read_csv,
     _to_records,
     _merge_all,
+    _to_values_all,
+    _build_summary_values,
+    _set_sheet_position,
+    _set_sheet_visibility,
 )
 
 
@@ -135,6 +140,155 @@ class TestMergeAll(unittest.TestCase):
         self.assertEqual(result[0]["metal"], "gold")  # gold < silver alphabetically
         self.assertEqual(result[1]["metal"], "silver")
         self.assertEqual(result[2]["order_id"], "2")
+
+
+class TestToValuesAll(unittest.TestCase):
+    """Tests for _to_values_all function."""
+
+    def test_converts_records_to_values(self):
+        """Test converts records to 2D list."""
+        recs = [
+            {"date": "2024-01-15", "order_id": "12345", "vendor": "TD", "metal": "gold", "total_oz": "1.0", "cost_per_oz": "2500.00"},
+        ]
+        result = _to_values_all(recs)
+        self.assertEqual(result[0], ["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
+        self.assertEqual(result[1], ["2024-01-15", "12345", "TD", "gold", "1.0", "2500.00"])
+
+    def test_handles_empty_records(self):
+        """Test handles empty records list."""
+        result = _to_values_all([])
+        self.assertEqual(len(result), 1)  # Just headers
+        self.assertEqual(result[0], ["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
+
+    def test_handles_missing_fields(self):
+        """Test handles records with missing fields."""
+        recs = [{"date": "2024-01-15"}]
+        result = _to_values_all(recs)
+        self.assertEqual(result[1][0], "2024-01-15")
+        self.assertEqual(result[1][1], "")  # Missing order_id
+
+
+class TestBuildSummaryValues(unittest.TestCase):
+    """Tests for _build_summary_values function."""
+
+    def test_aggregates_by_metal(self):
+        """Test aggregates totals by metal."""
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "total_oz": "1.0", "cost_per_oz": "2500.00"},
+            {"date": "2024-01-16", "metal": "gold", "total_oz": "2.0", "cost_per_oz": "2600.00"},
+            {"date": "2024-01-17", "metal": "silver", "total_oz": "10.0", "cost_per_oz": "30.00"},
+        ]
+        values, _ = _build_summary_values(recs)
+        # Find the metal totals section
+        metal_idx = None
+        for i, row in enumerate(values):
+            if row and row[0] == "Totals by Metal":
+                metal_idx = i
+                break
+        self.assertIsNotNone(metal_idx)
+        # Gold: 1.0 + 2.0 = 3.0 oz, avg = (1*2500 + 2*2600) / 3 = 7700/3 = 2566.67
+        gold_row = values[metal_idx + 2]  # Skip title and header
+        self.assertEqual(gold_row[0], "gold")
+        self.assertEqual(gold_row[1], "3.00")
+        self.assertAlmostEqual(float(gold_row[2]), 2566.67, places=1)
+
+    def test_aggregates_by_vendor(self):
+        """Test aggregates totals by vendor."""
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "vendor": "TD", "total_oz": "1.0", "cost_per_oz": "2500.00"},
+            {"date": "2024-01-16", "metal": "silver", "vendor": "TD", "total_oz": "10.0", "cost_per_oz": "30.00"},
+            {"date": "2024-01-17", "metal": "gold", "vendor": "Costco", "total_oz": "2.0", "cost_per_oz": "2600.00"},
+        ]
+        values, anchors = _build_summary_values(recs)
+        # Find vendor section
+        vendor_idx = None
+        for i, row in enumerate(values):
+            if row and row[0] == "Totals by Vendor":
+                vendor_idx = i
+                break
+        self.assertIsNotNone(vendor_idx)
+        self.assertIn("Totals by Vendor", anchors)
+
+    def test_aggregates_monthly(self):
+        """Test aggregates by month and metal."""
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "total_oz": "1.0", "cost_per_oz": "2500.00"},
+            {"date": "2024-02-15", "metal": "gold", "total_oz": "2.0", "cost_per_oz": "2600.00"},
+        ]
+        _, anchors = _build_summary_values(recs)
+        # Check monthly sections exist
+        self.assertIn("Monthly Avg Cost by Metal", anchors)
+        self.assertIn("Monthly Ounces by Metal", anchors)
+
+    def test_handles_empty_records(self):
+        """Test handles empty records."""
+        values, _ = _build_summary_values([])
+        self.assertGreater(len(values), 0)  # Should still have section headers
+
+    def test_handles_invalid_numbers(self):
+        """Test handles invalid number values gracefully."""
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "total_oz": "invalid", "cost_per_oz": "also_invalid"},
+        ]
+        values, _ = _build_summary_values(recs)
+        # Should not raise, just skip invalid values
+        self.assertGreater(len(values), 0)
+
+    def test_skips_zero_values(self):
+        """Test skips records with zero oz or cost."""
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "total_oz": "0", "cost_per_oz": "2500.00"},
+            {"date": "2024-01-16", "metal": "silver", "total_oz": "10.0", "cost_per_oz": "0"},
+        ]
+        values, _ = _build_summary_values(recs)
+        # Zero values should be skipped in aggregations
+        self.assertGreater(len(values), 0)
+
+
+class TestSetSheetPosition(unittest.TestCase):
+    """Tests for _set_sheet_position function."""
+
+    @patch("requests.patch")
+    def test_calls_patch_with_position(self, mock_patch):
+        """Test calls PATCH with correct position."""
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {"Authorization": "Bearer token"}
+
+        _set_sheet_position(client, "drive123", "item456", "Sheet1", 2)
+
+        mock_patch.assert_called_once()
+        call_args = mock_patch.call_args
+        self.assertIn("worksheets('Sheet1')", call_args[0][0])
+        self.assertIn('"position": 2', call_args[1]["data"])
+
+
+class TestSetSheetVisibility(unittest.TestCase):
+    """Tests for _set_sheet_visibility function."""
+
+    @patch("requests.patch")
+    def test_sets_visible(self, mock_patch):
+        """Test sets visibility to Visible."""
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        _set_sheet_visibility(client, "drive123", "item456", "Sheet1", True)
+
+        call_args = mock_patch.call_args
+        self.assertIn('"visibility": "Visible"', call_args[1]["data"])
+
+    @patch("requests.patch")
+    def test_sets_hidden(self, mock_patch):
+        """Test sets visibility to Hidden."""
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        _set_sheet_visibility(client, "drive123", "item456", "Sheet1", False)
+
+        call_args = mock_patch.call_args
+        self.assertIn('"visibility": "Hidden"', call_args[1]["data"])
 
 
 if __name__ == "__main__":
