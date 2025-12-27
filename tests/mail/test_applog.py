@@ -29,7 +29,7 @@ class AppLoggerTests(TempDirMixin, unittest.TestCase):
     def test_start_returns_session_id(self):
         session_id = self.logger.start("test-cmd")
         self.assertIsInstance(session_id, str)
-        self.assertTrue(len(session_id) > 0)
+        self.assertGreater(len(session_id), 0)
 
     def test_start_writes_record(self):
         session_id = self.logger.start("test-cmd", argv=["--flag", "value"])
