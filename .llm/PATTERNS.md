@@ -181,6 +181,37 @@ Code Quality (qlty)
 ~/.qlty/bin/qlty check --fix path/to/file.py
 ```
 
+Constants Abstraction
+```python
+# Extract constants into module-level or dedicated files for:
+# - Maintainability: single source of truth, easy to update
+# - Testability: constants can be imported and verified
+# - Reduced complexity: moves magic values out of function bodies
+
+# Bad: constants buried in functions
+def process_file(path):
+    TEMP_PREFIXES = ("~$", ".~", "._")  # buried, hard to find
+    DS_STORE = ".DS_Store"
+    ...
+
+# Good: module-level constants
+TEMP_PREFIXES = ("~$", ".~", "._")
+DS_STORE = ".DS_Store"
+TEMP_PATTERNS = (*TEMP_PREFIXES, DS_STORE)
+
+def process_file(path):
+    ...
+
+# Better for large constant sets: dedicated constants file
+# module/constants.py
+TEMP_PREFIXES = ("~$", ".~", "._")
+SECTION_PATTERNS = {...}
+DEFAULT_CONFIG = {...}
+
+# module/processor.py
+from .constants import TEMP_PREFIXES, SECTION_PATTERNS
+```
+
 Phone/iOS Patterns
 ```
 # Export → Plan → Checklist → Profile
