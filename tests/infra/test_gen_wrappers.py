@@ -16,7 +16,7 @@ class TestGenWrappers(unittest.TestCase):
         import subprocess
         import sys
 
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - test uses trusted local script
             [sys.executable, str(bin_path("_gen_wrappers.py")), "--check"],
             capture_output=True,
             text=True,
@@ -30,7 +30,7 @@ class TestGenWrappers(unittest.TestCase):
         import subprocess
         import sys
 
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - test uses trusted local script
             [sys.executable, str(bin_path("_gen_wrappers.py")), "--check", "--verbose"],
             capture_output=True,
             text=True,
