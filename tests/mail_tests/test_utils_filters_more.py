@@ -1,6 +1,6 @@
 import unittest
 
-from tests.mail.fixtures import FakeGmailClient
+from tests.mail_tests.fixtures import FakeGmailClient
 
 
 class TestUtilsFiltersMore(unittest.TestCase):

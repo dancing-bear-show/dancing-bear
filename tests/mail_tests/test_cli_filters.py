@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from tests.fixtures import has_pyyaml
-from tests.mail.fixtures import (
+from tests.mail_tests.fixtures import (
     FakeGmailClient,
     capture_stdout,
     make_args,
