@@ -6,7 +6,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from tests.fixtures import FakeGmailClient, capture_stdout, make_args
+from tests.mail.fixtures import FakeGmailClient, capture_stdout, make_args
 from mail.messages_cli.commands import (
     run_messages_reply,
     run_messages_apply_scheduled,
