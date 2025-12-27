@@ -72,7 +72,7 @@ class FakeGmailClient:
     created_drafts: List[bytes] = field(default_factory=list)
 
     def authenticate(self) -> None:
-        pass
+        """No-op for fake client - authentication not needed in tests."""
 
     def list_labels(self) -> List[Dict[str, str]]:
         return list(self.labels)

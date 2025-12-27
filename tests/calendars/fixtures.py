@@ -80,7 +80,7 @@ class FakeOutlookClient:
     updated_events: List[Dict] = field(default_factory=list)
 
     def authenticate(self) -> None:
-        pass
+        """No-op for fake client - authentication not needed in tests."""
 
     def list_calendars(self) -> List[Dict]:
         return list(self.calendars)
