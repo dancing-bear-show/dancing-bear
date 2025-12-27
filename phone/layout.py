@@ -429,20 +429,24 @@ def _analyze_pages(layout: NormalizedLayout) -> Tuple[List[Dict], List[Dict], in
     return pages_info, folder_details, total_root_apps
 
 
+def _increment_count(counts: Dict[str, int], app: Optional[str]) -> None:
+    """Increment count for an app if it's not None."""
+    if app:
+        counts[app] = counts.get(app, 0) + 1
+
+
 def _count_app_occurrences(layout: NormalizedLayout) -> Dict[str, int]:
     """Count occurrences of each app across dock, root apps, and folder apps."""
     counts: Dict[str, int] = {}
     for a in layout.dock or []:
-        counts[a] = counts.get(a, 0) + 1
+        _increment_count(counts, a)
     for page in layout.pages:
         for it in page:
             if it.get("kind") == "app":
-                a = it.get("id")
-                if a:
-                    counts[a] = counts.get(a, 0) + 1
+                _increment_count(counts, it.get("id"))
             elif it.get("kind") == "folder":
                 for a in it.get("apps", []) or []:
-                    counts[a] = counts.get(a, 0) + 1
+                    _increment_count(counts, a)
     return counts
 
 
