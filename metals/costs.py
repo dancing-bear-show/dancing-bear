@@ -144,7 +144,8 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
 
     for idx, ln in enumerate(lines):
         for m in pat_frac.finditer(ln):
-            num = float(m.group(1)); den = float(m.group(2) or 1)
+            num = float(m.group(1))
+            den = float(m.group(2) or 1)
             metal = (m.group(3) or '').lower()
             qty = float(m.group(4) or 1)
             explicit_qty = m.group(4) is not None
@@ -261,7 +262,8 @@ def _extract_amount_near_line(
     def find_money(s: str):
         m = money_pat.search(s or "")
         if m:
-            cur = m.group(1).upper(); amt = float(m.group(2).replace(",", ""))
+            cur = m.group(1).upper()
+            amt = float(m.group(2).replace(",", ""))
             return cur, amt
         return None
 
@@ -318,7 +320,8 @@ def _extract_amount_near_line(
                                 if re.search(r"(?i)\b(subtotal|shipping|tax|total)\b", between):
                                     pass
                                 else:
-                                    cur = m_money.group(1).upper(); amt = float(m_money.group(2).replace(',', ''))
+                                    cur = m_money.group(1).upper()
+                                    amt = float(m_money.group(2).replace(',', ''))
                                     # Determine kind heuristically from keywords near the money
                                     tail = lower[anchor_end: m_money.end()]
                                     kind = 'unit' if re.search(r"(?i)\b(unit|each|ea|per)\b", tail) else 'unknown'
@@ -642,7 +645,8 @@ def main(argv: List[str] | None = None) -> int:
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=['vendor','date','metal','currency','cost_total','cost_per_oz','order_id','subject','total_oz','unit_count','units_breakdown','alloc'])
-        w.writeheader(); w.writerows(rows_out)
+        w.writeheader()
+        w.writerows(rows_out)
     print(f"wrote {out_path} rows={len(rows_out)}")
     return 0
 

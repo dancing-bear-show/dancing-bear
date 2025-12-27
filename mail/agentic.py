@@ -15,19 +15,15 @@ from core.agentic import (
 )
 
 
-def build_agentic_capsule() -> str:
-    """Return a compact, LLM-friendly capsule of repo context as a string."""
+def build_agentic_capsule(compact: bool = False) -> str:
+    """Return a compact, LLM-friendly capsule of repo context as a string.
+
+    Args:
+        compact: If True, emit minimal capsule (commands + CLI tree only,
+                 skip .llm context files for token efficiency).
+    """
     root = Path(os.getcwd())
     llm = root / ".llm"
-
-    files: List[Path] = [
-        llm / "CONTEXT.md",
-        llm / "UNIFIED.llm",
-        llm / "DOMAIN_MAP.md",
-        llm / "MIGRATION_STATE.md",
-        llm / "PATTERNS.md",
-        root / "AGENTS.md",
-    ]
 
     commands = [
         "setup venv: python3 -m venv .venv && source .venv/bin/activate",
@@ -39,29 +35,44 @@ def build_agentic_capsule() -> str:
     ]
 
     sections: List[Tuple[str, str]] = []
-    for p in files:
-        if not p.exists():
-            continue
-        title = f"{p.parent.name}/{p.name}" if p.parent.name == ".llm" else p.name
-        sections.append((title, _read_text(p)))
+
+    if not compact:
+        # Full mode: include .llm context files
+        files: List[Path] = [
+            llm / "CONTEXT.md",
+            llm / "UNIFIED.llm",
+            llm / "DOMAIN_MAP.md",
+            llm / "MIGRATION_STATE.md",
+            llm / "PATTERNS.md",
+            root / "AGENTS.md",
+        ]
+        for p in files:
+            if not p.exists():
+                continue
+            title = f"{p.parent.name}/{p.name}" if p.parent.name == ".llm" else p.name
+            sections.append((title, _read_text(p)))
+
     cli_tree = _build_cli_tree()
     if cli_tree.strip():
         sections.append(("CLI Tree", cli_tree))
-    # Instead of emitting the full Flow Map (large), include a compact Flows Index
-    flows_idx = _build_flows_index()
-    if flows_idx.strip():
-        sections.append(("Flows Index", flows_idx + "\n\nUse './bin/llm flows --list' or '--id <flow_id>' for details."))
+
+    if not compact:
+        # Full mode: include flows index
+        flows_idx = _build_flows_index()
+        if flows_idx.strip():
+            sections.append(("Flows Index", flows_idx + "\n\nUse './bin/llm flows --list' or '--id <flow_id>' for details."))
+
     return _build_capsule("mail", "Gmail/Outlook CLI (labels, filters, signatures)", commands, sections)
 
 
 def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
     """Emit the agentic capsule.
 
-    Parameters are currently best-effort and may be ignored. Accepts
-    fmt ("text"|"yaml") and compact (bool) to align with documented flags.
+    Args:
+        fmt: Output format ("text"|"yaml"). Currently only text is implemented.
+        compact: If True, emit minimal capsule (commands + CLI tree only).
     """
-    content = build_agentic_capsule()
-    # For now, only text output is implemented; ignore fmt/compact gracefully.
+    content = build_agentic_capsule(compact=compact)
     print(content)
     return 0
 
@@ -447,14 +458,14 @@ def render_flow(flow: Dict[str, Any], fmt: str = 'md') -> str:
         try:
             import json as _json
             return _json.dumps(flow, indent=2)
-        except Exception:
-            pass  # nosec B110 - fallback to other format
+        except Exception:  # noqa: S110 - fallback to other format
+            pass
     if fmt == 'yaml':
         try:
             import yaml as _yaml  # type: ignore
             return _yaml.safe_dump(flow, sort_keys=False)
-        except Exception:
-            pass  # nosec B110 - fallback to md format
+        except Exception:  # noqa: S110 - fallback to md format
+            pass
     # md
     lines = [f"# {flow.get('title', flow.get('id'))}"]
     lines.append(f"id: {flow.get('id')}")

@@ -253,7 +253,7 @@ class CacheStatsProcessor(Processor[CacheStatsRequest, ResultEnvelope[CacheStats
                 files += 1
                 try:
                     total += p.stat().st_size
-                except Exception:
+                except Exception:  # noqa: S110 - fallback on error
                     pass
         return ResultEnvelope(
             status="success",
@@ -374,7 +374,7 @@ class CachePruneProcessor(Processor[CachePruneRequest, ResultEnvelope[CachePrune
                 if p.stat().st_mtime < cutoff:
                     p.unlink()
                     removed += 1
-            except Exception:
+            except Exception:  # noqa: S110 - fallback on error
                 pass
         return ResultEnvelope(
             status="success",
@@ -984,8 +984,8 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
                     if not payload.skip_install:
                         import subprocess
                         py = venv_dir / 'bin' / 'python'
-                        subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # nosec B603
-                        subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # nosec B603
+                        subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # noqa: S603
+                        subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # noqa: S603
                 except Exception as e:
                     return ResultEnvelope(
                         status="error",
@@ -996,7 +996,7 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
                         p = Path(fname)
                         if p.exists():
                             os.chmod(p, (p.stat().st_mode | 0o111))
-                    except Exception:
+                    except Exception:  # noqa: S110 - fallback on error
                         pass
 
             cred_path = payload.credentials
@@ -1010,7 +1010,7 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
                         dest.parent.mkdir(parents=True, exist_ok=True)
                         dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
                         cred_path = str(dest)
-                    except Exception:
+                    except Exception:  # noqa: S110 - fallback on error
                         pass
             if cred_path and not tok_path:
                 tok_path = default_gmail_token_path()
@@ -1019,7 +1019,7 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
                 if pth:
                     try:
                         Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
-                    except Exception:
+                    except Exception:  # noqa: S110 - fallback on error
                         pass
 
             if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):

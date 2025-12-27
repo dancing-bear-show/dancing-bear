@@ -162,12 +162,24 @@ def _default_policies() -> str:
     return "policies:\n  style:\n    - Keep public CLI stable\n"
 
 
-def _familiar_content(verbose: bool) -> str:
+def _familiar_content(verbose: bool, compact: bool = False) -> str:
+    # Version history: v1=initial, v2=calendar/schedule cmds, v3=--compact flag
+    if compact:
+        return (
+            "agent_note: Read-only familiarization. Open heavy files only when needed.\n"
+            "meta:\n"
+            "  name: assistants_familiarize\n"
+            "  version: 3\n"
+            "skip_paths: [.venv/, .git/, .cache/, maker/, _disasm/, out/, _out/, backups/]\n"
+            "heavy_files: [README.md, AGENTS.md, config/*.yaml, out/**]\n"
+            "steps:\n"
+            "  - run: ./bin/llm agentic --stdout\n"
+        )
     base = (
         "agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context.\n"
         "meta:\n"
         "  name: assistants_familiarize\n"
-        "  version: 2\n"
+        "  version: 3\n"
         "steps:\n"
     )
     steps = ["  - run: ./bin/llm agentic --stdout"]
@@ -198,6 +210,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     fam.add_argument("--write", help="Write path (default .llm/familiarize.yaml)")
     fam.add_argument("--stdout", action="store_true")
     fam.add_argument("--verbose", action="store_true")
+    fam.add_argument("--compact", action="store_true", help="Minimal output for token efficiency")
 
     pol = sp.add_parser("policies", help="Show/write PR policies capsule")
     pol.add_argument("--write", help="Write path (default .llm/PR_POLICIES.yaml)")
@@ -206,6 +219,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     agent = sp.add_parser("agentic", help="Show/write aggregated agentic capsule")
     agent.add_argument("--write", help="Write path (default .llm/AGENTIC.md)")
     agent.add_argument("--stdout", action="store_true")
+    agent.add_argument("--compact", action="store_true", help="Emit a more compact capsule")
 
     dmap = sp.add_parser("domain-map", help="Show/write domain map")
     dmap.add_argument("--write", help="Write path (default .llm/DOMAIN_MAP.md)")
@@ -247,11 +261,11 @@ def _build_repo_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _mail_agentic_capsule() -> str:
+def _mail_agentic_capsule(compact: bool = False) -> str:
     try:
         from mail.agentic import build_agentic_capsule
 
-        return build_agentic_capsule()
+        return build_agentic_capsule(compact=compact)
     except Exception:
         return "agentic: mail\n(pending capsule)"
 
@@ -329,7 +343,7 @@ def _latest_mtime(path: Path) -> float:
     for sub in path.rglob("*"):
         try:
             latest = max(latest, sub.stat().st_mtime)
-        except Exception:
+        except Exception:  # noqa: S112 - skip inaccessible files (permissions, broken symlinks)
             continue
     return latest
 
@@ -572,7 +586,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.cmd == "familiar":
-        content = _familiar_content(verbose=getattr(args, "verbose", False))
+        content = _familiar_content(
+            verbose=getattr(args, "verbose", False),
+            compact=getattr(args, "compact", False),
+        )
         target = Path(args.write or (llm_dir / DEFAULT_FAMILIAR_FILENAME))
         if args.write:
             _write_text(target, content)
@@ -590,7 +607,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     if args.cmd == "agentic":
-        content = _mail_agentic_capsule()
+        compact = getattr(args, "compact", False)
+        content = _mail_agentic_capsule(compact=compact)
         target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
         if args.write:
             _write_text(target, content)

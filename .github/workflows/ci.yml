@@ -4,6 +4,14 @@ on:
   pull_request:
 
 jobs:
+  qlty:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: qltysh/qlty-action/install@main
+      - name: Run qlty check
+        run: qlty check --no-progress
+
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -20,9 +28,10 @@ jobs:
       - name: Run tests with coverage
         run: |
           coverage run -m unittest discover
+          mkdir -p reports
           coverage lcov -o reports/lcov.info
       - name: Upload coverage to qlty
-        uses: qltysh/qlty-action/coverage@v2
+        uses: qltysh/qlty-action/coverage@main
         with:
           token: ${{ secrets.QLTY_COVERAGE_TOKEN }}
           files: reports/lcov.info

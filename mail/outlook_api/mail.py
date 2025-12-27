@@ -232,8 +232,8 @@ class OutlookMailMixin:
         if self.cache_dir and use_cache:
             try:
                 self.cfg_put_json(key, ids)
-            except Exception:
-                pass  # nosec B110 - non-fatal cache write
+            except Exception:  # noqa: S110 - non-fatal cache write
+                pass
         return ids
 
     def move_message(self: OutlookClientBase, msg_id: str, dest_folder_id: str) -> None:

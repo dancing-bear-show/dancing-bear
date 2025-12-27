@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
+from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
 
 
@@ -56,7 +57,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
     t = t.replace('\u2013', '-')  # en dash
     t = t.replace('\u2014', '-')  # em dash
     t = t.replace('\u00A0', ' ')
-    lines: List[str] = [l.strip() for l in t.splitlines() if l.strip()]
+    lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
 
     # Support 1/10-oz, 0.1 oz, 1 oz, grams
     pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b|\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b")
@@ -80,8 +81,8 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                         n = int(m.group(1))
                         if 1 <= n <= 200:
                             return float(n)
-                    except Exception:
-                        pass  # nosec B110 - invalid quantity
+                    except Exception:  # noqa: S110 - invalid quantity
+                        pass
         return None
 
     def infer_metal(ctx: str) -> str:
@@ -102,7 +103,7 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
             try:
                 num = float(m.group(1) or m.group(4))
                 den = float(m.group(2) or m.group(5) or 1)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             oz = num / max(den, 1.0)
             metal = (m.group(3) or '').lower()
@@ -133,8 +134,8 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                 try:
                     if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
                         cur['qty'] = it.get('qty')
-                except Exception:
-                    pass  # nosec B110 - invalid qty comparison
+                except Exception:  # noqa: S110 - invalid qty comparison
+                    pass
                 if (it.get('metal') or '') and not (cur.get('metal') or ''):
                     cur['metal'] = it.get('metal')
         items = list(buckets.values())
@@ -164,7 +165,7 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
         for m in money_pat.finditer(ln):
             try:
                 amt = float(m.group(1).replace(",", ""))
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
             # Filter obvious non-item amounts based on expected ranges
             if (metal or '').lower() == 'gold':
@@ -196,7 +197,7 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
 
 def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
     t = (text or '').replace('\u00A0', ' ')
-    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
 
     def parse_amount(s: str) -> float:
@@ -210,7 +211,8 @@ def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
                 found = None
                 for m in money_pat.finditer(ln):
                     if m.start() >= pos:
-                        found = m; break
+                        found = m
+                        break
                 if not found:
                     allm = list(money_pat.finditer(ln))
                     found = allm[-1] if allm else None
@@ -234,7 +236,7 @@ def _extract_confirmation_item_totals(text: str) -> List[float]:
     Returns amounts in the order they appear. Intended to pair with items in sequence.
     """
     t = (text or '').replace('\u00A0', ' ')
-    lines = [l.strip() for l in t.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     amounts: List[float] = []
     pat = re.compile(r"(?i)\btotal\b[^\n]*?(?:C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))\s*CAD")
     ban = re.compile(r"(?i)(orders?\s+over|threshold|free\s+shipping|subtotal|savings)")
@@ -246,7 +248,7 @@ def _extract_confirmation_item_totals(text: str) -> List[float]:
             try:
                 val = float((m.group(1) or '0').replace(',', ''))
                 amounts.append(val)
-            except Exception:
+            except Exception:  # noqa: S112 - skip on error
                 continue
     return amounts
 
@@ -291,12 +293,13 @@ def _merge_write(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
     # Write
     with p.open('w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=['vendor','date','metal','currency','cost_total','cost_per_oz','order_id','subject','total_oz','unit_count','units_breakdown','alloc'])
-        w.writeheader(); w.writerows(merged)
+        w.writeheader()
+        w.writerows(merged)
 
 
 def run(profile: str, out_path: str, days: int = 365) -> int:
     client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
-    token = token or '.cache/.msal_token.json'
+    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
     if not client_id:
         raise SystemExit('No Outlook client_id configured; set it under [mail.<profile>] in credentials.ini')
     cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir='.cache')
@@ -317,7 +320,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
     for q in queries:
         url = base + '?' + '&'.join([f'$search="{q}"', '$top=50'])
         for _ in range(3):
-            r = requests.get(url, headers=cli._headers_search())  # nosec B113
+            r = requests.get(url, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
             if r.status_code >= 400:
                 break
             data = r.json() or {}
@@ -372,7 +375,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
         if not ids:
             import requests as _req
             url = f"{cli.GRAPH}/me/messages?$search=\"Confirmation for order number {oid}\"&$top=10"
-            r = _req.get(url, headers=cli._headers_search())  # nosec B113
+            r = _req.get(url, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
             if r.status_code < 400:
                 data = r.json() or {}
                 ids = [m.get('id') for m in (data.get('value') or []) if m.get('id')]
@@ -382,11 +385,12 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
             for mid in ids:
                 try:
                     mm = cli.get_message(mid, select_body=False)
-                except Exception:
+                except Exception:  # noqa: S112 - skip on error
                     continue
                 sub = (mm.get('subject') or '').lower()
                 if 'confirmation for order number' in sub:
-                    chosen = mid; break
+                    chosen = mid
+                    break
             best_mid = chosen or ids[0]
             try:
                 m = cli.get_message(best_mid, select_body=True)
@@ -466,9 +470,11 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                 # Find the next total in band
                 chosen = None
                 while k < len(totals_seq):
-                    v = float(totals_seq[k]); k += 1
+                    v = float(totals_seq[k])
+                    k += 1
                     if lb <= v <= ub:
-                        chosen = v; break
+                        chosen = v
+                        break
                 if chosen is not None:
                     amt = float(chosen)
                     line_cost += amt * max(qty, 1.0)

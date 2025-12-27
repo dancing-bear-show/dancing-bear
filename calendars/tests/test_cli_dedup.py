@@ -1,35 +1,8 @@
-import io
 import types
 import unittest
-from contextlib import redirect_stdout
 from types import SimpleNamespace
 
-
-class FakeService:
-    def __init__(self, ctx, values=None):
-        self.ctx = ctx
-        self.values = values or []
-        self.deleted = []
-    def get_calendar_id_by_name(self, name):
-        return 'cal-1' if name else None
-    def find_calendar_id(self, name):
-        return self.get_calendar_id_by_name(name)
-    def list_calendar_view(self, *, calendar_id, start_iso, end_iso, select="", top=200):
-        return list(self.values)
-    def delete_event_by_id(self, event_id: str) -> bool:
-        self.deleted.append(event_id)
-        return True
-
-
-def _make_occurrence(sub, series_id, start_iso, end_iso, created):
-    return {
-        'subject': sub,
-        'seriesMasterId': series_id,
-        'type': 'occurrence',
-        'start': {'dateTime': start_iso},
-        'end': {'dateTime': end_iso},
-        'createdDateTime': created,
-    }
+from tests.fixtures import capture_stdout, make_outlook_event, FakeCalendarService
 
 
 class TestDedupFlow(unittest.TestCase):
@@ -37,17 +10,17 @@ class TestDedupFlow(unittest.TestCase):
         import sys
         # Stub service
         self.old_osvc = sys.modules.get('calendars.outlook_service')
-        mod = types.ModuleType('calendars.outlook_service')
-        mod.OutlookService = FakeService  # type: ignore
-        sys.modules['calendars.outlook_service'] = mod
         # Two masters (A,B) same Subj Monday 17:00
         vals = [
-            _make_occurrence('Soccer', 'A', '2025-01-06T17:00:00+00:00', '2025-01-06T17:30:00+00:00', '2024-01-01T00:00:00Z'),
-            _make_occurrence('Soccer', 'B', '2025-01-13T17:00:00+00:00', '2025-01-13T17:30:00+00:00', '2024-06-01T00:00:00Z'),
+            make_outlook_event('Soccer', '2025-01-06T17:00:00+00:00', '2025-01-06T17:30:00+00:00',
+                               series_id='A', created='2024-01-01T00:00:00Z', event_type='occurrence'),
+            make_outlook_event('Soccer', '2025-01-13T17:00:00+00:00', '2025-01-13T17:30:00+00:00',
+                               series_id='B', created='2024-06-01T00:00:00Z', event_type='occurrence'),
         ]
         mod = types.ModuleType('calendars.outlook_service')
+
         def factory(ctx):
-            return FakeService(ctx, vals)
+            return FakeCalendarService(events=vals)
         mod.OutlookService = factory  # type: ignore
         sys.modules['calendars.outlook_service'] = mod
 
@@ -57,15 +30,13 @@ class TestDedupFlow(unittest.TestCase):
             sys.modules.pop('calendars.outlook_service', None)
         else:
             sys.modules['calendars.outlook_service'] = self.old_osvc
-        # nothing else to restore here
 
     def test_dedup_plan(self):
         from calendars.outlook.commands import run_outlook_dedup
         args = SimpleNamespace(calendar='Your Family', from_date='2025-01-01', to_date='2025-02-01', apply=False,
                                prefer_delete_nonstandard=False, keep_newest=False, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             rc = run_outlook_dedup(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
@@ -77,8 +48,7 @@ class TestDedupFlow(unittest.TestCase):
         args = SimpleNamespace(calendar='Your Family', from_date='2025-01-01', to_date='2025-02-01', apply=True,
                                prefer_delete_nonstandard=False, keep_newest=False, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             rc = run_outlook_dedup(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
@@ -88,20 +58,22 @@ class TestDedupFlow(unittest.TestCase):
         from calendars.outlook.commands import run_outlook_dedup
         import sys
         # Provide occurrences where one master has standardized location
-        vals = [
-            _make_occurrence('Soccer', 'A', '2025-01-06T17:00:00+00:00', '2025-01-06T17:30:00+00:00', '2024-01-01T00:00:00Z'),
-            {**_make_occurrence('Soccer', 'B', '2025-01-13T17:00:00+00:00', '2025-01-13T17:30:00+00:00', '2024-06-01T00:00:00Z'), 'location': {'address': {'street': 'X', 'city': 'Y'}}},
-        ]
+        evt_a = make_outlook_event('Soccer', '2025-01-06T17:00:00+00:00', '2025-01-06T17:30:00+00:00',
+                                   series_id='A', created='2024-01-01T00:00:00Z', event_type='occurrence')
+        evt_b = make_outlook_event('Soccer', '2025-01-13T17:00:00+00:00', '2025-01-13T17:30:00+00:00',
+                                   series_id='B', created='2024-06-01T00:00:00Z', event_type='occurrence')
+        evt_b['location'] = {'address': {'street': 'X', 'city': 'Y'}}
+        vals = [evt_a, evt_b]
         mod = types.ModuleType('calendars.outlook_service')
+
         def factory(ctx):
-            return FakeService(ctx, vals)
+            return FakeCalendarService(events=vals)
         mod.OutlookService = factory  # type: ignore
         sys.modules['calendars.outlook_service'] = mod
         args = SimpleNamespace(calendar=None, from_date='2025-01-01', to_date='2025-02-01', apply=True,
                                prefer_delete_nonstandard=True, keep_newest=True, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             rc = run_outlook_dedup(args)
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
