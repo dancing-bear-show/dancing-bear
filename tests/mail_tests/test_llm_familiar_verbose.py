@@ -20,6 +20,7 @@ class TestLLMFamiliarVerbose(unittest.TestCase):
             sys.stdout = old
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("auth --validate", out)
-        self.assertIn("outlook auth ensure", out)
+        # Verbose mode includes extended app agentic commands
+        self.assertIn("--app resume agentic", out)
+        self.assertIn("config inspect", out)
 
