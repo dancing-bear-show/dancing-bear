@@ -3,9 +3,59 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar
 
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+
+# -----------------------------------------------------------------------------
+# Shared abstractions
+# -----------------------------------------------------------------------------
+
+T = TypeVar("T")
+R = TypeVar("R")
+
+
+class SimpleConsumer(Consumer[T], Generic[T]):
+    """Generic consumer that wraps any request object."""
+
+    def __init__(self, request: T) -> None:
+        self._request = request
+
+    def consume(self) -> T:
+        return self._request
+
+
+class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
+    """Base producer with common error handling for accounts operations."""
+
+    def __init__(self, dry_run: bool = False) -> None:
+        self._dry_run = dry_run
+
+    def produce(self, result: ResultEnvelope[R]) -> None:
+        if not result.ok():
+            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
+            return
+        assert result.payload is not None
+        self._produce_items(result.payload)
+
+    def _produce_items(self, payload: R) -> None:
+        """Override to format and print result items."""
+        raise NotImplementedError
+
+
+def canonicalize_filter(f: Dict[str, Any]) -> str:
+    """Canonical string representation of a filter for comparison."""
+    crit = f.get("criteria") or f.get("match") or {}
+    act = f.get("action") or {}
+    add_ids = act.get("addLabelIds") or act.get("add") or []
+    return str({
+        "from": crit.get("from"),
+        "to": crit.get("to"),
+        "subject": crit.get("subject"),
+        "query": crit.get("query"),
+        "add": tuple(sorted(add_ids)),
+        "forward": act.get("forward"),
+    })
 
 
 # -----------------------------------------------------------------------------
@@ -37,12 +87,8 @@ class AccountsListResult:
     accounts: List[AccountInfo] = field(default_factory=list)
 
 
-class AccountsListRequestConsumer(Consumer[AccountsListRequest]):
-    def __init__(self, request: AccountsListRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsListRequest:
-        return self._request
+# Use SimpleConsumer[AccountsListRequest] directly or alias:
+AccountsListRequestConsumer = SimpleConsumer[AccountsListRequest]
 
 
 class AccountsListProcessor(Processor[AccountsListRequest, ResultEnvelope[AccountsListResult]]):
@@ -67,13 +113,9 @@ class AccountsListProcessor(Processor[AccountsListRequest, ResultEnvelope[Accoun
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsListProducer(Producer[ResultEnvelope[AccountsListResult]]):
-    def produce(self, result: ResultEnvelope[AccountsListResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for a in result.payload.accounts:
+class AccountsListProducer(AccountsResultProducer[AccountsListResult]):
+    def _produce_items(self, payload: AccountsListResult) -> None:
+        for a in payload.accounts:
             print(f"{a.name}\tprovider={a.provider}\tcred={a.credentials}\ttoken={a.token}")
 
 
@@ -107,12 +149,7 @@ class AccountsExportLabelsResult:
     exports: List[ExportedLabelsInfo] = field(default_factory=list)
 
 
-class AccountsExportLabelsRequestConsumer(Consumer[AccountsExportLabelsRequest]):
-    def __init__(self, request: AccountsExportLabelsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsExportLabelsRequest:
-        return self._request
+AccountsExportLabelsRequestConsumer = SimpleConsumer[AccountsExportLabelsRequest]
 
 
 class AccountsExportLabelsProcessor(Processor[AccountsExportLabelsRequest, ResultEnvelope[AccountsExportLabelsResult]]):
@@ -150,13 +187,9 @@ class AccountsExportLabelsProcessor(Processor[AccountsExportLabelsRequest, Resul
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsExportLabelsProducer(Producer[ResultEnvelope[AccountsExportLabelsResult]]):
-    def produce(self, result: ResultEnvelope[AccountsExportLabelsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for exp in result.payload.exports:
+class AccountsExportLabelsProducer(AccountsResultProducer[AccountsExportLabelsResult]):
+    def _produce_items(self, payload: AccountsExportLabelsResult) -> None:
+        for exp in payload.exports:
             print(f"Exported labels for {exp.account_name}: {exp.output_path}")
 
 
@@ -190,12 +223,7 @@ class AccountsExportFiltersResult:
     exports: List[ExportedFiltersInfo] = field(default_factory=list)
 
 
-class AccountsExportFiltersRequestConsumer(Consumer[AccountsExportFiltersRequest]):
-    def __init__(self, request: AccountsExportFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsExportFiltersRequest:
-        return self._request
+AccountsExportFiltersRequestConsumer = SimpleConsumer[AccountsExportFiltersRequest]
 
 
 class AccountsExportFiltersProcessor(Processor[AccountsExportFiltersRequest, ResultEnvelope[AccountsExportFiltersResult]]):
@@ -246,13 +274,9 @@ class AccountsExportFiltersProcessor(Processor[AccountsExportFiltersRequest, Res
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsExportFiltersProducer(Producer[ResultEnvelope[AccountsExportFiltersResult]]):
-    def produce(self, result: ResultEnvelope[AccountsExportFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for exp in result.payload.exports:
+class AccountsExportFiltersProducer(AccountsResultProducer[AccountsExportFiltersResult]):
+    def _produce_items(self, payload: AccountsExportFiltersResult) -> None:
+        for exp in payload.exports:
             print(f"Exported filters for {exp.account_name}: {exp.output_path}")
 
 
@@ -287,12 +311,7 @@ class AccountsPlanLabelsResult:
     plans: List[LabelsPlanInfo] = field(default_factory=list)
 
 
-class AccountsPlanLabelsRequestConsumer(Consumer[AccountsPlanLabelsRequest]):
-    def __init__(self, request: AccountsPlanLabelsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsPlanLabelsRequest:
-        return self._request
+AccountsPlanLabelsRequestConsumer = SimpleConsumer[AccountsPlanLabelsRequest]
 
 
 class AccountsPlanLabelsProcessor(Processor[AccountsPlanLabelsRequest, ResultEnvelope[AccountsPlanLabelsResult]]):
@@ -345,13 +364,9 @@ class AccountsPlanLabelsProcessor(Processor[AccountsPlanLabelsRequest, ResultEnv
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsPlanLabelsProducer(Producer[ResultEnvelope[AccountsPlanLabelsResult]]):
-    def produce(self, result: ResultEnvelope[AccountsPlanLabelsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for plan in result.payload.plans:
+class AccountsPlanLabelsProducer(AccountsResultProducer[AccountsPlanLabelsResult]):
+    def _produce_items(self, payload: AccountsPlanLabelsResult) -> None:
+        for plan in payload.plans:
             print(f"[plan-labels] {plan.account_name} provider={plan.provider} create={plan.to_create} update={plan.to_update}")
 
 
@@ -387,12 +402,7 @@ class AccountsSyncLabelsResult:
     synced: List[SyncedLabelInfo] = field(default_factory=list)
 
 
-class AccountsSyncLabelsRequestConsumer(Consumer[AccountsSyncLabelsRequest]):
-    def __init__(self, request: AccountsSyncLabelsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsSyncLabelsRequest:
-        return self._request
+AccountsSyncLabelsRequestConsumer = SimpleConsumer[AccountsSyncLabelsRequest]
 
 
 class AccountsSyncLabelsProcessor(Processor[AccountsSyncLabelsRequest, ResultEnvelope[AccountsSyncLabelsResult]]):
@@ -454,17 +464,10 @@ class AccountsSyncLabelsProcessor(Processor[AccountsSyncLabelsRequest, ResultEnv
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsSyncLabelsProducer(Producer[ResultEnvelope[AccountsSyncLabelsResult]]):
-    def __init__(self, dry_run: bool = False) -> None:
-        self._dry_run = dry_run
-
-    def produce(self, result: ResultEnvelope[AccountsSyncLabelsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
+class AccountsSyncLabelsProducer(AccountsResultProducer[AccountsSyncLabelsResult]):
+    def _produce_items(self, payload: AccountsSyncLabelsResult) -> None:
         verb = "would" if self._dry_run else ""
-        for info in result.payload.synced:
+        for info in payload.synced:
             print(f"[labels sync] {info.account_name} provider={info.provider} {verb} created={info.created} updated={info.updated}")
 
 
@@ -498,12 +501,7 @@ class AccountsPlanFiltersResult:
     plans: List[FiltersPlanInfo] = field(default_factory=list)
 
 
-class AccountsPlanFiltersRequestConsumer(Consumer[AccountsPlanFiltersRequest]):
-    def __init__(self, request: AccountsPlanFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsPlanFiltersRequest:
-        return self._request
+AccountsPlanFiltersRequestConsumer = SimpleConsumer[AccountsPlanFiltersRequest]
 
 
 class AccountsPlanFiltersProcessor(Processor[AccountsPlanFiltersRequest, ResultEnvelope[AccountsPlanFiltersResult]]):
@@ -511,29 +509,6 @@ class AccountsPlanFiltersProcessor(Processor[AccountsPlanFiltersRequest, ResultE
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from ..yamlio import load_config
         from ..dsl import normalize_filters_for_outlook
-
-        def canon_gmail(f: dict) -> str:
-            crit = f.get("criteria") or {}
-            act = f.get("action") or {}
-            return str({
-                "from": crit.get("from"),
-                "to": crit.get("to"),
-                "subject": crit.get("subject"),
-                "query": crit.get("query"),
-                "add": tuple(sorted((act.get("addLabelIds") or []))),
-                "forward": act.get("forward"),
-            })
-
-        def canon_outlook(f: dict) -> str:
-            crit = f.get("criteria") or {}
-            act = f.get("action") or {}
-            return str({
-                "from": crit.get("from"),
-                "to": crit.get("to"),
-                "subject": crit.get("subject"),
-                "add": tuple(sorted((act.get("addLabelIds") or []))),
-                "forward": act.get("forward"),
-            })
 
         try:
             accts = load_accounts(payload.config_path)
@@ -549,34 +524,15 @@ class AccountsPlanFiltersProcessor(Processor[AccountsPlanFiltersRequest, ResultE
 
                 to_create = 0
                 if provider == "gmail":
-                    ex_keys = {canon_gmail(f) for f in existing}
+                    ex_keys = {canonicalize_filter(f) for f in existing}
                     for f in base:
-                        m = f.get("match") or {}
-                        a_act = f.get("action") or {}
-                        key = str({
-                            "from": m.get("from"),
-                            "to": m.get("to"),
-                            "subject": m.get("subject"),
-                            "query": m.get("query"),
-                            "add": tuple(sorted((a_act.get("add") or []))),
-                            "forward": a_act.get("forward"),
-                        })
-                        if key not in ex_keys:
+                        if canonicalize_filter(f) not in ex_keys:
                             to_create += 1
                 elif provider == "outlook":
                     desired = normalize_filters_for_outlook(base)
-                    ex_keys = {canon_outlook(f) for f in existing}
+                    ex_keys = {canonicalize_filter(f) for f in existing}
                     for f in desired:
-                        m = f.get("match") or {}
-                        a_act = f.get("action") or {}
-                        key = str({
-                            "from": m.get("from"),
-                            "to": m.get("to"),
-                            "subject": m.get("subject"),
-                            "add": tuple(sorted((a_act.get("add") or []))),
-                            "forward": a_act.get("forward"),
-                        })
-                        if key not in ex_keys:
+                        if canonicalize_filter(f) not in ex_keys:
                             to_create += 1
                 else:
                     plans.append(FiltersPlanInfo(
@@ -597,13 +553,9 @@ class AccountsPlanFiltersProcessor(Processor[AccountsPlanFiltersRequest, ResultE
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsPlanFiltersProducer(Producer[ResultEnvelope[AccountsPlanFiltersResult]]):
-    def produce(self, result: ResultEnvelope[AccountsPlanFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for plan in result.payload.plans:
+class AccountsPlanFiltersProducer(AccountsResultProducer[AccountsPlanFiltersResult]):
+    def _produce_items(self, payload: AccountsPlanFiltersResult) -> None:
+        for plan in payload.plans:
             if plan.to_create < 0:
                 print(f"[plan-filters] {plan.account_name} provider={plan.provider} not supported")
             else:
@@ -643,12 +595,7 @@ class AccountsSyncFiltersResult:
     synced: List[SyncedFiltersInfo] = field(default_factory=list)
 
 
-class AccountsSyncFiltersRequestConsumer(Consumer[AccountsSyncFiltersRequest]):
-    def __init__(self, request: AccountsSyncFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsSyncFiltersRequest:
-        return self._request
+AccountsSyncFiltersRequestConsumer = SimpleConsumer[AccountsSyncFiltersRequest]
 
 
 class AccountsSyncFiltersProcessor(Processor[AccountsSyncFiltersRequest, ResultEnvelope[AccountsSyncFiltersResult]]):
@@ -659,17 +606,6 @@ class AccountsSyncFiltersProcessor(Processor[AccountsSyncFiltersRequest, ResultE
         from ..dsl import normalize_filters_for_outlook
         from ..filters.commands import run_filters_sync
         from ..outlook.helpers import norm_label_name_outlook
-
-        def canon(f: dict) -> str:
-            crit = f.get("criteria") or {}
-            act = f.get("action") or {}
-            return str({
-                "from": crit.get("from"),
-                "to": crit.get("to"),
-                "subject": crit.get("subject"),
-                "add": tuple(sorted(act.get("addLabelIds", []) or [])),
-                "forward": act.get("forward"),
-            })
 
         try:
             accts = load_accounts(payload.config_path)
@@ -704,7 +640,7 @@ class AccountsSyncFiltersProcessor(Processor[AccountsSyncFiltersRequest, ResultE
                     client.authenticate()
                     doc = load_config(payload.filters_path)
                     desired = normalize_filters_for_outlook(doc.get("filters") or [])
-                    existing = {canon(f): f for f in client.list_filters()}
+                    existing = {canonicalize_filter(f): f for f in client.list_filters()}
                     name_to_id = client.get_label_id_map()
 
                     for spec in desired:
@@ -759,17 +695,10 @@ class AccountsSyncFiltersProcessor(Processor[AccountsSyncFiltersRequest, ResultE
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsSyncFiltersProducer(Producer[ResultEnvelope[AccountsSyncFiltersResult]]):
-    def __init__(self, dry_run: bool = False) -> None:
-        self._dry_run = dry_run
-
-    def produce(self, result: ResultEnvelope[AccountsSyncFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
+class AccountsSyncFiltersProducer(AccountsResultProducer[AccountsSyncFiltersResult]):
+    def _produce_items(self, payload: AccountsSyncFiltersResult) -> None:
         verb = "would" if self._dry_run else ""
-        for info in result.payload.synced:
+        for info in payload.synced:
             if info.created < 0:
                 print(f"[filters sync] {info.account_name} provider={info.provider} (delegated)")
             else:
@@ -807,12 +736,7 @@ class AccountsExportSignaturesResult:
     exports: List[ExportedSignaturesInfo] = field(default_factory=list)
 
 
-class AccountsExportSignaturesRequestConsumer(Consumer[AccountsExportSignaturesRequest]):
-    def __init__(self, request: AccountsExportSignaturesRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsExportSignaturesRequest:
-        return self._request
+AccountsExportSignaturesRequestConsumer = SimpleConsumer[AccountsExportSignaturesRequest]
 
 
 class AccountsExportSignaturesProcessor(Processor[AccountsExportSignaturesRequest, ResultEnvelope[AccountsExportSignaturesResult]]):
@@ -872,13 +796,9 @@ class AccountsExportSignaturesProcessor(Processor[AccountsExportSignaturesReques
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsExportSignaturesProducer(Producer[ResultEnvelope[AccountsExportSignaturesResult]]):
-    def produce(self, result: ResultEnvelope[AccountsExportSignaturesResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for exp in result.payload.exports:
+class AccountsExportSignaturesProducer(AccountsResultProducer[AccountsExportSignaturesResult]):
+    def _produce_items(self, payload: AccountsExportSignaturesResult) -> None:
+        for exp in payload.exports:
             print(f"Exported signatures for {exp.account_name}: {exp.output_path}")
 
 
@@ -913,12 +833,7 @@ class AccountsSyncSignaturesResult:
     synced: List[SyncedSignaturesInfo] = field(default_factory=list)
 
 
-class AccountsSyncSignaturesRequestConsumer(Consumer[AccountsSyncSignaturesRequest]):
-    def __init__(self, request: AccountsSyncSignaturesRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AccountsSyncSignaturesRequest:
-        return self._request
+AccountsSyncSignaturesRequestConsumer = SimpleConsumer[AccountsSyncSignaturesRequest]
 
 
 class AccountsSyncSignaturesProcessor(Processor[AccountsSyncSignaturesRequest, ResultEnvelope[AccountsSyncSignaturesResult]]):
@@ -974,13 +889,9 @@ class AccountsSyncSignaturesProcessor(Processor[AccountsSyncSignaturesRequest, R
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
 
-class AccountsSyncSignaturesProducer(Producer[ResultEnvelope[AccountsSyncSignaturesResult]]):
-    def produce(self, result: ResultEnvelope[AccountsSyncSignaturesResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        assert result.payload is not None
-        for info in result.payload.synced:
+class AccountsSyncSignaturesProducer(AccountsResultProducer[AccountsSyncSignaturesResult]):
+    def _produce_items(self, payload: AccountsSyncSignaturesResult) -> None:
+        for info in payload.synced:
             if info.status == "delegated":
                 print(f"[signatures sync] {info.account_name} provider={info.provider} (delegated)")
             elif info.status == "wrote_guidance":

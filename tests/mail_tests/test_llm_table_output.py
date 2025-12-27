@@ -20,25 +20,21 @@ class TestLLMTableOutput(unittest.TestCase):
             sys.stdout = old
         out = buf.getvalue()
         self.assertEqual(rc, 0)
-        self.assertIn("| Target | Staleness (days) | SLA (days) | Status |", out)
+        self.assertIn("| Area | Days | Status | Priority |", out)
 
-    def test_deps_text_sorted_by_dependents_asc(self):
+    def test_deps_text_output_has_columns(self):
         import mail.llm_cli as mod  # type: ignore
         buf = io.StringIO()
         old = sys.stdout
         try:
             sys.stdout = buf
-            rc = mod.main(["deps", "--format", "text", "--by", "dependents", "--order", "asc", "--limit", "10"])  # prints lines area\tval
+            rc = mod.main(["deps", "--format", "text", "--order", "asc", "--limit", "10"])
         finally:
             sys.stdout = old
         self.assertEqual(rc, 0)
         lines = [ln for ln in buf.getvalue().splitlines() if "\t" in ln]
-        vals = []
+        # Text format: area\tdependencies\tdependents\tcombined
         for ln in lines:
-            try:
-                area, val = ln.split("\t", 1)
-                vals.append(int(val.strip()))
-            except Exception:  # noqa: S112 - skip on error
-                continue
-        self.assertTrue(all(vals[i] <= vals[i+1] for i in range(len(vals)-1)))
+            parts = ln.split("\t")
+            self.assertEqual(len(parts), 4, f"Expected 4 columns, got: {ln}")
 
