@@ -33,7 +33,7 @@ whatsapp/                 # local-only ChatStorage search
 desk/                     # desktop/workspace tooling
 maker/                    # utility generators
 bin/                      # entry wrappers and helper scripts
-core/, personal_core/     # shared helpers
+core/                     # shared helpers
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
 config/                   # YAML inputs (canonical source of truth)

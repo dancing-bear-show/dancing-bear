@@ -14,13 +14,11 @@ Remaining Work (targeted)
 - Consider aligning Outlook rules caching with JSON cache helpers for parity
 
 Core Migration Plan (personal_core -> core)
-- Scope: move shared LLM/auth/yaml/text/assistant helpers into `core` and keep `personal_core` as compatibility shims until cutover.
-- Current Progress: `core/*` modules created (agentic, textio, yamlio, auth, assistant, assistant_cli, llm_cli); imports updated across assistants/LLM wrappers; `personal_core` shims in place; entry point uses `core.assistant_cli`.
-- Remaining Work:
-  - Decide when to drop `personal_core*` from packaging and remove shims.
-  - Update any remaining docs/tests that treat `personal_core` as primary, if needed.
-  - Run targeted sanity checks: `./bin/llm --help`, `python3 -m unittest tests/test_llm_cli.py -v`, plus optional full suite.
-- Notes: keep shims until downstream uses are migrated; removing shims requires updating external references.
+- Scope: move shared LLM/auth/yaml/text/assistant helpers into `core`.
+- Status: ✅ COMPLETE (Dec 2024)
+  - `core/*` modules created (agentic, textio, yamlio, auth, assistant, assistant_cli, llm_cli)
+  - All imports updated to use `core.*` directly
+  - `personal_core/` removed (no shims needed)
 
 CLI Rename Plan (assistant names)
 - Goals: drop the "-assistant" suffix in CLIs while keeping package names stable, centralize shared code under `core`, and keep compatibility shims (DRY, OO reuse, high testing).
