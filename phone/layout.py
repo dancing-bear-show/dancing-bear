@@ -34,7 +34,11 @@ class NormalizedLayout:
 
 
 def _extract_bundle_id(item: Any) -> Optional[str]:
-    """Extract bundle ID from an IconState item (dict or string)."""
+    """Extract bundle ID from an IconState item.
+
+    Handles dict entries with ``bundleIdentifier`` or ``displayIdentifier`` fields,
+    or string bundle IDs (must contain a dot and no slashes).
+    """
     if isinstance(item, dict):
         for k in ("bundleIdentifier", "displayIdentifier"):
             v = item.get(k)
@@ -66,7 +70,7 @@ def _flatten_folder_iconlists(folder_dict: Dict[str, Any]) -> List[str]:
 
 
 def _extract_bundle_ids(items: List[Any]) -> List[str]:
-    """Extract bundle IDs from a list of items."""
+    """Extract bundle IDs from a list of items, filtering out invalid entries."""
     return [bid for it in items if (bid := _extract_bundle_id(it))]
 
 
@@ -185,7 +189,7 @@ def _generate_folder_instructions(
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
-    """Safely convert a value to int."""
+    """Safely convert a value to int, returning default if conversion fails."""
     try:
         return int(value)
     except (ValueError, TypeError):
@@ -303,7 +307,17 @@ def list_all_apps(layout: NormalizedLayout) -> List[str]:
 
 
 def _parse_location(loc_str: str) -> Tuple[int, Optional[str]]:
-    """Parse location string into (page_index, folder_name or None)."""
+    """Parse a location string into (page_index, folder_name).
+
+    Expected formats:
+      - "Page N"
+      - "Page N > Folder Name"
+
+    Returns:
+      - (page_index, folder_name) where folder_name may be None.
+      - (0, None) if the string does not start with "Page ".
+      - (999, folder_name) if the page number cannot be parsed.
+    """
     if not loc_str.startswith("Page "):
         return (0, None)
     parts = loc_str.split(" ")
@@ -524,7 +538,16 @@ def auto_folderize(
     keep: Optional[List[str]] = None,
     seed_folders: Optional[Dict[str, List[str]]] = None
 ) -> Dict[str, List[str]]:
-    """Return a folder -> apps mapping assigning all apps (except keep) to folders."""
+    """Return a folder -> apps mapping assigning all apps (except keep) to folders.
+
+    Args:
+        layout: Normalized layout to analyze.
+        keep: Bundle IDs to exclude from assignment.
+        seed_folders: Existing mapping to start from.
+
+    Returns:
+        A mapping from folder name to the list of bundle IDs assigned to that folder.
+    """
     from .classify import classify_app
 
     keep_set = set(keep or [])
