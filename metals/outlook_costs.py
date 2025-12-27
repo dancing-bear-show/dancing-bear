@@ -30,6 +30,77 @@ from mail.outlook_api import OutlookClient
 
 G_PER_OZ = 31.1035
 
+# Subject classification for email priority ranking
+SUBJECT_RANK = {'confirmation': 3, 'shipping': 2, 'request': 1, 'other': 0}
+
+
+def _classify_subject(subject: str) -> str:
+    """Classify email subject for priority ranking."""
+    s = (subject or '').lower()
+    if 'confirmation for order number' in s:
+        return 'confirmation'
+    if 'shipping confirmation' in s or 'was shipped' in s:
+        return 'shipping'
+    if 'we received your request' in s:
+        return 'request'
+    return 'other'
+
+
+def _infer_metal(context: str) -> str:
+    """Infer metal type from context string."""
+    ct = (context or '').lower()
+    if 'gold' in ct:
+        return 'gold'
+    if 'silver' in ct:
+        return 'silver'
+    return ''
+
+
+def _find_qty_near(lines: List[str], idx: int) -> Optional[float]:
+    """Scan nearby lines for explicit quantity markers."""
+    for d in range(0, 7):
+        for j in (idx + d, idx - d):
+            if d == 0:
+                j = idx
+            if 0 <= j < len(lines):
+                m = (
+                    re.search(r"(?i)\bqty\s*[:#]?\s*(\d{1,3})\b", lines[j])
+                    or re.search(r"(?i)\bquantity\s*[:#]?\s*(\d{1,3})\b", lines[j])
+                    or re.search(r"(?i)\bx\s*(\d{1,3})\b", lines[j])
+                )
+                if m:
+                    try:
+                        n = int(m.group(1))
+                        if 1 <= n <= 200:
+                            return float(n)
+                    except Exception:  # noqa: S110 - invalid quantity
+                        pass
+    return None
+
+
+def _dedupe_line_items(items: List[Dict]) -> List[Dict]:
+    """Deduplicate items that mention both fractional/decimal sizes on the same line."""
+    if not items:
+        return items
+    buckets: Dict[Tuple[int, int], Dict] = {}
+    for it in items:
+        ukey = int(round(float(it.get('unit_oz') or 0.0) * 1000))
+        idx_key = int(it.get('idx') or 0)
+        k = (ukey, idx_key)
+        cur = buckets.get(k)
+        if not cur:
+            buckets[k] = dict(it)
+        else:
+            # Keep the larger quantity; prefer explicit metal tag
+            try:
+                if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
+                    cur['qty'] = it.get('qty')
+            except Exception:  # noqa: S110 - invalid qty comparison
+                pass
+            if (it.get('metal') or '') and not (cur.get('metal') or ''):
+                cur['metal'] = it.get('metal')
+    return list(buckets.values())
+
 
 def _strip_html(s: str) -> str:
     if not s:
@@ -49,57 +120,37 @@ def _extract_order_id(subject: str, body_text: str) -> Optional[str]:
     return m.group(0) if m else None
 
 
-def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
-    items: List[Dict] = []
+def _normalize_text(text: str) -> str:
+    """Normalize unicode characters in text."""
     t = (text or '')
-    # Normalize unicode
     t = t.replace('\u2011', '-')  # non-breaking hyphen
     t = t.replace('\u2013', '-')  # en dash
     t = t.replace('\u2014', '-')  # em dash
     t = t.replace('\u00A0', ' ')
+    return t
+
+
+# Compiled regex patterns for line item extraction
+_PAT_FRAC = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b|\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b")
+_PAT_OZ = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*[- ]?oz\b[^\n]*?(?:\b(gold|silver)\b)?")
+_PAT_G = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?(?:\b(gold|silver)\b)?")
+_PAT_TENTH_OZ = re.compile(r"(?i)\b1\s*/\s*10\s*[- ]?oz\b")
+
+
+def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
+    """Extract line items with weight and metal info from email text."""
+    items: List[Dict] = []
+    t = _normalize_text(text)
     lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
-
-    # Support 1/10-oz, 0.1 oz, 1 oz, grams
-    pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b|\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b")
-    pat_oz = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*[- ]?oz\b[^\n]*?(?:\b(gold|silver)\b)?")
-    pat_g = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?(?:\b(gold|silver)\b)?")
-
-    def find_qty_near(idx: int) -> Optional[float]:
-        # Scan a wider window for explicit quantities
-        for d in range(0, 7):
-            for j in (idx + d, idx - d):
-                if d == 0:
-                    j = idx
-            if 0 <= j < len(lines):
-                m = (
-                    re.search(r"(?i)\bqty\s*[:#]?\s*(\d{1,3})\b", lines[j])
-                    or re.search(r"(?i)\bquantity\s*[:#]?\s*(\d{1,3})\b", lines[j])
-                    or re.search(r"(?i)\bx\s*(\d{1,3})\b", lines[j])
-                )
-                if m:
-                    try:
-                        n = int(m.group(1))
-                        if 1 <= n <= 200:
-                            return float(n)
-                    except Exception:  # noqa: S110 - invalid quantity
-                        pass
-        return None
-
-    def infer_metal(ctx: str) -> str:
-        ct = (ctx or '').lower()
-        if 'gold' in ct:
-            return 'gold'
-        if 'silver' in ct:
-            return 'silver'
-        return ''
 
     for idx, ln in enumerate(lines):
         # 1/10-oz style
-        for m in re.finditer(r"(?i)\b1\s*/\s*10\s*[- ]?oz\b", ln):
-            metal = infer_metal(ln)
-            qty = find_qty_near(idx) or 1.0
+        for _ in _PAT_TENTH_OZ.finditer(ln):
+            metal = _infer_metal(ln)
+            qty = _find_qty_near(lines, idx) or 1.0
             items.append({'metal': metal or 'gold', 'unit_oz': 0.1, 'qty': qty, 'idx': idx})
-        for m in pat_frac.finditer(ln):
+        # Fractional oz (e.g., 1/4 oz)
+        for m in _PAT_FRAC.finditer(ln):
             try:
                 num = float(m.group(1) or m.group(4))
                 den = float(m.group(2) or m.group(5) or 1)
@@ -107,39 +158,22 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
                 continue
             oz = num / max(den, 1.0)
             metal = (m.group(3) or '').lower()
-            qty = find_qty_near(idx) or 1.0
+            qty = _find_qty_near(lines, idx) or 1.0
             items.append({'metal': metal or '', 'unit_oz': oz, 'qty': qty, 'idx': idx})
-        for m in pat_oz.finditer(ln):
+        # Decimal oz (e.g., 0.5 oz, 1 oz)
+        for m in _PAT_OZ.finditer(ln):
             wt = float(m.group(1))
             metal = (m.group(2) or '').lower()
-            qty = find_qty_near(idx) or 1.0
+            qty = _find_qty_near(lines, idx) or 1.0
             items.append({'metal': metal or '', 'unit_oz': wt, 'qty': qty, 'idx': idx})
-        for m in pat_g.finditer(ln):
+        # Grams
+        for m in _PAT_G.finditer(ln):
             wt_g = float(m.group(1))
             metal = (m.group(3) or '').lower()
-            qty = find_qty_near(idx) or 1.0
+            qty = _find_qty_near(lines, idx) or 1.0
             items.append({'metal': metal or '', 'unit_oz': wt_g / G_PER_OZ, 'qty': qty, 'idx': idx})
-    # Deduplicate items that mention both fractional/decimal sizes on the same line
-    if items:
-        buckets: Dict[Tuple[int, int], Dict] = {}
-        for it in items:
-            ukey = int(round(float(it.get('unit_oz') or 0.0) * 1000))
-            idx_key = int(it.get('idx') or 0)
-            k = (ukey, idx_key)
-            cur = buckets.get(k)
-            if not cur:
-                buckets[k] = dict(it)
-            else:
-                # Keep the larger quantity; prefer explicit metal tag
-                try:
-                    if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
-                        cur['qty'] = it.get('qty')
-                except Exception:  # noqa: S110 - invalid qty comparison
-                    pass
-                if (it.get('metal') or '') and not (cur.get('metal') or ''):
-                    cur['metal'] = it.get('metal')
-        items = list(buckets.values())
-    return items, lines
+
+    return _dedupe_line_items(items), lines
 
 
 def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: float = 0.0) -> Optional[Tuple[float, str]]:
