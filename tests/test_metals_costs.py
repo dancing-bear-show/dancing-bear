@@ -7,6 +7,7 @@ from metals.costs import (
     G_PER_OZ,
     _extract_line_items,
     _extract_order_amount,
+    _extract_amount_near_line,
     _classify_vendor,
 )
 
@@ -180,6 +181,94 @@ class TestClassifyVendor(unittest.TestCase):
     def test_handles_none(self):
         """Test handles None input."""
         self.assertEqual(_classify_vendor(None), "Other")
+
+
+class TestExtractAmountNearLine(unittest.TestCase):
+    """Tests for _extract_amount_near_line function."""
+
+    def test_finds_price_same_line(self):
+        """Test finds price on same line as item."""
+        lines = ["1 oz Gold Maple Leaf $1,850.00"]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNotNone(result)
+        cur, amt, kind = result
+        self.assertAlmostEqual(amt, 1850.00)
+
+    def test_finds_price_adjacent_line(self):
+        """Test finds price on adjacent line."""
+        lines = [
+            "1 oz Gold Maple Leaf",
+            "Price: $1,850.00",
+        ]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNotNone(result)
+        cur, amt, kind = result
+        self.assertAlmostEqual(amt, 1850.00)
+
+    def test_skips_subtotal_line(self):
+        """Test skips lines with subtotal."""
+        lines = [
+            "1 oz Gold Maple",
+            "Subtotal: $5,000.00",
+        ]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNone(result)
+
+    def test_skips_shipping_line(self):
+        """Test skips lines with shipping."""
+        lines = [
+            "1 oz Gold Maple",
+            "Shipping: $25.00",
+        ]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNone(result)
+
+    def test_skips_tax_line(self):
+        """Test skips lines with tax."""
+        lines = [
+            "1 oz Gold",
+            "Tax: $150.00",
+        ]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNone(result)
+
+    def test_detects_unit_price(self):
+        """Test detects unit price kind."""
+        lines = ["1 oz Gold - Unit Price: $1,800.00"]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNotNone(result)
+        cur, amt, kind = result
+        self.assertEqual(kind, "unit")
+
+    def test_detects_each_price(self):
+        """Test detects 'each' as unit price."""
+        # 'each' must appear between the anchor (metal/unit-oz) and the price
+        lines = ["1 oz Silver - each $35.00"]
+        result = _extract_amount_near_line(lines, 0, "silver", 1.0, "TD")
+        self.assertIsNotNone(result)
+        cur, amt, kind = result
+        self.assertEqual(kind, "unit")
+
+    def test_handles_empty_lines(self):
+        """Test handles empty lines list."""
+        result = _extract_amount_near_line([], 0, "gold", 1.0, "TD")
+        self.assertIsNone(result)
+
+    def test_handles_out_of_bounds_idx(self):
+        """Test handles out of bounds index gracefully."""
+        lines = ["Some line"]
+        result = _extract_amount_near_line(lines, 10, "gold", 1.0, "TD")
+        # Should search available lines
+        self.assertIsNone(result)
+
+    def test_cad_currency_format(self):
+        """Test handles CAD currency format."""
+        lines = ["1 oz Gold C$2,100.00"]
+        result = _extract_amount_near_line(lines, 0, "gold", 1.0, "TD")
+        self.assertIsNotNone(result)
+        cur, amt, kind = result
+        self.assertIn("$", cur)
+        self.assertAlmostEqual(amt, 2100.00)
 
 
 if __name__ == "__main__":
