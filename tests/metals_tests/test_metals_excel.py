@@ -4,10 +4,12 @@ from __future__ import annotations
 import csv
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from metals.excel import (
     _col_letter,
     _read_csv,
+    _write_sheet,
 )
 
 
@@ -89,6 +91,81 @@ class TestColLetterAdvanced(unittest.TestCase):
         self.assertEqual(_col_letter(53), "BA")
         # ZZ = 702
         self.assertEqual(_col_letter(702), "ZZ")
+
+
+class TestWriteSheet(unittest.TestCase):
+    """Tests for _write_sheet function."""
+
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_writes_values_to_sheet(self, mock_post, mock_patch):
+        """Test writes values to worksheet."""
+        mock_client = MagicMock()
+        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_client._headers.return_value = {"Authorization": "Bearer token"}
+        mock_patch.return_value.raise_for_status = MagicMock()
+
+        values = [
+            ["Header1", "Header2"],
+            ["A", "B"],
+            ["C", "D"],
+        ]
+        _write_sheet(mock_client, "drive-id", "item-id", "Sheet1", values)
+
+        # Should clear first, then patch
+        mock_post.assert_called_once()
+        mock_patch.assert_called_once()
+        # Check the range address
+        call_args = mock_patch.call_args
+        self.assertIn("A1:B3", call_args[0][0])
+
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_handles_empty_values(self, mock_post, mock_patch):
+        """Test handles empty values list."""
+        mock_client = MagicMock()
+        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_client._headers.return_value = {}
+
+        _write_sheet(mock_client, "drive-id", "item-id", "Sheet1", [])
+
+        # Should clear but not patch when empty
+        mock_post.assert_called_once()
+        mock_patch.assert_not_called()
+
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_raises_on_error(self, mock_post, mock_patch):
+        """Test raises RuntimeError on API error."""
+        mock_client = MagicMock()
+        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_client._headers.return_value = {}
+        mock_patch.return_value.status_code = 400
+        mock_patch.return_value.text = "Bad Request"
+        mock_patch.return_value.raise_for_status.side_effect = Exception("HTTP Error")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            _write_sheet(mock_client, "drive-id", "item-id", "Sheet1", [["A", "B"]])
+        self.assertIn("Failed to write sheet", str(ctx.exception))
+
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_calculates_correct_range(self, mock_post, mock_patch):
+        """Test calculates correct range for varying column counts."""
+        mock_client = MagicMock()
+        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_client._headers.return_value = {}
+        mock_patch.return_value.raise_for_status = MagicMock()
+
+        # 5 columns, 2 rows
+        values = [
+            ["A", "B", "C", "D", "E"],
+            ["1", "2", "3", "4", "5"],
+        ]
+        _write_sheet(mock_client, "drive-id", "item-id", "Sheet1", values)
+
+        call_args = mock_patch.call_args
+        self.assertIn("A1:E2", call_args[0][0])
 
 
 if __name__ == "__main__":
