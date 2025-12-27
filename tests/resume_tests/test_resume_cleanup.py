@@ -146,6 +146,7 @@ class TestExecuteArchive(TempDirMixin, unittest.TestCase):
     def test_subfolder(self):
         plan = TidyPlan(keep=[], move=[self.file1], archive_dir=self.archive)
         moved = execute_archive(plan, subfolder="2024")
+        self.assertEqual(len(moved), 1)
         self.assertTrue((self.archive / "2024").exists())
         self.assertTrue((self.archive / "2024" / "file1.txt").exists())
 
@@ -155,7 +156,8 @@ class TestExecuteArchive(TempDirMixin, unittest.TestCase):
         (self.archive / "file1.txt").write_text("existing")
         plan = TidyPlan(keep=[], move=[self.file1], archive_dir=self.archive)
         moved = execute_archive(plan)
-        # Should create file1.1.txt
+        # Should create file1.1.txt and return the new path
+        self.assertEqual(len(moved), 1)
         self.assertTrue((self.archive / "file1.1.txt").exists())
 
 

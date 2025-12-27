@@ -77,8 +77,7 @@ class TestFormatRowsText(unittest.TestCase):
         """Test replaces newlines with spaces."""
         rows = [search.MessageRow(ts="2024-01-02", partner="Bob", from_me=0, text="Line1\nLine2")]
         result = search.format_rows_text(rows)
-        self.assertNotIn("\n\n", result)  # Original newline replaced
-        self.assertIn("Line1 Line2", result)
+        self.assertIn("Line1 Line2", result)  # Newline replaced with space
 
     def test_handles_empty_list(self):
         """Test handles empty list."""
