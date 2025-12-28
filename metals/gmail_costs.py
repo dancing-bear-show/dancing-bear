@@ -33,6 +33,7 @@ from .costs_common import (
     format_qty,
     write_costs_csv,
 )
+from .vendors import GMAIL_VENDORS, get_vendor_for_sender
 
 
 def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
@@ -336,16 +337,9 @@ def _extract_amount_near_line(
 
 
 def _classify_vendor(from_header: str) -> str:
-    s = from_header or ''
-    m = re.search(r"<([^>]+)>", s)
-    email = (m.group(1) if m else s).lower()
-    if any(x in email for x in ('td.com', 'tdsecurities.com', 'preciousmetals.td.com')):
-        return 'TD'
-    if 'costco' in email:
-        return 'Costco'
-    if any(x in email for x in ('email.mint.ca', 'mint.ca', 'royalcanadianmint.ca')):
-        return 'RCM'
-    return 'Other'
+    """Classify vendor from email sender using vendor parsers."""
+    vendor = get_vendor_for_sender(from_header, GMAIL_VENDORS)
+    return vendor.name if vendor else 'Other'
 
 
 def main(argv: List[str] | None = None) -> int:

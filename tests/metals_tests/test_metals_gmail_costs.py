@@ -7,7 +7,7 @@ from metals.costs_common import (
     G_PER_OZ,
     extract_order_amount,
 )
-from metals.costs import (
+from metals.gmail_costs import (
     _extract_line_items,
     _extract_amount_near_line,
     _classify_vendor,
