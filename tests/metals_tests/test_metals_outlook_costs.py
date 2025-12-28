@@ -8,15 +8,17 @@ import unittest
 from tests.fixtures import TempDirMixin
 
 from core.text_utils import html_to_text
-from metals.outlook_costs import (
+from metals.costs_common import (
     G_PER_OZ,
+    extract_order_amount,
+    merge_costs_csv,
+)
+from metals.outlook_costs import (
     _amount_near_item,
     _classify_subject,
     _extract_confirmation_item_totals,
     _extract_line_items,
-    _extract_order_amount,
     _extract_order_id,
-    _merge_write,
 )
 
 
@@ -179,12 +181,12 @@ class TestExtractLineItems(unittest.TestCase):
 
 
 class TestExtractOrderAmount(unittest.TestCase):
-    """Tests for _extract_order_amount function."""
+    """Tests for extract_order_amount function."""
 
     def test_extracts_total(self):
         """Test extracts Total amount."""
         text = "Total: C$520.00"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         cur, amt = result
         self.assertEqual(amt, 520.00)
@@ -192,14 +194,14 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_extracts_cad_currency(self):
         """Test extracts CAD formats."""
         text = "Total: CAD$1,234.56"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         cur, amt = result
         self.assertEqual(amt, 1234.56)
 
     def test_handles_empty_text(self):
         """Test handles empty text."""
-        result = _extract_order_amount("")
+        result = extract_order_amount("")
         self.assertIsNone(result)
 
 
@@ -320,7 +322,7 @@ class TestExtractConfirmationItemTotals(unittest.TestCase):
 
 
 class TestMergeWrite(TempDirMixin, unittest.TestCase):
-    """Tests for _merge_write function."""
+    """Tests for merge_costs_csv function."""
 
     def test_writes_new_file(self):
         """Test writes new CSV file."""
@@ -341,7 +343,7 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
                 "alloc": "line-item",
             }
         ]
-        _merge_write(path, rows)
+        merge_costs_csv(path, rows)
 
         self.assertTrue(os.path.exists(path))
         with open(path, newline="", encoding="utf-8") as f:
@@ -398,7 +400,7 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
                 "alloc": "line-item",
             }
         ]
-        _merge_write(path, new_rows)
+        merge_costs_csv(path, new_rows)
 
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -439,7 +441,7 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
                 "alloc": "line-item",
             },
         ]
-        _merge_write(path, rows)
+        merge_costs_csv(path, rows)
 
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -480,7 +482,7 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
                 "alloc": "line-item",
             },
         ]
-        _merge_write(path, rows)
+        merge_costs_csv(path, rows)
 
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
