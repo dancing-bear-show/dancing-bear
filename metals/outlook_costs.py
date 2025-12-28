@@ -17,9 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import re
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
@@ -27,8 +25,15 @@ from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from core.text_utils import html_to_text, normalize_unicode
 from mail.outlook_api import OutlookClient
 
-
-G_PER_OZ = 31.1035
+from .costs_common import (
+    G_PER_OZ,
+    MONEY_PATTERN,
+    extract_order_amount,
+    format_breakdown,
+    format_qty,
+    get_price_band,
+    merge_costs_csv,
+)
 
 # Subject classification for email priority ranking
 SUBJECT_RANK = {'confirmation': 3, 'shipping': 2, 'request': 1, 'other': 0}
@@ -147,12 +152,13 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
     Returns (amount, kind) where kind is 'unit' or 'total'.
     Skips global totals: lines containing subtotal, tax, shipping, savings.
     """
-    money_pat = re.compile(r"(?i)(?:C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
     ban = re.compile(r"(?i)(subtotal|shipping|handling|tax|gst|hst|pst|savings|free\s+shipping|orders?\s+over|threshold)")
 
     best_total: Optional[Tuple[float, int]] = None  # (amt, distance)
     best_unit: Optional[Tuple[float, int]] = None
-    # Scan forward only up to +8 lines from the item line
+    lb, ub = get_price_band(metal, unit_oz)
+
+    # Scan forward only up to +20 lines from the item line
     for d in range(0, 21):
         j = idx + d
         if not (0 <= j < len(lines)):
@@ -161,26 +167,15 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
         low = ln.lower()
         if ban.search(low):
             continue
-        for m in money_pat.finditer(ln):
+        for m in MONEY_PATTERN.finditer(ln):
             try:
-                amt = float(m.group(1).replace(",", ""))
+                amt = float(m.group(2).replace(",", ""))
             except Exception:  # noqa: S112 - skip on error
                 continue
             # Filter obvious non-item amounts based on expected ranges
             if (metal or '').lower() == 'gold':
-                u = float(unit_oz or 0.0)
-                if u <= 0.11:
-                    if not (150.0 <= amt <= 2000.0):
-                        continue
-                elif u <= 0.26:
-                    if not (300.0 <= amt <= 4000.0):
-                        continue
-                elif u <= 0.6:
-                    if not (600.0 <= amt <= 7000.0):
-                        continue
-                else:
-                    if not (1200.0 <= amt <= 20000.0):
-                        continue
+                if not (lb <= amt <= ub):
+                    continue
             if re.search(r"(?i)\btotal\b", ln):
                 if (best_total is None) or (d < best_total[1]):
                     best_total = (amt, d)
@@ -192,41 +187,6 @@ def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: f
     if best_unit:
         return best_unit[0], 'unit'
     return None
-
-
-def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
-    t = (text or '').replace('\u00A0', ' ')
-    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-    money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
-
-    def parse_amount(s: str) -> float:
-        return float(s.replace(',', ''))
-
-    for pref in ('total', 'subtotal'):
-        for ln in lines:
-            low = ln.lower()
-            if pref in low:
-                pos = low.find(pref)
-                found = None
-                for m in money_pat.finditer(ln):
-                    if m.start() >= pos:
-                        found = m
-                        break
-                if not found:
-                    allm = list(money_pat.finditer(ln))
-                    found = allm[-1] if allm else None
-                if found:
-                    cur = found.group(1).upper()
-                    amt = parse_amount(found.group(2))
-                    return cur, amt
-    best: Optional[Tuple[str, float]] = None
-    for ln in lines:
-        for m in money_pat.finditer(ln):
-            cur = m.group(1).upper()
-            amt = parse_amount(m.group(2))
-            if (best is None) or (amt > best[1]):
-                best = (cur, amt)
-    return best
 
 
 def _extract_confirmation_item_totals(text: str) -> List[float]:
@@ -250,50 +210,6 @@ def _extract_confirmation_item_totals(text: str) -> List[float]:
             except Exception:  # noqa: S112 - skip on error
                 continue
     return amounts
-
-
-def _merge_write(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
-    p = Path(out_path)
-    existing: List[Dict[str, str]] = []
-    if p.exists():
-        with p.open(newline='', encoding='utf-8') as f:
-            r = csv.DictReader(f)
-            for row in r:
-                existing.append(row)
-    # Build composite list and then prune redundant shipping rows when confirmations exist
-    all_rows: List[Dict[str, str]] = []
-    all_rows.extend(existing)
-    all_rows.extend([{k: str(v) for k, v in r.items()} for r in new_rows])  # normalize types to str
-
-    # Group by (vendor, order_id, metal)
-    from collections import defaultdict
-    groups: Dict[Tuple[str, str, str], List[Dict[str, str]]] = defaultdict(list)
-    for r in all_rows:
-        key = ((r.get('vendor') or '').upper(), r.get('order_id') or '', (r.get('metal') or '').lower())
-        groups[key].append(r)
-
-    pruned: List[Dict[str, str]] = []
-    for k, rows in groups.items():
-        # If any confirmation rows exist in this group, drop shipping-only rows
-        conf = [r for r in rows if 'confirmation for order' in (r.get('subject') or '').lower()]
-        if conf:
-            # Keep only confirmations
-            pruned.extend(conf)
-        else:
-            pruned.extend(rows)
-
-    # Now dedupe within pruned list by (vendor|order_id|metal|cost_total|units_breakdown)
-    def key2(d):
-        return f"{(d.get('vendor') or '').upper()}|{d.get('order_id') or ''}|{(d.get('metal') or '').lower()}|{d.get('cost_total') or ''}|{d.get('units_breakdown') or ''}"
-    idx2: Dict[str, Dict[str, str]] = {}
-    for r in pruned:
-        idx2[key2(r)] = r
-    merged = list(idx2.values())
-    # Write
-    with p.open('w', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=['vendor','date','metal','currency','cost_total','cost_per_oz','order_id','subject','total_oz','unit_count','units_breakdown','alloc'])
-        w.writeheader()
-        w.writerows(merged)
 
 
 def run(profile: str, out_path: str, days: int = 365) -> int:
@@ -477,8 +393,8 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                         'order_id': oid,
                         'subject': sub,
                         'total_oz': round(uoz * max(qty, 1.0), 3),
-                        'unit_count': int(qty) if abs(qty - int(qty)) < 1e-6 else round(qty, 3),
-                        'units_breakdown': f"{uoz}ozx{int(qty) if abs(qty - int(qty)) < 1e-6 else qty}",
+                        'unit_count': format_qty(qty),
+                        'units_breakdown': f"{uoz}ozx{format_qty(qty)}",
                         'alloc': 'line-item',
                     })
         # If still no cost from sequence, fall back to proximity amounts
@@ -496,7 +412,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                         line_cost += float(amt)
 
         # Fallback to order total when no line pricing was captured
-        cur_amt = _extract_order_amount(body)
+        cur_amt = extract_order_amount(body)
         # Choose line_cost when it looks consistent with order-level amount; otherwise fallback to order amount
         if cur_amt and line_cost > 0:
             low, high = 0.6 * cur_amt[1], 1.05 * cur_amt[1]
@@ -516,18 +432,12 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
             if oz <= 0:
                 continue
             cpo = (total_cost / oz) if oz > 0 else 0.0
-            breakdown = []
-            unit_count = 0.0
-            for uoz, qty in sorted(units_by_metal.get('gold', {}).items()):
-                unit_count += qty
-                qty_disp = int(qty) if abs(qty - int(qty)) < 1e-6 else qty
-                breakdown.append(f"{uoz}ozx{qty_disp}")
-            if not breakdown:
-                breakdown = [f"{round(oz,3)}ozx1"]
-                unit_count = 1
+            gold_units = units_by_metal.get('gold', {})
+            unit_count = sum(gold_units.values()) if gold_units else 1.0
+            breakdown_str = format_breakdown(gold_units) if gold_units else f"{round(oz, 3)}ozx1"
             out_rows.append({
                 'vendor': 'RCM',
-                'date': (recv or '').split('T',1)[0],
+                'date': (recv or '').split('T', 1)[0],
                 'metal': 'gold',
                 'currency': cur_out,
                 'cost_total': round(total_cost, 2),
@@ -535,13 +445,13 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                 'order_id': oid,
                 'subject': sub,
                 'total_oz': round(oz, 3),
-                'unit_count': int(unit_count) if abs(unit_count - int(unit_count)) < 1e-6 else round(unit_count, 3),
-                'units_breakdown': ';'.join(breakdown),
+                'unit_count': format_qty(unit_count),
+                'units_breakdown': breakdown_str,
                 'alloc': 'line-item' if line_cost > 0 else 'order-single-metal',
             })
 
     if out_rows:
-        _merge_write(out_path, out_rows)
+        merge_costs_csv(out_path, out_rows)
         print(f"merged {len(out_rows)} RCM row(s) into {out_path}")
     else:
         print('RCM messages found but no line-items/amounts parsed')
