@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.pipeline import BaseProducer, RequestConsumer, ResultEnvelope
 from core.auth import build_gmail_service as _build_gmail_service
+from core.constants import DAY_START_TIME, DAY_END_TIME, FMT_DATETIME_SEC, FMT_DAY_START
 
 from .gmail_service import GmailService
 
@@ -83,7 +84,7 @@ class DateWindowResolver:
         today = self._today_factory()
         start = from_date or (today - _dt.timedelta(days=days_back)).isoformat()
         end = to_date or (today + _dt.timedelta(days=days_forward)).isoformat()
-        return f"{start}T00:00:00", f"{end}T23:59:59"
+        return f"{start}{DAY_START_TIME}", f"{end}{DAY_END_TIME}"
 
     def resolve_year_end(
         self,
@@ -94,7 +95,7 @@ class DateWindowResolver:
         today = self._today_factory()
         start = from_date or today.isoformat()
         end = to_date or today.replace(month=12, day=31).isoformat()
-        return f"{start}T00:00:00", f"{end}T23:59:59"
+        return f"{start}{DAY_START_TIME}", f"{end}{DAY_END_TIME}"
 
 
 def to_iso_str(v: Any) -> Optional[str]:
@@ -105,9 +106,9 @@ def to_iso_str(v: Any) -> Optional[str]:
         return v
     try:
         if isinstance(v, _dt.datetime):
-            return v.strftime("%Y-%m-%dT%H:%M:%S")
+            return v.strftime(FMT_DATETIME_SEC)
         if isinstance(v, _dt.date):
-            return v.strftime("%Y-%m-%dT00:00:00")
+            return v.strftime(FMT_DAY_START)
     except Exception:  # noqa: S110 - fallback to str(v)
         pass
     return str(v)
