@@ -14,9 +14,11 @@ from metals.vendors import (
     TDParser,
     dedupe_line_items,
     extract_basic_line_items,
+    extract_price_from_lines,
     find_qty_near,
     get_vendor_for_sender,
     infer_metal_from_context,
+    iter_nearby_lines,
 )
 
 
@@ -304,6 +306,139 @@ class TestDataclasses(unittest.TestCase):
         hit = PriceHit(amount=1500.0, kind="unit")
         self.assertEqual(hit.amount, 1500.0)
         self.assertEqual(hit.kind, "unit")
+
+
+class TestIterNearbyLines(unittest.TestCase):
+    """Tests for iter_nearby_lines function."""
+
+    def test_returns_center_line_first(self):
+        """Test returns the center line at idx first."""
+        lines = ["line0", "line1", "line2", "line3", "line4"]
+        result = iter_nearby_lines(lines, 2, window=3)
+        self.assertEqual(result[0], (2, "line2"))
+
+    def test_expands_bidirectionally(self):
+        """Test expands both forward and backward from idx."""
+        lines = ["line0", "line1", "line2", "line3", "line4"]
+        result = iter_nearby_lines(lines, 2, window=2)
+        indices = [idx for idx, _ in result]
+        self.assertIn(1, indices)  # backward
+        self.assertIn(3, indices)  # forward
+
+    def test_forward_only_mode(self):
+        """Test forward_only=True only searches forward."""
+        lines = ["line0", "line1", "line2", "line3", "line4"]
+        result = iter_nearby_lines(lines, 2, window=3, forward_only=True)
+        indices = [idx for idx, _ in result]
+        self.assertIn(2, indices)
+        self.assertIn(3, indices)
+        self.assertIn(4, indices)
+        self.assertNotIn(1, indices)
+        self.assertNotIn(0, indices)
+
+    def test_respects_window_size(self):
+        """Test respects window parameter."""
+        lines = ["line0", "line1", "line2", "line3", "line4"]
+        result = iter_nearby_lines(lines, 2, window=1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], (2, "line2"))
+
+    def test_handles_boundary_start(self):
+        """Test handles idx at start of list."""
+        lines = ["line0", "line1", "line2"]
+        result = iter_nearby_lines(lines, 0, window=3)
+        indices = [idx for idx, _ in result]
+        self.assertIn(0, indices)
+        self.assertIn(1, indices)
+        self.assertNotIn(-1, indices)
+
+    def test_handles_boundary_end(self):
+        """Test handles idx at end of list."""
+        lines = ["line0", "line1", "line2"]
+        result = iter_nearby_lines(lines, 2, window=3)
+        indices = [idx for idx, _ in result]
+        self.assertIn(2, indices)
+        self.assertIn(1, indices)
+        self.assertNotIn(3, indices)
+
+    def test_no_duplicates(self):
+        """Test returns no duplicate indices."""
+        lines = ["line0", "line1", "line2", "line3", "line4"]
+        result = iter_nearby_lines(lines, 2, window=5)
+        indices = [idx for idx, _ in result]
+        self.assertEqual(len(indices), len(set(indices)))
+
+    def test_empty_lines_handled(self):
+        """Test handles empty string lines."""
+        lines = ["line0", "", "line2"]
+        result = iter_nearby_lines(lines, 1, window=2)
+        self.assertEqual(result[0], (1, ""))
+
+
+class TestExtractPriceFromLines(unittest.TestCase):
+    """Tests for extract_price_from_lines function."""
+
+    def test_finds_unit_price(self):
+        """Test finds price with 'each' keyword."""
+        lines = ["1 oz Gold Coin", "Price: $2,500.00 each", "Total: $5,000.00"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.kind, "unit")
+        self.assertAlmostEqual(hit.amount, 2500.0, places=2)
+
+    def test_finds_total_price(self):
+        """Test finds price with 'total' keyword."""
+        lines = ["1 oz Gold Coin", "Total: $2,500.00"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.kind, "total")
+
+    def test_returns_unknown_for_no_keyword(self):
+        """Test returns 'unknown' when no unit/total keyword."""
+        lines = ["1 oz Gold Coin", "$2,500.00"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.kind, "unknown")
+
+    def test_skips_banned_terms(self):
+        """Test skips lines with banned terms like 'shipping'."""
+        lines = ["1 oz Gold", "Shipping: $25.00", "Price: $2,500.00"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNotNone(hit)
+        self.assertAlmostEqual(hit.amount, 2500.0, places=2)
+
+    def test_skips_subtotal(self):
+        """Test skips subtotal lines."""
+        lines = ["1 oz Gold", "Subtotal: $2,500.00", "Unit: $2,400.00"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.kind, "unit")
+        self.assertAlmostEqual(hit.amount, 2400.0, places=2)
+
+    def test_respects_price_band(self):
+        """Test filters prices outside expected band."""
+        lines = ["1 oz Gold", "$50.00"]  # Too low for 1oz gold
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNone(hit)
+
+    def test_respects_window(self):
+        """Test respects window parameter."""
+        lines = ["line0", "line1", "line2", "$2,500.00 gold"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0, window=2)
+        self.assertIsNone(hit)  # Price is at line 3, window=2 won't reach it
+
+    def test_returns_none_when_no_price(self):
+        """Test returns None when no price found."""
+        lines = ["1 oz Gold Coin", "Beautiful design"]
+        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        self.assertIsNone(hit)
+
+    def test_handles_comma_in_price(self):
+        """Test handles prices with commas."""
+        lines = ["Item", "$12,500.00"]
+        hit = extract_price_from_lines(lines, 0, "gold", 5.0)  # ~5oz gold
+        self.assertIsNotNone(hit)
+        self.assertAlmostEqual(hit.amount, 12500.0, places=2)
 
 
 if __name__ == '__main__':
