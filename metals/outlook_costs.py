@@ -26,12 +26,9 @@ from core.text_utils import html_to_text, normalize_unicode
 from mail.outlook_api import OutlookClient
 
 from .costs_common import (
-    G_PER_OZ,
-    MONEY_PATTERN,
     extract_order_amount,
     format_breakdown,
     format_qty,
-    get_price_band,
     merge_costs_csv,
 )
 from .vendors import RCMParser
