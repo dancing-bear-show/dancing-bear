@@ -1,13 +1,12 @@
 """Tests for mail/auto/producers.py auto pipeline producers."""
 
-import io
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
 
 from core.pipeline import ResultEnvelope
 from mail.auto.processors import AutoProposeResult, AutoSummaryResult, AutoApplyResult
 from mail.auto.producers import AutoProposeProducer, AutoSummaryProducer, AutoApplyProducer
+from tests.fixtures import capture_stdout
 
 
 class TestAutoProposeProducer(unittest.TestCase):
@@ -22,10 +21,8 @@ class TestAutoProposeProducer(unittest.TestCase):
         )
         result = ResultEnvelope(status="success", payload=payload)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoProposeProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("/tmp/proposal.json", output)
         self.assertIn("25", output)
@@ -38,10 +35,8 @@ class TestAutoProposeProducer(unittest.TestCase):
             diagnostics={"error": "Connection failed"},
         )
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoProposeProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Error:", output)
         self.assertIn("Connection failed", output)
@@ -49,10 +44,8 @@ class TestAutoProposeProducer(unittest.TestCase):
     def test_produce_error_without_diagnostics(self):
         result = ResultEnvelope(status="error", payload=None)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoProposeProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Error:", output)
         self.assertIn("Auto propose failed", output)
@@ -69,10 +62,8 @@ class TestAutoSummaryProducer(unittest.TestCase):
         )
         result = ResultEnvelope(status="success", payload=payload)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoSummaryProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Messages: 50", output)
         self.assertIn("Top reasons:", output)
@@ -88,10 +79,8 @@ class TestAutoSummaryProducer(unittest.TestCase):
         )
         result = ResultEnvelope(status="success", payload=payload)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoSummaryProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Messages: 0", output)
         self.assertIn("Top reasons:", output)
@@ -104,10 +93,8 @@ class TestAutoSummaryProducer(unittest.TestCase):
             diagnostics={"error": "Invalid proposal format"},
         )
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoSummaryProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Error:", output)
         self.assertIn("Invalid proposal format", output)
@@ -115,10 +102,8 @@ class TestAutoSummaryProducer(unittest.TestCase):
     def test_produce_error_without_diagnostics(self):
         result = ResultEnvelope(status="error", payload=None)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoSummaryProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Error:", output)
         self.assertIn("Auto summary failed", output)
@@ -138,10 +123,8 @@ class TestAutoApplyProducer(unittest.TestCase):
         )
         result = ResultEnvelope(status="success", payload=payload)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoApplyProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Applied to 75 messages", output)
 
@@ -156,10 +139,8 @@ class TestAutoApplyProducer(unittest.TestCase):
         )
         result = ResultEnvelope(status="success", payload=payload)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoApplyProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Would modify 60 messages", output)
         self.assertIn("Would modify 40 messages", output)
@@ -173,10 +154,8 @@ class TestAutoApplyProducer(unittest.TestCase):
         )
         result = ResultEnvelope(status="success", payload=payload)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoApplyProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Applied to 0 messages", output)
 
@@ -187,10 +166,8 @@ class TestAutoApplyProducer(unittest.TestCase):
             diagnostics={"error": "Authentication failed"},
         )
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoApplyProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Error:", output)
         self.assertIn("Authentication failed", output)
@@ -198,10 +175,8 @@ class TestAutoApplyProducer(unittest.TestCase):
     def test_produce_error_without_diagnostics(self):
         result = ResultEnvelope(status="error", payload=None)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             AutoApplyProducer().produce(result)
-
         output = buf.getvalue()
         self.assertIn("Error:", output)
         self.assertIn("Auto apply failed", output)
