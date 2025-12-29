@@ -17,6 +17,10 @@ from ._base import (
     RequestConsumer,
     check_service_required,
     MSG_PREVIEW_COMPLETE,
+    ERR_CODE_CALENDAR,
+    ERR_CODE_API,
+    LOG_DRY_RUN,
+    DEFAULT_IMPORT_CALENDAR,
 )
 
 
@@ -53,7 +57,7 @@ class OutlookScheduleImportProcessor(
         if err := check_service_required(payload.service):
             return err
         svc = payload.service
-        cal_name = payload.calendar or "Imported Schedules"
+        cal_name = payload.calendar or DEFAULT_IMPORT_CALENDAR
 
         cal_id, err = self._ensure_calendar(svc, cal_name)
         if err:
@@ -83,7 +87,7 @@ class OutlookScheduleImportProcessor(
             cal_id = svc.ensure_calendar_exists(cal_name)
             return cal_id, None
         except Exception as exc:
-            return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": 3})
+            return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR})
 
     def _load_items(self, payload: OutlookScheduleImportRequest):
         loader = self._schedule_loader
