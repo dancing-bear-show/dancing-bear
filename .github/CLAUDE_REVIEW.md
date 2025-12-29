@@ -2,6 +2,10 @@
 
 Instructions for Claude when reviewing pull requests in this repository.
 
+## Key Context
+
+**This library is primarily consumed by LLM agents.** The CLI schemas, help text, and agentic capsules are designed for token-efficient LLM consumption, not human reading. Keep this in mind when reviewing.
+
 ## Review Philosophy
 
 - **Be constructive, not pedantic** — Focus on issues that matter, not style nitpicks
@@ -30,6 +34,20 @@ Instructions for Claude when reviewing pull requests in this repository.
    - CLI flag/subcommand removals or renames
    - Changed return types or signatures on public functions
    - Removed exports from `__init__.py`
+
+4. **CLI Discovery Accuracy** (Critical for LLM consumers)
+   - Incorrect or misleading help text
+   - Mismatched argument names between help and implementation
+   - Missing or wrong subcommand listings in `--help`
+   - Agentic schema (`--agentic`) output doesn't match actual CLI
+   - `build_cli_tree()` output is incomplete or wrong
+   - Flow specs reference non-existent CLI paths
+
+5. **Token Bloat** (LLM efficiency)
+   - Unnecessarily verbose help strings (keep terse for token efficiency)
+   - Redundant information in agentic capsules
+   - Large default outputs that could be paginated/limited
+   - Duplicate content across `.llm/` files
 
 ### Should Flag (Non-blocking)
 
@@ -64,7 +82,31 @@ Instructions for Claude when reviewing pull requests in this repository.
 Constraints: Python 3.11, dependency-light, stable CLI
 Pattern: Consumer → Processor → Producer pipelines
 Config: YAML source of truth in config/
+Primary consumers: LLM agents (token efficiency matters)
 ```
+
+### LLM Consumer Requirements
+
+Since LLMs consume this library's output, verify:
+
+1. **CLI Discovery** — Can an LLM accurately discover available commands?
+   ```bash
+   # These must produce accurate, complete output:
+   ./bin/mail-assistant --help
+   ./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+   ./bin/llm agentic --stdout
+   ```
+
+2. **Token Efficiency** — Is output as compact as possible?
+   - Help text: 1-line descriptions, no prose
+   - Agentic output: structured, no redundancy
+   - Default limits on list commands (e.g., `--limit 50`)
+
+3. **Accuracy** — Does help match implementation?
+   ```python
+   # Check: argument names in add_argument() match what code uses
+   parser.add_argument("--days", ...)  # Must match: args.days
+   ```
 
 ### Check These Patterns
 
@@ -169,6 +211,10 @@ Solid implementation of the new `filters sweep-range` command. One security conc
 | `*/processors.py` | Business logic, edge cases, error handling |
 | `*/consumers.py` | Input validation, payload construction |
 | `*/producers.py` | Output formatting, side effects |
+| `*/agentic.py` | **CLI accuracy**, token efficiency, complete coverage |
+| `*/llm_cli.py` | Correct routing, schema completeness |
+| `*/cli.py` | Help text accuracy, argument naming consistency |
+| `.llm/*.md` | No stale info, minimal redundancy |
 | `tests/**/*.py` | Coverage completeness, mock correctness |
 | `config/*.yaml` | Schema validity, no secrets |
 | `.github/**` | Workflow security, permissions |
