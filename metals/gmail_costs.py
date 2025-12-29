@@ -405,7 +405,7 @@ def _allocate_costs(
             line_cost['silver'] += rem
 
     if len(metals_present) == 1 and total:
-        return {metals_present[0]: total, 'gold': 0.0, 'silver': 0.0} | {metals_present[0]: total}, 'order-single-metal'
+        return {'gold': 0.0, 'silver': 0.0, metals_present[0]: total}, 'order-single-metal'
     if use_line:
         return line_cost.copy(), 'line-item'
     denom = sum(oz_by_metal[m] for m in metals_present)
@@ -425,7 +425,7 @@ def _build_order_rows(
         if oz <= 0:
             continue
         alloc = cost_alloc.get(metal, 0.0)
-        cpo = (alloc / oz) if oz > 0 else 0.0
+        cpo = alloc / oz
         metal_units = units_by_metal.get(metal, {})
         cur_out = 'C$' if vendor in ('TD', 'Costco') else (cur or 'C$')
         rows.append({
