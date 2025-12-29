@@ -14,9 +14,21 @@ class OutlookCalendarMixin:
     Requires OutlookClientBase methods: _headers, get_mailbox_timezone
     """
 
-    # -------------------- Calendars --------------------
-    def list_calendars(self: OutlookClientBase) -> List[Dict[str, Any]]:
-        url = f"{GRAPH}/me/calendars"
+    # -------------------- Internal helpers --------------------
+    def _resolve_calendar_id(
+        self: OutlookClientBase,
+        calendar_id: Optional[str],
+        calendar_name: Optional[str],
+    ) -> Optional[str]:
+        """Resolve calendar_id from either explicit ID or name lookup."""
+        if calendar_id:
+            return calendar_id
+        if calendar_name:
+            return self.get_calendar_id_by_name(calendar_name)
+        return None
+
+    def _paginated_get(self: OutlookClientBase, url: str) -> List[Dict[str, Any]]:
+        """Fetch all pages from a paginated Graph API endpoint."""
         out: List[Dict[str, Any]] = []
         while url:
             r = _requests().get(url, headers=self._headers())
@@ -25,6 +37,28 @@ class OutlookCalendarMixin:
             out.extend(data.get("value", []) or [])
             url = data.get("@odata.nextLink")
         return out
+
+    @staticmethod
+    def _event_endpoint(calendar_id: Optional[str], event_id: Optional[str] = None) -> str:
+        """Build Graph API endpoint for events."""
+        if calendar_id:
+            base = f"{GRAPH}/me/calendars/{calendar_id}/events"
+        else:
+            base = f"{GRAPH}/me/events"
+        return f"{base}/{event_id}" if event_id else base
+
+    @staticmethod
+    def _apply_reminder(payload: Dict[str, Any], no_reminder: bool, reminder_minutes: Optional[int]) -> None:
+        """Apply reminder settings to an event payload."""
+        if no_reminder:
+            payload["isReminderOn"] = False
+        elif reminder_minutes is not None:
+            payload["isReminderOn"] = True
+            payload["reminderMinutesBeforeStart"] = int(reminder_minutes)
+
+    # -------------------- Calendars --------------------
+    def list_calendars(self: OutlookClientBase) -> List[Dict[str, Any]]:
+        return self._paginated_get(f"{GRAPH}/me/calendars")
 
     def create_calendar(self: OutlookClientBase, name: str) -> Dict[str, Any]:
         body = {"name": name}
@@ -121,23 +155,13 @@ class OutlookCalendarMixin:
         Uses calendarView which expands recurring series. Optional subject_filter
         performs a client-side case-insensitive match.
         """
-        cal_id = calendar_id or (self.get_calendar_id_by_name(calendar_name or "") if calendar_name else None)
-        endpoint = f"{GRAPH}/me/calendarView" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/calendarView"
-        url = f"{endpoint}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}"
-        out: List[Dict[str, Any]] = []
-        while url:
-            r = _requests().get(url, headers=self._headers())
-            r.raise_for_status()
-            data = r.json() or {}
-            vals = data.get("value", []) or []
-            for ev in vals:
-                if subject_filter:
-                    sub = (ev.get("subject") or "").lower()
-                    if subject_filter.lower() not in sub:
-                        continue
-                out.append(ev)
-            url = data.get("@odata.nextLink")
-        return out
+        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
+        base = f"{GRAPH}/me/calendars/{cal_id}/calendarView" if cal_id else f"{GRAPH}/me/calendarView"
+        events = self._paginated_get(f"{base}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}")
+        if not subject_filter:
+            return events
+        needle = subject_filter.lower()
+        return [ev for ev in events if needle in (ev.get("subject") or "").lower()]
 
     def list_calendar_view(
         self: OutlookClientBase,
@@ -148,16 +172,8 @@ class OutlookCalendarMixin:
         top: int = 100
     ) -> List[Dict[str, Any]]:
         """List calendar view (expanded occurrences) for a date range."""
-        endpoint = f"{GRAPH}/me/calendarView" if not calendar_id else f"{GRAPH}/me/calendars/{calendar_id}/calendarView"
-        url = f"{endpoint}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}"
-        out: List[Dict[str, Any]] = []
-        while url:
-            r = _requests().get(url, headers=self._headers())
-            r.raise_for_status()
-            data = r.json() or {}
-            out.extend(data.get("value", []) or [])
-            url = data.get("@odata.nextLink")
-        return out
+        base = f"{GRAPH}/me/calendars/{calendar_id}/calendarView" if calendar_id else f"{GRAPH}/me/calendarView"
+        return self._paginated_get(f"{base}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}")
 
     def _resolve_tz(self: OutlookClientBase, tz: Optional[str]) -> str:
         if tz and tz.strip():
@@ -183,8 +199,7 @@ class OutlookCalendarMixin:
         reminder_minutes: Optional[int] = None,
     ) -> Dict[str, Any]:
         tz_final = self._resolve_tz(tz)
-        cal_id = calendar_id or (self.get_calendar_id_by_name(calendar_name or "") if calendar_name else None)
-        endpoint = f"{GRAPH}/me/events" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/events"
+        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
         payload: Dict[str, Any] = {
             "subject": subject,
             "start": {"dateTime": start_iso, "timeZone": tz_final},
@@ -196,15 +211,8 @@ class OutlookCalendarMixin:
             payload["location"] = _parse_location(location)
         if all_day:
             payload["isAllDay"] = True
-        if no_reminder:
-            payload["isReminderOn"] = False
-        if reminder_minutes is not None:
-            try:
-                payload["isReminderOn"] = True
-                payload["reminderMinutesBeforeStart"] = int(reminder_minutes)
-            except Exception:  # noqa: S110 - invalid reminder_minutes
-                pass
-        r = _requests().post(endpoint, headers=self._headers(), json=payload)
+        self._apply_reminder(payload, no_reminder, reminder_minutes)
+        r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         return r.json()
 
@@ -230,28 +238,10 @@ class OutlookCalendarMixin:
         reminder_minutes: Optional[int] = None,
     ) -> Dict[str, Any]:
         tz_final = self._resolve_tz(tz)
-        cal_id = calendar_id or (self.get_calendar_id_by_name(calendar_name or "") if calendar_name else None)
-        endpoint = f"{GRAPH}/me/events" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/events"
+        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
 
-        rpt = (repeat or "").strip().lower()
-        pattern: Dict[str, Any] = {"interval": max(1, int(interval))}
-        if rpt in ("daily",):
-            pattern.update({"type": "daily"})
-        elif rpt in ("weekly",):
-            pattern.update({"type": "weekly", "daysOfWeek": _normalize_days(byday or [])})
-        elif rpt in ("monthly", "absoluteMonthly"):
-            pattern.update({"type": "absoluteMonthly"})
-        else:
-            raise ValueError("Unsupported repeat; use daily|weekly|monthly")
-
-        rng: Dict[str, Any] = {
-            "type": "endDate" if range_until else ("numbered" if count else "noEnd"),
-            "startDate": range_start_date
-        }
-        if range_until:
-            rng["endDate"] = range_until
-        if count:
-            rng["numberOfOccurrences"] = int(count)
+        pattern = self._build_recurrence_pattern(repeat, interval, byday)
+        rng = self._build_recurrence_range(range_start_date, range_until, count)
 
         start_iso = f"{range_start_date}T{start_time}"
         end_iso = f"{range_start_date}T{end_time}"
@@ -266,16 +256,9 @@ class OutlookCalendarMixin:
             payload["body"] = {"contentType": "HTML", "content": body_html}
         if location:
             payload["location"] = _parse_location(location)
-        if no_reminder:
-            payload["isReminderOn"] = False
-        if reminder_minutes is not None:
-            try:
-                payload["isReminderOn"] = True
-                payload["reminderMinutesBeforeStart"] = int(reminder_minutes)
-            except Exception:  # noqa: S110 - invalid reminder_minutes
-                pass
+        self._apply_reminder(payload, no_reminder, reminder_minutes)
 
-        r = _requests().post(endpoint, headers=self._headers(), json=payload)
+        r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         series = r.json()
 
@@ -288,6 +271,36 @@ class OutlookCalendarMixin:
                 pass
         return series
 
+    @staticmethod
+    def _build_recurrence_pattern(repeat: str, interval: int, byday: Optional[List[str]]) -> Dict[str, Any]:
+        """Build recurrence pattern for Graph API."""
+        rpt = (repeat or "").strip().lower()
+        pattern: Dict[str, Any] = {"interval": max(1, int(interval))}
+        if rpt == "daily":
+            pattern["type"] = "daily"
+        elif rpt == "weekly":
+            pattern["type"] = "weekly"
+            pattern["daysOfWeek"] = _normalize_days(byday or [])
+        elif rpt in ("monthly", "absoluteMonthly"):
+            pattern["type"] = "absoluteMonthly"
+        else:
+            raise ValueError("Unsupported repeat; use daily|weekly|monthly")
+        return pattern
+
+    @staticmethod
+    def _build_recurrence_range(start_date: str, until: Optional[str], count: Optional[int]) -> Dict[str, Any]:
+        """Build recurrence range for Graph API."""
+        rng: Dict[str, Any] = {"startDate": start_date}
+        if until:
+            rng["type"] = "endDate"
+            rng["endDate"] = until
+        elif count:
+            rng["type"] = "numbered"
+            rng["numberOfOccurrences"] = int(count)
+        else:
+            rng["type"] = "noEnd"
+        return rng
+
     def _apply_exdate_deletions(
         self: OutlookClientBase,
         calendar_id: Optional[str],
@@ -298,23 +311,31 @@ class OutlookCalendarMixin:
     ) -> None:
         start_date = rng.get("startDate")
         end_date = rng.get("endDate") or start_date
-        start_dt = f"{start_date}T00:00:00"
-        end_dt = f"{end_date}T23:59:59"
-        base = f"{GRAPH}/me/events/{series_id}" if not calendar_id else f"{GRAPH}/me/calendars/{calendar_id}/events/{series_id}"
-        url = f"{base}/instances?startDateTime={start_dt}&endDateTime={end_dt}"
+        url = f"{self._event_endpoint(calendar_id, series_id)}/instances?startDateTime={start_date}T00:00:00&endDateTime={end_date}T23:59:59"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
-        vals = r.json().get("value", [])
         ex_set = {d.strip() for d in exdates if d and d.strip()}
-        for inst in vals:
+        for inst in r.json().get("value", []):
             iid = inst.get("id")
             st = (inst.get("start") or {}).get("dateTime") or ""
             date_only = st.split("T", 1)[0] if "T" in st else st
             if iid and date_only in ex_set:
-                del_url = f"{GRAPH}/me/events/{iid}" if not calendar_id else f"{GRAPH}/me/calendars/{calendar_id}/events/{iid}"
-                _requests().delete(del_url, headers=self._headers())
+                _requests().delete(self._event_endpoint(calendar_id, iid), headers=self._headers())
 
     # -------------------- Event Updates --------------------
+    def _patch_event(
+        self: OutlookClientBase,
+        event_id: str,
+        calendar_id: Optional[str],
+        calendar_name: Optional[str],
+        body: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Patch an event and return the result."""
+        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
+        r = _requests().patch(self._event_endpoint(cal_id, event_id), headers=self._headers(), json=body)
+        r.raise_for_status()
+        return r.json() if r.text else {}
+
     def update_event_location(
         self: OutlookClientBase,
         *,
@@ -325,17 +346,10 @@ class OutlookCalendarMixin:
         location_obj: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Patch the location of an event or series master."""
-        cal_id = calendar_id
-        if not cal_id and calendar_name:
-            cal_id = self.get_calendar_id_by_name(calendar_name)
         if not (location_obj or (location_str and location_str.strip())):
             raise ValueError("Must provide location_str or location_obj")
         loc = location_obj or _parse_location(str(location_str))
-        endpoint = f"{GRAPH}/me/events/{event_id}" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/events/{event_id}"
-        body = {"location": loc}
-        r = _requests().patch(endpoint, headers=self._headers(), json=body)
-        r.raise_for_status()
-        return r.json() if r.text else {}
+        return self._patch_event(event_id, calendar_id, calendar_name, {"location": loc})
 
     def update_event_reminder(
         self: OutlookClientBase,
@@ -347,16 +361,10 @@ class OutlookCalendarMixin:
         minutes_before_start: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Patch event reminder fields."""
-        cal_id = calendar_id
-        if not cal_id and calendar_name:
-            cal_id = self.get_calendar_id_by_name(calendar_name)
-        endpoint = f"{GRAPH}/me/events/{event_id}" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/events/{event_id}"
         body: Dict[str, Any] = {"isReminderOn": bool(is_on)}
         if minutes_before_start is not None:
             body["reminderMinutesBeforeStart"] = int(minutes_before_start)
-        r = _requests().patch(endpoint, headers=self._headers(), json=body)
-        r.raise_for_status()
-        return r.json() if r.text else {}
+        return self._patch_event(event_id, calendar_id, calendar_name, body)
 
     def update_event_settings(
         self: OutlookClientBase,
@@ -371,10 +379,6 @@ class OutlookCalendarMixin:
         reminder_minutes: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Patch selected event fields in one request."""
-        cal_id = calendar_id
-        if not cal_id and calendar_name:
-            cal_id = self.get_calendar_id_by_name(calendar_name)
-        endpoint = f"{GRAPH}/me/events/{event_id}" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/events/{event_id}"
         body: Dict[str, Any] = {}
         if categories is not None:
             body["categories"] = list(categories)
@@ -388,9 +392,7 @@ class OutlookCalendarMixin:
             body["reminderMinutesBeforeStart"] = int(reminder_minutes)
         if not body:
             return {}
-        r = _requests().patch(endpoint, headers=self._headers(), json=body)
-        r.raise_for_status()
-        return r.json() if r.text else {}
+        return self._patch_event(event_id, calendar_id, calendar_name, body)
 
     def update_event_subject(
         self: OutlookClientBase,
@@ -401,22 +403,14 @@ class OutlookCalendarMixin:
         subject: str,
     ) -> Dict[str, Any]:
         """Patch the subject/title of an event or series master."""
-        cal_id = calendar_id
-        if not cal_id and calendar_name:
-            cal_id = self.get_calendar_id_by_name(calendar_name)
-        endpoint = f"{GRAPH}/me/events/{event_id}" if not cal_id else f"{GRAPH}/me/calendars/{cal_id}/events/{event_id}"
-        body: Dict[str, Any] = {"subject": subject}
-        r = _requests().patch(endpoint, headers=self._headers(), json=body)
-        r.raise_for_status()
-        return r.json() if r.text else {}
+        return self._patch_event(event_id, calendar_id, calendar_name, {"subject": subject})
 
     def delete_event(
         self: OutlookClientBase,
         event_id: str,
         calendar_id: Optional[str] = None
     ) -> None:
-        base = f"{GRAPH}/me/events/{event_id}" if not calendar_id else f"{GRAPH}/me/calendars/{calendar_id}/events/{event_id}"
-        r = _requests().delete(base, headers=self._headers())
+        r = _requests().delete(self._event_endpoint(calendar_id, event_id), headers=self._headers())
         if r.status_code not in (200, 202, 204):
             r.raise_for_status()
 
