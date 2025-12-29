@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from .constants import FOLDERS
-
 # Explicit Apple app mappings
 _APPLE_APPS: Dict[str, str] = {
     "com.apple.mobileslideshow": "Media",  # Photos

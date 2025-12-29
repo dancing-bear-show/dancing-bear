@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest import TestCase
+from unittest import TestCase, main as unittest_main
 from unittest.mock import MagicMock
 
-from tests.calendars_tests.fixtures import make_outlook_event
+from calendars.outlook_pipelines._base import ERR_CODE_CALENDAR, ERR_CODE_API
 
 
 # --- dedup.py helper tests ---
@@ -94,7 +94,7 @@ class TestScheduleImportHelpers(TestCase):
         cal_id, err = proc._ensure_calendar(svc, "Bad")
         self.assertIsNone(cal_id)
         self.assertIsNotNone(err)
-        self.assertEqual(err.diagnostics["code"], 3)
+        self.assertEqual(err.diagnostics["code"], ERR_CODE_CALENDAR)
 
     def test_load_items_success(self):
         items = [MagicMock(subject="Test")]
@@ -111,7 +111,7 @@ class TestScheduleImportHelpers(TestCase):
         payload = OutlookScheduleImportRequest(source="f.csv", kind=None, calendar=None, tz=None, until=None, dry_run=False, no_reminder=False, service=MagicMock())
         result, err = proc._load_items(payload)
         self.assertIsNone(result)
-        self.assertEqual(err.diagnostics["code"], 4)
+        self.assertEqual(err.diagnostics["code"], ERR_CODE_API)
 
     def test_create_one_off_dry_run(self):
         proc = self._make_processor()
@@ -200,5 +200,4 @@ class TestAddHelpers(TestCase):
 
 
 if __name__ == "__main__":
-    import unittest
-    unittest.main()
+    unittest_main()

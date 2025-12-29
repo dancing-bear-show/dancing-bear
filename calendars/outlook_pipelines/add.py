@@ -9,6 +9,7 @@ from ._base import (
     List,
     Optional,
     Path,
+    Tuple,
     Processor,
     ResultEnvelope,
     normalize_event,
@@ -70,7 +71,7 @@ class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAdd
             return self._create_recurring(idx, nev, subj, no_rem, rem_minutes, payload, logs)
         return self._create_single(idx, nev, subj, no_rem, rem_minutes, payload, logs)
 
-    def _resolve_reminder(self, nev: Dict[str, Any], payload: OutlookAddRequest):
+    def _resolve_reminder(self, nev: Dict[str, Any], payload: OutlookAddRequest) -> Tuple[bool, Optional[int]]:
         yaml_is_off = (nev.get("is_reminder_on") is False)
         rem_minutes = nev.get("reminder_minutes")
         no_rem = payload.force_no_reminder or yaml_is_off
