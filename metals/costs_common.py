@@ -167,8 +167,9 @@ def _group_key(r: Dict[str, str]) -> Tuple[str, str, str]:
 
 def _dedup_key(r: Dict[str, str]) -> str:
     """Key for deduplicating rows."""
+    vendor, order_id, metal = _group_key(r)
     return '|'.join([
-        _group_key(r)[0], _group_key(r)[1], _group_key(r)[2],
+        vendor, order_id, metal,
         r.get('cost_total') or '', r.get('units_breakdown') or '',
     ])
 
