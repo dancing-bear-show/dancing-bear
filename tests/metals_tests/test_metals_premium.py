@@ -8,6 +8,8 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.metals_tests.fixtures import make_premium_row, temp_premium_csv
+
 from metals.premium import (
     CostRow,
     _parse_costs,
@@ -46,45 +48,42 @@ class TestParseCosts(unittest.TestCase):
 
     def test_parses_valid_csv(self):
         """Test parsing valid costs CSV."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            w = csv.writer(f)
-            w.writerow(["date", "vendor", "metal", "currency", "cost_per_oz", "total_oz", "order_id", "units_breakdown"])
-            w.writerow(["2024-01-15", "TD", "silver", "CAD", "35.00", "10.0", "12345", "1ozx10"])
-            w.writerow(["2024-01-16", "Costco", "gold", "CAD", "2500.00", "1.0", "12346", "1ozx1"])
-            w.writerow(["2024-01-17", "RCM", "silver", "CAD", "38.00", "5.0", "12347", "0.5ozx10"])
-            f.flush()
-
-            rows = _parse_costs(f.name, "silver")
+        rows_data = [
+            make_premium_row(date="2024-01-15", vendor="TD", metal="silver", cost_per_oz=35.0, total_oz=10.0, order_id="12345"),
+            make_premium_row(date="2024-01-16", vendor="Costco", metal="gold", cost_per_oz=2500.0, total_oz=1.0, order_id="12346"),
+            make_premium_row(date="2024-01-17", vendor="RCM", metal="silver", cost_per_oz=38.0, total_oz=5.0, order_id="12347", units_breakdown="0.5ozx10"),
+        ]
+        with temp_premium_csv(rows_data) as path:
+            rows = _parse_costs(path, "silver")
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[0].vendor, "TD")
             self.assertEqual(rows[1].vendor, "RCM")
 
     def test_filters_by_metal(self):
         """Test filters rows by metal type."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            w = csv.writer(f)
-            w.writerow(["date", "vendor", "metal", "currency", "cost_per_oz", "total_oz", "order_id", "units_breakdown"])
-            w.writerow(["2024-01-15", "TD", "silver", "CAD", "35.00", "10.0", "12345", "1ozx10"])
-            w.writerow(["2024-01-16", "TD", "gold", "CAD", "2500.00", "1.0", "12346", "1ozx1"])
-            f.flush()
-
-            silver_rows = _parse_costs(f.name, "silver")
-            gold_rows = _parse_costs(f.name, "gold")
+        rows_data = [
+            make_premium_row(vendor="TD", metal="silver", order_id="12345"),
+            make_premium_row(vendor="TD", metal="gold", cost_per_oz=2500.0, total_oz=1.0, order_id="12346", units_breakdown="1ozx1"),
+        ]
+        with temp_premium_csv(rows_data) as path:
+            silver_rows = _parse_costs(path, "silver")
+            gold_rows = _parse_costs(path, "gold")
             self.assertEqual(len(silver_rows), 1)
             self.assertEqual(len(gold_rows), 1)
 
     def test_skips_invalid_rows(self):
         """Test skips rows with invalid cost/oz values."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            w = csv.writer(f)
-            w.writerow(["date", "vendor", "metal", "currency", "cost_per_oz", "total_oz", "order_id", "units_breakdown"])
-            w.writerow(["2024-01-15", "TD", "silver", "CAD", "35.00", "10.0", "12345", "1ozx10"])
-            w.writerow(["2024-01-16", "TD", "silver", "CAD", "-5.00", "10.0", "12346", "1ozx10"])  # negative cost
-            w.writerow(["2024-01-17", "TD", "silver", "CAD", "35.00", "0", "12347", "1ozx10"])  # zero oz
-            w.writerow(["2024-01-18", "TD", "silver", "CAD", "invalid", "10.0", "12348", "1ozx10"])  # invalid number
-            f.flush()
-
-            rows = _parse_costs(f.name, "silver")
+        rows_data = [
+            make_premium_row(vendor="TD", metal="silver", order_id="12345"),
+            {"date": "2024-01-16", "vendor": "TD", "metal": "silver", "currency": "CAD",
+             "cost_per_oz": -5.0, "total_oz": 10.0, "order_id": "12346", "units_breakdown": "1ozx10"},  # negative
+            {"date": "2024-01-17", "vendor": "TD", "metal": "silver", "currency": "CAD",
+             "cost_per_oz": 35.0, "total_oz": 0, "order_id": "12347", "units_breakdown": "1ozx10"},  # zero oz
+            {"date": "2024-01-18", "vendor": "TD", "metal": "silver", "currency": "CAD",
+             "cost_per_oz": "invalid", "total_oz": 10.0, "order_id": "12348", "units_breakdown": "1ozx10"},  # invalid
+        ]
+        with temp_premium_csv(rows_data) as path:
+            rows = _parse_costs(path, "silver")
             self.assertEqual(len(rows), 1)
 
 

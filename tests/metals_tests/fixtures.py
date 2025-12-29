@@ -204,6 +204,54 @@ def temp_premium_csv(rows: List[Dict[str, str | float]]):
     os.unlink(f.name)
 
 
+# Summary CSV helpers (for build_summaries tests)
+SUMMARY_HEADERS = ["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]
+
+
+def make_summary_row(
+    date: str = DEFAULT_DATE,
+    order_id: str = "12345",
+    vendor: str = "TD",
+    metal: str = "gold",
+    total_oz: float = 1.0,
+    cost_per_oz: float = 2500.0,
+) -> Dict[str, str | float]:
+    """Create a summary row dict for build_summaries tests."""
+    return {
+        "date": date,
+        "order_id": order_id,
+        "vendor": vendor,
+        "metal": metal,
+        "total_oz": total_oz,
+        "cost_per_oz": cost_per_oz,
+    }
+
+
+@contextmanager
+def temp_summary_csv(rows: List[Dict[str, str | float]]):
+    """Context manager that yields path to a temporary summary CSV."""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".csv", delete=False, newline=""
+    ) as f:
+        w = csv.DictWriter(f, fieldnames=SUMMARY_HEADERS)
+        w.writeheader()
+        for row in rows:
+            w.writerow(row)
+        f.flush()
+        yield f.name
+    os.unlink(f.name)
+
+
+def write_summary_csv(path: str, rows: List[Dict[str, str | float]]) -> str:
+    """Write a summary CSV file at the given path."""
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=SUMMARY_HEADERS)
+        w.writeheader()
+        for row in rows:
+            w.writerow(row)
+    return path
+
+
 # Line item test helpers
 def make_line_item_text(
     oz: float = 1.0,

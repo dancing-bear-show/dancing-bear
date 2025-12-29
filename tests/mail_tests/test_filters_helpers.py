@@ -1,6 +1,6 @@
 import mail.__main__ as cli
 
-from tests.mail_tests.fixtures import FakeGmailClient
+from tests.mail_tests.fixtures import FakeGmailClient, make_user_label, make_system_label
 
 
 def test_build_gmail_query_negated_and_attach():
@@ -14,8 +14,8 @@ def test_build_gmail_query_negated_and_attach():
 
 def test_action_to_label_changes_resolution():
     client = FakeGmailClient(labels=[
-        {"id": "L1", "name": "Lists/Newsletters"},
-        {"id": "INBOX", "name": "INBOX"},
+        make_user_label("Lists/Newsletters", "L1"),
+        make_system_label("INBOX"),
     ])
     add, rem = cli._action_to_label_changes(
         client,

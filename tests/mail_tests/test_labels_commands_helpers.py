@@ -3,41 +3,19 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.mail_tests.fixtures import FakeGmailClient, capture_stdout
+from tests.mail_tests.fixtures import (
+    FakeGmailClient,
+    capture_stdout,
+    make_user_label,
+    make_system_label,
+    make_label_with_visibility,
+    make_message,
+)
+
 
 # -----------------------------------------------------------------------------
-# Fixtures: Common test data
+# Local test helpers
 # -----------------------------------------------------------------------------
-
-
-def make_user_label(name: str, label_id: str = None, messages: int = 0, **kwargs) -> dict:
-    """Create a user label dict for testing."""
-    return {
-        "id": label_id or f"LBL_{name}",
-        "name": name,
-        "type": "user",
-        "messagesTotal": messages,
-        **kwargs,
-    }
-
-
-def make_system_label(name: str) -> dict:
-    """Create a system label dict for testing."""
-    return {"id": name, "name": name, "type": "system", "messagesTotal": 0}
-
-
-def make_label_with_visibility(name: str, label_id: str = None) -> dict:
-    """Create a user label with visibility settings."""
-    return {
-        **make_user_label(name, label_id),
-        "labelListVisibility": "labelShow",
-        "messageListVisibility": "show",
-    }
-
-
-def make_message(msg_id: str, label_ids: list = None) -> dict:
-    """Create a message dict for testing."""
-    return {"id": msg_id, "labelIds": label_ids or []}
 
 
 def make_mock_client_with_headers(header_responses: list) -> MagicMock:
@@ -48,12 +26,6 @@ def make_mock_client_with_headers(header_responses: list) -> MagicMock:
 
 
 # Common test data
-SAMPLE_LABELS = [
-    make_user_label("Work", "L1"),
-    make_user_label("Personal", "L2"),
-    make_user_label("Work/Projects", "L3"),
-]
-
 NESTED_LABELS = [
     {"name": "A"},
     {"name": "A/B"},
