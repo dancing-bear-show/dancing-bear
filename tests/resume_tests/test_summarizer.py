@@ -1,5 +1,7 @@
 """Tests for resume/summarizer.py summary building utilities."""
 
+from __future__ import annotations
+
 import unittest
 
 from resume.summarizer import _keyword_hits, build_summary

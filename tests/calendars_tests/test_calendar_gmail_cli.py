@@ -1,5 +1,7 @@
 """Tests for calendars/cli/gmail.py registration helper."""
 
+from __future__ import annotations
+
 import argparse
 import unittest
 
