@@ -35,7 +35,9 @@ class SubprocessRunner(CommandRunner):
             )
             return CommandResult(stdout=proc.stdout, stderr=proc.stderr, returncode=proc.returncode)
         except subprocess.TimeoutExpired as exc:
-            return CommandResult(stdout=exc.stdout or "", stderr=exc.stderr or "timeout", returncode=124)
+            stdout = exc.stdout.decode(errors="ignore") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode(errors="ignore") if isinstance(exc.stderr, bytes) else (exc.stderr or "timeout")
+            return CommandResult(stdout=stdout, stderr=stderr or "timeout", returncode=124)
         except FileNotFoundError:
             return CommandResult(stdout="", stderr=f"{cmd[0]}: not found", returncode=127)
 
