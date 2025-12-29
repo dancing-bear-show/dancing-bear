@@ -294,6 +294,7 @@ class FakeAutoClient:
     modified_batches: List[tuple] = field(default_factory=list)
 
     def authenticate(self) -> None:
+        """No-op: test fixture does not require authentication."""
         pass
 
     def get_label_id_map(self) -> Dict[str, str]:
