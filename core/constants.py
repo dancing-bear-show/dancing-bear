@@ -90,3 +90,18 @@ DEFAULT_REQUEST_TIMEOUT: Tuple[int, int] = (10, 30)
 DEFAULT_DAYS_BACK = 30
 DEFAULT_DAYS_FORWARD = 180
 DEFAULT_PAGE_SIZE = 500
+
+
+# -----------------------------------------------------------------------------
+# Date/time formatting
+# -----------------------------------------------------------------------------
+
+# ISO time suffixes for full-day range queries
+DAY_START_TIME = "T00:00:00"
+DAY_END_TIME = "T23:59:59"
+
+# strftime formats for ISO datetime
+FMT_DATETIME = "%Y-%m-%dT%H:%M"
+FMT_DATETIME_SEC = "%Y-%m-%dT%H:%M:%S"
+FMT_DAY_START = "%Y-%m-%dT00:00:00"
+FMT_DAY_END = "%Y-%m-%dT23:59:59"
