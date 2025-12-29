@@ -56,6 +56,31 @@ def _is_folder(item: Dict[str, Any]) -> bool:
     return isinstance(item, dict) and ("iconLists" in item) and ("displayName" in item)
 
 
+def _is_app_item(item: Item) -> bool:
+    """Check if a normalized item is an app."""
+    return item.get("kind") == "app"
+
+
+def _is_folder_item(item: Item) -> bool:
+    """Check if a normalized item is a folder."""
+    return item.get("kind") == "folder"
+
+
+def _get_app_id(item: Item) -> Optional[str]:
+    """Get app ID from an app item, or None."""
+    return item.get("id") if _is_app_item(item) else None
+
+
+def _get_folder_apps(item: Item) -> List[str]:
+    """Get apps list from a folder item, or empty list."""
+    return item.get("apps", []) if _is_folder_item(item) else []
+
+
+def _get_folder_name(item: Item) -> str:
+    """Get folder name from a folder item."""
+    return item.get("name", "Folder") if _is_folder_item(item) else ""
+
+
 def _flatten_folder_iconlists(folder_dict: Dict[str, Any]) -> List[str]:
     """Extract all bundle IDs from a folder's iconLists."""
     apps: List[str] = []
@@ -113,10 +138,10 @@ def to_yaml_export(layout: NormalizedLayout) -> Dict[str, Any]:
     for page in layout.pages:
         page_out: Dict[str, Any] = {"apps": [], "folders": []}
         for it in page:
-            if it.get("kind") == "app":
+            if _is_app_item(it):
                 page_out["apps"].append(it["id"])
-            elif it.get("kind") == "folder":
-                page_out["folders"].append({"name": it.get("name"), "apps": it.get("apps", [])})
+            elif _is_folder_item(it):
+                page_out["folders"].append({"name": _get_folder_name(it), "apps": _get_folder_apps(it)})
         export["pages"].append(page_out)
     return export
 
@@ -127,12 +152,11 @@ def _collect_pinned_apps(layout: NormalizedLayout, max_pins: int = 12) -> List[s
     if not layout.pages:
         return pinned
     for it in layout.pages[0]:
-        if it.get("kind") == "app":
-            bid = it.get("id")
-            if bid and bid not in pinned:
-                pinned.append(bid)
-                if len(pinned) >= max_pins:
-                    break
+        bid = _get_app_id(it)
+        if bid and bid not in pinned:
+            pinned.append(bid)
+            if len(pinned) >= max_pins:
+                break
     return pinned
 
 
@@ -141,10 +165,10 @@ def _collect_all_app_ids(layout: NormalizedLayout) -> List[str]:
     all_ids: List[str] = []
     for page in layout.pages:
         for it in page:
-            if it.get("kind") == "app":
-                all_ids.append(it.get("id"))
-            elif it.get("kind") == "folder":
-                all_ids.extend(it.get("apps", []))
+            if _is_app_item(it):
+                all_ids.append(_get_app_id(it))
+            elif _is_folder_item(it):
+                all_ids.extend(_get_folder_apps(it))
     return all_ids
 
 
@@ -273,12 +297,11 @@ def compute_location_map(layout: NormalizedLayout) -> Dict[str, str]:
     for pi, page in enumerate(layout.pages, start=1):
         page_loc = f"Page {pi}"
         for it in page:
-            if it.get("kind") == "app":
-                _add_app_location(loc, it.get("id"), page_loc)
-            elif it.get("kind") == "folder":
-                fname = it.get("name", "Folder")
-                folder_loc = f"{page_loc} > {fname}"
-                for a in it.get("apps", []):
+            if _is_app_item(it):
+                _add_app_location(loc, _get_app_id(it), page_loc)
+            elif _is_folder_item(it):
+                folder_loc = f"{page_loc} > {_get_folder_name(it)}"
+                for a in _get_folder_apps(it):
                     _add_app_location(loc, a, folder_loc)
     return loc
 
@@ -298,10 +321,10 @@ def list_all_apps(layout: NormalizedLayout) -> List[str]:
         _add_unique(apps, seen, a)
     for page in layout.pages:
         for it in page:
-            if it.get("kind") == "app":
-                _add_unique(apps, seen, it.get("id"))
-            elif it.get("kind") == "folder":
-                for a in it.get("apps", []):
+            if _is_app_item(it):
+                _add_unique(apps, seen, _get_app_id(it))
+            elif _is_folder_item(it):
+                for a in _get_folder_apps(it):
                     _add_unique(apps, seen, a)
     return apps
 
@@ -383,8 +406,8 @@ def compute_folder_page_map(layout: NormalizedLayout) -> Dict[str, int]:
     m: Dict[str, int] = {}
     for pi, page in enumerate(layout.pages, start=1):
         for it in page:
-            if it.get("kind") == "folder":
-                name = it.get("name") or "Folder"
+            if _is_folder_item(it):
+                name = _get_folder_name(it)
                 if name not in m:
                     m[name] = pi
     return m
@@ -395,10 +418,9 @@ def compute_root_app_page_map(layout: NormalizedLayout) -> Dict[str, int]:
     m: Dict[str, int] = {}
     for pi, page in enumerate(layout.pages, start=1):
         for it in page:
-            if it.get("kind") == "app":
-                bid = it.get("id")
-                if bid and bid not in m:
-                    m[bid] = pi
+            bid = _get_app_id(it)
+            if bid and bid not in m:
+                m[bid] = pi
     return m
 
 
@@ -409,16 +431,16 @@ def _analyze_pages(layout: NormalizedLayout) -> Tuple[List[Dict], List[Dict], in
     total_root_apps = 0
 
     for idx, page in enumerate(layout.pages, start=1):
-        root_apps = sum(1 for it in page if it.get("kind") == "app")
-        folders = sum(1 for it in page if it.get("kind") == "folder")
+        root_apps = sum(1 for it in page if _is_app_item(it))
+        folders = sum(1 for it in page if _is_folder_item(it))
         total_root_apps += root_apps
 
         for it in page:
-            if it.get("kind") == "folder":
+            if _is_folder_item(it):
                 folder_details.append({
-                    "name": it.get("name") or "Folder",
+                    "name": _get_folder_name(it),
                     "page": idx,
-                    "app_count": len(it.get("apps", []) or []),
+                    "app_count": len(_get_folder_apps(it)),
                 })
 
         pages_info.append({
@@ -442,10 +464,10 @@ def _count_app_occurrences(layout: NormalizedLayout) -> Dict[str, int]:
         _increment_count(counts, a)
     for page in layout.pages:
         for it in page:
-            if it.get("kind") == "app":
-                _increment_count(counts, it.get("id"))
-            elif it.get("kind") == "folder":
-                for a in it.get("apps", []) or []:
+            if _is_app_item(it):
+                _increment_count(counts, _get_app_id(it))
+            elif _is_folder_item(it):
+                for a in _get_folder_apps(it):
                     _increment_count(counts, a)
     return counts
 

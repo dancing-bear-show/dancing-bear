@@ -155,56 +155,54 @@ class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[Outloo
         masters: Dict[str, List[Dict[str, Any]]],
         payload: OutlookDedupRequest,
     ) -> Optional[Tuple[str, List[str]]]:
-        def created_at(sid: str) -> str:
-            vals = [o.get("createdDateTime") or "" for o in masters.get(sid, []) if o.get("createdDateTime")]
-            if not vals:
-                return ""
-            return min(vals)
-
-        def is_standardized(sid: str) -> bool:
-            occs = masters.get(sid) or []
-            for occ in occs:
-                loc = occ.get("location") or {}
-                disp = loc.get("displayName") or ""
-                addr = loc.get("address") or {}
-                if addr and any(addr.get(k) for k in ("street", "city", "state", "postalCode", "countryOrRegion")):
-                    return True
-                if "(" in disp and ")" in disp:
-                    return True
-            return False
-
-        sorted_sids = sorted(series_ids, key=lambda sid: created_at(sid) or "Z")
+        sorted_sids = sorted(series_ids, key=lambda sid: self._created_at(sid, masters) or "Z")
         if not sorted_sids:
             return None
-        newest = sorted_sids[-1]
-        oldest = sorted_sids[0]
-        std = [sid for sid in sorted_sids if is_standardized(sid)]
+
+        newest, oldest = sorted_sids[-1], sorted_sids[0]
+        std = [sid for sid in sorted_sids if self._is_standardized(sid, masters)]
         non = [sid for sid in sorted_sids if sid not in std]
 
-        keep = oldest
-
-        if payload.prefer_delete_nonstandard:
-            if non and std:
-                keep = newest if payload.keep_newest else oldest
-                delete = list(non)
-            else:
-                keep = newest if payload.keep_newest else oldest
-                delete = [sid for sid in sorted_sids if sid != keep]
-        elif payload.delete_standardized:
-            if std and non:
-                if payload.keep_newest:
-                    keep = non[-1] if len(non) > 1 else non[0]
-                else:
-                    keep = non[0]
-                delete = list(std)
-            else:
-                keep = newest if payload.keep_newest else oldest
-                delete = [sid for sid in sorted_sids if sid != keep]
-        else:
-            keep = newest if payload.keep_newest else oldest
-            delete = [sid for sid in sorted_sids if sid != keep]
-
+        keep, delete = self._pick_keep_delete(
+            sorted_sids, std, non, newest, oldest, payload
+        )
         return keep, delete
+
+    def _created_at(self, sid: str, masters: Dict[str, List[Dict[str, Any]]]) -> str:
+        vals = [o.get("createdDateTime") or "" for o in masters.get(sid, []) if o.get("createdDateTime")]
+        return min(vals) if vals else ""
+
+    def _is_standardized(self, sid: str, masters: Dict[str, List[Dict[str, Any]]]) -> bool:
+        addr_keys = ("street", "city", "state", "postalCode", "countryOrRegion")
+        for occ in masters.get(sid) or []:
+            loc = occ.get("location") or {}
+            disp = loc.get("displayName") or ""
+            addr = loc.get("address") or {}
+            if addr and any(addr.get(k) for k in addr_keys):
+                return True
+            if "(" in disp and ")" in disp:
+                return True
+        return False
+
+    def _pick_keep_delete(
+        self,
+        sorted_sids: List[str],
+        std: List[str],
+        non: List[str],
+        newest: str,
+        oldest: str,
+        payload: OutlookDedupRequest,
+    ) -> Tuple[str, List[str]]:
+        base_keep = newest if payload.keep_newest else oldest
+
+        if payload.prefer_delete_nonstandard and non and std:
+            return base_keep, list(non)
+
+        if payload.delete_standardized and std and non:
+            keep = non[-1] if (payload.keep_newest and len(non) > 1) else non[0]
+            return keep, list(std)
+
+        return base_keep, [sid for sid in sorted_sids if sid != base_keep]
 
 
 class OutlookDedupProducer(BaseProducer):
