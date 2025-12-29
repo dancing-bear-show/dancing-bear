@@ -14,8 +14,23 @@ def make_mock_handler(name: str):
     return handler
 
 
-class TestLabelsRegister(unittest.TestCase):
-    """Tests for the labels CLI register function."""
+# Shared mock handlers for all label subcommands
+MOCK_HANDLERS = {
+    "f_list": make_mock_handler("list"),
+    "f_sync": make_mock_handler("sync"),
+    "f_export": make_mock_handler("export"),
+    "f_plan": make_mock_handler("plan"),
+    "f_doctor": make_mock_handler("doctor"),
+    "f_prune_empty": make_mock_handler("prune_empty"),
+    "f_learn": make_mock_handler("learn"),
+    "f_apply_suggestions": make_mock_handler("apply_suggestions"),
+    "f_delete": make_mock_handler("delete"),
+    "f_sweep_parents": make_mock_handler("sweep_parents"),
+}
+
+
+class LabelsRegisterTestCase(unittest.TestCase):
+    """Base test case that sets up the labels CLI parser."""
 
     def setUp(self):
         """Create parser and register labels subcommands."""
@@ -23,22 +38,11 @@ class TestLabelsRegister(unittest.TestCase):
 
         self.parser = argparse.ArgumentParser()
         self.subparsers = self.parser.add_subparsers(dest="command")
+        register(self.subparsers, **MOCK_HANDLERS)
 
-        # Create mock handlers
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
 
-        register(self.subparsers, **self.handlers)
+class TestLabelsRegister(LabelsRegisterTestCase):
+    """Tests for the labels CLI register function."""
 
     def test_labels_group_registered(self):
         """Test that labels group is registered."""
@@ -62,27 +66,8 @@ class TestLabelsRegister(unittest.TestCase):
         self.assertEqual(args.cache, "/path/cache")
 
 
-class TestLabelsListSubcommand(unittest.TestCase):
+class TestLabelsListSubcommand(LabelsRegisterTestCase):
     """Tests for labels list subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_list_registered(self):
         """Test that list subcommand is registered."""
@@ -91,27 +76,8 @@ class TestLabelsListSubcommand(unittest.TestCase):
         self.assertEqual(args.labels_cmd, "list")
 
 
-class TestLabelsSyncSubcommand(unittest.TestCase):
+class TestLabelsSyncSubcommand(LabelsRegisterTestCase):
     """Tests for labels sync subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_sync_requires_config(self):
         """Test that sync requires --config."""
@@ -145,27 +111,8 @@ class TestLabelsSyncSubcommand(unittest.TestCase):
         self.assertTrue(args.sweep_redirects)
 
 
-class TestLabelsExportSubcommand(unittest.TestCase):
+class TestLabelsExportSubcommand(LabelsRegisterTestCase):
     """Tests for labels export subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_export_requires_out(self):
         """Test that export requires --out."""
@@ -179,27 +126,8 @@ class TestLabelsExportSubcommand(unittest.TestCase):
         self.assertEqual(args.out, "labels.yaml")
 
 
-class TestLabelsPlanSubcommand(unittest.TestCase):
+class TestLabelsPlanSubcommand(LabelsRegisterTestCase):
     """Tests for labels plan subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_plan_requires_config(self):
         """Test that plan requires --config."""
@@ -218,27 +146,8 @@ class TestLabelsPlanSubcommand(unittest.TestCase):
         self.assertTrue(args.delete_missing)
 
 
-class TestLabelsDoctorSubcommand(unittest.TestCase):
+class TestLabelsDoctorSubcommand(LabelsRegisterTestCase):
     """Tests for labels doctor subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_doctor_registered(self):
         """Test that doctor subcommand is registered."""
@@ -279,27 +188,8 @@ class TestLabelsDoctorSubcommand(unittest.TestCase):
         self.assertEqual(args.cache_ttl, 600)
 
 
-class TestLabelsPruneEmptySubcommand(unittest.TestCase):
+class TestLabelsPruneEmptySubcommand(LabelsRegisterTestCase):
     """Tests for labels prune-empty subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_prune_empty_registered(self):
         """Test that prune-empty subcommand is registered."""
@@ -332,27 +222,8 @@ class TestLabelsPruneEmptySubcommand(unittest.TestCase):
         self.assertEqual(args.sleep_sec, 0.5)
 
 
-class TestLabelsLearnSubcommand(unittest.TestCase):
+class TestLabelsLearnSubcommand(LabelsRegisterTestCase):
     """Tests for labels learn subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_learn_requires_out(self):
         """Test that learn requires --out."""
@@ -405,27 +276,8 @@ class TestLabelsLearnSubcommand(unittest.TestCase):
         self.assertEqual(args.token, "/path/token.json")
 
 
-class TestLabelsApplySuggestionsSubcommand(unittest.TestCase):
+class TestLabelsApplySuggestionsSubcommand(LabelsRegisterTestCase):
     """Tests for labels apply-suggestions subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_apply_suggestions_requires_config(self):
         """Test that apply-suggestions requires --config."""
@@ -459,27 +311,8 @@ class TestLabelsApplySuggestionsSubcommand(unittest.TestCase):
         self.assertEqual(args.batch_size, 500)
 
 
-class TestLabelsDeleteSubcommand(unittest.TestCase):
+class TestLabelsDeleteSubcommand(LabelsRegisterTestCase):
     """Tests for labels delete subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_delete_requires_name(self):
         """Test that delete requires --name."""
@@ -501,27 +334,8 @@ class TestLabelsDeleteSubcommand(unittest.TestCase):
         self.assertEqual(args.credentials, "/path/creds.json")
 
 
-class TestLabelsSweepParentsSubcommand(unittest.TestCase):
+class TestLabelsSweepParentsSubcommand(LabelsRegisterTestCase):
     """Tests for labels sweep-parents subcommand."""
-
-    def setUp(self):
-        from mail.cli.labels import register
-
-        self.parser = argparse.ArgumentParser()
-        self.subparsers = self.parser.add_subparsers(dest="command")
-        self.handlers = {
-            "f_list": make_mock_handler("list"),
-            "f_sync": make_mock_handler("sync"),
-            "f_export": make_mock_handler("export"),
-            "f_plan": make_mock_handler("plan"),
-            "f_doctor": make_mock_handler("doctor"),
-            "f_prune_empty": make_mock_handler("prune_empty"),
-            "f_learn": make_mock_handler("learn"),
-            "f_apply_suggestions": make_mock_handler("apply_suggestions"),
-            "f_delete": make_mock_handler("delete"),
-            "f_sweep_parents": make_mock_handler("sweep_parents"),
-        }
-        register(self.subparsers, **self.handlers)
 
     def test_sweep_parents_requires_names(self):
         """Test that sweep-parents requires --names."""
