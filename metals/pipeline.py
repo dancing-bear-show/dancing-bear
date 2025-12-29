@@ -24,6 +24,13 @@ class Result(Generic[T]):
     def ok(self) -> bool:
         return self.error is None and self.payload is not None
 
+    def unwrap(self) -> T:
+        """Return payload or raise ValueError. Use after ok() check."""
+        if self.payload is None:
+            msg = (self.diagnostics or {}).get("message", self.error or "No payload")
+            raise ValueError(msg)
+        return self.payload
+
 
 # Protocol definitions for type hints
 RequestT = TypeVar("RequestT")
@@ -258,8 +265,7 @@ class ExtractProducer(Producer[ExtractResult]):
             print(f"Error: {msg}")
             return
 
-        payload = result.payload
-        assert payload is not None
+        payload = result.unwrap()
         total = payload.total
         print(f"gold_oz={total.gold_oz:.3f} silver_oz={total.silver_oz:.3f}")
         print(f"Processed {payload.message_count} messages, found {len(payload.orders)} orders with metals")
