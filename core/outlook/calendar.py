@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .client import OutlookClientBase, _requests, GRAPH
 
+# ISO time suffixes for full-day range queries
+_DAY_START_TIME = "T00:00:00"
+_DAY_END_TIME = "T23:59:59"
+
 
 class OutlookCalendarMixin:
     """Mixin providing calendar and event operations.
@@ -311,7 +315,7 @@ class OutlookCalendarMixin:
     ) -> None:
         start_date = rng.get("startDate")
         end_date = rng.get("endDate") or start_date
-        url = f"{self._event_endpoint(calendar_id, series_id)}/instances?startDateTime={start_date}T00:00:00&endDateTime={end_date}T23:59:59"
+        url = f"{self._event_endpoint(calendar_id, series_id)}/instances?startDateTime={start_date}{_DAY_START_TIME}&endDateTime={end_date}{_DAY_END_TIME}"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
         ex_set = {d.strip() for d in exdates if d and d.strip()}
