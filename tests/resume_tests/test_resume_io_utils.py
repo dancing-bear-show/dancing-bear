@@ -15,6 +15,7 @@ from resume.io_utils import (
     write_text,
     write_yaml_or_json,
 )
+from tests.fixtures import TempDirMixin, temp_yaml_file
 
 
 class TestSafeImport(unittest.TestCase):
@@ -172,99 +173,82 @@ class TestReadYamlOrJson(unittest.TestCase):
                 os.unlink(f.name)
 
     def test_read_yaml_file(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("key: value\nnumber: 42\n")
-            f.flush()
-            try:
-                result = read_yaml_or_json(f.name)
-                self.assertEqual(result["key"], "value")
-                self.assertEqual(result["number"], 42)
-            finally:
-                os.unlink(f.name)
+        with temp_yaml_file({"key": "value", "number": 42}, suffix=".yaml") as path:
+            result = read_yaml_or_json(path)
+            self.assertEqual(result["key"], "value")
+            self.assertEqual(result["number"], 42)
 
     def test_read_yml_file(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
-            f.write("items:\n  - a\n  - b\n")
-            f.flush()
-            try:
-                result = read_yaml_or_json(f.name)
-                self.assertEqual(result["items"], ["a", "b"])
-            finally:
-                os.unlink(f.name)
+        with temp_yaml_file({"items": ["a", "b"]}, suffix=".yml") as path:
+            result = read_yaml_or_json(path)
+            self.assertEqual(result["items"], ["a", "b"])
 
     def test_read_nonexistent_file_raises(self):
         with self.assertRaises(FileNotFoundError):
             read_yaml_or_json("/nonexistent/path/file.json")
 
 
-class TestWriteYamlOrJson(unittest.TestCase):
+class TestWriteYamlOrJson(TempDirMixin, unittest.TestCase):
     """Tests for write_yaml_or_json function."""
 
     def test_write_json_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "output.json"
-            data = {"key": "value", "list": [1, 2, 3]}
-            write_yaml_or_json(data, path)
+        path = Path(self.tmpdir) / "output.json"
+        data = {"key": "value", "list": [1, 2, 3]}
+        write_yaml_or_json(data, path)
 
-            self.assertTrue(path.exists())
-            with open(path) as f:
-                loaded = json.load(f)
-            self.assertEqual(loaded, data)
+        self.assertTrue(path.exists())
+        with open(path) as f:
+            loaded = json.load(f)
+        self.assertEqual(loaded, data)
 
     def test_write_yaml_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "output.yaml"
-            data = {"key": "value", "list": [1, 2, 3]}
-            write_yaml_or_json(data, path)
+        path = Path(self.tmpdir) / "output.yaml"
+        data = {"key": "value", "list": [1, 2, 3]}
+        write_yaml_or_json(data, path)
 
-            self.assertTrue(path.exists())
-            result = read_yaml_or_json(path)
-            self.assertEqual(result, data)
+        self.assertTrue(path.exists())
+        result = read_yaml_or_json(path)
+        self.assertEqual(result, data)
 
     def test_write_creates_parent_directories(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "nested" / "dir" / "output.json"
-            data = {"nested": True}
-            write_yaml_or_json(data, path)
+        path = Path(self.tmpdir) / "nested" / "dir" / "output.json"
+        data = {"nested": True}
+        write_yaml_or_json(data, path)
 
-            self.assertTrue(path.exists())
+        self.assertTrue(path.exists())
 
     def test_write_json_preserves_unicode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "unicode.json"
-            data = {"name": "日本語", "emoji": "🎉"}
-            write_yaml_or_json(data, path)
+        path = Path(self.tmpdir) / "unicode.json"
+        data = {"name": "日本語", "emoji": "🎉"}
+        write_yaml_or_json(data, path)
 
-            content = path.read_text(encoding="utf-8")
-            self.assertIn("日本語", content)
-            self.assertIn("🎉", content)
+        content = path.read_text(encoding="utf-8")
+        self.assertIn("日本語", content)
+        self.assertIn("🎉", content)
 
 
-class TestWriteText(unittest.TestCase):
+class TestWriteText(TempDirMixin, unittest.TestCase):
     """Tests for write_text function."""
 
     def test_write_text_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "output.txt"
-            write_text("Hello, world!", path)
+        path = Path(self.tmpdir) / "output.txt"
+        write_text("Hello, world!", path)
 
-            self.assertTrue(path.exists())
-            self.assertEqual(path.read_text(), "Hello, world!")
+        self.assertTrue(path.exists())
+        self.assertEqual(path.read_text(), "Hello, world!")
 
     def test_write_creates_parent_directories(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "a" / "b" / "c" / "output.txt"
-            write_text("Nested content", path)
+        path = Path(self.tmpdir) / "a" / "b" / "c" / "output.txt"
+        write_text("Nested content", path)
 
-            self.assertTrue(path.exists())
-            self.assertEqual(path.read_text(), "Nested content")
+        self.assertTrue(path.exists())
+        self.assertEqual(path.read_text(), "Nested content")
 
     def test_write_preserves_unicode(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "unicode.txt"
-            write_text("Unicode: 日本語 🎉", path)
+        path = Path(self.tmpdir) / "unicode.txt"
+        write_text("Unicode: 日本語 🎉", path)
 
-            self.assertEqual(path.read_text(encoding="utf-8"), "Unicode: 日本語 🎉")
+        self.assertEqual(path.read_text(encoding="utf-8"), "Unicode: 日本語 🎉")
 
 
 if __name__ == "__main__":
