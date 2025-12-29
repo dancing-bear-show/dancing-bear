@@ -12,6 +12,46 @@ from core.outlook.calendar import (
 )
 
 
+# -------------------- Fixtures --------------------
+
+CALENDAR_WORK = {"id": "cal1", "name": "Work"}
+CALENDAR_PERSONAL = {"id": "cal2", "name": "Personal"}
+CALENDARS_DEFAULT = [CALENDAR_WORK]
+CALENDARS_MULTIPLE = [CALENDAR_WORK, CALENDAR_PERSONAL]
+
+EVENT_BASIC = {"id": "event-1", "subject": "Meeting"}
+EVENT_SERIES = {"id": "series-1", "subject": "Recurring"}
+EVENTS_LIST = [
+    {"id": "e1", "subject": "Team Meeting"},
+    {"id": "e2", "subject": "Lunch Break"},
+    {"id": "e3", "subject": "Team Standup"},
+]
+
+PERMISSION_READ = {"id": "p1", "role": "read"}
+PERMISSION_WRITE = {"id": "p2", "role": "write"}
+PERMISSION_WITH_EMAIL = {"id": "p1", "emailAddress": {"address": "user@example.com"}, "role": "write"}
+
+
+def make_mock_response(json_data=None, status_code=200, text=None):
+    """Create a mock HTTP response object."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = text if text is not None else (str(json_data) if json_data else "")
+    resp.json.return_value = json_data
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+class OutlookCalendarTestBase(unittest.TestCase):
+    """Base class for Outlook calendar tests with common helpers."""
+
+    def _setup_mock_requests(self, mock_requests_fn):
+        """Set up mock requests and return the mock object."""
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+        return mock_requests
+
+
 class TestParseLocation(unittest.TestCase):
     """Tests for _parse_location helper function."""
 
@@ -122,27 +162,27 @@ class TestResolveCalendarId(unittest.TestCase):
     """Tests for _resolve_calendar_id helper method."""
 
     def test_returns_calendar_id_when_provided(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        client = FakeClient(calendars=CALENDARS_DEFAULT)
         result = client._resolve_calendar_id("explicit-id", None)
         self.assertEqual(result, "explicit-id")
 
     def test_returns_calendar_id_over_name(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        client = FakeClient(calendars=CALENDARS_DEFAULT)
         result = client._resolve_calendar_id("explicit-id", "Work")
         self.assertEqual(result, "explicit-id")
 
     def test_looks_up_by_name_when_no_id(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        client = FakeClient(calendars=CALENDARS_DEFAULT)
         result = client._resolve_calendar_id(None, "Work")
         self.assertEqual(result, "cal1")
 
     def test_returns_none_when_neither_provided(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        client = FakeClient(calendars=CALENDARS_DEFAULT)
         result = client._resolve_calendar_id(None, None)
         self.assertIsNone(result)
 
     def test_returns_none_when_name_not_found(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        client = FakeClient(calendars=CALENDARS_DEFAULT)
         result = client._resolve_calendar_id(None, "Nonexistent")
         self.assertIsNone(result)
 
@@ -268,96 +308,57 @@ class TestBuildRecurrenceRange(unittest.TestCase):
         self.assertNotIn("numberOfOccurrences", result)
 
 
-class TestPaginatedGet(unittest.TestCase):
+class TestPaginatedGet(OutlookCalendarTestBase):
     """Tests for _paginated_get helper method."""
-
-    def _make_mock_response(self, json_data=None, status_code=200):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_single_page(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": [{"id": "1"}, {"id": "2"}]})
 
-        data = {"value": [{"id": "1"}, {"id": "2"}]}
-        mock_requests.get.return_value = self._make_mock_response(data)
-
-        client = FakeClient()
-        result = client._paginated_get("https://example.com/api")
+        result = FakeClient()._paginated_get("https://example.com/api")
 
         self.assertEqual(len(result), 2)
         self.assertEqual(mock_requests.get.call_count, 1)
 
     @patch("core.outlook.calendar._requests")
     def test_multiple_pages(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
-
-        page1 = {"value": [{"id": "1"}], "@odata.nextLink": "https://example.com/page2"}
-        page2 = {"value": [{"id": "2"}], "@odata.nextLink": "https://example.com/page3"}
-        page3 = {"value": [{"id": "3"}]}
-
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
-            self._make_mock_response(page1),
-            self._make_mock_response(page2),
-            self._make_mock_response(page3),
+            make_mock_response({"value": [{"id": "1"}], "@odata.nextLink": "https://example.com/page2"}),
+            make_mock_response({"value": [{"id": "2"}], "@odata.nextLink": "https://example.com/page3"}),
+            make_mock_response({"value": [{"id": "3"}]}),
         ]
 
-        client = FakeClient()
-        result = client._paginated_get("https://example.com/api")
+        result = FakeClient()._paginated_get("https://example.com/api")
 
         self.assertEqual(len(result), 3)
         self.assertEqual(mock_requests.get.call_count, 3)
 
     @patch("core.outlook.calendar._requests")
     def test_empty_response(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": []})
 
-        mock_requests.get.return_value = self._make_mock_response({"value": []})
-
-        client = FakeClient()
-        result = client._paginated_get("https://example.com/api")
-
-        self.assertEqual(result, [])
+        self.assertEqual(FakeClient()._paginated_get("https://example.com/api"), [])
 
     @patch("core.outlook.calendar._requests")
     def test_null_value_field(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": None})
 
-        mock_requests.get.return_value = self._make_mock_response({"value": None})
-
-        client = FakeClient()
-        result = client._paginated_get("https://example.com/api")
-
-        self.assertEqual(result, [])
+        self.assertEqual(FakeClient()._paginated_get("https://example.com/api"), [])
 
 
-class TestPatchEvent(unittest.TestCase):
+class TestPatchEvent(OutlookCalendarTestBase):
     """Tests for _patch_event helper method."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_patch_without_calendar_id(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
-
-        client = FakeClient()
-        result = client._patch_event("event-1", None, None, {"subject": "Test"})
+        result = FakeClient()._patch_event("event-1", None, None, {"subject": "Test"})
 
         self.assertEqual(result["id"], "e1")
         call_url = mock_requests.patch.call_args[0][0]
@@ -366,13 +367,10 @@ class TestPatchEvent(unittest.TestCase):
 
     @patch("core.outlook.calendar._requests")
     def test_patch_with_calendar_id(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
-
-        client = FakeClient()
-        result = client._patch_event("event-1", "cal-1", None, {"subject": "Test"})
+        FakeClient()._patch_event("event-1", "cal-1", None, {"subject": "Test"})
 
         call_url = mock_requests.patch.call_args[0][0]
         self.assertIn("calendars/cal-1", call_url)
@@ -380,195 +378,132 @@ class TestPatchEvent(unittest.TestCase):
 
     @patch("core.outlook.calendar._requests")
     def test_patch_with_calendar_name(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
+        FakeClient(calendars=[{"id": "cal-from-name", "name": "Work"}])._patch_event(
+            "event-1", None, "Work", {"subject": "Test"}
+        )
 
-        client = FakeClient(calendars=[{"id": "cal-from-name", "name": "Work"}])
-        client._patch_event("event-1", None, "Work", {"subject": "Test"})
-
-        call_url = mock_requests.patch.call_args[0][0]
-        self.assertIn("calendars/cal-from-name", call_url)
+        self.assertIn("calendars/cal-from-name", mock_requests.patch.call_args[0][0])
 
     @patch("core.outlook.calendar._requests")
     def test_patch_empty_response(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response(None, text="")
 
-        mock_requests.patch.return_value = self._make_mock_response(None, text="")
-
-        client = FakeClient()
-        result = client._patch_event("event-1", None, None, {"subject": "Test"})
-
-        self.assertEqual(result, {})
+        self.assertEqual(FakeClient()._patch_event("event-1", None, None, {"subject": "Test"}), {})
 
 
-class TestOutlookCalendarMixin(unittest.TestCase):
+class TestOutlookCalendarMixin(OutlookCalendarTestBase):
     """Tests for OutlookCalendarMixin methods."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_list_calendars(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": CALENDARS_MULTIPLE})
 
-        calendars = [{"id": "cal1", "name": "Work"}, {"id": "cal2", "name": "Personal"}]
-        mock_requests.get.return_value = self._make_mock_response({"value": calendars})
-
-        client = FakeClient()
-        # Call the mixin method directly
-        result = OutlookCalendarMixin.list_calendars(client)
+        result = OutlookCalendarMixin.list_calendars(FakeClient())
 
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["name"], "Work")
 
     @patch("core.outlook.calendar._requests")
     def test_list_calendars_pagination(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
-
-        # First page with nextLink
-        page1 = {"value": [{"id": "cal1", "name": "Cal1"}], "@odata.nextLink": "http://next"}
-        page2 = {"value": [{"id": "cal2", "name": "Cal2"}]}
-
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
-            self._make_mock_response(page1),
-            self._make_mock_response(page2),
+            make_mock_response({"value": [CALENDAR_WORK], "@odata.nextLink": "http://next"}),
+            make_mock_response({"value": [CALENDAR_PERSONAL]}),
         ]
 
-        client = FakeClient()
-        result = OutlookCalendarMixin.list_calendars(client)
+        result = OutlookCalendarMixin.list_calendars(FakeClient())
 
         self.assertEqual(len(result), 2)
         self.assertEqual(mock_requests.get.call_count, 2)
 
     @patch("core.outlook.calendar._requests")
     def test_create_calendar(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response({"id": "new-cal", "name": "New Calendar"})
 
-        created = {"id": "new-cal", "name": "New Calendar"}
-        mock_requests.post.return_value = self._make_mock_response(created)
-
-        client = FakeClient()
-        result = OutlookCalendarMixin.create_calendar(client, "New Calendar")
+        result = OutlookCalendarMixin.create_calendar(FakeClient(), "New Calendar")
 
         self.assertEqual(result["id"], "new-cal")
         mock_requests.post.assert_called_once()
 
     def test_ensure_calendar_empty_name_raises(self):
-        client = FakeClient()
         with self.assertRaises(ValueError):
-            OutlookCalendarMixin.ensure_calendar(client, "")
+            OutlookCalendarMixin.ensure_calendar(FakeClient(), "")
 
     @patch("core.outlook.calendar._requests")
     def test_ensure_calendar_exists_returns_existing(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
 
-        calendars = [{"id": "existing-id", "name": "Work"}]
-        # Pass calendars to FakeClient since list_calendars is overridden
-        client = FakeClient(calendars=calendars)
-        result = OutlookCalendarMixin.ensure_calendar(client, "Work")
+        result = OutlookCalendarMixin.ensure_calendar(
+            FakeClient(calendars=[{"id": "existing-id", "name": "Work"}]), "Work"
+        )
 
         self.assertEqual(result, "existing-id")
-        # Should not call POST since calendar exists
         mock_requests.post.assert_not_called()
 
     @patch("core.outlook.calendar._requests")
     def test_ensure_calendar_creates_when_missing(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": []})
+        mock_requests.post.return_value = make_mock_response({"id": "new-id", "name": "New"})
 
-        # Empty list - no calendars
-        mock_requests.get.return_value = self._make_mock_response({"value": []})
-        mock_requests.post.return_value = self._make_mock_response({"id": "new-id", "name": "New"})
-
-        client = FakeClient()
-        result = OutlookCalendarMixin.ensure_calendar(client, "New")
+        result = OutlookCalendarMixin.ensure_calendar(FakeClient(), "New")
 
         self.assertEqual(result, "new-id")
         mock_requests.post.assert_called_once()
 
     def test_get_calendar_id_by_name_empty(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
-        result = OutlookCalendarMixin.get_calendar_id_by_name(client, "")
-        self.assertIsNone(result)
+        self.assertIsNone(FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name(""))
 
     def test_get_calendar_id_by_name_found(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
-        # Use FakeClient's implementation which we're testing through
-        result = client.get_calendar_id_by_name("Work")
-        self.assertEqual(result, "cal1")
+        self.assertEqual(FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name("Work"), "cal1")
 
     def test_get_calendar_id_by_name_not_found(self):
-        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
-        result = client.get_calendar_id_by_name("Personal")
-        self.assertIsNone(result)
+        self.assertIsNone(FakeClient(calendars=CALENDARS_DEFAULT).get_calendar_id_by_name("Personal"))
 
     def test_get_calendar_id_by_name_case_insensitive(self):
         client = FakeClient(calendars=[{"id": "cal1", "name": "Work Calendar"}])
-        result = client.get_calendar_id_by_name("work calendar")
-        self.assertEqual(result, "cal1")
+        self.assertEqual(client.get_calendar_id_by_name("work calendar"), "cal1")
 
 
-class TestCalendarPermissions(unittest.TestCase):
+class TestCalendarPermissions(OutlookCalendarTestBase):
     """Tests for calendar permission methods."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_list_calendar_permissions(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": [PERMISSION_READ, PERMISSION_WRITE]})
 
-        perms = [{"id": "p1", "role": "read"}, {"id": "p2", "role": "write"}]
-        mock_requests.get.return_value = self._make_mock_response({"value": perms})
-
-        client = FakeClient()
-        result = OutlookCalendarMixin.list_calendar_permissions(client, "cal-id")
+        result = OutlookCalendarMixin.list_calendar_permissions(FakeClient(), "cal-id")
 
         self.assertEqual(len(result), 2)
 
     @patch("core.outlook.calendar._requests")
     def test_ensure_calendar_permission_creates_new(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": []})
+        mock_requests.post.return_value = make_mock_response({"id": "new-perm", "role": "write"})
 
-        # No existing permissions
-        mock_requests.get.return_value = self._make_mock_response({"value": []})
-        mock_requests.post.return_value = self._make_mock_response({"id": "new-perm", "role": "write"})
-
-        client = FakeClient()
-        result = OutlookCalendarMixin.ensure_calendar_permission(client, "cal-id", "user@example.com", "write")
+        result = OutlookCalendarMixin.ensure_calendar_permission(
+            FakeClient(), "cal-id", "user@example.com", "write"
+        )
 
         self.assertEqual(result["role"], "write")
         mock_requests.post.assert_called_once()
 
     @patch("core.outlook.calendar._requests")
     def test_ensure_calendar_permission_returns_existing(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": [PERMISSION_WITH_EMAIL]})
 
-        existing = [{"id": "p1", "emailAddress": {"address": "user@example.com"}, "role": "write"}]
-        mock_requests.get.return_value = self._make_mock_response({"value": existing})
-
-        client = FakeClient()
-        result = OutlookCalendarMixin.ensure_calendar_permission(client, "cal-id", "user@example.com", "write")
+        result = OutlookCalendarMixin.ensure_calendar_permission(
+            FakeClient(), "cal-id", "user@example.com", "write"
+        )
 
         self.assertEqual(result["id"], "p1")
         mock_requests.post.assert_not_called()
@@ -576,15 +511,14 @@ class TestCalendarPermissions(unittest.TestCase):
 
     @patch("core.outlook.calendar._requests")
     def test_ensure_calendar_permission_updates_role(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
-
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
         existing = [{"id": "p1", "emailAddress": {"address": "user@example.com"}, "role": "read"}]
-        mock_requests.get.return_value = self._make_mock_response({"value": existing})
-        mock_requests.patch.return_value = self._make_mock_response({"id": "p1", "role": "write"})
+        mock_requests.get.return_value = make_mock_response({"value": existing})
+        mock_requests.patch.return_value = make_mock_response({"id": "p1", "role": "write"})
 
-        client = FakeClient()
-        result = OutlookCalendarMixin.ensure_calendar_permission(client, "cal-id", "user@example.com", "write")
+        result = OutlookCalendarMixin.ensure_calendar_permission(
+            FakeClient(), "cal-id", "user@example.com", "write"
+        )
 
         self.assertEqual(result["role"], "write")
         mock_requests.patch.assert_called_once()
