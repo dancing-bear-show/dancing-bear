@@ -16,6 +16,7 @@ from ._base import (
     RequestConsumer,
     load_events_config,
     to_iso_str,
+    LOG_DRY_RUN,
 )
 
 
@@ -81,7 +82,7 @@ class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAdd
         cal_name = nev.get("calendar")
         if payload.dry_run:
             logs.append(
-                f"[dry-run][{idx}] would create recurring: subj='{subj}', cal='{cal_name or '<primary>'}', "
+                f"{LOG_DRY_RUN}[{idx}] would create recurring: subj='{subj}', cal='{cal_name or '<primary>'}', "
                 f"byday={nev.get('byday')}, time={nev.get('start_time')}-{nev.get('end_time')}, range={nev.get('range')}"
             )
             return 1
@@ -110,7 +111,7 @@ class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAdd
             return 0
         if payload.dry_run:
             logs.append(
-                f"[dry-run][{idx}] would create single: subj='{subj}', cal='{cal_name or '<primary>'}', "
+                f"{LOG_DRY_RUN}[{idx}] would create single: subj='{subj}', cal='{cal_name or '<primary>'}', "
                 f"start={start_iso}, end={end_iso}"
             )
             return 1

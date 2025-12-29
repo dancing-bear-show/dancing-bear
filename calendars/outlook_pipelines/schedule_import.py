@@ -97,9 +97,9 @@ class OutlookScheduleImportProcessor(
         try:
             return loader(payload.source, kind=payload.kind), None
         except (ValueError, NotImplementedError) as exc:
-            return None, ResultEnvelope(status="error", diagnostics={"message": str(exc), "code": 4})
+            return None, ResultEnvelope(status="error", diagnostics={"message": str(exc), "code": ERR_CODE_API})
         except Exception as exc:
-            return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to load schedule: {exc}", "code": 4})
+            return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to load schedule: {exc}", "code": ERR_CODE_API})
 
     def _process_item(self, item, svc, cal_id: str, cal_name: str, payload: OutlookScheduleImportRequest, logs: List[str]) -> int:
         # One-off event
@@ -116,7 +116,7 @@ class OutlookScheduleImportProcessor(
 
     def _create_one_off(self, item, svc, cal_id: str, cal_name: str, payload: OutlookScheduleImportRequest, logs: List[str]) -> int:
         if payload.dry_run:
-            logs.append(f"[dry-run] would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{cal_name}'")
+            logs.append(f"{LOG_DRY_RUN} would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{cal_name}'")
             return 1
         try:
             svc.create_event(
@@ -135,7 +135,7 @@ class OutlookScheduleImportProcessor(
         range_until = payload.until or item.range_until
         if payload.dry_run:
             extra = f" {','.join(item.byday or [])}" if item.byday else ""
-            logs.append(f"[dry-run] would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{cal_name}'")
+            logs.append(f"{LOG_DRY_RUN} would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{cal_name}'")
             return 1
         try:
             svc.create_recurring_event(
