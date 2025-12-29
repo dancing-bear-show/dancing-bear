@@ -9,22 +9,26 @@ with a single YAML source of truth for Gmail and Outlook filters.
 - Create venv and install:
   - `make venv`
 - See help:
-  - `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker> --help`
-  - `./bin/mail-assistant --help`
-  - `./bin/calendar-assistant --help`
-  - `./bin/schedule-assistant --help`
+  - `./bin/assistant <apple-music|calendar|mail|maker|metals|phone|resume|schedule|whatsapp|wifi> --help`
+  - `./bin/mail --help`
+  - `./bin/calendar --help`
+  - `./bin/schedule --help`
 
 ## Core CLIs
 
-- Mail (Gmail and Outlook): `./bin/mail-assistant`
-- Calendar (Outlook + Gmail scans): `./bin/calendar-assistant`
-- Schedule (plan/apply calendar events): `./bin/schedule-assistant`
-- Phone (iOS layout tooling): `./bin/phone` or `./bin/phone-assistant`
+- Mail (Gmail and Outlook): `./bin/mail`
+- Calendar (Outlook + Gmail scans): `./bin/calendar`
+- Schedule (plan/apply calendar events): `./bin/schedule`
+- Resume (extract/summarize/render): `./bin/assistant resume`
+- Phone (iOS layout tooling): `./bin/phone`
 - WhatsApp (local-only search): `./bin/whatsapp`
-- WiFi (diagnostics): `./bin/wifi` or `./bin/wifi-assistant`
+- WiFi (diagnostics): `./bin/wifi`
 - Metals (precious metals tracking): `./bin/metals`
 - Apple Music: `./bin/apple-music-assistant`
+- Desk (macOS filesystem tidying): `python3 -m desk`
 - Maker tools: `./bin/maker`
+
+Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
 ## Credentials and Profiles
 
@@ -54,14 +58,14 @@ Legacy paths still supported:
 ## Mail Workflows (Gmail and Outlook)
 
 Labels:
-- Export: `./bin/mail-assistant labels export --out labels.yaml`
-- Plan: `./bin/mail-assistant labels plan --config labels.yaml [--delete-missing]`
-- Sync: `./bin/mail-assistant labels sync --config labels.yaml --dry-run`
+- Export: `./bin/mail labels export --out labels.yaml`
+- Plan: `./bin/mail labels plan --config labels.yaml [--delete-missing]`
+- Sync: `./bin/mail labels sync --config labels.yaml --dry-run`
 
 Filters:
-- Export: `./bin/mail-assistant filters export --out filters.yaml`
-- Plan: `./bin/mail-assistant filters plan --config filters.yaml [--delete-missing]`
-- Sync: `./bin/mail-assistant filters sync --config filters.yaml --dry-run`
+- Export: `./bin/mail filters export --out filters.yaml`
+- Plan: `./bin/mail filters plan --config filters.yaml [--delete-missing]`
+- Sync: `./bin/mail filters sync --config filters.yaml --dry-run`
 
 Unified filters source of truth:
 - Gmail only:
@@ -72,9 +76,16 @@ Unified filters source of truth:
   - `--no-outlook-move-to-folders` to disable Outlook folder moves
 
 Outlook auth (device code):
-- Start: `./bin/mail-assistant --profile outlook_personal outlook auth device-code`
-- Complete: `./bin/mail-assistant --profile outlook_personal outlook auth poll --flow ~/.config/msal_flow.json --token ~/.config/outlook_token.json`
-- One-shot (silent if cached): `./bin/mail-assistant --profile outlook_personal outlook auth ensure`
+- Start: `./bin/mail --profile outlook_personal outlook auth device-code`
+- Complete: `./bin/mail --profile outlook_personal outlook auth poll --flow ~/.config/msal_flow.json --token ~/.config/outlook_token.json`
+- One-shot (silent if cached): `./bin/mail --profile outlook_personal outlook auth ensure`
+
+Other mail commands:
+- Messages: `./bin/mail messages search --query "from:example@gmail.com"`
+- Auto categorization: `./bin/mail auto propose` / `./bin/mail auto apply`
+- Forwarding: `./bin/mail forwarding list` / `./bin/mail forwarding add`
+- Signatures: `./bin/mail signatures export` / `./bin/mail signatures sync`
+- Backup: `./bin/mail backup --out backups/`
 
 ## Calendar (Outlook)
 
@@ -90,11 +101,20 @@ Locations and cleanup:
 ## Schedule Assistant
 
 Plan, apply, verify, and sync events:
-- Plan: `./bin/schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml`
-- Apply (dry-run): `./bin/schedule-assistant apply --plan out/schedule.plan.yaml --dry-run`
-- Apply: `./bin/schedule-assistant apply --plan out/schedule.plan.yaml --apply --calendar "Your Family"`
-- Verify: `./bin/schedule-assistant verify --plan out/schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31`
-- Sync: `./bin/schedule-assistant sync --plan out/schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31 --dry-run`
+- Plan: `./bin/schedule plan --source schedules/classes.csv --out out/schedule.plan.yaml`
+- Apply (dry-run): `./bin/schedule apply --plan out/schedule.plan.yaml --dry-run`
+- Apply: `./bin/schedule apply --plan out/schedule.plan.yaml --apply --calendar "Your Family"`
+- Verify: `./bin/schedule verify --plan out/schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31`
+- Sync: `./bin/schedule sync --plan out/schedule.plan.yaml --calendar "Your Family" --from 2025-10-01 --to 2025-12-31 --dry-run`
+
+## Resume Assistant
+
+Extract, summarize, and render resumes from LinkedIn profiles and existing documents:
+- Extract: `./bin/assistant resume extract --linkedin profile.html --out candidate.yaml`
+- Summarize: `./bin/assistant resume summarize --data candidate.yaml --out summary.yaml`
+- Render: `./bin/assistant resume render --data candidate.yaml --template template.yaml --out resume.docx`
+- Align: `./bin/assistant resume align --data candidate.yaml --job job.yaml --out aligned.yaml`
+- Structure: `./bin/assistant resume structure --reference reference.docx --out structure.yaml`
 
 ## iOS (Phone Assistant)
 
@@ -107,6 +127,37 @@ Plan, apply, verify, and sync events:
 
 - Search text: `./bin/whatsapp search --contains school --limit 20`
 - Search by contact: `./bin/whatsapp search --contact "Teacher" --since-days 30`
+
+## WiFi Diagnostics
+
+- Run diagnostics: `./bin/wifi diagnose`
+
+## Desk (macOS Filesystem)
+
+Keep your macOS filesystem tidy: scan, plan, and apply cleanup rules.
+- Scan: `python3 -m desk scan --paths ~/Downloads --out scan.yaml`
+- Plan: `python3 -m desk plan --config rules.yaml --out plan.yaml`
+- Apply: `python3 -m desk apply --plan plan.yaml --dry-run`
+- Rules: `python3 -m desk rules list`
+
+## Metals (Precious Metals)
+
+Track precious metals portfolio from email receipts:
+- Extract (Gmail): `./bin/metals extract gmail --profile gmail_personal --out metals.yaml`
+- Extract (Outlook): `./bin/metals extract outlook --profile outlook_personal --out metals.yaml`
+- Costs: `./bin/metals costs --data metals.yaml`
+- Spot prices: `./bin/metals spot fetch`
+- Premium: `./bin/metals premium --data metals.yaml`
+- Build summaries: `./bin/metals build --data metals.yaml --out summaries/`
+- Excel merge: `./bin/metals excel merge --data metals.yaml --workbook portfolio.xlsx`
+
+## Apple Music
+
+- Ping/verify: `./bin/apple-music-assistant ping`
+- List playlists: `./bin/apple-music-assistant list`
+- Export: `./bin/apple-music-assistant export --out playlists.yaml`
+- Create playlist: `./bin/apple-music-assistant create --preset workout`
+- Dedupe: `./bin/apple-music-assistant dedupe --dry-run`
 
 ## LLM Utilities
 
@@ -142,9 +193,11 @@ App modules:
 - `mail/` - Gmail/Outlook providers, filters, labels, signatures
 - `calendars/` - Outlook calendar + Gmail scans
 - `schedule/` - plan/apply calendar schedules
+- `resume/` - extract/summarize/render resumes
 - `phone/` - iOS layout tooling
 - `whatsapp/` - local-only ChatStorage search
 - `wifi/` - WiFi diagnostics
+- `desk/` - macOS filesystem tidying
 - `metals/` - precious metals tracking
 - `apple_music/` - Apple Music API
 - `maker/` - utility generators
@@ -168,17 +221,6 @@ iOS device tooling:
 - `bin/ios-hotlabel` - Hot-label app icons
 - `bin/ios-identity-verify` - Verify signing identity
 - `bin/ios-p12-to-der` - Convert P12 to DER format
-
-Metals:
-- `bin/extract-metals` - Extract metals data from Gmail
-- `bin/extract-metals-costs` - Extract cost data
-- `bin/outlook-metals-scan` - Scan Outlook for metals emails
-- `bin/metals-premium` - Calculate premiums
-- `bin/metals-spot-series` - Spot price series
-- `bin/build-metals-summaries` - Build summary reports
-
-Calendar:
-- `bin/apply-calendar-locations` - Batch apply locations
 
 ## Security
 
