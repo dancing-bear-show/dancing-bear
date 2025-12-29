@@ -93,7 +93,7 @@ def get_price_band(metal: str, unit_oz: float) -> Tuple[float, float]:
     return 10.0, 50000.0
 
 
-def format_qty(qty: float) -> str | int:
+def format_qty(qty: float) -> int | float:
     """Format quantity as int if whole, else float."""
     return int(qty) if abs(qty - int(qty)) < 1e-6 else qty
 
@@ -130,17 +130,9 @@ def extract_line_items_base(
                 den = float(m.group(2) or 1)
             except (ValueError, TypeError, IndexError):
                 continue
-            metal = ''
-            # Try to get metal from group 3 if present
-            try:
-                metal = (m.group(3) or '').lower()
-            except IndexError:
-                pass
-            qty_str = None
-            try:
-                qty_str = m.group(4)
-            except IndexError:
-                pass
+            group_count = len(m.groups())
+            metal = (m.group(3) or '').lower() if group_count >= 3 else ''
+            qty_str = m.group(4) if group_count >= 4 else None
             qty = float(qty_str) if qty_str else 1.0
             unit_oz = num / max(den, 1.0)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
@@ -150,16 +142,9 @@ def extract_line_items_base(
                 unit_oz = float(m.group(1))
             except (ValueError, TypeError):
                 continue
-            metal = ''
-            try:
-                metal = (m.group(2) or '').lower()
-            except IndexError:
-                pass
-            qty_str = None
-            try:
-                qty_str = m.group(3)
-            except IndexError:
-                pass
+            group_count = len(m.groups())
+            metal = (m.group(2) or '').lower() if group_count >= 2 else ''
+            qty_str = m.group(3) if group_count >= 3 else None
             qty = float(qty_str) if qty_str else 1.0
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
 
@@ -168,16 +153,9 @@ def extract_line_items_base(
                 wt_g = float(m.group(1))
             except (ValueError, TypeError):
                 continue
-            metal = ''
-            try:
-                metal = (m.group(3) or '').lower()
-            except IndexError:
-                pass
-            qty_str = None
-            try:
-                qty_str = m.group(4)
-            except IndexError:
-                pass
+            group_count = len(m.groups())
+            metal = (m.group(3) or '').lower() if group_count >= 3 else ''
+            qty_str = m.group(4) if group_count >= 4 else None
             qty = float(qty_str) if qty_str else 1.0
             unit_oz = wt_g / G_PER_OZ
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})

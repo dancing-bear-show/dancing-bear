@@ -82,18 +82,20 @@ QTY_PATTERNS = [
 
 def find_qty_near(lines: List[str], idx: int, window: int = 4) -> Optional[float]:
     """Find explicit quantity near a line index."""
+    checked: set[int] = set()
     for d in range(window):
         for j in (idx + d, idx - d):
-            if 0 <= j < len(lines):
-                for pat in QTY_PATTERNS:
-                    m = pat.search(lines[j] or "")
-                    if m:
-                        try:
-                            n = int(m.group(1))
-                            if 1 <= n <= 200:
-                                return float(n)
-                        except (ValueError, IndexError):
-                            pass
+            if j in checked or not (0 <= j < len(lines)):
+                continue
+            checked.add(j)
+            for pat in QTY_PATTERNS:
+                m = pat.search(lines[j] or "")
+                if m:
+                    raw = m.group(1)
+                    if raw and raw.isdigit():
+                        n = int(raw)
+                        if 1 <= n <= 200:
+                            return float(n)
     return None
 
 
@@ -269,28 +271,30 @@ class TDParser(VendorParser):
             re.compile(r"(?i)\b(\d{1,3})\s*ct\b"),
             re.compile(r"(?i)\b(roll|tube)\s*of\s*(\d{1,3})\b"),
         ]
+        checked: set[int] = set()
         for d in range(4):
             for j in (idx + d, idx - d):
-                if 0 <= j < len(lines):
-                    s = lines[j]
-                    for pat in pats:
-                        m = pat.search(s or "")
-                        if m:
-                            for g in (1, 2):
-                                try:
-                                    val = m.group(g)
-                                    if val and val.isdigit():
-                                        n = int(val)
-                                        if 2 <= n <= 200:
-                                            return float(n)
-                                except (IndexError, ValueError):
-                                    pass
-                    # SKU mapping
-                    m_item = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s or '')
-                    if m_item:
-                        sku = m_item.group(1)
-                        if sku in self.SKU_BUNDLE_MAP:
-                            return self.SKU_BUNDLE_MAP[sku]
+                if j in checked or not (0 <= j < len(lines)):
+                    continue
+                checked.add(j)
+                s = lines[j]
+                for pat in pats:
+                    m = pat.search(s or "")
+                    if m:
+                        group_count = len(m.groups())
+                        for g in (1, 2):
+                            if g <= group_count:
+                                val = m.group(g)
+                                if val and val.isdigit():
+                                    n = int(val)
+                                    if 2 <= n <= 200:
+                                        return float(n)
+                # SKU mapping
+                m_item = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s or '')
+                if m_item:
+                    sku = m_item.group(1)
+                    if sku in self.SKU_BUNDLE_MAP:
+                        return self.SKU_BUNDLE_MAP[sku]
         return None
 
     def _get_unit_oz_override(self, lines: List[str], idx: int, metal: str) -> Optional[float]:

@@ -27,10 +27,7 @@ from mail.gmail_api import GmailClient
 
 from .costs_common import (
     G_PER_OZ,
-    MONEY_PATTERN,
     extract_order_amount,
-    find_money,
-    format_qty,
     write_costs_csv,
 )
 from .vendors import GMAIL_VENDORS, get_vendor_for_sender
