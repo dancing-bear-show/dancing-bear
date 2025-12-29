@@ -61,7 +61,7 @@ def filter_by_min_priority(data: Dict[str, Any], min_prio: float) -> Dict[str, A
     if isinstance(d.get("skills_groups"), list):
         d["skills_groups"] = _filter_skills_groups(d["skills_groups"], min_prio)
 
-    for key in ("technologies", "interests", "presentations", "languages", "coursework", "summary"):
+    for key in ("technologies", "interests", "presentations", "languages", "coursework", "summary", "teaching", "certifications"):
         if isinstance(d.get(key), list):
             d[key] = _filter_items(d[key], min_prio)
 

@@ -35,7 +35,8 @@ Commands
 - `summarize` — Build a concise summary from unified data
   - Example: `python -m resume summarize --data out/data.json --seed 'keywords=Python Kubernetes AWS' --out out/summary.md`
   - With profile overlays: add `--profile <prefix>` to overlay `config/profiles/<prefix>/profile.yaml` (plus grouped skills and experience). Legacy `config/profile.<prefix>.yaml` is still supported.
-- `render` — Render a `.docx` using a YAML/JSON template (optionally mimic a reference resume’s structure)
+- `render` — Render a `.docx` using a YAML/JSON template (optionally mimic a reference resume's structure)
+  - **Note:** `--template` is required to render resume sections (Summary, Skills, Experience, Education). Without it, only the header (name, headline, contact) is rendered.
   - Example: `python -m resume render --data out/data.json --template config/template.yaml --seed 'keywords=Python AWS' --out out/jane_doe.docx`
   - Mimic structure: add `--structure-from reference.docx` to align section order and headings.
   - With profile prefix (writes to `out/<prefix>/`): `python -m resume render --data out/sample/data.json --template config/template.example.yaml --profile sample`
@@ -62,8 +63,9 @@ Commands
   - Or parse from resume: `python -m resume experience export --resume ~/Downloads/your_resume.docx --out config/experience.<prefix>.yaml`
 
 Template (YAML)
+- **Required for sections:** The `--template` flag must point to a YAML/JSON file defining which sections to render. Without it, only the header is output.
 - Minimal example (keys are canonical; titles are display text):
-```
+```yaml
 sections:
   - key: summary
     title: Professional Summary
@@ -75,6 +77,7 @@ sections:
   - key: education
     title: Education
 ```
+- Available section keys: `summary`, `skills`, `technologies`, `experience`, `education`, `interests`, `presentations`, `languages`, `coursework`, `certifications`
 
 Contact fields
 - Top-level or under `contact`: `email`, `phone`, `location`, `website`, `linkedin`, `github`, plus an optional `links` list. Example:
