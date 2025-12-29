@@ -35,12 +35,12 @@ class VendorParser(ABC):
     @abstractmethod
     def matches_sender(self, from_header: str) -> bool:
         """Return True if this parser handles emails from this sender."""
-        pass  # Abstract method
+        raise NotImplementedError
 
     @abstractmethod
     def extract_line_items(self, text: str) -> Tuple[List[LineItem], List[str]]:
         """Extract line items from email text. Returns (items, lines)."""
-        pass  # Abstract method
+        raise NotImplementedError
 
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float

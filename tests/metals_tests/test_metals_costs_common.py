@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 
-from tests.metals_tests.fixtures import make_cost_row, temp_costs_csv
+from tests.metals_tests.fixtures import make_cost_row
 
 from metals.costs_common import (
     COSTS_CSV_FIELDS,
