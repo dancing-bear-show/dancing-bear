@@ -16,6 +16,9 @@ from ._base import (
     ResultEnvelope,
     check_service_required,
     MSG_PREVIEW_COMPLETE,
+    ERR_CODE_CALENDAR,
+    ERR_CODE_API,
+    LOG_DRY_RUN,
 )
 
 __all__ = [
@@ -66,14 +69,14 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
             if not cal_id:
                 return ResultEnvelope(
                     status="error",
-                    diagnostics={"message": f"Calendar not found: {calendar_name}", "code": 3},
+                    diagnostics={"message": f"Calendar not found: {calendar_name}", "code": ERR_CODE_CALENDAR},
                 )
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         try:
             events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 4})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_API})
 
         series_ids: set[str] = set()
         occurrence_ids: set[str] = set()
@@ -118,10 +121,10 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
         for eid in ids:
             if payload.dry_run:
                 if payload.set_off:
-                    logs.append(f"[dry-run] would disable reminder for {label} {eid}")
+                    logs.append(f"{LOG_DRY_RUN} would disable reminder for {label} {eid}")
                 else:
                     logs.append(
-                        f"[dry-run] would set reminderMinutesBeforeStart={payload.minutes} for {label} {eid}"
+                        f"{LOG_DRY_RUN} would set reminderMinutesBeforeStart={payload.minutes} for {label} {eid}"
                     )
                 continue
             try:
