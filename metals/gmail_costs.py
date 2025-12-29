@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import math
 import re
 from datetime import datetime, timezone
@@ -26,7 +25,12 @@ from core.text_utils import normalize_unicode
 from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
-G_PER_OZ = 31.1035
+from .costs_common import (
+    G_PER_OZ,
+    extract_order_amount,
+    write_costs_csv,
+)
+from .vendors import GMAIL_VENDORS, get_vendor_for_sender
 
 
 def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
@@ -329,63 +333,10 @@ def _extract_amount_near_line(
     return None
 
 
-def _extract_order_amount(text: str) -> Tuple[str, float] | None:
-    """Extract (currency, total_amount) from message text if present.
-
-    Looks for lines like 'Total ($CAD) C$1,301.60' or 'Subtotal C$123.45' or '$123.45'.
-    Returns the first 'Total' if available, else 'Subtotal', else the largest currency amount.
-    """
-    t = (text or '').replace('\u00A0', ' ')
-    lines = [line.strip() for line in t.splitlines() if line.strip()]
-    # Matches C$1,234.56 or CAD$1,234.56 or CAD $1,234.56 or $1,234.56
-    money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
-
-    def parse_amount(s: str) -> float:
-        # Remove commas
-        return float(s.replace(',', ''))
-
-    # Prefer Total, then Subtotal
-    for pref in ('total', 'subtotal'):
-        for ln in lines:
-            low = ln.lower()
-            if pref in low:
-                # Choose the currency that appears after the keyword occurrence
-                pos = low.find(pref)
-                found = None
-                for m in money_pat.finditer(ln):
-                    if m.start() >= pos:
-                        found = m
-                        break
-                if found is None:
-                    # Fallback to last money on the line
-                    allm = list(money_pat.finditer(ln))
-                    found = allm[-1] if allm else None
-                if found:
-                    cur = found.group(1).upper()
-                    amt = parse_amount(found.group(2))
-                    return cur, amt
-    # Else take the largest currency number found in the email
-    best: Tuple[str, float] | None = None
-    for ln in lines:
-        for m in money_pat.finditer(ln):
-            cur = m.group(1).upper()
-            amt = parse_amount(m.group(2))
-            if not best or amt > best[1]:
-                best = (cur, amt)
-    return best
-
-
 def _classify_vendor(from_header: str) -> str:
-    s = from_header or ''
-    m = re.search(r"<([^>]+)>", s)
-    email = (m.group(1) if m else s).lower()
-    if any(x in email for x in ('td.com', 'tdsecurities.com', 'preciousmetals.td.com')):
-        return 'TD'
-    if 'costco' in email:
-        return 'Costco'
-    if any(x in email for x in ('email.mint.ca', 'mint.ca', 'royalcanadianmint.ca')):
-        return 'RCM'
-    return 'Other'
+    """Classify vendor from email sender using vendor parsers."""
+    vendor = get_vendor_for_sender(from_header, GMAIL_VENDORS)
+    return vendor.name if vendor else 'Other'
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -483,7 +434,7 @@ def main(argv: List[str] | None = None) -> int:
                     L = price_hits.setdefault(key, [])
                     L.append((float(amt), str(kind)))
             qty_by_msg.append(qmap)
-            amt = _extract_order_amount(text)
+            amt = extract_order_amount(text)
             if amt and (amount_pref is None or amt[1] > amount_pref[1]):
                 amount_pref = amt
         # Collapse quantities: take max across messages per key
@@ -592,12 +543,7 @@ def main(argv: List[str] | None = None) -> int:
 
     # Write CSV
     out_path = getattr(args, 'out', 'out/metals/costs.csv')
-    from pathlib import Path
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, 'w', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=['vendor','date','metal','currency','cost_total','cost_per_oz','order_id','subject','total_oz','unit_count','units_breakdown','alloc'])
-        w.writeheader()
-        w.writerows(rows_out)
+    write_costs_csv(out_path, rows_out)
     print(f"wrote {out_path} rows={len(rows_out)}")
     return 0
 
