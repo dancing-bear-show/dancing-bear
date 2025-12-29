@@ -71,7 +71,7 @@ def make_account_info(
     name: str = "personal",
     provider: str = "gmail",
     credentials: str = "/creds.json",
-    token: str = "/token.json",  # nosec B106 - test fixture path
+    token: str = "/token.json",
 ) -> AccountInfo:
     """Create an AccountInfo for testing."""
     return AccountInfo(name=name, provider=provider, credentials=credentials, token=token)
@@ -81,7 +81,7 @@ def make_account_dict(
     name: str = "personal",
     provider: str = "gmail",
     credentials: str = "/creds.json",
-    token: str = "/token.json",  # nosec B106 - test fixture path
+    token: str = "/token.json",
 ) -> dict:
     """Create an account dict (as returned by load_accounts) for testing."""
     return {"name": name, "provider": provider, "credentials": credentials, "token": token}
