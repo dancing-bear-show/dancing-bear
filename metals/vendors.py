@@ -25,6 +25,10 @@ from .constants import (
 )
 from .costs_common import get_price_band
 
+# Compiled patterns for price classification (used in multiple places)
+_PAT_UNIT = re.compile(r"(?i)\b(unit|each|ea|per)\b")
+_PAT_TOTAL = re.compile(r"(?i)\btotal\b")
+
 
 @dataclass
 class LineItem:
@@ -241,9 +245,9 @@ def extract_price_from_lines(
             continue
 
         low = ln.lower()
-        if re.search(r"(?i)\b(unit|each|ea|per)\b", low):
+        if _PAT_UNIT.search(low):
             return PriceHit(amount=amt, kind='unit')
-        if re.search(r"(?i)\btotal\b", low):
+        if _PAT_TOTAL.search(low):
             return PriceHit(amount=amt, kind='total')
         return PriceHit(amount=amt, kind='unknown')
 
@@ -427,7 +431,7 @@ class RCMParser(VendorParser):
                 if metal == 'gold' and not (lb <= amt <= ub):
                     continue
                 dist = abs(d - idx)
-                kind = 'total' if re.search(r"(?i)\btotal\b", ln) else 'unit'
+                kind = 'total' if _PAT_TOTAL.search(ln) else 'unit'
                 if kind not in best or dist < best[kind][1]:
                     best[kind] = (amt, dist)
 
