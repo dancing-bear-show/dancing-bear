@@ -34,7 +34,7 @@ from .costs_common import (
     format_qty,
     write_costs_csv,
 )
-from .vendors import GMAIL_VENDORS, get_vendor_for_sender
+from .vendors import DEFAULT_PRICE_BAN, GMAIL_VENDORS, get_vendor_for_sender
 
 
 # SKU-based mappings for bundle sizes and unit-oz overrides
@@ -193,9 +193,6 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]] | None:
     return items, lines
 
 
-_BAN_ALWAYS_PAT = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
-
-
 def _extract_amount_near_line(
     lines: List[str], idx: int, metal: str, unit_oz: float | None = None, vendor: str | None = None
 ) -> Tuple[str, float, str] | None:
@@ -278,7 +275,7 @@ def _extract_amount_near_line(
                                     return cur, amt, kind
 
             # If no anchored hit, apply generic rules
-            if _BAN_ALWAYS_PAT.search(ln):
+            if DEFAULT_PRICE_BAN.search(ln):
                 continue
             has_uoz_here = bool(uoz_pat and uoz_pat.search(lower))
             # Also consider immediate neighbor for unit-oz mention
