@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import os
 import unittest
+from unittest.mock import MagicMock, patch
 
 from tests.fixtures import TempDirMixin
 
@@ -18,8 +19,12 @@ from metals.outlook_costs import (
     _extract_confirmation_item_totals,
     _extract_line_items,
     _extract_order_id,
+    _fetch_rcm_message_ids,
+    _filter_and_group_by_order,
     _summarize_ounces,
     _trim_disclaimer_lines,
+    _try_upgrade_to_confirmation,
+    _RCM_QUERIES,
 )
 
 
@@ -645,6 +650,196 @@ class TestBuildGoldRow(unittest.TestCase):
         row = _build_gold_row('PO123', 'Test', '2024-01-15', 1000.0, 0.35, {0.1: 1.0, 0.25: 1.0}, 1000.0)
         self.assertIn('0.1ozx1', row['units_breakdown'])
         self.assertIn('0.25ozx1', row['units_breakdown'])
+
+
+class TestRcmQueries(unittest.TestCase):
+    """Tests for _RCM_QUERIES constant."""
+
+    def test_queries_defined(self):
+        """Test RCM queries are defined."""
+        self.assertIsInstance(_RCM_QUERIES, list)
+        self.assertGreater(len(_RCM_QUERIES), 0)
+
+    def test_queries_contain_mint_ca(self):
+        """Test queries include mint.ca search."""
+        self.assertTrue(any('mint.ca' in q.lower() for q in _RCM_QUERIES))
+
+    def test_queries_contain_confirmation(self):
+        """Test queries include confirmation search."""
+        self.assertTrue(any('confirmation' in q.lower() for q in _RCM_QUERIES))
+
+
+class TestFetchRcmMessageIds(unittest.TestCase):
+    """Tests for _fetch_rcm_message_ids function."""
+
+    @patch("requests.get")
+    def test_fetches_and_deduplicates_ids(self, mock_get):
+        """Test fetches IDs from multiple queries and deduplicates."""
+        mock_cli = MagicMock()
+        mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_cli._headers_search.return_value = {"Authorization": "Bearer token"}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "value": [{"id": "msg-1"}, {"id": "msg-2"}],
+            "@odata.nextLink": None,
+        }
+        mock_get.return_value = mock_response
+
+        result = _fetch_rcm_message_ids(mock_cli)
+        self.assertIsInstance(result, list)
+        self.assertGreaterEqual(mock_get.call_count, len(_RCM_QUERIES))
+
+    @patch("requests.get")
+    def test_handles_api_error(self, mock_get):
+        """Test handles API errors gracefully."""
+        mock_cli = MagicMock()
+        mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_cli._headers_search.return_value = {}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_get.return_value = mock_response
+
+        result = _fetch_rcm_message_ids(mock_cli)
+        self.assertEqual(result, [])
+
+    @patch("requests.get")
+    def test_follows_pagination(self, mock_get):
+        """Test follows pagination links."""
+        mock_cli = MagicMock()
+        mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_cli._headers_search.return_value = {}
+
+        responses = [
+            MagicMock(status_code=200, json=MagicMock(return_value={
+                "value": [{"id": "msg-1"}],
+                "@odata.nextLink": "https://next-page",
+            })),
+            MagicMock(status_code=200, json=MagicMock(return_value={
+                "value": [{"id": "msg-2"}],
+                "@odata.nextLink": None,
+            })),
+            MagicMock(status_code=200, json=MagicMock(return_value={
+                "value": [],
+                "@odata.nextLink": None,
+            })),
+        ]
+        mock_get.side_effect = responses * len(_RCM_QUERIES)
+
+        result = _fetch_rcm_message_ids(mock_cli)
+        self.assertIn("msg-1", result)
+
+
+class TestFilterAndGroupByOrder(unittest.TestCase):
+    """Tests for _filter_and_group_by_order function."""
+
+    def test_filters_non_mint_ca_senders(self):
+        """Test filters out non-mint.ca senders."""
+        mock_cli = MagicMock()
+        mock_cli.get_message.return_value = {
+            "from": {"emailAddress": {"address": "other@example.com"}},
+            "subject": "Test",
+            "body": {"content": ""},
+            "receivedDateTime": "2024-01-15T10:00:00Z",
+        }
+
+        result = _filter_and_group_by_order(mock_cli, ["msg-1"])
+        self.assertEqual(result, {})
+
+    def test_groups_by_order_id(self):
+        """Test groups messages by order ID."""
+        mock_cli = MagicMock()
+        mock_cli.get_message.return_value = {
+            "from": {"emailAddress": {"address": "email@mint.ca"}},
+            "subject": "Confirmation for order number PO1234567",
+            "body": {"content": "<p>Order PO1234567</p>"},
+            "receivedDateTime": "2024-01-15T10:00:00Z",
+        }
+
+        result = _filter_and_group_by_order(mock_cli, ["msg-1"])
+        self.assertIn("PO1234567", result)
+        self.assertEqual(result["PO1234567"]["cat"], "confirmation")
+
+    def test_prefers_higher_rank_category(self):
+        """Test keeps higher-ranked email category."""
+        mock_cli = MagicMock()
+
+        def side_effect(mid, select_body=False):
+            if mid == "msg-1":
+                return {
+                    "from": {"emailAddress": {"address": "email@mint.ca"}},
+                    "subject": "Shipping for PO1234567",
+                    "body": {"content": "<p>PO1234567</p>"},
+                    "receivedDateTime": "2024-01-14T10:00:00Z",
+                }
+            return {
+                "from": {"emailAddress": {"address": "email@mint.ca"}},
+                "subject": "Confirmation for order number PO1234567",
+                "body": {"content": "<p>PO1234567</p>"},
+                "receivedDateTime": "2024-01-15T10:00:00Z",
+            }
+
+        mock_cli.get_message.side_effect = side_effect
+
+        result = _filter_and_group_by_order(mock_cli, ["msg-1", "msg-2"])
+        self.assertEqual(result["PO1234567"]["cat"], "confirmation")
+
+
+class TestTryUpgradeToConfirmation(unittest.TestCase):
+    """Tests for _try_upgrade_to_confirmation function."""
+
+    @patch("requests.get")
+    def test_returns_original_when_no_confirmation_found(self, mock_get):
+        """Test returns original record when no confirmation found."""
+        mock_cli = MagicMock()
+        mock_cli.search_inbox_messages.return_value = []
+        mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_cli._headers_search.return_value = {}
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"value": []})
+        )
+        rec = {"id": "msg-1", "cat": "shipping", "sub": "Shipping", "body": "", "recv": ""}
+        result = _try_upgrade_to_confirmation(mock_cli, "PO123", rec)
+        self.assertEqual(result, rec)
+
+    def test_upgrades_when_confirmation_found(self):
+        """Test upgrades to confirmation when found."""
+        mock_cli = MagicMock()
+        mock_cli.search_inbox_messages.return_value = ["conf-msg"]
+        mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_cli.get_message.side_effect = [
+            {"subject": "Confirmation for order number PO123"},  # select_body=False
+            {  # select_body=True
+                "subject": "Confirmation for order number PO123",
+                "body": {"content": "<p>Confirmed</p>"},
+                "receivedDateTime": "2024-01-15T10:00:00Z",
+            },
+        ]
+
+        rec = {"id": "msg-1", "cat": "shipping", "sub": "Shipping", "body": "", "recv": ""}
+        result = _try_upgrade_to_confirmation(mock_cli, "PO123", rec)
+        self.assertEqual(result["cat"], "confirmation")
+        self.assertIn("Confirmation", result["sub"])
+
+    @patch("requests.get")
+    def test_handles_search_exception(self, mock_get):
+        """Test handles exception during inbox search."""
+        mock_cli = MagicMock()
+        mock_cli.search_inbox_messages.side_effect = Exception("API error")
+        mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
+        mock_cli._headers_search.return_value = {}
+
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"value": []})
+        )
+        rec = {"id": "msg-1", "cat": "shipping"}
+        result = _try_upgrade_to_confirmation(mock_cli, "PO123", rec)
+        self.assertEqual(result, rec)
 
 
 if __name__ == "__main__":

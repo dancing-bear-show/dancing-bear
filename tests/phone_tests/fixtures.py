@@ -129,3 +129,16 @@ def make_ini_section(
     if p12_pass:
         section[f"{key_prefix}_pass"] = p12_pass
     return section
+
+
+# -----------------------------------------------------------------------------
+# Common test fixtures (pre-built items for reuse)
+# -----------------------------------------------------------------------------
+
+# Normalized items
+SAMPLE_APP = make_app_item("com.example.app")
+SAMPLE_FOLDER = make_folder_item("Work", ["com.work.app1", "com.work.app2"])
+EMPTY_FOLDER = make_folder_item("Empty", [])
+WIDGET_ITEM: Dict[str, Any] = {"kind": "widget", "id": "com.widget"}
+UNNAMED_FOLDER: Dict[str, Any] = {"kind": "folder", "apps": []}
+APP_NO_ID: Dict[str, Any] = {"kind": "app"}
