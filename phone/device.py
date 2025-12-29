@@ -34,7 +34,7 @@ def find_cfgutil_path() -> str:
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
-        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # noqa: S603
+        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # nosec B603 - cfgutil from find_cfgutil_path()
     except Exception as e:
         raise RuntimeError(f"cfgutil list failed: {e}")
     for line in out.splitlines():
@@ -60,7 +60,7 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
     cmd.extend(["--format", "plist", "get-icon-layout"])
 
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # noqa: S603
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603 - cmd built from trusted literals
     except Exception as e:
         raise RuntimeError(f"cfgutil get-icon-layout failed: {e}")
 
