@@ -284,11 +284,10 @@ class CLIApp:
         Returns:
             Exit code.
         """
-        if self._parser is None:
-            self.build_parser()
-
-        assert self._parser is not None
-        args = self._parser.parse_args(argv)
+        parser = self._parser
+        if parser is None:
+            parser = self.build_parser()
+        args = parser.parse_args(argv)
 
         # Set up output writer
         output_format = OutputFormat(getattr(args, "output", "text"))

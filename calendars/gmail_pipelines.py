@@ -38,6 +38,38 @@ from .pipeline_base import (
 
 
 # =============================================================================
+# Receipt Parsing Patterns (module-level for reuse)
+# =============================================================================
+
+# Pattern: class name extraction - matches "Enrollment in <class> (# or ( or - or newline"
+_RECEIPT_CLS_PAT = re.compile(
+    r"Enrollment\s+in\s+(?P<cls>[a-z][a-z0-9 /+\-]+?)\s*(?:\(#|\(|-|\r|\n)", re.I
+)
+# Pattern: registrant name - "Registrant: <name>"
+_RECEIPT_REG_PAT_1 = re.compile(
+    r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[a-z][a-z\s'\-]+)", re.I
+)
+# Pattern: registrant from order summary
+_RECEIPT_REG_PAT_2 = re.compile(
+    r"Order\s+Summary:\s*(?P<name>[a-z][a-z\s'\-]+?)\s+Enrollment\s+in", re.I
+)
+# Pattern: meeting date range
+_RECEIPT_DATES_PAT = re.compile(
+    r"Meeting\s+Dates:\s*From\s+(?P<m1>[A-Za-z]{3,9})\s+(?P<d1>\d{1,2}),\s*(?P<y1>\d{4})"
+    r"\s+to\s+(?P<m2>[A-Za-z]{3,9})\s+(?P<d2>\d{1,2}),\s*(?P<y2>\d{4})",
+    re.I,
+)
+# Pattern: weekly schedule
+_RECEIPT_SCHED_PAT = re.compile(
+    r"Each\s+(?P<day>Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
+    r"\s+from\s+(?P<t1>\d{1,2}:\d{2}\s*(?:am|pm))\s+to\s+(?P<t2>\d{1,2}:\d{2}\s*(?:am|pm))",
+    re.I,
+)
+# Pattern: location
+_RECEIPT_LOC_PAT = re.compile(r"Location:\s*(?P<loc>.+)", re.I)
+
+
+# =============================================================================
 # Gmail Receipts Pipeline
 # =============================================================================
 
@@ -115,61 +147,75 @@ class GmailReceiptsProcessor(Processor[GmailReceiptsRequest, ResultEnvelope[Gmai
         )
 
     def _parse_receipts(self, svc, ids: List[str], calendar: Optional[str]):
-        cls_pat = re.compile(r"Enrollment\s+in\s+(?P<cls>[A-Za-z][A-Za-z0-9 \-/+]+?)\s*(?:\(#|\(|-|\r|\n)", re.I)
-        reg_pat_1 = re.compile(r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[A-Za-z][A-Za-z\s'\-]+)", re.I)
-        reg_pat_2 = re.compile(r"Order\s+Summary:\s*(?P<name>[A-Za-z][A-Za-z\s'\-]+?)\s+Enrollment\s+in", re.I)
-        dates_pat = re.compile(r"Meeting\s+Dates:\s*From\s+(?P<m1>[A-Za-z]{3,9})\s+(?P<d1>\d{1,2}),\s*(?P<y1>\d{4})\s+to\s+(?P<m2>[A-Za-z]{3,9})\s+(?P<d2>\d{1,2}),\s*(?P<y2>\d{4})", re.I)
-        sched_pat = re.compile(r"Each\s+(?P<day>Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+from\s+(?P<t1>\d{1,2}:\d{2}\s*(?:am|pm))\s+to\s+(?P<t2>\d{1,2}:\d{2}\s*(?:am|pm))", re.I)
-        loc_pat = re.compile(r"Location:\s*(?P<loc>.+)", re.I)
-
         events = []
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
             except Exception:  # noqa: S112 - skip unreadable messages
                 continue
-            m_cls = cls_pat.search(text or "")
-            m_dates = dates_pat.search(text or "")
-            m_sched = sched_pat.search(text or "")
-            m_loc = loc_pat.search(text or "")
-            m_reg = reg_pat_1.search(text or "") or reg_pat_2.search(text or "")
-            if not (m_cls and m_dates and m_sched):
-                continue
-            loc_hint = m_loc.group("loc") if m_loc else None
-            cls = self._normalize_subject(m_cls.group("cls"), loc_hint)
-            m1, d1, y1 = m_dates.group("m1"), int(m_dates.group("d1")), int(m_dates.group("y1"))
-            m2, d2, y2 = m_dates.group("m2"), int(m_dates.group("d2")), int(m_dates.group("y2"))
-            m1v = parse_month(m1)
-            m2v = parse_month(m2)
-            if not (m1v and m2v):
-                continue
-            start_date = f"{y1:04d}-{m1v:02d}-{d1:02d}"
-            until = f"{y2:04d}-{m2v:02d}-{d2:02d}"
-            day = DAY_TO_CODE[(m_sched.group("day") or "").lower()]
-            t1 = to_24h(m_sched.group("t1"))
-            t2 = to_24h(m_sched.group("t2"))
-            loc = (m_loc.group("loc").strip() if m_loc else None)
-            child_full = None
-            child_first = None
-            if m_reg:
-                child_full = (m_reg.group("name") or "").strip()
-                child_first = child_full.split()[0].title() if child_full else None
-            ev = {
-                "calendar": calendar,
-                "subject": cls,
-                "repeat": "weekly",
-                "byday": [day],
-                "start_time": t1,
-                "end_time": t2,
-                "range": {"start_date": start_date, "until": until},
-            }
-            if loc:
-                ev["location"] = loc
-            if child_first:
-                ev["child"] = child_first
-                ev["child_full"] = child_full
-            events.append(ev)
+            ev = self._parse_single_receipt(text, calendar)
+            if ev:
+                events.append(ev)
         return events
+
+    def _parse_single_receipt(
+        self, text: Optional[str], calendar: Optional[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Parse a single receipt message and return an event dict or None."""
+        text = text or ""
+        m_cls = _RECEIPT_CLS_PAT.search(text)
+        m_dates = _RECEIPT_DATES_PAT.search(text)
+        m_sched = _RECEIPT_SCHED_PAT.search(text)
+        if not (m_cls and m_dates and m_sched):
+            return None
+
+        date_range = self._parse_receipt_date_range(m_dates)
+        if not date_range:
+            return None
+
+        m_loc = _RECEIPT_LOC_PAT.search(text)
+        loc_hint = m_loc.group("loc") if m_loc else None
+        loc = loc_hint.strip() if loc_hint else None
+
+        ev: Dict[str, Any] = {
+            "calendar": calendar,
+            "subject": self._normalize_subject(m_cls.group("cls"), loc_hint),
+            "repeat": "weekly",
+            "byday": [DAY_TO_CODE[(m_sched.group("day") or "").lower()]],
+            "start_time": to_24h(m_sched.group("t1")),
+            "end_time": to_24h(m_sched.group("t2")),
+            "range": date_range,
+        }
+        if loc:
+            ev["location"] = loc
+
+        child_first, child_full = self._extract_child_info(text)
+        if child_first:
+            ev["child"] = child_first
+            ev["child_full"] = child_full
+        return ev
+
+    def _parse_receipt_date_range(self, m_dates) -> Optional[Dict[str, str]]:
+        """Parse date range from regex match, return dict or None if invalid."""
+        m1v = parse_month(m_dates.group("m1"))
+        m2v = parse_month(m_dates.group("m2"))
+        if not (m1v and m2v):
+            return None
+        d1, y1 = int(m_dates.group("d1")), int(m_dates.group("y1"))
+        d2, y2 = int(m_dates.group("d2")), int(m_dates.group("y2"))
+        return {
+            "start_date": f"{y1:04d}-{m1v:02d}-{d1:02d}",
+            "until": f"{y2:04d}-{m2v:02d}-{d2:02d}",
+        }
+
+    def _extract_child_info(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract child first name and full name from receipt text."""
+        m_reg = _RECEIPT_REG_PAT_1.search(text) or _RECEIPT_REG_PAT_2.search(text)
+        if not m_reg:
+            return None, None
+        child_full = (m_reg.group("name") or "").strip()
+        child_first = child_full.split()[0].title() if child_full else None
+        return child_first, child_full
 
     def _normalize_subject(self, raw: Optional[str], loc_hint: Optional[str]) -> str:
         base = (raw or "").strip().split(" - ", 1)[0].strip()
@@ -465,24 +511,7 @@ class GmailSweepTopProcessor(Processor[GmailSweepTopRequest, ResultEnvelope[Gmai
         if not ids:
             result = GmailSweepTopResult(top_senders=[], freq_days=payload.days, inbox_only=payload.inbox_only, out_path=payload.out_path)
             return ResultEnvelope(status="success", payload=result)
-        freq = collections.Counter()
-        for mid in ids:
-            sender = None
-            try:
-                msg = svc.get_message(mid)
-                payload_data = msg.get("payload") or {}
-                headers = payload_data.get("headers") or []
-                for header in headers:
-                    if (header.get("name") or "").lower() == "from":
-                        sender = extract_email_address(header.get("value") or "")
-                        break
-                if not sender and isinstance(msg, dict):
-                    sender = extract_email_address(str(msg.get("from") or ""))
-            except Exception:
-                sender = None
-            if not sender:
-                continue
-            freq[sender] += 1
+        freq = self._count_senders(svc, ids)
         top = freq.most_common(max(1, payload.top))
         result = GmailSweepTopResult(
             top_senders=top,
@@ -491,6 +520,35 @@ class GmailSweepTopProcessor(Processor[GmailSweepTopRequest, ResultEnvelope[Gmai
             out_path=payload.out_path,
         )
         return ResultEnvelope(status="success", payload=result)
+
+    def _count_senders(self, svc, ids: List[str]) -> collections.Counter:
+        """Count sender frequencies from message IDs."""
+        freq: collections.Counter = collections.Counter()
+        for mid in ids:
+            sender = self._extract_sender(svc, mid)
+            if sender:
+                freq[sender] += 1
+        return freq
+
+    def _extract_sender(self, svc, mid: str) -> Optional[str]:
+        """Extract sender email address from a message."""
+        try:
+            msg = svc.get_message(mid)
+        except Exception:  # noqa: S112 - skip unreadable messages
+            return None
+        return self._parse_sender_from_message(msg)
+
+    def _parse_sender_from_message(self, msg: Dict[str, Any]) -> Optional[str]:
+        """Parse sender from Gmail message dict."""
+        payload_data = msg.get("payload") or {}
+        headers = payload_data.get("headers") or []
+        for header in headers:
+            if (header.get("name") or "").lower() == "from":
+                return extract_email_address(header.get("value") or "")
+        # Fallback: check top-level 'from' field
+        if isinstance(msg, dict) and msg.get("from"):
+            return extract_email_address(str(msg["from"]))
+        return None
 
 
 class GmailSweepTopProducer(BaseProducer):

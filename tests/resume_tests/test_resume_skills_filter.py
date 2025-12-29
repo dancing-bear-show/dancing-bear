@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import copy
 import unittest
 
 from resume.skills_filter import (
     _extract_item_name,
     _flatten_keywords,
     filter_skills_by_keywords,
+)
+from tests.resume_tests.fixtures import (
+    SAMPLE_CANDIDATE_WITH_GROUPS,
+    make_candidate,
+    make_keyword_spec,
 )
 
 
@@ -46,39 +52,32 @@ class TestFlattenKeywords(unittest.TestCase):
     """Tests for _flatten_keywords function."""
 
     def test_flatten_required_tier(self):
-        spec = {"required": ["Python", "Java"]}
+        spec = make_keyword_spec(required=["Python", "Java"])
         result = _flatten_keywords(spec)
         self.assertIn("Python", result)
         self.assertIn("Java", result)
 
     def test_flatten_preferred_tier(self):
-        spec = {"preferred": ["Docker", "Kubernetes"]}
+        spec = make_keyword_spec(preferred=["Docker", "Kubernetes"])
         result = _flatten_keywords(spec)
         self.assertIn("Docker", result)
         self.assertIn("Kubernetes", result)
 
     def test_flatten_nice_tier(self):
-        spec = {"nice": ["Go", "Rust"]}
+        spec = make_keyword_spec(nice=["Go", "Rust"])
         result = _flatten_keywords(spec)
         self.assertIn("Go", result)
         self.assertIn("Rust", result)
 
     def test_flatten_all_tiers(self):
-        spec = {
-            "required": ["Python"],
-            "preferred": ["Docker"],
-            "nice": ["Go"],
-        }
+        spec = make_keyword_spec(required=["Python"], preferred=["Docker"], nice=["Go"])
         result = _flatten_keywords(spec)
         self.assertEqual(len(result), 3)
 
     def test_flatten_categories(self):
-        spec = {
-            "categories": {
-                "languages": ["Python", "Java"],
-                "tools": ["Docker", "Git"],
-            }
-        }
+        spec = make_keyword_spec(
+            categories={"languages": ["Python", "Java"], "tools": ["Docker", "Git"]}
+        )
         result = _flatten_keywords(spec)
         self.assertIn("Python", result)
         self.assertIn("Java", result)
@@ -90,7 +89,9 @@ class TestFlattenKeywords(unittest.TestCase):
             "required": [
                 {"skill": "Python", "weight": 2},
                 {"name": "Java"},
-            ]
+            ],
+            "preferred": [],
+            "nice": [],
         }
         result = _flatten_keywords(spec)
         self.assertIn("Python", result)
@@ -101,7 +102,7 @@ class TestFlattenKeywords(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_none_values_in_tiers(self):
-        spec = {"required": None, "preferred": ["Docker"]}
+        spec = {"required": None, "preferred": ["Docker"], "nice": []}
         result = _flatten_keywords(spec)
         self.assertIn("Docker", result)
 
@@ -110,31 +111,12 @@ class TestFilterSkillsByKeywords(unittest.TestCase):
     """Tests for filter_skills_by_keywords function."""
 
     def setUp(self):
-        self.candidate_with_groups = {
-            "name": "John Doe",
-            "skills_groups": [
-                {
-                    "title": "Languages",
-                    "items": [
-                        {"name": "Python", "level": "expert"},
-                        {"name": "Java", "level": "intermediate"},
-                        {"name": "Go", "level": "beginner"},
-                    ],
-                },
-                {
-                    "title": "Tools",
-                    "items": [
-                        {"name": "Docker", "desc": "Container orchestration"},
-                        {"name": "Git", "desc": "Version control"},
-                    ],
-                },
-            ],
-        }
-
-        self.candidate_with_flat_skills = {
-            "name": "Jane Doe",
-            "skills": ["Python", "JavaScript", "React", "Docker"],
-        }
+        # Use shared fixtures with deep copy to avoid mutation
+        self.candidate_with_groups = copy.deepcopy(SAMPLE_CANDIDATE_WITH_GROUPS)
+        self.candidate_with_flat_skills = make_candidate(
+            name="Jane Doe",
+            skills=["Python", "JavaScript", "React", "Docker"],
+        )
 
     def test_filters_groups_by_keyword(self):
         result = filter_skills_by_keywords(

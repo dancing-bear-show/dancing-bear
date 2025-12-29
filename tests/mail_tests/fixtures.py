@@ -24,6 +24,10 @@ __all__ = [
     "make_system_label",
     "make_label_with_visibility",
     "make_message",
+    # CLI register test helpers
+    "noop_handler",
+    "make_noop_handlers",
+    "CLIRegisterTestCase",
 ]
 
 
@@ -268,3 +272,52 @@ def make_gmail_client(
         filters=filters or [],
         message_ids_by_query=message_ids_by_query or {},
     )
+
+
+# -----------------------------------------------------------------------------
+# CLI register test helpers
+# -----------------------------------------------------------------------------
+
+
+def noop_handler(*args, **kwargs):
+    """No-op handler for CLI registration tests."""
+    pass
+
+
+def make_noop_handlers(*names: str) -> Dict[str, callable]:
+    """Create a dict of noop handlers for CLI registration.
+
+    Args:
+        *names: Handler names (e.g., "f_list", "f_export")
+
+    Returns:
+        Dict mapping names to noop_handler
+
+    Example:
+        handlers = make_noop_handlers("f_list", "f_export", "f_sync")
+        register(subparsers, **handlers)
+    """
+    return {name: noop_handler for name in names}
+
+
+class CLIRegisterTestCase:
+    """Mixin for CLI register tests. Provides parser setup.
+
+    Subclasses should set `parser` in setUp by calling their
+    parser factory function.
+
+    Example:
+        class TestFiltersSync(CLIRegisterTestCase, unittest.TestCase):
+            def setUp(self):
+                self.parser = make_filters_parser()
+
+            def test_sync_subcommand(self):
+                args = self.parse("filters", "sync", "--config", "/c.yaml")
+                self.assertEqual(args.filters_cmd, "sync")
+    """
+
+    parser = None  # Set in setUp
+
+    def parse(self, *argv: str):
+        """Parse command-line arguments. Shorthand for self.parser.parse_args()."""
+        return self.parser.parse_args(list(argv))
