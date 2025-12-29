@@ -105,9 +105,10 @@ def search_messages(
     if not os.path.exists(path):
         raise FileNotFoundError(f"WhatsApp ChatStorage not found: {path}")
     where, params = _build_where(contains or [], match_all, contact, from_me, since_days)
-    # where clause built via _build_where uses parameterized queries (? placeholders)
-    sql = (
-        "SELECT datetime(m.ZMESSAGEDATE+?,'unixepoch','localtime') AS ts, "  # noqa: S608
+    # Safe: where clause from _build_where uses only hardcoded column names
+    # and ? placeholders - no user input in SQL string itself
+    sql = (  # nosec B608 - parameterized query, where has no user input
+        "SELECT datetime(m.ZMESSAGEDATE+?,'unixepoch','localtime') AS ts, "
         "s.ZPARTNERNAME, m.ZISFROMME, m.ZTEXT "
         "FROM ZWAMESSAGE m JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION "
         f"WHERE {where} "
