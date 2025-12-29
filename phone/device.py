@@ -112,7 +112,12 @@ def _parse_list_format(data: List) -> Dict[str, Any]:
                 page_out["apps"].append(it)
             elif isinstance(it, list) and it:
                 name = it[0] if isinstance(it[0], str) else "Folder"
-                fapps = [s for sub in it[1:] for s in ([sub] if isinstance(sub, str) else sub) if isinstance(s, str)]
+                fapps = []
+                for sub in it[1:]:
+                    if isinstance(sub, str):
+                        fapps.append(sub)
+                    elif isinstance(sub, list):
+                        fapps.extend(s for s in sub if isinstance(s, str))
                 if fapps:
                     page_out["folders"].append({"name": name or "Folder", "apps": fapps})
         pages.append(page_out)
