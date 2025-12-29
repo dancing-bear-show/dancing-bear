@@ -15,10 +15,13 @@ from metals.vendors import (
     dedupe_line_items,
     extract_basic_line_items,
     extract_price_from_lines,
+    find_bundle_qty,
     find_qty_near,
     get_vendor_for_sender,
     infer_metal_from_context,
     iter_nearby_lines,
+    _parse_weight_match,
+    _WEIGHT_PATTERNS,
 )
 
 from tests.metals_tests.fixtures import LINES_3, LINES_5, VENDOR_EMAILS, make_price_lines
