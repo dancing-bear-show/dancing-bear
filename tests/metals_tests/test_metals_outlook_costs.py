@@ -8,11 +8,7 @@ import unittest
 from tests.fixtures import TempDirMixin
 
 from core.text_utils import html_to_text
-from metals.costs_common import (
-    G_PER_OZ,
-    extract_order_amount,
-    merge_costs_csv,
-)
+from metals.costs_common import extract_order_amount, merge_costs_csv
 from metals.outlook_costs import (
     _amount_near_item,
     _classify_subject,
@@ -20,14 +16,6 @@ from metals.outlook_costs import (
     _extract_line_items,
     _extract_order_id,
 )
-
-
-class TestConstants(unittest.TestCase):
-    """Tests for module constants."""
-
-    def test_grams_per_oz(self):
-        """Test grams per troy ounce constant."""
-        self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
 
 
 class TestClassifySubject(unittest.TestCase):

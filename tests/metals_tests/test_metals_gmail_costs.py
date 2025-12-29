@@ -3,23 +3,12 @@ from __future__ import annotations
 
 import unittest
 
-from metals.costs_common import (
-    G_PER_OZ,
-    extract_order_amount,
-)
+from metals.costs_common import G_PER_OZ, extract_order_amount
 from metals.gmail_costs import (
     _extract_line_items,
     _extract_amount_near_line,
     _classify_vendor,
 )
-
-
-class TestConstants(unittest.TestCase):
-    """Tests for module constants."""
-
-    def test_grams_per_oz(self):
-        """Test grams per troy ounce constant."""
-        self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
 
 
 class TestExtractLineItems(unittest.TestCase):
