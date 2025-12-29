@@ -35,12 +35,12 @@ class VendorParser(ABC):
     @abstractmethod
     def matches_sender(self, from_header: str) -> bool:
         """Return True if this parser handles emails from this sender."""
-        ...
+        pass  # Abstract method
 
     @abstractmethod
     def extract_line_items(self, text: str) -> Tuple[List[LineItem], List[str]]:
         """Extract line items from email text. Returns (items, lines)."""
-        ...
+        pass  # Abstract method
 
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
@@ -84,7 +84,7 @@ def find_qty_near(lines: List[str], idx: int, window: int = 4) -> Optional[float
     """Find explicit quantity near a line index."""
     checked: set[int] = set()
     for d in range(window):
-        for j in (idx + d, idx - d):
+        for j in {idx + d, idx - d}:  # Set dedupes when d=0
             if j in checked or not (0 <= j < len(lines)):
                 continue
             checked.add(j)
@@ -126,7 +126,7 @@ def extract_basic_line_items(text: str) -> Tuple[List[LineItem], List[str]]:
                 unit_oz = num / max(den, 1.0)
                 items.append(LineItem(metal=metal, unit_oz=unit_oz, qty=qty, idx=idx))
             except (ValueError, IndexError):
-                continue
+                continue  # Skip malformed matches
 
         # Decimal ounces (e.g., 1 oz silver)
         for m in PAT_DECIMAL_OZ.finditer(ln):
@@ -136,7 +136,7 @@ def extract_basic_line_items(text: str) -> Tuple[List[LineItem], List[str]]:
                 qty = float(m.group(3) or 1)
                 items.append(LineItem(metal=metal, unit_oz=unit_oz, qty=qty, idx=idx))
             except (ValueError, IndexError):
-                continue
+                continue  # Skip malformed matches
 
         # Grams (e.g., 31g gold)
         for m in PAT_GRAMS.finditer(ln):
@@ -147,7 +147,7 @@ def extract_basic_line_items(text: str) -> Tuple[List[LineItem], List[str]]:
                 unit_oz = wt_g / G_PER_OZ
                 items.append(LineItem(metal=metal, unit_oz=unit_oz, qty=qty, idx=idx))
             except (ValueError, IndexError):
-                continue
+                continue  # Skip malformed matches
 
     return items, lines
 
@@ -229,7 +229,7 @@ class TDParser(VendorParser):
         lb, ub = get_price_band(metal, unit_oz)
 
         for d in range(13):
-            for j in (idx + d, idx - d):
+            for j in {idx + d, idx - d}:  # Set dedupes when d=0
                 if not (0 <= j < len(lines)):
                     continue
                 ln = lines[j] or ""
@@ -273,7 +273,7 @@ class TDParser(VendorParser):
         ]
         checked: set[int] = set()
         for d in range(4):
-            for j in (idx + d, idx - d):
+            for j in {idx + d, idx - d}:  # Set dedupes when d=0
                 if j in checked or not (0 <= j < len(lines)):
                     continue
                 checked.add(j)
@@ -301,7 +301,7 @@ class TDParser(VendorParser):
         """Get unit oz override from SKU or phrase mapping."""
         sku_map = self.SKU_UNIT_MAP_SILVER if metal == 'silver' else self.SKU_UNIT_MAP_GOLD
         for d in range(4):
-            for j in (idx + d, idx - d):
+            for j in {idx + d, idx - d}:  # Set dedupes when d=0
                 if 0 <= j < len(lines):
                     m = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", lines[j] or '')
                     if m and m.group(1) in sku_map:
@@ -349,7 +349,7 @@ class CostcoParser(VendorParser):
         lb, ub = get_price_band(metal, unit_oz)
 
         for d in range(13):
-            for j in (idx + d, idx - d):
+            for j in {idx + d, idx - d}:  # Set dedupes when d=0
                 if not (0 <= j < len(lines)):
                     continue
                 ln = lines[j] or ""
@@ -376,7 +376,7 @@ class CostcoParser(VendorParser):
     def _find_bundle_qty(self, lines: List[str], idx: int) -> Optional[float]:
         """Find bundle quantity from SKU or text patterns."""
         for d in range(4):
-            for j in (idx + d, idx - d):
+            for j in {idx + d, idx - d}:  # Set dedupes when d=0
                 if 0 <= j < len(lines):
                     s = lines[j] or ''
                     m = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s)
