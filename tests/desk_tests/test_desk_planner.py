@@ -1,7 +1,6 @@
 """Tests for desk/planner.py - file organization planning."""
 
 import os
-import tempfile
 import time
 import unittest
 from pathlib import Path
