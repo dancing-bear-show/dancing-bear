@@ -46,6 +46,7 @@ class FakeForwardingClient:
     forwarding_settings: List[Dict] = field(default_factory=list)
 
     def authenticate(self) -> None:
+        """No-op: test fixture does not require authentication."""
         pass
 
     def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
