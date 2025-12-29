@@ -21,6 +21,8 @@ from metals.vendors import (
     iter_nearby_lines,
 )
 
+from tests.metals_tests.fixtures import LINES_3, LINES_5, VENDOR_EMAILS, make_price_lines
+
 
 class TestVendorLists(unittest.TestCase):
     """Tests for vendor list constants."""
@@ -44,30 +46,30 @@ class TestGetVendorForSender(unittest.TestCase):
 
     def test_matches_td(self):
         """Test matches TD sender."""
-        vendor = get_vendor_for_sender("noreply@td.com")
+        vendor = get_vendor_for_sender(VENDOR_EMAILS["TD"][0])
         self.assertIsNotNone(vendor)
         self.assertEqual(vendor.name, "TD")
 
     def test_matches_costco(self):
         """Test matches Costco sender."""
-        vendor = get_vendor_for_sender("orders@costco.com")
+        vendor = get_vendor_for_sender(VENDOR_EMAILS["Costco"][0])
         self.assertIsNotNone(vendor)
         self.assertEqual(vendor.name, "Costco")
 
     def test_matches_rcm(self):
         """Test matches RCM sender."""
-        vendor = get_vendor_for_sender("noreply@mint.ca")
+        vendor = get_vendor_for_sender(VENDOR_EMAILS["RCM"][0])
         self.assertIsNotNone(vendor)
         self.assertEqual(vendor.name, "RCM")
 
     def test_returns_none_for_unknown(self):
         """Test returns None for unknown sender."""
-        vendor = get_vendor_for_sender("someone@example.com")
+        vendor = get_vendor_for_sender(VENDOR_EMAILS["unknown"][0])
         self.assertIsNone(vendor)
 
     def test_case_insensitive(self):
         """Test matching is case insensitive."""
-        vendor = get_vendor_for_sender("NoReply@TD.COM")
+        vendor = get_vendor_for_sender(VENDOR_EMAILS["TD"][2])  # NoReply@TD.COM
         self.assertIsNotNone(vendor)
         self.assertEqual(vendor.name, "TD")
 
@@ -84,12 +86,12 @@ class TestTDParser(unittest.TestCase):
 
     def test_matches_td_sender(self):
         """Test matches TD sender."""
-        self.assertTrue(self.parser.matches_sender("noreply@td.com"))
-        self.assertTrue(self.parser.matches_sender("orders@preciousmetals.td.com"))
+        self.assertTrue(self.parser.matches_sender(VENDOR_EMAILS["TD"][0]))
+        self.assertTrue(self.parser.matches_sender(VENDOR_EMAILS["TD"][1]))
 
     def test_does_not_match_other(self):
         """Test does not match other senders."""
-        self.assertFalse(self.parser.matches_sender("noreply@costco.com"))
+        self.assertFalse(self.parser.matches_sender(VENDOR_EMAILS["Costco"][0]))
 
     def test_extract_line_items_gold(self):
         """Test extracts gold line items."""
@@ -120,12 +122,12 @@ class TestCostcoParser(unittest.TestCase):
 
     def test_matches_costco_sender(self):
         """Test matches Costco sender."""
-        self.assertTrue(self.parser.matches_sender("orders@costco.com"))
-        self.assertTrue(self.parser.matches_sender("noreply@orders.costco.com"))
+        self.assertTrue(self.parser.matches_sender(VENDOR_EMAILS["Costco"][0]))
+        self.assertTrue(self.parser.matches_sender(VENDOR_EMAILS["Costco"][1]))
 
     def test_does_not_match_other(self):
         """Test does not match other senders."""
-        self.assertFalse(self.parser.matches_sender("noreply@td.com"))
+        self.assertFalse(self.parser.matches_sender(VENDOR_EMAILS["TD"][0]))
 
 
 class TestRCMParser(unittest.TestCase):
@@ -140,12 +142,12 @@ class TestRCMParser(unittest.TestCase):
 
     def test_matches_rcm_sender(self):
         """Test matches RCM sender."""
-        self.assertTrue(self.parser.matches_sender("noreply@mint.ca"))
-        self.assertTrue(self.parser.matches_sender("orders@email.mint.ca"))
+        self.assertTrue(self.parser.matches_sender(VENDOR_EMAILS["RCM"][0]))
+        self.assertTrue(self.parser.matches_sender(VENDOR_EMAILS["RCM"][1]))
 
     def test_does_not_match_other(self):
         """Test does not match other senders."""
-        self.assertFalse(self.parser.matches_sender("noreply@td.com"))
+        self.assertFalse(self.parser.matches_sender(VENDOR_EMAILS["TD"][0]))
 
     def test_classify_email_confirmation(self):
         """Test classifies confirmation email."""
@@ -313,22 +315,19 @@ class TestIterNearbyLines(unittest.TestCase):
 
     def test_returns_center_line_first(self):
         """Test returns the center line at idx first."""
-        lines = ["line0", "line1", "line2", "line3", "line4"]
-        result = iter_nearby_lines(lines, 2, window=3)
+        result = iter_nearby_lines(LINES_5, 2, window=3)
         self.assertEqual(result[0], (2, "line2"))
 
     def test_expands_bidirectionally(self):
         """Test expands both forward and backward from idx."""
-        lines = ["line0", "line1", "line2", "line3", "line4"]
-        result = iter_nearby_lines(lines, 2, window=2)
+        result = iter_nearby_lines(LINES_5, 2, window=2)
         indices = [idx for idx, _ in result]
         self.assertIn(1, indices)  # backward
         self.assertIn(3, indices)  # forward
 
     def test_forward_only_mode(self):
         """Test forward_only=True only searches forward."""
-        lines = ["line0", "line1", "line2", "line3", "line4"]
-        result = iter_nearby_lines(lines, 2, window=3, forward_only=True)
+        result = iter_nearby_lines(LINES_5, 2, window=3, forward_only=True)
         indices = [idx for idx, _ in result]
         self.assertIn(2, indices)
         self.assertIn(3, indices)
@@ -338,15 +337,13 @@ class TestIterNearbyLines(unittest.TestCase):
 
     def test_respects_window_size(self):
         """Test respects window parameter."""
-        lines = ["line0", "line1", "line2", "line3", "line4"]
-        result = iter_nearby_lines(lines, 2, window=1)
+        result = iter_nearby_lines(LINES_5, 2, window=1)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], (2, "line2"))
 
     def test_handles_boundary_start(self):
         """Test handles idx at start of list."""
-        lines = ["line0", "line1", "line2"]
-        result = iter_nearby_lines(lines, 0, window=3)
+        result = iter_nearby_lines(LINES_3, 0, window=3)
         indices = [idx for idx, _ in result]
         self.assertIn(0, indices)
         self.assertIn(1, indices)
@@ -354,8 +351,7 @@ class TestIterNearbyLines(unittest.TestCase):
 
     def test_handles_boundary_end(self):
         """Test handles idx at end of list."""
-        lines = ["line0", "line1", "line2"]
-        result = iter_nearby_lines(lines, 2, window=3)
+        result = iter_nearby_lines(LINES_3, 2, window=3)
         indices = [idx for idx, _ in result]
         self.assertIn(2, indices)
         self.assertIn(1, indices)
@@ -363,8 +359,7 @@ class TestIterNearbyLines(unittest.TestCase):
 
     def test_no_duplicates(self):
         """Test returns no duplicate indices."""
-        lines = ["line0", "line1", "line2", "line3", "line4"]
-        result = iter_nearby_lines(lines, 2, window=5)
+        result = iter_nearby_lines(LINES_5, 2, window=5)
         indices = [idx for idx, _ in result]
         self.assertEqual(len(indices), len(set(indices)))
 
@@ -380,7 +375,7 @@ class TestExtractPriceFromLines(unittest.TestCase):
 
     def test_finds_unit_price(self):
         """Test finds price with 'each' keyword."""
-        lines = ["1 oz Gold Coin", "Price: $2,500.00 each", "Total: $5,000.00"]
+        lines = make_price_lines(price_kind="unit")
         hit = extract_price_from_lines(lines, 0, "gold", 1.0)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "unit")
@@ -388,21 +383,21 @@ class TestExtractPriceFromLines(unittest.TestCase):
 
     def test_finds_total_price(self):
         """Test finds price with 'total' keyword."""
-        lines = ["1 oz Gold Coin", "Total: $2,500.00"]
+        lines = make_price_lines(price_kind="total")
         hit = extract_price_from_lines(lines, 0, "gold", 1.0)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "total")
 
     def test_returns_unknown_for_no_keyword(self):
         """Test returns 'unknown' when no unit/total keyword."""
-        lines = ["1 oz Gold Coin", "$2,500.00"]
+        lines = make_price_lines(price_kind="unknown")
         hit = extract_price_from_lines(lines, 0, "gold", 1.0)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "unknown")
 
     def test_skips_banned_terms(self):
         """Test skips lines with banned terms like 'shipping'."""
-        lines = ["1 oz Gold", "Shipping: $25.00", "Price: $2,500.00"]
+        lines = make_price_lines(item_desc="1 oz Gold", include_banned=True)
         hit = extract_price_from_lines(lines, 0, "gold", 1.0)
         self.assertIsNotNone(hit)
         self.assertAlmostEqual(hit.amount, 2500.0, places=2)
@@ -417,13 +412,13 @@ class TestExtractPriceFromLines(unittest.TestCase):
 
     def test_respects_price_band(self):
         """Test filters prices outside expected band."""
-        lines = ["1 oz Gold", "$50.00"]  # Too low for 1oz gold
+        lines = make_price_lines(price=50.0, price_kind="unknown")  # Too low for 1oz gold
         hit = extract_price_from_lines(lines, 0, "gold", 1.0)
         self.assertIsNone(hit)
 
     def test_respects_window(self):
         """Test respects window parameter."""
-        lines = ["line0", "line1", "line2", "$2,500.00 gold"]
+        lines = LINES_3 + ["$2,500.00 gold"]
         hit = extract_price_from_lines(lines, 0, "gold", 1.0, window=2)
         self.assertIsNone(hit)  # Price is at line 3, window=2 won't reach it
 
@@ -435,7 +430,7 @@ class TestExtractPriceFromLines(unittest.TestCase):
 
     def test_handles_comma_in_price(self):
         """Test handles prices with commas."""
-        lines = ["Item", "$12,500.00"]
+        lines = make_price_lines(item_desc="Item", price=12500.0, price_kind="unknown")
         hit = extract_price_from_lines(lines, 0, "gold", 5.0)  # ~5oz gold
         self.assertIsNotNone(hit)
         self.assertAlmostEqual(hit.amount, 12500.0, places=2)
