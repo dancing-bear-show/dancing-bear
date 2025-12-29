@@ -44,8 +44,13 @@ def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
         for i, tok in enumerate(parts):
             if not tok.startswith("ECID:"):
                 continue
-            # Handle "ECID:value" or "ECID: value"
-            return tok.split(":", 1)[1] or (parts[i + 1] if i + 1 < len(parts) else "")
+            # Handle "ECID:value" or "ECID: value" explicitly
+            ecid_part = tok.split(":", 1)[1]
+            if ecid_part:
+                return ecid_part
+            if i + 1 < len(parts):
+                return parts[i + 1]
+            return ""
     return ""
 
 
