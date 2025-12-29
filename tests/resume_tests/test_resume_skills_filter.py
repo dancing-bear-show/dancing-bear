@@ -12,7 +12,6 @@ from resume.skills_filter import (
 )
 from tests.resume_tests.fixtures import (
     SAMPLE_CANDIDATE_WITH_GROUPS,
-    SAMPLE_SKILLS_GROUPS,
     make_candidate,
     make_keyword_spec,
 )
