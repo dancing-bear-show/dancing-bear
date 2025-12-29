@@ -29,12 +29,22 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            Review this PR. Focus on:
-            - Bugs or logic errors
-            - Security issues
-            - Code style consistency with CLAUDE.md guidelines
+            Review this PR following the guidelines in .github/CLAUDE_REVIEW.md
 
-            Be concise. Only comment if there are actionable issues.
+            Key priorities:
+            1. Security issues (credentials, injection, path traversal)
+            2. Bugs and logic errors
+            3. Breaking changes to CLI or public APIs
+            4. Missing tests for new functionality
+            5. Project patterns (lazy imports, pipeline pattern, dry-run support)
+
+            Output format:
+            - Start with 1-2 sentence summary
+            - Group issues by severity: 🔴 Blocking, 🟡 Suggestions, 🟢 Nice to Have
+            - Include file:line references and concrete fix suggestions
+            - Be concise — only comment if there are actionable issues
+
+            Skip: style nitpicks, import ordering, files in out/, .venv/, backups/
 
   # Respond to @claude mentions
   respond:

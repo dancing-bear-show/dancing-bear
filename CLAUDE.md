@@ -113,6 +113,14 @@ outlook_token = /path/to/outlook_token.json
 - Restrict scopes to labels/settings/readonly/modify where required
 - If sensitive data appears in logs, redact and rotate immediately
 
+## PR Reviews
+
+When reviewing PRs, follow `.github/CLAUDE_REVIEW.md` for detailed guidelines. Key points:
+- Prioritize: Security > Bugs > Breaking Changes > Tests > Maintainability
+- Use severity markers: 🔴 Blocking, 🟡 Suggestions, 🟢 Nice to Have
+- Include file:line references and concrete fix suggestions
+- Skip style nitpicks and generated files
+
 ## Ignore During Scanning
 
 Skip these heavy/non-core paths: `.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
