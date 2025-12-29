@@ -11,6 +11,7 @@ from ._base import (
     Dict,
     List,
     Optional,
+    Tuple,
     Processor,
     ResultEnvelope,
     BaseProducer,
@@ -82,14 +83,14 @@ class OutlookScheduleImportProcessor(
             payload=OutlookScheduleImportResult(logs=logs, created=created, dry_run=payload.dry_run, calendar=cal_name),
         )
 
-    def _ensure_calendar(self, svc, cal_name: str):
+    def _ensure_calendar(self, svc, cal_name: str) -> Tuple[Optional[str], Optional[ResultEnvelope]]:
         try:
             cal_id = svc.ensure_calendar_exists(cal_name)
             return cal_id, None
         except Exception as exc:
             return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR})
 
-    def _load_items(self, payload: OutlookScheduleImportRequest):
+    def _load_items(self, payload: OutlookScheduleImportRequest) -> Tuple[Optional[List], Optional[ResultEnvelope]]:
         loader = self._schedule_loader
         if loader is None:
             from calendars.importer import load_schedule as default_loader
