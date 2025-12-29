@@ -32,76 +32,13 @@ from resume.parsing import (
     parse_resume_text,
     merge_profiles,
 )
-
-
-# =============================================================================
-# Shared Test Fixtures
-# =============================================================================
-
-
-SAMPLE_RESUME_TEXT = """John Doe
-john@example.com
-San Francisco, CA
-
-Summary
-Experienced software engineer with 10 years...
-
-Experience
-Senior Engineer at TechCorp (2020-2023)
-- Built scalable systems
-
-Education
-B.S. Computer Science, MIT, 2015
-
-Skills
-Python, Java, SQL
-"""
-
-SAMPLE_CONTACT_LINES = [
-    "John Doe",
-    "john.doe@example.com",
-    "(555) 123-4567",
-    "San Francisco, CA",
-    "linkedin.com/in/johndoe",
-    "github.com/johndoe",
-    "https://johndoe.com",
-]
-
-SAMPLE_PDF_LINES_WITH_SECTIONS = [
-    "John Doe",
-    "Experience",
-    "Senior Dev at Company",
-    "Education",
-    "BS at University",
-    "Skills",
-    "Python",
-]
-
-SAMPLE_LINKEDIN_HTML = '''
-<html>
-<head>
-    <meta property="profile:first_name" content="John">
-    <meta property="profile:last_name" content="Doe">
-    <meta property="og:title" content="John Doe - Software Engineer | LinkedIn">
-    <meta name="description" content="Senior Engineer · Experience: TechCorp · Location: San Francisco">
-    <title>John Doe - Software Engineer | LinkedIn</title>
-</head>
-</html>
-'''
-
-
-def make_empty_profile(**overrides):
-    """Create an empty profile dict with optional overrides."""
-    profile = {
-        "name": "",
-        "headline": "",
-        "email": "",
-        "skills": [],
-        "experience": [],
-        "education": [],
-    }
-    profile.update(overrides)
-    return profile
+from tests.resume_tests.fixtures import (
+    SAMPLE_CONTACT_LINES,
+    SAMPLE_LINKEDIN_HTML,
+    SAMPLE_PDF_LINES_WITH_SECTIONS,
+    SAMPLE_RESUME_TEXT,
+    make_empty_profile,
+)
 
 
 class PdfSectionTestCase(unittest.TestCase):

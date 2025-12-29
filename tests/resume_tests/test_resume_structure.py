@@ -3,14 +3,16 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests.resume_tests.fixtures import FakeParagraph
+
 
 class TestInferStructureFromDocx(unittest.TestCase):
     """Tests for infer_structure_from_docx function."""
 
     def _make_fake_paragraph(self, text: str, style_name: str = "Normal"):
         """Create a mock paragraph with text and style."""
-        p = MagicMock()
-        p.text = text
+        p = FakeParagraph(text, style_name)
+        # Add style.name attribute for compatibility with structure.py
         p.style = MagicMock()
         p.style.name = style_name
         return p
