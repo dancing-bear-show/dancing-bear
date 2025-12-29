@@ -27,177 +27,172 @@ from mail.gmail_api import GmailClient
 
 from .costs_common import (
     G_PER_OZ,
+    MONEY_PATTERN,
     extract_order_amount,
+    find_money,
+    format_breakdown,
+    format_qty,
     write_costs_csv,
 )
 from .vendors import GMAIL_VENDORS, get_vendor_for_sender
 
 
-def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
+# SKU-based mappings for bundle sizes and unit-oz overrides
+_SKU_BUNDLE_MAP = {'3796875': 25.0}  # 25 x 1 oz tube (Costco)
+_SKU_UNIT_MAP_SILVER = {'2796876': 10.0}  # 10 oz silver bar
+_SKU_UNIT_MAP_GOLD = {'5882020': 0.25}  # 1/4 oz Canadian Gold Maple Leaf (Costco)
+_PHRASE_MAP_SILVER = {'magnificent maple leaves silver coin': 10.0}
+
+# Compiled regex patterns for line item extraction
+_PAT_FRAC = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
+_PAT_OZ = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
+_PAT_G = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
+_PAT_QTY_LIST = [
+    re.compile(r"(?i)\bqty\s*:?\s*(\d{1,3})\b"),
+    re.compile(r"(?i)\bquantity\s*:?\s*(\d{1,3})\b"),
+    re.compile(r"(?i)\bx\s*(\d{1,3})\b"),
+    re.compile(r"(?i)\b(\d{1,3})\s*x\b"),
+]
+_PAT_BUNDLE_LIST = [
+    re.compile(r"(?i)\b(\d{1,3})\s*[- ]?pack\b"),
+    re.compile(r"(?i)\bpack\s*of\s*(\d{1,3})\b"),
+    re.compile(r"(?i)\b(\d{1,3})\s*coins?\b"),
+    re.compile(r"(?i)\b(\d{1,3})\s*ct\b"),
+    re.compile(r"(?i)\b(roll|tube)\s*of\s*(\d{1,3})\b"),
+]
+_PAT_ITEM_SKU = re.compile(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b")
+_PAT_LEADING_QTY = re.compile(r"(?i)\b(\d{1,3})\s*x\b")
+
+
+def _extract_first_match_group(pattern, text: str, min_val: int, max_val: int) -> float | None:
+    """Extract first matching numeric group within [min_val, max_val] range."""
+    m = pattern.search(text or "")
+    if not m:
+        return None
+    for g in (1, 2):
+        try:
+            val = m.group(g)
+        except Exception:  # nosec B110 - group may not exist
+            val = None
+        if val and val.isdigit():
+            n = int(val)
+            if min_val <= n <= max_val:
+                return float(n)
+    return None
+
+
+def _explicit_qty_near(lines: List[str], idx: int) -> float | None:
+    """Look near the line for explicit quantity indicators (e.g., 'x 25', 'Qty 2')."""
+    for j in (idx, idx + 1, idx - 1, idx + 2):
+        if 0 <= j < len(lines):
+            for pat in _PAT_QTY_LIST:
+                result = _extract_first_match_group(pat, lines[j], 1, 200)
+                if result:
+                    return result
+    return None
+
+
+def _bundle_qty_near(lines: List[str], idx: int) -> float | None:
+    """Look for bundle indicators (e.g., 'roll of 25', 'tube of 25', '25-pack')."""
+    for j in (idx, idx + 1, idx - 1, idx + 2):
+        if 0 <= j < len(lines):
+            s = lines[j]
+            for pat in _PAT_BUNDLE_LIST:
+                result = _extract_first_match_group(pat, s, 2, 200)
+                if result:
+                    return result
+            m_item = _PAT_ITEM_SKU.search(s or '')
+            if m_item and m_item.group(1) in _SKU_BUNDLE_MAP:
+                return _SKU_BUNDLE_MAP[m_item.group(1)]
+    return None
+
+
+def _unit_oz_override_near(lines: List[str], idx: int, metal_ctx: str) -> float | None:
+    """Map item numbers/phrases to unit-oz when emails omit explicit size."""
+    metal_key = (metal_ctx or '').strip().lower()
+    sku_unit_map = _SKU_UNIT_MAP_SILVER if metal_key == 'silver' else _SKU_UNIT_MAP_GOLD
+    phrase_map = _PHRASE_MAP_SILVER if metal_key == 'silver' else {}
+    for j in (idx, idx + 1, idx - 1, idx + 2):
+        if 0 <= j < len(lines):
+            s = lines[j]
+            m_item = _PAT_ITEM_SKU.search(s or '')
+            if m_item and m_item.group(1) in sku_unit_map:
+                return sku_unit_map[m_item.group(1)]
+            s_low = (s or '').lower()
+            for ph, uoz in phrase_map.items():
+                if ph in s_low:
+                    return uoz
+    return None
+
+
+def _apply_qty_heuristics(
+    lines: List[str], ln: str, m, idx: int, unit_oz: float, metal: str, qty: float, explicit_qty: bool
+) -> Tuple[float, float]:
+    """Apply quantity and unit-oz heuristics. Returns (qty, unit_oz)."""
+    if math.isclose(qty, 1.0) and not explicit_qty:
+        pre = ln[max(0, m.start() - 120):m.start()]
+        mpre = _PAT_LEADING_QTY.search(pre)
+        pre_q = float(mpre.group(1)) if mpre else None
+        eq = _explicit_qty_near(lines, idx)
+        if eq:
+            if pre_q and (0.98 <= unit_oz <= 1.02) and eq < pre_q:
+                qty = pre_q
+            else:
+                qty = eq
+        elif pre_q:
+            qty = pre_q
+        else:
+            bq = _bundle_qty_near(lines, idx)
+            if bq and (0.98 <= unit_oz <= 1.02):
+                qty = bq
+    uov = _unit_oz_override_near(lines, idx, metal)
+    if uov:
+        unit_oz = uov
+    return qty, unit_oz
+
+
+def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]] | None:
     """Return (items, lines) where items are dicts {metal, unit_oz, qty, idx}.
 
     Handles fractional ounces (e.g., '1/10 oz Gold ... x 2'), decimal ounces ('1 oz Silver x 4'),
     and grams, each with optional trailing 'x N' quantity.
+    Returns None for empty text.
     """
-    items: List[Dict] = []
     t = normalize_unicode(text or '')
     lines: List[str] = [line.strip() for line in t.splitlines() if line.strip()]
-
-    pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-    pat_oz = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-    pat_g = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-
-    def explicit_qty_near(lines: List[str], idx: int) -> float | None:
-        # Look near the line for explicit quantity indicators, e.g., "x 25", "Qty 2", "Quantity 2"
-        win = [idx, idx + 1, idx - 1, idx + 2]
-        pat_list = [
-            re.compile(r"(?i)\bqty\s*:?\s*(\d{1,3})\b"),
-            re.compile(r"(?i)\bquantity\s*:?\s*(\d{1,3})\b"),
-            re.compile(r"(?i)\bx\s*(\d{1,3})\b"),
-            re.compile(r"(?i)\b(\d{1,3})\s*x\b"),
-        ]
-        for j in win:
-            if 0 <= j < len(lines):
-                s = lines[j]
-                for pat in pat_list:
-                    m = pat.search(s or "")
-                    if m:
-                        for g in (1, 2):
-                            try:
-                                val = m.group(g)
-                            except Exception:
-                                val = None
-                            if val and val.isdigit():
-                                n = int(val)
-                                if 1 <= n <= 200:
-                                    return float(n)
+    if not lines:
         return None
 
-    def bundle_qty_near(lines: List[str], idx: int) -> float | None:
-        # Look within a small window around the line for bundle indicators:
-        # e.g., "x 25", "Qty 25", "roll of 25", "tube of 25", "25 coins", "25-pack"
-        win = [idx, idx + 1, idx - 1, idx + 2]
-        # Known item-number → bundle size map (Costco)
-        sku_bundle_map = {
-            '3796875': 25.0,  # 25 x 1 oz tube
-        }
-        # Known item-number → unit-ounce override map (Costco)
-        pat_list = [
-            re.compile(r"(?i)\b(\d{1,3})\s*[- ]?pack\b"),
-            re.compile(r"(?i)\bpack\s*of\s*(\d{1,3})\b"),
-            re.compile(r"(?i)\b(\d{1,3})\s*coins?\b"),
-            re.compile(r"(?i)\b(\d{1,3})\s*ct\b"),
-            re.compile(r"(?i)\b(roll|tube)\s*of\s*(\d{1,3})\b"),
-        ]
-        for j in win:
-            if 0 <= j < len(lines):
-                s = lines[j]
-                for pat in pat_list:
-                    m = pat.search(s or "")
-                    if m:
-                        # Patterns may have the number in group 1 or 2 depending on wording
-                        for g in (1, 2):
-                            try:
-                                val = m.group(g)
-                            except Exception:
-                                val = None
-                            if val and val.isdigit():
-                                n = int(val)
-                                if 2 <= n <= 200:
-                                    return float(n)
-                # Item number mapping (e.g., "Item 3796875" or "Item Number: 3796875")
-                m_item = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s or '')
-                if m_item:
-                    sku = m_item.group(1)
-                    if sku in sku_bundle_map:
-                        return float(sku_bundle_map[sku])
-        return None
-
-    def unit_oz_override_near(lines: List[str], idx: int, metal_ctx: str) -> float | None:
-        # Map item numbers to unit-oz when emails omit explicit size.
-        # Apply only when the override's metal matches the current item's metal context.
-        sku_unit_map_silver = {
-            '2796876': 10.0,  # single 10 oz silver bar
-        }
-        sku_unit_map_gold: Dict[str, float] = {
-            '5882020': 0.25,  # 1/4 oz Canadian Gold Maple Leaf (Costco)
-        }
-        phrase_map_silver = {
-            'magnificent maple leaves silver coin': 10.0,
-        }
-        phrase_map_gold: Dict[str, float] = {}
-        metal_key = (metal_ctx or '').strip().lower()
-        sku_unit_map = sku_unit_map_silver if metal_key == 'silver' else sku_unit_map_gold
-        phrase_map = phrase_map_silver if metal_key == 'silver' else phrase_map_gold
-        for j in (idx, idx + 1, idx - 1, idx + 2):
-            if 0 <= j < len(lines):
-                s = lines[j]
-                m_item = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s or '')
-                if m_item:
-                    sku = m_item.group(1)
-                    if sku in sku_unit_map:
-                        return float(sku_unit_map[sku])
-                s_low = (s or '').lower()
-                for ph, uoz in phrase_map.items():
-                    if ph in s_low:
-                        return float(uoz)
-        return None
-
-    def apply_qty_heuristics(ln: str, m, idx: int, unit_oz: float, metal: str, qty: float, explicit_qty: bool) -> Tuple[float, float]:
-        """Apply quantity and unit-oz heuristics. Returns (qty, unit_oz)."""
-        if math.isclose(qty, 1.0) and not explicit_qty:
-            # Check for a leading quantity like "25 x 1 oz ..."
-            pre = ln[max(0, m.start()-120):m.start()]
-            mpre = re.search(r"(?i)\b(\d{1,3})\s*x\b", pre)
-            pre_q = None
-            if mpre:
-                try:
-                    pre_q = float(mpre.group(1))
-                except Exception:
-                    pre_q = None
-            eq = explicit_qty_near(lines, idx)
-            if eq:
-                if pre_q and (0.98 <= unit_oz <= 1.02) and float(eq) < pre_q:
-                    qty = pre_q
-                else:
-                    qty = eq
-            elif pre_q:
-                qty = pre_q
-            else:
-                bq = bundle_qty_near(lines, idx)
-                if bq and (0.98 <= unit_oz <= 1.02):
-                    qty = bq
-        uov = unit_oz_override_near(lines, idx, metal)
-        if uov:
-            unit_oz = uov
-        return qty, unit_oz
-
+    items: List[Dict] = []
     for idx, ln in enumerate(lines):
-        for m in pat_frac.finditer(ln):
-            num = float(m.group(1))
-            den = float(m.group(2) or 1)
+        for m in _PAT_FRAC.finditer(ln):
+            num, den = float(m.group(1)), float(m.group(2) or 1)
             metal = (m.group(3) or '').lower()
             qty = float(m.group(4) or 1)
             explicit_qty = m.group(4) is not None
             unit_oz = num / max(den, 1.0)
-            qty, unit_oz = apply_qty_heuristics(ln, m, idx, unit_oz, metal, qty, explicit_qty)
+            qty, unit_oz = _apply_qty_heuristics(lines, ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
-        for m in pat_oz.finditer(ln):
+        for m in _PAT_OZ.finditer(ln):
             unit_oz = float(m.group(1))
             metal = (m.group(2) or '').lower()
             qty = float(m.group(3) or 1)
             explicit_qty = m.group(3) is not None
-            qty, unit_oz = apply_qty_heuristics(ln, m, idx, unit_oz, metal, qty, explicit_qty)
+            qty, unit_oz = _apply_qty_heuristics(lines, ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
-        for m in pat_g.finditer(ln):
+        for m in _PAT_G.finditer(ln):
             wt_g = float(m.group(1))
             metal = (m.group(3) or '').lower()
             qty = float(m.group(4) or 1)
             explicit_qty = m.group(4) is not None
             unit_oz = wt_g / G_PER_OZ
-            qty, unit_oz = apply_qty_heuristics(ln, m, idx, unit_oz, metal, qty, explicit_qty)
+            qty, unit_oz = _apply_qty_heuristics(lines, ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
         return items, lines
+    return items, lines
+
+
+_BAN_ALWAYS_PAT = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
 
 
 def _extract_amount_near_line(
@@ -212,17 +207,6 @@ def _extract_amount_near_line(
       Allow 'total' only when 'price' or a unit-oz mention is present (to pick up line 'Total Price').
     - kind ∈ {unit,total,unknown}; caller uses kind to decide whether to multiply by quantity.
     """
-    money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
-
-    def find_money(s: str):
-        m = money_pat.search(s or "")
-        if m:
-            cur = m.group(1).upper()
-            amt = float(m.group(2).replace(",", ""))
-            return cur, amt
-        return None
-
-    ban_always = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
     want = (metal or "").lower()
     uoz_pat = None
     if unit_oz and unit_oz > 0:
@@ -264,7 +248,7 @@ def _extract_amount_near_line(
                     if anch:
                         anchor_end = anch.end()
                         # From the end of the anchor, find the first currency
-                        m_money = money_pat.search(ln, pos=anchor_end)
+                        m_money = MONEY_PATTERN.search(ln, pos=anchor_end)
                         if m_money:
                             # Reject if the currency is very far away (likely picking up order totals)
                             if (m_money.start() - anchor_end) > 80:
@@ -293,7 +277,7 @@ def _extract_amount_near_line(
                                     return cur, amt, kind
 
             # If no anchored hit, apply generic rules
-            if ban_always.search(ln):
+            if _BAN_ALWAYS_PAT.search(ln):
                 continue
             has_uoz_here = bool(uoz_pat and uoz_pat.search(lower))
             # Also consider immediate neighbor for unit-oz mention
@@ -337,6 +321,26 @@ def _classify_vendor(from_header: str) -> str:
     """Classify vendor from email sender using vendor parsers."""
     vendor = get_vendor_for_sender(from_header, GMAIL_VENDORS)
     return vendor.name if vendor else 'Other'
+
+
+def _is_order_confirmation(subject: str, from_header: str) -> bool:
+    """Check if email is an order confirmation based on subject and sender."""
+    s = (subject or '').lower()
+    f = (from_header or '').lower()
+    if 'td' in f and 'order confirmation' in s:
+        return True
+    if 'costco' in f and 'your costco.ca order number' in s:
+        return True
+    return 'order confirmation' in s
+
+
+_CANCELLED_PAT = re.compile(r"(?i)\bcancel(?:led|ed)\b")
+
+
+def _is_cancelled(subject: str, from_header: str) -> bool:
+    """Check if order was cancelled based on subject and sender."""
+    s = f"{subject or ''} {from_header or ''}"
+    return _CANCELLED_PAT.search(s) is not None
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -385,24 +389,8 @@ def main(argv: List[str] | None = None) -> int:
 
     # Build CSV rows
     rows_out: List[Dict[str, str | float]] = []
-    def is_order_confirmation(subject: str, from_header: str) -> bool:
-        s = (subject or '').lower()
-        f = (from_header or '').lower()
-        # TD specific: contains 'order confirmation'
-        if 'td' in f and 'order confirmation' in s:
-            return True
-        # Costco: the thread will be 'Your Costco.ca Order Number ...'
-        if 'costco' in f and 'your costco.ca order number' in s:
-            return True
-        # Generic fallback: presence of 'order confirmation'
-        return 'order confirmation' in s
-
     for oid, msgs in by_order.items():
-        # Skip cancelled orders by default (detected via subject/from headers)
-        def is_cancelled(subject: str, from_header: str) -> bool:
-            s = f"{subject or ''} {from_header or ''}"
-            return re.search(r"(?i)\bcancel(?:led|ed)\b", s or '') is not None
-        if any(is_cancelled(m[2], m[3]) for m in msgs):
+        if any(_is_cancelled(m[2], m[3]) for m in msgs):
             continue
         # Aggregate line items across all messages for this order, de-duplicated across messages.
         # Track per-message quantities per (metal, unit_oz), then take the max across messages.
@@ -411,7 +399,7 @@ def main(argv: List[str] | None = None) -> int:
         latest_recv_ms = 0
         amount_pref: Tuple[str, float] | None = None
         # Prefer only the order-confirmation emails when present, else fall back to all
-        msgs_conf = [m for m in msgs if is_order_confirmation(m[2], m[3])]
+        msgs_conf = [m for m in msgs if _is_order_confirmation(m[2], m[3])]
         msgs_use = msgs_conf if msgs_conf else msgs
         for mid, recv_ms, subject_here, from_here in msgs_use:
             latest_recv_ms = max(latest_recv_ms, recv_ms)
@@ -516,15 +504,8 @@ def main(argv: List[str] | None = None) -> int:
                 continue
             alloc = cost_alloc.get(metal, 0.0)
             cpo = (alloc / oz) if oz > 0 else 0.0
-            # Build unit breakdown and unit count
-            breakdown = []
-            unit_count = 0.0
-            for uoz, qty in sorted(units_by_metal.get(metal, {}).items()):
-                unit_count += qty
-                # format e.g., 1ozx3 or 0.1ozx2
-                qty_disp = int(qty) if abs(qty - int(qty)) < 1e-6 else qty
-                breakdown.append(f"{uoz}ozx{qty_disp}")
-            # Normalize currency: for TD and Costco (Canada), label as CAD
+            metal_units = units_by_metal.get(metal, {})
+            unit_count = sum(metal_units.values())
             cur_out = 'C$' if vendor in ('TD', 'Costco') else (cur or 'C$')
             rows_out.append({
                 'vendor': vendor,
@@ -536,8 +517,8 @@ def main(argv: List[str] | None = None) -> int:
                 'order_id': oid,
                 'subject': subject,
                 'total_oz': round(oz, 3),
-                'unit_count': int(unit_count) if abs(unit_count - int(unit_count)) < 1e-6 else round(unit_count, 3),
-                'units_breakdown': ';'.join(breakdown),
+                'unit_count': format_qty(unit_count),
+                'units_breakdown': format_breakdown(metal_units),
                 'alloc': alloc_strategy,
             })
 
