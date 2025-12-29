@@ -19,6 +19,11 @@ __all__ = [
     "make_args",
     "FakeGmailClient",
     "make_gmail_client",
+    # Label/message factories
+    "make_user_label",
+    "make_system_label",
+    "make_label_with_visibility",
+    "make_message",
 ]
 
 
@@ -37,6 +42,91 @@ def make_args(**kwargs) -> SimpleNamespace:
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+# -----------------------------------------------------------------------------
+# Label and message factories
+# -----------------------------------------------------------------------------
+
+
+def make_user_label(
+    name: str,
+    label_id: Optional[str] = None,
+    messages: int = 0,
+    **kwargs,
+) -> Dict[str, any]:
+    """Create a user label dict for testing.
+
+    Args:
+        name: Label name (e.g., "Work", "Work/Projects")
+        label_id: Optional label ID (defaults to "LBL_{name}")
+        messages: Message count (messagesTotal)
+        **kwargs: Additional label properties (color, visibility, etc.)
+
+    Example:
+        make_user_label("Work", "L1", messages=10)
+        make_user_label("Reports", color={"textColor": "#000"})
+    """
+    return {
+        "id": label_id or f"LBL_{name}",
+        "name": name,
+        "type": "user",
+        "messagesTotal": messages,
+        **kwargs,
+    }
+
+
+def make_system_label(name: str, messages: int = 0) -> Dict[str, any]:
+    """Create a system label dict for testing.
+
+    Args:
+        name: System label name (e.g., "INBOX", "SENT", "TRASH")
+        messages: Message count
+
+    Example:
+        make_system_label("INBOX")
+    """
+    return {"id": name, "name": name, "type": "system", "messagesTotal": messages}
+
+
+def make_label_with_visibility(
+    name: str,
+    label_id: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, any]:
+    """Create a user label with default visibility settings.
+
+    Args:
+        name: Label name
+        label_id: Optional label ID
+        **kwargs: Additional properties
+
+    Example:
+        make_label_with_visibility("Reports", "LBL_REPORTS")
+    """
+    return {
+        **make_user_label(name, label_id, **kwargs),
+        "labelListVisibility": "labelShow",
+        "messageListVisibility": "show",
+    }
+
+
+def make_message(
+    msg_id: str,
+    label_ids: Optional[List[str]] = None,
+    **kwargs,
+) -> Dict[str, any]:
+    """Create a message dict for testing.
+
+    Args:
+        msg_id: Message ID
+        label_ids: List of label IDs on the message
+        **kwargs: Additional message properties
+
+    Example:
+        make_message("m1", ["INBOX", "CATEGORY_PROMOTIONS"])
+    """
+    return {"id": msg_id, "labelIds": label_ids or [], **kwargs}
 
 
 # -----------------------------------------------------------------------------

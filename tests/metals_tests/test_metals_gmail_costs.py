@@ -3,21 +3,12 @@ from __future__ import annotations
 
 import unittest
 
-from metals.costs import (
-    G_PER_OZ,
+from metals.costs_common import G_PER_OZ, extract_order_amount
+from metals.gmail_costs import (
     _extract_line_items,
-    _extract_order_amount,
     _extract_amount_near_line,
     _classify_vendor,
 )
-
-
-class TestConstants(unittest.TestCase):
-    """Tests for module constants."""
-
-    def test_grams_per_oz(self):
-        """Test grams per troy ounce constant."""
-        self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
 
 
 class TestExtractLineItems(unittest.TestCase):
@@ -154,12 +145,12 @@ class TestExtractLineItems(unittest.TestCase):
 
 
 class TestExtractOrderAmount(unittest.TestCase):
-    """Tests for _extract_order_amount function."""
+    """Tests for extract_order_amount function."""
 
     def test_extracts_total(self):
         """Test extracts Total amount."""
         text = "Total: C$2,520.00"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 2520.00)
@@ -170,7 +161,7 @@ class TestExtractOrderAmount(unittest.TestCase):
         Item: 1 oz Silver
         Subtotal: C$35.00
         """
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 35.00)
@@ -178,7 +169,7 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_extracts_cad_currency(self):
         """Test extracts CAD currency format."""
         text = "Total: CAD$1,234.56"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 1234.56)
@@ -189,20 +180,20 @@ class TestExtractOrderAmount(unittest.TestCase):
         Price: $100.00
         Extended: $500.00
         """
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 500.00)
 
     def test_handles_empty_text(self):
         """Test handles empty text."""
-        result = _extract_order_amount("")
+        result = extract_order_amount("")
         self.assertIsNone(result)
 
     def test_handles_commas_in_amounts(self):
         """Test handles comma separators."""
         text = "Total: C$10,500.00"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 10500.00)
@@ -215,7 +206,7 @@ class TestExtractOrderAmount(unittest.TestCase):
         Tax: C$13.00
         Sub-Total: C$100.00
         """
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 113.00)
@@ -223,7 +214,7 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_handles_cad_with_space(self):
         """Test handles 'CAD $' with space."""
         text = "Total: CAD $1,500.00"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 1500.00)
@@ -231,7 +222,7 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_handles_usd_currency(self):
         """Test handles plain $ (USD) format."""
         text = "Total: $999.99"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 999.99)
@@ -239,7 +230,7 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_handles_nbsp_in_text(self):
         """Test handles non-breaking spaces."""
         text = "Total:\u00A0C$2,000.00"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 2000.00)
@@ -247,7 +238,7 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_handles_amount_without_cents(self):
         """Test handles amounts without decimal cents."""
         text = "Total: C$500"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 500.0)
@@ -255,7 +246,7 @@ class TestExtractOrderAmount(unittest.TestCase):
     def test_extracts_amount_after_keyword(self):
         """Test extracts amount after Total keyword, not before."""
         text = "C$50.00 item Total: C$1,000.00"
-        result = _extract_order_amount(text)
+        result = extract_order_amount(text)
         self.assertIsNotNone(result)
         _, amt = result
         self.assertEqual(amt, 1000.00)

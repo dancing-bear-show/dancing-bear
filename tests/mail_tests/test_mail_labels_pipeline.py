@@ -23,48 +23,20 @@ from mail.labels.producers import (
     LabelsSyncProducer,
     LabelsExportProducer,
 )
+from tests.mail_tests.fixtures import (
+    FakeGmailClient,
+    make_user_label,
+    make_system_label,
+)
 
 
-class _FakeLabelsClient:
-    def __init__(self):
-        self.labels = [
-            {"id": "LBL_KEEP", "name": "Keep", "type": "user", "color": {"textColor": "#111", "backgroundColor": "#eee"}},
-            {"id": "LBL_OLD", "name": "OldLabel", "type": "user"},
-            {"id": "LBL_SYS", "name": "INBOX", "type": "system"},
-        ]
-        self.merged = []
-
-    def list_labels(self):
-        return list(self.labels)
-
-    def get_label_id_map(self):
-        return {lab["name"]: lab["id"] for lab in self.labels}
-
-    def create_label(self, **body):
-        self.labels.append({"id": f"LBL_{len(self.labels)}", **body})
-
-    def update_label(self, label_id, body):
-        for lab in self.labels:
-            if lab["id"] == label_id:
-                lab.update(body)
-                return
-
-    def delete_label(self, label_id):
-        self.labels = [lab for lab in self.labels if lab["id"] != label_id]
-
-    def ensure_label(self, name):
-        mapping = self.get_label_id_map()
-        if name in mapping:
-            return mapping[name]
-        new_id = f"LBL_{len(self.labels)}"
-        self.labels.append({"id": new_id, "name": name, "type": "user"})
-        return new_id
-
-    def list_message_ids(self, label_ids=None, max_pages=1, page_size=500, query=None):
-        return ["m1", "m2"]
-
-    def batch_modify_messages(self, ids, add_label_ids=None, remove_label_ids=None):
-        self.merged.append({"ids": ids, "add": add_label_ids, "remove": remove_label_ids})
+def _make_labels_client() -> FakeGmailClient:
+    """Create a FakeGmailClient with standard test labels."""
+    return FakeGmailClient(labels=[
+        make_user_label("Keep", "LBL_KEEP", color={"textColor": "#111", "backgroundColor": "#eee"}),
+        make_user_label("OldLabel", "LBL_OLD"),
+        make_system_label("INBOX"),
+    ])
 
 
 class LabelsPipelineTests(unittest.TestCase):
@@ -75,7 +47,7 @@ class LabelsPipelineTests(unittest.TestCase):
         cfg_path.write_text(data)
         args = SimpleNamespace(config=str(cfg_path), **flags)
         ctx = MailContext.from_args(args)
-        ctx.gmail_client = _FakeLabelsClient()
+        ctx.gmail_client = _make_labels_client()
         return ctx
 
     def test_plan_pipeline_matches_legacy_output(self):

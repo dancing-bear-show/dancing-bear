@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.metals_tests.fixtures import make_summary_row, write_summary_csv
+
 from metals.build_summaries import run, main
 
 
@@ -19,14 +21,12 @@ class TestRun(unittest.TestCase):
             costs_path = Path(tmpdir) / "costs.csv"
             out_dir = Path(tmpdir) / "out"
 
-            # Create costs CSV
-            with costs_path.open("w", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
-                w.writerow(["2024-01-15", "12345", "TD", "gold", "1.0", "2500.00"])
-                w.writerow(["2024-01-16", "12346", "Costco", "silver", "10.0", "35.00"])
-                w.writerow(["2024-01-17", "12347", "RCM", "silver", "5.0", "38.00"])
-                w.writerow(["2024-01-18", "12348", "TD", "gold", "0.5", "2600.00"])
+            write_summary_csv(str(costs_path), [
+                make_summary_row(date="2024-01-15", order_id="12345", vendor="TD", metal="gold"),
+                make_summary_row(date="2024-01-16", order_id="12346", vendor="Costco", metal="silver", total_oz=10.0, cost_per_oz=35.0),
+                make_summary_row(date="2024-01-17", order_id="12347", vendor="RCM", metal="silver", total_oz=5.0, cost_per_oz=38.0),
+                make_summary_row(date="2024-01-18", order_id="12348", vendor="TD", metal="gold", total_oz=0.5, cost_per_oz=2600.0),
+            ])
 
             result = run(str(costs_path), str(out_dir))
             self.assertEqual(result, 0)
@@ -35,8 +35,7 @@ class TestRun(unittest.TestCase):
             gold_path = out_dir / "gold_summary.csv"
             self.assertTrue(gold_path.exists())
             with gold_path.open() as f:
-                reader = csv.reader(f)
-                rows = list(reader)
+                rows = list(csv.reader(f))
                 self.assertEqual(len(rows), 3)  # header + 2 gold rows
                 self.assertEqual(rows[0], ["date", "order_id", "vendor", "total_oz", "cost_per_oz"])
                 self.assertEqual(rows[1][0], "2024-01-15")  # first gold row
@@ -46,8 +45,7 @@ class TestRun(unittest.TestCase):
             silver_path = out_dir / "silver_summary.csv"
             self.assertTrue(silver_path.exists())
             with silver_path.open() as f:
-                reader = csv.reader(f)
-                rows = list(reader)
+                rows = list(csv.reader(f))
                 self.assertEqual(len(rows), 3)  # header + 2 silver rows
 
     def test_creates_output_directory(self):
@@ -56,10 +54,7 @@ class TestRun(unittest.TestCase):
             costs_path = Path(tmpdir) / "costs.csv"
             out_dir = Path(tmpdir) / "nested" / "output" / "dir"
 
-            with costs_path.open("w", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
-                w.writerow(["2024-01-15", "12345", "TD", "gold", "1.0", "2500.00"])
+            write_summary_csv(str(costs_path), [make_summary_row()])
 
             result = run(str(costs_path), str(out_dir))
             self.assertEqual(result, 0)
@@ -71,18 +66,14 @@ class TestRun(unittest.TestCase):
             costs_path = Path(tmpdir) / "costs.csv"
             out_dir = Path(tmpdir) / "out"
 
-            with costs_path.open("w", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
+            write_summary_csv(str(costs_path), [])
 
             result = run(str(costs_path), str(out_dir))
             self.assertEqual(result, 0)
 
             # Both files should exist with only headers
-            gold_path = out_dir / "gold_summary.csv"
-            silver_path = out_dir / "silver_summary.csv"
-            self.assertTrue(gold_path.exists())
-            self.assertTrue(silver_path.exists())
+            self.assertTrue((out_dir / "gold_summary.csv").exists())
+            self.assertTrue((out_dir / "silver_summary.csv").exists())
 
     def test_filters_unknown_metals(self):
         """Test filters out unknown metal types."""
@@ -90,24 +81,20 @@ class TestRun(unittest.TestCase):
             costs_path = Path(tmpdir) / "costs.csv"
             out_dir = Path(tmpdir) / "out"
 
-            with costs_path.open("w", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
-                w.writerow(["2024-01-15", "12345", "TD", "gold", "1.0", "2500.00"])
-                w.writerow(["2024-01-16", "12346", "TD", "platinum", "1.0", "1000.00"])  # Unknown metal
-                w.writerow(["2024-01-17", "12347", "TD", "silver", "5.0", "35.00"])
+            write_summary_csv(str(costs_path), [
+                make_summary_row(date="2024-01-15", order_id="12345", metal="gold"),
+                make_summary_row(date="2024-01-16", order_id="12346", metal="platinum", cost_per_oz=1000.0),
+                make_summary_row(date="2024-01-17", order_id="12347", metal="silver", total_oz=5.0, cost_per_oz=35.0),
+            ])
 
             result = run(str(costs_path), str(out_dir))
             self.assertEqual(result, 0)
 
-            # Gold should have 1 row, silver should have 1 row
             with (out_dir / "gold_summary.csv").open() as f:
-                rows = list(csv.reader(f))
-                self.assertEqual(len(rows), 2)  # header + 1 gold row
+                self.assertEqual(len(list(csv.reader(f))), 2)  # header + 1 gold row
 
             with (out_dir / "silver_summary.csv").open() as f:
-                rows = list(csv.reader(f))
-                self.assertEqual(len(rows), 2)  # header + 1 silver row
+                self.assertEqual(len(list(csv.reader(f))), 2)  # header + 1 silver row
 
     def test_raises_error_for_missing_file(self):
         """Test raises error when costs file doesn't exist."""
@@ -120,23 +107,20 @@ class TestRun(unittest.TestCase):
             costs_path = Path(tmpdir) / "costs.csv"
             out_dir = Path(tmpdir) / "out"
 
-            with costs_path.open("w", newline="") as f:
-                w = csv.writer(f)
-                w.writerow(["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"])
-                w.writerow(["2024-01-15", "12345", "TD", "GOLD", "1.0", "2500.00"])
-                w.writerow(["2024-01-16", "12346", "TD", "Silver", "5.0", "35.00"])
-                w.writerow(["2024-01-17", "12347", "TD", "  silver  ", "5.0", "35.00"])
+            write_summary_csv(str(costs_path), [
+                make_summary_row(date="2024-01-15", order_id="12345", metal="GOLD"),
+                make_summary_row(date="2024-01-16", order_id="12346", metal="Silver", total_oz=5.0, cost_per_oz=35.0),
+                make_summary_row(date="2024-01-17", order_id="12347", metal="  silver  ", total_oz=5.0, cost_per_oz=35.0),
+            ])
 
             result = run(str(costs_path), str(out_dir))
             self.assertEqual(result, 0)
 
             with (out_dir / "gold_summary.csv").open() as f:
-                rows = list(csv.reader(f))
-                self.assertEqual(len(rows), 2)  # header + 1 gold row
+                self.assertEqual(len(list(csv.reader(f))), 2)  # header + 1 gold row
 
             with (out_dir / "silver_summary.csv").open() as f:
-                rows = list(csv.reader(f))
-                self.assertEqual(len(rows), 3)  # header + 2 silver rows
+                self.assertEqual(len(list(csv.reader(f))), 3)  # header + 2 silver rows
 
 
 class TestMain(unittest.TestCase):
