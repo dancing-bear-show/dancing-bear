@@ -8,7 +8,22 @@ from typing import Dict, List, Optional, Tuple
 
 from core.text_utils import normalize_unicode
 
-from .costs_common import G_PER_OZ, MONEY_PATTERN, get_price_band
+from .constants import (
+    G_PER_OZ,
+    MONEY_PATTERN,
+    PAT_FRAC_OZ,
+    PAT_DECIMAL_OZ,
+    PAT_GRAMS,
+    QTY_PATTERNS,
+    BUNDLE_PATTERNS,
+    PAT_SKU,
+    PRICE_BAN_DEFAULT,
+    PRICE_BAN_RCM,
+    SKU_BUNDLE_MAP,
+    SKU_UNIT_MAP_SILVER,
+    SKU_UNIT_MAP_GOLD,
+)
+from .costs_common import get_price_band
 
 
 @dataclass
@@ -56,28 +71,6 @@ class VendorParser(ABC):
 # =============================================================================
 # Shared Parsing Utilities
 # =============================================================================
-
-# Common regex patterns for line item extraction
-PAT_FRAC_OZ = re.compile(
-    r"(?i)\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b"
-    r"(?:(?:(?!\n).)*?\bx\s*(\d+))?"
-)
-PAT_DECIMAL_OZ = re.compile(
-    r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b"
-    r"(?:(?:(?!\n).)*?\bx\s*(\d+))?"
-)
-PAT_GRAMS = re.compile(
-    r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?\b(gold|silver)\b"
-    r"(?:(?:(?!\n).)*?\bx\s*(\d+))?"
-)
-
-# Quantity detection patterns
-QTY_PATTERNS = [
-    re.compile(r"(?i)\bqty\s*[:#]?\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\bquantity\s*[:#]?\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\bx\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\b(\d{1,3})\s*x\b"),
-]
 
 
 def iter_nearby_lines(
@@ -188,18 +181,8 @@ def dedupe_line_items(items: List[LineItem]) -> List[LineItem]:
     return list(buckets.values())
 
 
-# Default banned terms for price extraction
-DEFAULT_PRICE_BAN = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
-
-# Bundle quantity patterns
-_BUNDLE_PATTERNS = [
-    re.compile(r"(?i)\b(\d{1,3})\s*[- ]?pack\b"),
-    re.compile(r"(?i)\bpack\s*of\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\b(\d{1,3})\s*coins?\b"),
-    re.compile(r"(?i)\b(\d{1,3})\s*ct\b"),
-    re.compile(r"(?i)\b(?:roll|tube)\s*of\s*(\d{1,3})\b"),
-]
-_SKU_PATTERN = re.compile(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b")
+# Alias for backwards compatibility
+DEFAULT_PRICE_BAN = PRICE_BAN_DEFAULT
 
 
 def find_bundle_qty(
@@ -211,7 +194,7 @@ def find_bundle_qty(
     """Find bundle quantity from patterns or SKU mapping."""
     for _, ln in iter_nearby_lines(lines, idx, window):
         # Check bundle patterns
-        for pat in _BUNDLE_PATTERNS:
+        for pat in BUNDLE_PATTERNS:
             m = pat.search(ln)
             if m:
                 for g in range(1, len(m.groups()) + 1):
@@ -222,7 +205,7 @@ def find_bundle_qty(
                             return float(n)
         # Check SKU mapping
         if sku_map:
-            m_sku = _SKU_PATTERN.search(ln)
+            m_sku = PAT_SKU.search(ln)
             if m_sku and m_sku.group(1) in sku_map:
                 return sku_map[m_sku.group(1)]
     return None

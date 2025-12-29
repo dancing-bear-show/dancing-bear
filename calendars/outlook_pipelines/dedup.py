@@ -17,6 +17,7 @@ from ._base import (
     Processor,
     ResultEnvelope,
     check_service_required,
+    ERR_CODE_API,
 )
 
 __all__ = [
@@ -78,7 +79,7 @@ class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[Outloo
         try:
             occ = svc.list_calendar_view(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Graph error: {exc}", "code": 4})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Graph error: {exc}", "code": ERR_CODE_API})
 
         duplicates = self._find_duplicates(occ or [], payload)
         logs: List[str] = []
