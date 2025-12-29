@@ -17,6 +17,9 @@ from ._base import (
     ResultEnvelope,
     check_service_required,
     _load_yaml,
+    ERR_CODE_CONFIG,
+    ERR_CODE_CALENDAR,
+    LOG_DRY_RUN,
 )
 
 __all__ = [
@@ -59,14 +62,14 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
         try:
             doc = self._config_loader(str(payload.config_path)) or {}
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to load config: {exc}", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to load config: {exc}", "code": ERR_CODE_CONFIG})
         root = doc.get("settings") if isinstance(doc, dict) and "settings" in doc else doc
         defaults = (root.get("defaults") if isinstance(root, dict) else {}) or {}
         rules = (root.get("rules") if isinstance(root, dict) else None) or []
         if not isinstance(rules, list):
             return ResultEnvelope(
                 status="error",
-                diagnostics={"message": "Config must contain settings.rules: [] or top-level rules: []", "code": 2},
+                diagnostics={"message": "Config must contain settings.rules: [] or top-level rules: []", "code": ERR_CODE_CONFIG},
             )
 
         if err := check_service_required(payload.service):
@@ -81,7 +84,7 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
                 end_iso=end_iso,
             )
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
 
         logs: List[str] = []
         selected = 0
@@ -111,7 +114,7 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
                 if patch.get("reminder_minutes") is not None:
                     parts.append(f"reminderMinutes={patch['reminder_minutes']}")
                 subject = (event.get("subject") or "").strip()
-                logs.append(f"[dry-run] would update {eid} | {subject} -> {{" + ", ".join(parts) + "}}")
+                logs.append(f"{LOG_DRY_RUN} would update {eid} | {subject} -> {{" + ", ".join(parts) + "}}")
                 continue
             try:
                 svc.update_event_settings(

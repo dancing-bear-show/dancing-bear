@@ -11,6 +11,7 @@ from ._base import (
     BaseProducer,
     RequestConsumer,
     check_service_required,
+    ERR_CODE_CALENDAR,
 )
 
 
@@ -62,7 +63,7 @@ class OutlookAddEventProcessor(Processor[OutlookAddEventRequest, ResultEnvelope[
                 reminder_minutes=payload.reminder_minutes,
             )
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create event: {exc}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create event: {exc}", "code": ERR_CODE_CALENDAR})
         evt_id = (evt or {}).get("id") or ""
         result = OutlookAddEventResult(event_id=evt_id, subject=(evt or {}).get("subject") or payload.subject)
         return ResultEnvelope(status="success", payload=result)
@@ -135,7 +136,7 @@ class OutlookAddRecurringProcessor(
                 reminder_minutes=payload.reminder_minutes,
             )
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create recurring event: {exc}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create recurring event: {exc}", "code": ERR_CODE_CALENDAR})
         evt_id = (evt or {}).get("id") or ""
         subject = (evt or {}).get("subject") or payload.subject
         result = OutlookAddRecurringResult(event_id=evt_id, subject=subject)

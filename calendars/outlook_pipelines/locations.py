@@ -16,6 +16,8 @@ from ._base import (
     check_service_required,
     load_events_config,
     MSG_PREVIEW_COMPLETE,
+    ERR_CODE_CALENDAR,
+    LOG_DRY_RUN,
 )
 
 
@@ -54,13 +56,13 @@ class OutlookLocationsEnrichProcessor(
         svc = payload.service
         cal_id = svc.find_calendar_id(payload.calendar)
         if not cal_id:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Calendar not found: {payload.calendar}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Calendar not found: {payload.calendar}", "code": ERR_CODE_CALENDAR})
 
         start_iso, end_iso = self._window.resolve_year_end(payload.from_date, payload.to_date)
         try:
             events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
 
         enricher = self._enricher
         if enricher is None:
@@ -92,7 +94,7 @@ class OutlookLocationsEnrichProcessor(
             if not new_loc or new_loc == loc:
                 continue
             if payload.dry_run:
-                logs.append(f"[dry-run] would update series {sid} location '{loc}' -> '{new_loc}'")
+                logs.append(f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'")
                 continue
             try:
                 svc.update_event_location(event_id=sid, calendar_id=cal_id, location_str=new_loc)

@@ -17,6 +17,7 @@ from ._base import (
     BaseProducer,
     RequestConsumer,
     check_service_required,
+    ERR_CODE_CONFIG,
 )
 
 
@@ -45,7 +46,7 @@ class OutlookMailListProcessor(Processor[OutlookMailListRequest, ResultEnvelope[
         try:
             msgs = svc.list_messages(folder=payload.folder, top=payload.top, pages=payload.pages)
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list messages: {exc}", "code": 2})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list messages: {exc}", "code": ERR_CODE_CONFIG})
         msgs = msgs or []
         result = OutlookMailListResult(messages=msgs, folder=payload.folder)
         return ResultEnvelope(status="success", payload=result)
