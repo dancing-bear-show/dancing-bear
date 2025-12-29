@@ -1,21 +1,48 @@
 name: Claude Code
 
 on:
+  # Auto-review on PR open/update
+  pull_request:
+    types: [opened, synchronize]
+  # Also respond to @claude mentions
   issue_comment:
     types: [created]
   pull_request_review_comment:
     types: [created]
 
 jobs:
-  claude:
-    if: contains(github.event.comment.body, '@claude')
+  # Auto-review new PRs
+  auto-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Auto Review PR
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            Review this PR. Focus on:
+            - Bugs or logic errors
+            - Security issues
+            - Code style consistency with CLAUDE.md guidelines
+
+            Be concise. Only comment if there are actionable issues.
+
+  # Respond to @claude mentions
+  respond:
+    if: |
+      github.event_name != 'pull_request' &&
+      contains(github.event.comment.body, '@claude')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
       issues: write
     steps:
-      - name: Run Claude
+      - name: Respond to Mention
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
