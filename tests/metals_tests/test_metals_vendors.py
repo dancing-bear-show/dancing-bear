@@ -439,5 +439,247 @@ class TestExtractPriceFromLines(unittest.TestCase):
         self.assertAlmostEqual(hit.amount, 12500.0, places=2)
 
 
+class TestParseWeightMatch(unittest.TestCase):
+    """Tests for _parse_weight_match helper function."""
+
+    def test_parses_fractional_oz(self):
+        """Test parses fractional ounce pattern."""
+        pat, _ = _WEIGHT_PATTERNS[0]  # PAT_FRAC_OZ
+        m = pat.search("1/10 oz gold x 5")
+        result = _parse_weight_match(m, 'frac')
+        self.assertIsNotNone(result)
+        unit_oz, metal, qty = result
+        self.assertAlmostEqual(unit_oz, 0.1, places=2)
+        self.assertEqual(metal, "gold")
+        self.assertEqual(qty, 5.0)
+
+    def test_parses_decimal_oz(self):
+        """Test parses decimal ounce pattern."""
+        pat, _ = _WEIGHT_PATTERNS[1]  # PAT_DECIMAL_OZ
+        m = pat.search("1.5 oz silver x 3")
+        result = _parse_weight_match(m, 'decimal')
+        self.assertIsNotNone(result)
+        unit_oz, metal, qty = result
+        self.assertAlmostEqual(unit_oz, 1.5, places=2)
+        self.assertEqual(metal, "silver")
+        self.assertEqual(qty, 3.0)
+
+    def test_parses_grams(self):
+        """Test parses grams pattern."""
+        pat, _ = _WEIGHT_PATTERNS[2]  # PAT_GRAMS
+        m = pat.search("31.1 grams gold")
+        result = _parse_weight_match(m, 'grams')
+        self.assertIsNotNone(result)
+        unit_oz, metal, qty = result
+        self.assertAlmostEqual(unit_oz, 1.0, places=1)
+        self.assertEqual(metal, "gold")
+
+    def test_returns_none_for_invalid_type(self):
+        """Test returns None for unknown pattern type."""
+        pat, _ = _WEIGHT_PATTERNS[0]
+        m = pat.search("1/10 oz gold")
+        result = _parse_weight_match(m, 'invalid')
+        self.assertIsNone(result)
+
+    def test_defaults_qty_to_one(self):
+        """Test defaults quantity to 1 when not specified."""
+        pat, _ = _WEIGHT_PATTERNS[1]
+        m = pat.search("1 oz gold")
+        result = _parse_weight_match(m, 'decimal')
+        self.assertIsNotNone(result)
+        _, _, qty = result
+        self.assertEqual(qty, 1.0)
+
+
+class TestFindBundleQty(unittest.TestCase):
+    """Tests for find_bundle_qty shared function."""
+
+    def test_finds_pack_pattern(self):
+        """Test finds X-pack pattern."""
+        lines = ["1 oz Silver", "25-pack", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertEqual(qty, 25.0)
+
+    def test_finds_pack_of_pattern(self):
+        """Test finds pack of X pattern."""
+        lines = ["1 oz Silver", "pack of 20", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertEqual(qty, 20.0)
+
+    def test_finds_coins_pattern(self):
+        """Test finds X coins pattern."""
+        lines = ["1 oz Gold", "10 coins", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertEqual(qty, 10.0)
+
+    def test_finds_roll_of_pattern(self):
+        """Test finds roll of X pattern."""
+        lines = ["Silver Eagle", "roll of 25", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertEqual(qty, 25.0)
+
+    def test_finds_tube_of_pattern(self):
+        """Test finds tube of X pattern."""
+        lines = ["Silver Maple", "tube of 25", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertEqual(qty, 25.0)
+
+    def test_uses_sku_map(self):
+        """Test uses SKU mapping when provided."""
+        lines = ["Item #: 3796875", "1 oz Silver"]
+        sku_map = {"3796875": 25.0}
+        qty = find_bundle_qty(lines, 1, sku_map=sku_map)
+        self.assertEqual(qty, 25.0)
+
+    def test_ignores_qty_of_one(self):
+        """Test ignores bundle qty of 1."""
+        lines = ["1 oz Gold", "1 coin", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertIsNone(qty)
+
+    def test_returns_none_when_not_found(self):
+        """Test returns None when no bundle found."""
+        lines = ["1 oz Gold", "Price: $2500"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertIsNone(qty)
+
+    def test_respects_window(self):
+        """Test respects window parameter."""
+        lines = ["1 oz Silver", "Line 1", "Line 2", "Line 3", "25-pack"]
+        qty = find_bundle_qty(lines, 0, window=2)
+        self.assertIsNone(qty)
+
+    def test_finds_ct_pattern(self):
+        """Test finds X ct pattern."""
+        lines = ["1 oz Silver", "25 ct", "Price"]
+        qty = find_bundle_qty(lines, 0)
+        self.assertEqual(qty, 25.0)
+
+
+class TestRCMParserExtractWeights(unittest.TestCase):
+    """Tests for RCMParser._extract_weights method."""
+
+    def setUp(self):
+        self.parser = RCMParser()
+
+    def test_extracts_fractional_oz(self):
+        """Test extracts fractional ounce weights."""
+        weights = self.parser._extract_weights("1/4 oz Gold Maple")
+        self.assertEqual(len(weights), 1)
+        self.assertAlmostEqual(weights[0], 0.25, places=2)
+
+    def test_extracts_decimal_oz(self):
+        """Test extracts decimal ounce weights."""
+        weights = self.parser._extract_weights("1.5 oz Silver Bar")
+        self.assertEqual(len(weights), 1)
+        self.assertAlmostEqual(weights[0], 1.5, places=2)
+
+    def test_extracts_grams(self):
+        """Test extracts gram weights and converts to oz."""
+        weights = self.parser._extract_weights("31.1 grams Gold")
+        self.assertEqual(len(weights), 1)
+        self.assertAlmostEqual(weights[0], 1.0, places=1)
+
+    def test_extracts_multiple_weights(self):
+        """Test extracts multiple weights from same line."""
+        weights = self.parser._extract_weights("1 oz and 10 oz options")
+        self.assertGreaterEqual(len(weights), 1)
+
+    def test_returns_empty_for_no_weights(self):
+        """Test returns empty list when no weights found."""
+        weights = self.parser._extract_weights("No weights here")
+        self.assertEqual(weights, [])
+
+
+class TestRCMParserClassifyEmailLookup(unittest.TestCase):
+    """Tests for RCMParser classify_email with lookup table."""
+
+    def setUp(self):
+        self.parser = RCMParser()
+
+    def test_classify_all_types(self):
+        """Test classifies all email types via lookup."""
+        cases = [
+            ("Confirmation for order number PO123", "confirmation", 3),
+            ("Confirmation for order PO456", "confirmation", 3),
+            ("Your order was shipped", "shipping", 2),
+            ("Shipping update: was shipped today", "shipping", 2),
+            ("We received your request", "request", 1),
+            ("Random subject line", "other", 0),
+        ]
+        for subject, expected_type, expected_rank in cases:
+            with self.subTest(subject=subject):
+                cat, rank = self.parser.classify_email(subject)
+                self.assertEqual(cat, expected_type)
+                self.assertEqual(rank, expected_rank)
+
+    def test_case_insensitive(self):
+        """Test classification is case insensitive."""
+        cat, rank = self.parser.classify_email("CONFIRMATION FOR ORDER NUMBER")
+        self.assertEqual(cat, "confirmation")
+
+
+class TestRCMParserSubjectRank(unittest.TestCase):
+    """Tests for RCMParser.SUBJECT_RANK attribute."""
+
+    def test_subject_rank_exists(self):
+        """Test SUBJECT_RANK class attribute exists."""
+        self.assertTrue(hasattr(RCMParser, 'SUBJECT_RANK'))
+
+    def test_subject_rank_values(self):
+        """Test SUBJECT_RANK has expected values."""
+        rank = RCMParser.SUBJECT_RANK
+        self.assertEqual(rank['confirmation'], 3)
+        self.assertEqual(rank['shipping'], 2)
+        self.assertEqual(rank['request'], 1)
+        self.assertEqual(rank['other'], 0)
+
+
+class TestWeightPatternsList(unittest.TestCase):
+    """Tests for _WEIGHT_PATTERNS configuration."""
+
+    def test_has_three_patterns(self):
+        """Test _WEIGHT_PATTERNS has three pattern configs."""
+        self.assertEqual(len(_WEIGHT_PATTERNS), 3)
+
+    def test_pattern_types(self):
+        """Test pattern type keys are correct."""
+        types = [ptype for _, ptype in _WEIGHT_PATTERNS]
+        self.assertEqual(types, ['frac', 'decimal', 'grams'])
+
+
+class TestExtractBasicLineItemsConsolidated(unittest.TestCase):
+    """Additional tests for extract_basic_line_items using consolidated patterns."""
+
+    def test_extracts_all_pattern_types(self):
+        """Test extracts items from all pattern types in one text."""
+        text = """
+        1/10 oz Gold Eagle
+        1.5 oz Silver Round
+        31 grams Gold Bar
+        """
+        items, lines = extract_basic_line_items(text)
+        self.assertGreaterEqual(len(items), 3)
+
+    def test_multiple_items_same_line(self):
+        """Test handles multiple patterns on same line."""
+        text = "Buy 1 oz gold or 10 oz silver"
+        items, lines = extract_basic_line_items(text)
+        self.assertEqual(len(items), 2)
+
+    def test_handles_mixed_case(self):
+        """Test handles mixed case metal names."""
+        cases = [
+            ("1 oz GOLD", "gold"),
+            ("1 oz Gold", "gold"),
+            ("1 oz SILVER", "silver"),
+        ]
+        for text, expected_metal in cases:
+            with self.subTest(text=text):
+                items, _ = extract_basic_line_items(text)
+                self.assertEqual(len(items), 1)
+                self.assertEqual(items[0].metal, expected_metal)
+
+
 if __name__ == '__main__':
     unittest.main()
