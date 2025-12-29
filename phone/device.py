@@ -13,6 +13,7 @@ from pathlib import Path
 from shutil import which
 from typing import Any, Dict, List, Optional, Tuple
 
+from .constants import P12_PASS_KEYS, P12_PATH_KEYS
 from .layout import normalize_iconstate, to_yaml_export
 
 
@@ -177,10 +178,6 @@ def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str],
     return None, {}
 
 
-_P12_PATH_KEYS = ("supervision_identity_p12", "ios_home_layout_identity_p12", "supervision_p12")
-_P12_PASS_KEYS = ("supervision_identity_pass", "ios_home_layout_identity_pass", "supervision_p12_pass")
-
-
 def _first_value(section: Dict[str, str], keys: Tuple[str, ...]) -> Optional[str]:
     """Return first non-empty value from section for given keys."""
     for key in keys:
@@ -201,8 +198,8 @@ def resolve_p12_path(
 
     if not p12_path and creds_profile in ini:
         sec = ini[creds_profile]
-        p12_path = _first_value(sec, _P12_PATH_KEYS)
-        p12_pass = p12_pass or _first_value(sec, _P12_PASS_KEYS)
+        p12_path = _first_value(sec, P12_PATH_KEYS)
+        p12_pass = p12_pass or _first_value(sec, P12_PASS_KEYS)
 
     if p12_path:
         p12_path = os.path.expanduser(p12_path)

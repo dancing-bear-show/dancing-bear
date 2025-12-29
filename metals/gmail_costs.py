@@ -25,9 +25,22 @@ from core.text_utils import normalize_unicode
 from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
-from .costs_common import (
+from .constants import (
     G_PER_OZ,
     MONEY_PATTERN,
+    PAT_FRAC_OZ as _PAT_FRAC,
+    PAT_DECIMAL_OZ as _PAT_OZ,
+    PAT_GRAMS as _PAT_G,
+    QTY_PATTERNS as _PAT_QTY_LIST,
+    BUNDLE_PATTERNS as _PAT_BUNDLE_LIST,
+    PAT_SKU as _PAT_ITEM_SKU,
+    PAT_LEADING_QTY as _PAT_LEADING_QTY,
+    SKU_BUNDLE_MAP as _SKU_BUNDLE_MAP,
+    SKU_UNIT_MAP_SILVER as _SKU_UNIT_MAP_SILVER,
+    SKU_UNIT_MAP_GOLD as _SKU_UNIT_MAP_GOLD,
+    PHRASE_MAP_SILVER as _PHRASE_MAP_SILVER,
+)
+from .costs_common import (
     extract_order_amount,
     find_money,
     format_breakdown,
@@ -35,33 +48,6 @@ from .costs_common import (
     write_costs_csv,
 )
 from .vendors import DEFAULT_PRICE_BAN, GMAIL_VENDORS, get_vendor_for_sender
-
-
-# SKU-based mappings for bundle sizes and unit-oz overrides
-_SKU_BUNDLE_MAP = {'3796875': 25.0}  # 25 x 1 oz tube (Costco)
-_SKU_UNIT_MAP_SILVER = {'2796876': 10.0}  # 10 oz silver bar
-_SKU_UNIT_MAP_GOLD = {'5882020': 0.25}  # 1/4 oz Canadian Gold Maple Leaf (Costco)
-_PHRASE_MAP_SILVER = {'magnificent maple leaves silver coin': 10.0}
-
-# Compiled regex patterns for line item extraction
-_PAT_FRAC = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-_PAT_OZ = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-_PAT_G = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-_PAT_QTY_LIST = [
-    re.compile(r"(?i)\bqty\s*:?\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\bquantity\s*:?\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\bx\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\b(\d{1,3})\s*x\b"),
-]
-_PAT_BUNDLE_LIST = [
-    re.compile(r"(?i)\b(\d{1,3})\s*[- ]?pack\b"),
-    re.compile(r"(?i)\bpack\s*of\s*(\d{1,3})\b"),
-    re.compile(r"(?i)\b(\d{1,3})\s*coins?\b"),
-    re.compile(r"(?i)\b(\d{1,3})\s*ct\b"),
-    re.compile(r"(?i)\b(roll|tube)\s*of\s*(\d{1,3})\b"),
-]
-_PAT_ITEM_SKU = re.compile(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b")
-_PAT_LEADING_QTY = re.compile(r"(?i)\b(\d{1,3})\s*x\b")
 
 
 def _extract_first_match_group(

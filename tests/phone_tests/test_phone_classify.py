@@ -2,7 +2,8 @@
 
 from unittest import TestCase
 
-from phone.classify import FOLDERS, classify_app
+from phone.classify import classify_app
+from phone.constants import FOLDERS
 
 
 class ClassifyAppTests(TestCase):

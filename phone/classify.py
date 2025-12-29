@@ -7,18 +7,6 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-# Standard folder categories
-FOLDERS = [
-    "Work",
-    "Media",
-    "Social",
-    "Finance",
-    "Travel",
-    "Health",
-    "Shopping",
-    "Utilities",
-]
-
 # Explicit Apple app mappings
 _APPLE_APPS: Dict[str, str] = {
     "com.apple.mobileslideshow": "Media",  # Photos

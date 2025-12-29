@@ -8,7 +8,12 @@ from phone.layout import (
     NormalizedLayout,
     _extract_bundle_id,
     _flatten_folder_iconlists,
+    _get_app_id,
+    _get_folder_apps,
+    _get_folder_name,
+    _is_app_item,
     _is_folder,
+    _is_folder_item,
     analyze_layout,
     auto_folderize,
     checklist_from_plan,
@@ -23,6 +28,11 @@ from phone.layout import (
     to_yaml_export,
 )
 from tests.phone_tests.fixtures import (
+    APP_NO_ID,
+    SAMPLE_APP,
+    SAMPLE_FOLDER,
+    UNNAMED_FOLDER,
+    WIDGET_ITEM,
     make_app_item,
     make_folder_item,
     make_iconstate,
@@ -91,6 +101,68 @@ class TestIsFolder(unittest.TestCase):
     def test_not_folder_if_not_dict(self):
         self.assertFalse(_is_folder("not a dict"))
         self.assertFalse(_is_folder(None))
+
+
+class TestIsAppItem(unittest.TestCase):
+    """Tests for _is_app_item helper."""
+
+    def test_true_for_app(self):
+        self.assertTrue(_is_app_item(SAMPLE_APP))
+
+    def test_false_for_folder_empty_widget(self):
+        self.assertFalse(_is_app_item(SAMPLE_FOLDER))
+        self.assertFalse(_is_app_item({}))
+        self.assertFalse(_is_app_item(WIDGET_ITEM))
+
+
+class TestIsFolderItem(unittest.TestCase):
+    """Tests for _is_folder_item helper."""
+
+    def test_true_for_folder(self):
+        self.assertTrue(_is_folder_item(SAMPLE_FOLDER))
+
+    def test_false_for_app_empty_widget(self):
+        self.assertFalse(_is_folder_item(SAMPLE_APP))
+        self.assertFalse(_is_folder_item({}))
+        self.assertFalse(_is_folder_item(WIDGET_ITEM))
+
+
+class TestGetAppId(unittest.TestCase):
+    """Tests for _get_app_id helper."""
+
+    def test_returns_id_for_app(self):
+        self.assertEqual(_get_app_id(SAMPLE_APP), "com.example.app")
+
+    def test_returns_none_for_non_app(self):
+        self.assertIsNone(_get_app_id(SAMPLE_FOLDER))
+        self.assertIsNone(_get_app_id({}))
+        self.assertIsNone(_get_app_id(APP_NO_ID))
+
+
+class TestGetFolderApps(unittest.TestCase):
+    """Tests for _get_folder_apps helper."""
+
+    def test_returns_apps_for_folder(self):
+        self.assertEqual(_get_folder_apps(SAMPLE_FOLDER), ["com.work.app1", "com.work.app2"])
+
+    def test_returns_empty_for_non_folder(self):
+        self.assertEqual(_get_folder_apps(SAMPLE_APP), [])
+        self.assertEqual(_get_folder_apps({}), [])
+        self.assertEqual(_get_folder_apps({"kind": "folder", "name": "X"}), [])
+
+
+class TestGetFolderName(unittest.TestCase):
+    """Tests for _get_folder_name helper."""
+
+    def test_returns_name_for_folder(self):
+        self.assertEqual(_get_folder_name(SAMPLE_FOLDER), "Work")
+
+    def test_returns_empty_for_non_folder(self):
+        self.assertEqual(_get_folder_name(SAMPLE_APP), "")
+        self.assertEqual(_get_folder_name({}), "")
+
+    def test_returns_default_for_unnamed(self):
+        self.assertEqual(_get_folder_name(UNNAMED_FOLDER), "Folder")
 
 
 class TestFlattenFolderIconlists(unittest.TestCase):

@@ -13,6 +13,7 @@ from ._base import (
     DateWindowResolver,
     RequestConsumer,
     check_service_required,
+    ERR_CODE_CALENDAR,
 )
 
 
@@ -56,7 +57,7 @@ class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnv
                 end_iso=end_iso,
             )
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
         one_offs = []
         for ev in evs or []:
             etype = (ev.get("type") or "").lower()
