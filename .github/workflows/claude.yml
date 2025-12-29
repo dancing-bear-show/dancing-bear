@@ -18,12 +18,13 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      id-token: write
     steps:
       - name: Auto Review PR
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          direct_prompt: |
+          prompt: |
             Review this PR. Focus on:
             - Bugs or logic errors
             - Security issues
@@ -41,6 +42,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      id-token: write
     steps:
       - name: Respond to Mention
         uses: anthropics/claude-code-action@v1
