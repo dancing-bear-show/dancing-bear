@@ -43,15 +43,15 @@ from .pipeline_base import (
 
 # Pattern: class name extraction - matches "Enrollment in <class> (# or ( or - or newline"
 _RECEIPT_CLS_PAT = re.compile(
-    r"Enrollment\s+in\s+(?P<cls>[A-Za-z][A-Za-z0-9 /+-]+?)\s*(?:\(#|\(|-|\r|\n)", re.I
+    r"Enrollment\s+in\s+(?P<cls>[a-z][a-z0-9 /+\-]+?)\s*(?:\(#|\(|-|\r|\n)", re.I
 )
 # Pattern: registrant name - "Registrant: <name>"
 _RECEIPT_REG_PAT_1 = re.compile(
-    r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[A-Za-z][A-Za-z\s'-]+)", re.I
+    r"Registrant:\s*(?:\r?\n\s*)?(?P<name>[a-z][a-z\s'\-]+)", re.I
 )
 # Pattern: registrant from order summary
 _RECEIPT_REG_PAT_2 = re.compile(
-    r"Order\s+Summary:\s*(?P<name>[A-Za-z][A-Za-z\s'-]+?)\s+Enrollment\s+in", re.I
+    r"Order\s+Summary:\s*(?P<name>[a-z][a-z\s'\-]+?)\s+Enrollment\s+in", re.I
 )
 # Pattern: meeting date range
 _RECEIPT_DATES_PAT = re.compile(

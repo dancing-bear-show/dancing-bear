@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import io
-import tempfile
 import unittest
-from contextlib import redirect_stdout
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from core.pipeline import ResultEnvelope
 from mail.accounts.pipeline import (
@@ -21,7 +17,37 @@ from mail.accounts.pipeline import (
     AccountsListResult,
     AccountsListRequestConsumer,
     AccountsListProcessor,
-    AccountsListProducer,
+    AccountsListProducer,)
+from tests.mail_tests.fixtures import capture_stdout
+
+
+# -----------------------------------------------------------------------------
+# Account factories - reusable across tests
+# -----------------------------------------------------------------------------
+
+
+def make_account_info(
+    name: str = "personal",
+    provider: str = "gmail",
+    credentials: str = "/creds.json",
+    token: str = "/token.json",  # nosec B106 - test fixture path
+) -> AccountInfo:
+    """Create an AccountInfo for testing."""
+    return AccountInfo(name=name, provider=provider, credentials=credentials, token=token)
+
+
+def make_account_dict(
+    name: str = "personal",
+    provider: str = "gmail",
+    credentials: str = "/creds.json",
+    token: str = "/token.json",  # nosec B106 - test fixture path
+) -> dict:
+    """Create an account dict (as returned by load_accounts) for testing."""
+    return {"name": name, "provider": provider, "credentials": credentials, "token": token}
+
+
+# Re-import pipeline classes that were cut off by the edit
+from mail.accounts.pipeline import (
     # Export labels
     AccountsExportLabelsRequest,
     ExportedLabelsInfo,
