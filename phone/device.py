@@ -34,19 +34,23 @@ def find_cfgutil_path() -> str:
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
-        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # noqa: S603
+        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # nosec B603 - cfgutil from find_cfgutil_path()
     except Exception as e:
         raise RuntimeError(f"cfgutil list failed: {e}")
     for line in out.splitlines():
-        if "UDID:" in line and udid in line:
-            parts = line.split()
-            for i, tok in enumerate(parts):
-                if tok.startswith("ECID:"):
-                    if tok == "ECID:":
-                        if i + 1 < len(parts):
-                            return parts[i + 1]
-                    else:
-                        return tok.split(":", 1)[1]
+        if "UDID:" not in line or udid not in line:
+            continue
+        parts = line.split()
+        for i, tok in enumerate(parts):
+            if not tok.startswith("ECID:"):
+                continue
+            # Handle "ECID:value" or "ECID: value" explicitly
+            ecid_part = tok.split(":", 1)[1]
+            if ecid_part:
+                return ecid_part
+            if i + 1 < len(parts):
+                return parts[i + 1]
+            return ""
     return ""
 
 
@@ -61,7 +65,7 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
     cmd.extend(["--format", "plist", "get-icon-layout"])
 
     try:
-        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # noqa: S603
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603 - cmd built from trusted literals
     except Exception as e:
         raise RuntimeError(f"cfgutil get-icon-layout failed: {e}")
 
@@ -88,59 +92,65 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
     return export
 
 
+def _get_bundle_id(item: Any) -> Optional[str]:
+    """Extract bundle identifier from a dict item."""
+    if not isinstance(item, dict):
+        return None
+    return item.get("bundleIdentifier") or item.get("displayIdentifier")
+
+
+def _parse_list_format(data: List) -> Dict[str, Any]:
+    """Parse cfgutil JSON list format: [dock, page1, page2, ...]."""
+    dock = [s for s in (data[0] or []) if isinstance(s, str)]
+    pages: List[Dict[str, Any]] = []
+    for page in data[1:]:
+        if not isinstance(page, list):
+            continue
+        page_out: Dict[str, Any] = {"apps": [], "folders": []}
+        for it in page:
+            if isinstance(it, str):
+                page_out["apps"].append(it)
+            elif isinstance(it, list) and it:
+                name = it[0] if isinstance(it[0], str) else "Folder"
+                fapps = []
+                for sub in it[1:]:
+                    if isinstance(sub, str):
+                        fapps.append(sub)
+                    elif isinstance(sub, list):
+                        fapps.extend(s for s in sub if isinstance(s, str))
+                if fapps:
+                    page_out["folders"].append({"name": name or "Folder", "apps": fapps})
+        pages.append(page_out)
+    return {"dock": dock, "pages": pages}
+
+
+def _parse_plist_format(data: Dict) -> Dict[str, Any]:
+    """Parse cfgutil plist format with buttonBar/iconLists keys."""
+    dock = [bid for it in (data.get("buttonBar") or []) if (bid := _get_bundle_id(it))]
+    pages: List[Dict[str, Any]] = []
+    for page in (data.get("iconLists") or []):
+        page_out: Dict[str, Any] = {"apps": [], "folders": []}
+        for it in (page or []):
+            if isinstance(it, dict) and "iconLists" in it and "displayName" in it:
+                name = it.get("displayName") or "Folder"
+                flist = [bid for sub in (it.get("iconLists") or [[]])[0] if (bid := _get_bundle_id(sub))]
+                page_out["folders"].append({"name": name, "apps": flist})
+            elif bid := _get_bundle_id(it):
+                page_out["apps"].append(bid)
+        pages.append(page_out)
+    return {"dock": dock, "pages": pages}
+
+
 def _fallback_parse(data: Any) -> Dict[str, Any]:
     """Fallback parsing for cfgutil output when normalize_iconstate fails."""
-    dock: List[str] = []
-    pages: List[Dict[str, Any]] = []
-
     try:
-        # cfgutil may return a JSON list: [dock, page1, page2, ...]
         if isinstance(data, list) and data:
-            dock = [s for s in (data[0] or []) if isinstance(s, str)]
-            for page in data[1:]:
-                if not isinstance(page, list):
-                    continue
-                page_out: Dict[str, Any] = {"apps": [], "folders": []}
-                for it in page:
-                    if isinstance(it, list) and it:
-                        name = it[0] if isinstance(it[0], str) else "Folder"
-                        fapps: List[str] = []
-                        for sub in it[1:]:
-                            if isinstance(sub, list):
-                                fapps.extend([s for s in sub if isinstance(s, str)])
-                            elif isinstance(sub, str):
-                                fapps.append(sub)
-                        if fapps:
-                            page_out["folders"].append({"name": name or "Folder", "apps": fapps})
-                    elif isinstance(it, str):
-                        page_out["apps"].append(it)
-                pages.append(page_out)
-            return {"dock": dock, "pages": pages}
-
-        # Some cfgutil plists carry similar keys as backups
-        for it in (data.get("buttonBar") or []):
-            bid = it.get("bundleIdentifier") or it.get("displayIdentifier")
-            if bid:
-                dock.append(bid)
-        for page in (data.get("iconLists") or []):
-            page_out = {"apps": [], "folders": []}
-            for it in (page or []):
-                if isinstance(it, dict) and ("iconLists" in it) and ("displayName" in it):
-                    name = it.get("displayName") or "Folder"
-                    flist: List[str] = []
-                    for sub in (it.get("iconLists") or [[]])[0]:
-                        bid = sub.get("bundleIdentifier") or sub.get("displayIdentifier")
-                        if bid:
-                            flist.append(bid)
-                    page_out["folders"].append({"name": name, "apps": flist})
-                else:
-                    bid = it.get("bundleIdentifier") or it.get("displayIdentifier") if isinstance(it, dict) else None
-                    if bid:
-                        page_out["apps"].append(bid)
-            pages.append(page_out)
-        return {"dock": dock, "pages": pages}
-    except Exception:
-        return {}
+            return _parse_list_format(data)
+        if isinstance(data, dict):
+            return _parse_plist_format(data)
+    except Exception:  # nosec B110 - graceful fallback to empty dict
+        pass
+    return {}
 
 
 # -----------------------------------------------------------------------------
@@ -167,6 +177,18 @@ def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str],
     return None, {}
 
 
+_P12_PATH_KEYS = ("supervision_identity_p12", "ios_home_layout_identity_p12", "supervision_p12")
+_P12_PASS_KEYS = ("supervision_identity_pass", "ios_home_layout_identity_pass", "supervision_p12_pass")
+
+
+def _first_value(section: Dict[str, str], keys: Tuple[str, ...]) -> Optional[str]:
+    """Return first non-empty value from section for given keys."""
+    for key in keys:
+        if val := section.get(key):
+            return val
+    return None
+
+
 def resolve_p12_path(
     explicit_path: Optional[str],
     explicit_pass: Optional[str],
@@ -179,19 +201,10 @@ def resolve_p12_path(
 
     if not p12_path and creds_profile in ini:
         sec = ini[creds_profile]
-        p12_path = (
-            sec.get("supervision_identity_p12")
-            or sec.get("ios_home_layout_identity_p12")
-            or sec.get("supervision_p12")
-        )
-        p12_pass = p12_pass or (
-            sec.get("supervision_identity_pass")
-            or sec.get("ios_home_layout_identity_pass")
-            or sec.get("supervision_p12_pass")
-        )
+        p12_path = _first_value(sec, _P12_PATH_KEYS)
+        p12_pass = p12_pass or _first_value(sec, _P12_PASS_KEYS)
 
-    # Expand ~
-    if p12_path and p12_path.startswith("~/"):
+    if p12_path:
         p12_path = os.path.expanduser(p12_path)
 
     return p12_path, p12_pass
@@ -205,6 +218,35 @@ class CertInfo:
     issuer: str
 
 
+def _extract_cert_pem(p12_path: str, p12_pass: Optional[str]) -> bytes:
+    """Extract certificate PEM from p12 file, trying legacy mode first."""
+    for use_legacy in [True, False]:
+        try:
+            cmd = ["openssl", "pkcs12"]  # nosec B607
+            if use_legacy:
+                cmd.append("-legacy")
+            cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])
+            if p12_pass:
+                cmd.extend(["-passin", f"pass:{p12_pass}"])
+            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603 - cmd built from trusted literals
+        except Exception:  # nosec B112 - try legacy/non-legacy openssl modes
+            continue
+    raise RuntimeError(f"Failed to extract certificate from {p12_path}")
+
+
+def _x509_field(cert_pem: bytes, field: str) -> str:
+    """Extract a field (subject/issuer) from certificate PEM."""
+    try:
+        out = subprocess.check_output(  # nosec B603 B607 - openssl in PATH, field from trusted caller
+            ["openssl", "x509", "-noout", f"-{field}"],
+            input=cert_pem,
+            stderr=subprocess.DEVNULL,
+        )
+        return out.decode().strip().replace(f"{field}=", "")
+    except Exception:  # nosec B110 - cert parsing failure
+        return ""
+
+
 def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> CertInfo:
     """Extract certificate subject and issuer from a .p12 file using openssl.
 
@@ -215,48 +257,11 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     if not os.path.exists(p12_path):
         raise FileNotFoundError(f"p12 file not found: {p12_path}")
 
-    # Try with -legacy flag first (OpenSSL 3.x), then without
-    cert_pem = None
-    for use_legacy in [True, False]:
-        try:
-            cmd = ["openssl", "pkcs12"]  # nosec B607
-            if use_legacy:
-                cmd.append("-legacy")
-            cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])
-            if p12_pass:
-                cmd.extend(["-passin", f"pass:{p12_pass}"])
-            cert_pem = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # noqa: S603
-            break
-        except Exception:  # noqa: S112 - skip on error
-            continue
-
-    if cert_pem is None:
-        raise RuntimeError(f"Failed to extract certificate from {p12_path}")
-
-    # Extract subject and issuer
-    subject = ""
-    issuer = ""
-    try:
-        subj_out = subprocess.check_output(
-            ["openssl", "x509", "-noout", "-subject"],  # noqa: S603 S607 - openssl is trusted system binary
-            input=cert_pem,
-            stderr=subprocess.DEVNULL,
-        )
-        subject = subj_out.decode().strip().replace("subject=", "")
-    except Exception:  # noqa: S110 - cert parsing failure
-        pass
-
-    try:
-        iss_out = subprocess.check_output(
-            ["openssl", "x509", "-noout", "-issuer"],  # noqa: S603 S607 - openssl is trusted system binary
-            input=cert_pem,
-            stderr=subprocess.DEVNULL,
-        )
-        issuer = iss_out.decode().strip().replace("issuer=", "")
-    except Exception:  # noqa: S110 - cert parsing failure
-        pass
-
-    return CertInfo(subject=subject, issuer=issuer)
+    cert_pem = _extract_cert_pem(p12_path, p12_pass)
+    return CertInfo(
+        subject=_x509_field(cert_pem, "subject"),
+        issuer=_x509_field(cert_pem, "issuer"),
+    )
 
 
 def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optional[str]:
@@ -270,10 +275,10 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
         return None
 
     try:
-        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # noqa: S603
+        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # nosec B603 - cfg from find_cfgutil_path()
         if "Supervised:" in out:
             return out.split(":", 1)[1].strip()
-    except Exception:  # noqa: S110 - cfgutil query failure
+    except Exception:  # nosec B110 - cfgutil query failure
         pass
 
     return None
