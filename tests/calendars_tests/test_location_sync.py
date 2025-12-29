@@ -1,5 +1,7 @@
 """Tests for calendars/location_sync.py LocationSync helpers."""
 
+from __future__ import annotations
+
 import unittest
 from unittest.mock import MagicMock, patch
 from io import StringIO

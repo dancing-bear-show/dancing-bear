@@ -1,5 +1,7 @@
 """Tests for calendars/outlook/commands.py command orchestration."""
 
+from __future__ import annotations
+
 import argparse
 import unittest
 from unittest.mock import MagicMock, patch

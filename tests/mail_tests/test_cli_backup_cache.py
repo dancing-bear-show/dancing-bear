@@ -1,5 +1,7 @@
 """Tests for mail/cli/backup_cache.py registration helpers."""
 
+from __future__ import annotations
+
 import argparse
 import unittest
 

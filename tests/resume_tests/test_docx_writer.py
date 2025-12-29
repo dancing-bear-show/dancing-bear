@@ -1,5 +1,7 @@
 """Tests for resume/docx_writer.py DOCX rendering utilities."""
 
+from __future__ import annotations
+
 import sys
 import unittest
 from unittest.mock import MagicMock, patch

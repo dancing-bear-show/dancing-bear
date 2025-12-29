@@ -1,5 +1,7 @@
 """Tests for resume/text_match.py re-exports."""
 
+from __future__ import annotations
+
 import unittest
 
 
