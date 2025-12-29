@@ -593,8 +593,7 @@ class TestAccountsSyncSignaturesProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncSignaturesProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("[signatures sync]", output)
@@ -606,8 +605,7 @@ class TestAccountsSyncSignaturesProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncSignaturesProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("wrote guidance", output)
@@ -618,8 +616,7 @@ class TestAccountsSyncSignaturesProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncSignaturesProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("status=unsupported", output)
