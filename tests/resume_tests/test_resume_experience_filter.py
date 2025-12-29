@@ -2,46 +2,21 @@
 
 from __future__ import annotations
 
+import copy
 import unittest
 
 from resume.experience_filter import filter_experience_by_keywords
+from tests.resume_tests.fixtures import SAMPLE_CANDIDATE, SAMPLE_EXPERIENCE_ENTRIES
 
 
 class TestFilterExperienceByKeywords(unittest.TestCase):
     """Tests for filter_experience_by_keywords function."""
 
     def setUp(self):
+        # Use shared fixture with deep copy to avoid mutation
         self.candidate = {
-            "name": "John Doe",
-            "experience": [
-                {
-                    "title": "Senior Python Developer",
-                    "company": "TechCorp",
-                    "bullets": [
-                        "Built scalable APIs with Python and FastAPI",
-                        "Managed PostgreSQL databases",
-                        "Led team of 5 engineers",
-                    ],
-                },
-                {
-                    "title": "Java Developer",
-                    "company": "Enterprise Inc",
-                    "bullets": [
-                        "Developed Java applications",
-                        "Used Spring Boot framework",
-                        "Wrote unit tests",
-                    ],
-                },
-                {
-                    "title": "Frontend Developer",
-                    "company": "WebAgency",
-                    "bullets": [
-                        "Built React components",
-                        "Styled with CSS and Tailwind",
-                        "Implemented responsive designs",
-                    ],
-                },
-            ],
+            "name": SAMPLE_CANDIDATE["name"],
+            "experience": copy.deepcopy(SAMPLE_EXPERIENCE_ENTRIES),
         }
 
     def test_filters_by_keyword_in_title(self):
