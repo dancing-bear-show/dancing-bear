@@ -17,9 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import csv
 import re
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
@@ -27,273 +25,54 @@ from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from core.text_utils import html_to_text, normalize_unicode
 from mail.outlook_api import OutlookClient
 
+from .costs_common import (
+    extract_order_amount,
+    format_breakdown,
+    format_qty,
+    merge_costs_csv,
+)
+from .vendors import RCMParser
 
-G_PER_OZ = 31.1035
+# Shared RCM parser instance
+_rcm_parser = RCMParser()
 
-# Subject classification for email priority ranking
-SUBJECT_RANK = {'confirmation': 3, 'shipping': 2, 'request': 1, 'other': 0}
+# Subject classification for email priority ranking (delegate to parser)
+SUBJECT_RANK = _rcm_parser.SUBJECT_RANK
 
 
 def _classify_subject(subject: str) -> str:
     """Classify email subject for priority ranking."""
-    s = (subject or '').lower()
-    if 'confirmation for order number' in s or 'confirmation for order' in s:
-        return 'confirmation'
-    if 'shipping confirmation' in s or 'was shipped' in s:
-        return 'shipping'
-    if 'we received your request' in s:
-        return 'request'
-    return 'other'
+    cat, _ = _rcm_parser.classify_email(subject)
+    return cat
 
 
 def _extract_order_id(subject: str, body_text: str) -> Optional[str]:
-    s = subject or ""
-    b = body_text or ""
-    m = re.search(r"(?i)\bPO\d{5,}\b", s) or re.search(r"(?i)\bPO\d{5,}\b", b)
-    return m.group(0) if m else None
+    """Extract RCM order ID from subject or body."""
+    return _rcm_parser.extract_order_id(subject, body_text)
 
 
 def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
-    items: List[Dict] = []
-    t = normalize_unicode(text or '')
-    lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
-
-    # Support 1/10-oz, 0.1 oz, 1 oz, grams
-    pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b[^\n]*?\b(gold|silver)\b|\b(\d+)\s*/\s*(\d+)\s*[- ]?oz\b")
-    pat_oz = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*[- ]?oz\b[^\n]*?(?:\b(gold|silver)\b)?")
-    pat_g = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]*?(?:\b(gold|silver)\b)?")
-
-    def find_qty_near(idx: int) -> Optional[float]:
-        # Scan a wider window for explicit quantities
-        for d in range(0, 7):
-            for j in (idx + d, idx - d):
-                if d == 0:
-                    j = idx
-            if 0 <= j < len(lines):
-                m = (
-                    re.search(r"(?i)\bqty\s*[:#]?\s*(\d{1,3})\b", lines[j])
-                    or re.search(r"(?i)\bquantity\s*[:#]?\s*(\d{1,3})\b", lines[j])
-                    or re.search(r"(?i)\bx\s*(\d{1,3})\b", lines[j])
-                )
-                if m:
-                    try:
-                        n = int(m.group(1))
-                        if 1 <= n <= 200:
-                            return float(n)
-                    except Exception:  # noqa: S110 - invalid quantity
-                        pass
-        return None
-
-    def infer_metal(ctx: str) -> str:
-        ct = (ctx or '').lower()
-        if 'gold' in ct:
-            return 'gold'
-        if 'silver' in ct:
-            return 'silver'
-        return ''
-
-    for idx, ln in enumerate(lines):
-        # 1/10-oz style
-        for m in re.finditer(r"(?i)\b1\s*/\s*10\s*[- ]?oz\b", ln):
-            metal = infer_metal(ln)
-            qty = find_qty_near(idx) or 1.0
-            items.append({'metal': metal or 'gold', 'unit_oz': 0.1, 'qty': qty, 'idx': idx})
-        for m in pat_frac.finditer(ln):
-            try:
-                num = float(m.group(1) or m.group(4))
-                den = float(m.group(2) or m.group(5) or 1)
-            except Exception:  # noqa: S112 - skip on error
-                continue
-            oz = num / max(den, 1.0)
-            metal = (m.group(3) or '').lower()
-            qty = find_qty_near(idx) or 1.0
-            items.append({'metal': metal or '', 'unit_oz': oz, 'qty': qty, 'idx': idx})
-        for m in pat_oz.finditer(ln):
-            wt = float(m.group(1))
-            metal = (m.group(2) or '').lower()
-            qty = find_qty_near(idx) or 1.0
-            items.append({'metal': metal or '', 'unit_oz': wt, 'qty': qty, 'idx': idx})
-        for m in pat_g.finditer(ln):
-            wt_g = float(m.group(1))
-            metal = (m.group(3) or '').lower()
-            qty = find_qty_near(idx) or 1.0
-            items.append({'metal': metal or '', 'unit_oz': wt_g / G_PER_OZ, 'qty': qty, 'idx': idx})
-    # Deduplicate items that mention both fractional/decimal sizes on the same line
-    if items:
-        buckets: Dict[Tuple[int, int], Dict] = {}
-        for it in items:
-            ukey = int(round(float(it.get('unit_oz') or 0.0) * 1000))
-            idx_key = int(it.get('idx') or 0)
-            k = (ukey, idx_key)
-            cur = buckets.get(k)
-            if not cur:
-                buckets[k] = dict(it)
-            else:
-                # Keep the larger quantity; prefer explicit metal tag
-                try:
-                    if float(it.get('qty') or 1.0) > float(cur.get('qty') or 1.0):
-                        cur['qty'] = it.get('qty')
-                except Exception:  # noqa: S110 - invalid qty comparison
-                    pass
-                if (it.get('metal') or '') and not (cur.get('metal') or ''):
-                    cur['metal'] = it.get('metal')
-        items = list(buckets.values())
+    """Extract line items using the shared RCM parser."""
+    line_items, lines = _rcm_parser.extract_line_items(text)
+    # Convert LineItem dataclass to dict format for backward compatibility
+    items = [
+        {'metal': item.metal, 'unit_oz': item.unit_oz, 'qty': item.qty, 'idx': item.idx}
+        for item in line_items
+    ]
     return items, lines
 
 
 def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: float = 0.0) -> Optional[Tuple[float, str]]:
-    """Find a CAD amount near an item line.
-
-    Returns (amount, kind) where kind is 'unit' or 'total'.
-    Skips global totals: lines containing subtotal, tax, shipping, savings.
-    """
-    money_pat = re.compile(r"(?i)(?:C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
-    ban = re.compile(r"(?i)(subtotal|shipping|handling|tax|gst|hst|pst|savings|free\s+shipping|orders?\s+over|threshold)")
-
-    best_total: Optional[Tuple[float, int]] = None  # (amt, distance)
-    best_unit: Optional[Tuple[float, int]] = None
-    # Scan forward only up to +8 lines from the item line
-    for d in range(0, 21):
-        j = idx + d
-        if not (0 <= j < len(lines)):
-            continue
-        ln = lines[j] or ""
-        low = ln.lower()
-        if ban.search(low):
-            continue
-        for m in money_pat.finditer(ln):
-            try:
-                amt = float(m.group(1).replace(",", ""))
-            except Exception:  # noqa: S112 - skip on error
-                continue
-            # Filter obvious non-item amounts based on expected ranges
-            if (metal or '').lower() == 'gold':
-                u = float(unit_oz or 0.0)
-                if u <= 0.11:
-                    if not (150.0 <= amt <= 2000.0):
-                        continue
-                elif u <= 0.26:
-                    if not (300.0 <= amt <= 4000.0):
-                        continue
-                elif u <= 0.6:
-                    if not (600.0 <= amt <= 7000.0):
-                        continue
-                else:
-                    if not (1200.0 <= amt <= 20000.0):
-                        continue
-            if re.search(r"(?i)\btotal\b", ln):
-                if (best_total is None) or (d < best_total[1]):
-                    best_total = (amt, d)
-            else:
-                if (best_unit is None) or (d < best_unit[1]):
-                    best_unit = (amt, d)
-    if best_total:
-        return best_total[0], 'total'
-    if best_unit:
-        return best_unit[0], 'unit'
+    """Find a CAD amount near an item line using the shared RCM parser."""
+    hit = _rcm_parser.extract_price_near_item(lines, idx, metal, unit_oz)
+    if hit:
+        return hit.amount, hit.kind
     return None
 
 
-def _extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
-    t = (text or '').replace('\u00A0', ' ')
-    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-    money_pat = re.compile(r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)")
-
-    def parse_amount(s: str) -> float:
-        return float(s.replace(',', ''))
-
-    for pref in ('total', 'subtotal'):
-        for ln in lines:
-            low = ln.lower()
-            if pref in low:
-                pos = low.find(pref)
-                found = None
-                for m in money_pat.finditer(ln):
-                    if m.start() >= pos:
-                        found = m
-                        break
-                if not found:
-                    allm = list(money_pat.finditer(ln))
-                    found = allm[-1] if allm else None
-                if found:
-                    cur = found.group(1).upper()
-                    amt = parse_amount(found.group(2))
-                    return cur, amt
-    best: Optional[Tuple[str, float]] = None
-    for ln in lines:
-        for m in money_pat.finditer(ln):
-            cur = m.group(1).upper()
-            amt = parse_amount(m.group(2))
-            if (best is None) or (amt > best[1]):
-                best = (cur, amt)
-    return best
-
-
 def _extract_confirmation_item_totals(text: str) -> List[float]:
-    """Extract per-item 'Total $X CAD' amounts from a confirmation email body.
-
-    Returns amounts in the order they appear. Intended to pair with items in sequence.
-    """
-    t = (text or '').replace('\u00A0', ' ')
-    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-    amounts: List[float] = []
-    pat = re.compile(r"(?i)\btotal\b[^\n]*?(?:C\$|CAD\s*\$|CAD\$|\$)\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))\s*CAD")
-    ban = re.compile(r"(?i)(orders?\s+over|threshold|free\s+shipping|subtotal|savings)")
-    for ln in lines:
-        if ban.search(ln or ''):
-            continue
-        m = pat.search(ln or '')
-        if m:
-            try:
-                val = float((m.group(1) or '0').replace(',', ''))
-                amounts.append(val)
-            except Exception:  # noqa: S112 - skip on error
-                continue
-    return amounts
-
-
-def _merge_write(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
-    p = Path(out_path)
-    existing: List[Dict[str, str]] = []
-    if p.exists():
-        with p.open(newline='', encoding='utf-8') as f:
-            r = csv.DictReader(f)
-            for row in r:
-                existing.append(row)
-    # Build composite list and then prune redundant shipping rows when confirmations exist
-    all_rows: List[Dict[str, str]] = []
-    all_rows.extend(existing)
-    all_rows.extend([{k: str(v) for k, v in r.items()} for r in new_rows])  # normalize types to str
-
-    # Group by (vendor, order_id, metal)
-    from collections import defaultdict
-    groups: Dict[Tuple[str, str, str], List[Dict[str, str]]] = defaultdict(list)
-    for r in all_rows:
-        key = ((r.get('vendor') or '').upper(), r.get('order_id') or '', (r.get('metal') or '').lower())
-        groups[key].append(r)
-
-    pruned: List[Dict[str, str]] = []
-    for k, rows in groups.items():
-        # If any confirmation rows exist in this group, drop shipping-only rows
-        conf = [r for r in rows if 'confirmation for order' in (r.get('subject') or '').lower()]
-        if conf:
-            # Keep only confirmations
-            pruned.extend(conf)
-        else:
-            pruned.extend(rows)
-
-    # Now dedupe within pruned list by (vendor|order_id|metal|cost_total|units_breakdown)
-    def key2(d):
-        return f"{(d.get('vendor') or '').upper()}|{d.get('order_id') or ''}|{(d.get('metal') or '').lower()}|{d.get('cost_total') or ''}|{d.get('units_breakdown') or ''}"
-    idx2: Dict[str, Dict[str, str]] = {}
-    for r in pruned:
-        idx2[key2(r)] = r
-    merged = list(idx2.values())
-    # Write
-    with p.open('w', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=['vendor','date','metal','currency','cost_total','cost_per_oz','order_id','subject','total_oz','unit_count','units_breakdown','alloc'])
-        w.writeheader()
-        w.writerows(merged)
+    """Extract per-item 'Total $X CAD' amounts from a confirmation email body."""
+    return _rcm_parser.extract_confirmation_totals(text)
 
 
 def run(profile: str, out_path: str, days: int = 365) -> int:
@@ -477,8 +256,8 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                         'order_id': oid,
                         'subject': sub,
                         'total_oz': round(uoz * max(qty, 1.0), 3),
-                        'unit_count': int(qty) if abs(qty - int(qty)) < 1e-6 else round(qty, 3),
-                        'units_breakdown': f"{uoz}ozx{int(qty) if abs(qty - int(qty)) < 1e-6 else qty}",
+                        'unit_count': format_qty(qty),
+                        'units_breakdown': f"{uoz}ozx{format_qty(qty)}",
                         'alloc': 'line-item',
                     })
         # If still no cost from sequence, fall back to proximity amounts
@@ -496,7 +275,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                         line_cost += float(amt)
 
         # Fallback to order total when no line pricing was captured
-        cur_amt = _extract_order_amount(body)
+        cur_amt = extract_order_amount(body)
         # Choose line_cost when it looks consistent with order-level amount; otherwise fallback to order amount
         if cur_amt and line_cost > 0:
             low, high = 0.6 * cur_amt[1], 1.05 * cur_amt[1]
@@ -516,18 +295,12 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
             if oz <= 0:
                 continue
             cpo = (total_cost / oz) if oz > 0 else 0.0
-            breakdown = []
-            unit_count = 0.0
-            for uoz, qty in sorted(units_by_metal.get('gold', {}).items()):
-                unit_count += qty
-                qty_disp = int(qty) if abs(qty - int(qty)) < 1e-6 else qty
-                breakdown.append(f"{uoz}ozx{qty_disp}")
-            if not breakdown:
-                breakdown = [f"{round(oz,3)}ozx1"]
-                unit_count = 1
+            gold_units = units_by_metal.get('gold', {})
+            unit_count = sum(gold_units.values()) if gold_units else 1.0
+            breakdown_str = format_breakdown(gold_units) if gold_units else f"{round(oz, 3)}ozx1"
             out_rows.append({
                 'vendor': 'RCM',
-                'date': (recv or '').split('T',1)[0],
+                'date': (recv or '').split('T', 1)[0],
                 'metal': 'gold',
                 'currency': cur_out,
                 'cost_total': round(total_cost, 2),
@@ -535,13 +308,13 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
                 'order_id': oid,
                 'subject': sub,
                 'total_oz': round(oz, 3),
-                'unit_count': int(unit_count) if abs(unit_count - int(unit_count)) < 1e-6 else round(unit_count, 3),
-                'units_breakdown': ';'.join(breakdown),
+                'unit_count': format_qty(unit_count),
+                'units_breakdown': breakdown_str,
                 'alloc': 'line-item' if line_cost > 0 else 'order-single-metal',
             })
 
     if out_rows:
-        _merge_write(out_path, out_rows)
+        merge_costs_csv(out_path, out_rows)
         print(f"merged {len(out_rows)} RCM row(s) into {out_path}")
     else:
         print('RCM messages found but no line-items/amounts parsed')
