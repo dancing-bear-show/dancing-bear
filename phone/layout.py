@@ -3,28 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from .constants import COMMON_KEEP, FOLDERS, STOCK_MAYBE_UNUSED
+
 Item = Dict[str, Any]
-
-# Constants for rank_unused_candidates
-_STOCK_MAYBE_UNUSED = frozenset({
-    "com.apple.tips",
-    "com.apple.stocks",
-    "com.apple.measure",
-    "com.apple.compass",
-    "com.apple.podcasts",
-    "com.apple.books",
-})
-
-_COMMON_KEEP = frozenset({
-    "com.apple.camera",
-    "com.apple.Preferences",
-    "com.apple.facetime",
-    "com.apple.mobilephone",
-    "com.apple.mobilesafari",
-    "com.apple.MobileSMS",
-    "com.apple.mobilemail",
-    "com.apple.Maps",
-})
 
 
 @dataclass
@@ -184,10 +165,7 @@ def scaffold_plan(layout: NormalizedLayout) -> Dict[str, Any]:
             "unassigned: all remaining apps from current layout.",
         ],
         "pins": pinned,
-        "folders": {
-            "Work": [], "Finance": [], "Travel": [], "Health": [],
-            "Media": [], "Shopping": [], "Social": [], "Utilities": [],
-        },
+        "folders": {name: [] for name in FOLDERS},
         "unassigned": unassigned,
     }
 
@@ -374,9 +352,9 @@ def _compute_app_score(
 
     if app in recent:
         score -= 2.0
-    if app in _STOCK_MAYBE_UNUSED:
+    if app in STOCK_MAYBE_UNUSED:
         score += 0.5
-    if app in _COMMON_KEEP:
+    if app in COMMON_KEEP:
         score -= 2.0
 
     return score

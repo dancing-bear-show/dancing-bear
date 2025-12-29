@@ -29,6 +29,17 @@ ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"
 ERR_CONFIG_MUST_CONTAIN_EVENTS = "Config must contain events: [] list"
 MSG_PREVIEW_COMPLETE = "Preview complete."
 
+# Error codes for diagnostics
+ERR_CODE_CONFIG = 2  # Config load/parse errors
+ERR_CODE_CALENDAR = 3  # Calendar not found / API errors
+ERR_CODE_API = 4  # Graph API / listing errors
+
+# Log prefixes
+LOG_DRY_RUN = "[dry-run]"
+
+# Default values
+DEFAULT_IMPORT_CALENDAR = "Imported Schedules"
+
 
 def load_events_config(
     config_path: Path,
@@ -44,13 +55,13 @@ def load_events_config(
     except Exception as exc:
         return None, ResultEnvelope(
             status="error",
-            diagnostics={"message": f"Failed to read config: {exc}", "code": 2},
+            diagnostics={"message": f"Failed to read config: {exc}", "code": ERR_CODE_CONFIG},
         )
     items = cfg.get("events") if isinstance(cfg, dict) else None
     if not isinstance(items, list):
         return None, ResultEnvelope(
             status="error",
-            diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": 2},
+            diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": ERR_CODE_CONFIG},
         )
     return items, None
 
@@ -84,6 +95,11 @@ __all__ = [
     "ERR_OUTLOOK_SERVICE_REQUIRED",
     "ERR_CONFIG_MUST_CONTAIN_EVENTS",
     "MSG_PREVIEW_COMPLETE",
+    "ERR_CODE_CONFIG",
+    "ERR_CODE_CALENDAR",
+    "ERR_CODE_API",
+    "LOG_DRY_RUN",
+    "DEFAULT_IMPORT_CALENDAR",
     # Helpers
     "load_events_config",
 ]
