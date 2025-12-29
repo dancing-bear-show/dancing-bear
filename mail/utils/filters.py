@@ -57,28 +57,24 @@ def build_gmail_query(
     return " ".join(parts).strip()
 
 
+def _resolve_label_ids(client: BaseProvider, names: list, name_to_id: dict) -> list[str]:
+    """Resolve label names to IDs, creating labels if needed."""
+    ids = []
+    for n in names:
+        if not n:
+            continue
+        if isinstance(n, str) and n.isupper():
+            ids.append(n)
+        else:
+            ids.append(name_to_id.get(n) or client.ensure_label(n))
+    return ids
+
+
 def action_to_label_changes(client: BaseProvider, action: dict) -> Tuple[list[str], list[str]]:
     action = action or {}
-    add_names = action.get("add") or []
-    rem_names = action.get("remove") or []
-    # Provider should support these helpers (Gmail/Outlook adapters do)
     name_to_id = client.get_label_id_map()
-    add_ids = []
-    rem_ids = []
-    for n in add_names:
-        if not n:
-            continue
-        if isinstance(n, str) and n.isupper():
-            add_ids.append(n)
-        else:
-            add_ids.append(name_to_id.get(n) or client.ensure_label(n))
-    for n in rem_names:
-        if not n:
-            continue
-        if isinstance(n, str) and n.isupper():
-            rem_ids.append(n)
-        else:
-            rem_ids.append(name_to_id.get(n) or client.ensure_label(n))
+    add_ids = _resolve_label_ids(client, action.get("add") or [], name_to_id)
+    rem_ids = _resolve_label_ids(client, action.get("remove") or [], name_to_id)
     return add_ids, rem_ids
 
 
@@ -121,30 +117,5 @@ def categories_to_system_labels(action_spec: dict) -> list[str]:
     return cats
 
 
-def expand_categories(action_spec: dict) -> List[str]:
-    """Return Gmail system labels for friendly category spec fields."""
-
-    mapping = {
-        "promotions": "CATEGORY_PROMOTIONS",
-        "forums": "CATEGORY_FORUMS",
-        "updates": "CATEGORY_UPDATES",
-        "social": "CATEGORY_SOCIAL",
-        "personal": "CATEGORY_PERSONAL",
-    }
-    cats: List[str] = []
-    if not isinstance(action_spec, dict):
-        return cats
-    val = action_spec.get("categorizeAs") or action_spec.get("categorize")
-    if isinstance(val, str):
-        key = val.strip().lower()
-        if key in mapping:
-            cats.append(mapping[key])
-    for seq_key in ("categories", "categorize"):
-        v = action_spec.get(seq_key)
-        if isinstance(v, list):
-            for item in v:
-                if isinstance(item, str):
-                    key = item.strip().lower()
-                    if key in mapping:
-                        cats.append(mapping[key])
-    return cats
+# Backwards-compatible alias
+expand_categories = categories_to_system_labels
