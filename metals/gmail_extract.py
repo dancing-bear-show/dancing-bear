@@ -16,8 +16,7 @@ from typing import Tuple
 from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
-
-G_PER_OZ = 31.1035
+from .constants import G_PER_OZ
 
 
 def _extract_amounts(text: str) -> Tuple[float, float]:
