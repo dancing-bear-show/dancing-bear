@@ -1,9 +1,9 @@
 name: Claude Code
 
 on:
-  # Auto-review on PR open/update
+  # Auto-review on PR open only
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
   # Also respond to @claude mentions
   issue_comment:
     types: [created]
