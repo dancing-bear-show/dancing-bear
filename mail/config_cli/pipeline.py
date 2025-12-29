@@ -210,8 +210,7 @@ class BackupProducer(Producer[ResultEnvelope[BackupResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Backup failed')}")
             return
-        assert result.payload is not None
-        print(f"Backup written to {result.payload.out_path}")
+        print(f"Backup written to {result.unwrap().out_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -266,8 +265,8 @@ class CacheStatsProducer(Producer[ResultEnvelope[CacheStatsResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        print(f"Cache: {result.payload.path} files={result.payload.files} size={result.payload.size_bytes} bytes")
+        p = result.unwrap()
+        print(f"Cache: {p.path} files={p.files} size={p.size_bytes} bytes")
 
 
 # -----------------------------------------------------------------------------
@@ -320,9 +319,9 @@ class CacheClearProducer(Producer[ResultEnvelope[CacheClearResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        if result.payload.cleared:
-            print(f"Cleared cache: {result.payload.path}")
+        p = result.unwrap()
+        if p.cleared:
+            print(f"Cleared cache: {p.path}")
         else:
             print("Cache does not exist.")
 
@@ -387,8 +386,8 @@ class CachePruneProducer(Producer[ResultEnvelope[CachePruneResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        print(f"Pruned {result.payload.removed} files older than {result.payload.days} days from {result.payload.path}")
+        p = result.unwrap()
+        print(f"Pruned {p.removed} files older than {p.days} days from {p.path}")
 
 
 # -----------------------------------------------------------------------------
@@ -478,8 +477,7 @@ class ConfigInspectProducer(Producer[ResultEnvelope[ConfigInspectResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        for section in result.payload.sections:
+        for section in result.unwrap().sections:
             print(f"[{section.name}]")
             for k, v in section.items:
                 print(f"{k} = {v}")
@@ -558,8 +556,8 @@ class DeriveLabelsProducer(Producer[ResultEnvelope[DeriveLabelsResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        print(f"Derived labels -> gmail:{result.payload.gmail_path} outlook:{result.payload.outlook_path}")
+        p = result.unwrap()
+        print(f"Derived labels -> gmail:{p.gmail_path} outlook:{p.outlook_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -658,8 +656,8 @@ class DeriveFiltersProducer(Producer[ResultEnvelope[DeriveFiltersResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        print(f"Derived filters -> gmail:{result.payload.gmail_path} outlook:{result.payload.outlook_path}")
+        p = result.unwrap()
+        print(f"Derived filters -> gmail:{p.gmail_path} outlook:{p.outlook_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -794,12 +792,12 @@ class OptimizeFiltersProducer(Producer[ResultEnvelope[OptimizeFiltersResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        if self._preview and result.payload.merged_groups:
+        p = result.unwrap()
+        if self._preview and p.merged_groups:
             print('Merged groups:')
-            for g in sorted(result.payload.merged_groups, key=lambda x: -x.rules_merged):
+            for g in sorted(p.merged_groups, key=lambda x: -x.rules_merged):
                 print(f'- {g.destination}: merged {g.rules_merged} rules into 1 (unique from terms={g.unique_from_terms})')
-        print(f"Optimized filters written to {result.payload.out_path}. Original={result.payload.original_count} Optimized={result.payload.optimized_count}")
+        print(f"Optimized filters written to {p.out_path}. Original={p.original_count} Optimized={p.optimized_count}")
 
 
 # -----------------------------------------------------------------------------
@@ -913,13 +911,13 @@ class AuditFiltersProducer(Producer[ResultEnvelope[AuditFiltersResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        print(f"Simple Gmail rules: {result.payload.simple_total}")
-        print(f"Covered by unified: {result.payload.covered}")
-        print(f"Not unified: {result.payload.not_covered} ({result.payload.percentage:.1f}%)")
-        if self._preview_missing and result.payload.missing_samples:
+        p = result.unwrap()
+        print(f"Simple Gmail rules: {p.simple_total}")
+        print(f"Covered by unified: {p.covered}")
+        print(f"Not unified: {p.not_covered} ({p.percentage:.1f}%)")
+        if self._preview_missing and p.missing_samples:
             print("Missing examples (dest, from):")
-            for dest, frm in result.payload.missing_samples:
+            for dest, frm in p.missing_samples:
                 print(f"- {dest} <- {frm}")
 
 
@@ -1050,9 +1048,9 @@ class EnvSetupProducer(Producer[ResultEnvelope[EnvSetupResult]]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        if result.payload.profile_saved:
+        p = result.unwrap()
+        if p.profile_saved:
             print("Persisted settings to ~/.config/credentials.ini")
         else:
             print("No profile settings provided; skipped INI write.")
-        print(result.payload.message)
+        print(p.message)
