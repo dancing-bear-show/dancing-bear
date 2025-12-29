@@ -80,22 +80,33 @@ QTY_PATTERNS = [
 ]
 
 
+def iter_nearby_lines(
+    lines: List[str], idx: int, window: int, forward_only: bool = False
+) -> List[Tuple[int, str]]:
+    """Yield (line_index, line_text) pairs near idx within window."""
+    result: List[Tuple[int, str]] = []
+    seen: set[int] = set()
+    for d in range(window):
+        candidates = [idx + d] if forward_only else [idx + d, idx - d]
+        for j in candidates:
+            if j in seen or not (0 <= j < len(lines)):
+                continue
+            seen.add(j)
+            result.append((j, lines[j] or ""))
+    return result
+
+
 def find_qty_near(lines: List[str], idx: int, window: int = 4) -> Optional[float]:
     """Find explicit quantity near a line index."""
-    checked: set[int] = set()
-    for d in range(window):
-        for j in {idx + d, idx - d}:  # Set dedupes when d=0
-            if j in checked or not (0 <= j < len(lines)):
-                continue
-            checked.add(j)
-            for pat in QTY_PATTERNS:
-                m = pat.search(lines[j] or "")
-                if m:
-                    raw = m.group(1)
-                    if raw and raw.isdigit():
-                        n = int(raw)
-                        if 1 <= n <= 200:
-                            return float(n)
+    for _, ln in iter_nearby_lines(lines, idx, window):
+        for pat in QTY_PATTERNS:
+            m = pat.search(ln)
+            if m:
+                raw = m.group(1)
+                if raw and raw.isdigit():
+                    n = int(raw)
+                    if 1 <= n <= 200:
+                        return float(n)
     return None
 
 
@@ -172,6 +183,49 @@ def dedupe_line_items(items: List[LineItem]) -> List[LineItem]:
     return list(buckets.values())
 
 
+# Default banned terms for price extraction
+DEFAULT_PRICE_BAN = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
+
+
+def extract_price_from_lines(
+    lines: List[str],
+    idx: int,
+    metal: str,
+    unit_oz: float,
+    window: int = 13,
+    ban_pattern: Optional[re.Pattern] = None,
+    forward_only: bool = False,
+) -> Optional[PriceHit]:
+    """Shared price extraction logic used by multiple vendors."""
+    ban = ban_pattern or DEFAULT_PRICE_BAN
+    lb, ub = get_price_band(metal, unit_oz)
+
+    for _, ln in iter_nearby_lines(lines, idx, window, forward_only):
+        if ban.search(ln):
+            continue
+
+        m = MONEY_PATTERN.search(ln)
+        if not m:
+            continue
+
+        try:
+            amt = float(m.group(2).replace(",", ""))
+        except (ValueError, IndexError):
+            continue
+
+        if not (lb <= amt <= ub):
+            continue
+
+        low = ln.lower()
+        if re.search(r"(?i)\b(unit|each|ea|per)\b", low):
+            return PriceHit(amount=amt, kind='unit')
+        if re.search(r"(?i)\btotal\b", low):
+            return PriceHit(amount=amt, kind='total')
+        return PriceHit(amount=amt, kind='unknown')
+
+    return None
+
+
 # =============================================================================
 # TD Precious Metals Parser
 # =============================================================================
@@ -225,38 +279,7 @@ class TDParser(VendorParser):
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
         """Extract price near item with TD-specific logic."""
-        ban = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
-        lb, ub = get_price_band(metal, unit_oz)
-
-        for d in range(13):
-            for j in {idx + d, idx - d}:  # Set dedupes when d=0
-                if not (0 <= j < len(lines)):
-                    continue
-                ln = lines[j] or ""
-                if ban.search(ln):
-                    continue
-
-                m = MONEY_PATTERN.search(ln)
-                if not m:
-                    continue
-
-                try:
-                    amt = float(m.group(2).replace(",", ""))
-                except (ValueError, IndexError):
-                    continue
-
-                if not (lb <= amt <= ub):
-                    continue
-
-                # Determine kind
-                low = ln.lower()
-                if re.search(r"(?i)\b(unit|each|ea|per)\b", low):
-                    return PriceHit(amount=amt, kind='unit')
-                if re.search(r"(?i)\btotal\b", low):
-                    return PriceHit(amount=amt, kind='total')
-                return PriceHit(amount=amt, kind='unknown')
-
-        return None
+        return extract_price_from_lines(lines, idx, metal, unit_oz)
 
     def _extract_email(self, from_header: str) -> str:
         m = re.search(r"<([^>]+)>", from_header or '')
@@ -271,41 +294,29 @@ class TDParser(VendorParser):
             re.compile(r"(?i)\b(\d{1,3})\s*ct\b"),
             re.compile(r"(?i)\b(roll|tube)\s*of\s*(\d{1,3})\b"),
         ]
-        checked: set[int] = set()
-        for d in range(4):
-            for j in {idx + d, idx - d}:  # Set dedupes when d=0
-                if j in checked or not (0 <= j < len(lines)):
-                    continue
-                checked.add(j)
-                s = lines[j]
-                for pat in pats:
-                    m = pat.search(s or "")
-                    if m:
-                        group_count = len(m.groups())
-                        for g in (1, 2):
-                            if g <= group_count:
-                                val = m.group(g)
-                                if val and val.isdigit():
-                                    n = int(val)
-                                    if 2 <= n <= 200:
-                                        return float(n)
-                # SKU mapping
-                m_item = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s or '')
-                if m_item:
-                    sku = m_item.group(1)
-                    if sku in self.SKU_BUNDLE_MAP:
-                        return self.SKU_BUNDLE_MAP[sku]
+        for _, s in iter_nearby_lines(lines, idx, window=4):
+            for pat in pats:
+                m = pat.search(s)
+                if m:
+                    for g in range(1, len(m.groups()) + 1):
+                        val = m.group(g)
+                        if val and val.isdigit():
+                            n = int(val)
+                            if 2 <= n <= 200:
+                                return float(n)
+            # SKU mapping
+            m_item = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s)
+            if m_item and m_item.group(1) in self.SKU_BUNDLE_MAP:
+                return self.SKU_BUNDLE_MAP[m_item.group(1)]
         return None
 
     def _get_unit_oz_override(self, lines: List[str], idx: int, metal: str) -> Optional[float]:
         """Get unit oz override from SKU or phrase mapping."""
         sku_map = self.SKU_UNIT_MAP_SILVER if metal == 'silver' else self.SKU_UNIT_MAP_GOLD
-        for d in range(4):
-            for j in {idx + d, idx - d}:  # Set dedupes when d=0
-                if 0 <= j < len(lines):
-                    m = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", lines[j] or '')
-                    if m and m.group(1) in sku_map:
-                        return sku_map[m.group(1)]
+        for _, ln in iter_nearby_lines(lines, idx, window=4):
+            m = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", ln)
+            if m and m.group(1) in sku_map:
+                return sku_map[m.group(1)]
         return None
 
 
@@ -344,44 +355,17 @@ class CostcoParser(VendorParser):
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
-        """Extract price with Costco-specific heuristics."""
-        ban = re.compile(r"(?i)\b(subtotal|shipping|tax|order number|order #)\b")
-        lb, ub = get_price_band(metal, unit_oz)
-
-        for d in range(13):
-            for j in {idx + d, idx - d}:  # Set dedupes when d=0
-                if not (0 <= j < len(lines)):
-                    continue
-                ln = lines[j] or ""
-                if ban.search(ln):
-                    continue
-
-                m = MONEY_PATTERN.search(ln)
-                if not m:
-                    continue
-
-                try:
-                    amt = float(m.group(2).replace(",", ""))
-                except (ValueError, IndexError):
-                    continue
-
-                if not (lb <= amt <= ub):
-                    continue
-
-                # Costco often shows unit price next to 'x N'
-                return PriceHit(amount=amt, kind='unit')
-
-        return None
+        """Extract price with Costco-specific heuristics (always unit price)."""
+        hit = extract_price_from_lines(lines, idx, metal, unit_oz)
+        # Costco emails always show unit price
+        return PriceHit(amount=hit.amount, kind='unit') if hit else None
 
     def _find_bundle_qty(self, lines: List[str], idx: int) -> Optional[float]:
-        """Find bundle quantity from SKU or text patterns."""
-        for d in range(4):
-            for j in {idx + d, idx - d}:  # Set dedupes when d=0
-                if 0 <= j < len(lines):
-                    s = lines[j] or ''
-                    m = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s)
-                    if m and m.group(1) in self.SKU_BUNDLE_MAP:
-                        return self.SKU_BUNDLE_MAP[m.group(1)]
+        """Find bundle quantity from SKU mapping."""
+        for _, s in iter_nearby_lines(lines, idx, window=4):
+            m = re.search(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b", s)
+            if m and m.group(1) in self.SKU_BUNDLE_MAP:
+                return self.SKU_BUNDLE_MAP[m.group(1)]
         return None
 
 
@@ -457,25 +441,22 @@ class RCMParser(VendorParser):
 
         return dedupe_line_items(items), lines
 
+    # RCM-specific banned terms (includes Canadian taxes)
+    RCM_PRICE_BAN = re.compile(
+        r"(?i)(subtotal|shipping|handling|tax|gst|hst|pst|savings|"
+        r"free\s+shipping|orders?\s+over|threshold)"
+    )
+
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
-        """Find price near item with RCM-specific filtering."""
-        ban = re.compile(
-            r"(?i)(subtotal|shipping|handling|tax|gst|hst|pst|savings|"
-            r"free\s+shipping|orders?\s+over|threshold)"
-        )
+        """Find price near item with RCM-specific filtering (prefers 'total' lines)."""
         lb, ub = get_price_band(metal, unit_oz)
-
         best_total: Optional[Tuple[float, int]] = None
         best_unit: Optional[Tuple[float, int]] = None
 
-        for d in range(21):
-            j = idx + d
-            if not (0 <= j < len(lines)):
-                continue
-            ln = lines[j] or ""
-            if ban.search(ln.lower()):
+        for d, ln in iter_nearby_lines(lines, idx, window=21, forward_only=True):
+            if self.RCM_PRICE_BAN.search(ln.lower()):
                 continue
 
             for m in MONEY_PATTERN.finditer(ln):
@@ -484,16 +465,16 @@ class RCMParser(VendorParser):
                 except (ValueError, IndexError):
                     continue
 
-                # Filter by price band for gold
                 if metal == 'gold' and not (lb <= amt <= ub):
                     continue
 
+                dist = abs(d - idx)
                 if re.search(r"(?i)\btotal\b", ln):
-                    if best_total is None or d < best_total[1]:
-                        best_total = (amt, d)
+                    if best_total is None or dist < best_total[1]:
+                        best_total = (amt, dist)
                 else:
-                    if best_unit is None or d < best_unit[1]:
-                        best_unit = (amt, d)
+                    if best_unit is None or dist < best_unit[1]:
+                        best_unit = (amt, dist)
 
         if best_total:
             return PriceHit(amount=best_total[0], kind='total')
@@ -580,4 +561,6 @@ __all__ = [
     'dedupe_line_items',
     'find_qty_near',
     'infer_metal_from_context',
+    'iter_nearby_lines',
+    'extract_price_from_lines',
 ]
