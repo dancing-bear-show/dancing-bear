@@ -10,6 +10,7 @@ from ._base import (
     BaseProducer,
     RequestConsumer,
     check_service_required,
+    ERR_CODE_CALENDAR,
 )
 
 
@@ -40,14 +41,14 @@ class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, Resul
         try:
             cal_id = svc.find_calendar_id(cal_name)
         except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to resolve calendar '{cal_name}': {exc}", "code": 3})
+            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to resolve calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR})
         if not cal_id:
             try:
                 cal_id = svc.ensure_calendar_exists(cal_name)
             except Exception as exc:
                 return ResultEnvelope(
                     status="error",
-                    diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": 3},
+                    diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR},
                 )
         role = self._normalize_role(payload.role)
         try:
@@ -55,7 +56,7 @@ class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, Resul
         except Exception as exc:
             return ResultEnvelope(
                 status="error",
-                diagnostics={"message": f"Failed to share calendar '{cal_name}' with {payload.recipient}: {exc}", "code": 3},
+                diagnostics={"message": f"Failed to share calendar '{cal_name}' with {payload.recipient}: {exc}", "code": ERR_CODE_CALENDAR},
             )
         result = OutlookCalendarShareResult(calendar=cal_name, recipient=payload.recipient, role=role)
         return ResultEnvelope(status="success", payload=result)
