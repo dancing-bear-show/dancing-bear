@@ -35,8 +35,7 @@ class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
         if not result.ok():
             print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
             return
-        assert result.payload is not None
-        self._produce_items(result.payload)
+        self._produce_items(result.unwrap())
 
     def _produce_items(self, payload: R) -> None:
         """Override to format and print result items."""

@@ -98,8 +98,8 @@ class MessagesSearchProducer(Producer[ResultEnvelope[MessagesSearchResult]]):
             print(f"Error: {msg}")
             return
 
-        assert result.payload is not None
-        candidates = result.payload.candidates
+        payload = result.unwrap()
+        candidates = payload.candidates
 
         if self._output_json:
             print(_json.dumps([c.__dict__ for c in candidates], ensure_ascii=False, indent=2))
@@ -199,8 +199,8 @@ class MessagesSummarizeProducer(Producer[ResultEnvelope[MessagesSummarizeResult]
             print(msg)
             return
 
-        assert result.payload is not None
-        summary = result.payload.summary
+        payload = result.unwrap()
+        summary = payload.summary
 
         if self._out_path:
             p = Path(self._out_path)

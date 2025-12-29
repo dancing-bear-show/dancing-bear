@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import csv
+import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -25,6 +27,20 @@ def find_money(text: str) -> Optional[Tuple[str, float]]:
     return None
 
 
+def _find_money_on_line(line: str, keyword: str) -> Optional[Tuple[str, float]]:
+    """Find money amount on a line containing keyword. Prefers amount after keyword."""
+    low = line.lower()
+    if keyword not in low:
+        return None
+    pos = low.find(keyword)
+    matches = list(MONEY_PATTERN.finditer(line))
+    if not matches:
+        return None
+    # Prefer match after keyword, else last match on line
+    found = next((m for m in matches if m.start() >= pos), matches[-1])
+    return found.group(1).upper(), parse_money_amount(found.group(2))
+
+
 def extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
     """Extract (currency, total_amount) from message text.
 
@@ -32,33 +48,20 @@ def extract_order_amount(text: str) -> Optional[Tuple[str, float]]:
     Returns the first 'Total' if available, else 'Subtotal', else the largest amount.
     """
     t = (text or '').replace('\u00A0', ' ')
-    lines = [line.strip() for line in t.splitlines() if line.strip()]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
 
     # Prefer Total, then Subtotal
-    for pref in ('total', 'subtotal'):
+    for keyword in ('total', 'subtotal'):
         for ln in lines:
-            low = ln.lower()
-            if pref in low:
-                pos = low.find(pref)
-                found = None
-                for m in MONEY_PATTERN.finditer(ln):
-                    if m.start() >= pos:
-                        found = m
-                        break
-                if found is None:
-                    allm = list(MONEY_PATTERN.finditer(ln))
-                    found = allm[-1] if allm else None
-                if found:
-                    cur = found.group(1).upper()
-                    amt = parse_money_amount(found.group(2))
-                    return cur, amt
+            result = _find_money_on_line(ln, keyword)
+            if result:
+                return result
 
-    # Else take the largest currency number found
+    # Fallback: largest amount found
     best: Optional[Tuple[str, float]] = None
     for ln in lines:
         for m in MONEY_PATTERN.finditer(ln):
-            cur = m.group(1).upper()
-            amt = parse_money_amount(m.group(2))
+            cur, amt = m.group(1).upper(), parse_money_amount(m.group(2))
             if not best or amt > best[1]:
                 best = (cur, amt)
     return best
@@ -95,6 +98,25 @@ def format_breakdown(units: Dict[float, float]) -> str:
     return ';'.join(parts)
 
 
+def _extract_from_pattern(
+    m: re.Match,
+    idx: int,
+    metal_grp: int,
+    qty_grp: int,
+    unit_oz_fn,
+) -> Optional[Dict]:
+    """Extract item dict from a regex match. Returns None on parse failure."""
+    try:
+        unit_oz = unit_oz_fn(m)
+    except (ValueError, TypeError, IndexError):
+        return None
+    gc = len(m.groups())
+    metal = (m.group(metal_grp) or '').lower() if gc >= metal_grp else ''
+    qty_str = m.group(qty_grp) if gc >= qty_grp else None
+    qty = float(qty_str) if qty_str else 1.0
+    return {'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx}
+
+
 def extract_line_items_base(
     text: str,
     *,
@@ -107,46 +129,23 @@ def extract_line_items_base(
     Each item dict has: metal, unit_oz, qty, idx
     Patterns are passed in to allow customization per module.
     """
-    items: List[Dict] = []
     t = normalize_unicode(text or '')
     lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
 
+    # Pattern configs: (pattern, metal_group, qty_group, unit_oz_extractor)
+    configs = [
+        (pat_frac, 3, 4, lambda m: float(m.group(1)) / max(float(m.group(2) or 1), 1.0)),
+        (pat_oz, 2, 3, lambda m: float(m.group(1))),
+        (pat_g, 3, 4, lambda m: float(m.group(1)) / G_PER_OZ),
+    ]
+
+    items: List[Dict] = []
     for idx, ln in enumerate(lines):
-        for m in pat_frac.finditer(ln):
-            try:
-                num = float(m.group(1))
-                den = float(m.group(2) or 1)
-            except (ValueError, TypeError, IndexError):
-                continue  # Skip malformed fraction matches
-            group_count = len(m.groups())
-            metal = (m.group(3) or '').lower() if group_count >= 3 else ''
-            qty_str = m.group(4) if group_count >= 4 else None
-            qty = float(qty_str) if qty_str else 1.0
-            unit_oz = num / max(den, 1.0)
-            items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
-
-        for m in pat_oz.finditer(ln):
-            try:
-                unit_oz = float(m.group(1))
-            except (ValueError, TypeError):
-                continue  # Skip malformed ounce matches
-            group_count = len(m.groups())
-            metal = (m.group(2) or '').lower() if group_count >= 2 else ''
-            qty_str = m.group(3) if group_count >= 3 else None
-            qty = float(qty_str) if qty_str else 1.0
-            items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
-
-        for m in pat_g.finditer(ln):
-            try:
-                wt_g = float(m.group(1))
-            except (ValueError, TypeError):
-                continue  # Skip malformed gram matches
-            group_count = len(m.groups())
-            metal = (m.group(3) or '').lower() if group_count >= 3 else ''
-            qty_str = m.group(4) if group_count >= 4 else None
-            qty = float(qty_str) if qty_str else 1.0
-            unit_oz = wt_g / G_PER_OZ
-            items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
+        for pat, metal_grp, qty_grp, unit_oz_fn in configs:
+            for m in pat.finditer(ln):
+                item = _extract_from_pattern(m, idx, metal_grp, qty_grp, unit_oz_fn)
+                if item:
+                    items.append(item)
 
     return items, lines
 
@@ -161,62 +160,56 @@ def write_costs_csv(out_path: str, rows: List[Dict[str, str | float]]) -> None:
         w.writerows(rows)
 
 
+def _group_key(r: Dict[str, str]) -> Tuple[str, str, str]:
+    """Key for grouping rows by (vendor, order_id, metal)."""
+    return (r.get('vendor') or '').upper(), r.get('order_id') or '', (r.get('metal') or '').lower()
+
+
+def _dedup_key(r: Dict[str, str]) -> str:
+    """Key for deduplicating rows."""
+    vendor, order_id, metal = _group_key(r)
+    return '|'.join([
+        vendor, order_id, metal,
+        r.get('cost_total') or '', r.get('units_breakdown') or '',
+    ])
+
+
+def _is_confirmation(r: Dict[str, str]) -> bool:
+    """Check if row is from a confirmation email."""
+    return 'confirmation for order' in (r.get('subject') or '').lower()
+
+
 def merge_costs_csv(out_path: str, new_rows: List[Dict[str, str | float]]) -> None:
     """Merge new rows into existing costs CSV, deduplicating by key fields."""
     p = Path(out_path)
+
+    # Load existing rows
     existing: List[Dict[str, str]] = []
     if p.exists():
         with p.open(newline='', encoding='utf-8') as f:
-            r = csv.DictReader(f)
-            for row in r:
-                existing.append(row)
+            existing = list(csv.DictReader(f))
 
-    # Combine and normalize types
-    all_rows: List[Dict[str, str]] = []
-    all_rows.extend(existing)
-    all_rows.extend([{k: str(v) for k, v in r.items()} for r in new_rows])
+    # Combine and normalize to strings
+    all_rows = existing + [{k: str(v) for k, v in r.items()} for r in new_rows]
 
     # Group by (vendor, order_id, metal) for pruning
-    from collections import defaultdict
     groups: Dict[Tuple[str, str, str], List[Dict[str, str]]] = defaultdict(list)
     for r in all_rows:
-        key = (
-            (r.get('vendor') or '').upper(),
-            r.get('order_id') or '',
-            (r.get('metal') or '').lower(),
-        )
-        groups[key].append(r)
+        groups[_group_key(r)].append(r)
 
-    # Prune: if confirmations exist, drop shipping-only rows
-    pruned: List[Dict[str, str]] = []
+    # Prune: prefer confirmations over shipping-only rows, then dedupe
+    seen: Dict[str, Dict[str, str]] = {}
     for rows in groups.values():
-        conf = [r for r in rows if 'confirmation for order' in (r.get('subject') or '').lower()]
-        if conf:
-            pruned.extend(conf)
-        else:
-            pruned.extend(rows)
-
-    # Dedupe by composite key
-    def row_key(d: Dict[str, str]) -> str:
-        return '|'.join([
-            (d.get('vendor') or '').upper(),
-            d.get('order_id') or '',
-            (d.get('metal') or '').lower(),
-            d.get('cost_total') or '',
-            d.get('units_breakdown') or '',
-        ])
-
-    idx: Dict[str, Dict[str, str]] = {}
-    for r in pruned:
-        idx[row_key(r)] = r
-    merged = list(idx.values())
+        conf = [r for r in rows if _is_confirmation(r)]
+        for r in (conf or rows):
+            seen[_dedup_key(r)] = r
 
     # Write
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open('w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=COSTS_CSV_FIELDS)
         w.writeheader()
-        w.writerows(merged)
+        w.writerows(seen.values())
 
 
 __all__ = [

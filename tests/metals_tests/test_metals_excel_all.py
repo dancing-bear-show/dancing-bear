@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,21 @@ from metals.excel_all import (
     _build_summary_values,
     _set_sheet_position,
     _set_sheet_visibility,
+    _fill_date_gaps,
+    _list_worksheets,
+    _get_used_range_values,
+    _ensure_sheet,
+    _write_range,
+    _add_chart,
+    _write_filter_view,
+    _spot_cad_series,
+    _build_profit_series,
+    _workbook_url,
+    _pad_rows,
+    _poll_async_operation,
+    _sumif_formula,
+    _avgcost_formula,
+    _summary_row,
 )
 
 
@@ -289,6 +305,437 @@ class TestSetSheetVisibility(unittest.TestCase):
 
         call_args = mock_patch.call_args
         self.assertIn('"visibility": "Hidden"', call_args[1]["data"])
+
+
+class TestFillDateGaps(unittest.TestCase):
+    """Tests for _fill_date_gaps helper function."""
+
+    def test_empty_series_returns_unchanged(self):
+        """Test empty series returns empty."""
+        result = _fill_date_gaps({}, "2024-01-01", "2024-01-05")
+        self.assertEqual(result, {})
+
+    def test_forward_fills_gaps(self):
+        """Test forward-fills missing dates."""
+        series = {"2024-01-01": 100.0, "2024-01-03": 102.0}
+        result = _fill_date_gaps(series, "2024-01-01", "2024-01-03")
+        self.assertEqual(result["2024-01-01"], 100.0)
+        self.assertEqual(result["2024-01-02"], 100.0)  # Forward-filled
+        self.assertEqual(result["2024-01-03"], 102.0)
+
+    def test_back_fills_start(self):
+        """Test back-fills initial gap."""
+        series = {"2024-01-03": 100.0}
+        result = _fill_date_gaps(series, "2024-01-01", "2024-01-03")
+        self.assertEqual(result["2024-01-01"], 100.0)  # Back-filled
+        self.assertEqual(result["2024-01-02"], 100.0)  # Back-filled
+        self.assertEqual(result["2024-01-03"], 100.0)
+
+    def test_continuous_series_unchanged(self):
+        """Test already continuous series is unchanged."""
+        series = {"2024-01-01": 100.0, "2024-01-02": 101.0, "2024-01-03": 102.0}
+        result = _fill_date_gaps(series, "2024-01-01", "2024-01-03")
+        self.assertEqual(result, series)
+
+
+class TestListWorksheets(unittest.TestCase):
+    """Tests for _list_worksheets function."""
+
+    @patch("requests.get")
+    def test_returns_worksheet_names(self, mock_get):
+        """Test returns list of worksheet names."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"value": [{"name": "Sheet1"}, {"name": "Sheet2"}]},
+            raise_for_status=lambda: None,
+        )
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        result = _list_worksheets(client, "drive123", "item456")
+
+        self.assertEqual(result, ["Sheet1", "Sheet2"])
+
+    @patch("requests.get")
+    def test_filters_empty_names(self, mock_get):
+        """Test filters out worksheets with empty names."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"value": [{"name": "Sheet1"}, {"name": ""}, {"name": None}]},
+            raise_for_status=lambda: None,
+        )
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        result = _list_worksheets(client, "drive123", "item456")
+
+        self.assertEqual(result, ["Sheet1"])
+
+
+class TestGetUsedRangeValues(unittest.TestCase):
+    """Tests for _get_used_range_values function."""
+
+    @patch("requests.get")
+    def test_returns_values_on_success(self, mock_get):
+        """Test returns values from used range."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"values": [["A1", "B1"], ["A2", "B2"]]},
+        )
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        result = _get_used_range_values(client, "drive123", "item456", "Sheet1")
+
+        self.assertEqual(result, [["A1", "B1"], ["A2", "B2"]])
+
+    @patch("requests.get")
+    def test_returns_empty_on_error(self, mock_get):
+        """Test returns empty list on 4xx error."""
+        mock_get.return_value = MagicMock(status_code=404)
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        result = _get_used_range_values(client, "drive123", "item456", "Sheet1")
+
+        self.assertEqual(result, [])
+
+
+class TestEnsureSheet(unittest.TestCase):
+    """Tests for _ensure_sheet function."""
+
+    @patch("requests.post")
+    @patch("requests.get")
+    def test_returns_existing_sheet(self, mock_get, mock_post):
+        """Test returns existing sheet without creating."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"id": "sheet123", "name": "Sheet1"},
+        )
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        result = _ensure_sheet(client, "drive123", "item456", "Sheet1")
+
+        self.assertEqual(result["name"], "Sheet1")
+        mock_post.assert_not_called()
+
+    @patch("requests.post")
+    @patch("requests.get")
+    def test_creates_missing_sheet(self, mock_get, mock_post):
+        """Test creates sheet when not found."""
+        mock_get.return_value = MagicMock(status_code=404)
+        mock_post.return_value = MagicMock(
+            status_code=201,
+            json=lambda: {"id": "new_sheet", "name": "NewSheet"},
+        )
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        result = _ensure_sheet(client, "drive123", "item456", "NewSheet")
+
+        self.assertEqual(result["name"], "NewSheet")
+        mock_post.assert_called_once()
+
+
+class TestWriteRange(unittest.TestCase):
+    """Tests for _write_range function."""
+
+    @patch("requests.post")
+    @patch("requests.patch")
+    def test_clears_and_writes_values(self, mock_patch, mock_post):
+        """Test clears range and writes values."""
+        mock_post.return_value = MagicMock(status_code=200, json=lambda: {})
+        mock_patch.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        values = [["A", "B"], ["1", "2"]]
+        _write_range(client, "drive123", "item456", "Sheet1", values)
+
+        # Should call clear, patch (write), and table add
+        self.assertGreater(mock_post.call_count, 0)
+        self.assertGreater(mock_patch.call_count, 0)
+
+    @patch("requests.post")
+    @patch("requests.patch")
+    def test_handles_empty_values(self, mock_patch, mock_post):
+        """Test handles empty values - only clears."""
+        mock_post.return_value = MagicMock(status_code=200)
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        _write_range(client, "drive123", "item456", "Sheet1", [])
+
+        # Should still call clear
+        self.assertEqual(mock_post.call_count, 1)
+        mock_patch.assert_not_called()
+
+
+class TestAddChart(unittest.TestCase):
+    """Tests for _add_chart function."""
+
+    @patch("requests.patch")
+    @patch("requests.post")
+    def test_creates_chart(self, mock_post, mock_patch):
+        """Test creates chart with correct parameters."""
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"id": "chart123"},
+        )
+        mock_patch.return_value = MagicMock(status_code=200)
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        _add_chart(client, "drive123", "item456", "Sheet1", "Line", "A1:B10")
+
+        mock_post.assert_called_once()
+        call_data = json.loads(mock_post.call_args[1]["data"])
+        self.assertEqual(call_data["type"], "Line")
+
+    @patch("requests.post")
+    def test_handles_chart_error(self, mock_post):
+        """Test handles chart creation error gracefully."""
+        mock_post.return_value = MagicMock(status_code=400)
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        # Should not raise
+        _add_chart(client, "drive123", "item456", "Sheet1", "Line", "A1:B10")
+
+
+class TestWriteFilterView(unittest.TestCase):
+    """Tests for _write_filter_view function."""
+
+    @patch("requests.post")
+    @patch("requests.patch")
+    def test_writes_filter_formula(self, mock_patch, mock_post):
+        """Test writes FILTER formula to sheet."""
+        mock_post.return_value = MagicMock(status_code=200)
+        mock_patch.return_value = MagicMock(status_code=200)
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+
+        _write_filter_view(client, "drive123", "item456", "All", "Gold", "gold")
+
+        # Should write header and formula
+        self.assertGreater(mock_patch.call_count, 0)
+        # Check formula contains FILTER
+        for call in mock_patch.call_args_list:
+            data = call[1].get("data", "{}")
+            if "FILTER" in data:
+                self.assertIn("gold", data)
+                break
+
+
+class TestSpotCadSeries(unittest.TestCase):
+    """Tests for _spot_cad_series function."""
+
+    @patch("metals.excel_all._fetch_yahoo_series")
+    def test_returns_primary_cad_series(self, mock_fetch):
+        """Test returns primary CAD series when available."""
+        mock_fetch.side_effect = lambda sym, start, end: (
+            {"2024-01-01": 2500.0} if "CAD" in sym else {}
+        )
+
+        result = _spot_cad_series("gold", "2024-01-01", "2024-01-01")
+
+        self.assertEqual(result.get("2024-01-01"), 2500.0)
+
+    @patch("metals.excel_all._fetch_yahoo_series")
+    def test_falls_back_to_usd_conversion(self, mock_fetch):
+        """Test falls back to USD * USDCAD when CAD unavailable."""
+        def mock_series(sym, start, end):
+            if "XAUUSD" in sym:
+                return {"2024-01-01": 2000.0}
+            elif "USDCAD" in sym:
+                return {"2024-01-01": 1.35}
+            return {}
+        mock_fetch.side_effect = mock_series
+
+        result = _spot_cad_series("gold", "2024-01-01", "2024-01-01")
+
+        self.assertAlmostEqual(result.get("2024-01-01"), 2700.0, places=1)
+
+    def test_invalid_metal_returns_empty(self):
+        """Test invalid metal returns empty dict."""
+        result = _spot_cad_series("platinum", "2024-01-01", "2024-01-01")
+        self.assertEqual(result, {})
+
+
+class TestBuildProfitSeries(unittest.TestCase):
+    """Tests for _build_profit_series function."""
+
+    @patch("metals.excel_all._spot_cad_series")
+    def test_builds_profit_series_with_headers(self, mock_spot):
+        """Test builds series with correct headers."""
+        mock_spot.return_value = {"2024-01-15": 2600.0}
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "total_oz": "1.0", "cost_per_oz": "2500.0"},
+        ]
+
+        result = _build_profit_series(recs)
+
+        self.assertEqual(result[0][0], "date")
+        self.assertIn("gold_pnl", result[0])
+        self.assertIn("portfolio_pnl", result[0])
+
+    @patch("metals.excel_all._spot_cad_series")
+    def test_calculates_profit(self, mock_spot):
+        """Test calculates profit correctly."""
+        mock_spot.return_value = {"2024-01-15": 2600.0}
+        recs = [
+            {"date": "2024-01-15", "metal": "gold", "total_oz": "1.0", "cost_per_oz": "2500.0"},
+        ]
+
+        result = _build_profit_series(recs)
+
+        # PnL = (spot - avg_cost) * oz = (2600 - 2500) * 1 = 100
+        self.assertEqual(len(result), 2)  # Header + 1 data row
+        pnl_idx = result[0].index("gold_pnl")
+        self.assertEqual(result[1][pnl_idx], "100.00")
+
+    def test_handles_empty_records(self):
+        """Test handles empty records."""
+        result = _build_profit_series([])
+        self.assertEqual(result, [])
+
+    @patch("metals.excel_all._spot_cad_series")
+    def test_handles_invalid_data(self, mock_spot):
+        """Test skips records with invalid data."""
+        mock_spot.return_value = {}
+        recs = [
+            {"date": "", "metal": "gold", "total_oz": "invalid"},
+            {"date": "2024-01-15", "metal": "unknown", "total_oz": "1.0"},
+        ]
+
+        result = _build_profit_series(recs)
+
+        # Should return empty since no valid records
+        self.assertEqual(result, [])
+
+
+class TestWorkbookUrl(unittest.TestCase):
+    """Tests for _workbook_url helper function."""
+
+    def test_builds_correct_url(self):
+        """Test builds correct Graph API URL."""
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+
+        result = _workbook_url(client, "drive123", "item456")
+
+        self.assertEqual(result, "https://graph.microsoft.com/v1.0/drives/drive123/items/item456/workbook")
+
+
+class TestPadRows(unittest.TestCase):
+    """Tests for _pad_rows helper function."""
+
+    def test_pads_short_rows(self):
+        """Test pads rows shorter than cols."""
+        values = [["A", "B"], ["1"]]
+        result = _pad_rows(values, 2)
+        self.assertEqual(result, [["A", "B"], ["1", ""]])
+
+    def test_leaves_full_rows(self):
+        """Test leaves rows at full width unchanged."""
+        values = [["A", "B"], ["1", "2"]]
+        result = _pad_rows(values, 2)
+        self.assertEqual(result, [["A", "B"], ["1", "2"]])
+
+    def test_empty_values(self):
+        """Test handles empty values."""
+        result = _pad_rows([], 2)
+        self.assertEqual(result, [])
+
+
+class TestPollAsyncOperation(unittest.TestCase):
+    """Tests for _poll_async_operation function."""
+
+    @patch("time.sleep")
+    @patch("requests.get")
+    def test_returns_resource_id_on_success(self, mock_get, mock_sleep):
+        """Test returns resourceId when operation succeeds."""
+        mock_get.return_value = MagicMock(
+            json=lambda: {"status": "succeeded", "resourceId": "new_item_123"}
+        )
+        client = MagicMock()
+        client._headers.return_value = {}
+
+        result = _poll_async_operation(client, "http://monitor/url", max_attempts=1)
+
+        self.assertEqual(result, "new_item_123")
+
+    @patch("time.sleep")
+    @patch("requests.get")
+    def test_follows_resource_location(self, mock_get, mock_sleep):
+        """Test follows resourceLocation to get ID."""
+        mock_get.side_effect = [
+            MagicMock(json=lambda: {"status": "completed", "resourceLocation": "http://resource/url"}),
+            MagicMock(json=lambda: {"id": "item_from_location"}),
+        ]
+        client = MagicMock()
+        client._headers.return_value = {}
+
+        result = _poll_async_operation(client, "http://monitor/url", max_attempts=2)
+
+        self.assertEqual(result, "item_from_location")
+
+    @patch("time.sleep")
+    @patch("requests.get")
+    def test_raises_on_timeout(self, mock_get, mock_sleep):
+        """Test raises RuntimeError on timeout."""
+        mock_get.return_value = MagicMock(json=lambda: {"status": "inProgress"})
+        client = MagicMock()
+        client._headers.return_value = {}
+
+        with self.assertRaises(RuntimeError) as ctx:
+            _poll_async_operation(client, "http://monitor/url", max_attempts=2, delay=0.01)
+
+        self.assertIn("Timed out", str(ctx.exception))
+
+
+class TestSumifFormula(unittest.TestCase):
+    """Tests for _sumif_formula helper function."""
+
+    def test_builds_correct_formula(self):
+        """Test builds correct SUMIF formula."""
+        result = _sumif_formula("All", "D", "gold", "E")
+        self.assertEqual(result, "=SUMIF('All'!$D$2:$D$100000,\"gold\",'All'!$E$2:$E$100000)")
+
+
+class TestAvgcostFormula(unittest.TestCase):
+    """Tests for _avgcost_formula helper function."""
+
+    def test_builds_correct_formula(self):
+        """Test builds correct weighted average formula."""
+        result = _avgcost_formula("All", "D", "gold", "E", "F")
+        self.assertIn("SUMPRODUCT", result)
+        self.assertIn("IFERROR", result)
+        self.assertIn("gold", result)
+
+
+class TestSummaryRow(unittest.TestCase):
+    """Tests for _summary_row helper function."""
+
+    def test_builds_row_with_formulas(self):
+        """Test builds row with label and formulas."""
+        result = _summary_row("All", "gold", "D")
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "gold")
+        self.assertIn("SUMIF", result[1])
+        self.assertIn("SUMPRODUCT", result[2])
 
 
 if __name__ == "__main__":
