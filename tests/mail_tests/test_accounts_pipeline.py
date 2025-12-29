@@ -504,8 +504,7 @@ class TestAccountsSyncFiltersProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncFiltersProducer(dry_run=False)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("[filters sync]", output)
@@ -518,8 +517,7 @@ class TestAccountsSyncFiltersProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncFiltersProducer(dry_run=False)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("(delegated)", output)
@@ -559,8 +557,7 @@ class TestAccountsExportSignaturesProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsExportSignaturesProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("Exported signatures for personal", output)
