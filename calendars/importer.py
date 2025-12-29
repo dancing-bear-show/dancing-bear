@@ -189,11 +189,17 @@ def _get_field(row: Dict[str, Any], *keys: str, default: str = '') -> str:
     """Get first non-empty field from row by trying multiple key variants.
 
     Supports both normalized rows (lowercase keys, e.g. from parse_csv) and
-    original/mixed-case rows (e.g. from xlsx). For each requested key, tries
-    exact match, lowercase, and title-case variants.
+    original/mixed-case rows (e.g. from xlsx). For fully-lowercase dicts,
+    uses a fast path with only lowercase lookups.
     """
+    # Fast path: if all keys are already lowercase, only try lowercase variant
+    lower_only = all(not isinstance(k, str) or k == k.lower() for k in row.keys())
+
     for k in keys:
-        val = row.get(k) or row.get(k.lower()) or row.get(k.title())
+        if lower_only:
+            val = row.get(k.lower())
+        else:
+            val = row.get(k) or row.get(k.lower()) or row.get(k.title())
         if val is not None and str(val).strip():
             return str(val).strip()
     return default
