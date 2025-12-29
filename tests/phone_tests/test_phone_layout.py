@@ -28,6 +28,11 @@ from phone.layout import (
     to_yaml_export,
 )
 from tests.phone_tests.fixtures import (
+    APP_NO_ID,
+    SAMPLE_APP,
+    SAMPLE_FOLDER,
+    UNNAMED_FOLDER,
+    WIDGET_ITEM,
     make_app_item,
     make_folder_item,
     make_iconstate,
@@ -101,93 +106,63 @@ class TestIsFolder(unittest.TestCase):
 class TestIsAppItem(unittest.TestCase):
     """Tests for _is_app_item helper."""
 
-    def test_app_item_returns_true(self):
-        item = make_app_item("com.example.app")
-        self.assertTrue(_is_app_item(item))
+    def test_true_for_app(self):
+        self.assertTrue(_is_app_item(SAMPLE_APP))
 
-    def test_folder_item_returns_false(self):
-        item = make_folder_item("Work", ["com.app1"])
-        self.assertFalse(_is_app_item(item))
-
-    def test_empty_dict_returns_false(self):
+    def test_false_for_folder_empty_widget(self):
+        self.assertFalse(_is_app_item(SAMPLE_FOLDER))
         self.assertFalse(_is_app_item({}))
-
-    def test_dict_with_wrong_kind_returns_false(self):
-        self.assertFalse(_is_app_item({"kind": "widget"}))
+        self.assertFalse(_is_app_item(WIDGET_ITEM))
 
 
 class TestIsFolderItem(unittest.TestCase):
     """Tests for _is_folder_item helper."""
 
-    def test_folder_item_returns_true(self):
-        item = make_folder_item("Work", ["com.app1"])
-        self.assertTrue(_is_folder_item(item))
+    def test_true_for_folder(self):
+        self.assertTrue(_is_folder_item(SAMPLE_FOLDER))
 
-    def test_app_item_returns_false(self):
-        item = make_app_item("com.example.app")
-        self.assertFalse(_is_folder_item(item))
-
-    def test_empty_dict_returns_false(self):
+    def test_false_for_app_empty_widget(self):
+        self.assertFalse(_is_folder_item(SAMPLE_APP))
         self.assertFalse(_is_folder_item({}))
-
-    def test_dict_with_wrong_kind_returns_false(self):
-        self.assertFalse(_is_folder_item({"kind": "widget"}))
+        self.assertFalse(_is_folder_item(WIDGET_ITEM))
 
 
 class TestGetAppId(unittest.TestCase):
     """Tests for _get_app_id helper."""
 
-    def test_returns_id_for_app_item(self):
-        item = make_app_item("com.example.app")
-        self.assertEqual(_get_app_id(item), "com.example.app")
+    def test_returns_id_for_app(self):
+        self.assertEqual(_get_app_id(SAMPLE_APP), "com.example.app")
 
-    def test_returns_none_for_folder_item(self):
-        item = make_folder_item("Work", ["com.app1"])
-        self.assertIsNone(_get_app_id(item))
-
-    def test_returns_none_for_empty_dict(self):
+    def test_returns_none_for_non_app(self):
+        self.assertIsNone(_get_app_id(SAMPLE_FOLDER))
         self.assertIsNone(_get_app_id({}))
-
-    def test_returns_none_for_app_without_id(self):
-        self.assertIsNone(_get_app_id({"kind": "app"}))
+        self.assertIsNone(_get_app_id(APP_NO_ID))
 
 
 class TestGetFolderApps(unittest.TestCase):
     """Tests for _get_folder_apps helper."""
 
-    def test_returns_apps_for_folder_item(self):
-        item = make_folder_item("Work", ["com.app1", "com.app2"])
-        self.assertEqual(_get_folder_apps(item), ["com.app1", "com.app2"])
+    def test_returns_apps_for_folder(self):
+        self.assertEqual(_get_folder_apps(SAMPLE_FOLDER), ["com.work.app1", "com.work.app2"])
 
-    def test_returns_empty_list_for_app_item(self):
-        item = make_app_item("com.example.app")
-        self.assertEqual(_get_folder_apps(item), [])
-
-    def test_returns_empty_list_for_empty_dict(self):
+    def test_returns_empty_for_non_folder(self):
+        self.assertEqual(_get_folder_apps(SAMPLE_APP), [])
         self.assertEqual(_get_folder_apps({}), [])
-
-    def test_returns_empty_list_for_folder_without_apps(self):
-        item = {"kind": "folder", "name": "Empty"}
-        self.assertEqual(_get_folder_apps(item), [])
+        self.assertEqual(_get_folder_apps({"kind": "folder", "name": "X"}), [])
 
 
 class TestGetFolderName(unittest.TestCase):
     """Tests for _get_folder_name helper."""
 
-    def test_returns_name_for_folder_item(self):
-        item = make_folder_item("Work", ["com.app1"])
-        self.assertEqual(_get_folder_name(item), "Work")
+    def test_returns_name_for_folder(self):
+        self.assertEqual(_get_folder_name(SAMPLE_FOLDER), "Work")
 
-    def test_returns_empty_string_for_app_item(self):
-        item = make_app_item("com.example.app")
-        self.assertEqual(_get_folder_name(item), "")
-
-    def test_returns_empty_string_for_empty_dict(self):
+    def test_returns_empty_for_non_folder(self):
+        self.assertEqual(_get_folder_name(SAMPLE_APP), "")
         self.assertEqual(_get_folder_name({}), "")
 
-    def test_returns_default_folder_for_unnamed(self):
-        item = {"kind": "folder", "apps": []}
-        self.assertEqual(_get_folder_name(item), "Folder")
+    def test_returns_default_for_unnamed(self):
+        self.assertEqual(_get_folder_name(UNNAMED_FOLDER), "Folder")
 
 
 class TestFlattenFolderIconlists(unittest.TestCase):
