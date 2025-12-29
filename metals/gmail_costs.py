@@ -209,7 +209,7 @@ def _build_uoz_patterns(unit_oz: float | None) -> Tuple[re.Pattern[str] | None, 
 
 
 def _try_anchored_extraction(
-    ln: str, lower: str, metal: str, unit_oz: float | None, uoz_texts: List[str], vendor: str
+    ln: str, lower: str, metal: str, _unit_oz: float | None, uoz_texts: List[str], vendor: str
 ) -> Tuple[str, float, str] | None:
     """Try anchored extraction for compact table-in-one-line cases (TD/Costco)."""
     metal_kw = (metal or '').strip().lower()

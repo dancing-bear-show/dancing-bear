@@ -883,7 +883,7 @@ class TestTryAnchoredExtraction(unittest.TestCase):
         ln = "1 oz Gold Maple $1,850.00"
         result = _try_anchored_extraction(ln, ln.lower(), "gold", 1.0, [r"\b1\s*oz\b"], "td")
         self.assertIsNotNone(result)
-        cur, amt, kind = result
+        _, amt, _ = result
         self.assertAlmostEqual(amt, 1850.00)
 
     def test_returns_none_for_invalid_metal(self):
@@ -910,13 +910,13 @@ class TestDeterminePriceKind(unittest.TestCase):
 
     def test_unit_kind(self):
         """Test detects unit kind."""
-        kind, mp, mt = _determine_price_kind("unit price $50", False, False)
+        kind, mp, _ = _determine_price_kind("unit price $50", False, False)
         self.assertEqual(kind, "unit")
         self.assertTrue(mp)
 
     def test_each_kind(self):
         """Test detects each as unit kind."""
-        kind, mp, mt = _determine_price_kind("$50 each", False, False)
+        kind, mp, _ = _determine_price_kind("$50 each", False, False)
         self.assertEqual(kind, "unit")
         self.assertTrue(mp)
 
@@ -929,17 +929,17 @@ class TestDeterminePriceKind(unittest.TestCase):
 
     def test_item_total_kind(self):
         """Test detects item total kind."""
-        kind, mp, mt = _determine_price_kind("item total $100", False, False)
+        kind, _, _ = _determine_price_kind("item total $100", False, False)
         self.assertEqual(kind, "total")
 
     def test_total_with_uoz_context(self):
         """Test total with unit-oz context."""
-        kind, mp, mt = _determine_price_kind("total $100", True, False)
+        kind, _, _ = _determine_price_kind("total $100", True, False)
         self.assertEqual(kind, "total")
 
     def test_unknown_kind(self):
         """Test defaults to unknown kind."""
-        kind, mp, mt = _determine_price_kind("$100.00", False, False)
+        kind, _, _ = _determine_price_kind("$100.00", False, False)
         self.assertEqual(kind, "unknown")
 
 
@@ -1010,7 +1010,7 @@ class TestAllocateCosts(unittest.TestCase):
         """Test TD allocates remainder to silver for mixed orders."""
         oz = {"gold": 0.5, "silver": 10.0}
         line_cost = {"gold": 1200.0, "silver": 0.0}
-        alloc, strategy = _allocate_costs(oz, line_cost, 1550.0, "TD")
+        alloc, _ = _allocate_costs(oz, line_cost, 1550.0, "TD")
         self.assertEqual(alloc["gold"], 1200.0)
         self.assertEqual(alloc["silver"], 350.0)
 
