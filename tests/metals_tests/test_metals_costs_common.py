@@ -6,10 +6,11 @@ import os
 import tempfile
 import unittest
 
+from tests.metals_tests.fixtures import make_cost_row, temp_costs_csv
+
 from metals.costs_common import (
     COSTS_CSV_FIELDS,
     G_PER_OZ,
-    extract_line_items_base,
     extract_order_amount,
     format_breakdown,
     format_qty,
@@ -178,10 +179,7 @@ class TestWriteAndMergeCostsCSV(unittest.TestCase):
         """Test writing costs CSV."""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "costs.csv")
-            rows = [{'vendor': 'TD', 'date': '2024-01-01', 'metal': 'gold',
-                     'currency': 'C$', 'cost_total': 1000.0, 'cost_per_oz': 2000.0,
-                     'order_id': '123', 'subject': 'Test', 'total_oz': 0.5,
-                     'unit_count': 1, 'units_breakdown': '0.5ozx1', 'alloc': 'test'}]
+            rows = [make_cost_row(vendor='TD', cost_total=1000.0, cost_per_oz=2000.0)]
             write_costs_csv(path, rows)
             self.assertTrue(os.path.exists(path))
             with open(path) as f:
@@ -194,13 +192,10 @@ class TestWriteAndMergeCostsCSV(unittest.TestCase):
         """Test merge deduplicates by key fields."""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "costs.csv")
-            row1 = {'vendor': 'TD', 'date': '2024-01-01', 'metal': 'gold',
-                    'currency': 'C$', 'cost_total': 1000.0, 'cost_per_oz': 2000.0,
-                    'order_id': '123', 'subject': 'Test', 'total_oz': 0.5,
-                    'unit_count': 1, 'units_breakdown': '0.5ozx1', 'alloc': 'test'}
-            write_costs_csv(path, [row1])
+            row = make_cost_row(vendor='TD', order_id='123')
+            write_costs_csv(path, [row])
             # Merge exact same row - should not duplicate
-            merge_costs_csv(path, [row1.copy()])
+            merge_costs_csv(path, [row.copy()])
             with open(path) as f:
                 reader = csv.DictReader(f)
                 read_rows = list(reader)
