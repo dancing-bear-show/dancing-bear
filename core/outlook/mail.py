@@ -412,6 +412,7 @@ class OutlookMailMixin:
             )
             if r2.status_code == 409:
                 # Folder already exists - re-fetch and find it
+                # noqa: S113 - timeout handled by _requests() wrapper
                 r3 = _requests().get(
                     f"{GRAPH}/me/mailFolders/{parent_id}/childFolders",
                     headers=self._headers()
