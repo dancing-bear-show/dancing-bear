@@ -20,6 +20,10 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Auto Review PR
         uses: anthropics/claude-code-action@v1
         with:
@@ -44,6 +48,10 @@ jobs:
       issues: write
       id-token: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Respond to Mention
         uses: anthropics/claude-code-action@v1
         with:
