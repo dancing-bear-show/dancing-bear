@@ -18,6 +18,7 @@ from ._base import (
     check_service_required,
     load_events_config,
 )
+from core.constants import DAY_START_TIME, DAY_END_TIME
 
 
 @dataclass
@@ -105,8 +106,8 @@ class OutlookRemoveProcessor(Processor[OutlookRemoveRequest, ResultEnvelope[Outl
         until = (rng.get("until") or "").strip()
         if not start_date:
             return None
-        start_iso = f"{start_date[:10]}T00:00:00"
-        end_iso = f"{(until or start_date)[:10]}T23:59:59"
+        start_iso = f"{start_date[:10]}{DAY_START_TIME}"
+        end_iso = f"{(until or start_date)[:10]}{DAY_END_TIME}"
         return start_iso, end_iso
 
     def _match_events(self, occ: Sequence[Dict[str, Any]], event: Dict[str, Any], subject_only: bool):

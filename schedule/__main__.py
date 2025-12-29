@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.assistant import BaseAssistant
+from core.constants import FMT_DAY_START, FMT_DAY_END
 from core.auth import build_outlook_service_from_args
 from core.cli_framework import CLIApp
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
@@ -323,8 +324,8 @@ def cmd_export(args: argparse.Namespace) -> int:
         print("--calendar is required")
         return 2
     try:
-        start_iso = _dt.datetime.fromisoformat(args.from_date).strftime("%Y-%m-%dT00:00:00")
-        end_iso = _dt.datetime.fromisoformat(args.to_date).strftime("%Y-%m-%dT23:59:59")
+        start_iso = _dt.datetime.fromisoformat(args.from_date).strftime(FMT_DAY_START)
+        end_iso = _dt.datetime.fromisoformat(args.to_date).strftime(FMT_DAY_END)
     except Exception:
         print("Invalid --from/--to date format; expected YYYY-MM-DD")
         return 2
