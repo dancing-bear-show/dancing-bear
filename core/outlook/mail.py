@@ -400,7 +400,7 @@ class OutlookMailMixin:
             )
             r.raise_for_status()
             kids = r.json().get("value", [])
-            kid_id = next((k.get("id") for k in kids if k.get("displayName") == seg), None)
+            kid_id = next((k.get("id") for k in kids if (k.get("displayName") or "").lower() == seg.lower()), None)
             if kid_id:
                 parent_id = kid_id
                 continue
@@ -410,6 +410,18 @@ class OutlookMailMixin:
                 headers=self._headers(),
                 json=body
             )
+            if r2.status_code == 409:
+                # Folder already exists - re-fetch and find it
+                r3 = _requests().get(
+                    f"{GRAPH}/me/mailFolders/{parent_id}/childFolders",
+                    headers=self._headers()
+                )
+                r3.raise_for_status()
+                kids2 = r3.json().get("value", [])
+                kid_id = next((k.get("id") for k in kids2 if (k.get("displayName") or "").lower() == seg.lower()), None)
+                if kid_id:
+                    parent_id = kid_id
+                    continue
             r2.raise_for_status()
             created = r2.json()
             parent_id = created.get("id")
