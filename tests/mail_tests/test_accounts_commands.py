@@ -1,7 +1,6 @@
 """Tests for mail/accounts/commands.py accounts command orchestration."""
 
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
@@ -16,10 +15,11 @@ from mail.accounts.commands import (
     run_accounts_export_signatures,
     run_accounts_sync_signatures,
 )
+from tests.mail_tests.fixtures import make_args as _make_args
 
 
-def make_args(**kwargs) -> SimpleNamespace:
-    """Create args namespace with defaults."""
+def make_args(**kwargs):
+    """Create args namespace with accounts-specific defaults."""
     defaults = {
         "config": "/path/to/config.yaml",
         "out_dir": "/tmp/out",
@@ -31,7 +31,7 @@ def make_args(**kwargs) -> SimpleNamespace:
         "send_as": None,
     }
     defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
+    return _make_args(**defaults)
 
 
 class TestRunAccountsList(unittest.TestCase):

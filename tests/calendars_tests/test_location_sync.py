@@ -4,25 +4,43 @@ import unittest
 from unittest.mock import MagicMock, patch
 from io import StringIO
 
+from calendars.location_sync import LocationSync
 from tests.calendars_tests.fixtures import FakeCalendarService
+
+
+def make_location_sync(events=None, mock_svc=False):
+    """Create a LocationSync with a fake or mock service."""
+    if mock_svc:
+        svc = MagicMock()
+        svc.list_events_in_range = MagicMock(return_value=events or [])
+        return LocationSync(svc=svc), svc
+    return LocationSync(svc=FakeCalendarService(events=events or [])), None
+
+
+def make_test_event(event_id, subject, start_dt, location=None, **kwargs):
+    """Create a test event dict with outlook location structure."""
+    ev = {
+        "id": event_id,
+        "subject": subject,
+        "start": {"dateTime": start_dt},
+    }
+    if location:
+        ev["location"] = location
+    ev.update(kwargs)
+    return ev
 
 
 class TestLocationSyncCurrentLocationStr(unittest.TestCase):
     """Tests for LocationSync._current_location_str."""
 
-    def _make_sync(self, events=None):
-        from calendars.location_sync import LocationSync
-        svc = FakeCalendarService(events=events or [])
-        return LocationSync(svc=svc)
-
     def test_extracts_display_name_when_no_address(self):
-        sync = self._make_sync()
+        sync, _ = make_location_sync()
         ev = {"location": {"displayName": "  Conference Room A  "}}
         result = sync._current_location_str(ev)
         self.assertEqual(result, "Conference Room A")
 
     def test_extracts_address_parts(self):
-        sync = self._make_sync()
+        sync, _ = make_location_sync()
         ev = {
             "location": {
                 "displayName": "Office",
@@ -39,7 +57,7 @@ class TestLocationSyncCurrentLocationStr(unittest.TestCase):
         self.assertEqual(result, "123 Main St, Seattle, WA, 98101, USA")
 
     def test_address_overrides_display_name(self):
-        sync = self._make_sync()
+        sync, _ = make_location_sync()
         ev = {
             "location": {
                 "displayName": "Office",
@@ -50,56 +68,39 @@ class TestLocationSyncCurrentLocationStr(unittest.TestCase):
         self.assertEqual(result, "Portland")
 
     def test_empty_location_returns_empty(self):
-        sync = self._make_sync()
-        ev = {"location": {}}
-        result = sync._current_location_str(ev)
-        self.assertEqual(result, "")
+        sync, _ = make_location_sync()
+        self.assertEqual(sync._current_location_str({"location": {}}), "")
 
     def test_missing_location_returns_empty(self):
-        sync = self._make_sync()
-        ev = {}
-        result = sync._current_location_str(ev)
-        self.assertEqual(result, "")
+        sync, _ = make_location_sync()
+        self.assertEqual(sync._current_location_str({}), "")
 
     def test_none_location_returns_empty(self):
-        sync = self._make_sync()
-        ev = {"location": None}
-        result = sync._current_location_str(ev)
-        self.assertEqual(result, "")
+        sync, _ = make_location_sync()
+        self.assertEqual(sync._current_location_str({"location": None}), "")
 
 
 class TestLocationSyncPlanFromConfig(unittest.TestCase):
     """Tests for LocationSync.plan_from_config."""
 
-    def _make_sync_with_events(self, events):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=events)
-        return LocationSync(svc=svc)
-
     def test_skips_non_dict_items(self):
-        sync = self._make_sync_with_events([])
+        sync, _ = make_location_sync([], mock_svc=True)
         items = ["not a dict", 123, None]
         result = sync.plan_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 0)
 
     def test_skips_items_without_subject(self):
-        sync = self._make_sync_with_events([])
+        sync, _ = make_location_sync([], mock_svc=True)
         items = [{"location": "Room A"}, {"subject": "   "}]
         result = sync.plan_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 0)
 
     def test_dry_run_counts_updates(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        # Return an event with different location than yaml
-        svc.list_events_in_range = MagicMock(return_value=[{
-            "id": "evt1",
-            "subject": "Meeting",
-            "start": {"dateTime": "2024-01-15T09:00:00"},
-            "location": {"displayName": "Old Room"},
-        }])
-        sync = LocationSync(svc=svc)
+        events = [make_test_event(
+            "evt1", "Meeting", "2024-01-15T09:00:00",
+            location={"displayName": "Old Room"},
+        )]
+        sync, _ = make_location_sync(events, mock_svc=True)
         items = [{
             "subject": "Meeting",
             "location": "New Room",
@@ -109,15 +110,11 @@ class TestLocationSyncPlanFromConfig(unittest.TestCase):
         self.assertEqual(result, 1)
 
     def test_skips_when_locations_match(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=[{
-            "id": "evt1",
-            "subject": "Meeting",
-            "start": {"dateTime": "2024-01-15T09:00:00"},
-            "location": {"displayName": "Room A"},
-        }])
-        sync = LocationSync(svc=svc)
+        events = [make_test_event(
+            "evt1", "Meeting", "2024-01-15T09:00:00",
+            location={"displayName": "Room A"},
+        )]
+        sync, _ = make_location_sync(events, mock_svc=True)
         items = [{
             "subject": "Meeting",
             "location": "Room A",
@@ -131,9 +128,7 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
     """Tests for LocationSync.apply_from_config."""
 
     def test_skips_items_without_subject_or_location(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        sync = LocationSync(svc=svc)
+        sync, _ = make_location_sync(mock_svc=True)
         items = [
             {"subject": "Meeting"},  # No location
             {"location": "Room A"},  # No subject
@@ -142,15 +137,11 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_dry_run_prints_message(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=[{
-            "id": "evt1",
-            "subject": "Meeting",
-            "start": {"dateTime": "2024-01-15T09:00:00"},
-            "location": {"displayName": "Old Room"},
-        }])
-        sync = LocationSync(svc=svc)
+        events = [make_test_event(
+            "evt1", "Meeting", "2024-01-15T09:00:00",
+            location={"displayName": "Old Room"},
+        )]
+        sync, _ = make_location_sync(events, mock_svc=True)
         items = [{
             "subject": "Meeting",
             "location": "New Room",
@@ -162,16 +153,12 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         self.assertIn("[dry-run]", mock_stdout.getvalue())
 
     def test_apply_calls_update_location(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=[{
-            "id": "evt1",
-            "subject": "Meeting",
-            "start": {"dateTime": "2024-01-15T09:00:00"},
-            "location": {"displayName": "Old Room"},
-        }])
+        events = [make_test_event(
+            "evt1", "Meeting", "2024-01-15T09:00:00",
+            location={"displayName": "Old Room"},
+        )]
+        sync, svc = make_location_sync(events, mock_svc=True)
         svc.update_event_location = MagicMock()
-        sync = LocationSync(svc=svc)
         items = [{
             "subject": "Meeting",
             "location": "New Room",
@@ -183,26 +170,14 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         svc.update_event_location.assert_called_once()
 
     def test_all_occurrences_updates_series(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=[
-            {
-                "id": "occ1",
-                "seriesMasterId": "series1",
-                "subject": "Weekly",
-                "start": {"dateTime": "2024-01-15T09:00:00"},
-                "location": {"displayName": "Old"},
-            },
-            {
-                "id": "occ2",
-                "seriesMasterId": "series1",
-                "subject": "Weekly",
-                "start": {"dateTime": "2024-01-22T09:00:00"},
-                "location": {"displayName": "Old"},
-            },
-        ])
+        events = [
+            make_test_event("occ1", "Weekly", "2024-01-15T09:00:00",
+                            location={"displayName": "Old"}, seriesMasterId="series1"),
+            make_test_event("occ2", "Weekly", "2024-01-22T09:00:00",
+                            location={"displayName": "Old"}, seriesMasterId="series1"),
+        ]
+        sync, svc = make_location_sync(events, mock_svc=True)
         svc.update_event_location = MagicMock()
-        sync = LocationSync(svc=svc)
         items = [{
             "subject": "Weekly",
             "location": "New Room",
@@ -217,15 +192,11 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         )
 
     def test_skips_when_location_matches(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=[{
-            "id": "evt1",
-            "subject": "Meeting",
-            "start": {"dateTime": "2024-01-15T09:00:00"},
-            "location": {"displayName": "Same Room"},
-        }])
-        sync = LocationSync(svc=svc)
+        events = [make_test_event(
+            "evt1", "Meeting", "2024-01-15T09:00:00",
+            location={"displayName": "Same Room"},
+        )]
+        sync, _ = make_location_sync(events, mock_svc=True)
         items = [{
             "subject": "Meeting",
             "location": "Same Room",
@@ -239,13 +210,11 @@ class TestLocationSyncSelectMatches(unittest.TestCase):
     """Tests for LocationSync._select_matches."""
 
     def test_returns_filtered_events(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        svc.list_events_in_range = MagicMock(return_value=[
-            {"id": "1", "start": {"dateTime": "2024-01-15T09:00:00"}},
-            {"id": "2", "start": {"dateTime": "2024-01-16T09:00:00"}},
-        ])
-        sync = LocationSync(svc=svc)
+        events = [
+            make_test_event("1", "Meeting", "2024-01-15T09:00:00"),
+            make_test_event("2", "Meeting", "2024-01-16T09:00:00"),
+        ]
+        sync, _ = make_location_sync(events, mock_svc=True)
         result = sync._select_matches(
             cal_name="Test",
             subj="Meeting",
@@ -257,14 +226,9 @@ class TestLocationSyncSelectMatches(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
     def test_returns_first_when_no_filter_matches(self):
-        from calendars.location_sync import LocationSync
-        svc = MagicMock()
-        # Return events without start.dateTime (filter_events_by_day_time will return empty)
-        svc.list_events_in_range = MagicMock(return_value=[
-            {"id": "1"},
-            {"id": "2"},
-        ])
-        sync = LocationSync(svc=svc)
+        # Events without start.dateTime (filter_events_by_day_time will return empty)
+        events = [{"id": "1"}, {"id": "2"}]
+        sync, _ = make_location_sync(events, mock_svc=True)
         result = sync._select_matches(
             cal_name="Test",
             subj="Meeting",
