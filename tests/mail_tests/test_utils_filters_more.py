@@ -1,6 +1,6 @@
 import unittest
 
-from tests.mail_tests.fixtures import FakeGmailClient
+from tests.mail_tests.fixtures import FakeGmailClient, make_user_label, make_system_label
 
 
 class TestUtilsFiltersMore(unittest.TestCase):
@@ -42,8 +42,8 @@ class TestUtilsFiltersMore(unittest.TestCase):
         from mail.utils.filters import action_to_label_changes
 
         client = FakeGmailClient(labels=[
-            {"id": "L1", "name": "Work"},
-            {"id": "INBOX", "name": "INBOX"},
+            make_user_label("Work", "L1"),
+            make_system_label("INBOX"),
         ])
         add_ids, rem_ids = action_to_label_changes(
             client,
