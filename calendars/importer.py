@@ -185,6 +185,54 @@ class ScheduleItem:
     notes: Optional[str] = None
 
 
+def _get_field(row: Dict[str, Any], *keys: str, default: str = '') -> str:
+    """Get first non-empty field from row by trying multiple key variants.
+
+    Supports both normalized rows (lowercase keys, e.g. from parse_csv) and
+    original/mixed-case rows (e.g. from xlsx). For fully-lowercase dicts,
+    uses a fast path with only lowercase lookups.
+    """
+    # Fast path: if all keys are already lowercase, only try lowercase variant
+    lower_only = all(not isinstance(k, str) or k == k.lower() for k in row.keys())
+
+    for k in keys:
+        if lower_only:
+            val = row.get(k.lower())
+        else:
+            val = row.get(k) or row.get(k.lower()) or row.get(k.title())
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return default
+
+
+def _row_to_schedule_item(row: Dict[str, Any]) -> Optional[ScheduleItem]:
+    """Convert a row dict to ScheduleItem, returning None if subject is empty."""
+    subj = _get_field(row, 'subject', 'Subject')
+    if not subj:
+        return None
+
+    byday_raw = _get_field(row, 'byday', 'ByDay')
+    byday = [s.strip().upper() for s in byday_raw.split(',') if s.strip()] if byday_raw else None
+
+    count_raw = _get_field(row, 'count', 'Count')
+    count = int(count_raw) if count_raw.isdigit() else None
+
+    return ScheduleItem(
+        subject=subj,
+        start_iso=_get_field(row, 'start', 'Start') or None,
+        end_iso=_get_field(row, 'end', 'End') or None,
+        recurrence=(_get_field(row, 'recurrence', 'Recurrence', 'repeat', 'Repeat') or '').lower() or None,
+        byday=byday,
+        start_time=_get_field(row, 'starttime', 'start_time', 'StartTime') or None,
+        end_time=_get_field(row, 'endtime', 'end_time', 'EndTime') or None,
+        range_start=_get_field(row, 'startdate', 'start_date', 'StartDate') or None,
+        range_until=_get_field(row, 'until', 'Until', 'enddate', 'EndDate') or None,
+        count=count,
+        location=_get_field(row, 'location', 'Location', 'address', 'Address') or None,
+        notes=_get_field(row, 'notes', 'Notes') or None,
+    )
+
+
 def parse_csv(path: str) -> List[ScheduleItem]:
     import csv  # stdlib
     items: List[ScheduleItem] = []
@@ -193,30 +241,9 @@ def parse_csv(path: str) -> List[ScheduleItem]:
         for raw in rd:
             # Normalize keys: strip spaces and lower-case header names
             row = {str(k).strip().lower(): (raw.get(k) if raw.get(k) is not None else '') for k in raw.keys()}
-            subj = (row.get('subject') or row.get('Subject') or '').strip()
-            if not subj:
-                continue
-            # ByDay can be comma-separated codes or words
-            byday_raw = (row.get('byday') or row.get('ByDay') or '').strip()
-            byday = None
-            if byday_raw:
-                byday = [s.strip().upper() for s in byday_raw.split(',') if s.strip()]
-            items.append(
-                ScheduleItem(
-                    subject=subj,
-                    start_iso=(row.get('start') or row.get('Start') or '').strip() or None,
-                    end_iso=(row.get('end') or row.get('End') or '').strip() or None,
-                    recurrence=((row.get('recurrence') or row.get('repeat') or row.get('Repeat') or '') or '').strip().lower() or None,
-                    byday=byday,
-                    start_time=(row.get('starttime') or row.get('start_time') or row.get('StartTime') or '').strip() or None,
-                    end_time=(row.get('endtime') or row.get('end_time') or row.get('EndTime') or '').strip() or None,
-                    range_start=(row.get('startdate') or row.get('start_date') or row.get('StartDate') or '').strip() or None,
-                    range_until=(row.get('until') or row.get('enddate') or row.get('EndDate') or '').strip() or None,
-                    count=int(row['count']) if (row.get('count') or '').strip().isdigit() else None,
-                    location=(row.get('location') or row.get('address') or row.get('Location') or row.get('Address') or '').strip() or None,
-                    notes=(row.get('notes') or row.get('Notes') or '').strip() or None,
-                )
-            )
+            item = _row_to_schedule_item(row)
+            if item:
+                items.append(item)
     return items
 
 
@@ -233,30 +260,13 @@ def parse_xlsx(path: str) -> List[ScheduleItem]:
     for i, cell in enumerate(ws[1], start=1):
         headers[i] = str(cell.value or '').strip()
     for r in ws.iter_rows(min_row=2):
+        # Convert cell values to strings for uniform handling
         row: Dict[str, Any] = {}
         for i, cell in enumerate(r, start=1):
-            row[headers.get(i, f'col{i}')] = cell.value if cell.value is not None else ''
-        subj = str(row.get('Subject') or row.get('subject') or '').strip()
-        if not subj:
-            continue
-        byday_raw = str(row.get('ByDay') or row.get('byday') or '').strip()
-        byday = [s.strip().upper() for s in byday_raw.split(',') if s.strip()] if byday_raw else None
-        items.append(
-            ScheduleItem(
-                subject=subj,
-                start_iso=str(row.get('Start') or row.get('start') or '').strip() or None,
-                end_iso=str(row.get('End') or row.get('end') or '').strip() or None,
-                recurrence=str(row.get('Recurrence') or row.get('repeat') or row.get('Repeat') or '').strip().lower() or None,
-                byday=byday,
-                start_time=str(row.get('StartTime') or row.get('start_time') or '').strip() or None,
-                end_time=str(row.get('EndTime') or row.get('end_time') or '').strip() or None,
-                range_start=str(row.get('StartDate') or row.get('start_date') or '').strip() or None,
-                range_until=str(row.get('Until') or row.get('EndDate') or row.get('until') or '').strip() or None,
-                count=int(row['Count']) if str(row.get('Count') or '').strip().isdigit() else None,
-                location=str(row.get('Location') or row.get('location') or row.get('Address') or row.get('address') or '').strip() or None,
-                notes=str(row.get('Notes') or row.get('notes') or '').strip() or None,
-            )
-        )
+            row[headers.get(i, f'col{i}')] = str(cell.value) if cell.value is not None else ''
+        item = _row_to_schedule_item(row)
+        if item:
+            items.append(item)
     return items
 
 
@@ -345,193 +355,214 @@ def parse_pdf(path: str) -> List[ScheduleItem]:  # scaffold
     raise NotImplementedError("Generic PDF parsing not implemented. This parser supports Aurora drop-in schedules.")
 
 
-def parse_website(url: str) -> List[ScheduleItem]:  # targeted scaffold for Richmond Hill skating
+# --- Site-specific parsers ---
+
+def _parse_rh_skating_bs4(html: str, url: str) -> List[ScheduleItem]:
+    """Parse Richmond Hill skating schedule using BeautifulSoup."""
+    import datetime as _dt
+    from bs4 import BeautifulSoup  # type: ignore
+    soup = BeautifulSoup(html, 'html.parser')
+    out: List[ScheduleItem] = []
+    today = _dt.date.today().isoformat()
+
+    parents = soup.select('[data-name="accParent"]')
+    for p in parents:
+        arena = (p.get_text(strip=True) or '').strip()
+        sib = p.find_next(attrs={'data-name': 'accChild'})
+        if not sib:
+            continue
+        table = sib.find('table')
+        if not table:
+            continue
+
+        # Build day headers
+        days: List[str] = []
+        for td in table.find_all('td'):
+            txt = (td.get_text(strip=True) or '').strip()
+            if txt.lower() in ('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'):
+                days.append(txt)
+
+        # Find row with Public Skating
+        row = None
+        for tr in table.find_all('tr'):
+            first = tr.find('td')
+            if first and ('public skating' in (first.get_text(strip=True) or '').lower()):
+                row = tr
+                break
+        if not row:
+            continue
+
+        cells = row.find_all('td')
+        if len(cells) < 2:
+            continue
+
+        # Infer day headers if needed
+        if len(days) < 7:
+            header_tr = row.find_previous('tr')
+            days = []
+            if header_tr:
+                for td in header_tr.find_all('td'):
+                    t = (td.get_text(strip=True) or '').strip()
+                    if t.lower() in ('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'):
+                        days.append(t)
+        if len(days) < len(cells) - 1:
+            days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][:len(cells) - 1]
+
+        for i, td in enumerate(cells[1:], start=0):
+            day = days[i] if i < len(days) else None
+            if not day:
+                continue
+            txt = (td.get_text(" ", strip=True) or '').strip()
+            if not txt or txt == '\xa0':
+                continue
+            st, en = parse_time_range(txt)
+            if not st or not en:
+                continue
+            out.append(ScheduleItem(
+                subject="Public Skating", recurrence='weekly', byday=[normalize_day(day)],
+                start_time=st, end_time=en, range_start=today, location=arena, notes=f"Imported from {url}",
+            ))
+    return out
+
+
+def _parse_rh_skating_regex(html: str, url: str) -> List[ScheduleItem]:
+    """Parse Richmond Hill skating schedule using regex fallback."""
     import re
     import datetime as _dt
-    import requests
-    try:
-        from bs4 import BeautifulSoup  # type: ignore
-    except Exception:
-        BeautifulSoup = None  # type: ignore
+    items: List[ScheduleItem] = []
+    today = _dt.date.today().isoformat()
+    day_list = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-    u = str(url or '')
-    if 'richmondhill.ca' in u and 'Skating.aspx' in u:
-        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
-        # Prefer BeautifulSoup when available for robust parsing
-        if BeautifulSoup is not None:
-            soup = BeautifulSoup(html, 'html.parser')
-            out: List[ScheduleItem] = []
-            # The page uses paired rows: accParent (arena name) then accChild (table)
-            parents = soup.select('[data-name="accParent"]')
-            for p in parents:
-                arena = (p.get_text(strip=True) or '').strip()
-                sib = p.find_next(attrs={'data-name': 'accChild'})
-                if not sib:
-                    continue
-                table = sib.find('table')
-                if not table:
-                    continue
-                # Build day headers
-                days: List[str] = []
-                for td in table.find_all('td'):
-                    txt = (td.get_text(strip=True) or '').strip()
-                    if txt.lower() in ('sunday','monday','tuesday','wednesday','thursday','friday','saturday'):
-                        days.append(txt)
-                # Find row with Public Skating
-                row = None
-                for tr in table.find_all('tr'):
-                    first = tr.find('td')
-                    if first and ('public skating' in (first.get_text(strip=True) or '').lower()):
-                        row = tr
-                        break
-                if not row:
-                    continue
-                # Extract cells after the first (activity name)
-                cells = row.find_all('td')
-                if len(cells) < 2:
-                    continue
-                # Build mapping of day->time string by position
-                # Some tables repeat headers; pick unique order of weekday headers encountered
-                if len(days) < 7:
-                    # Attempt to infer headers by scanning the header row above
-                    header_tr = row.find_previous('tr')
-                    days = []
-                    if header_tr:
-                        for td in header_tr.find_all('td'):
-                            t = (td.get_text(strip=True) or '').strip()
-                            if t.lower() in ('sunday','monday','tuesday','wednesday','thursday','friday','saturday'):
-                                days.append(t)
-                # If still ambiguous, assume Sun..Sat ordering for 7 columns
-                if len(days) < len(cells)-1:
-                    days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][:len(cells)-1]
+    blocks = re.split(r'data-name="accParent"', html)
+    for b in blocks[1:]:
+        mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
+        arena = (mname.group(1).strip() if mname else 'Arena')
+        mpos = re.search(r'<td[^>]*>\s*<strong>\s*Public\s*Skating\s*</strong>\s*</td>', b, re.I | re.S)
+        if not mpos:
+            continue
+        tail = b[mpos.end():]
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
+        for i, cell in enumerate(cells[:7]):
+            cell_text = html_to_text(cell)
+            st, en = parse_time_range(cell_text)
+            if not st or not en:
+                continue
+            items.append(ScheduleItem(
+                subject="Public Skating", recurrence='weekly', byday=[normalize_day(day_list[i])],
+                start_time=st, end_time=en, range_start=today, location=arena, notes=f"Imported from {url}",
+            ))
+    return items
 
-                today = _dt.date.today().isoformat()
-                for i, td in enumerate(cells[1:], start=0):
-                    day = days[i] if i < len(days) else None
-                    if not day:
-                        continue
-                    txt = (td.get_text(" ", strip=True) or '').strip()
-                    if not txt or txt == '\xa0':
-                        continue
-                    st, en = parse_time_range(txt)
-                    if not st or not en:
-                        continue
-                    out.append(
-                        ScheduleItem(
-                            subject="Public Skating",
-                            recurrence='weekly',
-                            byday=[normalize_day(day)],
-                            start_time=st,
-                            end_time=en,
-                            range_start=today,
-                            location=arena,
-                            notes=f"Imported from {u}",
-                        )
-                    )
-            return out
-        # Fallback: simple regex parse (best-effort)
-        blocks = re.split(r'data-name="accParent"', html)
-        items: List[ScheduleItem] = []
-        today = _dt.date.today().isoformat()
-        day_list = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-        for b in blocks[1:]:
-            mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
-            arena = (mname.group(1).strip() if mname else 'Arena')
-            # Find the Public Skating row; then capture the next 7 td cells
-            mpos = re.search(r'<td[^>]*>\s*<strong>\s*Public\s*Skating\s*</strong>\s*</td>', b, re.I | re.S)
+
+def _parse_rh_swimming(html: str, url: str) -> List[ScheduleItem]:
+    """Parse Richmond Hill swimming schedule."""
+    import re
+    import datetime as _dt
+    items: List[ScheduleItem] = []
+    today = _dt.date.today().isoformat()
+    day_list = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+    blocks = re.split(r'data-name=\"accParent\"', html)
+    for b in blocks[1:]:
+        mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
+        facility = (re.sub(r'&nbsp;', ' ', mname.group(1)).strip() if mname else 'Pool')
+        for label in ('Leisure Swim', 'Fun N Fit', 'Fun N Fit & Leisure Swim'):
+            mpos = re.search(rf'<td[^>]*>\s*<strong>\s*{label}\s*</strong>\s*</td>', b, re.I | re.S)
             if not mpos:
                 continue
             tail = b[mpos.end():]
             cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
-            for i, cell in enumerate(cells[:7]):
+            for i, cell in enumerate(cells):
                 cell_text = html_to_text(cell)
                 st, en = parse_time_range(cell_text)
                 if not st or not en:
                     continue
+                subj = 'Leisure Swim' if 'Leisure' in label and 'Fun' not in label else 'Fun N Fit'
                 items.append(ScheduleItem(
-                    subject="Public Skating",
-                    recurrence='weekly', byday=[normalize_day(day_list[i])], start_time=st, end_time=en, range_start=today, location=arena,
-                    notes=f"Imported from {u}",
+                    subject=subj, recurrence='weekly', byday=[normalize_day(day_list[i])],
+                    start_time=st, end_time=en, range_start=today, location=facility, notes=f"Imported from {url}",
                 ))
-        return items
+    return items
+
+
+def _parse_aurora_aquatics(html: str, url: str) -> List[ScheduleItem]:
+    """Parse Aurora aquatics schedule."""
+    import re
+    import datetime as _dt
+    items: List[ScheduleItem] = []
+    today = _dt.date.today().isoformat()
+
+    tables = re.findall(r'<table[\s\S]*?</table>', html, re.I)
+    for tbl in tables:
+        if not re.search(r'Leisure\s*Swim', tbl, re.I):
+            continue
+
+        # Extract headers
+        header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', tbl, re.I)
+        headers = []
+        if header:
+            headers = [html_to_text(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
+        if not headers:
+            first_row = re.search(RE_TABLE_ROW, tbl, re.I)
+            if first_row:
+                headers = [html_to_text(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
+
+        # Find Day and Leisure column indices
+        day_idx = leisure_idx = None
+        for i, h in enumerate(headers):
+            hl = h.lower()
+            if day_idx is None and 'day' in hl:
+                day_idx = i
+            if leisure_idx is None and 'leisure' in hl:
+                leisure_idx = i
+        if day_idx is None or leisure_idx is None:
+            continue
+
+        # Parse body rows
+        body = re.search(r'<tbody[\s\S]*?>([\s\S]*?)</tbody>', tbl, re.I)
+        rows = re.findall(RE_TABLE_ROW, body.group(1), re.I) if body else re.findall(RE_TABLE_ROW, tbl, re.I)
+        for row in rows:
+            cols = re.findall(RE_TABLE_CELL, row, re.I)
+            if len(cols) <= max(day_idx, leisure_idx):
+                continue
+            day_spec = html_to_text(cols[day_idx])
+            leisure_cell = cols[leisure_idx]
+            if not html_to_text(leisure_cell):
+                continue
+            for code in normalize_days(day_spec):
+                for st, en in extract_time_ranges(leisure_cell):
+                    items.append(ScheduleItem(
+                        subject='Leisure Swim', recurrence='weekly', byday=[code],
+                        start_time=st, end_time=en, range_start=today, location='Aurora Pools',
+                        notes=f'Imported from {url}',
+                    ))
+    return items
+
+
+def parse_website(url: str) -> List[ScheduleItem]:
+    """Parse schedule from supported websites."""
+    import requests
+    u = str(url or '')
+
+    # Richmond Hill Skating
+    if 'richmondhill.ca' in u and 'Skating.aspx' in u:
+        html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
+        try:
+            from bs4 import BeautifulSoup  # type: ignore  # noqa: F401
+            return _parse_rh_skating_bs4(html, u)
+        except ImportError:
+            return _parse_rh_skating_regex(html, u)
+
+    # Richmond Hill Swimming
     if 'richmondhill.ca' in u and 'Swimming.aspx' in u:
         html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
-        items: List[ScheduleItem] = []
-        # Simple regex-driven fallback parse to avoid hard deps
-        blocks = re.split(r'data-name=\"accParent\"', html)
-        today = _dt.date.today().isoformat()
-        day_list = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-        for b in blocks[1:]:
-            mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
-            facility = (re.sub(r'&nbsp;', ' ', mname.group(1)).strip() if mname else 'Pool')
-            # Look for rows with activity names we care about
-            for label in ('Leisure Swim', 'Fun N Fit', 'Fun N Fit & Leisure Swim'):
-                mpos = re.search(rf'<td[^>]*>\s*<strong>\s*{label}\s*</strong>\s*</td>', b, re.I | re.S)
-                if not mpos:
-                    continue
-                tail = b[mpos.end():]
-                cells = re.findall(r'<td[^>]*>(.*?)</td>', tail, re.I | re.S)[:7]
-                for i, cell in enumerate(cells):
-                    cell_text = html_to_text(cell)
-                    st, en = parse_time_range(cell_text)
-                    if not st or not en:
-                        continue
-                    subj = 'Leisure Swim' if 'Leisure' in label and 'Fun' not in label else 'Fun N Fit'
-                    items.append(ScheduleItem(
-                        subject=subj,
-                        recurrence='weekly', byday=[normalize_day(day_list[i])], start_time=st, end_time=en,
-                        range_start=today, location=facility, notes=f"Imported from {u}",
-                    ))
-        return items
+        return _parse_rh_swimming(html, u)
+
+    # Aurora Aquatics
     if 'aurora.ca' in u and 'aquatics-and-swim-programs' in u:
         html = requests.get(u, timeout=DEFAULT_REQUEST_TIMEOUT).text
-        items: List[ScheduleItem] = []
-        today = _dt.date.today().isoformat()
-        # Locate tables containing a "Leisure Swim" header
-        tables = re.findall(r'<table[\s\S]*?</table>', html, re.I)
-        for tbl in tables:
-            if not re.search(r'Leisure\s*Swim', tbl, re.I):
-                continue
-            # Try to find the header row
-            header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', tbl, re.I)
-            headers = []
-            if header:
-                headers = [html_to_text(h) for h in re.findall(RE_TABLE_CELL, header.group(1), re.I)]
-            if not headers:
-                # Try the first row as headers
-                first_row = re.search(RE_TABLE_ROW, tbl, re.I)
-                if first_row:
-                    headers = [html_to_text(h) for h in re.findall(RE_TABLE_CELL, first_row.group(1), re.I)]
-            # Find Day and Leisure indices
-            day_idx = None
-            leisure_idx = None
-            for i, h in enumerate(headers):
-                hl = h.lower()
-                if day_idx is None and 'day' in hl:
-                    day_idx = i
-                if leisure_idx is None and 'leisure' in hl:
-                    leisure_idx = i
-            if day_idx is None or leisure_idx is None:
-                continue
-            # Body rows
-            body = re.search(r'<tbody[\s\S]*?>([\s\S]*?)</tbody>', tbl, re.I)
-            rows = re.findall(RE_TABLE_ROW, body.group(1), re.I) if body else re.findall(RE_TABLE_ROW, tbl, re.I)
-            for row in rows:
-                cols = re.findall(RE_TABLE_CELL, row, re.I)
-                if len(cols) <= max(day_idx, leisure_idx):
-                    continue
-                day_spec = html_to_text(cols[day_idx])
-                leisure_cell = cols[leisure_idx]
-                if not html_to_text(leisure_cell):
-                    continue
-                for code in normalize_days(day_spec):
-                    for st, en in extract_time_ranges(leisure_cell):
-                        items.append(ScheduleItem(
-                            subject='Leisure Swim',
-                            recurrence='weekly', byday=[code], start_time=st, end_time=en,
-                            range_start=today, location='Aurora Pools', notes=f'Imported from {u}',
-                        ))
-        return items
+        return _parse_aurora_aquatics(html, u)
+
     raise NotImplementedError("Website parsing not implemented for this source. Provide CSV/XLSX or known site.")
 
 

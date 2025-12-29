@@ -9,12 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
 from core.auth import build_outlook_service
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
-
-# Date/time format constants
-_FMT_DATETIME = "%Y-%m-%dT%H:%M"
-_FMT_DATETIME_SEC = "%Y-%m-%dT%H:%M:%S"
-_FMT_DAY_START = "%Y-%m-%dT00:00:00"
-_FMT_DAY_END = "%Y-%m-%dT23:59:59"
+from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
 
 
 def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, dict]]:
@@ -158,7 +153,7 @@ def _norm_dt_minute(s: Optional[str]) -> Optional[str]:
                 dt = _dt.datetime.fromisoformat(f"{base}T{hhmm[0]}:{hhmm[1]}:00")
             else:
                 return None
-        return dt.strftime(_FMT_DATETIME)
+        return dt.strftime(FMT_DATETIME)
     except Exception:
         return None
 
@@ -171,9 +166,9 @@ def _to_iso_str(v: Any) -> Optional[str]:
         return v
     try:
         if isinstance(v, _dt.datetime):
-            return v.strftime(_FMT_DATETIME_SEC)
+            return v.strftime(FMT_DATETIME_SEC)
         if isinstance(v, _dt.date):
-            return v.strftime(_FMT_DAY_START)
+            return v.strftime(FMT_DAY_START)
     except Exception:  # noqa: S110 - datetime format failure
         pass
     return str(v)
@@ -216,7 +211,7 @@ def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, 
         edt = edt + _dt.timedelta(days=1)
     if (edt - sdt).total_seconds() >= 4 * 3600:
         edt = sdt + _dt.timedelta(hours=3, minutes=59)
-    return (sdt.strftime(_FMT_DATETIME), edt.strftime(_FMT_DATETIME))
+    return (sdt.strftime(FMT_DATETIME), edt.strftime(FMT_DATETIME))
 
 
 def _expand_daily(
@@ -494,8 +489,8 @@ class VerifyProcessor(Processor[VerifyRequest, ResultEnvelope[VerifyResult]]):
                 diagnostics={"message": "--from and --to are required (YYYY-MM-DD)", "code": 2},
             )
         try:
-            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(_FMT_DAY_START)
-            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(_FMT_DAY_END)
+            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
+            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
         except Exception:
             return ResultEnvelope(
                 status="error",
@@ -854,8 +849,8 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to resolve calendar: {exc}", "code": 2})
 
         try:
-            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(_FMT_DAY_START)
-            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(_FMT_DAY_END)
+            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
+            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
         except Exception:
             return ResultEnvelope(
                 status="error",

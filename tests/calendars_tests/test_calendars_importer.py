@@ -8,6 +8,8 @@ from tests.calendars_tests.fixtures import write_csv_content
 
 from calendars.importer import (
     ScheduleItem,
+    _get_field,
+    _row_to_schedule_item,
     extract_time_ranges,
     normalize_day,
     normalize_days,
@@ -443,6 +445,136 @@ class TestExtractTimeRanges(unittest.TestCase):
 
     def test_no_ranges_found(self):
         self.assertEqual(extract_time_ranges("No times here"), [])
+
+
+class TestGetField(unittest.TestCase):
+    """Tests for _get_field helper function."""
+
+    def test_finds_exact_key(self):
+        """Test finds value with exact key match."""
+        row = {"subject": "Meeting"}
+        result = _get_field(row, "subject")
+        self.assertEqual(result, "Meeting")
+
+    def test_finds_lowercase_variant(self):
+        """Test finds value with lowercase key variant."""
+        row = {"Subject": "Meeting"}
+        result = _get_field(row, "subject")
+        self.assertEqual(result, "Meeting")
+
+    def test_finds_title_variant(self):
+        """Test finds value with title-case key variant."""
+        row = {"subject": "Meeting"}
+        result = _get_field(row, "SUBJECT")
+        self.assertEqual(result, "Meeting")
+
+    def test_returns_first_non_empty(self):
+        """Test returns first non-empty value from multiple keys."""
+        row = {"name": "", "title": "CEO", "subject": "Meeting"}
+        result = _get_field(row, "name", "title", "subject")
+        self.assertEqual(result, "CEO")
+
+    def test_returns_default_when_missing(self):
+        """Test returns default when key not found."""
+        row = {"other": "value"}
+        result = _get_field(row, "subject", default="Unknown")
+        self.assertEqual(result, "Unknown")
+
+    def test_returns_default_when_empty(self):
+        """Test returns default when value is empty."""
+        row = {"subject": ""}
+        result = _get_field(row, "subject", default="Default")
+        self.assertEqual(result, "Default")
+
+    def test_strips_whitespace(self):
+        """Test strips leading/trailing whitespace."""
+        row = {"subject": "  Meeting  "}
+        result = _get_field(row, "subject")
+        self.assertEqual(result, "Meeting")
+
+    def test_handles_none_value(self):
+        """Test handles None value in row."""
+        row = {"subject": None, "title": "Meeting"}
+        result = _get_field(row, "subject", "title")
+        self.assertEqual(result, "Meeting")
+
+    def test_returns_empty_string_default(self):
+        """Test default default is empty string."""
+        row = {}
+        result = _get_field(row, "subject")
+        self.assertEqual(result, "")
+
+
+class TestRowToScheduleItem(unittest.TestCase):
+    """Tests for _row_to_schedule_item helper function."""
+
+    def test_returns_none_for_empty_subject(self):
+        """Test returns None when subject is empty."""
+        row = {"subject": "", "start": "2025-01-15T10:00"}
+        result = _row_to_schedule_item(row)
+        self.assertIsNone(result)
+
+    def test_basic_item(self):
+        """Test creates basic ScheduleItem."""
+        row = {"subject": "Meeting", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}
+        result = _row_to_schedule_item(row)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.subject, "Meeting")
+        self.assertEqual(result.start_iso, "2025-01-15T10:00")
+        self.assertEqual(result.end_iso, "2025-01-15T11:00")
+
+    def test_with_recurrence(self):
+        """Test creates item with recurrence."""
+        row = {
+            "subject": "Weekly",
+            "recurrence": "WEEKLY",
+            "byday": "MO,WE,FR",
+            "starttime": "09:00",
+            "endtime": "10:00",
+        }
+        result = _row_to_schedule_item(row)
+        self.assertEqual(result.recurrence, "weekly")
+        self.assertEqual(result.byday, ["MO", "WE", "FR"])
+        self.assertEqual(result.start_time, "09:00")
+        self.assertEqual(result.end_time, "10:00")
+
+    def test_with_count(self):
+        """Test creates item with occurrence count."""
+        row = {"subject": "Limited", "count": "10"}
+        result = _row_to_schedule_item(row)
+        self.assertEqual(result.count, 10)
+
+    def test_with_location(self):
+        """Test creates item with location."""
+        row = {"subject": "Meeting", "location": "Room A"}
+        result = _row_to_schedule_item(row)
+        self.assertEqual(result.location, "Room A")
+
+    def test_with_notes(self):
+        """Test creates item with notes."""
+        row = {"subject": "Meeting", "notes": "Bring laptop"}
+        result = _row_to_schedule_item(row)
+        self.assertEqual(result.notes, "Bring laptop")
+
+    def test_handles_alternate_keys(self):
+        """Test handles alternate key names."""
+        row = {"Subject": "Meeting", "Start": "2025-01-15T10:00", "Address": "123 Main St"}
+        result = _row_to_schedule_item(row)
+        self.assertEqual(result.subject, "Meeting")
+        self.assertEqual(result.start_iso, "2025-01-15T10:00")
+        self.assertEqual(result.location, "123 Main St")
+
+    def test_invalid_count_ignored(self):
+        """Test invalid count is ignored."""
+        row = {"subject": "Meeting", "count": "abc"}
+        result = _row_to_schedule_item(row)
+        self.assertIsNone(result.count)
+
+    def test_empty_byday_returns_none(self):
+        """Test empty byday returns None."""
+        row = {"subject": "Meeting", "byday": ""}
+        result = _row_to_schedule_item(row)
+        self.assertIsNone(result.byday)
 
 
 if __name__ == "__main__":

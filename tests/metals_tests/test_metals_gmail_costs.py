@@ -5,9 +5,16 @@ import unittest
 
 from metals.costs_common import G_PER_OZ, extract_order_amount
 from metals.gmail_costs import (
-    _extract_line_items,
-    _extract_amount_near_line,
+    _bundle_qty_near,
     _classify_vendor,
+    _explicit_qty_near,
+    _extract_amount_near_line,
+    _extract_first_match_group,
+    _extract_line_items,
+    _is_cancelled,
+    _is_order_confirmation,
+    _unit_oz_override_near,
+    _PAT_QTY_LIST,
 )
 
 
@@ -550,6 +557,223 @@ class TestExtractAmountNearLineAdvanced(unittest.TestCase):
         self.assertIsNotNone(result)
         _, amt, _ = result
         self.assertAlmostEqual(amt, 1800.00)
+
+
+class TestExtractFirstMatchGroup(unittest.TestCase):
+    """Tests for _extract_first_match_group function."""
+
+    def test_finds_match_in_range(self):
+        """Test finds matching number within range."""
+        pat = _PAT_QTY_LIST[0]  # qty pattern
+        result = _extract_first_match_group(pat, "Qty: 5", 1, 200)
+        self.assertEqual(result, 5.0)
+
+    def test_returns_none_below_range(self):
+        """Test returns None when match is below min."""
+        pat = _PAT_QTY_LIST[0]
+        result = _extract_first_match_group(pat, "Qty: 0", 1, 200)
+        self.assertIsNone(result)
+
+    def test_returns_none_above_range(self):
+        """Test returns None when match is above max."""
+        pat = _PAT_QTY_LIST[0]
+        result = _extract_first_match_group(pat, "Qty: 500", 1, 200)
+        self.assertIsNone(result)
+
+    def test_returns_none_no_match(self):
+        """Test returns None when no match found."""
+        pat = _PAT_QTY_LIST[0]
+        result = _extract_first_match_group(pat, "no quantity here", 1, 200)
+        self.assertIsNone(result)
+
+    def test_handles_empty_text(self):
+        """Test handles empty text."""
+        pat = _PAT_QTY_LIST[0]
+        result = _extract_first_match_group(pat, "", 1, 200)
+        self.assertIsNone(result)
+
+    def test_handles_none_text(self):
+        """Test handles None text."""
+        pat = _PAT_QTY_LIST[0]
+        result = _extract_first_match_group(pat, None, 1, 200)
+        self.assertIsNone(result)
+
+
+class TestExplicitQtyNear(unittest.TestCase):
+    """Tests for _explicit_qty_near function."""
+
+    def test_finds_qty_same_line(self):
+        """Test finds quantity on same line."""
+        lines = ["1 oz Silver Qty: 10"]
+        result = _explicit_qty_near(lines, 0)
+        self.assertEqual(result, 10.0)
+
+    def test_finds_qty_next_line(self):
+        """Test finds quantity on next line."""
+        lines = ["1 oz Silver", "Qty: 5"]
+        result = _explicit_qty_near(lines, 0)
+        self.assertEqual(result, 5.0)
+
+    def test_finds_qty_previous_line(self):
+        """Test finds quantity on previous line."""
+        lines = ["x 3", "1 oz Gold"]
+        result = _explicit_qty_near(lines, 1)
+        self.assertEqual(result, 3.0)
+
+    def test_returns_none_no_qty(self):
+        """Test returns None when no quantity found."""
+        lines = ["1 oz Gold Maple Leaf"]
+        result = _explicit_qty_near(lines, 0)
+        self.assertIsNone(result)
+
+    def test_handles_empty_lines(self):
+        """Test handles empty lines list."""
+        result = _explicit_qty_near([], 0)
+        self.assertIsNone(result)
+
+
+class TestBundleQtyNear(unittest.TestCase):
+    """Tests for _bundle_qty_near function."""
+
+    def test_finds_roll_of(self):
+        """Test finds 'roll of N' pattern."""
+        lines = ["1 oz Silver roll of 25"]
+        result = _bundle_qty_near(lines, 0)
+        self.assertEqual(result, 25.0)
+
+    def test_finds_tube_of(self):
+        """Test finds 'tube of N' pattern."""
+        lines = ["1 oz Gold tube of 20"]
+        result = _bundle_qty_near(lines, 0)
+        self.assertEqual(result, 20.0)
+
+    def test_finds_pack(self):
+        """Test finds 'N-pack' pattern."""
+        lines = ["Silver coins 10-pack"]
+        result = _bundle_qty_near(lines, 0)
+        self.assertEqual(result, 10.0)
+
+    def test_finds_sku_bundle(self):
+        """Test finds bundle by SKU mapping."""
+        lines = ["Item 3796875 Silver Maple"]
+        result = _bundle_qty_near(lines, 0)
+        self.assertEqual(result, 25.0)
+
+    def test_returns_none_no_bundle(self):
+        """Test returns None when no bundle found."""
+        lines = ["1 oz Gold"]
+        result = _bundle_qty_near(lines, 0)
+        self.assertIsNone(result)
+
+    def test_ignores_qty_of_1(self):
+        """Test ignores bundle quantity of 1."""
+        lines = ["1 coin Silver"]
+        result = _bundle_qty_near(lines, 0)
+        self.assertIsNone(result)
+
+
+class TestUnitOzOverrideNear(unittest.TestCase):
+    """Tests for _unit_oz_override_near function."""
+
+    def test_silver_sku_override(self):
+        """Test silver SKU override."""
+        lines = ["Item 2796876 Silver Bar"]
+        result = _unit_oz_override_near(lines, 0, "silver")
+        self.assertEqual(result, 10.0)
+
+    def test_gold_sku_override(self):
+        """Test gold SKU override."""
+        lines = ["Item 5882020 Gold Maple"]
+        result = _unit_oz_override_near(lines, 0, "gold")
+        self.assertEqual(result, 0.25)
+
+    def test_silver_phrase_override(self):
+        """Test silver phrase override."""
+        lines = ["Magnificent Maple Leaves Silver Coin"]
+        result = _unit_oz_override_near(lines, 0, "silver")
+        self.assertEqual(result, 10.0)
+
+    def test_returns_none_no_override(self):
+        """Test returns None when no override matches."""
+        lines = ["1 oz Gold Maple"]
+        result = _unit_oz_override_near(lines, 0, "gold")
+        self.assertIsNone(result)
+
+    def test_sku_metal_mismatch(self):
+        """Test SKU doesn't apply when metal doesn't match."""
+        lines = ["Item 2796876 Silver Bar"]  # Silver SKU
+        result = _unit_oz_override_near(lines, 0, "gold")  # But asking for gold
+        self.assertIsNone(result)
+
+
+class TestIsOrderConfirmation(unittest.TestCase):
+    """Tests for _is_order_confirmation function."""
+
+    def test_td_order_confirmation(self):
+        """Test TD order confirmation detection."""
+        result = _is_order_confirmation(
+            "Order Confirmation - TD Precious Metals",
+            "noreply@td.com"
+        )
+        self.assertTrue(result)
+
+    def test_costco_order_confirmation(self):
+        """Test Costco order confirmation detection."""
+        result = _is_order_confirmation(
+            "Your Costco.ca Order Number 12345",
+            "orders@costco.ca"
+        )
+        self.assertTrue(result)
+
+    def test_generic_order_confirmation(self):
+        """Test generic order confirmation detection."""
+        result = _is_order_confirmation(
+            "Order Confirmation #12345",
+            "shop@example.com"
+        )
+        self.assertTrue(result)
+
+    def test_not_confirmation(self):
+        """Test non-confirmation email."""
+        result = _is_order_confirmation(
+            "Your order has shipped",
+            "noreply@td.com"
+        )
+        self.assertFalse(result)
+
+    def test_handles_none(self):
+        """Test handles None inputs."""
+        result = _is_order_confirmation(None, None)
+        self.assertFalse(result)
+
+
+class TestIsCancelled(unittest.TestCase):
+    """Tests for _is_cancelled function."""
+
+    def test_cancelled_in_subject(self):
+        """Test detects cancelled in subject."""
+        result = _is_cancelled("Order Cancelled", "orders@costco.ca")
+        self.assertTrue(result)
+
+    def test_canceled_spelling(self):
+        """Test detects American spelling (canceled)."""
+        result = _is_cancelled("Order Canceled", "orders@costco.ca")
+        self.assertTrue(result)
+
+    def test_not_cancelled(self):
+        """Test non-cancelled order."""
+        result = _is_cancelled("Order Confirmed", "orders@costco.ca")
+        self.assertFalse(result)
+
+    def test_handles_none(self):
+        """Test handles None inputs."""
+        result = _is_cancelled(None, None)
+        self.assertFalse(result)
+
+    def test_case_insensitive(self):
+        """Test case insensitive matching."""
+        result = _is_cancelled("ORDER CANCELLED", "")
+        self.assertTrue(result)
 
 
 if __name__ == "__main__":
