@@ -281,7 +281,7 @@ class OutlookCalendarMixin:
         elif rpt == "weekly":
             pattern["type"] = "weekly"
             pattern["daysOfWeek"] = _normalize_days(byday or [])
-        elif rpt in ("monthly", "absoluteMonthly"):
+        elif rpt in ("monthly", "absolutemonthly"):
             pattern["type"] = "absoluteMonthly"
         else:
             raise ValueError("Unsupported repeat; use daily|weekly|monthly")

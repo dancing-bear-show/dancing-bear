@@ -118,6 +118,292 @@ class FakeClient(OutlookCalendarMixin):
         return self._calendars
 
 
+class TestResolveCalendarId(unittest.TestCase):
+    """Tests for _resolve_calendar_id helper method."""
+
+    def test_returns_calendar_id_when_provided(self):
+        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        result = client._resolve_calendar_id("explicit-id", None)
+        self.assertEqual(result, "explicit-id")
+
+    def test_returns_calendar_id_over_name(self):
+        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        result = client._resolve_calendar_id("explicit-id", "Work")
+        self.assertEqual(result, "explicit-id")
+
+    def test_looks_up_by_name_when_no_id(self):
+        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        result = client._resolve_calendar_id(None, "Work")
+        self.assertEqual(result, "cal1")
+
+    def test_returns_none_when_neither_provided(self):
+        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        result = client._resolve_calendar_id(None, None)
+        self.assertIsNone(result)
+
+    def test_returns_none_when_name_not_found(self):
+        client = FakeClient(calendars=[{"id": "cal1", "name": "Work"}])
+        result = client._resolve_calendar_id(None, "Nonexistent")
+        self.assertIsNone(result)
+
+
+class TestEventEndpoint(unittest.TestCase):
+    """Tests for _event_endpoint static method."""
+
+    def test_without_calendar_id_or_event_id(self):
+        result = OutlookCalendarMixin._event_endpoint(None, None)
+        self.assertEqual(result, "https://graph.microsoft.com/v1.0/me/events")
+
+    def test_with_calendar_id_only(self):
+        result = OutlookCalendarMixin._event_endpoint("cal-123", None)
+        self.assertEqual(result, "https://graph.microsoft.com/v1.0/me/calendars/cal-123/events")
+
+    def test_with_event_id_only(self):
+        result = OutlookCalendarMixin._event_endpoint(None, "event-456")
+        self.assertEqual(result, "https://graph.microsoft.com/v1.0/me/events/event-456")
+
+    def test_with_both_ids(self):
+        result = OutlookCalendarMixin._event_endpoint("cal-123", "event-456")
+        self.assertEqual(result, "https://graph.microsoft.com/v1.0/me/calendars/cal-123/events/event-456")
+
+
+class TestApplyReminder(unittest.TestCase):
+    """Tests for _apply_reminder static method."""
+
+    def test_no_reminder_sets_false(self):
+        payload = {}
+        OutlookCalendarMixin._apply_reminder(payload, no_reminder=True, reminder_minutes=None)
+        self.assertFalse(payload["isReminderOn"])
+
+    def test_no_reminder_ignores_minutes(self):
+        payload = {}
+        OutlookCalendarMixin._apply_reminder(payload, no_reminder=True, reminder_minutes=30)
+        self.assertFalse(payload["isReminderOn"])
+        self.assertNotIn("reminderMinutesBeforeStart", payload)
+
+    def test_reminder_minutes_sets_values(self):
+        payload = {}
+        OutlookCalendarMixin._apply_reminder(payload, no_reminder=False, reminder_minutes=15)
+        self.assertTrue(payload["isReminderOn"])
+        self.assertEqual(payload["reminderMinutesBeforeStart"], 15)
+
+    def test_neither_leaves_payload_unchanged(self):
+        payload = {"existing": "value"}
+        OutlookCalendarMixin._apply_reminder(payload, no_reminder=False, reminder_minutes=None)
+        self.assertEqual(payload, {"existing": "value"})
+
+
+class TestBuildRecurrencePattern(unittest.TestCase):
+    """Tests for _build_recurrence_pattern static method."""
+
+    def test_daily_pattern(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("daily", 1, None)
+        self.assertEqual(result["type"], "daily")
+        self.assertEqual(result["interval"], 1)
+
+    def test_daily_with_interval(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("daily", 3, None)
+        self.assertEqual(result["interval"], 3)
+
+    def test_weekly_pattern(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("weekly", 1, ["MO", "WE", "FR"])
+        self.assertEqual(result["type"], "weekly")
+        self.assertEqual(result["daysOfWeek"], ["monday", "wednesday", "friday"])
+
+    def test_weekly_empty_days(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("weekly", 1, [])
+        self.assertEqual(result["type"], "weekly")
+        self.assertEqual(result["daysOfWeek"], [])
+
+    def test_monthly_pattern(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("monthly", 1, None)
+        self.assertEqual(result["type"], "absoluteMonthly")
+
+    def test_absoluteMonthly_alias(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("absoluteMonthly", 2, None)
+        self.assertEqual(result["type"], "absoluteMonthly")
+        self.assertEqual(result["interval"], 2)
+
+    def test_case_insensitive(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("DAILY", 1, None)
+        self.assertEqual(result["type"], "daily")
+
+    def test_invalid_repeat_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            OutlookCalendarMixin._build_recurrence_pattern("yearly", 1, None)
+        self.assertIn("Unsupported repeat", str(ctx.exception))
+
+    def test_minimum_interval(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("daily", 0, None)
+        self.assertEqual(result["interval"], 1)
+
+    def test_negative_interval(self):
+        result = OutlookCalendarMixin._build_recurrence_pattern("daily", -5, None)
+        self.assertEqual(result["interval"], 1)
+
+
+class TestBuildRecurrenceRange(unittest.TestCase):
+    """Tests for _build_recurrence_range static method."""
+
+    def test_end_date_range(self):
+        result = OutlookCalendarMixin._build_recurrence_range("2025-01-01", "2025-12-31", None)
+        self.assertEqual(result["type"], "endDate")
+        self.assertEqual(result["startDate"], "2025-01-01")
+        self.assertEqual(result["endDate"], "2025-12-31")
+
+    def test_numbered_range(self):
+        result = OutlookCalendarMixin._build_recurrence_range("2025-01-01", None, 10)
+        self.assertEqual(result["type"], "numbered")
+        self.assertEqual(result["startDate"], "2025-01-01")
+        self.assertEqual(result["numberOfOccurrences"], 10)
+
+    def test_no_end_range(self):
+        result = OutlookCalendarMixin._build_recurrence_range("2025-01-01", None, None)
+        self.assertEqual(result["type"], "noEnd")
+        self.assertEqual(result["startDate"], "2025-01-01")
+
+    def test_until_takes_precedence_over_count(self):
+        result = OutlookCalendarMixin._build_recurrence_range("2025-01-01", "2025-06-01", 10)
+        self.assertEqual(result["type"], "endDate")
+        self.assertNotIn("numberOfOccurrences", result)
+
+
+class TestPaginatedGet(unittest.TestCase):
+    """Tests for _paginated_get helper method."""
+
+    def _make_mock_response(self, json_data=None, status_code=200):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.json.return_value = json_data
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    @patch("core.outlook.calendar._requests")
+    def test_single_page(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        data = {"value": [{"id": "1"}, {"id": "2"}]}
+        mock_requests.get.return_value = self._make_mock_response(data)
+
+        client = FakeClient()
+        result = client._paginated_get("https://example.com/api")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(mock_requests.get.call_count, 1)
+
+    @patch("core.outlook.calendar._requests")
+    def test_multiple_pages(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        page1 = {"value": [{"id": "1"}], "@odata.nextLink": "https://example.com/page2"}
+        page2 = {"value": [{"id": "2"}], "@odata.nextLink": "https://example.com/page3"}
+        page3 = {"value": [{"id": "3"}]}
+
+        mock_requests.get.side_effect = [
+            self._make_mock_response(page1),
+            self._make_mock_response(page2),
+            self._make_mock_response(page3),
+        ]
+
+        client = FakeClient()
+        result = client._paginated_get("https://example.com/api")
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(mock_requests.get.call_count, 3)
+
+    @patch("core.outlook.calendar._requests")
+    def test_empty_response(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        mock_requests.get.return_value = self._make_mock_response({"value": []})
+
+        client = FakeClient()
+        result = client._paginated_get("https://example.com/api")
+
+        self.assertEqual(result, [])
+
+    @patch("core.outlook.calendar._requests")
+    def test_null_value_field(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        mock_requests.get.return_value = self._make_mock_response({"value": None})
+
+        client = FakeClient()
+        result = client._paginated_get("https://example.com/api")
+
+        self.assertEqual(result, [])
+
+
+class TestPatchEvent(unittest.TestCase):
+    """Tests for _patch_event helper method."""
+
+    def _make_mock_response(self, json_data=None, status_code=200, text=""):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.text = text or (str(json_data) if json_data else "")
+        resp.json.return_value = json_data
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    @patch("core.outlook.calendar._requests")
+    def test_patch_without_calendar_id(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
+
+        client = FakeClient()
+        result = client._patch_event("event-1", None, None, {"subject": "Test"})
+
+        self.assertEqual(result["id"], "e1")
+        call_url = mock_requests.patch.call_args[0][0]
+        self.assertIn("events/event-1", call_url)
+        self.assertNotIn("calendars", call_url)
+
+    @patch("core.outlook.calendar._requests")
+    def test_patch_with_calendar_id(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
+
+        client = FakeClient()
+        result = client._patch_event("event-1", "cal-1", None, {"subject": "Test"})
+
+        call_url = mock_requests.patch.call_args[0][0]
+        self.assertIn("calendars/cal-1", call_url)
+        self.assertIn("events/event-1", call_url)
+
+    @patch("core.outlook.calendar._requests")
+    def test_patch_with_calendar_name(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
+
+        client = FakeClient(calendars=[{"id": "cal-from-name", "name": "Work"}])
+        client._patch_event("event-1", None, "Work", {"subject": "Test"})
+
+        call_url = mock_requests.patch.call_args[0][0]
+        self.assertIn("calendars/cal-from-name", call_url)
+
+    @patch("core.outlook.calendar._requests")
+    def test_patch_empty_response(self, mock_requests_fn):
+        mock_requests = MagicMock()
+        mock_requests_fn.return_value = mock_requests
+
+        mock_requests.patch.return_value = self._make_mock_response(None, text="")
+
+        client = FakeClient()
+        result = client._patch_event("event-1", None, None, {"subject": "Test"})
+
+        self.assertEqual(result, {})
+
+
 class TestOutlookCalendarMixin(unittest.TestCase):
     """Tests for OutlookCalendarMixin methods."""
 
