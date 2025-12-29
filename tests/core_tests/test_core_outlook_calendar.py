@@ -524,48 +524,30 @@ class TestCalendarPermissions(OutlookCalendarTestBase):
         mock_requests.patch.assert_called_once()
 
 
-class TestEventOperations(unittest.TestCase):
+class TestEventOperations(OutlookCalendarTestBase):
     """Tests for event creation and management."""
 
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
-
     def test_resolve_tz_with_provided_tz(self):
-        client = FakeClient(timezone="America/New_York")
-        result = OutlookCalendarMixin._resolve_tz(client, "Europe/London")
+        result = OutlookCalendarMixin._resolve_tz(FakeClient(timezone="America/New_York"), "Europe/London")
         self.assertEqual(result, "Europe/London")
 
     def test_resolve_tz_from_mailbox(self):
-        client = FakeClient(timezone="America/New_York")
-        result = OutlookCalendarMixin._resolve_tz(client, None)
+        result = OutlookCalendarMixin._resolve_tz(FakeClient(timezone="America/New_York"), None)
         self.assertEqual(result, "America/New_York")
 
     def test_resolve_tz_fallback(self):
-        client = FakeClient(timezone=None)
-        result = OutlookCalendarMixin._resolve_tz(client, None)
+        result = OutlookCalendarMixin._resolve_tz(FakeClient(timezone=None), None)
         self.assertEqual(result, "America/Toronto")
 
     @patch("core.outlook.calendar._requests")
     def test_create_event_basic(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response(EVENT_BASIC)
 
-        created = {"id": "event-1", "subject": "Meeting"}
-        mock_requests.post.return_value = self._make_mock_response(created)
-
-        client = FakeClient(timezone="America/Toronto")
         result = OutlookCalendarMixin.create_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Meeting",
-            start_iso="2025-01-15T10:00:00",
-            end_iso="2025-01-15T11:00:00",
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
         )
 
         self.assertEqual(result["subject"], "Meeting")
@@ -573,416 +555,242 @@ class TestEventOperations(unittest.TestCase):
 
     @patch("core.outlook.calendar._requests")
     def test_create_event_with_location(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response({"id": "e1"})
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "e1"})
-
-        client = FakeClient(timezone="America/Toronto")
         OutlookCalendarMixin.create_event(
-            client,
-            calendar_id="cal1",
-            calendar_name=None,
-            subject="Meeting",
-            start_iso="2025-01-15T10:00:00",
-            end_iso="2025-01-15T11:00:00",
+            FakeClient(timezone="America/Toronto"),
+            calendar_id="cal1", calendar_name=None,
+            subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
             location="Conference Room A",
         )
 
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
-        self.assertIn("location", payload)
+        self.assertIn("location", mock_requests.post.call_args.kwargs["json"])
 
     @patch("core.outlook.calendar._requests")
     def test_create_event_all_day(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response({"id": "e1"})
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "e1"})
-
-        client = FakeClient(timezone="America/Toronto")
         OutlookCalendarMixin.create_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Holiday",
-            start_iso="2025-01-15",
-            end_iso="2025-01-16",
-            all_day=True,
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Holiday", start_iso="2025-01-15", end_iso="2025-01-16", all_day=True,
         )
 
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
-        self.assertTrue(payload.get("isAllDay"))
+        self.assertTrue(mock_requests.post.call_args.kwargs["json"].get("isAllDay"))
 
     @patch("core.outlook.calendar._requests")
     def test_create_event_no_reminder(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response({"id": "e1"})
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "e1"})
-
-        client = FakeClient(timezone="America/Toronto")
         OutlookCalendarMixin.create_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Silent Meeting",
-            start_iso="2025-01-15T10:00:00",
-            end_iso="2025-01-15T11:00:00",
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Silent Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
             no_reminder=True,
         )
 
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
-        self.assertFalse(payload.get("isReminderOn"))
+        self.assertFalse(mock_requests.post.call_args.kwargs["json"].get("isReminderOn"))
 
     @patch("core.outlook.calendar._requests")
     def test_create_event_with_reminder_minutes(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response({"id": "e1"})
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "e1"})
-
-        client = FakeClient(timezone="America/Toronto")
         OutlookCalendarMixin.create_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Reminded Meeting",
-            start_iso="2025-01-15T10:00:00",
-            end_iso="2025-01-15T11:00:00",
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Reminded Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
             reminder_minutes=30,
         )
 
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
+        payload = mock_requests.post.call_args.kwargs["json"]
         self.assertTrue(payload.get("isReminderOn"))
         self.assertEqual(payload.get("reminderMinutesBeforeStart"), 30)
 
 
-class TestRecurringEvents(unittest.TestCase):
+class TestRecurringEvents(OutlookCalendarTestBase):
     """Tests for recurring event creation."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_create_recurring_event_daily(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response(EVENT_SERIES)
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "series-1"})
-
-        client = FakeClient(timezone="America/Toronto")
         result = OutlookCalendarMixin.create_recurring_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Daily Standup",
-            start_time="09:00:00",
-            end_time="09:15:00",
-            tz=None,
-            repeat="daily",
-            range_start_date="2025-01-15",
-            range_until="2025-03-15",
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Daily Standup", start_time="09:00:00", end_time="09:15:00", tz=None,
+            repeat="daily", range_start_date="2025-01-15", range_until="2025-03-15",
         )
 
         self.assertEqual(result["id"], "series-1")
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
-        self.assertEqual(payload["recurrence"]["pattern"]["type"], "daily")
+        self.assertEqual(mock_requests.post.call_args.kwargs["json"]["recurrence"]["pattern"]["type"], "daily")
 
     @patch("core.outlook.calendar._requests")
     def test_create_recurring_event_weekly(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response(EVENT_SERIES)
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "series-1"})
-
-        client = FakeClient(timezone="America/Toronto")
         OutlookCalendarMixin.create_recurring_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Weekly Review",
-            start_time="14:00:00",
-            end_time="15:00:00",
-            tz=None,
-            repeat="weekly",
-            byday=["MO", "WE", "FR"],
-            range_start_date="2025-01-15",
-            count=10,
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Weekly Review", start_time="14:00:00", end_time="15:00:00", tz=None,
+            repeat="weekly", byday=["MO", "WE", "FR"], range_start_date="2025-01-15", count=10,
         )
 
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
+        payload = mock_requests.post.call_args.kwargs["json"]
         self.assertEqual(payload["recurrence"]["pattern"]["type"], "weekly")
         self.assertIn("monday", payload["recurrence"]["pattern"]["daysOfWeek"])
 
     @patch("core.outlook.calendar._requests")
     def test_create_recurring_event_monthly(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_mock_response(EVENT_SERIES)
 
-        mock_requests.post.return_value = self._make_mock_response({"id": "series-1"})
-
-        client = FakeClient(timezone="America/Toronto")
         OutlookCalendarMixin.create_recurring_event(
-            client,
-            calendar_id=None,
-            calendar_name=None,
-            subject="Monthly Review",
-            start_time="10:00:00",
-            end_time="11:00:00",
-            tz=None,
-            repeat="monthly",
-            range_start_date="2025-01-15",
+            FakeClient(timezone="America/Toronto"),
+            calendar_id=None, calendar_name=None,
+            subject="Monthly Review", start_time="10:00:00", end_time="11:00:00", tz=None,
+            repeat="monthly", range_start_date="2025-01-15",
         )
 
-        call_args = mock_requests.post.call_args
-        payload = call_args.kwargs["json"]
-        self.assertEqual(payload["recurrence"]["pattern"]["type"], "absoluteMonthly")
+        self.assertEqual(
+            mock_requests.post.call_args.kwargs["json"]["recurrence"]["pattern"]["type"],
+            "absoluteMonthly"
+        )
 
     def test_create_recurring_event_invalid_repeat(self):
-        client = FakeClient(timezone="America/Toronto")
         with self.assertRaises(ValueError) as ctx:
             OutlookCalendarMixin.create_recurring_event(
-                client,
-                calendar_id=None,
-                calendar_name=None,
-                subject="Invalid",
-                start_time="10:00:00",
-                end_time="11:00:00",
-                tz=None,
-                repeat="yearly",  # Not supported
-                range_start_date="2025-01-15",
+                FakeClient(timezone="America/Toronto"),
+                calendar_id=None, calendar_name=None,
+                subject="Invalid", start_time="10:00:00", end_time="11:00:00", tz=None,
+                repeat="yearly", range_start_date="2025-01-15",
             )
         self.assertIn("Unsupported repeat", str(ctx.exception))
 
 
-class TestEventUpdates(unittest.TestCase):
+class TestEventUpdates(OutlookCalendarTestBase):
     """Tests for event update methods."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_location(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
-
-        client = FakeClient()
-        OutlookCalendarMixin.update_event_location(
-            client,
-            event_id="event-1",
-            location_str="New Location",
-        )
+        OutlookCalendarMixin.update_event_location(FakeClient(), event_id="event-1", location_str="New Location")
 
         mock_requests.patch.assert_called_once()
 
     def test_update_event_location_no_location_raises(self):
-        client = FakeClient()
         with self.assertRaises(ValueError):
-            OutlookCalendarMixin.update_event_location(
-                client,
-                event_id="event-1",
-            )
+            OutlookCalendarMixin.update_event_location(FakeClient(), event_id="event-1")
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_reminder(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
+        OutlookCalendarMixin.update_event_reminder(FakeClient(), event_id="event-1", is_on=True, minutes_before_start=15)
 
-        client = FakeClient()
-        OutlookCalendarMixin.update_event_reminder(
-            client,
-            event_id="event-1",
-            is_on=True,
-            minutes_before_start=15,
-        )
-
-        call_args = mock_requests.patch.call_args
-        payload = call_args.kwargs["json"]
+        payload = mock_requests.patch.call_args.kwargs["json"]
         self.assertTrue(payload["isReminderOn"])
         self.assertEqual(payload["reminderMinutesBeforeStart"], 15)
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_settings(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
-
-        client = FakeClient()
         OutlookCalendarMixin.update_event_settings(
-            client,
-            event_id="event-1",
-            categories=["Work", "Important"],
-            show_as="busy",
-            sensitivity="private",
+            FakeClient(), event_id="event-1",
+            categories=["Work", "Important"], show_as="busy", sensitivity="private",
         )
 
-        call_args = mock_requests.patch.call_args
-        payload = call_args.kwargs["json"]
+        payload = mock_requests.patch.call_args.kwargs["json"]
         self.assertEqual(payload["categories"], ["Work", "Important"])
         self.assertEqual(payload["showAs"], "busy")
         self.assertEqual(payload["sensitivity"], "private")
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_settings_empty_returns_empty(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
 
-        client = FakeClient()
-        result = OutlookCalendarMixin.update_event_settings(
-            client,
-            event_id="event-1",
-        )
+        result = OutlookCalendarMixin.update_event_settings(FakeClient(), event_id="event-1")
 
         self.assertEqual(result, {})
         mock_requests.patch.assert_not_called()
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_subject(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        mock_requests.patch.return_value = self._make_mock_response({"id": "e1"}, text='{"id": "e1"}')
+        OutlookCalendarMixin.update_event_subject(FakeClient(), event_id="event-1", subject="New Title")
 
-        client = FakeClient()
-        OutlookCalendarMixin.update_event_subject(
-            client,
-            event_id="event-1",
-            subject="New Title",
-        )
-
-        call_args = mock_requests.patch.call_args
-        payload = call_args.kwargs["json"]
-        self.assertEqual(payload["subject"], "New Title")
+        self.assertEqual(mock_requests.patch.call_args.kwargs["json"]["subject"], "New Title")
 
 
-class TestEventDeletion(unittest.TestCase):
+class TestEventDeletion(OutlookCalendarTestBase):
     """Tests for event deletion methods."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or ""
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_delete_event(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.delete.return_value = make_mock_response(status_code=204, text="")
 
-        mock_requests.delete.return_value = self._make_mock_response(status_code=204)
-
-        client = FakeClient()
-        # Should not raise
-        OutlookCalendarMixin.delete_event(client, "event-1")
+        OutlookCalendarMixin.delete_event(FakeClient(), "event-1")
 
         mock_requests.delete.assert_called_once()
 
     @patch("core.outlook.calendar._requests")
     def test_delete_event_with_calendar_id(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.delete.return_value = make_mock_response(status_code=204, text="")
 
-        mock_requests.delete.return_value = self._make_mock_response(status_code=204)
+        OutlookCalendarMixin.delete_event(FakeClient(), "event-1", calendar_id="cal-1")
 
-        client = FakeClient()
-        OutlookCalendarMixin.delete_event(client, "event-1", calendar_id="cal-1")
-
-        call_url = mock_requests.delete.call_args[0][0]
-        self.assertIn("cal-1", call_url)
+        self.assertIn("cal-1", mock_requests.delete.call_args[0][0])
 
     @patch("core.outlook.calendar._requests")
     def test_delete_event_by_id_success(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.delete.return_value = make_mock_response(status_code=204, text="")
 
-        mock_requests.delete.return_value = self._make_mock_response(status_code=204)
-
-        client = FakeClient()
-        result = OutlookCalendarMixin.delete_event_by_id(client, "event-1")
-
-        self.assertTrue(result)
+        self.assertTrue(OutlookCalendarMixin.delete_event_by_id(FakeClient(), "event-1"))
 
     @patch("core.outlook.calendar._requests")
     def test_delete_event_by_id_failure(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
-
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.delete.side_effect = Exception("Network error")
 
-        client = FakeClient()
-        result = OutlookCalendarMixin.delete_event_by_id(client, "event-1")
-
-        self.assertFalse(result)
+        self.assertFalse(OutlookCalendarMixin.delete_event_by_id(FakeClient(), "event-1"))
 
 
-class TestListEvents(unittest.TestCase):
+class TestListEvents(OutlookCalendarTestBase):
     """Tests for event listing methods."""
-
-    def _make_mock_response(self, json_data=None, status_code=200, text=""):
-        resp = MagicMock()
-        resp.status_code = status_code
-        resp.text = text or (str(json_data) if json_data else "")
-        resp.json.return_value = json_data
-        resp.raise_for_status = MagicMock()
-        return resp
 
     @patch("core.outlook.calendar._requests")
     def test_list_events_in_range(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": EVENTS_LIST[:2]})
 
-        events = [{"id": "e1", "subject": "Meeting 1"}, {"id": "e2", "subject": "Meeting 2"}]
-        mock_requests.get.return_value = self._make_mock_response({"value": events})
-
-        client = FakeClient()
         result = OutlookCalendarMixin.list_events_in_range(
-            client,
-            start_iso="2025-01-01T00:00:00",
-            end_iso="2025-01-31T23:59:59",
+            FakeClient(), start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59",
         )
 
         self.assertEqual(len(result), 2)
 
     @patch("core.outlook.calendar._requests")
     def test_list_events_in_range_with_subject_filter(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": EVENTS_LIST})
 
-        events = [
-            {"id": "e1", "subject": "Team Meeting"},
-            {"id": "e2", "subject": "Lunch Break"},
-            {"id": "e3", "subject": "Team Standup"},
-        ]
-        mock_requests.get.return_value = self._make_mock_response({"value": events})
-
-        client = FakeClient()
         result = OutlookCalendarMixin.list_events_in_range(
-            client,
-            start_iso="2025-01-01T00:00:00",
-            end_iso="2025-01-31T23:59:59",
+            FakeClient(), start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59",
             subject_filter="Team",
         )
 
@@ -994,38 +802,26 @@ class TestListEvents(unittest.TestCase):
 
     @patch("core.outlook.calendar._requests")
     def test_list_calendar_view(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": [{"id": "e1"}, {"id": "e2"}]})
 
-        events = [{"id": "e1"}, {"id": "e2"}]
-        mock_requests.get.return_value = self._make_mock_response({"value": events})
-
-        client = FakeClient()
         result = OutlookCalendarMixin.list_calendar_view(
-            client,
-            start_iso="2025-01-01T00:00:00",
-            end_iso="2025-01-31T23:59:59",
+            FakeClient(), start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59",
         )
 
         self.assertEqual(len(result), 2)
 
     @patch("core.outlook.calendar._requests")
     def test_list_calendar_view_with_calendar_id(self, mock_requests_fn):
-        mock_requests = MagicMock()
-        mock_requests_fn.return_value = mock_requests
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({"value": []})
 
-        mock_requests.get.return_value = self._make_mock_response({"value": []})
-
-        client = FakeClient()
         OutlookCalendarMixin.list_calendar_view(
-            client,
-            calendar_id="cal-123",
-            start_iso="2025-01-01T00:00:00",
-            end_iso="2025-01-31T23:59:59",
+            FakeClient(), calendar_id="cal-123",
+            start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59",
         )
 
-        call_url = mock_requests.get.call_args[0][0]
-        self.assertIn("cal-123", call_url)
+        self.assertIn("cal-123", mock_requests.get.call_args[0][0])
 
 
 if __name__ == "__main__":
