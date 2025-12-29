@@ -2,26 +2,12 @@
 from __future__ import annotations
 
 import csv
-import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from core.text_utils import normalize_unicode
 
-# Constants
-G_PER_OZ = 31.1035
-
-# CSV field names for costs output
-COSTS_CSV_FIELDS = [
-    'vendor', 'date', 'metal', 'currency', 'cost_total', 'cost_per_oz',
-    'order_id', 'subject', 'total_oz', 'unit_count', 'units_breakdown', 'alloc',
-]
-
-# Money pattern: matches C$1,234.56 or CAD$1,234.56 or CAD $1,234.56 or $1,234.56
-MONEY_PATTERN = re.compile(
-    r"(?i)(C\$|CAD\s*\$|CAD\$|\$)\s*"
-    r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2})?)"
-)
+from .constants import G_PER_OZ, COSTS_CSV_FIELDS, MONEY_PATTERN
 
 
 def parse_money_amount(s: str) -> float:

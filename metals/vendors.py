@@ -259,19 +259,6 @@ class TDParser(VendorParser):
 
     name = "TD"
 
-    # SKU -> bundle size mappings
-    SKU_BUNDLE_MAP: Dict[str, float] = {
-        '3796875': 25.0,  # 25 x 1 oz tube
-    }
-
-    # SKU -> unit oz overrides
-    SKU_UNIT_MAP_SILVER: Dict[str, float] = {
-        '2796876': 10.0,  # single 10 oz silver bar
-    }
-    SKU_UNIT_MAP_GOLD: Dict[str, float] = {
-        '5882020': 0.25,  # 1/4 oz Canadian Gold Maple Leaf
-    }
-
     def matches_sender(self, from_header: str) -> bool:
         email = self._extract_email(from_header).lower()
         return any(x in email for x in ('td.com', 'tdsecurities.com', 'preciousmetals.td.com'))
@@ -285,7 +272,7 @@ class TDParser(VendorParser):
                 if eq:
                     item.qty = eq
                 elif 0.98 <= item.unit_oz <= 1.02:
-                    bq = find_bundle_qty(lines, item.idx, self.SKU_BUNDLE_MAP)
+                    bq = find_bundle_qty(lines, item.idx, SKU_BUNDLE_MAP)
                     if bq:
                         item.qty = bq
 
@@ -306,9 +293,9 @@ class TDParser(VendorParser):
 
     def _get_unit_oz_override(self, lines: List[str], idx: int, metal: str) -> Optional[float]:
         """Get unit oz override from SKU mapping."""
-        sku_map = self.SKU_UNIT_MAP_SILVER if metal == 'silver' else self.SKU_UNIT_MAP_GOLD
+        sku_map = SKU_UNIT_MAP_SILVER if metal == 'silver' else SKU_UNIT_MAP_GOLD
         for _, ln in iter_nearby_lines(lines, idx, window=4):
-            m = _SKU_PATTERN.search(ln)
+            m = PAT_SKU.search(ln)
             if m and m.group(1) in sku_map:
                 return sku_map[m.group(1)]
         return None
@@ -322,7 +309,6 @@ class CostcoParser(VendorParser):
     """Parser for Costco precious metals emails."""
 
     name = "Costco"
-    SKU_BUNDLE_MAP: Dict[str, float] = {'3796875': 25.0}
 
     def matches_sender(self, from_header: str) -> bool:
         return 'costco' in (from_header or '').lower()
@@ -336,7 +322,7 @@ class CostcoParser(VendorParser):
                 if eq:
                     item.qty = eq
                 elif 0.98 <= item.unit_oz <= 1.02:
-                    bq = find_bundle_qty(lines, item.idx, self.SKU_BUNDLE_MAP)
+                    bq = find_bundle_qty(lines, item.idx, SKU_BUNDLE_MAP)
                     if bq:
                         item.qty = bq
 
@@ -374,11 +360,8 @@ class RCMParser(VendorParser):
     _PAT_OZ = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*[- ]?oz\b")
     _PAT_GRAMS = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b")
 
-    # RCM-specific banned terms (includes Canadian taxes)
-    _PRICE_BAN = re.compile(
-        r"(?i)(subtotal|shipping|handling|tax|gst|hst|pst|savings|"
-        r"free\s+shipping|orders?\s+over|threshold)"
-    )
+    # RCM-specific banned terms - use imported constant
+    _PRICE_BAN = PRICE_BAN_RCM
 
     def matches_sender(self, from_header: str) -> bool:
         email = (from_header or '').lower()

@@ -4,24 +4,16 @@ Core parsing patterns for extracting gold/silver amounts from order emails.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Tuple
 
-# Grams per troy ounce
-G_PER_OZ = 31.1035
-
-# Regex patterns for extracting metal amounts
-PAT_FRAC = re.compile(
-    r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b(?:(?!\n).){0,60}?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?"
+from .constants import (
+    G_PER_OZ,
+    PAT_FRAC_OZ as PAT_FRAC,
+    PAT_DECIMAL_OZ as PAT_OZ,
+    PAT_GRAMS,
+    PAT_ORDER_ID,
 )
-PAT_OZ = re.compile(
-    r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b(?:(?!\n).){0,60}?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?"
-)
-PAT_GRAMS = re.compile(
-    r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b(?:(?!\n).){0,60}?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?"
-)
-PAT_ORDER_ID = re.compile(r"(?i)order\s*#?\s*(\d{6,})")
 
 
 @dataclass
