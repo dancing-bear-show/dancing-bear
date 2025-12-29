@@ -20,11 +20,15 @@ __all__ = [
     'COSTS_HEADERS',
     'SAMPLE_VENDORS',
     'SAMPLE_METALS',
+    'VENDOR_EMAILS',
+    'LINES_5',
+    'LINES_3',
     'make_cost_row',
     'make_gold_row',
     'make_silver_row',
     'write_costs_csv',
     'temp_costs_csv',
+    'make_price_lines',
 ]
 
 # CSV headers for costs files
@@ -38,6 +42,18 @@ SAMPLE_VENDORS = ["TD", "Costco", "RCM"]
 
 # Sample metals
 SAMPLE_METALS = ["gold", "silver"]
+
+# Vendor email addresses for sender matching tests
+VENDOR_EMAILS = {
+    "TD": ["noreply@td.com", "orders@preciousmetals.td.com", "NoReply@TD.COM"],
+    "Costco": ["orders@costco.com", "noreply@orders.costco.com"],
+    "RCM": ["noreply@mint.ca", "orders@email.mint.ca", "noreply@royalcanadianmint.ca"],
+    "unknown": ["someone@example.com", "other@unknown.org"],
+}
+
+# Reusable line arrays for iter_nearby_lines tests
+LINES_5 = ["line0", "line1", "line2", "line3", "line4"]
+LINES_3 = ["line0", "line1", "line2"]
 
 # Default test values
 DEFAULT_DATE = "2024-01-15"
@@ -276,3 +292,34 @@ def make_fractional_oz_text(
     if qty > 1:
         return f"{base} x {qty}"
     return base
+
+
+def make_price_lines(
+    item_desc: str = "1 oz Gold Coin",
+    price: float = 2500.0,
+    price_kind: str = "unit",
+    include_banned: bool = False,
+) -> List[str]:
+    """Create test lines for price extraction tests.
+
+    Args:
+        item_desc: Item description line
+        price: Price amount
+        price_kind: 'unit' (adds 'each'), 'total', or 'unknown' (no keyword)
+        include_banned: If True, adds a shipping line before price
+
+    Returns:
+        List of lines for testing extract_price_from_lines
+    """
+    lines = [item_desc]
+    if include_banned:
+        lines.append("Shipping: $25.00")
+
+    price_str = f"${price:,.2f}"
+    if price_kind == "unit":
+        lines.append(f"Price: {price_str} each")
+    elif price_kind == "total":
+        lines.append(f"Total: {price_str}")
+    else:
+        lines.append(price_str)
+    return lines
