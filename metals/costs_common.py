@@ -100,6 +100,8 @@ def format_qty(qty: float) -> int | float:
 
 def format_breakdown(units: Dict[float, float]) -> str:
     """Format units dict {unit_oz: qty} as breakdown string like '1ozx3;0.1ozx2'."""
+    if not units:
+        return ""
     parts = []
     for uoz, qty in sorted(units.items()):
         qty_disp = format_qty(qty)
@@ -129,7 +131,7 @@ def extract_line_items_base(
                 num = float(m.group(1))
                 den = float(m.group(2) or 1)
             except (ValueError, TypeError, IndexError):
-                continue
+                continue  # Skip malformed fraction matches
             group_count = len(m.groups())
             metal = (m.group(3) or '').lower() if group_count >= 3 else ''
             qty_str = m.group(4) if group_count >= 4 else None
@@ -141,7 +143,7 @@ def extract_line_items_base(
             try:
                 unit_oz = float(m.group(1))
             except (ValueError, TypeError):
-                continue
+                continue  # Skip malformed ounce matches
             group_count = len(m.groups())
             metal = (m.group(2) or '').lower() if group_count >= 2 else ''
             qty_str = m.group(3) if group_count >= 3 else None
@@ -152,7 +154,7 @@ def extract_line_items_base(
             try:
                 wt_g = float(m.group(1))
             except (ValueError, TypeError):
-                continue
+                continue  # Skip malformed gram matches
             group_count = len(m.groups())
             metal = (m.group(3) or '').lower() if group_count >= 3 else ''
             qty_str = m.group(4) if group_count >= 4 else None
