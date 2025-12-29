@@ -5,7 +5,7 @@ Helpers for creating normalized layouts and raw IconState dicts.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def make_app_item(bundle_id: str) -> Dict:
@@ -71,3 +71,61 @@ def make_layout(
     """
     from phone.layout import NormalizedLayout
     return NormalizedLayout(dock=dock or [], pages=pages or [])
+
+
+# -----------------------------------------------------------------------------
+# Device test fixtures (for phone/device.py)
+# -----------------------------------------------------------------------------
+
+
+def make_plist_data(
+    dock: Optional[List[str]] = None,
+    apps: Optional[List[str]] = None,
+    folders: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Create cfgutil plist format data for testing _parse_plist_format.
+
+    Args:
+        dock: List of bundle IDs for buttonBar
+        apps: List of bundle IDs for first page apps
+        folders: List of {"name": str, "apps": List[str]} for folders
+    """
+    page_items: List[Dict] = []
+    for bid in (apps or []):
+        page_items.append({"bundleIdentifier": bid})
+    for folder in (folders or []):
+        page_items.append({
+            "displayName": folder["name"],
+            "iconLists": [[{"bundleIdentifier": b} for b in folder.get("apps", [])]],
+        })
+    return {
+        "buttonBar": [{"bundleIdentifier": b} for b in (dock or [])],
+        "iconLists": [page_items] if page_items else [],
+    }
+
+
+def make_list_data(
+    dock: Optional[List[str]] = None,
+    pages: Optional[List[List[Any]]] = None,
+) -> List[Any]:
+    """Create cfgutil JSON list format data for testing _parse_list_format.
+
+    Args:
+        dock: List of bundle IDs for dock (first element)
+        pages: List of pages, each containing strings (apps) or lists (folders)
+    """
+    return [dock or []] + (pages or [])
+
+
+def make_ini_section(
+    p12_path: Optional[str] = None,
+    p12_pass: Optional[str] = None,
+    key_prefix: str = "supervision_identity",
+) -> Dict[str, str]:
+    """Create a credentials.ini section dict for testing resolve_p12_path."""
+    section: Dict[str, str] = {}
+    if p12_path:
+        section[f"{key_prefix}_p12"] = p12_path
+    if p12_pass:
+        section[f"{key_prefix}_pass"] = p12_pass
+    return section
