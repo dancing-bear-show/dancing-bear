@@ -6,6 +6,8 @@ Personal Assistants: unified, dependency-light CLIs for personal workflows acros
 
 **Constraints:** Python 3.11, dependency-light, stable public CLI
 
+**Primary consumers:** LLM agents — CLI schemas, help text, and agentic capsules are designed for token-efficient LLM consumption. Keep output terse and accurate.
+
 ## Quick Start
 
 ```bash
@@ -58,11 +60,21 @@ Read in order for best context:
 - Keep helpers small, focused; prefer OO where cohesive (e.g., LabelSync, FilterSync)
 - Update README minimally when adding user-facing commands; add tests for new CLI surfaces
 
+**LLM Consumer Rules:**
+- Keep help text terse (1-line descriptions, no prose)
+- Ensure `--help` output matches actual implementation
+- Verify agentic schema (`--agentic`) accurately reflects CLI structure
+- Use `--agentic-compact` output for token efficiency
+- Test CLI discovery: `./bin/llm agentic --stdout` must be accurate
+- Flows in `.llm/FLOWS.yaml` must reference valid CLI paths
+
 **Avoid:**
 - Broad refactors that rename modules or move public entry points
 - Heavy new dependencies; global imports for optional modules
 - Emitting secrets/tokens in logs or passing them via flags
 - Bare `except Exception: continue/pass` blocks without a `# nosec` comment explaining the intent (e.g., `# nosec B110 - skip malformed entries silently`)
+- Verbose help strings that waste tokens
+- Mismatched argument names between argparse and code
 
 ## Testing
 
