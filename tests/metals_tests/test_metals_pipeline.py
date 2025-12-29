@@ -238,5 +238,94 @@ class TestExtractProducer(unittest.TestCase):
         producer.produce(result)
 
 
+class TestResultUnwrap(unittest.TestCase):
+    """Tests for Result.unwrap() method."""
+
+    def test_unwrap_returns_payload_when_present(self):
+        """Test unwrap returns payload when it exists."""
+        result = Result(payload={"data": "value"})
+        self.assertEqual(result.unwrap(), {"data": "value"})
+
+    def test_unwrap_returns_payload_of_any_type(self):
+        """Test unwrap works with different payload types."""
+        self.assertEqual(Result(payload="test").unwrap(), "test")
+        self.assertEqual(Result(payload=[1, 2, 3]).unwrap(), [1, 2, 3])
+        self.assertEqual(Result(payload=42).unwrap(), 42)
+
+    def test_unwrap_raises_when_payload_is_none(self):
+        """Test unwrap raises ValueError when payload is None."""
+        result = Result(payload=None)
+        with self.assertRaises(ValueError) as ctx:
+            result.unwrap()
+        self.assertEqual(str(ctx.exception), "No payload")
+
+    def test_unwrap_uses_diagnostics_message(self):
+        """Test unwrap uses diagnostics message in ValueError."""
+        result = Result(
+            payload=None,
+            diagnostics={"message": "Custom error"},
+        )
+        with self.assertRaises(ValueError) as ctx:
+            result.unwrap()
+        self.assertEqual(str(ctx.exception), "Custom error")
+
+    def test_unwrap_uses_error_field_as_fallback(self):
+        """Test unwrap uses error field when diagnostics has no message."""
+        result = Result(
+            payload=None,
+            error="Error from error field",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            result.unwrap()
+        self.assertEqual(str(ctx.exception), "Error from error field")
+
+    def test_unwrap_prefers_diagnostics_over_error(self):
+        """Test unwrap prefers diagnostics message over error field."""
+        result = Result(
+            payload=None,
+            error="Error field message",
+            diagnostics={"message": "Diagnostics message"},
+        )
+        with self.assertRaises(ValueError) as ctx:
+            result.unwrap()
+        self.assertEqual(str(ctx.exception), "Diagnostics message")
+
+    def test_unwrap_falls_back_to_no_payload(self):
+        """Test unwrap falls back to 'No payload' when no error info."""
+        result = Result(payload=None, error=None, diagnostics=None)
+        with self.assertRaises(ValueError) as ctx:
+            result.unwrap()
+        self.assertEqual(str(ctx.exception), "No payload")
+
+    def test_unwrap_works_even_with_error_set(self):
+        """Test unwrap returns payload even if error field is set."""
+        result = Result(payload="data", error="ignored error")
+        self.assertEqual(result.unwrap(), "data")
+
+
+class TestResultOk(unittest.TestCase):
+    """Tests for Result.ok() method."""
+
+    def test_ok_returns_true_when_no_error_and_payload(self):
+        """Test ok() returns True when error is None and payload exists."""
+        result = Result(payload="data", error=None)
+        self.assertTrue(result.ok())
+
+    def test_ok_returns_false_when_error_set(self):
+        """Test ok() returns False when error is set."""
+        result = Result(payload="data", error="some error")
+        self.assertFalse(result.ok())
+
+    def test_ok_returns_false_when_payload_is_none(self):
+        """Test ok() returns False when payload is None."""
+        result = Result(payload=None, error=None)
+        self.assertFalse(result.ok())
+
+    def test_ok_returns_false_when_both_error_and_no_payload(self):
+        """Test ok() returns False when both error set and no payload."""
+        result = Result(payload=None, error="error")
+        self.assertFalse(result.ok())
+
+
 if __name__ == "__main__":
     unittest.main()
