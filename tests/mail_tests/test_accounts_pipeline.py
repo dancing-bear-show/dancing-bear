@@ -17,7 +17,48 @@ from mail.accounts.pipeline import (
     AccountsListResult,
     AccountsListRequestConsumer,
     AccountsListProcessor,
-    AccountsListProducer,)
+    AccountsListProducer,
+    # Export labels
+    AccountsExportLabelsRequest,
+    ExportedLabelsInfo,
+    AccountsExportLabelsResult,
+    AccountsExportLabelsProducer,
+    # Export filters
+    AccountsExportFiltersRequest,
+    ExportedFiltersInfo,
+    AccountsExportFiltersResult,
+    AccountsExportFiltersProducer,
+    # Plan labels
+    AccountsPlanLabelsRequest,
+    LabelsPlanInfo,
+    AccountsPlanLabelsResult,
+    AccountsPlanLabelsProducer,
+    # Sync labels
+    AccountsSyncLabelsRequest,
+    SyncedLabelInfo,
+    AccountsSyncLabelsResult,
+    AccountsSyncLabelsProducer,
+    # Plan filters
+    AccountsPlanFiltersRequest,
+    FiltersPlanInfo,
+    AccountsPlanFiltersResult,
+    AccountsPlanFiltersProducer,
+    # Sync filters
+    AccountsSyncFiltersRequest,
+    SyncedFiltersInfo,
+    AccountsSyncFiltersResult,
+    AccountsSyncFiltersProducer,
+    # Export signatures
+    AccountsExportSignaturesRequest,
+    ExportedSignaturesInfo,
+    AccountsExportSignaturesResult,
+    AccountsExportSignaturesProducer,
+    # Sync signatures
+    AccountsSyncSignaturesRequest,
+    SyncedSignaturesInfo,
+    AccountsSyncSignaturesResult,
+    AccountsSyncSignaturesProducer,
+)
 from tests.mail_tests.fixtures import capture_stdout
 
 
@@ -44,59 +85,6 @@ def make_account_dict(
 ) -> dict:
     """Create an account dict (as returned by load_accounts) for testing."""
     return {"name": name, "provider": provider, "credentials": credentials, "token": token}
-
-
-# Re-import pipeline classes that were cut off by the edit
-from mail.accounts.pipeline import (
-    # Export labels
-    AccountsExportLabelsRequest,
-    ExportedLabelsInfo,
-    AccountsExportLabelsResult,
-    AccountsExportLabelsProcessor,
-    AccountsExportLabelsProducer,
-    # Export filters
-    AccountsExportFiltersRequest,
-    ExportedFiltersInfo,
-    AccountsExportFiltersResult,
-    AccountsExportFiltersProcessor,
-    AccountsExportFiltersProducer,
-    # Plan labels
-    AccountsPlanLabelsRequest,
-    LabelsPlanInfo,
-    AccountsPlanLabelsResult,
-    AccountsPlanLabelsProcessor,
-    AccountsPlanLabelsProducer,
-    # Sync labels
-    AccountsSyncLabelsRequest,
-    SyncedLabelInfo,
-    AccountsSyncLabelsResult,
-    AccountsSyncLabelsProcessor,
-    AccountsSyncLabelsProducer,
-    # Plan filters
-    AccountsPlanFiltersRequest,
-    FiltersPlanInfo,
-    AccountsPlanFiltersResult,
-    AccountsPlanFiltersProcessor,
-    AccountsPlanFiltersProducer,
-    # Sync filters
-    AccountsSyncFiltersRequest,
-    SyncedFiltersInfo,
-    AccountsSyncFiltersResult,
-    AccountsSyncFiltersProcessor,
-    AccountsSyncFiltersProducer,
-    # Export signatures
-    AccountsExportSignaturesRequest,
-    ExportedSignaturesInfo,
-    AccountsExportSignaturesResult,
-    AccountsExportSignaturesProcessor,
-    AccountsExportSignaturesProducer,
-    # Sync signatures
-    AccountsSyncSignaturesRequest,
-    SyncedSignaturesInfo,
-    AccountsSyncSignaturesResult,
-    AccountsSyncSignaturesProcessor,
-    AccountsSyncSignaturesProducer,
-)
 
 
 class TestSimpleConsumer(unittest.TestCase):
@@ -128,8 +116,7 @@ class TestAccountsResultProducer(unittest.TestCase):
             status="error",
             diagnostics={"message": "Something went wrong"},
         )
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         self.assertIn("Error: Something went wrong", buf.getvalue())
 
@@ -140,8 +127,7 @@ class TestAccountsResultProducer(unittest.TestCase):
 
         producer = TestProducer()
         envelope = ResultEnvelope(status="success", payload="test data")
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         self.assertIn("Payload: test data", buf.getvalue())
 
@@ -203,12 +189,7 @@ class TestAccountsListDataclasses(unittest.TestCase):
         self.assertEqual(req.config_path, "/config.yaml")
 
     def test_account_info(self):
-        info = AccountInfo(
-            name="personal",
-            provider="gmail",
-            credentials="/creds.json",
-            token="/token.json",  # nosec B106 - test fixture path, not actual token
-        )
+        info = make_account_info()
         self.assertEqual(info.name, "personal")
         self.assertEqual(info.provider, "gmail")
 
@@ -217,7 +198,7 @@ class TestAccountsListDataclasses(unittest.TestCase):
         self.assertEqual(result.accounts, [])
 
     def test_accounts_list_result_with_accounts(self):
-        info = AccountInfo(name="test", provider="gmail", credentials="", token="")  # nosec B106
+        info = make_account_info(name="test")
         result = AccountsListResult(accounts=[info])
         self.assertEqual(len(result.accounts), 1)
 
@@ -228,8 +209,8 @@ class TestAccountsListProcessor(unittest.TestCase):
     @patch("mail.accounts.helpers.load_accounts")
     def test_process_returns_success_envelope(self, mock_load):
         mock_load.return_value = [
-            {"name": "personal", "provider": "gmail", "credentials": "/c.json", "token": "/t.json"},
-            {"name": "work", "provider": "outlook", "credentials": "/c2.json", "token": "/t2.json"},
+            make_account_dict(name="personal", provider="gmail"),
+            make_account_dict(name="work", provider="outlook"),
         ]
         request = AccountsListRequest(config_path="/config.yaml")
         processor = AccountsListProcessor()
@@ -267,13 +248,12 @@ class TestAccountsListProducer(unittest.TestCase):
 
     def test_produce_items_outputs_formatted_accounts(self):
         result = AccountsListResult(accounts=[
-            AccountInfo(name="personal", provider="gmail", credentials="/c.json", token="/t.json"),  # nosec B106
-            AccountInfo(name="work", provider="outlook", credentials="/c2.json", token="/t2.json"),  # nosec B106
+            make_account_info(name="personal", provider="gmail"),
+            make_account_info(name="work", provider="outlook"),
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsListProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("personal", output)
@@ -312,8 +292,7 @@ class TestAccountsExportLabelsProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsExportLabelsProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("Exported labels for personal", output)
@@ -349,8 +328,7 @@ class TestAccountsExportFiltersProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsExportFiltersProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("Exported filters for work", output)
@@ -387,8 +365,7 @@ class TestAccountsPlanLabelsProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsPlanLabelsProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("[plan-labels]", output)
@@ -428,8 +405,7 @@ class TestAccountsSyncLabelsProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncLabelsProducer(dry_run=False)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("[labels sync]", output)
@@ -442,8 +418,7 @@ class TestAccountsSyncLabelsProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsSyncLabelsProducer(dry_run=True)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("would", output)
@@ -477,8 +452,7 @@ class TestAccountsPlanFiltersProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsPlanFiltersProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("[plan-filters]", output)
@@ -491,8 +465,7 @@ class TestAccountsPlanFiltersProducer(unittest.TestCase):
         ])
         envelope = ResultEnvelope(status="success", payload=result)
         producer = AccountsPlanFiltersProducer()
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with capture_stdout() as buf:
             producer.produce(envelope)
         output = buf.getvalue()
         self.assertIn("not supported", output)
