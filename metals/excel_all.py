@@ -25,6 +25,11 @@ from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
 
 
+def _workbook_url(client: OutlookClient, drive_id: str, item_id: str) -> str:
+    """Return base URL for workbook Graph API operations."""
+    return f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
+
+
 def _col_letter(idx: int) -> str:
     s = ""
     n = idx
@@ -109,48 +114,58 @@ def _merge_all(existing: List[Dict[str, str]], new: List[Dict[str, str]]) -> Lis
     return out
 
 
+def _poll_async_operation(
+    client: OutlookClient, location: str, max_attempts: int = 60, delay: float = 1.5
+) -> str:
+    """Poll an async Graph operation until completion, return resource ID."""
+    import requests  # type: ignore
+    import time
+
+    for _ in range(max_attempts):
+        st = requests.get(location, headers=client._headers()).json()  # noqa: S113
+        if st.get("status") in ("succeeded", "completed"):
+            if rid := st.get("resourceId"):
+                return rid
+            if rloc := st.get("resourceLocation"):
+                it = requests.get(rloc, headers=client._headers()).json()  # noqa: S113
+                return it.get("id")
+        time.sleep(delay)
+    raise RuntimeError("Timed out waiting for async operation")
+
+
 def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str) -> Tuple[str, str]:
     import requests  # type: ignore
+
     meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers()).json()  # noqa: S113
-    parent = ((meta or {}).get("parentReference") or {})
-    parent_id = parent.get("id")
+    parent_id = ((meta or {}).get("parentReference") or {}).get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
+
     copy_url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/copy"
     resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body))  # noqa: S113
     if resp.status_code not in (202, 200):
         raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
-    loc = resp.headers.get("Location") or resp.headers.get("Operation-Location")
-    if not loc:
+
+    location = resp.headers.get("Location") or resp.headers.get("Operation-Location")
+    if not location:
         try:
-            it = resp.json()
-            return drive_id, it.get("id")
+            return drive_id, resp.json().get("id")
         except Exception:
             raise RuntimeError("Copy returned no body and no monitor location")
-    for _ in range(60):
-        st = requests.get(loc, headers=client._headers()).json()  # noqa: S113
-        if st.get("status") in ("succeeded", "completed"):
-            rid = st.get("resourceId")
-            if rid:
-                return drive_id, rid
-            rloc = st.get("resourceLocation")
-            if rloc:
-                it = requests.get(rloc, headers=client._headers()).json()  # noqa: S113
-                return drive_id, it.get("id")
-        import time as _t
-        _t.sleep(1.5)
-    raise RuntimeError("Timed out waiting for copy")
+
+    return drive_id, _poll_async_operation(client, location)
 
 
 def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> Dict[str, str]:
     import requests
     import time  # type: ignore
-    base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
-    # Try get by name
+
+    base = _workbook_url(client, drive_id, item_id)
     r = requests.get(f"{base}/worksheets('{sheet}')", headers=client._headers())  # noqa: S113
     if r.status_code < 300:
         return r.json() or {}
+
     # Add if missing, with simple retries for transient 5xx
     for attempt in range(4):
         rr = requests.post(f"{base}/worksheets/add", headers=client._headers(), data=json.dumps({"name": sheet}))  # noqa: S113
@@ -164,10 +179,15 @@ def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str
     return {}
 
 
+def _pad_rows(values: List[List[str]], cols: int) -> List[List[str]]:
+    """Pad ragged rows to make rectangular for Graph API."""
+    return [r + [""] * (cols - len(r)) if len(r) < cols else r for r in values]
+
+
 def _write_range(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
     import requests  # type: ignore
-    base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
-    # Clear
+
+    base = _workbook_url(client, drive_id, item_id)
     requests.post(  # noqa: S113
         f"{base}/worksheets('{sheet}')/range(address='A1:Z100000')/clear",
         headers=client._headers(),
@@ -175,16 +195,12 @@ def _write_range(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     )
     if not values:
         return
-    rows = len(values)
-    cols = max(len(r) for r in values)
-    # Pad ragged rows so Graph range write is rectangular
-    padded = []
-    for r in values:
-        if len(r) < cols:
-            r = r + [""] * (cols - len(r))
-        padded.append(r)
+
+    rows, cols = len(values), max(len(r) for r in values)
+    padded = _pad_rows(values, cols)
     end_col = _col_letter(cols)
     addr = f"A1:{end_col}{rows}"
+
     r = requests.patch(  # noqa: S113
         f"{base}/worksheets('{sheet}')/range(address='{addr}')",
         headers=client._headers(),
@@ -192,54 +208,46 @@ def _write_range(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     )
     r.raise_for_status()
 
-    # Make a table
+    # Make a table (best-effort)
     tadd = requests.post(  # noqa: S113
         f"{base}/tables/add",
         headers=client._headers(),
         data=json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
     )
-    tid = None
     try:
-        tid = (tadd.json() or {}).get("id")
+        if tid := (tadd.json() or {}).get("id"):
+            requests.patch(  # noqa: S113
+                f"{base}/tables/{tid}",
+                headers=client._headers(),
+                data=json.dumps({"style": "TableStyleMedium2"}),
+            )
     except Exception:
-        tid = None
-    if tid:
-        requests.patch(  # noqa: S113
-            f"{base}/tables/{tid}",
-            headers=client._headers(),
-            data=json.dumps({"style": "TableStyleMedium2"}),
-        )
-    # Autofit
-    requests.post(  # noqa: S113
-        f"{base}/worksheets('{sheet}')/range(address='{sheet}!A:{end_col}')/format/autofitColumns",
-        headers=client._headers(),
-    )
-    # Freeze header
-    requests.post(  # noqa: S113
-        f"{base}/worksheets('{sheet}')/freezePanes/freeze",
-        headers=client._headers(),
-        data=json.dumps({"top": 1, "left": 0}),
-    )
+        pass  # noqa: S110 - table styling is optional
+
+    # Autofit columns and freeze header
+    requests.post(f"{base}/worksheets('{sheet}')/range(address='{sheet}!A:{end_col}')/format/autofitColumns", headers=client._headers())  # noqa: S113
+    requests.post(f"{base}/worksheets('{sheet}')/freezePanes/freeze", headers=client._headers(), data=json.dumps({"top": 1, "left": 0}))  # noqa: S113
 
 
 def _add_chart(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_type: str, source_addr: str, left: int = 400, top: int = 10, width: int = 600, height: int = 360) -> None:
     import requests  # type: ignore
-    base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts/add"
+
+    base = _workbook_url(client, drive_id, item_id)
+    url = f"{base}/worksheets('{sheet}')/charts/add"
     body = {"type": chart_type, "sourceData": f"'{sheet}'!{source_addr}", "seriesBy": "Auto"}
-    r = requests.post(base, headers=client._headers(), data=json.dumps(body))  # noqa: S113
+    r = requests.post(url, headers=client._headers(), data=json.dumps(body))  # noqa: S113
     if r.status_code >= 400:
         return
+
     try:
-        cid = (r.json() or {}).get("id")
+        if cid := (r.json() or {}).get("id"):
+            requests.patch(  # noqa: S113
+                f"{base}/worksheets('{sheet}')/charts('{cid}')",
+                headers=client._headers(),
+                data=json.dumps({"top": top, "left": left, "width": width, "height": height}),
+            )
     except Exception:
-        cid = None
-    if cid:
-        # Position the chart (optional best-effort)
-        requests.patch(  # noqa: S113
-            f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{cid}')",
-            headers=client._headers(),
-            data=json.dumps({"top": top, "left": left, "width": width, "height": height}),
-        )
+        pass  # noqa: S110 - chart positioning is optional
 
 
 def _to_values_all(recs: List[Dict[str, str]]) -> List[List[str]]:
@@ -263,38 +271,38 @@ def _set_sheet_visibility(client: OutlookClient, drive_id: str, item_id: str, sh
 def _write_filter_view(client: OutlookClient, drive_id: str, item_id: str, all_sheet: str, out_sheet: str, metal: str) -> None:
     """Write a dynamic FILTER view on out_sheet that references 'all_sheet' and filters by metal."""
     import requests  # type: ignore
-    base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
-    # Clear
-    requests.post(  # noqa: S113
-        f"{base}/worksheets('{out_sheet}')/range(address='A1:Z100000')/clear",
-        headers=client._headers(),
-        data=json.dumps({"applyTo": "contents"}),
-    )
-    # Header row
-    headers = [["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]]
-    requests.patch(  # noqa: S113
-        f"{base}/worksheets('{out_sheet}')/range(address='A1:F1')",
-        headers=client._headers(),
-        data=json.dumps({"values": headers}),
-    )
-    # FILTER formula spills under the header
-    # =FILTER(All!A2:F100000, All!D2:D100000="gold")
+
+    base = _workbook_url(client, drive_id, item_id)
+    headers_api = client._headers()
+
+    # Clear, write header, write FILTER formula
+    requests.post(f"{base}/worksheets('{out_sheet}')/range(address='A1:Z100000')/clear", headers=headers_api, data=json.dumps({"applyTo": "contents"}))  # noqa: S113
+    requests.patch(f"{base}/worksheets('{out_sheet}')/range(address='A1:F1')", headers=headers_api, data=json.dumps({"values": [["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]]}))  # noqa: S113
     formula = f"=FILTER('{all_sheet}'!A2:F100000, '{all_sheet}'!D2:D100000=\"{metal}\")"
-    requests.patch(  # noqa: S113
-        f"{base}/worksheets('{out_sheet}')/range(address='A2')",
-        headers=client._headers(),
-        data=json.dumps({"values": [[formula]]}),
-    )
+    requests.patch(f"{base}/worksheets('{out_sheet}')/range(address='A2')", headers=headers_api, data=json.dumps({"values": [[formula]]}))  # noqa: S113
+
     # Autofit and freeze header
-    requests.post(  # noqa: S113
-        f"{base}/worksheets('{out_sheet}')/range(address='{out_sheet}!A:F')/format/autofitColumns",
-        headers=client._headers(),
+    requests.post(f"{base}/worksheets('{out_sheet}')/range(address='{out_sheet}!A:F')/format/autofitColumns", headers=headers_api)  # noqa: S113
+    requests.post(f"{base}/worksheets('{out_sheet}')/freezePanes/freeze", headers=headers_api, data=json.dumps({"top": 1, "left": 0}))  # noqa: S113
+
+
+def _sumif_formula(sheet: str, match_col: str, match_val: str, sum_col: str) -> str:
+    """Build a SUMIF formula for Excel."""
+    return f"=SUMIF('{sheet}'!${match_col}$2:${match_col}$100000,\"{match_val}\",'{sheet}'!${sum_col}$2:${sum_col}$100000)"
+
+
+def _avgcost_formula(sheet: str, match_col: str, match_val: str, oz_col: str, cpo_col: str) -> str:
+    """Build a weighted average cost formula (SUMPRODUCT/SUMIF) for Excel."""
+    return (
+        f"=IFERROR(SUMPRODUCT(('{sheet}'!${match_col}$2:${match_col}$100000=\"{match_val}\")*"
+        f"'{sheet}'!${oz_col}$2:${oz_col}$100000*'{sheet}'!${cpo_col}$2:${cpo_col}$100000)/"
+        f"SUMIF('{sheet}'!${match_col}$2:${match_col}$100000,\"{match_val}\",'{sheet}'!${oz_col}$2:${oz_col}$100000),\"\")"
     )
-    requests.post(  # noqa: S113
-        f"{base}/worksheets('{out_sheet}')/freezePanes/freeze",
-        headers=client._headers(),
-        data=json.dumps({"top": 1, "left": 0}),
-    )
+
+
+def _summary_row(sheet: str, label: str, match_col: str, oz_col: str = "E", cpo_col: str = "F") -> List[str]:
+    """Build a summary row with label, total oz, and avg cost formulas."""
+    return [label, _sumif_formula(sheet, match_col, label, oz_col), _avgcost_formula(sheet, match_col, label, oz_col, cpo_col)]
 
 
 def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str]], Dict[str, str]]:
@@ -384,6 +392,38 @@ def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str
     return values, anchors
 
 
+def _fill_date_gaps(
+    series: Dict[str, float], start_date: str, end_date: str
+) -> Dict[str, float]:
+    """Forward-fill and back-fill gaps in a date series to produce a continuous series."""
+    if not series:
+        return series
+    from datetime import date, timedelta
+
+    out = dict(series)
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+
+    # Get first available value for back-fill
+    avail_dates = sorted(out.keys())
+    first_val = out.get(avail_dates[0]) if avail_dates else None
+
+    d = start
+    last = None
+    while d <= end:
+        ds = d.isoformat()
+        if ds in out:
+            last = out[ds]
+        elif last is not None:
+            out[ds] = last
+        elif first_val is not None:
+            # Back-fill at the very beginning
+            out[ds] = first_val
+            last = first_val
+        d += timedelta(days=1)
+    return out
+
+
 def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str, float]:
     """Fetch daily closes from Yahoo chart API for the given symbol between dates (YYYY-MM-DD).
 
@@ -411,7 +451,6 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
         res = ((data.get("chart") or {}).get("result") or [])[0]
         ts = res.get("timestamp", [])
         cl = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close", [])
-        from datetime import datetime, timezone
         for i, t in enumerate(ts or []):
             try:
                 d = datetime.fromtimestamp(int(t), tz=timezone.utc).date().isoformat()
@@ -422,42 +461,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
                 continue
     except Exception:
         return out
-    # Forward-fill minor gaps
-    if out:
-        from datetime import date, timedelta
-        start = date.fromisoformat(start_date)
-        end = date.fromisoformat(end_date)
-        d = start
-        last = None
-        while d <= end:
-            ds = d.isoformat()
-            if ds in out:
-                last = out[ds]
-            elif last is not None:
-                out[ds] = last
-            d += timedelta(days=1)
-    # Forward-fill minor gaps and back-fill start
-    if out:
-        from datetime import date, timedelta
-        start = date.fromisoformat(start_date)
-        end = date.fromisoformat(end_date)
-        d = start
-        last = None
-        # If our first available point starts after `start`, remember its value for back-fill
-        avail_dates = sorted(out.keys())
-        first_val = out.get(avail_dates[0]) if avail_dates else None
-        while d <= end:
-            ds = d.isoformat()
-            if ds in out:
-                last = out[ds]
-            elif last is not None:
-                out[ds] = last
-            elif first_val is not None:
-                # Back-fill at the very beginning
-                out[ds] = first_val
-                last = first_val
-            d += timedelta(days=1)
-    return out
+    return _fill_date_gaps(out, start_date, end_date)
 
 
 def _spot_cad_series(metal: str, start_date: str, end_date: str) -> Dict[str, float]:
@@ -557,12 +561,6 @@ def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
         s_avg = (s_cost / s_oz) if s_oz > 0 else 0.0
         g_spot = spot_gold.get(ds)
         s_spot = spot_silver.get(ds)
-        if g_spot is None and spot_gold:
-            # fallback to last available <= ds
-            # already filled forward; if missing at beginning, skip pnl
-            g_spot = spot_gold.get(ds)
-        if s_spot is None and spot_silver:
-            s_spot = spot_silver.get(ds)
         g_pnl = (g_spot - g_avg) * g_oz if (g_spot and g_avg and g_oz) else 0.0
         s_pnl = (s_spot - s_avg) * s_oz if (s_spot and s_avg and s_oz) else 0.0
         port = g_pnl + s_pnl
@@ -651,33 +649,18 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Write All and Summary (formulas)
     _write_range(client, new_did, new_iid, all_name, all_values)
-    # Formula-driven Summary referencing All
+
+    # Formula-driven Summary referencing All (D=metal, C=vendor, E=oz, F=cost_per_oz)
     sum_formulas = [
         ["Totals by Metal"],
         ["Metal", "Total Ounces", "Avg Cost/Oz"],
-        [
-            "gold",
-            "=SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000)",
-            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"gold\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"gold\",'"+all_name+"'!$E$2:$E$100000),\"\")",
-        ],
-        [
-            "silver",
-            "=SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000)",
-            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$D$2:$D$100000=\"silver\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$D$2:$D$100000,\"silver\",'"+all_name+"'!$E$2:$E$100000),\"\")",
-        ],
+        _summary_row(all_name, "gold", "D"),
+        _summary_row(all_name, "silver", "D"),
         [""],
         ["Totals by Vendor"],
         ["Vendor", "Total Ounces", "Avg Cost/Oz"],
-        [
-            "TD",
-            "=SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000)",
-            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"TD\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"TD\",'"+all_name+"'!$E$2:$E$100000),\"\")",
-        ],
-        [
-            "Costco",
-            "=SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000)",
-            "=IFERROR(SUMPRODUCT(('"+all_name+"'!$C$2:$C$100000=\"Costco\")*'"+all_name+"'!$E$2:$E$100000*'"+all_name+"'!$F$2:$F$100000)/SUMIF('"+all_name+"'!$C$2:$C$100000,\"Costco\",'"+all_name+"'!$E$2:$E$100000),\"\")",
-        ],
+        _summary_row(all_name, "TD", "C"),
+        _summary_row(all_name, "Costco", "C"),
     ]
     _write_range(client, new_did, new_iid, sum_name, sum_formulas)
 

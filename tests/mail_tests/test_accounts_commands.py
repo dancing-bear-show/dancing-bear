@@ -22,7 +22,7 @@ def make_args(**kwargs):
     """Create args namespace with accounts-specific defaults."""
     defaults = {
         "config": "/path/to/config.yaml",
-        "out_dir": "/tmp/out",
+        "out_dir": "/tmp/out",  # nosec B108 - test fixture path
         "labels": "/path/to/labels.yaml",
         "filters": "/path/to/filters.yaml",
         "accounts": None,

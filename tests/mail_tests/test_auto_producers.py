@@ -14,7 +14,7 @@ class TestAutoProposeProducer(unittest.TestCase):
 
     def test_produce_success_output(self):
         payload = AutoProposeResult(
-            out_path=Path("/tmp/proposal.json"),
+            out_path=Path("/tmp/proposal.json"),  # nosec B108 - test fixture path
             total_considered=100,
             selected_count=25,
             query="in:inbox newer_than:7d",
@@ -24,7 +24,7 @@ class TestAutoProposeProducer(unittest.TestCase):
         with capture_stdout() as buf:
             AutoProposeProducer().produce(result)
         output = buf.getvalue()
-        self.assertIn("/tmp/proposal.json", output)
+        self.assertIn("/tmp/proposal.json", output)  # nosec B108 - test assertion
         self.assertIn("25", output)
         self.assertIn("100", output)
 

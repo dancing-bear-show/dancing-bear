@@ -308,7 +308,7 @@ class TestRunOutlookAuthDeviceCode(unittest.TestCase):
 
     def _make_args(self, **kwargs):
         defaults = {
-            "out": "/tmp/flow.json",
+            "out": "/tmp/flow.json",  # nosec B108 - test fixture path
             "profile": None,
             "client_id": None,
             "tenant": None,
@@ -344,7 +344,7 @@ class TestRunOutlookAuthValidate(unittest.TestCase):
     @patch("mail.outlook.commands.resolve_outlook_credentials")
     def test_fails_without_client_id(self, mock_resolve):
         from mail.outlook.commands import run_outlook_auth_validate
-        mock_resolve.return_value = (None, "consumers", "/tmp/token.json")
+        mock_resolve.return_value = (None, "consumers", "/tmp/token.json")  # nosec B108
         args = self._make_args()
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_auth_validate(args)

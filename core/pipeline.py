@@ -19,6 +19,13 @@ class ResultEnvelope(Generic[ResultT]):
     def ok(self) -> bool:
         return self.status.lower() == "success"
 
+    def unwrap(self) -> ResultT:
+        """Return payload or raise ValueError. Use after ok() check."""
+        if self.payload is None:
+            msg = (self.diagnostics or {}).get("message", "No payload")
+            raise ValueError(msg)
+        return self.payload
+
 
 class Consumer(Protocol[PayloadT]):
     def consume(self) -> PayloadT:
