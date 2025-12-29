@@ -151,7 +151,7 @@ class GmailReceiptsProcessor(Processor[GmailReceiptsRequest, ResultEnvelope[Gmai
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
-            except Exception:  # nosec B112 - skip unreadable messages
+            except Exception:  # noqa: S112 - skip unreadable messages
                 continue
             ev = self._parse_single_receipt(text, calendar)
             if ev:
@@ -307,7 +307,7 @@ class GmailScanClassesProcessor(Processor[GmailScanClassesRequest, ResultEnvelop
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
-            except Exception:  # nosec B112 - skip unreadable messages
+            except Exception:  # noqa: S112 - skip unreadable messages
                 continue
             extracted.extend(self._extract_events(text, payload.calendar))
         events = dedupe_events(extracted)
@@ -534,7 +534,7 @@ class GmailSweepTopProcessor(Processor[GmailSweepTopRequest, ResultEnvelope[Gmai
         """Extract sender email address from a message."""
         try:
             msg = svc.get_message(mid)
-        except Exception:  # nosec B112 - skip unreadable messages
+        except Exception:  # noqa: S112 - skip unreadable messages
             return None
         return self._parse_sender_from_message(msg)
 
