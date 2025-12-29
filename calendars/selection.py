@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import datetime as _dt
 
+from core.constants import DAY_START_TIME, DAY_END_TIME
+
 
 def _ymd(d: str) -> str:
     return str(d)[:10]
@@ -27,9 +29,9 @@ def compute_window(event: Dict[str, Any]) -> Optional[Tuple[str, str]]:
     s = (rng.get("start_date") or "").strip()
     u = (rng.get("until") or "").strip()
     if s and u:
-        return f"{_ymd(s)}T00:00:00", f"{_ymd(u)}T23:59:59"
+        return f"{_ymd(s)}{DAY_START_TIME}", f"{_ymd(u)}{DAY_END_TIME}"
     if s:
-        return f"{_ymd(s)}T00:00:00", f"{_ymd(s)}T23:59:59"
+        return f"{_ymd(s)}{DAY_START_TIME}", f"{_ymd(s)}{DAY_END_TIME}"
     return None
 
 
