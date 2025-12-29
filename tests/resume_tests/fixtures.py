@@ -1,6 +1,40 @@
 """Resume-specific test fixtures.
 
 Docx document fakes, data builders, and sample data for testing.
+
+Structure:
+    Docx Fakes:
+        FakeRun, FakeParagraph, FakeDocument - Mock python-docx objects
+
+    Data Builders (use defaults, override as needed):
+        make_experience_entry() -> dict with title, company, bullets
+        make_education_entry()  -> dict with degree, institution, year
+        make_candidate()        -> dict with name, email, experience, skills
+        make_skills_group()     -> dict with title, items
+        make_keyword_spec()     -> dict with required, preferred, nice tiers
+        make_empty_profile()    -> dict with all profile fields empty
+
+    Sample Data Constants:
+        SAMPLE_EXPERIENCE_ENTRIES  - List of 3 experience dicts
+        SAMPLE_SKILLS_GROUPS       - List of 2 skill group dicts
+        SAMPLE_CANDIDATE           - Complete candidate with all fields
+        SAMPLE_CANDIDATE_WITH_GROUPS - Candidate using skills_groups
+        SAMPLE_RESUME_TEXT         - Multi-line resume string
+        SAMPLE_CONTACT_LINES       - List of contact info lines
+        SAMPLE_PDF_LINES_WITH_SECTIONS - PDF text lines with headers
+        SAMPLE_LINKEDIN_HTML       - LinkedIn profile HTML snippet
+
+Usage:
+    from tests.resume_tests.fixtures import make_candidate, SAMPLE_EXPERIENCE_ENTRIES
+
+    # Use builder with defaults
+    candidate = make_candidate()
+
+    # Override specific fields
+    candidate = make_candidate(name="Jane", skills=["Python"])
+
+    # Use sample data directly
+    candidate = {"name": "Test", "experience": SAMPLE_EXPERIENCE_ENTRIES[:1]}
 """
 
 from __future__ import annotations
