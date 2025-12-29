@@ -64,7 +64,9 @@ _PAT_ITEM_SKU = re.compile(r"(?i)\bitem(?:\s*(?:#|number)\s*)?:?\s*(\d{5,})\b")
 _PAT_LEADING_QTY = re.compile(r"(?i)\b(\d{1,3})\s*x\b")
 
 
-def _extract_first_match_group(pattern, text: str, min_val: int, max_val: int) -> float | None:
+def _extract_first_match_group(
+    pattern: re.Pattern[str], text: str, min_val: int, max_val: int
+) -> float | None:
     """Extract first matching numeric group within [min_val, max_val] range."""
     m = pattern.search(text or "")
     if not m:
@@ -126,7 +128,7 @@ def _unit_oz_override_near(lines: List[str], idx: int, metal_ctx: str) -> float 
 
 
 def _apply_qty_heuristics(
-    lines: List[str], ln: str, m, idx: int, unit_oz: float, metal: str, qty: float, explicit_qty: bool
+    lines: List[str], ln: str, m: re.Match[str], idx: int, unit_oz: float, metal: str, qty: float, explicit_qty: bool
 ) -> Tuple[float, float]:
     """Apply quantity and unit-oz heuristics. Returns (qty, unit_oz)."""
     if math.isclose(qty, 1.0) and not explicit_qty:
@@ -188,7 +190,6 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]] | None:
             unit_oz = wt_g / G_PER_OZ
             qty, unit_oz = _apply_qty_heuristics(lines, ln, m, idx, unit_oz, metal, qty, explicit_qty)
             items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
-        return items, lines
     return items, lines
 
 

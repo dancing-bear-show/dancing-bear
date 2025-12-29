@@ -186,7 +186,12 @@ class ScheduleItem:
 
 
 def _get_field(row: Dict[str, Any], *keys: str, default: str = '') -> str:
-    """Get first non-empty field from row by trying multiple key variants."""
+    """Get first non-empty field from row by trying multiple key variants.
+
+    Supports both normalized rows (lowercase keys, e.g. from parse_csv) and
+    original/mixed-case rows (e.g. from xlsx). For each requested key, tries
+    exact match, lowercase, and title-case variants.
+    """
     for k in keys:
         val = row.get(k) or row.get(k.lower()) or row.get(k.title())
         if val is not None and str(val).strip():
