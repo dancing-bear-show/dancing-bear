@@ -83,7 +83,7 @@ QTY_PATTERNS = [
 def iter_nearby_lines(
     lines: List[str], idx: int, window: int, forward_only: bool = False
 ) -> List[Tuple[int, str]]:
-    """Yield (line_index, line_text) pairs near idx within window."""
+    """Return (line_index, line_text) pairs near idx within window."""
     result: List[Tuple[int, str]] = []
     seen: set[int] = set()
     for d in range(window):
