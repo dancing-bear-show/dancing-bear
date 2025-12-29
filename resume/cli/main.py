@@ -246,7 +246,7 @@ def _load_structure(args: argparse.Namespace) -> Optional[dict]:
 # --- render command ---
 @app.command("render", help="Render a DOCX resume from unified data with a YAML/JSON template")
 @app.argument("--data", required=True, help="Unified data file (YAML/JSON)")
-@app.argument("--template", help="Template config (YAML/JSON)")
+@app.argument("--template", help="Template config (YAML/JSON); REQUIRED to render sections beyond header")
 @app.argument("--seed", help="Seed criteria as JSON string or KEY=VALUE pairs (comma-separated)")
 @app.argument("--style-profile", help="Style profile JSON from 'style build' (optional)")
 @app.argument("--filter-skills-alignment", help="Alignment JSON to filter Skills to matched keywords")
