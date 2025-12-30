@@ -4,9 +4,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import (
+    BaseProducer,
+    RequestConsumer,
+    SafeProcessor,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -32,76 +36,50 @@ class AuthResult:
     message: str
 
 
-class AuthRequestConsumer(Consumer[AuthRequest]):
-    def __init__(self, request: AuthRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AuthRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+AuthRequestConsumer = RequestConsumer[AuthRequest]
 
 
-class AuthProcessor(Processor[AuthRequest, ResultEnvelope[AuthResult]]):
-    def process(self, payload: AuthRequest) -> ResultEnvelope[AuthResult]:
+class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
+    def _process_safe(self, payload: AuthRequest) -> AuthResult:
         from ..config_resolver import persist_if_provided, resolve_paths_profile
 
-        try:
-            creds_path, token_path = resolve_paths_profile(
-                arg_credentials=payload.credentials,
-                arg_token=payload.token,
-                profile=payload.profile,
-            )
+        creds_path, token_path = resolve_paths_profile(
+            arg_credentials=payload.credentials,
+            arg_token=payload.token,
+            profile=payload.profile,
+        )
 
-            if payload.validate:
-                try:
-                    from google.auth.transport.requests import Request
-                    from google.oauth2.credentials import Credentials
-                    from googleapiclient.discovery import build
-                    from ..gmail_api import SCOPES as GMAIL_SCOPES
-                except Exception as e:
-                    return ResultEnvelope(
-                        status="error",
-                        payload=AuthResult(success=False, message=f"Gmail validation unavailable: {e}"),
-                    )
-                if not token_path or not os.path.exists(token_path):
-                    return ResultEnvelope(
-                        status="error",
-                        payload=AuthResult(success=False, message=f"Token file not found: {token_path or '<unspecified>'}"),
-                    )
-                try:
-                    creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
-                    if creds and creds.expired and getattr(creds, 'refresh_token', None):
-                        creds.refresh(Request())
-                    svc = build("gmail", "v1", credentials=creds)
-                    _ = svc.users().getProfile(userId="me").execute()
-                    return ResultEnvelope(
-                        status="success",
-                        payload=AuthResult(success=True, message="Gmail token valid."),
-                    )
-                except Exception as e:
-                    return ResultEnvelope(
-                        status="error",
-                        payload=AuthResult(success=False, message=f"Gmail token invalid: {e}"),
-                    )
+        if payload.validate:
+            try:
+                from google.auth.transport.requests import Request
+                from google.oauth2.credentials import Credentials
+                from googleapiclient.discovery import build
+                from ..gmail_api import SCOPES as GMAIL_SCOPES
+            except Exception as e:
+                raise ValueError(f"Gmail validation unavailable: {e}")
+            if not token_path or not os.path.exists(token_path):
+                raise ValueError(f"Token file not found: {token_path or '<unspecified>'}")
+            try:
+                creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
+                if creds and creds.expired and getattr(creds, 'refresh_token', None):
+                    creds.refresh(Request())
+                svc = build("gmail", "v1", credentials=creds)
+                _ = svc.users().getProfile(userId="me").execute()
+                return AuthResult(success=True, message="Gmail token valid.")
+            except Exception as e:
+                raise ValueError(f"Gmail token invalid: {e}")
 
-            from ..gmail_api import GmailClient
-            client = GmailClient(credentials_path=creds_path, token_path=token_path)
-            client.authenticate()
-            persist_if_provided(arg_credentials=payload.credentials, arg_token=payload.token)
-            return ResultEnvelope(
-                status="success",
-                payload=AuthResult(success=True, message="Authentication complete."),
-            )
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                payload=AuthResult(success=False, message=str(e)),
-            )
+        from ..gmail_api import GmailClient
+        client = GmailClient(credentials_path=creds_path, token_path=token_path)
+        client.authenticate()
+        persist_if_provided(arg_credentials=payload.credentials, arg_token=payload.token)
+        return AuthResult(success=True, message="Authentication complete.")
 
 
-class AuthProducer(Producer[ResultEnvelope[AuthResult]]):
-    def produce(self, result: ResultEnvelope[AuthResult]) -> None:
-        if result.payload:
-            print(result.payload.message)
+class AuthProducer(BaseProducer):
+    def _produce_success(self, payload: AuthResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(payload.message)
 
 
 # -----------------------------------------------------------------------------
@@ -129,88 +107,75 @@ class BackupResult:
     filters_count: int
 
 
-class BackupRequestConsumer(Consumer[BackupRequest]):
-    def __init__(self, request: BackupRequest) -> None:
-        self._request = request
-
-    def consume(self) -> BackupRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+BackupRequestConsumer = RequestConsumer[BackupRequest]
 
 
-class BackupProcessor(Processor[BackupRequest, ResultEnvelope[BackupResult]]):
-    def process(self, payload: BackupRequest) -> ResultEnvelope[BackupResult]:
+class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
+    def _process_safe(self, payload: BackupRequest) -> BackupResult:
         import argparse
         from datetime import datetime
         from ..utils.cli_helpers import gmail_provider_from_args
         from ..yamlio import dump_config
 
-        try:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
-            out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-            args = argparse.Namespace(
-                credentials=payload.credentials,
-                token=payload.token,
-                cache=payload.cache,
-                profile=payload.profile,
-            )
-            client = gmail_provider_from_args(args)
-            client.authenticate()
+        args = argparse.Namespace(
+            credentials=payload.credentials,
+            token=payload.token,
+            cache=payload.cache,
+            profile=payload.profile,
+        )
+        client = gmail_provider_from_args(args)
+        client.authenticate()
 
-            # Labels
-            labels = client.list_labels()
-            labels_doc = {
-                "labels": [
-                    {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
-                    for lab in labels if lab.get("type") != "system"
-                ],
-                "redirects": [],
+        # Labels
+        labels = client.list_labels()
+        labels_doc = {
+            "labels": [
+                {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
+                for lab in labels if lab.get("type") != "system"
+            ],
+            "redirects": [],
+        }
+        dump_config(str(out_dir / "labels.yaml"), labels_doc)
+
+        # Filters
+        id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in labels}
+
+        def ids_to_names(ids):
+            return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
+
+        filters = client.list_filters()
+        dsl_filters = []
+        for f in filters:
+            crit = f.get("criteria", {}) or {}
+            act = f.get("action", {}) or {}
+            entry = {
+                "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
+                "action": {},
             }
-            dump_config(str(out_dir / "labels.yaml"), labels_doc)
+            if act.get("forward"):
+                entry["action"]["forward"] = act["forward"]
+            if act.get("addLabelIds"):
+                entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
+            if act.get("removeLabelIds"):
+                entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
+            dsl_filters.append(entry)
+        dump_config(str(out_dir / "filters.yaml"), {"filters": dsl_filters})
 
-            # Filters
-            id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in labels}
-
-            def ids_to_names(ids):
-                return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
-
-            filters = client.list_filters()
-            dsl_filters = []
-            for f in filters:
-                crit = f.get("criteria", {}) or {}
-                act = f.get("action", {}) or {}
-                entry = {
-                    "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
-                    "action": {},
-                }
-                if act.get("forward"):
-                    entry["action"]["forward"] = act["forward"]
-                if act.get("addLabelIds"):
-                    entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
-                if act.get("removeLabelIds"):
-                    entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
-                dsl_filters.append(entry)
-            dump_config(str(out_dir / "filters.yaml"), {"filters": dsl_filters})
-
-            return ResultEnvelope(
-                status="success",
-                payload=BackupResult(
-                    out_path=str(out_dir),
-                    labels_count=len(labels_doc["labels"]),
-                    filters_count=len(dsl_filters),
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return BackupResult(
+            out_path=str(out_dir),
+            labels_count=len(labels_doc["labels"]),
+            filters_count=len(dsl_filters),
+        )
 
 
-class BackupProducer(Producer[ResultEnvelope[BackupResult]]):
-    def produce(self, result: ResultEnvelope[BackupResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Backup failed')}")
-            return
-        print(f"Backup written to {result.unwrap().out_path}")
+class BackupProducer(BaseProducer):
+    def _produce_success(self, payload: BackupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Backup written to {payload.out_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -234,16 +199,12 @@ class CacheStatsResult:
     size_bytes: int
 
 
-class CacheStatsRequestConsumer(Consumer[CacheStatsRequest]):
-    def __init__(self, request: CacheStatsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> CacheStatsRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+CacheStatsRequestConsumer = RequestConsumer[CacheStatsRequest]
 
 
-class CacheStatsProcessor(Processor[CacheStatsRequest, ResultEnvelope[CacheStatsResult]]):
-    def process(self, payload: CacheStatsRequest) -> ResultEnvelope[CacheStatsResult]:
+class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
+    def _process_safe(self, payload: CacheStatsRequest) -> CacheStatsResult:
         root = Path(payload.cache_path)
         total = 0
         files = 0
@@ -254,19 +215,12 @@ class CacheStatsProcessor(Processor[CacheStatsRequest, ResultEnvelope[CacheStats
                     total += p.stat().st_size
                 except Exception:  # noqa: S110 - fallback on error
                     pass
-        return ResultEnvelope(
-            status="success",
-            payload=CacheStatsResult(path=str(root), files=files, size_bytes=total),
-        )
+        return CacheStatsResult(path=str(root), files=files, size_bytes=total)
 
 
-class CacheStatsProducer(Producer[ResultEnvelope[CacheStatsResult]]):
-    def produce(self, result: ResultEnvelope[CacheStatsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Cache: {p.path} files={p.files} size={p.size_bytes} bytes")
+class CacheStatsProducer(BaseProducer):
+    def _produce_success(self, payload: CacheStatsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
 
 
 # -----------------------------------------------------------------------------
@@ -289,39 +243,25 @@ class CacheClearResult:
     cleared: bool
 
 
-class CacheClearRequestConsumer(Consumer[CacheClearRequest]):
-    def __init__(self, request: CacheClearRequest) -> None:
-        self._request = request
-
-    def consume(self) -> CacheClearRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+CacheClearRequestConsumer = RequestConsumer[CacheClearRequest]
 
 
-class CacheClearProcessor(Processor[CacheClearRequest, ResultEnvelope[CacheClearResult]]):
-    def process(self, payload: CacheClearRequest) -> ResultEnvelope[CacheClearResult]:
+class CacheClearProcessor(SafeProcessor[CacheClearRequest, CacheClearResult]):
+    def _process_safe(self, payload: CacheClearRequest) -> CacheClearResult:
         import shutil
 
         root = Path(payload.cache_path)
         if not root.exists():
-            return ResultEnvelope(
-                status="success",
-                payload=CacheClearResult(path=str(root), cleared=False),
-            )
+            return CacheClearResult(path=str(root), cleared=False)
         shutil.rmtree(root)
-        return ResultEnvelope(
-            status="success",
-            payload=CacheClearResult(path=str(root), cleared=True),
-        )
+        return CacheClearResult(path=str(root), cleared=True)
 
 
-class CacheClearProducer(Producer[ResultEnvelope[CacheClearResult]]):
-    def produce(self, result: ResultEnvelope[CacheClearResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        if p.cleared:
-            print(f"Cleared cache: {p.path}")
+class CacheClearProducer(BaseProducer):
+    def _produce_success(self, payload: CacheClearResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.cleared:
+            print(f"Cleared cache: {payload.path}")
         else:
             print("Cache does not exist.")
 
@@ -348,24 +288,17 @@ class CachePruneResult:
     days: int
 
 
-class CachePruneRequestConsumer(Consumer[CachePruneRequest]):
-    def __init__(self, request: CachePruneRequest) -> None:
-        self._request = request
-
-    def consume(self) -> CachePruneRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+CachePruneRequestConsumer = RequestConsumer[CachePruneRequest]
 
 
-class CachePruneProcessor(Processor[CachePruneRequest, ResultEnvelope[CachePruneResult]]):
-    def process(self, payload: CachePruneRequest) -> ResultEnvelope[CachePruneResult]:
+class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
+    def _process_safe(self, payload: CachePruneRequest) -> CachePruneResult:
         import time
 
         root = Path(payload.cache_path)
         if not root.exists():
-            return ResultEnvelope(
-                status="success",
-                payload=CachePruneResult(path=str(root), removed=0, days=payload.days),
-            )
+            return CachePruneResult(path=str(root), removed=0, days=payload.days)
         cutoff = time.time() - (payload.days * 86400)
         removed = 0
         for p in root.rglob("*.json"):
@@ -375,19 +308,12 @@ class CachePruneProcessor(Processor[CachePruneRequest, ResultEnvelope[CachePrune
                     removed += 1
             except Exception:  # noqa: S110 - fallback on error
                 pass
-        return ResultEnvelope(
-            status="success",
-            payload=CachePruneResult(path=str(root), removed=removed, days=payload.days),
-        )
+        return CachePruneResult(path=str(root), removed=removed, days=payload.days)
 
 
-class CachePruneProducer(Producer[ResultEnvelope[CachePruneResult]]):
-    def produce(self, result: ResultEnvelope[CachePruneResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Pruned {p.removed} files older than {p.days} days from {p.path}")
+class CachePruneProducer(BaseProducer):
+    def _produce_success(self, payload: CachePruneResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}")
 
 
 # -----------------------------------------------------------------------------
@@ -419,42 +345,26 @@ class ConfigInspectResult:
     sections: List[ConfigSection]
 
 
-class ConfigInspectRequestConsumer(Consumer[ConfigInspectRequest]):
-    def __init__(self, request: ConfigInspectRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ConfigInspectRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+ConfigInspectRequestConsumer = RequestConsumer[ConfigInspectRequest]
 
 
-class ConfigInspectProcessor(Processor[ConfigInspectRequest, ResultEnvelope[ConfigInspectResult]]):
-    def process(self, payload: ConfigInspectRequest) -> ResultEnvelope[ConfigInspectResult]:
+class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectResult]):
+    def _process_safe(self, payload: ConfigInspectRequest) -> ConfigInspectResult:
         import configparser
         from ..utils.shield import mask_value as _mask_value
 
         ini = Path(os.path.expanduser(payload.path))
         if not ini.exists():
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Config not found: {ini}"},
-            )
+            raise FileNotFoundError(f"Config not found: {ini}")
         cp = configparser.ConfigParser()
-        try:
-            cp.read(ini)
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Failed to read INI: {e}"},
-            )
+        cp.read(ini)
 
         sections = cp.sections()
         if payload.section:
             sections = [s for s in sections if s == payload.section]
             if not sections:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Section not found: {payload.section}"},
-                )
+                raise ValueError(f"Section not found: {payload.section}")
         elif payload.only_mail:
             sections = [s for s in sections if s.startswith("mail")]
 
@@ -466,18 +376,12 @@ class ConfigInspectProcessor(Processor[ConfigInspectRequest, ResultEnvelope[Conf
                 items=[(k, _mask_value(k, v)) for k, v in cp.items(s)],
             ))
 
-        return ResultEnvelope(
-            status="success",
-            payload=ConfigInspectResult(sections=result_sections),
-        )
+        return ConfigInspectResult(sections=result_sections)
 
 
-class ConfigInspectProducer(Producer[ResultEnvelope[ConfigInspectResult]]):
-    def produce(self, result: ResultEnvelope[ConfigInspectResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        for section in result.unwrap().sections:
+class ConfigInspectProducer(BaseProducer):
+    def _produce_success(self, payload: ConfigInspectResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        for section in payload.sections:
             print(f"[{section.name}]")
             for k, v in section.items:
                 print(f"{k} = {v}")
@@ -507,57 +411,40 @@ class DeriveLabelsResult:
     labels_count: int
 
 
-class DeriveLabelsRequestConsumer(Consumer[DeriveLabelsRequest]):
-    def __init__(self, request: DeriveLabelsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> DeriveLabelsRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+DeriveLabelsRequestConsumer = RequestConsumer[DeriveLabelsRequest]
 
 
-class DeriveLabelsProcessor(Processor[DeriveLabelsRequest, ResultEnvelope[DeriveLabelsResult]]):
-    def process(self, payload: DeriveLabelsRequest) -> ResultEnvelope[DeriveLabelsResult]:
+class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResult]):
+    def _process_safe(self, payload: DeriveLabelsRequest) -> DeriveLabelsResult:
         from ..yamlio import load_config, dump_config
         from ..dsl import normalize_labels_for_outlook
 
-        try:
-            doc = load_config(payload.in_path) if payload.in_path else {}
-            labels = doc.get("labels") or []
-            if not isinstance(labels, list):
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "Input missing labels: []"},
-                )
+        doc = load_config(payload.in_path) if payload.in_path else {}
+        labels = doc.get("labels") or []
+        if not isinstance(labels, list):
+            raise ValueError("Input missing labels: []")
 
-            # Gmail: pass-through
-            out_g = Path(payload.out_gmail)
-            out_g.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_g), {"labels": labels})
+        # Gmail: pass-through
+        out_g = Path(payload.out_gmail)
+        out_g.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_g), {"labels": labels})
 
-            # Outlook: normalized names/colors
-            out_o = Path(payload.out_outlook)
-            out_o.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_o), {"labels": normalize_labels_for_outlook(labels)})
+        # Outlook: normalized names/colors
+        out_o = Path(payload.out_outlook)
+        out_o.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_o), {"labels": normalize_labels_for_outlook(labels)})
 
-            return ResultEnvelope(
-                status="success",
-                payload=DeriveLabelsResult(
-                    gmail_path=str(out_g),
-                    outlook_path=str(out_o),
-                    labels_count=len(labels),
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return DeriveLabelsResult(
+            gmail_path=str(out_g),
+            outlook_path=str(out_o),
+            labels_count=len(labels),
+        )
 
 
-class DeriveLabelsProducer(Producer[ResultEnvelope[DeriveLabelsResult]]):
-    def produce(self, result: ResultEnvelope[DeriveLabelsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Derived labels -> gmail:{p.gmail_path} outlook:{p.outlook_path}")
+class DeriveLabelsProducer(BaseProducer):
+    def _produce_success(self, payload: DeriveLabelsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Derived labels -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -585,79 +472,62 @@ class DeriveFiltersResult:
     filters_count: int
 
 
-class DeriveFiltersRequestConsumer(Consumer[DeriveFiltersRequest]):
-    def __init__(self, request: DeriveFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> DeriveFiltersRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
-class DeriveFiltersProcessor(Processor[DeriveFiltersRequest, ResultEnvelope[DeriveFiltersResult]]):
-    def process(self, payload: DeriveFiltersRequest) -> ResultEnvelope[DeriveFiltersResult]:
+class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
+    def _process_safe(self, payload: DeriveFiltersRequest) -> DeriveFiltersResult:
         from ..yamlio import load_config, dump_config
         from ..dsl import normalize_filters_for_outlook
 
-        try:
-            doc = load_config(payload.in_path) if payload.in_path else {}
-            filters = doc.get("filters") or []
-            if not isinstance(filters, list):
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "Input missing filters: []"},
-                )
+        doc = load_config(payload.in_path) if payload.in_path else {}
+        filters = doc.get("filters") or []
+        if not isinstance(filters, list):
+            raise ValueError("Input missing filters: []")
 
-            # Gmail: pass-through
-            out_g = Path(payload.out_gmail)
-            out_g.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_g), {"filters": filters})
+        # Gmail: pass-through
+        out_g = Path(payload.out_gmail)
+        out_g.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_g), {"filters": filters})
 
-            # Outlook: normalized subset
-            out_specs = normalize_filters_for_outlook(filters)
-            if payload.outlook_archive_on_remove_inbox:
-                for i, spec in enumerate(out_specs):
-                    a = spec.get("action") or {}
-                    try:
-                        orig = filters[i]
-                    except Exception:
-                        orig = {}
-                    orig_action = (orig or {}).get("action") or {}
-                    remove_list = orig_action.get("remove") or []
-                    if isinstance(remove_list, list) and any(str(x).upper() == 'INBOX' for x in remove_list):
-                        a["moveToFolder"] = "Archive"
-                        a.pop("add", None)
-                        spec["action"] = a
-            elif payload.outlook_move_to_folders:
-                for spec in out_specs:
-                    a = spec.get("action") or {}
-                    adds = a.get("add") or []
-                    if adds and not a.get("moveToFolder"):
-                        a["moveToFolder"] = str(adds[0])
-                        spec["action"] = a
+        # Outlook: normalized subset
+        out_specs = normalize_filters_for_outlook(filters)
+        if payload.outlook_archive_on_remove_inbox:
+            for i, spec in enumerate(out_specs):
+                a = spec.get("action") or {}
+                try:
+                    orig = filters[i]
+                except Exception:
+                    orig = {}
+                orig_action = (orig or {}).get("action") or {}
+                remove_list = orig_action.get("remove") or []
+                if isinstance(remove_list, list) and any(str(x).upper() == 'INBOX' for x in remove_list):
+                    a["moveToFolder"] = "Archive"
+                    a.pop("add", None)
+                    spec["action"] = a
+        elif payload.outlook_move_to_folders:
+            for spec in out_specs:
+                a = spec.get("action") or {}
+                adds = a.get("add") or []
+                if adds and not a.get("moveToFolder"):
+                    a["moveToFolder"] = str(adds[0])
+                    spec["action"] = a
 
-            out_o = Path(payload.out_outlook)
-            out_o.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_o), {"filters": out_specs})
+        out_o = Path(payload.out_outlook)
+        out_o.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_o), {"filters": out_specs})
 
-            return ResultEnvelope(
-                status="success",
-                payload=DeriveFiltersResult(
-                    gmail_path=str(out_g),
-                    outlook_path=str(out_o),
-                    filters_count=len(filters),
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return DeriveFiltersResult(
+            gmail_path=str(out_g),
+            outlook_path=str(out_o),
+            filters_count=len(filters),
+        )
 
 
-class DeriveFiltersProducer(Producer[ResultEnvelope[DeriveFiltersResult]]):
-    def produce(self, result: ResultEnvelope[DeriveFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Derived filters -> gmail:{p.gmail_path} outlook:{p.outlook_path}")
+class DeriveFiltersProducer(BaseProducer):
+    def _produce_success(self, payload: DeriveFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Derived filters -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -694,110 +564,93 @@ class OptimizeFiltersResult:
     merged_groups: List[MergedGroup]
 
 
-class OptimizeFiltersRequestConsumer(Consumer[OptimizeFiltersRequest]):
-    def __init__(self, request: OptimizeFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OptimizeFiltersRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 
 
-class OptimizeFiltersProcessor(Processor[OptimizeFiltersRequest, ResultEnvelope[OptimizeFiltersResult]]):
-    def process(self, payload: OptimizeFiltersRequest) -> ResultEnvelope[OptimizeFiltersResult]:
+class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFiltersResult]):
+    def _process_safe(self, payload: OptimizeFiltersRequest) -> OptimizeFiltersResult:
         from collections import defaultdict
         from ..yamlio import load_config, dump_config
 
-        try:
-            doc = load_config(payload.in_path) if payload.in_path else {}
-            rules = doc.get("filters") or []
-            if not isinstance(rules, list):
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "Input missing filters: []"},
-                )
+        doc = load_config(payload.in_path) if payload.in_path else {}
+        rules = doc.get("filters") or []
+        if not isinstance(rules, list):
+            raise ValueError("Input missing filters: []")
 
-            groups: Dict[str, list] = defaultdict(list)
-            passthrough = []
-            for r in rules:
-                if not isinstance(r, dict):
-                    continue
-                m = r.get('match') or {}
-                a = r.get('action') or {}
-                adds = a.get('add') or []
-                has_only_from = bool(m.get('from')) and all(k in (None, '') for k in [m.get('to'), m.get('subject'), m.get('query'), m.get('negatedQuery')])
-                if adds and has_only_from:
-                    dest = str(adds[0])
-                    groups[dest].append(r)
-                else:
-                    passthrough.append(r)
+        groups: Dict[str, list] = defaultdict(list)
+        passthrough = []
+        for r in rules:
+            if not isinstance(r, dict):
+                continue
+            m = r.get('match') or {}
+            a = r.get('action') or {}
+            adds = a.get('add') or []
+            has_only_from = bool(m.get('from')) and all(k in (None, '') for k in [m.get('to'), m.get('subject'), m.get('query'), m.get('negatedQuery')])
+            if adds and has_only_from:
+                dest = str(adds[0])
+                groups[dest].append(r)
+            else:
+                passthrough.append(r)
 
-            merged = []
-            preview_info = []
-            threshold = max(2, payload.merge_threshold)
-            for dest, items in groups.items():
-                if len(items) < threshold:
-                    passthrough.extend(items)
-                    continue
-                terms = []
-                removes: set = set()
-                for it in items:
-                    m = it.get('match') or {}
-                    a = it.get('action') or {}
-                    frm = str(m.get('from') or '').strip()
-                    if frm:
-                        terms.append(frm)
-                    for x in a.get('remove') or []:
-                        removes.add(x)
-                atoms = []
-                for t in terms:
-                    parts = [p.strip() for p in t.split('OR') if p.strip()]
-                    atoms.extend(parts)
-                uniq = sorted({a for a in atoms})
-                if not uniq:
-                    passthrough.extend(items)
-                    continue
-                merged_rule = {
-                    'name': f'merged_{dest.replace("/", "_")}',
-                    'match': {'from': ' OR '.join(uniq)},
-                    'action': {'add': [dest]},
-                }
-                if removes:
-                    merged_rule['action']['remove'] = sorted(removes)
-                merged.append(merged_rule)
-                preview_info.append(MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq)))
+        merged = []
+        preview_info = []
+        threshold = max(2, payload.merge_threshold)
+        for dest, items in groups.items():
+            if len(items) < threshold:
+                passthrough.extend(items)
+                continue
+            terms = []
+            removes: set = set()
+            for it in items:
+                m = it.get('match') or {}
+                a = it.get('action') or {}
+                frm = str(m.get('from') or '').strip()
+                if frm:
+                    terms.append(frm)
+                for x in a.get('remove') or []:
+                    removes.add(x)
+            atoms = []
+            for t in terms:
+                parts = [p.strip() for p in t.split('OR') if p.strip()]
+                atoms.extend(parts)
+            uniq = sorted({a for a in atoms})
+            if not uniq:
+                passthrough.extend(items)
+                continue
+            merged_rule = {
+                'name': f'merged_{dest.replace("/", "_")}',
+                'match': {'from': ' OR '.join(uniq)},
+                'action': {'add': [dest]},
+            }
+            if removes:
+                merged_rule['action']['remove'] = sorted(removes)
+            merged.append(merged_rule)
+            preview_info.append(MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq)))
 
-            optimized = {'filters': merged + passthrough}
-            outp = Path(payload.out_path)
-            outp.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(outp), optimized)
+        optimized = {'filters': merged + passthrough}
+        outp = Path(payload.out_path)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(outp), optimized)
 
-            return ResultEnvelope(
-                status="success",
-                payload=OptimizeFiltersResult(
-                    out_path=str(outp),
-                    original_count=len(rules),
-                    optimized_count=len(optimized['filters']),
-                    merged_groups=preview_info,
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return OptimizeFiltersResult(
+            out_path=str(outp),
+            original_count=len(rules),
+            optimized_count=len(optimized['filters']),
+            merged_groups=preview_info,
+        )
 
 
-class OptimizeFiltersProducer(Producer[ResultEnvelope[OptimizeFiltersResult]]):
+class OptimizeFiltersProducer(BaseProducer):
     def __init__(self, preview: bool = False) -> None:
         self._preview = preview
 
-    def produce(self, result: ResultEnvelope[OptimizeFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        if self._preview and p.merged_groups:
+    def _produce_success(self, payload: OptimizeFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if self._preview and payload.merged_groups:
             print('Merged groups:')
-            for g in sorted(p.merged_groups, key=lambda x: -x.rules_merged):
+            for g in sorted(payload.merged_groups, key=lambda x: -x.rules_merged):
                 print(f'- {g.destination}: merged {g.rules_merged} rules into 1 (unique from terms={g.unique_from_terms})')
-        print(f"Optimized filters written to {p.out_path}. Original={p.original_count} Optimized={p.optimized_count}")
+        print(f"Optimized filters written to {payload.out_path}. Original={payload.original_count} Optimized={payload.optimized_count}")
 
 
 # -----------------------------------------------------------------------------
@@ -825,99 +678,85 @@ class AuditFiltersResult:
     missing_samples: List[tuple]
 
 
-class AuditFiltersRequestConsumer(Consumer[AuditFiltersRequest]):
-    def __init__(self, request: AuditFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AuditFiltersRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
-class AuditFiltersProcessor(Processor[AuditFiltersRequest, ResultEnvelope[AuditFiltersResult]]):
-    def process(self, payload: AuditFiltersRequest) -> ResultEnvelope[AuditFiltersResult]:
+class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResult]):
+    def _process_safe(self, payload: AuditFiltersRequest) -> AuditFiltersResult:
         from ..yamlio import load_config
 
-        try:
-            uni = load_config(payload.in_path) if payload.in_path else {}
-            exp = load_config(payload.export_path) if payload.export_path else {}
-            unified = uni.get('filters') or []
-            exported = exp.get('filters') or []
+        uni = load_config(payload.in_path) if payload.in_path else {}
+        exp = load_config(payload.export_path) if payload.export_path else {}
+        unified = uni.get('filters') or []
+        exported = exp.get('filters') or []
 
-            dest_to_from_tokens: Dict[str, set] = {}
-            for f in unified:
-                if not isinstance(f, dict):
-                    continue
-                a = f.get('action') or {}
-                adds = a.get('add') or []
-                if not adds:
-                    continue
-                dest = str(adds[0])
-                m = f.get('match') or {}
-                frm = str(m.get('from') or '')
-                toks = {t.strip().lower() for t in frm.split('OR') if t.strip()}
-                if not toks:
-                    continue
-                dest_to_from_tokens.setdefault(dest, set()).update(toks)
+        dest_to_from_tokens: Dict[str, set] = {}
+        for f in unified:
+            if not isinstance(f, dict):
+                continue
+            a = f.get('action') or {}
+            adds = a.get('add') or []
+            if not adds:
+                continue
+            dest = str(adds[0])
+            m = f.get('match') or {}
+            frm = str(m.get('from') or '')
+            toks = {t.strip().lower() for t in frm.split('OR') if t.strip()}
+            if not toks:
+                continue
+            dest_to_from_tokens.setdefault(dest, set()).update(toks)
 
-            simple_total = 0
-            covered = 0
-            missing_samples: List[tuple] = []
-            for f in exported:
-                if not isinstance(f, dict):
-                    continue
-                c = f.get('criteria') or f.get('match') or {}
-                a = f.get('action') or {}
-                if any(k in c for k in ('query', 'negatedQuery', 'size', 'sizeComparison')):
-                    continue
-                if c.get('to') or c.get('subject'):
-                    continue
-                frm = str(c.get('from') or '').strip().lower()
-                adds = a.get('addLabels') or a.get('add') or []
-                if not adds and a.get('moveToFolder'):
-                    adds = [str(a.get('moveToFolder'))]
-                if not frm or not adds:
-                    continue
-                simple_total += 1
-                dest = str(adds[0])
-                toks = dest_to_from_tokens.get(dest) or set()
-                cov = any((tok and (tok in frm or frm in tok)) for tok in toks)
-                if cov:
-                    covered += 1
-                elif len(missing_samples) < 10:
-                    missing_samples.append((dest, frm))
+        simple_total = 0
+        covered = 0
+        missing_samples: List[tuple] = []
+        for f in exported:
+            if not isinstance(f, dict):
+                continue
+            c = f.get('criteria') or f.get('match') or {}
+            a = f.get('action') or {}
+            if any(k in c for k in ('query', 'negatedQuery', 'size', 'sizeComparison')):
+                continue
+            if c.get('to') or c.get('subject'):
+                continue
+            frm = str(c.get('from') or '').strip().lower()
+            adds = a.get('addLabels') or a.get('add') or []
+            if not adds and a.get('moveToFolder'):
+                adds = [str(a.get('moveToFolder'))]
+            if not frm or not adds:
+                continue
+            simple_total += 1
+            dest = str(adds[0])
+            toks = dest_to_from_tokens.get(dest) or set()
+            cov = any((tok and (tok in frm or frm in tok)) for tok in toks)
+            if cov:
+                covered += 1
+            elif len(missing_samples) < 10:
+                missing_samples.append((dest, frm))
 
-            not_cov = simple_total - covered
-            pct = (not_cov / simple_total * 100.0) if simple_total else 0.0
+        not_cov = simple_total - covered
+        pct = (not_cov / simple_total * 100.0) if simple_total else 0.0
 
-            return ResultEnvelope(
-                status="success",
-                payload=AuditFiltersResult(
-                    simple_total=simple_total,
-                    covered=covered,
-                    not_covered=not_cov,
-                    percentage=pct,
-                    missing_samples=missing_samples,
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AuditFiltersResult(
+            simple_total=simple_total,
+            covered=covered,
+            not_covered=not_cov,
+            percentage=pct,
+            missing_samples=missing_samples,
+        )
 
 
-class AuditFiltersProducer(Producer[ResultEnvelope[AuditFiltersResult]]):
+class AuditFiltersProducer(BaseProducer):
     def __init__(self, preview_missing: bool = False) -> None:
         self._preview_missing = preview_missing
 
-    def produce(self, result: ResultEnvelope[AuditFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Simple Gmail rules: {p.simple_total}")
-        print(f"Covered by unified: {p.covered}")
-        print(f"Not unified: {p.not_covered} ({p.percentage:.1f}%)")
-        if self._preview_missing and p.missing_samples:
+    def _produce_success(self, payload: AuditFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Simple Gmail rules: {payload.simple_total}")
+        print(f"Covered by unified: {payload.covered}")
+        print(f"Not unified: {payload.not_covered} ({payload.percentage:.1f}%)")
+        if self._preview_missing and payload.missing_samples:
             print("Missing examples (dest, from):")
-            for dest, frm in p.missing_samples:
+            for dest, frm in payload.missing_samples:
                 print(f"- {dest} <- {frm}")
 
 
@@ -951,16 +790,12 @@ class EnvSetupResult:
     message: str
 
 
-class EnvSetupRequestConsumer(Consumer[EnvSetupRequest]):
-    def __init__(self, request: EnvSetupRequest) -> None:
-        self._request = request
-
-    def consume(self) -> EnvSetupRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+EnvSetupRequestConsumer = RequestConsumer[EnvSetupRequest]
 
 
-class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult]]):
-    def process(self, payload: EnvSetupRequest) -> ResultEnvelope[EnvSetupResult]:
+class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
+    def _process_safe(self, payload: EnvSetupRequest) -> EnvSetupResult:
         from ..config_resolver import (
             default_gmail_credentials_path,
             default_gmail_token_path,
@@ -971,86 +806,70 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
         venv_created = False
         profile_saved = False
 
-        try:
-            venv_dir = Path(payload.venv_dir)
-            if not payload.no_venv:
+        venv_dir = Path(payload.venv_dir)
+        if not payload.no_venv:
+            if not venv_dir.exists():
+                import venv
+                venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+                venv_created = True
+            if not payload.skip_install:
+                import subprocess
+                py = venv_dir / 'bin' / 'python'
+                subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # noqa: S603
+                subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # noqa: S603
+            for fname in ('bin/mail', 'bin/mail-assistant'):
                 try:
-                    if not venv_dir.exists():
-                        import venv
-                        venv.EnvBuilder(with_pip=True).create(str(venv_dir))
-                        venv_created = True
-                    if not payload.skip_install:
-                        import subprocess
-                        py = venv_dir / 'bin' / 'python'
-                        subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # noqa: S603
-                        subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # noqa: S603
-                except Exception as e:
-                    return ResultEnvelope(
-                        status="error",
-                        payload=EnvSetupResult(venv_created=False, profile_saved=False, message=f"Venv/setup failed: {e}"),
-                    )
-                for fname in ('bin/mail', 'bin/mail-assistant'):
-                    try:
-                        p = Path(fname)
-                        if p.exists():
-                            os.chmod(p, (p.stat().st_mode | 0o111))
-                    except Exception:  # noqa: S110 - fallback on error
-                        pass
+                    p = Path(fname)
+                    if p.exists():
+                        os.chmod(p, (p.stat().st_mode | 0o111))
+                except Exception:  # noqa: S110 - fallback on error
+                    pass
 
-            cred_path = payload.credentials
-            tok_path = payload.token
+        cred_path = payload.credentials
+        tok_path = payload.token
 
-            if payload.copy_gmail_example and not cred_path:
-                ex = Path('credentials.example.json')
-                dest = Path(expand_path(default_gmail_credentials_path()))
-                if ex.exists() and not dest.exists():
-                    try:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
-                        cred_path = str(dest)
-                    except Exception:  # noqa: S110 - fallback on error
-                        pass
-            if cred_path and not tok_path:
-                tok_path = default_gmail_token_path()
+        if payload.copy_gmail_example and not cred_path:
+            ex = Path('credentials.example.json')
+            dest = Path(expand_path(default_gmail_credentials_path()))
+            if ex.exists() and not dest.exists():
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
+                    cred_path = str(dest)
+                except Exception:  # noqa: S110 - fallback on error
+                    pass
+        if cred_path and not tok_path:
+            tok_path = default_gmail_token_path()
 
-            for pth in (cred_path, tok_path, payload.outlook_token):
-                if pth:
-                    try:
-                        Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
-                    except Exception:  # noqa: S110 - fallback on error
-                        pass
+        for pth in (cred_path, tok_path, payload.outlook_token):
+            if pth:
+                try:
+                    Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
+                except Exception:  # noqa: S110 - fallback on error
+                    pass
 
-            if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
-                persist_profile_settings(
-                    profile=payload.profile,
-                    credentials=cred_path,
-                    token=tok_path,
-                    outlook_client_id=payload.outlook_client_id,
-                    tenant=payload.tenant,
-                    outlook_token=payload.outlook_token,
-                )
-                profile_saved = True
-
-            return ResultEnvelope(
-                status="success",
-                payload=EnvSetupResult(
-                    venv_created=venv_created,
-                    profile_saved=profile_saved,
-                    message="Environment setup complete.",
-                ),
+        if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
+            persist_profile_settings(
+                profile=payload.profile,
+                credentials=cred_path,
+                token=tok_path,
+                outlook_client_id=payload.outlook_client_id,
+                tenant=payload.tenant,
+                outlook_token=payload.outlook_token,
             )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+            profile_saved = True
+
+        return EnvSetupResult(
+            venv_created=venv_created,
+            profile_saved=profile_saved,
+            message="Environment setup complete.",
+        )
 
 
-class EnvSetupProducer(Producer[ResultEnvelope[EnvSetupResult]]):
-    def produce(self, result: ResultEnvelope[EnvSetupResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        if p.profile_saved:
+class EnvSetupProducer(BaseProducer):
+    def _produce_success(self, payload: EnvSetupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.profile_saved:
             print("Persisted settings to ~/.config/credentials.ini")
         else:
             print("No profile settings provided; skipped INI write.")
-        print(p.message)
+        print(payload.message)

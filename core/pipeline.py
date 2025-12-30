@@ -8,6 +8,8 @@ from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar
 PayloadT = TypeVar("PayloadT")
 ResultT = TypeVar("ResultT")
 RequestT = TypeVar("RequestT")
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 @dataclass
@@ -103,6 +105,32 @@ class BaseProducer:
         """Print a list of log messages."""
         for line in logs:
             print(line)
+
+
+class SafeProcessor(Generic[T, R]):
+    """Base processor with automatic error handling wrapper.
+
+    Provides a template method pattern: subclasses override _process_safe()
+    to implement processing logic without manual error handling.
+
+    Example usage:
+        class MyProcessor(SafeProcessor[Request, Result]):
+            def _process_safe(self, payload: Request) -> Result:
+                # Implementation that may raise exceptions
+                return Result(...)
+    """
+
+    def process(self, payload: T) -> ResultEnvelope[R]:
+        """Wrap _process_safe with error handling."""
+        try:
+            result = self._process_safe(payload)
+            return ResultEnvelope(status="success", payload=result)
+        except Exception as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+
+    def _process_safe(self, payload: T) -> R:
+        """Override to implement processing logic without error handling boilerplate."""
+        raise NotImplementedError("Subclass must implement _process_safe")
 
 
 def run_pipeline(request: Any, processor_cls: type, producer_cls: type) -> int:

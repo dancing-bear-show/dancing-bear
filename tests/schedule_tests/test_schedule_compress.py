@@ -9,7 +9,7 @@ class TestScheduleCompress(unittest.TestCase):
     def test_compress_infers_weekly_series_with_exdates(self):
         import tempfile
         import textwrap
-        from schedule import __main__ as sa
+        from schedule.cli import main as sa
         plan = textwrap.dedent(
             """
             events:

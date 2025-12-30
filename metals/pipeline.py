@@ -5,48 +5,11 @@ Uses the core pipeline pattern with processors and producers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Dict, List, Optional
 
-from core.pipeline import RequestConsumer
+from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 from .extractors import MetalsAmount, OrderExtraction
-
-T = TypeVar("T")
-
-
-@dataclass
-class Result(Generic[T]):
-    """Result envelope for pipeline operations."""
-    payload: Optional[T] = None
-    error: Optional[str] = None
-    diagnostics: Optional[Dict[str, Any]] = None
-
-    def ok(self) -> bool:
-        return self.error is None and self.payload is not None
-
-    def unwrap(self) -> T:
-        """Return payload or raise ValueError. Use after ok() check."""
-        if self.payload is None:
-            msg = (self.diagnostics or {}).get("message", self.error or "No payload")
-            raise ValueError(msg)
-        return self.payload
-
-
-# Protocol definitions for type hints
-RequestT = TypeVar("RequestT")
-ResultT = TypeVar("ResultT")
-
-
-class Processor(Generic[RequestT, ResultT]):
-    """Base processor class."""
-    def process(self, request: RequestT) -> Result[ResultT]:
-        raise NotImplementedError
-
-
-class Producer(Generic[ResultT]):
-    """Base producer class."""
-    def produce(self, result: Result[ResultT]) -> None:
-        raise NotImplementedError
 
 
 # ============================================================================
@@ -120,28 +83,25 @@ PremiumRequestConsumer = RequestConsumer[PremiumRequest]
 # Processors
 # ============================================================================
 
-class GmailExtractProcessor(Processor[ExtractRequest, ExtractResult]):
+class GmailExtractProcessor(SafeProcessor[ExtractRequest, ExtractResult]):
     """Extracts metals data from Gmail."""
 
-    def process(self, request: ExtractRequest) -> Result[ExtractResult]:
+    def _process_safe(self, request: ExtractRequest) -> ExtractResult:
         from mail.config_resolver import resolve_paths_profile
         from mail.gmail_api import GmailClient
         from .extractors import extract_amounts, extract_order_id, MetalsAmount
 
-        try:
-            cred, tok = resolve_paths_profile(
-                arg_credentials=None,
-                arg_token=None,
-                profile=request.profile,
-            )
-            client = GmailClient(
-                credentials_path=cred,
-                token_path=tok,
-                cache_dir=".cache",
-            )
-            client.authenticate()
-        except Exception as e:
-            return Result(error=str(e))
+        cred, tok = resolve_paths_profile(
+            arg_credentials=None,
+            arg_token=None,
+            profile=request.profile,
+        )
+        client = GmailClient(
+            credentials_path=cred,
+            token_path=tok,
+            cache_dir=".cache",
+        )
+        client.authenticate()
 
         queries = [
             'from:noreply@td.com subject:"TD Precious Metals"',
@@ -186,39 +146,34 @@ class GmailExtractProcessor(Processor[ExtractRequest, ExtractResult]):
                     date_ms=recv_ms,
                 ))
 
-        return Result(payload=ExtractResult(
+        return ExtractResult(
             total=total,
             orders=orders,
             message_count=len(order_map),
-        ))
+        )
 
 
-class OutlookExtractProcessor(Processor[ExtractRequest, ExtractResult]):
+class OutlookExtractProcessor(SafeProcessor[ExtractRequest, ExtractResult]):
     """Extracts metals data from Outlook."""
 
-    def process(self, request: ExtractRequest) -> Result[ExtractResult]:
+    def _process_safe(self, request: ExtractRequest) -> ExtractResult:
         from core.auth import resolve_outlook_credentials
         from mail.outlook_api import OutlookClient
         from .extractors import extract_amounts, extract_order_id, MetalsAmount
 
-        try:
-            client_id, tenant, token_path = resolve_outlook_credentials(request.profile)
-            if not all([client_id, tenant, token_path]):
-                return Result(error="Missing Outlook credentials")
-            client = OutlookClient(
-                client_id=client_id,
-                tenant=tenant,
-                token_path=token_path,
-            )
-        except Exception as e:
-            return Result(error=str(e))
+        client_id, tenant, token_path = resolve_outlook_credentials(request.profile)
+        if not all([client_id, tenant, token_path]):
+            raise ValueError("Missing Outlook credentials")
+
+        client = OutlookClient(
+            client_id=client_id,
+            tenant=tenant,
+            token_path=token_path,
+        )
 
         # Search for metals emails
         kql = "(TD Precious Metals) OR (Costco order) OR (Royal Canadian Mint)"
-        try:
-            messages = client.search_messages(kql, top=200)
-        except Exception as e:
-            return Result(error=f"Search failed: {e}")
+        messages = client.search_messages(kql, top=200)
 
         # Deduplicate and extract
         order_map: Dict[str, tuple] = {}
@@ -245,27 +200,21 @@ class OutlookExtractProcessor(Processor[ExtractRequest, ExtractResult]):
                     subject=sub,
                 ))
 
-        return Result(payload=ExtractResult(
+        return ExtractResult(
             total=total,
             orders=orders,
             message_count=len(order_map),
-        ))
+        )
 
 
 # ============================================================================
 # Producers
 # ============================================================================
 
-class ExtractProducer(Producer[ExtractResult]):
+class ExtractProducer(BaseProducer):
     """Produces output from extraction results."""
 
-    def produce(self, result: Result[ExtractResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message", result.error)
-            print(f"Error: {msg}")
-            return
-
-        payload = result.unwrap()
+    def _produce_success(self, payload: ExtractResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         total = payload.total
         print(f"gold_oz={total.gold_oz:.3f} silver_oz={total.silver_oz:.3f}")
         print(f"Processed {payload.message_count} messages, found {len(payload.orders)} orders with metals")

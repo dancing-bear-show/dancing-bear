@@ -4,7 +4,7 @@ import unittest
 class TestRecurringExpandFallback(unittest.TestCase):
 
     def test_weekly_expand_uses_window_when_range_missing(self):
-        from schedule import __main__ as sa
+        from schedule.cli import main as sa
         ev = {
             "subject": "Test",
             "repeat": "weekly",

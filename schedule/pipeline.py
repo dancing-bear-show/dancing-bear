@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import RequestConsumer, Processor, ResultEnvelope, BaseProducer
 from core.auth import build_outlook_service
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
@@ -49,12 +49,8 @@ class PlanRequest:
     out_path: Path
 
 
-class PlanRequestConsumer(Consumer[PlanRequest]):
-    def __init__(self, request: PlanRequest) -> None:
-        self._request = request
-
-    def consume(self) -> PlanRequest:  # pragma: no cover - trivial
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 
 @dataclass
@@ -87,18 +83,13 @@ class PlanProcessor(Processor[PlanRequest, ResultEnvelope[PlanResult]]):
         return ResultEnvelope(status="success", payload=PlanResult(document=plan, out_path=payload.out_path))
 
 
-class PlanProducer(Producer[ResultEnvelope[PlanResult]]):
-    def produce(self, result: ResultEnvelope[PlanResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        if result.payload is None:
-            return
-        _dump_yaml(str(result.payload.out_path), result.payload.document)
-        events = result.payload.document.get("events", [])
-        print(f"Wrote plan with {len(events)} events to {result.payload.out_path}")
+class PlanProducer(BaseProducer):
+    """Produce output for plan generation with automatic error handling."""
+
+    def _produce_success(self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        _dump_yaml(str(payload.out_path), payload.document)
+        events = payload.document.get("events", [])
+        print(f"Wrote plan with {len(events)} events to {payload.out_path}")
 
 
 @dataclass
@@ -369,12 +360,8 @@ class VerifyRequest:
     auth: OutlookAuth
 
 
-class VerifyRequestConsumer(Consumer[VerifyRequest]):
-    def __init__(self, request: VerifyRequest) -> None:
-        self._request = request
-
-    def consume(self) -> VerifyRequest:  # pragma: no cover - trivial
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+VerifyRequestConsumer = RequestConsumer[VerifyRequest]
 
 
 @dataclass
@@ -519,16 +506,11 @@ class VerifyProcessor(Processor[VerifyRequest, ResultEnvelope[VerifyResult]]):
         return ResultEnvelope(status="success", payload=VerifyResult(lines=lines))
 
 
-class VerifyProducer(Producer[ResultEnvelope[VerifyResult]]):
-    def produce(self, result: ResultEnvelope[VerifyResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        if result.payload is None:
-            return
-        for line in result.payload.lines:
+class VerifyProducer(BaseProducer):
+    """Produce output for verify operations with automatic error handling."""
+
+    def _produce_success(self, payload: VerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        for line in payload.lines:
             print(line)
 
 
@@ -545,12 +527,8 @@ class SyncRequest:
     auth: OutlookAuth
 
 
-class SyncRequestConsumer(Consumer[SyncRequest]):
-    def __init__(self, request: SyncRequest) -> None:
-        self._request = request
-
-    def consume(self) -> SyncRequest:  # pragma: no cover - trivial
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+SyncRequestConsumer = RequestConsumer[SyncRequest]
 
 
 @dataclass
@@ -900,16 +878,11 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
         return ResultEnvelope(status="success", payload=SyncResult(lines=lines))
 
 
-class SyncProducer(Producer[ResultEnvelope[SyncResult]]):
-    def produce(self, result: ResultEnvelope[SyncResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
-            return
-        if result.payload is None:
-            return
-        for line in result.payload.lines:
+class SyncProducer(BaseProducer):
+    """Produce output for sync operations with automatic error handling."""
+
+    def _produce_success(self, payload: SyncResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        for line in payload.lines:
             print(line)
 
 
@@ -922,12 +895,8 @@ class ApplyRequest:
     auth: OutlookAuth
 
 
-class ApplyRequestConsumer(Consumer[ApplyRequest]):
-    def __init__(self, request: ApplyRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ApplyRequest:  # pragma: no cover - trivial
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+ApplyRequestConsumer = RequestConsumer[ApplyRequest]
 
 
 @dataclass
@@ -974,14 +943,10 @@ class ApplyProcessor(Processor[ApplyRequest, ResultEnvelope[ApplyResult]]):
         return ResultEnvelope(status="success", payload=ApplyResult(lines=lines))
 
 
-class ApplyProducer(Producer[ResultEnvelope[ApplyResult]]):
-    def produce(self, result: ResultEnvelope[ApplyResult]) -> None:
-        payload = result.payload
-        if payload is not None:
-            for line in payload.lines:
-                print(line)
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message")
-            if msg:
-                print(msg)
+class ApplyProducer(BaseProducer):
+    """Produce output for apply operations with automatic error handling."""
+
+    def _produce_success(self, payload: ApplyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        for line in payload.lines:
+            print(line)
 

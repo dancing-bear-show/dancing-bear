@@ -28,7 +28,7 @@ def register(subparsers, *, f_propose, f_apply, f_summary):
     p_auto_apply.add_argument("--credentials", type=str)
     p_auto_apply.add_argument("--token", type=str)
     p_auto_apply.add_argument("--cache", type=str)
-    p_auto_apply.add_argument("--proposal", required=True)
+    p_auto_apply.add_argument("--plan", required=True, help="Path to proposal/plan JSON")
     p_auto_apply.add_argument("--cutoff-days", type=int, help="Only apply to messages older than N days")
     p_auto_apply.add_argument("--batch-size", type=int, default=500)
     p_auto_apply.add_argument("--dry-run", action="store_true")
@@ -36,6 +36,6 @@ def register(subparsers, *, f_propose, f_apply, f_summary):
     p_auto_apply.set_defaults(func=f_apply)
 
     p_auto_summary = sub_auto.add_parser("summary", help="Summarize a proposal JSON")
-    p_auto_summary.add_argument("--proposal", required=True)
+    p_auto_summary.add_argument("--log", type=str, help="Path to log file")
     p_auto_summary.set_defaults(func=f_summary)
 

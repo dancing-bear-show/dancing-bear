@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from core.pipeline import Processor, Producer, ResultEnvelope
+from core.pipeline import Processor, Producer, SafeProcessor, BaseProducer
 from .apply_ops import apply_plan_file
 from .planner import plan_from_config
 from .scan import run_scan
@@ -53,16 +53,14 @@ class ApplyRequest:
     dry_run: bool
 
 
-class ApplyProcessor(Processor[ApplyRequest, ResultEnvelope[None]]):
+class ApplyProcessor(SafeProcessor[ApplyRequest, None]):
+    """Apply operations from a plan file with automatic error handling."""
+
     def __init__(self, applier: Callable[[str, bool], None] = apply_plan_file) -> None:
         self._applier = applier
 
-    def process(self, payload: ApplyRequest) -> ResultEnvelope[None]:
-        try:
-            self._applier(payload.plan_path, dry_run=payload.dry_run)
-            return ResultEnvelope(status="success")
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"error": str(exc)})
+    def _process_safe(self, payload: ApplyRequest) -> None:
+        self._applier(payload.plan_path, dry_run=payload.dry_run)
 
 
 class ReportProducer(Producer[Dict[str, Any]]):
@@ -73,8 +71,9 @@ class ReportProducer(Producer[Dict[str, Any]]):
         dump_output(result, self._out_path)
 
 
-class ApplyResultProducer(Producer[ResultEnvelope[None]]):
-    def produce(self, result: ResultEnvelope[None]) -> None:
-        if not result.ok():
-            error = (result.diagnostics or {}).get("error", "unknown error")
-            print(f"[desk] apply failed: {error}")
+class ApplyResultProducer(BaseProducer):
+    """Produce output for apply operations with automatic error handling."""
+
+    def _produce_success(self, payload: None, diagnostics: Optional[Dict[str, Any]]) -> None:
+        # Success is silent - no output needed
+        pass

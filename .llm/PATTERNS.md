@@ -151,6 +151,91 @@ class ResultEnvelope:
         return self.result
 ```
 
+SafeProcessor Pattern (Automatic Error Handling)
+```python
+# Modern pattern: SafeProcessor handles errors automatically
+# Use this for new pipelines (mail/config_cli, mail/messages_cli migrated Dec 2024)
+
+from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+# 1. Define request/result types
+@dataclass
+class CacheStatsRequest:
+    cache_path: str
+
+@dataclass
+class CacheStatsResult:
+    path: str
+    files: int
+    size_bytes: int
+
+# 2. Use RequestConsumer type alias (no boilerplate consumer class needed)
+CacheStatsRequestConsumer = RequestConsumer[CacheStatsRequest]
+
+# 3. Processor: extend SafeProcessor, implement _process_safe()
+class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
+    def _process_safe(self, payload: CacheStatsRequest) -> CacheStatsResult:
+        # No try/except needed - SafeProcessor handles errors automatically
+        # Just return the result directly, raise exceptions for errors
+        from pathlib import Path
+        root = Path(payload.cache_path)
+        total = 0
+        files = 0
+        for p in root.rglob("*"):
+            if p.is_file():
+                files += 1
+                total += p.stat().st_size
+        return CacheStatsResult(path=str(root), files=files, size_bytes=total)
+
+# 4. Producer: extend BaseProducer, implement _produce_success()
+class CacheStatsProducer(BaseProducer):
+    def _produce_success(self, payload: CacheStatsResult,
+                        diagnostics: Optional[Dict[str, Any]]) -> None:
+        # Only handles success case - BaseProducer prints errors automatically
+        print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
+
+# 5. Wire in commands (example)
+def run_cache_stats(args):
+    request = CacheStatsRequest(cache_path=args.cache)
+    envelope = CacheStatsProcessor().process(RequestConsumer(request).consume())
+    CacheStatsProducer().produce(envelope)
+    return 0 if envelope.ok() else 1
+```
+
+Old-Style vs SafeProcessor Migration
+```python
+# OLD: Manual error handling (before migration)
+class OldProcessor(Processor[Request, ResultEnvelope[Result]]):
+    def process(self, payload: Request) -> ResultEnvelope[Result]:
+        try:
+            # ... do work ...
+            return ResultEnvelope(status="success", payload=Result(...))
+        except Exception as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+
+class OldProducer(Producer[ResultEnvelope[Result]]):
+    def produce(self, result: ResultEnvelope[Result]) -> None:
+        if not result.ok():
+            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
+            return
+        p = result.unwrap()
+        print(f"Success: {p.value}")
+
+# NEW: Automatic error handling (after migration)
+class NewProcessor(SafeProcessor[Request, Result]):
+    def _process_safe(self, payload: Request) -> Result:
+        # No try/except - SafeProcessor wraps this automatically
+        # Just raise exceptions for errors
+        return Result(...)
+
+class NewProducer(BaseProducer):
+    def _produce_success(self, payload: Result, diagnostics: Optional[Dict[str, Any]]) -> None:
+        # Only success path - BaseProducer handles errors
+        print(f"Success: {payload.value}")
+```
+
 Plan/Apply Flow (Safe by Default)
 ```
 # Always: plan → dry-run → apply

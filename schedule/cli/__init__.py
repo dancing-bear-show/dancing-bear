@@ -1,0 +1,1 @@
+"""Schedule Assistant CLI module."""
