@@ -1,3 +1,0 @@
-resume_assistant/config/profiles/brian_sherwin/
-resume_assistant/config/profiles/claudia_echeveste/
-resume_assistant/config/profiles/dana_diederich/
