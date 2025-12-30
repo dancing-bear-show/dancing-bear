@@ -1,6 +1,13 @@
 """DOCX resume writer.
 
 Renders resume data to DOCX format using templates and styling configuration.
+
+This module provides backward-compatible entry points for resume generation.
+For new code, prefer using the class-based API:
+
+    from resume.docx_base import create_resume_writer
+    writer = create_resume_writer(data, template)
+    writer.write(out_path)
 """
 from __future__ import annotations
 
@@ -316,10 +323,6 @@ def _render_section_heading(doc, title: str, template: Dict[str, Any]) -> None:
         _apply_paragraph_shading(doc.paragraphs[-1], bg_rgb)
 
 
-# Import sidebar layout function from dedicated module
-from .docx_sidebar import write_resume_docx_sidebar
-
-
 # Section renderer registry - maps section keys to renderer classes
 SECTION_RENDERERS = {
     "summary": SummarySectionRenderer,
@@ -346,11 +349,25 @@ def write_resume_docx(
     seed: Optional[Dict[str, Any]] = None,
     structure: Optional[Dict[str, Any]] = None,
 ) -> None:
-    # Check for sidebar layout
+    """Write resume to DOCX format.
+
+    This is the main entry point for backward compatibility.
+    For new code, prefer using create_resume_writer() from docx_base.
+
+    Args:
+        data: Resume data (name, experience, education, etc.)
+        template: Template configuration (sections, page styles, etc.)
+        out_path: Output file path
+        seed: Optional seed data (keywords, etc.)
+        structure: Optional structure override for section order
+    """
+    # Check for sidebar layout and delegate to appropriate writer
     layout_cfg = template.get("layout") or {}
     if layout_cfg.get("type") == "sidebar":
+        from .docx_sidebar import write_resume_docx_sidebar
         return write_resume_docx_sidebar(data, template, out_path, seed, structure)
 
+    # Standard single-column layout
     docx = safe_import("docx")
     if not docx:
         raise RuntimeError("Rendering DOCX requires python-docx; install python-docx.")
