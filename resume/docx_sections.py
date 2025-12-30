@@ -321,6 +321,14 @@ class InterestsSectionRenderer(ListSectionRenderer):
         return self.render_simple_list(items, sec)
 
 
+class TeachingSectionRenderer(ListSectionRenderer):
+    """Renders teaching/instruction section."""
+
+    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
+        items = data.get("teaching") or []
+        return self.render_simple_list(items, sec)
+
+
 class LanguagesSectionRenderer(ListSectionRenderer):
     """Renders languages section with proficiency levels."""
 

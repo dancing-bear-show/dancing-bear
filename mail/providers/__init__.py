@@ -20,7 +20,5 @@ def get_provider(name: str, *, credentials_path: str, token_path: str, cache_dir
 
 __all__ = [
     "BaseProvider",
-    "GmailProvider",
-    "OutlookProvider",
     "get_provider",
 ]

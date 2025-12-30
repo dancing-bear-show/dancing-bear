@@ -131,6 +131,34 @@ class Report:
     condition: str = "unknown"
 
 
+def _build_ping_targets(gateway: Optional[str], targets: List[str]) -> List[Tuple[str, str]]:
+    """Build deduplicated list of (label, target) pairs for pinging."""
+    result: List[Tuple[str, str]] = []
+    seen: set = set()
+    if gateway:
+        result.append(("gateway", gateway))
+        seen.add(("gateway", gateway))
+    for tgt in targets:
+        if gateway and tgt == gateway:
+            continue
+        key = (tgt, tgt)
+        if key not in seen:
+            seen.add(key)
+            result.append(key)
+    return result
+
+
+def _select_trace_target(config: DiagnoseConfig, ping_targets: List[Tuple[str, str]]) -> str:
+    """Select target for traceroute."""
+    if config.trace_target:
+        return config.trace_target
+    if len(ping_targets) > 1:
+        return ping_targets[1][1]
+    if ping_targets:
+        return ping_targets[0][1]
+    return config.dns_host
+
+
 def run_diagnosis(
     config: DiagnoseConfig,
     runner: Optional[CommandRunner] = None,
@@ -144,44 +172,26 @@ def run_diagnosis(
 
     gateway = config.gateway or detect_gateway(runner)
     wifi_info = collect_wifi_info(runner) if config.include_wifi else None
-
-    ping_targets: List[Tuple[str, str]] = []
-    if gateway:
-        ping_targets.append(("gateway", gateway))
-    for tgt in config.ping_targets:
-        if gateway and tgt == gateway:
-            continue
-        ping_targets.append((tgt, tgt))
-    seen = set()
-    uniq_ping_targets = []
-    for label, target in ping_targets:
-        key = (label, target)
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq_ping_targets.append((label, target))
+    ping_targets = _build_ping_targets(gateway, config.ping_targets)
 
     survey_results: List[PingResult] = []
     if config.run_survey:
         survey_count = max(1, config.survey_count)
         survey_results = [
-            ping_target(
-                f"survey-{label}",
-                target,
-                count=survey_count,
-                runner=runner,
-                timeout=min(config.ping_timeout, 6),
-            )
-            for label, target in uniq_ping_targets
+            ping_target(f"survey-{label}", target, count=survey_count, runner=runner, timeout=min(config.ping_timeout, 6))
+            for label, target in ping_targets
         ]
 
-    ping_results = [ping_target(label, target, count=config.ping_count, runner=runner, timeout=config.ping_timeout) for label, target in uniq_ping_targets]
+    ping_results = [
+        ping_target(label, target, count=config.ping_count, runner=runner, timeout=config.ping_timeout)
+        for label, target in ping_targets
+    ]
 
     dns_result = resolver(config.dns_host)
 
     trace_result: Optional[TraceResult] = None
-    trace_target = config.trace_target or (uniq_ping_targets[1][1] if len(uniq_ping_targets) > 1 else (uniq_ping_targets[0][1] if uniq_ping_targets else config.dns_host))
-    if config.include_trace and trace_target:
+    if config.include_trace:
+        trace_target = _select_trace_target(config, ping_targets)
         trace_result = trace_route(trace_target, runner=runner, max_hops=config.trace_max_hops)
 
     http_result: Optional[HttpResult] = None
@@ -233,18 +243,23 @@ def detect_gateway(runner: CommandRunner) -> Optional[str]:
     return None
 
 
+def _parse_gateway_from_line(line: str) -> Optional[str]:
+    """Extract gateway IP from a single line."""
+    parts = line.strip().split()
+    # macOS: "gateway: 192.168.1.1"
+    if len(parts) >= 2 and parts[0] in ("gateway:", "gateway"):
+        return parts[1]
+    # Linux: "default via 192.168.1.1 dev eth0"
+    m = re.search(r"via ([0-9a-fA-F:.]+)", line)
+    return m.group(1) if m else None
+
+
 def _extract_gateway_line(text: str) -> Optional[str]:
     for line in text.splitlines():
-        if "gateway" in line:
-            parts = line.strip().split()
-            if len(parts) == 2 and parts[0] == "gateway:":
-                return parts[1]
-            if len(parts) >= 2 and parts[0] == "gateway":
-                return parts[1]
-        if "via" in line:
-            m = re.search(r"via ([0-9a-fA-F:.]+)", line)
-            if m:
-                return m.group(1)
+        if "gateway" in line or "via" in line:
+            result = _parse_gateway_from_line(line)
+            if result:
+                return result
     return None
 
 
@@ -311,25 +326,18 @@ def _parse_nmcli(text: str) -> Optional[WifiInfo]:
     return None
 
 
+def _extract_iwconfig_field(text: str, pattern: str) -> Optional[str]:
+    """Extract a field from iwconfig output using regex."""
+    m = re.search(pattern, text)
+    return m.group(1) if m else None
+
+
 def _parse_iwconfig(text: str) -> Optional[WifiInfo]:
-    ssid = None
-    bssid = None
-    rssi = None
-    for line in text.splitlines():
-        if "ESSID" in line:
-            m = re.search(r'ESSID:"([^"]+)"', line)
-            if m:
-                ssid = m.group(1)
-        if "Access Point" in line:
-            m = re.search(r"Access Point: ([0-9A-Fa-f:]{17})", line)
-            if m:
-                bssid = m.group(1)
-        if "Signal level" in line:
-            m = re.search(r"Signal level[=\:]-?(\d+)", line)
-            if m:
-                level = _safe_int(m.group(1))
-                if level is not None:
-                    rssi = -abs(level)
+    ssid = _extract_iwconfig_field(text, r'ESSID:"([^"]+)"')
+    bssid = _extract_iwconfig_field(text, r"Access Point: ([0-9A-Fa-f:]{17})")
+    level_str = _extract_iwconfig_field(text, r"Signal level[=\:]-?(\d+)")
+    level = _safe_int(level_str)
+    rssi = -abs(level) if level is not None else None
     if ssid or bssid or rssi:
         return WifiInfo(ssid=ssid, bssid=bssid, rssi=rssi, noise=None, tx_rate=None, channel=None, source="iwconfig", raw=text.strip())
     return None
@@ -423,6 +431,53 @@ def http_probe(url: str) -> HttpResult:
         return HttpResult(url=url, success=False, status=None, elapsed_ms=elapsed_ms, bytes_read=None, error=str(exc))
 
 
+def _check_gateway_health(gateway_ping: Optional[PingResult], icmp_filtered: bool) -> List[str]:
+    """Check gateway ping health, return findings."""
+    if icmp_filtered:
+        return []
+    if gateway_ping is None:
+        return ["Gateway not detected; verify you are connected to Wi-Fi."]
+    if gateway_ping.loss_pct is None or gateway_ping.loss_pct >= 20:
+        return [f"Wi-Fi link looks unstable ({gateway_ping.loss_pct or 100:.1f}% loss to gateway). Check interference or move closer."]
+    if gateway_ping.avg_ms and gateway_ping.avg_ms > 50:
+        return [f"Wi-Fi link latency is high (avg {gateway_ping.avg_ms:.1f} ms to gateway)."]
+    return []
+
+
+def _check_upstream_health(upstream: List[PingResult], gateway_ping: Optional[PingResult]) -> List[str]:
+    """Check upstream ping health, return findings."""
+    if not upstream:
+        return []
+    worst = max(upstream, key=lambda p: p.loss_pct or -1)
+    gateway_ok = gateway_ping and (gateway_ping.loss_pct or 0) < 5
+    if worst.loss_pct is not None and worst.loss_pct >= 10 and gateway_ok:
+        return [f"Backhaul/ISP loss detected ({worst.loss_pct:.1f}% to {worst.label}). Gateway looks fine, so upstream is suspect."]
+    gateway_latency_ok = not gateway_ping or not gateway_ping.avg_ms or gateway_ping.avg_ms < 50
+    if worst.avg_ms and worst.avg_ms > 120 and gateway_latency_ok:
+        return [f"High internet latency (avg {worst.avg_ms:.1f} ms to {worst.label})."]
+    return []
+
+
+def _check_dns_health(dns: DnsResult) -> List[str]:
+    """Check DNS health, return findings."""
+    if dns.error:
+        return [f"DNS lookup failed for {dns.host}: {dns.error}"]
+    if not dns.success or (dns.elapsed_ms and dns.elapsed_ms > 200):
+        return [f"DNS responses feel slow ({dns.elapsed_ms:.1f} ms). Consider switching resolvers."]
+    return []
+
+
+def _check_http_health(http: Optional[HttpResult]) -> List[str]:
+    """Check HTTP health, return findings."""
+    if not http:
+        return []
+    if not http.success:
+        return [f"HTTPS fetch failed ({http.error or 'unknown error'})."]
+    if http.elapsed_ms and http.elapsed_ms > 1200:
+        return [f"HTTPS handshake/TTFB is slow ({http.elapsed_ms:.0f} ms)."]
+    return []
+
+
 def derive_findings(
     *,
     gateway: Optional[str],
@@ -432,41 +487,17 @@ def derive_findings(
     trace: Optional[TraceResult],
     http: Optional[HttpResult],
 ) -> List[str]:
-    findings: List[str] = []
     gateway_ping = next((p for p in ping_results if p.label == "gateway"), None)
     upstream = [p for p in ping_results if p.label != "gateway"]
 
+    findings: List[str] = []
     if icmp_filtered:
         findings.append("Gateway ICMP likely filtered; judging health via trace/HTTP instead of ping loss.")
 
-    if gateway_ping and not icmp_filtered:
-        if gateway_ping.loss_pct is None or gateway_ping.loss_pct >= 20:
-            findings.append(f"Wi-Fi link looks unstable ({gateway_ping.loss_pct or 100:.1f}% loss to gateway). Check interference or move closer.")
-        elif gateway_ping.avg_ms and gateway_ping.avg_ms > 50:
-            findings.append(f"Wi-Fi link latency is high (avg {gateway_ping.avg_ms:.1f} ms to gateway).")
-    else:
-        if gateway_ping is None:
-            findings.append("Gateway not detected; verify you are connected to Wi-Fi.")
-
-    if upstream:
-        worst = max(upstream, key=lambda p: p.loss_pct or -1)
-        if worst.loss_pct is not None and worst.loss_pct >= 10:
-            if gateway_ping and (gateway_ping.loss_pct or 0) < 5:
-                findings.append(f"Backhaul/ISP loss detected ({worst.loss_pct:.1f}% to {worst.label}). Gateway looks fine, so upstream is suspect.")
-        elif worst.avg_ms and worst.avg_ms > 120 and (not gateway_ping or not gateway_ping.avg_ms or gateway_ping.avg_ms < 50):
-            findings.append(f"High internet latency (avg {worst.avg_ms:.1f} ms to {worst.label}).")
-
-    if not dns.success or (dns.elapsed_ms and dns.elapsed_ms > 200):
-        if dns.error:
-            findings.append(f"DNS lookup failed for {dns.host}: {dns.error}")
-        else:
-            findings.append(f"DNS responses feel slow ({dns.elapsed_ms:.1f} ms). Consider switching resolvers.")
-
-    if http:
-        if not http.success:
-            findings.append(f"HTTPS fetch failed ({http.error or 'unknown error'}).")
-        elif http.elapsed_ms and http.elapsed_ms > 1200:
-            findings.append(f"HTTPS handshake/TTFB is slow ({http.elapsed_ms:.0f} ms).")
+    findings.extend(_check_gateway_health(gateway_ping, icmp_filtered))
+    findings.extend(_check_upstream_health(upstream, gateway_ping))
+    findings.extend(_check_dns_health(dns))
+    findings.extend(_check_http_health(http))
 
     if not findings:
         findings.append("Link looks healthy: low loss to gateway and upstream targets.")
@@ -527,6 +558,15 @@ def _detect_icmp_filtered(survey_results: List[PingResult], trace: Optional[Trac
     return False
 
 
+def _score_ping(p: PingResult) -> int:
+    """Score a ping result: 0=good, 1=poor, 2=bad."""
+    if p.loss_pct is None or p.loss_pct >= 30:
+        return 2
+    if p.loss_pct >= 10 or (p.avg_ms and p.avg_ms > 200):
+        return 1
+    return 0
+
+
 def compute_condition(
     *,
     ping_results: List[PingResult],
@@ -540,20 +580,7 @@ def compute_condition(
     gateway_ping = next((p for p in ping_results if p.label == "gateway"), None)
     upstream = [p for p in ping_results if p.label != "gateway"]
 
-    def _score_ping(p: PingResult) -> int:
-        if p.loss_pct is None:
-            return 2
-        if p.loss_pct >= 30:
-            return 2
-        if p.loss_pct >= 10:
-            return 1
-        if p.avg_ms and p.avg_ms > 200:
-            return 1
-        return 0
-
-    scores = []
-    if gateway_ping:
-        scores.append(_score_ping(gateway_ping))
+    scores = [_score_ping(gateway_ping)] if gateway_ping else []
     scores.extend(_score_ping(p) for p in upstream)
 
     dns_bad = (not dns.success) or (dns.elapsed_ms and dns.elapsed_ms > 400)

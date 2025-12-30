@@ -27,7 +27,6 @@ class ScanRequestTests(unittest.TestCase):
             older_than="30d",
             include_duplicates=True,
             top_dirs=10,
-            debug=False,
         )
         self.assertEqual(req.paths, ["/path1", "/path2"])
         self.assertEqual(req.min_size, "50MB")
@@ -46,7 +45,6 @@ class ScanProcessorTests(unittest.TestCase):
             older_than=None,
             include_duplicates=False,
             top_dirs=5,
-            debug=True,
         )
         result = processor.process(req)
 
@@ -56,7 +54,6 @@ class ScanProcessorTests(unittest.TestCase):
             older_than=None,
             include_duplicates=False,
             top_dirs=5,
-            debug=True,
         )
         self.assertEqual(result, {"large_files": []})
 
@@ -68,7 +65,6 @@ class ScanProcessorTests(unittest.TestCase):
             older_than=None,
             include_duplicates=False,
             top_dirs=5,
-            debug=False,
         )
         result = processor.process(req)
 

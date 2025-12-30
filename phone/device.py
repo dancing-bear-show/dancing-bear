@@ -282,7 +282,7 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
 
 
 def resolve_udid_from_label(
-    label: str, cfg_path: Optional[str], ini: Dict[str, Dict[str, str]]
+    label: str, cfg_path: Optional[str], _ini: Dict[str, Dict[str, str]]
 ) -> Optional[str]:
     """Resolve device UDID from a label using credentials.ini [ios_devices] section."""
     if not label or not cfg_path or not os.path.exists(cfg_path):

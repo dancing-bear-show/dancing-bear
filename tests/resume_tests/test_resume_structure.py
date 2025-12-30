@@ -10,12 +10,8 @@ class TestInferStructureFromDocx(unittest.TestCase):
     """Tests for infer_structure_from_docx function."""
 
     def _make_fake_paragraph(self, text: str, style_name: str = "Normal"):
-        """Create a mock paragraph with text and style."""
-        p = FakeParagraph(text, style_name)
-        # Add style.name attribute for compatibility with structure.py
-        p.style = MagicMock()
-        p.style.name = style_name
-        return p
+        """Create a fake paragraph with text and style."""
+        return FakeParagraph(text, style_name)
 
     def test_infers_sections_from_headings(self):
         mock_doc = MagicMock()

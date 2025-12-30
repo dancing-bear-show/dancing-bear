@@ -128,6 +128,29 @@ if not provider.capabilities().get("signatures"):
     raise SystemExit("Signatures not supported by this provider")
 ```
 
+Pipeline Result Unwrap Pattern
+```python
+# Use unwrap() instead of assert for safe payload extraction
+# Provides clear error messages when result is unexpectedly None
+
+# Bad: assert can be stripped in optimized builds, cryptic errors
+def produce(self, envelope):
+    assert envelope.result is not None
+    payload = envelope.result  # type: ignore
+
+# Good: unwrap() raises with context, works in all builds
+def produce(self, envelope):
+    payload = envelope.unwrap()  # raises ValueError if None
+
+# Implementation (core/pipeline.py, metals/pipeline.py):
+class ResultEnvelope:
+    def unwrap(self) -> T:
+        """Extract payload or raise ValueError with context."""
+        if self.result is None:
+            raise ValueError(f"Cannot unwrap: {self.error or 'result is None'}")
+        return self.result
+```
+
 Plan/Apply Flow (Safe by Default)
 ```
 # Always: plan → dry-run → apply

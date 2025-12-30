@@ -18,7 +18,6 @@ class ScanRequest:
     older_than: Optional[str]
     include_duplicates: bool
     top_dirs: int
-    debug: bool
 
 
 class ScanProcessor(Processor[ScanRequest, Dict[str, Any]]):
@@ -32,7 +31,6 @@ class ScanProcessor(Processor[ScanRequest, Dict[str, Any]]):
             older_than=payload.older_than,
             include_duplicates=payload.include_duplicates,
             top_dirs=payload.top_dirs,
-            debug=payload.debug,
         )
 
 

@@ -63,7 +63,6 @@ def cmd_scan(args) -> int:
         older_than=args.older_than,
         include_duplicates=args.duplicates,
         top_dirs=args.top_dirs,
-        debug=args.debug,
     )
     report = ScanProcessor().process(request)
     ReportProducer(args.out).produce(report)
