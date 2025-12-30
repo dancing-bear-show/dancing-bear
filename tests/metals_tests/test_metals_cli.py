@@ -122,8 +122,9 @@ class TestMetalsExtractCommands(unittest.TestCase):
     def test_cmd_extract_gmail_success(self, mock_producer_class, mock_processor_class):
         """Test extract gmail command with mocked processor."""
         from metals.cli.main import cmd_extract_gmail
-        from metals.pipeline import ExtractResult, Result
+        from metals.pipeline import ExtractResult
         from metals.extractors import MetalsAmount
+        from core.pipeline import ResultEnvelope
 
         mock_processor = MagicMock()
         mock_processor_class.return_value = mock_processor
@@ -135,7 +136,7 @@ class TestMetalsExtractCommands(unittest.TestCase):
             orders=[],
             message_count=1,
         )
-        mock_processor.process.return_value = Result(payload=payload)
+        mock_processor.process.return_value = ResultEnvelope(status="success", payload=payload)
 
         args = MagicMock()
         args.profile = "test"
@@ -151,7 +152,8 @@ class TestMetalsExtractCommands(unittest.TestCase):
     def test_cmd_extract_outlook_success(self, mock_producer_class, mock_processor_class):
         """Test extract outlook command with mocked processor."""
         from metals.cli.main import cmd_extract_outlook
-        from metals.pipeline import ExtractResult, Result
+        from metals.pipeline import ExtractResult
+        from core.pipeline import ResultEnvelope
         from metals.extractors import MetalsAmount
 
         mock_processor = MagicMock()
@@ -164,7 +166,7 @@ class TestMetalsExtractCommands(unittest.TestCase):
             orders=[],
             message_count=1,
         )
-        mock_processor.process.return_value = Result(payload=payload)
+        mock_processor.process.return_value = ResultEnvelope(status="success", payload=payload)
 
         args = MagicMock()
         args.profile = "test"
@@ -180,14 +182,14 @@ class TestMetalsExtractCommands(unittest.TestCase):
     def test_cmd_extract_gmail_failure(self, mock_producer_class, mock_processor_class):
         """Test extract gmail command returns 1 on error."""
         from metals.cli.main import cmd_extract_gmail
-        from metals.pipeline import Result
+        from core.pipeline import ResultEnvelope
 
         mock_processor = MagicMock()
         mock_processor_class.return_value = mock_processor
         mock_producer = MagicMock()
         mock_producer_class.return_value = mock_producer
 
-        mock_processor.process.return_value = Result(error="Auth failed")
+        mock_processor.process.return_value = ResultEnvelope(status="error", diagnostics={"message": "Auth failed"})
 
         args = MagicMock()
         args.profile = "test"
