@@ -1,0 +1,1 @@
+"""Metals Assistant CLI module."""

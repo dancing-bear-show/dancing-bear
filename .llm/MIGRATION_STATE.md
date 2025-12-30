@@ -43,6 +43,20 @@ CI/CD (completed Dec 2024)
 - CODEOWNERS: `.github/CODEOWNERS` assigns @brian-sherwin as default owner
 - Copilot Code Review: enabled via repository ruleset
 
+Pipeline Pattern Migration (completed Dec 2024)
+- Goal: Standardize on SafeProcessor/BaseProducer/RequestConsumer pattern from core.pipeline
+- Phase 1: ✅ COMPLETE - mail/config_cli (11 pipelines)
+  - Removed 11 boilerplate consumer classes, replaced with RequestConsumer type aliases (-66 lines)
+  - Migrated 11 processors to SafeProcessor pattern (Auth, Backup, CacheStats, CacheClear, CachePrune, ConfigInspect, DeriveLabels, DeriveFilters, OptimizeFilters, AuditFilters, EnvSetup)
+  - Migrated 11 producers to BaseProducer pattern
+  - Updated commands.py to use generic RequestConsumer
+  - Net savings: -187 lines of boilerplate
+  - Commits: a03d5e8, 15f7509, 08d37cd, 0fec9e7, 04f7b14
+- Phase 2: ✅ COMPLETE - mail/messages_cli (2 pipelines)
+- Phase 3: ✅ COMPLETE - mail/accounts (9 pipelines)
+- Phase 4: Other domains (calendars, schedule, desk, resume, phone, whatsapp, maker, wifi, metals)
+- Benefits: Automatic error handling, reduced boilerplate, consistent patterns across codebase
+
 Testing
 - Keep tests lightweight; add only for new CLI surfaces or helpers touched
 

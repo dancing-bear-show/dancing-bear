@@ -317,7 +317,7 @@ class TestRunOutlookAuthDeviceCode(unittest.TestCase):
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
-    @patch("mail.outlook.commands.resolve_outlook_credentials")
+    @patch("mail.outlook.auth_commands.resolve_outlook_credentials")
     def test_fails_without_client_id(self, mock_resolve):
         from mail.outlook.commands import run_outlook_auth_device_code
         mock_resolve.return_value = (None, "consumers", None)
@@ -341,7 +341,7 @@ class TestRunOutlookAuthValidate(unittest.TestCase):
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
-    @patch("mail.outlook.commands.resolve_outlook_credentials")
+    @patch("mail.outlook.auth_commands.resolve_outlook_credentials")
     def test_fails_without_client_id(self, mock_resolve):
         from mail.outlook.commands import run_outlook_auth_validate
         mock_resolve.return_value = (None, "consumers", "/tmp/token.json")  # nosec B108

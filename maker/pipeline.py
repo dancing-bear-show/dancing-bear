@@ -6,7 +6,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, RequestConsumer
 
 
 @dataclass
@@ -69,14 +69,8 @@ class ToolRequest:
     entry_point: str = "main"
 
 
-class ToolRequestConsumer(Consumer[ToolRequest]):
-    """Return the pre-parsed ToolRequest (keeps pipeline structure uniform)."""
-
-    def __init__(self, request: ToolRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ToolRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+ToolRequestConsumer = RequestConsumer[ToolRequest]
 
 
 @dataclass

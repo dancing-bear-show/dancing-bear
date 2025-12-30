@@ -15,8 +15,8 @@ from metals.pipeline import (
     GmailExtractProcessor,
     OutlookExtractProcessor,
     ExtractProducer,
-    Result,
 )
+from core.pipeline import ResultEnvelope
 from metals.extractors import MetalsAmount, OrderExtraction
 
 
@@ -137,7 +137,7 @@ class TestGmailExtractProcessor(unittest.TestCase):
         result = processor.process(request)
 
         self.assertFalse(result.ok())
-        self.assertIn("Auth failed", result.error)
+        self.assertIn("Auth failed", (result.diagnostics or {}).get("message", ""))
 
 
 class TestOutlookExtractProcessor(unittest.TestCase):
@@ -177,7 +177,7 @@ class TestOutlookExtractProcessor(unittest.TestCase):
         result = processor.process(request)
 
         self.assertFalse(result.ok())
-        self.assertIn("Missing", result.error)
+        self.assertIn("Missing", (result.diagnostics or {}).get("message", ""))
 
     @patch("mail.outlook_api.OutlookClient")
     @patch("core.auth.resolve_outlook_credentials")
@@ -193,7 +193,7 @@ class TestOutlookExtractProcessor(unittest.TestCase):
         result = processor.process(request)
 
         self.assertFalse(result.ok())
-        self.assertIn("Search failed", result.error)
+        self.assertIn("Search failed", (result.diagnostics or {}).get("message", ""))
 
 
 class TestExtractProducer(unittest.TestCase):
@@ -202,7 +202,7 @@ class TestExtractProducer(unittest.TestCase):
     def test_produce_error(self):
         """Test producing error result."""
         producer = ExtractProducer()
-        result = Result[ExtractResult](error="Test error")
+        result = ResultEnvelope[ExtractResult](status="error", diagnostics={"message": "Test error"})
         # Should not raise
         producer.produce(result)
 
@@ -221,7 +221,7 @@ class TestExtractProducer(unittest.TestCase):
             ],
             message_count=1,
         )
-        result = Result[ExtractResult](payload=payload)
+        result = ResultEnvelope[ExtractResult](status="success", payload=payload)
         # Should not raise
         producer.produce(result)
 
@@ -233,35 +233,36 @@ class TestExtractProducer(unittest.TestCase):
             orders=[],
             message_count=0,
         )
-        result = Result[ExtractResult](payload=payload)
+        result = ResultEnvelope[ExtractResult](status="success", payload=payload)
         # Should not raise
         producer.produce(result)
 
 
-class TestResultUnwrap(unittest.TestCase):
-    """Tests for Result.unwrap() method."""
+class TestResultEnvelopeUnwrap(unittest.TestCase):
+    """Tests for ResultEnvelope.unwrap() method."""
 
     def test_unwrap_returns_payload_when_present(self):
         """Test unwrap returns payload when it exists."""
-        result = Result(payload={"data": "value"})
+        result = ResultEnvelope(status="success", payload={"data": "value"})
         self.assertEqual(result.unwrap(), {"data": "value"})
 
     def test_unwrap_returns_payload_of_any_type(self):
         """Test unwrap works with different payload types."""
-        self.assertEqual(Result(payload="test").unwrap(), "test")
-        self.assertEqual(Result(payload=[1, 2, 3]).unwrap(), [1, 2, 3])
-        self.assertEqual(Result(payload=42).unwrap(), 42)
+        self.assertEqual(ResultEnvelope(status="success", payload="test").unwrap(), "test")
+        self.assertEqual(ResultEnvelope(status="success", payload=[1, 2, 3]).unwrap(), [1, 2, 3])
+        self.assertEqual(ResultEnvelope(status="success", payload=42).unwrap(), 42)
 
     def test_unwrap_raises_when_payload_is_none(self):
         """Test unwrap raises ValueError when payload is None."""
-        result = Result(payload=None)
+        result = ResultEnvelope(status="success", payload=None)
         with self.assertRaises(ValueError) as ctx:
             result.unwrap()
         self.assertEqual(str(ctx.exception), "No payload")
 
     def test_unwrap_uses_diagnostics_message(self):
         """Test unwrap uses diagnostics message in ValueError."""
-        result = Result(
+        result = ResultEnvelope(
+            status="error",
             payload=None,
             diagnostics={"message": "Custom error"},
         )
@@ -269,62 +270,41 @@ class TestResultUnwrap(unittest.TestCase):
             result.unwrap()
         self.assertEqual(str(ctx.exception), "Custom error")
 
-    def test_unwrap_uses_error_field_as_fallback(self):
-        """Test unwrap uses error field when diagnostics has no message."""
-        result = Result(
-            payload=None,
-            error="Error from error field",
-        )
-        with self.assertRaises(ValueError) as ctx:
-            result.unwrap()
-        self.assertEqual(str(ctx.exception), "Error from error field")
-
-    def test_unwrap_prefers_diagnostics_over_error(self):
-        """Test unwrap prefers diagnostics message over error field."""
-        result = Result(
-            payload=None,
-            error="Error field message",
-            diagnostics={"message": "Diagnostics message"},
-        )
-        with self.assertRaises(ValueError) as ctx:
-            result.unwrap()
-        self.assertEqual(str(ctx.exception), "Diagnostics message")
-
     def test_unwrap_falls_back_to_no_payload(self):
         """Test unwrap falls back to 'No payload' when no error info."""
-        result = Result(payload=None, error=None, diagnostics=None)
+        result = ResultEnvelope(status="error", payload=None, diagnostics=None)
         with self.assertRaises(ValueError) as ctx:
             result.unwrap()
         self.assertEqual(str(ctx.exception), "No payload")
 
-    def test_unwrap_works_even_with_error_set(self):
-        """Test unwrap returns payload even if error field is set."""
-        result = Result(payload="data", error="ignored error")
+    def test_unwrap_works_with_status_success(self):
+        """Test unwrap returns payload when status is success."""
+        result = ResultEnvelope(status="success", payload="data")
         self.assertEqual(result.unwrap(), "data")
 
 
-class TestResultOk(unittest.TestCase):
-    """Tests for Result.ok() method."""
+class TestResultEnvelopeOk(unittest.TestCase):
+    """Tests for ResultEnvelope.ok() method."""
 
-    def test_ok_returns_true_when_no_error_and_payload(self):
-        """Test ok() returns True when error is None and payload exists."""
-        result = Result(payload="data", error=None)
+    def test_ok_returns_true_when_status_success(self):
+        """Test ok() returns True when status is 'success'."""
+        result = ResultEnvelope(status="success", payload="data")
         self.assertTrue(result.ok())
 
-    def test_ok_returns_false_when_error_set(self):
-        """Test ok() returns False when error is set."""
-        result = Result(payload="data", error="some error")
+    def test_ok_returns_false_when_status_error(self):
+        """Test ok() returns False when status is 'error'."""
+        result = ResultEnvelope(status="error", payload="data")
         self.assertFalse(result.ok())
 
-    def test_ok_returns_false_when_payload_is_none(self):
-        """Test ok() returns False when payload is None."""
-        result = Result(payload=None, error=None)
+    def test_ok_returns_false_when_status_failed(self):
+        """Test ok() returns False when status is not 'success'."""
+        result = ResultEnvelope(status="failed", payload=None)
         self.assertFalse(result.ok())
 
-    def test_ok_returns_false_when_both_error_and_no_payload(self):
-        """Test ok() returns False when both error set and no payload."""
-        result = Result(payload=None, error="error")
-        self.assertFalse(result.ok())
+    def test_ok_case_insensitive(self):
+        """Test ok() is case-insensitive for 'success'."""
+        self.assertTrue(ResultEnvelope(status="SUCCESS", payload="data").ok())
+        self.assertTrue(ResultEnvelope(status="Success", payload="data").ok())
 
 
 if __name__ == "__main__":

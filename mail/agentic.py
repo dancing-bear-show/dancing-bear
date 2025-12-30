@@ -80,7 +80,7 @@ def emit_agentic_context(_fmt: str = "text", compact: bool = False) -> int:
 @lru_cache(maxsize=1)
 def _get_parser():
     try:
-        from . import __main__ as main_mod
+        from .cli import main as main_mod
         return main_mod.app.build_parser()
     except Exception:
         return None

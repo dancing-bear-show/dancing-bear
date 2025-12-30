@@ -5,47 +5,37 @@ import argparse
 
 from .pipeline import (
     AuthRequest,
-    AuthRequestConsumer,
+    RequestConsumer,
     AuthProcessor,
     AuthProducer,
     BackupRequest,
-    BackupRequestConsumer,
     BackupProcessor,
     BackupProducer,
     CacheStatsRequest,
-    CacheStatsRequestConsumer,
     CacheStatsProcessor,
     CacheStatsProducer,
     CacheClearRequest,
-    CacheClearRequestConsumer,
     CacheClearProcessor,
     CacheClearProducer,
     CachePruneRequest,
-    CachePruneRequestConsumer,
     CachePruneProcessor,
     CachePruneProducer,
     ConfigInspectRequest,
-    ConfigInspectRequestConsumer,
     ConfigInspectProcessor,
     ConfigInspectProducer,
     DeriveLabelsRequest,
-    DeriveLabelsRequestConsumer,
     DeriveLabelsProcessor,
     DeriveLabelsProducer,
     DeriveFiltersRequest,
-    DeriveFiltersRequestConsumer,
     DeriveFiltersProcessor,
     DeriveFiltersProducer,
     OptimizeFiltersRequest,
-    OptimizeFiltersRequestConsumer,
     OptimizeFiltersProcessor,
     OptimizeFiltersProducer,
     AuditFiltersRequest,
-    AuditFiltersRequestConsumer,
     AuditFiltersProcessor,
     AuditFiltersProducer,
     EnvSetupRequest,
-    EnvSetupRequestConsumer,
     EnvSetupProcessor,
     EnvSetupProducer,
 )
@@ -59,7 +49,7 @@ def run_auth(args: argparse.Namespace) -> int:
         profile=getattr(args, "profile", None),
         validate=getattr(args, "validate", False),
     )
-    envelope = AuthProcessor().process(AuthRequestConsumer(request).consume())
+    envelope = AuthProcessor().process(RequestConsumer(request).consume())
     AuthProducer().produce(envelope)
     if envelope.payload and not envelope.payload.success:
         if getattr(args, "validate", False):
@@ -77,7 +67,7 @@ def run_backup(args: argparse.Namespace) -> int:
         cache=getattr(args, "cache", None),
         profile=getattr(args, "profile", None),
     )
-    envelope = BackupProcessor().process(BackupRequestConsumer(request).consume())
+    envelope = BackupProcessor().process(RequestConsumer(request).consume())
     BackupProducer().produce(envelope)
     return 0 if envelope.ok() else 1
 
@@ -85,7 +75,7 @@ def run_backup(args: argparse.Namespace) -> int:
 def run_cache_stats(args: argparse.Namespace) -> int:
     """Show cache stats."""
     request = CacheStatsRequest(cache_path=args.cache)
-    envelope = CacheStatsProcessor().process(CacheStatsRequestConsumer(request).consume())
+    envelope = CacheStatsProcessor().process(RequestConsumer(request).consume())
     CacheStatsProducer().produce(envelope)
     return 0 if envelope.ok() else 1
 
@@ -93,7 +83,7 @@ def run_cache_stats(args: argparse.Namespace) -> int:
 def run_cache_clear(args: argparse.Namespace) -> int:
     """Delete entire cache."""
     request = CacheClearRequest(cache_path=args.cache)
-    envelope = CacheClearProcessor().process(CacheClearRequestConsumer(request).consume())
+    envelope = CacheClearProcessor().process(RequestConsumer(request).consume())
     CacheClearProducer().produce(envelope)
     return 0 if envelope.ok() else 1
 
@@ -101,7 +91,7 @@ def run_cache_clear(args: argparse.Namespace) -> int:
 def run_cache_prune(args: argparse.Namespace) -> int:
     """Prune files older than N days from cache."""
     request = CachePruneRequest(cache_path=args.cache, days=int(args.days))
-    envelope = CachePruneProcessor().process(CachePruneRequestConsumer(request).consume())
+    envelope = CachePruneProcessor().process(RequestConsumer(request).consume())
     CachePruneProducer().produce(envelope)
     return 0 if envelope.ok() else 1
 
@@ -113,7 +103,7 @@ def run_config_inspect(args: argparse.Namespace) -> int:
         section=getattr(args, "section", None),
         only_mail=getattr(args, "only_mail", False),
     )
-    envelope = ConfigInspectProcessor().process(ConfigInspectRequestConsumer(request).consume())
+    envelope = ConfigInspectProcessor().process(RequestConsumer(request).consume())
     ConfigInspectProducer().produce(envelope)
     if not envelope.ok():
         msg = (envelope.diagnostics or {}).get("message", "")
@@ -133,7 +123,7 @@ def run_config_derive_labels(args: argparse.Namespace) -> int:
         out_gmail=args.out_gmail,
         out_outlook=args.out_outlook,
     )
-    envelope = DeriveLabelsProcessor().process(DeriveLabelsRequestConsumer(request).consume())
+    envelope = DeriveLabelsProcessor().process(RequestConsumer(request).consume())
     DeriveLabelsProducer().produce(envelope)
     return 0 if envelope.ok() else 2
 
@@ -147,7 +137,7 @@ def run_config_derive_filters(args: argparse.Namespace) -> int:
         outlook_archive_on_remove_inbox=getattr(args, "outlook_archive_on_remove_inbox", False),
         outlook_move_to_folders=getattr(args, "outlook_move_to_folders", False),
     )
-    envelope = DeriveFiltersProcessor().process(DeriveFiltersRequestConsumer(request).consume())
+    envelope = DeriveFiltersProcessor().process(RequestConsumer(request).consume())
     DeriveFiltersProducer().produce(envelope)
     return 0 if envelope.ok() else 2
 
@@ -160,7 +150,7 @@ def run_config_optimize_filters(args: argparse.Namespace) -> int:
         merge_threshold=int(getattr(args, "merge_threshold", 2) or 2),
         preview=getattr(args, "preview", False),
     )
-    envelope = OptimizeFiltersProcessor().process(OptimizeFiltersRequestConsumer(request).consume())
+    envelope = OptimizeFiltersProcessor().process(RequestConsumer(request).consume())
     OptimizeFiltersProducer(preview=request.preview).produce(envelope)
     return 0 if envelope.ok() else 2
 
@@ -172,7 +162,7 @@ def run_config_audit_filters(args: argparse.Namespace) -> int:
         export_path=getattr(args, "export_path", None) or "",
         preview_missing=getattr(args, "preview_missing", False),
     )
-    envelope = AuditFiltersProcessor().process(AuditFiltersRequestConsumer(request).consume())
+    envelope = AuditFiltersProcessor().process(RequestConsumer(request).consume())
     AuditFiltersProducer(preview_missing=request.preview_missing).produce(envelope)
     return 0 if envelope.ok() else 1
 
@@ -194,7 +184,7 @@ def run_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
         out_outlook=str(out_outlook),
         outlook_move_to_folders=True,
     )
-    envelope = DeriveFiltersProcessor().process(DeriveFiltersRequestConsumer(request).consume())
+    envelope = DeriveFiltersProcessor().process(RequestConsumer(request).consume())
     DeriveFiltersProducer().produce(envelope)
     if not envelope.ok():
         return 2
@@ -247,7 +237,7 @@ def run_env_setup(args: argparse.Namespace) -> int:
         outlook_token=getattr(args, "outlook_token", None),
         copy_gmail_example=getattr(args, "copy_gmail_example", False),
     )
-    envelope = EnvSetupProcessor().process(EnvSetupRequestConsumer(request).consume())
+    envelope = EnvSetupProcessor().process(RequestConsumer(request).consume())
     EnvSetupProducer().produce(envelope)
     return 0 if envelope.ok() else 2
 
@@ -272,7 +262,7 @@ def run_workflows_from_unified(args: argparse.Namespace) -> int:
         out_outlook=str(out_outlook),
         outlook_move_to_folders=bool(getattr(args, 'outlook_move_to_folders', True)),
     )
-    envelope = DeriveFiltersProcessor().process(DeriveFiltersRequestConsumer(request).consume())
+    envelope = DeriveFiltersProcessor().process(RequestConsumer(request).consume())
     DeriveFiltersProducer().produce(envelope)
     if not envelope.ok():
         return 2

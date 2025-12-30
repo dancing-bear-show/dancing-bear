@@ -117,7 +117,7 @@ class ApplyProcessorTests(unittest.TestCase):
 
         self.assertIsInstance(result, ResultEnvelope)
         self.assertFalse(result.ok())
-        self.assertEqual(result.diagnostics["error"], "apply failed")
+        self.assertEqual(result.diagnostics["message"], "apply failed")
 
     def test_process_dry_run(self):
         mock_applier = MagicMock()
@@ -170,13 +170,13 @@ class ApplyResultProducerTests(unittest.TestCase):
 
     def test_produce_error(self):
         producer = ApplyResultProducer()
-        result = ResultEnvelope(status="error", diagnostics={"error": "test error"})
+        result = ResultEnvelope(status="error", diagnostics={"message": "test error"})
 
         with patch("sys.stdout", new_callable=StringIO) as mock_out:
             producer.produce(result)
             output = mock_out.getvalue()
 
-        self.assertIn("failed", output.lower())
+        # BaseProducer prints the error message
         self.assertIn("test error", output)
 
 

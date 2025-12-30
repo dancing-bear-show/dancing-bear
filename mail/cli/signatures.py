@@ -20,8 +20,8 @@ def register(subparsers, *, f_export, f_sync, f_normalize):
     p_sigs_sync.set_defaults(func=f_sync)
 
     p_sigs_norm = sub_sigs.add_parser("normalize", help="Render and inline a signature HTML from YAML")
-    p_sigs_norm.add_argument("--config", required=True, help="Signatures YAML with default_html or gmail entries")
-    p_sigs_norm.add_argument("--out-html", required=True, help="Output HTML path")
+    p_sigs_norm.add_argument("--config", help="Signatures YAML with default_html or gmail entries")
+    p_sigs_norm.add_argument("--out-html", help="Output HTML path")
     p_sigs_norm.add_argument("--var", action="append", default=[], help="Template variable as name=value (e.g., displayName=John Doe)")
     p_sigs_norm.set_defaults(func=f_normalize)
 

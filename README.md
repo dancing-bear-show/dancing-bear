@@ -1,5 +1,10 @@
 # Personal Assistants
 
+[![CI](https://github.com/dancing-bear-show/dancing-bear/actions/workflows/ci.yml/badge.svg)](https://github.com/dancing-bear-show/dancing-bear/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: qlty](https://img.shields.io/badge/code%20style-qlty-black)](https://qlty.sh)
+
 Unified, dependency-light CLIs for personal workflows across mail, calendars, schedules,
 phone layouts, resumes, and WhatsApp. Built to be safe by default (plan and dry-run first),
 with a single YAML source of truth for Gmail and Outlook filters.
