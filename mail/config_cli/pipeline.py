@@ -44,68 +44,46 @@ class AuthResult:
 AuthRequestConsumer = RequestConsumer[AuthRequest]
 
 
-class AuthProcessor(Processor[AuthRequest, ResultEnvelope[AuthResult]]):
-    def process(self, payload: AuthRequest) -> ResultEnvelope[AuthResult]:
+class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
+    def _process_safe(self, payload: AuthRequest) -> AuthResult:
         from ..config_resolver import persist_if_provided, resolve_paths_profile
 
-        try:
-            creds_path, token_path = resolve_paths_profile(
-                arg_credentials=payload.credentials,
-                arg_token=payload.token,
-                profile=payload.profile,
-            )
+        creds_path, token_path = resolve_paths_profile(
+            arg_credentials=payload.credentials,
+            arg_token=payload.token,
+            profile=payload.profile,
+        )
 
-            if payload.validate:
-                try:
-                    from google.auth.transport.requests import Request
-                    from google.oauth2.credentials import Credentials
-                    from googleapiclient.discovery import build
-                    from ..gmail_api import SCOPES as GMAIL_SCOPES
-                except Exception as e:
-                    return ResultEnvelope(
-                        status="error",
-                        payload=AuthResult(success=False, message=f"Gmail validation unavailable: {e}"),
-                    )
-                if not token_path or not os.path.exists(token_path):
-                    return ResultEnvelope(
-                        status="error",
-                        payload=AuthResult(success=False, message=f"Token file not found: {token_path or '<unspecified>'}"),
-                    )
-                try:
-                    creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
-                    if creds and creds.expired and getattr(creds, 'refresh_token', None):
-                        creds.refresh(Request())
-                    svc = build("gmail", "v1", credentials=creds)
-                    _ = svc.users().getProfile(userId="me").execute()
-                    return ResultEnvelope(
-                        status="success",
-                        payload=AuthResult(success=True, message="Gmail token valid."),
-                    )
-                except Exception as e:
-                    return ResultEnvelope(
-                        status="error",
-                        payload=AuthResult(success=False, message=f"Gmail token invalid: {e}"),
-                    )
+        if payload.validate:
+            try:
+                from google.auth.transport.requests import Request
+                from google.oauth2.credentials import Credentials
+                from googleapiclient.discovery import build
+                from ..gmail_api import SCOPES as GMAIL_SCOPES
+            except Exception as e:
+                raise ValueError(f"Gmail validation unavailable: {e}")
+            if not token_path or not os.path.exists(token_path):
+                raise ValueError(f"Token file not found: {token_path or '<unspecified>'}")
+            try:
+                creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
+                if creds and creds.expired and getattr(creds, 'refresh_token', None):
+                    creds.refresh(Request())
+                svc = build("gmail", "v1", credentials=creds)
+                _ = svc.users().getProfile(userId="me").execute()
+                return AuthResult(success=True, message="Gmail token valid.")
+            except Exception as e:
+                raise ValueError(f"Gmail token invalid: {e}")
 
-            from ..gmail_api import GmailClient
-            client = GmailClient(credentials_path=creds_path, token_path=token_path)
-            client.authenticate()
-            persist_if_provided(arg_credentials=payload.credentials, arg_token=payload.token)
-            return ResultEnvelope(
-                status="success",
-                payload=AuthResult(success=True, message="Authentication complete."),
-            )
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                payload=AuthResult(success=False, message=str(e)),
-            )
+        from ..gmail_api import GmailClient
+        client = GmailClient(credentials_path=creds_path, token_path=token_path)
+        client.authenticate()
+        persist_if_provided(arg_credentials=payload.credentials, arg_token=payload.token)
+        return AuthResult(success=True, message="Authentication complete.")
 
 
-class AuthProducer(Producer[ResultEnvelope[AuthResult]]):
-    def produce(self, result: ResultEnvelope[AuthResult]) -> None:
-        if result.payload:
-            print(result.payload.message)
+class AuthProducer(BaseProducer):
+    def _produce_success(self, payload: AuthResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(payload.message)
 
 
 # -----------------------------------------------------------------------------
