@@ -4,7 +4,7 @@ Extracts purchase data from emails, tracks costs, monitors spot prices,
 calculates premiums, and integrates with Excel for reporting.
 """
 
-__all__ = ["main"]
+__all__: list[str] = []
 
 APP_ID = "metals"
 PURPOSE = "Precious metals portfolio tracking and analysis"
