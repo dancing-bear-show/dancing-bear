@@ -6,7 +6,6 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from phone.backup import (
     IconStateFile,
