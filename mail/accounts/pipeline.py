@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, SafeProcessor, RequestConsumer
+from core.pipeline import Processor, Producer, ResultEnvelope, SafeProcessor, RequestConsumer
 
 # -----------------------------------------------------------------------------
 # Shared abstractions
