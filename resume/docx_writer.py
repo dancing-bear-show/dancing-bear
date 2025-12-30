@@ -722,24 +722,14 @@ def write_resume_docx_sidebar(
             elif isinstance(summary_items, list):
                 summary_items = [s.get("text", s) if isinstance(s, dict) else s for s in summary_items]
             if summary_items:
-                # Render as paragraph, not bullets
-                title = sec.get("title", "Perfil profesional")
-                h1_color = page_cfg.get("h1_color", "#D4A84B")
-
-                p = sidebar_cell.add_paragraph()
-                run = p.add_run(title)
-                run.bold = True
-                run.font.size = Pt(page_cfg.get("h1_pt", 14))
-                rgb = _parse_hex_color(h1_color)
-                if rgb:
-                    run.font.color.rgb = RGBColor(*rgb)
-                _tight_paragraph(p, before_pt=12, after_pt=6)
-
-                # Join summary as paragraph
-                p2 = sidebar_cell.add_paragraph()
-                run2 = p2.add_run(" ".join(summary_items[:4]))  # First 4 items
-                run2.font.size = Pt(page_cfg.get("body_pt", 10))
-                _tight_paragraph(p2, after_pt=6)
+                # Render as bullets
+                _render_sidebar_section(
+                    sidebar_cell,
+                    sec.get("title", "Perfil profesional"),
+                    summary_items[:6],
+                    page_cfg,
+                    bulleted=True
+                )
             break
 
     # Skills in sidebar
