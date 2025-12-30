@@ -6,7 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from resume.pipeline import FilterPipeline, apply_filters_from_args, create_pipeline
 
@@ -477,7 +477,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
         mock_read.return_value = {"matched_keywords": [{"skill": "Python"}]}
         mock_filter.return_value = {"skills": ["Python"]}
 
-        result = apply_filters_from_args(
+        apply_filters_from_args(
             {"skills": ["Python", "Java"]},
             filter_skills_alignment="/alignment.json",
         )
@@ -491,7 +491,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
         mock_read.return_value = {"matched_keywords": [{"skill": "Python"}]}
         mock_filter.return_value = {"experience": []}
 
-        result = apply_filters_from_args(
+        apply_filters_from_args(
             {"experience": []},
             filter_exp_alignment="/alignment.json",
         )
