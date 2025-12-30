@@ -1,4 +1,4 @@
-"""DOCX sidebar layout renderer for resumes.
+"""DOCX sidebar layout resume writer.
 
 Provides two-column sidebar layout with repeating header.
 """
@@ -11,6 +11,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
 from docx.oxml.ns import qn  # type: ignore
 from docx.oxml import OxmlElement  # type: ignore
 
+from .docx_base import ResumeWriterBase
 from .docx_styles import (
     _parse_hex_color,
     _tight_paragraph,
@@ -18,10 +19,165 @@ from .docx_styles import (
 )
 
 
-# Sidebar layout constants
-SIDEBAR_SECTIONS = {"summary", "skills", "contact"}
-MAIN_SECTIONS = {"education", "experience", "teaching", "presentations", "certifications", "languages"}
+class SidebarResumeWriter(ResumeWriterBase):
+    """Two-column sidebar layout resume writer."""
 
+    def _render_content(self, seed: Optional[Dict[str, Any]] = None) -> None:
+        """Render two-column sidebar resume content."""
+        sidebar_width = self.layout_cfg.get("sidebar_width", 2.3)
+        main_width = self.layout_cfg.get("main_width", 5.2)
+        sidebar_bg = self.layout_cfg.get("sidebar_bg")
+
+        # Render page header (repeats on all pages)
+        self._render_page_header()
+
+        # Create two-column table for body
+        table = self.doc.add_table(rows=1, cols=2)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.autofit = False
+
+        table.columns[0].width = Inches(sidebar_width)
+        table.columns[1].width = Inches(main_width)
+
+        sidebar_cell = table.rows[0].cells[0]
+        main_cell = table.rows[0].cells[1]
+
+        _remove_cell_borders(sidebar_cell)
+        _remove_cell_borders(main_cell)
+
+        if sidebar_bg:
+            _set_cell_shading(sidebar_cell, sidebar_bg)
+
+        # Clear default paragraphs
+        if sidebar_cell.paragraphs:
+            sidebar_cell.paragraphs[0].clear()
+        if main_cell.paragraphs:
+            main_cell.paragraphs[0].clear()
+
+        # Render sidebar content (Profile + Skills)
+        self._render_sidebar_content(sidebar_cell)
+
+        # Render main content
+        self._render_main_content(main_cell)
+
+    def _render_page_header(self) -> None:
+        """Add name, headline, and contact as centered header (repeats on each page)."""
+        section = self.doc.sections[0]
+        header = section.header
+
+        name = self._get_contact_field("name")
+        headline = self._get_contact_field("headline")
+        email = self._get_contact_field("email")
+        phone = self._get_contact_field("phone")
+        location = self._get_contact_field("location")
+
+        name_color = self.page_cfg.get("sidebar_name_color", "#1A365D")
+        text_color = self.page_cfg.get("sidebar_text_color", "#333333")
+        header_bg = self.page_cfg.get("header_bg", "#F7F9FC")
+
+        # Name in header (centered)
+        if header.paragraphs:
+            p = header.paragraphs[0]
+            p.clear()
+        else:
+            p = header.add_paragraph()
+        run = p.add_run(name)
+        run.bold = True
+        run.font.size = Pt(self.page_cfg.get("sidebar_name_pt", 20))
+        rgb = _parse_hex_color(name_color)
+        if rgb:
+            run.font.color.rgb = RGBColor(*rgb)
+        _tight_paragraph(p, after_pt=0)
+        self._center_paragraph(p)
+        bg_rgb = _parse_hex_color(header_bg)
+        if bg_rgb:
+            _apply_paragraph_shading(p, bg_rgb)
+
+        # Headline (centered)
+        if headline:
+            p2 = header.add_paragraph()
+            run2 = p2.add_run(headline)
+            run2.font.size = Pt(self.page_cfg.get("sidebar_headline_pt", 10))
+            rgb2 = _parse_hex_color(text_color)
+            if rgb2:
+                run2.font.color.rgb = RGBColor(*rgb2)
+            _tight_paragraph(p2, after_pt=2)
+            self._center_paragraph(p2)
+            if bg_rgb:
+                _apply_paragraph_shading(p2, bg_rgb)
+
+        # Contact line (centered)
+        contact_parts = [x for x in [phone, email, location] if x]
+        if contact_parts:
+            p3 = header.add_paragraph()
+            run3 = p3.add_run(" | ".join(contact_parts))
+            run3.font.size = Pt(self.page_cfg.get("body_pt", 10) - 1)
+            rgb3 = _parse_hex_color("#666666")
+            if rgb3:
+                run3.font.color.rgb = RGBColor(*rgb3)
+            _tight_paragraph(p3, after_pt=6)
+            self._center_paragraph(p3)
+            if bg_rgb:
+                _apply_paragraph_shading(p3, bg_rgb)
+
+    def _render_sidebar_content(self, cell) -> None:
+        """Render sidebar content (profile + skills)."""
+        # Profile/Summary section
+        for sec in (self.template.get("sections") or []):
+            if sec.get("key") == "summary":
+                summary_items = self.data.get("summary") or []
+                if isinstance(summary_items, str):
+                    summary_items = [summary_items]
+                elif isinstance(summary_items, list):
+                    summary_items = [s.get("text", s) if isinstance(s, dict) else s for s in summary_items]
+                if summary_items:
+                    _render_sidebar_section(
+                        cell,
+                        sec.get("title", "Perfil profesional"),
+                        summary_items[:6],
+                        self.page_cfg,
+                        bulleted=True
+                    )
+                break
+
+        # Skills section
+        for sec in (self.template.get("sections") or []):
+            if sec.get("key") == "skills":
+                skills_groups = self.data.get("skills_groups") or []
+                skill_items = []
+                for group in skills_groups:
+                    for item in (group.get("items") or []):
+                        name = item.get("name", item) if isinstance(item, dict) else item
+                        skill_items.append(name)
+                if skill_items:
+                    _render_sidebar_section(cell, sec.get("title", "Habilidades claves"), skill_items[:8], self.page_cfg)
+                break
+
+    def _render_main_content(self, cell) -> None:
+        """Render main column content (education, experience, teaching, presentations)."""
+        sections = self.template.get("sections") or []
+
+        for sec in sections:
+            key = sec.get("key")
+            title = sec.get("title", "")
+
+            if key == "education":
+                _render_main_section_heading(cell, title, self.page_cfg)
+                _render_main_education(cell, self.data, self.page_cfg, sec)
+            elif key == "experience":
+                _render_main_section_heading(cell, title, self.page_cfg)
+                _render_main_experience(cell, self.data, self.page_cfg, sec)
+            elif key == "teaching":
+                _render_main_section_heading(cell, title, self.page_cfg)
+                _render_main_teaching(cell, self.data, self.page_cfg, sec)
+            elif key == "presentations":
+                _render_main_section_heading(cell, title, self.page_cfg)
+                _render_main_presentations(cell, self.data, self.page_cfg, sec)
+
+
+# -------------------------------------------------------------------------
+# Cell styling helpers
+# -------------------------------------------------------------------------
 
 def _set_cell_shading(cell, hex_color: str) -> None:
     """Set background shading on a table cell."""
@@ -47,66 +203,9 @@ def _remove_cell_borders(cell) -> None:
     tcPr.append(tcBorders)
 
 
-def _render_sidebar_header(cell, data: Dict[str, Any], page_cfg: Dict[str, Any]) -> None:
-    """Render name and headline in sidebar cell."""
-    from .docx_writer import _get_contact_field
-
-    name = _get_contact_field(data, "name")
-    headline = _get_contact_field(data, "headline")
-
-    name_color = page_cfg.get("sidebar_name_color", "#333333")
-    text_color = page_cfg.get("sidebar_text_color", "#333333")
-
-    if name:
-        p = cell.add_paragraph()
-        run = p.add_run(name)
-        run.bold = True
-        run.font.size = Pt(page_cfg.get("sidebar_name_pt", 24))
-        rgb = _parse_hex_color(name_color)
-        if rgb:
-            run.font.color.rgb = RGBColor(*rgb)
-        _tight_paragraph(p, after_pt=2)
-
-    if headline:
-        p = cell.add_paragraph()
-        run = p.add_run(headline)
-        run.font.size = Pt(page_cfg.get("sidebar_headline_pt", 11))
-        rgb = _parse_hex_color(text_color)
-        if rgb:
-            run.font.color.rgb = RGBColor(*rgb)
-        _tight_paragraph(p, after_pt=12)
-
-
-def _render_sidebar_contact(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], title: str = "Contacto") -> None:
-    """Render contact section in sidebar."""
-    from .docx_writer import _get_contact_field
-
-    email = _get_contact_field(data, "email")
-    phone = _get_contact_field(data, "phone")
-    location = _get_contact_field(data, "location")
-
-    h1_color = page_cfg.get("h1_color", "#D4A84B")
-    text_color = page_cfg.get("sidebar_text_color", "#333333")
-
-    p = cell.add_paragraph()
-    run = p.add_run(title)
-    run.bold = True
-    run.font.size = Pt(page_cfg.get("h1_pt", 14))
-    rgb = _parse_hex_color(h1_color)
-    if rgb:
-        run.font.color.rgb = RGBColor(*rgb)
-    _tight_paragraph(p, before_pt=12, after_pt=6)
-
-    for item in [phone, email, location]:
-        if item:
-            p = cell.add_paragraph()
-            run = p.add_run(item)
-            run.font.size = Pt(page_cfg.get("body_pt", 10))
-            rgb = _parse_hex_color(text_color)
-            if rgb:
-                run.font.color.rgb = RGBColor(*rgb)
-            _tight_paragraph(p, after_pt=2)
-
+# -------------------------------------------------------------------------
+# Sidebar section renderers
+# -------------------------------------------------------------------------
 
 def _render_sidebar_section(cell, title: str, items: List[str], page_cfg: Dict[str, Any], bulleted: bool = True) -> None:
     """Render a generic section in sidebar with optional bullets."""
@@ -138,6 +237,10 @@ def _render_sidebar_section(cell, title: str, items: List[str], page_cfg: Dict[s
             run.font.color.rgb = RGBColor(*rgb)
         _tight_paragraph(p, after_pt=2)
 
+
+# -------------------------------------------------------------------------
+# Main column section renderers
+# -------------------------------------------------------------------------
 
 def _render_main_section_heading(cell, title: str, page_cfg: Dict[str, Any]) -> None:
     """Render a section heading in main column."""
@@ -330,69 +433,7 @@ def _render_main_presentations(cell, data: Dict[str, Any], page_cfg: Dict[str, A
                 p2.paragraph_format.space_after = Pt(4)
 
 
-def _render_page_header(doc, data: Dict[str, Any], page_cfg: Dict[str, Any]) -> None:
-    """Add name, headline, and contact as centered header (repeats on each page)."""
-    from .docx_writer import _get_contact_field, _center_paragraph
-
-    section = doc.sections[0]
-    header = section.header
-
-    name = _get_contact_field(data, "name")
-    headline = _get_contact_field(data, "headline")
-    email = _get_contact_field(data, "email")
-    phone = _get_contact_field(data, "phone")
-    location = _get_contact_field(data, "location")
-
-    name_color = page_cfg.get("sidebar_name_color", "#1A365D")
-    text_color = page_cfg.get("sidebar_text_color", "#333333")
-    header_bg = page_cfg.get("header_bg", "#F7F9FC")
-
-    # Name in header (centered)
-    if header.paragraphs:
-        p = header.paragraphs[0]
-        p.clear()
-    else:
-        p = header.add_paragraph()
-    run = p.add_run(name)
-    run.bold = True
-    run.font.size = Pt(page_cfg.get("sidebar_name_pt", 20))
-    rgb = _parse_hex_color(name_color)
-    if rgb:
-        run.font.color.rgb = RGBColor(*rgb)
-    _tight_paragraph(p, after_pt=0)
-    _center_paragraph(p)
-    bg_rgb = _parse_hex_color(header_bg)
-    if bg_rgb:
-        _apply_paragraph_shading(p, bg_rgb)
-
-    # Headline (centered)
-    if headline:
-        p2 = header.add_paragraph()
-        run2 = p2.add_run(headline)
-        run2.font.size = Pt(page_cfg.get("sidebar_headline_pt", 10))
-        rgb2 = _parse_hex_color(text_color)
-        if rgb2:
-            run2.font.color.rgb = RGBColor(*rgb2)
-        _tight_paragraph(p2, after_pt=2)
-        _center_paragraph(p2)
-        if bg_rgb:
-            _apply_paragraph_shading(p2, bg_rgb)
-
-    # Contact line (centered)
-    contact_parts = [x for x in [phone, email, location] if x]
-    if contact_parts:
-        p3 = header.add_paragraph()
-        run3 = p3.add_run(" | ".join(contact_parts))
-        run3.font.size = Pt(page_cfg.get("body_pt", 10) - 1)
-        rgb3 = _parse_hex_color("#666666")
-        if rgb3:
-            run3.font.color.rgb = RGBColor(*rgb3)
-        _tight_paragraph(p3, after_pt=6)
-        _center_paragraph(p3)
-        if bg_rgb:
-            _apply_paragraph_shading(p3, bg_rgb)
-
-
+# Backward-compatible function (delegates to class)
 def write_resume_docx_sidebar(
     data: Dict[str, Any],
     template: Dict[str, Any],
@@ -400,103 +441,10 @@ def write_resume_docx_sidebar(
     seed: Optional[Dict[str, Any]] = None,
     structure: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Write resume with two-column sidebar layout."""
-    from .io_utils import safe_import
-    from .docx_writer import _apply_page_styles, _set_document_metadata
+    """Write resume with two-column sidebar layout.
 
-    docx = safe_import("docx")
-    if not docx:
-        raise RuntimeError("Rendering DOCX requires python-docx; install python-docx.")
-
-    from docx import Document  # type: ignore
-
-    doc = Document()
-    page_cfg = template.get("page") or {}
-    layout_cfg = template.get("layout") or {}
-
-    # Apply page styles and metadata
-    _apply_page_styles(doc, page_cfg)
-    _set_document_metadata(doc, data, template)
-
-    # Layout dimensions
-    sidebar_width = layout_cfg.get("sidebar_width", 2.3)
-    main_width = layout_cfg.get("main_width", 5.2)
-    sidebar_bg = layout_cfg.get("sidebar_bg")
-
-    # Render page header (repeats on all pages)
-    _render_page_header(doc, data, page_cfg)
-
-    # Create two-column table for body
-    table = doc.add_table(rows=1, cols=2)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.autofit = False
-
-    table.columns[0].width = Inches(sidebar_width)
-    table.columns[1].width = Inches(main_width)
-
-    sidebar_cell = table.rows[0].cells[0]
-    main_cell = table.rows[0].cells[1]
-
-    _remove_cell_borders(sidebar_cell)
-    _remove_cell_borders(main_cell)
-
-    if sidebar_bg:
-        _set_cell_shading(sidebar_cell, sidebar_bg)
-
-    # Clear default paragraphs
-    if sidebar_cell.paragraphs:
-        sidebar_cell.paragraphs[0].clear()
-    if main_cell.paragraphs:
-        main_cell.paragraphs[0].clear()
-
-    # Page 1 sidebar: Profile + Skills
-    for sec in (template.get("sections") or []):
-        if sec.get("key") == "summary":
-            summary_items = data.get("summary") or []
-            if isinstance(summary_items, str):
-                summary_items = [summary_items]
-            elif isinstance(summary_items, list):
-                summary_items = [s.get("text", s) if isinstance(s, dict) else s for s in summary_items]
-            if summary_items:
-                _render_sidebar_section(
-                    sidebar_cell,
-                    sec.get("title", "Perfil profesional"),
-                    summary_items[:6],
-                    page_cfg,
-                    bulleted=True
-                )
-            break
-
-    for sec in (template.get("sections") or []):
-        if sec.get("key") == "skills":
-            skills_groups = data.get("skills_groups") or []
-            skill_items = []
-            for group in skills_groups:
-                for item in (group.get("items") or []):
-                    name = item.get("name", item) if isinstance(item, dict) else item
-                    skill_items.append(name)
-            if skill_items:
-                _render_sidebar_section(sidebar_cell, sec.get("title", "Habilidades claves"), skill_items[:8], page_cfg)
-            break
-
-    # Main content (natural flow)
-    sections = template.get("sections") or []
-
-    for sec in sections:
-        key = sec.get("key")
-        title = sec.get("title", "")
-
-        if key == "education":
-            _render_main_section_heading(main_cell, title, page_cfg)
-            _render_main_education(main_cell, data, page_cfg, sec)
-        elif key == "experience":
-            _render_main_section_heading(main_cell, title, page_cfg)
-            _render_main_experience(main_cell, data, page_cfg, sec)
-        elif key == "teaching":
-            _render_main_section_heading(main_cell, title, page_cfg)
-            _render_main_teaching(main_cell, data, page_cfg, sec)
-        elif key == "presentations":
-            _render_main_section_heading(main_cell, title, page_cfg)
-            _render_main_presentations(main_cell, data, page_cfg, sec)
-
-    doc.save(out_path)
+    This function is provided for backward compatibility.
+    Prefer using SidebarResumeWriter directly.
+    """
+    writer = SidebarResumeWriter(data, template)
+    writer.write(out_path, seed)

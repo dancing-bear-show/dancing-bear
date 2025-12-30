@@ -111,7 +111,7 @@ class AppLoggerTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(records[1]["data"]["message"], "Test émojis 🎉")
 
     def test_timestamp_is_numeric(self):
-        session_id = self.logger.start("test-cmd")
+        self.logger.start("test-cmd")
         records = self._read_records()
         self.assertIsInstance(records[0]["ts"], float)
 
