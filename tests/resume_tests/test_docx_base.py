@@ -5,9 +5,6 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import FakeDocument
-
-
 @patch.dict("sys.modules", {
     "docx": MagicMock(),
     "docx.shared": MagicMock(),
