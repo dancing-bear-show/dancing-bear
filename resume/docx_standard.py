@@ -15,8 +15,6 @@ from .docx_styles import (
     _format_phone_display,
 )
 from .docx_sections import (
-    BulletRenderer,
-    HeaderRenderer,
     InterestsSectionRenderer,
     LanguagesSectionRenderer,
     CourseworkSectionRenderer,
