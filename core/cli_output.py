@@ -159,9 +159,8 @@ class OutputWriter:
             return
 
         # Determine headers
-        if headers is None and rows:
-            if isinstance(rows[0], dict):
-                headers = list(rows[0].keys())
+        if headers is None and rows and isinstance(rows[0], dict):
+            headers = list(rows[0].keys())
 
         if headers:
             # Calculate column widths

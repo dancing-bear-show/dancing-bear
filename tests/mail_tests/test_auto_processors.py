@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import io
-import json
-import tempfile
 import time
 import unittest
-from contextlib import redirect_stdout
 from dataclasses import dataclass, field
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch, MagicMock
@@ -17,12 +12,10 @@ from unittest.mock import patch, MagicMock
 from mail.auto.processors import (
     classify_low_interest,
     _is_protected,
-    AutoProposeProcessor,
     AutoSummaryProcessor,
     AutoApplyProcessor,
 )
 from mail.auto.consumers import (
-    AutoProposePayload,
     AutoSummaryPayload,
     AutoApplyPayload,
 )

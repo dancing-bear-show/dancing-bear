@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import FakeDocument, FakeParagraph, FakeRun
+from tests.resume_tests.fixtures import FakeDocument
 
 
 # Patch the docx_styles module before importing docx_sections

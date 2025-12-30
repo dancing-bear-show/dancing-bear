@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple  # noqa: F401 - Tuple used in return type
 
 from ..providers.base import BaseProvider
 
