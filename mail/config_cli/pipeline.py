@@ -459,40 +459,31 @@ class DeriveLabelsResult:
 DeriveLabelsRequestConsumer = RequestConsumer[DeriveLabelsRequest]
 
 
-class DeriveLabelsProcessor(Processor[DeriveLabelsRequest, ResultEnvelope[DeriveLabelsResult]]):
-    def process(self, payload: DeriveLabelsRequest) -> ResultEnvelope[DeriveLabelsResult]:
+class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResult]):
+    def _process_safe(self, payload: DeriveLabelsRequest) -> DeriveLabelsResult:
         from ..yamlio import load_config, dump_config
         from ..dsl import normalize_labels_for_outlook
 
-        try:
-            doc = load_config(payload.in_path) if payload.in_path else {}
-            labels = doc.get("labels") or []
-            if not isinstance(labels, list):
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "Input missing labels: []"},
-                )
+        doc = load_config(payload.in_path) if payload.in_path else {}
+        labels = doc.get("labels") or []
+        if not isinstance(labels, list):
+            raise ValueError("Input missing labels: []")
 
-            # Gmail: pass-through
-            out_g = Path(payload.out_gmail)
-            out_g.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_g), {"labels": labels})
+        # Gmail: pass-through
+        out_g = Path(payload.out_gmail)
+        out_g.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_g), {"labels": labels})
 
-            # Outlook: normalized names/colors
-            out_o = Path(payload.out_outlook)
-            out_o.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_o), {"labels": normalize_labels_for_outlook(labels)})
+        # Outlook: normalized names/colors
+        out_o = Path(payload.out_outlook)
+        out_o.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_o), {"labels": normalize_labels_for_outlook(labels)})
 
-            return ResultEnvelope(
-                status="success",
-                payload=DeriveLabelsResult(
-                    gmail_path=str(out_g),
-                    outlook_path=str(out_o),
-                    labels_count=len(labels),
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return DeriveLabelsResult(
+            gmail_path=str(out_g),
+            outlook_path=str(out_o),
+            labels_count=len(labels),
+        )
 
 
 class DeriveLabelsProducer(Producer[ResultEnvelope[DeriveLabelsResult]]):
@@ -533,62 +524,53 @@ class DeriveFiltersResult:
 DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
-class DeriveFiltersProcessor(Processor[DeriveFiltersRequest, ResultEnvelope[DeriveFiltersResult]]):
-    def process(self, payload: DeriveFiltersRequest) -> ResultEnvelope[DeriveFiltersResult]:
+class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
+    def _process_safe(self, payload: DeriveFiltersRequest) -> DeriveFiltersResult:
         from ..yamlio import load_config, dump_config
         from ..dsl import normalize_filters_for_outlook
 
-        try:
-            doc = load_config(payload.in_path) if payload.in_path else {}
-            filters = doc.get("filters") or []
-            if not isinstance(filters, list):
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "Input missing filters: []"},
-                )
+        doc = load_config(payload.in_path) if payload.in_path else {}
+        filters = doc.get("filters") or []
+        if not isinstance(filters, list):
+            raise ValueError("Input missing filters: []")
 
-            # Gmail: pass-through
-            out_g = Path(payload.out_gmail)
-            out_g.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_g), {"filters": filters})
+        # Gmail: pass-through
+        out_g = Path(payload.out_gmail)
+        out_g.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_g), {"filters": filters})
 
-            # Outlook: normalized subset
-            out_specs = normalize_filters_for_outlook(filters)
-            if payload.outlook_archive_on_remove_inbox:
-                for i, spec in enumerate(out_specs):
-                    a = spec.get("action") or {}
-                    try:
-                        orig = filters[i]
-                    except Exception:
-                        orig = {}
-                    orig_action = (orig or {}).get("action") or {}
-                    remove_list = orig_action.get("remove") or []
-                    if isinstance(remove_list, list) and any(str(x).upper() == 'INBOX' for x in remove_list):
-                        a["moveToFolder"] = "Archive"
-                        a.pop("add", None)
-                        spec["action"] = a
-            elif payload.outlook_move_to_folders:
-                for spec in out_specs:
-                    a = spec.get("action") or {}
-                    adds = a.get("add") or []
-                    if adds and not a.get("moveToFolder"):
-                        a["moveToFolder"] = str(adds[0])
-                        spec["action"] = a
+        # Outlook: normalized subset
+        out_specs = normalize_filters_for_outlook(filters)
+        if payload.outlook_archive_on_remove_inbox:
+            for i, spec in enumerate(out_specs):
+                a = spec.get("action") or {}
+                try:
+                    orig = filters[i]
+                except Exception:
+                    orig = {}
+                orig_action = (orig or {}).get("action") or {}
+                remove_list = orig_action.get("remove") or []
+                if isinstance(remove_list, list) and any(str(x).upper() == 'INBOX' for x in remove_list):
+                    a["moveToFolder"] = "Archive"
+                    a.pop("add", None)
+                    spec["action"] = a
+        elif payload.outlook_move_to_folders:
+            for spec in out_specs:
+                a = spec.get("action") or {}
+                adds = a.get("add") or []
+                if adds and not a.get("moveToFolder"):
+                    a["moveToFolder"] = str(adds[0])
+                    spec["action"] = a
 
-            out_o = Path(payload.out_outlook)
-            out_o.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(out_o), {"filters": out_specs})
+        out_o = Path(payload.out_outlook)
+        out_o.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(out_o), {"filters": out_specs})
 
-            return ResultEnvelope(
-                status="success",
-                payload=DeriveFiltersResult(
-                    gmail_path=str(out_g),
-                    outlook_path=str(out_o),
-                    filters_count=len(filters),
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return DeriveFiltersResult(
+            gmail_path=str(out_g),
+            outlook_path=str(out_o),
+            filters_count=len(filters),
+        )
 
 
 class DeriveFiltersProducer(Producer[ResultEnvelope[DeriveFiltersResult]]):
@@ -638,86 +620,77 @@ class OptimizeFiltersResult:
 OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 
 
-class OptimizeFiltersProcessor(Processor[OptimizeFiltersRequest, ResultEnvelope[OptimizeFiltersResult]]):
-    def process(self, payload: OptimizeFiltersRequest) -> ResultEnvelope[OptimizeFiltersResult]:
+class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFiltersResult]):
+    def _process_safe(self, payload: OptimizeFiltersRequest) -> OptimizeFiltersResult:
         from collections import defaultdict
         from ..yamlio import load_config, dump_config
 
-        try:
-            doc = load_config(payload.in_path) if payload.in_path else {}
-            rules = doc.get("filters") or []
-            if not isinstance(rules, list):
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "Input missing filters: []"},
-                )
+        doc = load_config(payload.in_path) if payload.in_path else {}
+        rules = doc.get("filters") or []
+        if not isinstance(rules, list):
+            raise ValueError("Input missing filters: []")
 
-            groups: Dict[str, list] = defaultdict(list)
-            passthrough = []
-            for r in rules:
-                if not isinstance(r, dict):
-                    continue
-                m = r.get('match') or {}
-                a = r.get('action') or {}
-                adds = a.get('add') or []
-                has_only_from = bool(m.get('from')) and all(k in (None, '') for k in [m.get('to'), m.get('subject'), m.get('query'), m.get('negatedQuery')])
-                if adds and has_only_from:
-                    dest = str(adds[0])
-                    groups[dest].append(r)
-                else:
-                    passthrough.append(r)
+        groups: Dict[str, list] = defaultdict(list)
+        passthrough = []
+        for r in rules:
+            if not isinstance(r, dict):
+                continue
+            m = r.get('match') or {}
+            a = r.get('action') or {}
+            adds = a.get('add') or []
+            has_only_from = bool(m.get('from')) and all(k in (None, '') for k in [m.get('to'), m.get('subject'), m.get('query'), m.get('negatedQuery')])
+            if adds and has_only_from:
+                dest = str(adds[0])
+                groups[dest].append(r)
+            else:
+                passthrough.append(r)
 
-            merged = []
-            preview_info = []
-            threshold = max(2, payload.merge_threshold)
-            for dest, items in groups.items():
-                if len(items) < threshold:
-                    passthrough.extend(items)
-                    continue
-                terms = []
-                removes: set = set()
-                for it in items:
-                    m = it.get('match') or {}
-                    a = it.get('action') or {}
-                    frm = str(m.get('from') or '').strip()
-                    if frm:
-                        terms.append(frm)
-                    for x in a.get('remove') or []:
-                        removes.add(x)
-                atoms = []
-                for t in terms:
-                    parts = [p.strip() for p in t.split('OR') if p.strip()]
-                    atoms.extend(parts)
-                uniq = sorted({a for a in atoms})
-                if not uniq:
-                    passthrough.extend(items)
-                    continue
-                merged_rule = {
-                    'name': f'merged_{dest.replace("/", "_")}',
-                    'match': {'from': ' OR '.join(uniq)},
-                    'action': {'add': [dest]},
-                }
-                if removes:
-                    merged_rule['action']['remove'] = sorted(removes)
-                merged.append(merged_rule)
-                preview_info.append(MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq)))
+        merged = []
+        preview_info = []
+        threshold = max(2, payload.merge_threshold)
+        for dest, items in groups.items():
+            if len(items) < threshold:
+                passthrough.extend(items)
+                continue
+            terms = []
+            removes: set = set()
+            for it in items:
+                m = it.get('match') or {}
+                a = it.get('action') or {}
+                frm = str(m.get('from') or '').strip()
+                if frm:
+                    terms.append(frm)
+                for x in a.get('remove') or []:
+                    removes.add(x)
+            atoms = []
+            for t in terms:
+                parts = [p.strip() for p in t.split('OR') if p.strip()]
+                atoms.extend(parts)
+            uniq = sorted({a for a in atoms})
+            if not uniq:
+                passthrough.extend(items)
+                continue
+            merged_rule = {
+                'name': f'merged_{dest.replace("/", "_")}',
+                'match': {'from': ' OR '.join(uniq)},
+                'action': {'add': [dest]},
+            }
+            if removes:
+                merged_rule['action']['remove'] = sorted(removes)
+            merged.append(merged_rule)
+            preview_info.append(MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq)))
 
-            optimized = {'filters': merged + passthrough}
-            outp = Path(payload.out_path)
-            outp.parent.mkdir(parents=True, exist_ok=True)
-            dump_config(str(outp), optimized)
+        optimized = {'filters': merged + passthrough}
+        outp = Path(payload.out_path)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(outp), optimized)
 
-            return ResultEnvelope(
-                status="success",
-                payload=OptimizeFiltersResult(
-                    out_path=str(outp),
-                    original_count=len(rules),
-                    optimized_count=len(optimized['filters']),
-                    merged_groups=preview_info,
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return OptimizeFiltersResult(
+            out_path=str(outp),
+            original_count=len(rules),
+            optimized_count=len(optimized['filters']),
+            merged_groups=preview_info,
+        )
 
 
 class OptimizeFiltersProducer(Producer[ResultEnvelope[OptimizeFiltersResult]]):
@@ -765,74 +738,68 @@ class AuditFiltersResult:
 AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
-class AuditFiltersProcessor(Processor[AuditFiltersRequest, ResultEnvelope[AuditFiltersResult]]):
-    def process(self, payload: AuditFiltersRequest) -> ResultEnvelope[AuditFiltersResult]:
+class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResult]):
+    def _process_safe(self, payload: AuditFiltersRequest) -> AuditFiltersResult:
         from ..yamlio import load_config
 
-        try:
-            uni = load_config(payload.in_path) if payload.in_path else {}
-            exp = load_config(payload.export_path) if payload.export_path else {}
-            unified = uni.get('filters') or []
-            exported = exp.get('filters') or []
+        uni = load_config(payload.in_path) if payload.in_path else {}
+        exp = load_config(payload.export_path) if payload.export_path else {}
+        unified = uni.get('filters') or []
+        exported = exp.get('filters') or []
 
-            dest_to_from_tokens: Dict[str, set] = {}
-            for f in unified:
-                if not isinstance(f, dict):
-                    continue
-                a = f.get('action') or {}
-                adds = a.get('add') or []
-                if not adds:
-                    continue
-                dest = str(adds[0])
-                m = f.get('match') or {}
-                frm = str(m.get('from') or '')
-                toks = {t.strip().lower() for t in frm.split('OR') if t.strip()}
-                if not toks:
-                    continue
-                dest_to_from_tokens.setdefault(dest, set()).update(toks)
+        dest_to_from_tokens: Dict[str, set] = {}
+        for f in unified:
+            if not isinstance(f, dict):
+                continue
+            a = f.get('action') or {}
+            adds = a.get('add') or []
+            if not adds:
+                continue
+            dest = str(adds[0])
+            m = f.get('match') or {}
+            frm = str(m.get('from') or '')
+            toks = {t.strip().lower() for t in frm.split('OR') if t.strip()}
+            if not toks:
+                continue
+            dest_to_from_tokens.setdefault(dest, set()).update(toks)
 
-            simple_total = 0
-            covered = 0
-            missing_samples: List[tuple] = []
-            for f in exported:
-                if not isinstance(f, dict):
-                    continue
-                c = f.get('criteria') or f.get('match') or {}
-                a = f.get('action') or {}
-                if any(k in c for k in ('query', 'negatedQuery', 'size', 'sizeComparison')):
-                    continue
-                if c.get('to') or c.get('subject'):
-                    continue
-                frm = str(c.get('from') or '').strip().lower()
-                adds = a.get('addLabels') or a.get('add') or []
-                if not adds and a.get('moveToFolder'):
-                    adds = [str(a.get('moveToFolder'))]
-                if not frm or not adds:
-                    continue
-                simple_total += 1
-                dest = str(adds[0])
-                toks = dest_to_from_tokens.get(dest) or set()
-                cov = any((tok and (tok in frm or frm in tok)) for tok in toks)
-                if cov:
-                    covered += 1
-                elif len(missing_samples) < 10:
-                    missing_samples.append((dest, frm))
+        simple_total = 0
+        covered = 0
+        missing_samples: List[tuple] = []
+        for f in exported:
+            if not isinstance(f, dict):
+                continue
+            c = f.get('criteria') or f.get('match') or {}
+            a = f.get('action') or {}
+            if any(k in c for k in ('query', 'negatedQuery', 'size', 'sizeComparison')):
+                continue
+            if c.get('to') or c.get('subject'):
+                continue
+            frm = str(c.get('from') or '').strip().lower()
+            adds = a.get('addLabels') or a.get('add') or []
+            if not adds and a.get('moveToFolder'):
+                adds = [str(a.get('moveToFolder'))]
+            if not frm or not adds:
+                continue
+            simple_total += 1
+            dest = str(adds[0])
+            toks = dest_to_from_tokens.get(dest) or set()
+            cov = any((tok and (tok in frm or frm in tok)) for tok in toks)
+            if cov:
+                covered += 1
+            elif len(missing_samples) < 10:
+                missing_samples.append((dest, frm))
 
-            not_cov = simple_total - covered
-            pct = (not_cov / simple_total * 100.0) if simple_total else 0.0
+        not_cov = simple_total - covered
+        pct = (not_cov / simple_total * 100.0) if simple_total else 0.0
 
-            return ResultEnvelope(
-                status="success",
-                payload=AuditFiltersResult(
-                    simple_total=simple_total,
-                    covered=covered,
-                    not_covered=not_cov,
-                    percentage=pct,
-                    missing_samples=missing_samples,
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AuditFiltersResult(
+            simple_total=simple_total,
+            covered=covered,
+            not_covered=not_cov,
+            percentage=pct,
+            missing_samples=missing_samples,
+        )
 
 
 class AuditFiltersProducer(Producer[ResultEnvelope[AuditFiltersResult]]):
