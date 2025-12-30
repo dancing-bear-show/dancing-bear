@@ -23,18 +23,7 @@ from mail.signatures.consumers import (
     SignaturesSyncPayload,
     SignaturesNormalizePayload,
 )
-
-
-class FakeMailContext:
-    """Fake MailContext for testing."""
-
-    def __init__(self, gmail_client: Optional[Any] = None):
-        self._gmail_client = gmail_client
-
-    def get_gmail_client(self):
-        if self._gmail_client is None:
-            raise RuntimeError("No Gmail client configured")
-        return self._gmail_client
+from tests.mail_tests.fixtures import FakeMailContext
 
 
 class FakeGmailClient:
@@ -45,7 +34,7 @@ class FakeGmailClient:
         self._updated: Dict[str, str] = {}
 
     def authenticate(self):
-        pass
+        """No-op for fake client."""
 
     def list_signatures(self) -> List[Dict[str, Any]]:
         return self._signatures

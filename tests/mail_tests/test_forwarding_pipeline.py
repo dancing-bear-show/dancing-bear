@@ -5,9 +5,7 @@ from __future__ import annotations
 import io
 import unittest
 from contextlib import redirect_stdout
-from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Any
 
 from mail.context import MailContext
 from mail.forwarding.consumers import (
@@ -31,55 +29,7 @@ from mail.forwarding.producers import (
     ForwardingEnableProducer,
     ForwardingDisableProducer,
 )
-
-
-@dataclass
-class FakeForwardingClient:
-    """Fake Gmail client with forwarding methods for testing."""
-
-    forwarding_addresses: List[Dict[str, Any]] = field(default_factory=list)
-    verified_addresses: set = field(default_factory=set)
-    auto_forwarding: Dict[str, Any] = field(default_factory=dict)
-
-    # Track mutations
-    created_addresses: List[str] = field(default_factory=list)
-    forwarding_settings: List[Dict] = field(default_factory=list)
-
-    def authenticate(self) -> None:
-        """No-op: test fixture does not require authentication."""
-        pass
-
-    def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
-        return list(self.forwarding_addresses)
-
-    def list_forwarding_addresses(self) -> List[Dict]:
-        return [{"forwardingEmail": addr, "verificationStatus": "accepted"}
-                for addr in self.verified_addresses]
-
-    def get_verified_forwarding_addresses(self) -> set:
-        return set(self.verified_addresses)
-
-    def create_forwarding_address(self, email: str) -> Dict[str, Any]:
-        self.created_addresses.append(email)
-        return {"forwardingEmail": email, "verificationStatus": "pending"}
-
-    def get_auto_forwarding(self) -> Dict[str, Any]:
-        return dict(self.auto_forwarding)
-
-    def set_auto_forwarding(
-        self,
-        enabled: bool,
-        email: Optional[str] = None,
-        disposition: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        settings = {"enabled": enabled}
-        if email:
-            settings["emailAddress"] = email
-        if disposition:
-            settings["disposition"] = disposition
-        self.forwarding_settings.append(settings)
-        self.auto_forwarding = settings
-        return settings
+from tests.mail_tests.fixtures import FakeForwardingClient
 
 
 def _make_context_with_client(client: FakeForwardingClient) -> MailContext:
