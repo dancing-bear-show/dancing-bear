@@ -61,7 +61,7 @@ class DeskPipelineTests(TestCase):
 
         failure = ApplyProcessor(applier=boom).process(request)
         self.assertFalse(failure.ok())
-        self.assertIn("fail", failure.diagnostics["error"])
+        self.assertIn("fail", failure.diagnostics["message"])
 
     def test_apply_result_producer_reports_error(self):
         buf = io.StringIO()
@@ -69,7 +69,7 @@ class DeskPipelineTests(TestCase):
             ApplyRequest("plan.yaml", False)
         )
         envelope.status = "error"
-        envelope.diagnostics = {"error": "oops"}
+        envelope.diagnostics = {"message": "oops"}
         with redirect_stdout(buf):
             ApplyResultProducer().produce(envelope)
         self.assertIn("oops", buf.getvalue())
