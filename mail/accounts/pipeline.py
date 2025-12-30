@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, SafeProcessor
+from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, SafeProcessor, RequestConsumer
 
 # -----------------------------------------------------------------------------
 # Shared abstractions
@@ -15,14 +15,9 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-class SimpleConsumer(Consumer[T], Generic[T]):
-    """Generic consumer that wraps any request object."""
-
-    def __init__(self, request: T) -> None:
-        self._request = request
-
-    def consume(self) -> T:
-        return self._request
+# Use RequestConsumer from core.pipeline instead of defining SimpleConsumer
+# (kept as alias for backward compatibility in this file)
+SimpleConsumer = RequestConsumer
 
 
 class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
@@ -42,8 +37,8 @@ class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
         raise NotImplementedError
 
 
-class AccountIteratorHelper:
-    """Helper for iterating accounts with authentication."""
+class AccountAuthenticator:
+    """Factory for creating authenticated account providers."""
 
     @staticmethod
     def iter_authenticated_accounts(config_path: str, accounts_filter: Optional[List[str]] = None):
@@ -178,7 +173,7 @@ class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, A
         out_dir.mkdir(parents=True, exist_ok=True)
 
         exports: List[ExportedLabelsInfo] = []
-        for account, client in AccountIteratorHelper.iter_authenticated_accounts(
+        for account, client in AccountAuthenticator.iter_authenticated_accounts(
             payload.config_path, payload.accounts_filter
         ):
             labels = client.list_labels()
