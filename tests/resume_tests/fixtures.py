@@ -44,6 +44,13 @@ from typing import Any
 # Re-export docx fakes from centralized fakes module
 from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun
 
+# =============================================================================
+# Common Test Values
+# =============================================================================
+
+# Define once to avoid duplication across fixtures and tests
+SAMPLE_NAME = "John Doe"
+SAMPLE_EMAIL = "john@example.com"
 
 # =============================================================================
 # Data Builders
@@ -88,8 +95,8 @@ def make_education_entry(
 
 
 def make_candidate(
-    name: str = "John Doe",
-    email: str = "john@example.com",
+    name: str = SAMPLE_NAME,
+    email: str = SAMPLE_EMAIL,
     experience: list[dict] | None = None,
     skills: list[str] | None = None,
     skills_groups: list[dict] | None = None,
@@ -182,7 +189,6 @@ def make_empty_profile(**overrides: Any) -> dict[str, Any]:
 # Sample Data Constants
 # =============================================================================
 
-
 SAMPLE_EXPERIENCE_ENTRIES = [
     {
         "title": "Senior Python Developer",
@@ -241,8 +247,8 @@ SAMPLE_SKILLS_GROUPS = [
 ]
 
 SAMPLE_CANDIDATE = {
-    "name": "John Doe",
-    "email": "john@example.com",
+    "name": SAMPLE_NAME,
+    "email": SAMPLE_EMAIL,
     "phone": "(555) 123-4567",
     "location": "San Francisco, CA",
     "headline": "Senior Software Engineer",
@@ -255,14 +261,14 @@ SAMPLE_CANDIDATE = {
 }
 
 SAMPLE_CANDIDATE_WITH_GROUPS = {
-    "name": "John Doe",
-    "email": "john@example.com",
+    "name": SAMPLE_NAME,
+    "email": SAMPLE_EMAIL,
     "skills_groups": SAMPLE_SKILLS_GROUPS,
     "experience": SAMPLE_EXPERIENCE_ENTRIES[:2],
 }
 
-SAMPLE_RESUME_TEXT = """John Doe
-john@example.com
+SAMPLE_RESUME_TEXT = f"""{SAMPLE_NAME}
+{SAMPLE_EMAIL}
 San Francisco, CA
 
 Summary
@@ -280,7 +286,7 @@ Python, Java, SQL
 """
 
 SAMPLE_CONTACT_LINES = [
-    "John Doe",
+    SAMPLE_NAME,
     "john.doe@example.com",
     "(555) 123-4567",
     "San Francisco, CA",
@@ -290,7 +296,7 @@ SAMPLE_CONTACT_LINES = [
 ]
 
 SAMPLE_PDF_LINES_WITH_SECTIONS = [
-    "John Doe",
+    SAMPLE_NAME,
     "Experience",
     "Senior Dev at Company",
     "Education",
@@ -299,14 +305,14 @@ SAMPLE_PDF_LINES_WITH_SECTIONS = [
     "Python",
 ]
 
-SAMPLE_LINKEDIN_HTML = '''
+SAMPLE_LINKEDIN_HTML = f'''
 <html>
 <head>
     <meta property="profile:first_name" content="John">
     <meta property="profile:last_name" content="Doe">
-    <meta property="og:title" content="John Doe - Software Engineer | LinkedIn">
+    <meta property="og:title" content="{SAMPLE_NAME} - Software Engineer | LinkedIn">
     <meta name="description" content="Senior Engineer · Experience: TechCorp · Location: San Francisco">
-    <title>John Doe - Software Engineer | LinkedIn</title>
+    <title>{SAMPLE_NAME} - Software Engineer | LinkedIn</title>
 </head>
 </html>
 '''
