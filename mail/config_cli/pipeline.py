@@ -199,12 +199,9 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         )
 
 
-class BackupProducer(Producer[ResultEnvelope[BackupResult]]):
-    def produce(self, result: ResultEnvelope[BackupResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Backup failed')}")
-            return
-        print(f"Backup written to {result.unwrap().out_path}")
+class BackupProducer(BaseProducer):
+    def _produce_success(self, payload: BackupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Backup written to {payload.out_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -247,13 +244,9 @@ class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
         return CacheStatsResult(path=str(root), files=files, size_bytes=total)
 
 
-class CacheStatsProducer(Producer[ResultEnvelope[CacheStatsResult]]):
-    def produce(self, result: ResultEnvelope[CacheStatsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Cache: {p.path} files={p.files} size={p.size_bytes} bytes")
+class CacheStatsProducer(BaseProducer):
+    def _produce_success(self, payload: CacheStatsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
 
 
 # -----------------------------------------------------------------------------
@@ -291,14 +284,10 @@ class CacheClearProcessor(SafeProcessor[CacheClearRequest, CacheClearResult]):
         return CacheClearResult(path=str(root), cleared=True)
 
 
-class CacheClearProducer(Producer[ResultEnvelope[CacheClearResult]]):
-    def produce(self, result: ResultEnvelope[CacheClearResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        if p.cleared:
-            print(f"Cleared cache: {p.path}")
+class CacheClearProducer(BaseProducer):
+    def _produce_success(self, payload: CacheClearResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.cleared:
+            print(f"Cleared cache: {payload.path}")
         else:
             print("Cache does not exist.")
 
@@ -348,13 +337,9 @@ class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
         return CachePruneResult(path=str(root), removed=removed, days=payload.days)
 
 
-class CachePruneProducer(Producer[ResultEnvelope[CachePruneResult]]):
-    def produce(self, result: ResultEnvelope[CachePruneResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Pruned {p.removed} files older than {p.days} days from {p.path}")
+class CachePruneProducer(BaseProducer):
+    def _produce_success(self, payload: CachePruneResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}")
 
 
 # -----------------------------------------------------------------------------
@@ -420,12 +405,9 @@ class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectRe
         return ConfigInspectResult(sections=result_sections)
 
 
-class ConfigInspectProducer(Producer[ResultEnvelope[ConfigInspectResult]]):
-    def produce(self, result: ResultEnvelope[ConfigInspectResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        for section in result.unwrap().sections:
+class ConfigInspectProducer(BaseProducer):
+    def _produce_success(self, payload: ConfigInspectResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        for section in payload.sections:
             print(f"[{section.name}]")
             for k, v in section.items:
                 print(f"{k} = {v}")
@@ -486,13 +468,9 @@ class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResul
         )
 
 
-class DeriveLabelsProducer(Producer[ResultEnvelope[DeriveLabelsResult]]):
-    def produce(self, result: ResultEnvelope[DeriveLabelsResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Derived labels -> gmail:{p.gmail_path} outlook:{p.outlook_path}")
+class DeriveLabelsProducer(BaseProducer):
+    def _produce_success(self, payload: DeriveLabelsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Derived labels -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -573,13 +551,9 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
         )
 
 
-class DeriveFiltersProducer(Producer[ResultEnvelope[DeriveFiltersResult]]):
-    def produce(self, result: ResultEnvelope[DeriveFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Derived filters -> gmail:{p.gmail_path} outlook:{p.outlook_path}")
+class DeriveFiltersProducer(BaseProducer):
+    def _produce_success(self, payload: DeriveFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Derived filters -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
 # -----------------------------------------------------------------------------
@@ -693,20 +667,16 @@ class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFil
         )
 
 
-class OptimizeFiltersProducer(Producer[ResultEnvelope[OptimizeFiltersResult]]):
+class OptimizeFiltersProducer(BaseProducer):
     def __init__(self, preview: bool = False) -> None:
         self._preview = preview
 
-    def produce(self, result: ResultEnvelope[OptimizeFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        if self._preview and p.merged_groups:
+    def _produce_success(self, payload: OptimizeFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if self._preview and payload.merged_groups:
             print('Merged groups:')
-            for g in sorted(p.merged_groups, key=lambda x: -x.rules_merged):
+            for g in sorted(payload.merged_groups, key=lambda x: -x.rules_merged):
                 print(f'- {g.destination}: merged {g.rules_merged} rules into 1 (unique from terms={g.unique_from_terms})')
-        print(f"Optimized filters written to {p.out_path}. Original={p.original_count} Optimized={p.optimized_count}")
+        print(f"Optimized filters written to {payload.out_path}. Original={payload.original_count} Optimized={payload.optimized_count}")
 
 
 # -----------------------------------------------------------------------------
@@ -854,8 +824,8 @@ class EnvSetupResult:
 EnvSetupRequestConsumer = RequestConsumer[EnvSetupRequest]
 
 
-class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult]]):
-    def process(self, payload: EnvSetupRequest) -> ResultEnvelope[EnvSetupResult]:
+class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
+    def _process_safe(self, payload: EnvSetupRequest) -> EnvSetupResult:
         from ..config_resolver import (
             default_gmail_credentials_path,
             default_gmail_token_path,
@@ -866,76 +836,64 @@ class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult
         venv_created = False
         profile_saved = False
 
-        try:
-            venv_dir = Path(payload.venv_dir)
-            if not payload.no_venv:
+        venv_dir = Path(payload.venv_dir)
+        if not payload.no_venv:
+            if not venv_dir.exists():
+                import venv
+                venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+                venv_created = True
+            if not payload.skip_install:
+                import subprocess
+                py = venv_dir / 'bin' / 'python'
+                subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # noqa: S603
+                subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # noqa: S603
+            for fname in ('bin/mail', 'bin/mail-assistant'):
                 try:
-                    if not venv_dir.exists():
-                        import venv
-                        venv.EnvBuilder(with_pip=True).create(str(venv_dir))
-                        venv_created = True
-                    if not payload.skip_install:
-                        import subprocess
-                        py = venv_dir / 'bin' / 'python'
-                        subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # noqa: S603
-                        subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # noqa: S603
-                except Exception as e:
-                    return ResultEnvelope(
-                        status="error",
-                        payload=EnvSetupResult(venv_created=False, profile_saved=False, message=f"Venv/setup failed: {e}"),
-                    )
-                for fname in ('bin/mail', 'bin/mail-assistant'):
-                    try:
-                        p = Path(fname)
-                        if p.exists():
-                            os.chmod(p, (p.stat().st_mode | 0o111))
-                    except Exception:  # noqa: S110 - fallback on error
-                        pass
+                    p = Path(fname)
+                    if p.exists():
+                        os.chmod(p, (p.stat().st_mode | 0o111))
+                except Exception:  # noqa: S110 - fallback on error
+                    pass
 
-            cred_path = payload.credentials
-            tok_path = payload.token
+        cred_path = payload.credentials
+        tok_path = payload.token
 
-            if payload.copy_gmail_example and not cred_path:
-                ex = Path('credentials.example.json')
-                dest = Path(expand_path(default_gmail_credentials_path()))
-                if ex.exists() and not dest.exists():
-                    try:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
-                        cred_path = str(dest)
-                    except Exception:  # noqa: S110 - fallback on error
-                        pass
-            if cred_path and not tok_path:
-                tok_path = default_gmail_token_path()
+        if payload.copy_gmail_example and not cred_path:
+            ex = Path('credentials.example.json')
+            dest = Path(expand_path(default_gmail_credentials_path()))
+            if ex.exists() and not dest.exists():
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
+                    cred_path = str(dest)
+                except Exception:  # noqa: S110 - fallback on error
+                    pass
+        if cred_path and not tok_path:
+            tok_path = default_gmail_token_path()
 
-            for pth in (cred_path, tok_path, payload.outlook_token):
-                if pth:
-                    try:
-                        Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
-                    except Exception:  # noqa: S110 - fallback on error
-                        pass
+        for pth in (cred_path, tok_path, payload.outlook_token):
+            if pth:
+                try:
+                    Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
+                except Exception:  # noqa: S110 - fallback on error
+                    pass
 
-            if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
-                persist_profile_settings(
-                    profile=payload.profile,
-                    credentials=cred_path,
-                    token=tok_path,
-                    outlook_client_id=payload.outlook_client_id,
-                    tenant=payload.tenant,
-                    outlook_token=payload.outlook_token,
-                )
-                profile_saved = True
-
-            return ResultEnvelope(
-                status="success",
-                payload=EnvSetupResult(
-                    venv_created=venv_created,
-                    profile_saved=profile_saved,
-                    message="Environment setup complete.",
-                ),
+        if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
+            persist_profile_settings(
+                profile=payload.profile,
+                credentials=cred_path,
+                token=tok_path,
+                outlook_client_id=payload.outlook_client_id,
+                tenant=payload.tenant,
+                outlook_token=payload.outlook_token,
             )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+            profile_saved = True
+
+        return EnvSetupResult(
+            venv_created=venv_created,
+            profile_saved=profile_saved,
+            message="Environment setup complete.",
+        )
 
 
 class EnvSetupProducer(Producer[ResultEnvelope[EnvSetupResult]]):
