@@ -204,7 +204,7 @@ rules:
         self.assertEqual(len(result["operations"]), 2)
 
     def test_nonexistent_match_path(self):
-        config = self._write_config(f"""
+        config = self._write_config("""
 version: 1
 rules:
   - name: missing-path

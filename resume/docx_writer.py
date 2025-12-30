@@ -9,9 +9,6 @@ from typing import Any, Dict, List, Optional
 from .io_utils import safe_import
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
-from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
-from docx.oxml.ns import qn  # type: ignore
-from docx.oxml import OxmlElement  # type: ignore
 
 # Import from new abstraction modules
 from .docx_styles import (

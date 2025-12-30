@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from mail.signatures.processors import (
     _SafeDict,

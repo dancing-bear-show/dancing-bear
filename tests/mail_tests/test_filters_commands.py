@@ -112,7 +112,7 @@ class TestRunFiltersList(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = run_filters_list(args)
+            run_filters_list(args)
 
         output = buf.getvalue()
         self.assertIn("is:starred", output)
