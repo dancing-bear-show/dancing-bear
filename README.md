@@ -109,12 +109,57 @@ Plan, apply, verify, and sync events:
 
 ## Resume Assistant
 
-Extract, summarize, and render resumes from LinkedIn profiles and existing documents:
-- Extract: `./bin/assistant resume extract --linkedin profile.html --out candidate.yaml`
-- Summarize: `./bin/assistant resume summarize --data candidate.yaml --out summary.yaml`
-- Render: `./bin/assistant resume render --data candidate.yaml --template template.yaml --out resume.docx`
-- Align: `./bin/assistant resume align --data candidate.yaml --job job.yaml --out aligned.yaml`
-- Structure: `./bin/assistant resume structure --reference reference.docx --out structure.yaml`
+Extract, summarize, align, and render resumes from LinkedIn profiles and existing documents.
+
+### Typical Workflow
+
+1. **Extract** unified data from sources (LinkedIn HTML, existing resume):
+   ```
+   ./bin/assistant resume extract --linkedin profile.html --out candidate.yaml
+   ./bin/assistant resume extract --resume old_resume.docx --out candidate.yaml
+   ```
+
+2. **Initialize** a candidate skills file from unified data:
+   ```
+   ./bin/assistant resume candidate-init --data candidate.yaml --out candidate_skills.yaml
+   ```
+
+3. **Align** candidate data with a job posting to find keyword matches:
+   ```
+   ./bin/assistant resume align --data candidate.yaml --job job.yaml --out alignment.json
+   ./bin/assistant resume align --data candidate.yaml --job job.yaml --tailored tailored.yaml
+   ```
+
+4. **Render** a DOCX resume using a template:
+   ```
+   ./bin/assistant resume render --data candidate.yaml --template template.yaml --out resume.docx
+   ```
+
+### Filtering and Tailoring
+
+Filter skills and experience based on job alignment:
+```
+./bin/assistant resume render --data candidate.yaml --template template.yaml \
+  --filter-skills-alignment alignment.json \
+  --filter-exp-alignment alignment.json \
+  --out tailored_resume.docx
+```
+
+### Structure Extraction
+
+Infer section order and headings from a reference DOCX:
+```
+./bin/assistant resume structure --source reference.docx --out structure.yaml
+./bin/assistant resume render --data candidate.yaml --template template.yaml \
+  --structure-from reference.docx --out resume.docx
+```
+
+### Summarize
+
+Generate heuristic summaries from unified data:
+```
+./bin/assistant resume summarize --data candidate.yaml --out summary.yaml
+```
 
 ## iOS (Phone Assistant)
 
