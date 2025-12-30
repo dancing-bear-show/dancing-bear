@@ -16,10 +16,6 @@ from .docx_styles import (
     TextFormatter,
     _parse_hex_color,
     _is_dark,
-    _tight_paragraph,
-    _flush_left,
-    _apply_paragraph_shading,
-    _format_phone_display,
     _format_link_display,
 )
 
@@ -206,11 +202,27 @@ def create_resume_writer(
     """Factory function to create the appropriate resume writer.
 
     Args:
-        data: Resume data
-        template: Template configuration
+        data: Resume data (name, experience, education, etc.)
+        template: Template configuration (sections, page styles, layout type)
 
     Returns:
-        ResumeWriterBase subclass instance
+        ResumeWriterBase subclass instance (StandardResumeWriter or SidebarResumeWriter)
+
+    Examples:
+        >>> # Standard single-column layout
+        >>> data = {"name": "John Doe", "experience": [...]}
+        >>> template = {"sections": [...], "page": {"compact": True}}
+        >>> writer = create_resume_writer(data, template)
+        >>> writer.write("resume.docx")
+
+        >>> # Sidebar layout (two-column with repeating header)
+        >>> template = {
+        ...     "layout": {"type": "sidebar", "sidebar_width": 2.5},
+        ...     "sections": [...],
+        ...     "page": {"compact": True}
+        ... }
+        >>> writer = create_resume_writer(data, template)
+        >>> writer.write("resume_sidebar.docx")
     """
     layout_cfg = template.get("layout") or {}
     layout_type = layout_cfg.get("type", "standard")

@@ -103,6 +103,7 @@ class TestOutlookLocationsEnrichProcessor(TestCase):
         ]
         req = self._make_request(service=svc, dry_run=False)
         result = proc.process(req)
+        self.assertEqual(result.status, "success")
         svc.update_event_location.assert_called()
 
     def test_matches_fun_n_fit_events(self):
@@ -114,6 +115,7 @@ class TestOutlookLocationsEnrichProcessor(TestCase):
         ]
         req = self._make_request(service=svc, dry_run=False)
         result = proc.process(req)
+        self.assertEqual(result.status, "success")
         svc.update_event_location.assert_called()
 
     def test_dedupes_by_series_master_id(self):
@@ -126,6 +128,7 @@ class TestOutlookLocationsEnrichProcessor(TestCase):
         ]
         req = self._make_request(service=svc, dry_run=False)
         result = proc.process(req)
+        self.assertEqual(result.status, "success")
         # Should only call update once for the deduplicated series
         self.assertEqual(svc.update_event_location.call_count, 1)
 
