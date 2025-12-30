@@ -6,7 +6,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, RequestConsumer, SafeProcessor, BaseProducer
+from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, RequestConsumer
 
 
 @dataclass

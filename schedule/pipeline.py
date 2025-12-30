@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.pipeline import RequestConsumer, Consumer, Processor, Producer, ResultEnvelope, BaseProducer
+from core.pipeline import RequestConsumer, Processor, ResultEnvelope, BaseProducer
 from core.auth import build_outlook_service
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
