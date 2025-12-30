@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from tests.fixtures import write_yaml
+from tests.fixtures import test_path, write_yaml
 from tests.calendars_tests.fixtures import NoOpProducer, make_mock_processor
 
 from core.pipeline import ResultEnvelope
@@ -703,7 +703,7 @@ class RequestConsumerTests(TestCase):
     def test_request_consumer_works_with_type_alias(self):
         """Type alias consumers work correctly with RequestConsumer."""
         request = OutlookVerifyRequest(
-            config_path=Path("/tmp/test.yaml"),  # noqa: S108
+            config_path=Path(test_path("test.yaml")),  # noqa: S108
             calendar="Family",
             service=MagicMock(),
         )
@@ -725,7 +725,7 @@ class RequestConsumerTests(TestCase):
             page_size=50,
             inbox_only=False,
             top=10,
-            out_path=Path("/tmp/out.yaml"),  # noqa: S108
+            out_path=Path(test_path("out.yaml")),  # noqa: S108
         )
         consumer = GmailSweepTopRequestConsumer(request)
         result = consumer.consume()

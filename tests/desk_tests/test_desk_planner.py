@@ -161,7 +161,7 @@ class TestParseRule(unittest.TestCase):
         rule = {
             "name": "cleanup",
             "match": {
-                "paths": ["/tmp"],
+                "paths": ["/tmp"],  # nosec B108 - test data, not actual file path
                 "extensions": [".TMP", ".log"],
                 "size_gte": "1MB",
                 "older_than": "7d",

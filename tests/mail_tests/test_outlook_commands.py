@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import argparse
 import unittest
 from unittest.mock import MagicMock, patch
@@ -308,7 +309,7 @@ class TestRunOutlookAuthDeviceCode(unittest.TestCase):
 
     def _make_args(self, **kwargs):
         defaults = {
-            "out": "/tmp/flow.json",  # nosec B108 - test fixture path
+            "out": test_path("flow.json"),  # nosec B108 - test fixture path
             "profile": None,
             "client_id": None,
             "tenant": None,
@@ -344,7 +345,7 @@ class TestRunOutlookAuthValidate(unittest.TestCase):
     @patch("mail.outlook.auth_commands.resolve_outlook_credentials")
     def test_fails_without_client_id(self, mock_resolve):
         from mail.outlook.commands import run_outlook_auth_validate
-        mock_resolve.return_value = (None, "consumers", "/tmp/token.json")  # nosec B108
+        mock_resolve.return_value = (None, "consumers", test_path("token.json"))  # nosec B108
         args = self._make_args()
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_auth_validate(args)
