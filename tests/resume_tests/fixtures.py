@@ -1,55 +1,56 @@
 """Resume-specific test fixtures.
 
 Docx document fakes, data builders, and sample data for testing.
+
+Structure:
+    Docx Fakes:
+        FakeRun, FakeParagraph, FakeDocument - Mock python-docx objects
+
+    Data Builders (use defaults, override as needed):
+        make_experience_entry() -> dict with title, company, bullets
+        make_education_entry()  -> dict with degree, institution, year
+        make_candidate()        -> dict with name, email, experience, skills
+        make_skills_group()     -> dict with title, items
+        make_keyword_spec()     -> dict with required, preferred, nice tiers
+        make_empty_profile()    -> dict with all profile fields empty
+
+    Sample Data Constants:
+        SAMPLE_EXPERIENCE_ENTRIES  - List of 3 experience dicts
+        SAMPLE_SKILLS_GROUPS       - List of 2 skill group dicts
+        SAMPLE_CANDIDATE           - Complete candidate with all fields
+        SAMPLE_CANDIDATE_WITH_GROUPS - Candidate using skills_groups
+        SAMPLE_RESUME_TEXT         - Multi-line resume string
+        SAMPLE_CONTACT_LINES       - List of contact info lines
+        SAMPLE_PDF_LINES_WITH_SECTIONS - PDF text lines with headers
+        SAMPLE_LINKEDIN_HTML       - LinkedIn profile HTML snippet
+
+Usage:
+    from tests.resume_tests.fixtures import make_candidate, SAMPLE_EXPERIENCE_ENTRIES
+
+    # Use builder with defaults
+    candidate = make_candidate()
+
+    # Override specific fields
+    candidate = make_candidate(name="Jane", skills=["Python"])
+
+    # Use sample data directly
+    candidate = {"name": "Test", "experience": SAMPLE_EXPERIENCE_ENTRIES[:1]}
 """
 
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
+# Re-export docx fakes from centralized fakes module
+from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun  # noqa: F401
 
 # =============================================================================
-# Docx Fakes
+# Common Test Values
 # =============================================================================
 
-
-class FakeRun:
-    """Fake docx Run object for testing."""
-
-    def __init__(self):
-        self.text = ""
-        self.bold = False
-        self.italic = False
-
-
-class FakeParagraph:
-    """Fake docx Paragraph object for testing."""
-
-    def __init__(self, text: str = "", style: str = "Normal"):
-        self.text = text
-        self.style = style
-        self.runs: list = []
-        self.paragraph_format = MagicMock()
-
-    def add_run(self, text: str = "") -> FakeRun:
-        r = FakeRun()
-        r.text = text
-        self.runs.append(r)
-        return r
-
-
-class FakeDocument:
-    """Fake docx Document for testing."""
-
-    def __init__(self):
-        self.paragraphs: list = []
-
-    def add_paragraph(self, text: str = "", style: str = "Normal") -> FakeParagraph:
-        p = FakeParagraph(text, style)
-        self.paragraphs.append(p)
-        return p
-
+# Define once to avoid duplication across fixtures and tests
+SAMPLE_NAME = "John Doe"
+SAMPLE_EMAIL = "john@example.com"
 
 # =============================================================================
 # Data Builders
@@ -94,8 +95,8 @@ def make_education_entry(
 
 
 def make_candidate(
-    name: str = "John Doe",
-    email: str = "john@example.com",
+    name: str = SAMPLE_NAME,
+    email: str = SAMPLE_EMAIL,
     experience: list[dict] | None = None,
     skills: list[str] | None = None,
     skills_groups: list[dict] | None = None,
@@ -188,7 +189,6 @@ def make_empty_profile(**overrides: Any) -> dict[str, Any]:
 # Sample Data Constants
 # =============================================================================
 
-
 SAMPLE_EXPERIENCE_ENTRIES = [
     {
         "title": "Senior Python Developer",
@@ -247,8 +247,8 @@ SAMPLE_SKILLS_GROUPS = [
 ]
 
 SAMPLE_CANDIDATE = {
-    "name": "John Doe",
-    "email": "john@example.com",
+    "name": SAMPLE_NAME,
+    "email": SAMPLE_EMAIL,
     "phone": "(555) 123-4567",
     "location": "San Francisco, CA",
     "headline": "Senior Software Engineer",
@@ -261,14 +261,14 @@ SAMPLE_CANDIDATE = {
 }
 
 SAMPLE_CANDIDATE_WITH_GROUPS = {
-    "name": "John Doe",
-    "email": "john@example.com",
+    "name": SAMPLE_NAME,
+    "email": SAMPLE_EMAIL,
     "skills_groups": SAMPLE_SKILLS_GROUPS,
     "experience": SAMPLE_EXPERIENCE_ENTRIES[:2],
 }
 
-SAMPLE_RESUME_TEXT = """John Doe
-john@example.com
+SAMPLE_RESUME_TEXT = f"""{SAMPLE_NAME}
+{SAMPLE_EMAIL}
 San Francisco, CA
 
 Summary
@@ -286,7 +286,7 @@ Python, Java, SQL
 """
 
 SAMPLE_CONTACT_LINES = [
-    "John Doe",
+    SAMPLE_NAME,
     "john.doe@example.com",
     "(555) 123-4567",
     "San Francisco, CA",
@@ -296,7 +296,7 @@ SAMPLE_CONTACT_LINES = [
 ]
 
 SAMPLE_PDF_LINES_WITH_SECTIONS = [
-    "John Doe",
+    SAMPLE_NAME,
     "Experience",
     "Senior Dev at Company",
     "Education",
@@ -305,14 +305,14 @@ SAMPLE_PDF_LINES_WITH_SECTIONS = [
     "Python",
 ]
 
-SAMPLE_LINKEDIN_HTML = '''
+SAMPLE_LINKEDIN_HTML = f'''
 <html>
 <head>
     <meta property="profile:first_name" content="John">
     <meta property="profile:last_name" content="Doe">
-    <meta property="og:title" content="John Doe - Software Engineer | LinkedIn">
+    <meta property="og:title" content="{SAMPLE_NAME} - Software Engineer | LinkedIn">
     <meta name="description" content="Senior Engineer · Experience: TechCorp · Location: San Francisco">
-    <title>John Doe - Software Engineer | LinkedIn</title>
+    <title>{SAMPLE_NAME} - Software Engineer | LinkedIn</title>
 </head>
 </html>
 '''

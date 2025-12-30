@@ -12,7 +12,6 @@ def run_scan(
     older_than: Optional[str] = None,
     include_duplicates: bool = False,
     top_dirs: int = 10,
-    debug: bool = False,
 ) -> Dict:
     roots = expand_paths(paths)
     min_bytes = parse_size(min_size)

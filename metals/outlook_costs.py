@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
-from core.text_utils import html_to_text, normalize_unicode
+from core.text_utils import html_to_text
 from mail.outlook_api import OutlookClient
 
 from .costs_common import (
@@ -248,7 +248,7 @@ def _build_gold_row(
     }
 
 
-def run(profile: str, out_path: str, days: int = 365) -> int:
+def run(profile: str, out_path: str, days: int = 365) -> int:  # noqa: ARG001 - days reserved for future use
     client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
     token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
     if not client_id:

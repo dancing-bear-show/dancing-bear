@@ -126,7 +126,7 @@ class FiltersPlanProcessorTests(unittest.TestCase):
 
         self.assertTrue(envelope.ok())
         result = envelope.payload
-        assert result is not None
+        self.assertIsNotNone(result)
         self.assertEqual(len(result.to_create), 1)
         self.assertEqual(len(result.to_delete), 1)
 
@@ -168,7 +168,7 @@ class FiltersSyncProcessorTests(unittest.TestCase):
         envelope = processor.process(payload)
         self.assertTrue(envelope.ok())
         result = envelope.payload
-        assert result is not None
+        self.assertIsNotNone(result)
         self.assertEqual(len(result.to_create), 1)
         self.assertEqual(len(result.to_delete), 1)
 

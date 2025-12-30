@@ -31,7 +31,6 @@ class DeskPipelineTests(TestCase):
             older_than="7d",
             include_duplicates=True,
             top_dirs=5,
-            debug=False,
         )
         result = ScanProcessor(runner=fake_runner).process(request)
         self.assertEqual(result, {"ok": True})

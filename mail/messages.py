@@ -22,7 +22,7 @@ def _compose_reply(
     in_reply_to: Optional[str] = None,
     references: Optional[str] = None,
     cc: Optional[List[str]] = None,
-    bcc: Optional[List[str]] = None,
+    bcc: Optional[List[str]] = None,  # noqa: ARG001 - reserved for future use
     include_quote: bool = False,
     original_text: Optional[str] = None,
 ) -> EmailMessage:
