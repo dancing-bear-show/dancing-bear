@@ -815,8 +815,13 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
             if not payload.skip_install:
                 import subprocess
                 py = venv_dir / 'bin' / 'python'
-                subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # noqa: S603
-                subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # noqa: S603
+                if not py.exists():
+                    raise FileNotFoundError(f"Python not found in venv: {py}")
+                # Ensure python is within venv_dir (prevent path traversal)
+                if venv_dir.resolve() not in py.resolve().parents:
+                    raise ValueError(f"Python path escapes venv directory: {py}")
+                subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # nosec B603 - validated path within venv
+                subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # nosec B603 - validated path within venv
             for fname in ('bin/mail', 'bin/mail-assistant'):
                 try:
                     p = Path(fname)
