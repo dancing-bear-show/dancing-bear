@@ -5,8 +5,9 @@ Gmail client fakes and CLI arg helpers.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # Re-export shared fixtures for backwards compatibility
 from tests.fixtures import capture_stdout, temp_yaml_file, write_yaml
@@ -21,6 +22,8 @@ __all__ = [
     "make_args",
     "FakeGmailClient",
     "make_gmail_client",
+    "FakeMailContext",
+    "FakeForwardingClient",
     # Label/message factories
     "make_user_label",
     "make_system_label",
@@ -48,6 +51,82 @@ def make_args(**kwargs) -> SimpleNamespace:
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+# -----------------------------------------------------------------------------
+# Fake mail context and clients
+# -----------------------------------------------------------------------------
+
+
+class FakeMailContext:
+    """Fake MailContext for testing pipelines.
+
+    Example:
+        client = FakeGmailClient()
+        context = FakeMailContext(gmail_client=client)
+    """
+
+    def __init__(self, gmail_client: Optional[Any] = None):
+        self._gmail_client = gmail_client
+
+    def get_gmail_client(self):
+        """Return the configured Gmail client or raise RuntimeError."""
+        if self._gmail_client is None:
+            raise RuntimeError("No Gmail client configured")
+        return self._gmail_client
+
+
+@dataclass
+class FakeForwardingClient:
+    """Fake Gmail client with forwarding methods for testing.
+
+    Example:
+        client = FakeForwardingClient(
+            verified_addresses={"user@example.com"},
+            auto_forwarding={"enabled": True, "emailAddress": "fwd@example.com"}
+        )
+    """
+
+    forwarding_addresses: List[Dict[str, Any]] = field(default_factory=list)
+    verified_addresses: set = field(default_factory=set)
+    auto_forwarding: Dict[str, Any] = field(default_factory=dict)
+    created_addresses: List[str] = field(default_factory=list)
+    forwarding_settings: List[Dict] = field(default_factory=list)
+
+    def authenticate(self) -> None:
+        """No-op for fake client."""
+
+    def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
+        return list(self.forwarding_addresses)
+
+    def list_forwarding_addresses(self) -> List[Dict]:
+        return [{"forwardingEmail": addr, "verificationStatus": "accepted"}
+                for addr in self.verified_addresses]
+
+    def get_verified_forwarding_addresses(self) -> set:
+        return set(self.verified_addresses)
+
+    def create_forwarding_address(self, email: str) -> Dict[str, Any]:
+        self.created_addresses.append(email)
+        return {"forwardingEmail": email, "verificationStatus": "pending"}
+
+    def get_auto_forwarding(self) -> Dict[str, Any]:
+        return dict(self.auto_forwarding)
+
+    def set_auto_forwarding(
+        self,
+        enabled: bool,
+        email: Optional[str] = None,
+        disposition: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        settings = {"enabled": enabled}
+        if email:
+            settings["emailAddress"] = email
+        if disposition:
+            settings["disposition"] = disposition
+        self.forwarding_settings.append(settings)
+        self.auto_forwarding = settings
+        return settings
 
 
 # -----------------------------------------------------------------------------
