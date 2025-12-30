@@ -650,6 +650,62 @@ def _render_main_presentations(cell, data: Dict[str, Any], page_cfg: Dict[str, A
                 p2.paragraph_format.space_after = Pt(4)
 
 
+def _render_page_header_sidebar(doc, data: Dict[str, Any], page_cfg: Dict[str, Any], layout_cfg: Dict[str, Any]) -> None:
+    """Add name, headline, and contact as left-aligned sidebar in page header (repeats on each page)."""
+    section = doc.sections[0]
+    header = section.header
+
+    name = _get_contact_field(data, "name")
+    headline = _get_contact_field(data, "headline")
+    email = _get_contact_field(data, "email")
+    phone = _get_contact_field(data, "phone")
+    location = _get_contact_field(data, "location")
+
+    name_color = page_cfg.get("sidebar_name_color", "#2C5282")
+    text_color = page_cfg.get("sidebar_text_color", "#333333")
+
+    # Clear and use first paragraph for name
+    if header.paragraphs:
+        p = header.paragraphs[0]
+        p.clear()
+    else:
+        p = header.add_paragraph()
+
+    # Name (in first paragraph)
+    if name:
+        run = p.add_run(name)
+        run.bold = True
+        run.font.size = Pt(page_cfg.get("sidebar_name_pt", 24))
+        rgb = _parse_hex_color(name_color)
+        if rgb:
+            run.font.color.rgb = RGBColor(*rgb)
+        _tight_paragraph(p, after_pt=0)
+        _flush_left(p)
+
+    # Headline
+    if headline:
+        p2 = header.add_paragraph()
+        run = p2.add_run(headline)
+        run.font.size = Pt(page_cfg.get("sidebar_headline_pt", 11))
+        rgb = _parse_hex_color(text_color)
+        if rgb:
+            run.font.color.rgb = RGBColor(*rgb)
+        _tight_paragraph(p2, after_pt=4)
+        _flush_left(p2)
+
+    # Contact items (stacked, left-aligned)
+    for item in [phone, email, location]:
+        if item:
+            p3 = header.add_paragraph()
+            run = p3.add_run(item)
+            run.font.size = Pt(page_cfg.get("body_pt", 10) - 1)
+            rgb = _parse_hex_color("#666666")
+            if rgb:
+                run.font.color.rgb = RGBColor(*rgb)
+            _tight_paragraph(p3, after_pt=1)
+            _flush_left(p3)
+
+
 def write_resume_docx_sidebar(
     data: Dict[str, Any],
     template: Dict[str, Any],
@@ -764,6 +820,51 @@ def write_resume_docx_sidebar(
         elif key == "presentations":
             _render_main_section_heading(main_cell, title, page_cfg)
             _render_main_presentations(main_cell, data, page_cfg, sec)
+
+    # Add page break and second page with sidebar repeated
+    from docx.enum.text import WD_BREAK
+
+    # Check if we need page 2 (presentations usually overflow)
+    presentations = data.get("presentations") or []
+    if len(presentations) > 3:
+        # Add page break
+        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+
+        # Create second table with sidebar
+        table2 = doc.add_table(rows=1, cols=2)
+        table2.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table2.autofit = False
+        table2.columns[0].width = Inches(sidebar_width)
+        table2.columns[1].width = Inches(main_width)
+
+        sidebar_cell2 = table2.rows[0].cells[0]
+        main_cell2 = table2.rows[0].cells[1]
+
+        _remove_cell_borders(sidebar_cell2)
+        _remove_cell_borders(main_cell2)
+
+        if sidebar_bg:
+            _set_cell_shading(sidebar_cell2, sidebar_bg)
+
+        # Clear default paragraphs
+        if sidebar_cell2.paragraphs:
+            sidebar_cell2.paragraphs[0].clear()
+        if main_cell2.paragraphs:
+            main_cell2.paragraphs[0].clear()
+
+        # Repeat sidebar content on page 2
+        _render_sidebar_header(sidebar_cell2, data, page_cfg)
+        _render_sidebar_contact(sidebar_cell2, data, page_cfg, contact_title)
+
+        # Add note that content continues
+        p = main_cell2.add_paragraph()
+        run = p.add_run("(continuación)")
+        run.italic = True
+        run.font.size = Pt(page_cfg.get("meta_pt", 9))
+        rgb = _parse_hex_color("#666666")
+        if rgb:
+            run.font.color.rgb = RGBColor(*rgb)
+        _tight_paragraph(p, after_pt=6)
 
     doc.save(out_path)
 
