@@ -423,6 +423,13 @@ class OutlookMailMixin:
                 if kid_id:
                     parent_id = kid_id
                     continue
+                # Still not found - try substring match as fallback
+                kid_id = next((k.get("id") for k in kids2 if seg.lower() in (k.get("displayName") or "").lower()), None)
+                if kid_id:
+                    parent_id = kid_id
+                    continue
+                # Last resort: return empty string to signal failure gracefully
+                return ""
             r2.raise_for_status()
             created = r2.json()
             parent_id = created.get("id")
