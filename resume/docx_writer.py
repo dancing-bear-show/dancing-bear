@@ -725,48 +725,102 @@ def write_resume_docx_sidebar(
     _apply_page_styles(doc, page_cfg)
     _set_document_metadata(doc, data, template)
 
-    # Create two-column table
+    # Layout dimensions
     sidebar_width = layout_cfg.get("sidebar_width", 2.3)
     main_width = layout_cfg.get("main_width", 5.2)
+    sidebar_bg = layout_cfg.get("sidebar_bg")
 
+    # Contact title
+    contact_title = "Contacto"
+    for sec in (template.get("sections") or []):
+        if sec.get("key") == "contact":
+            contact_title = sec.get("title", "Contacto")
+            break
+
+    # Put sidebar content in page header (repeats on all pages)
+    section = doc.sections[0]
+    header = section.header
+
+    name = _get_contact_field(data, "name")
+    headline = _get_contact_field(data, "headline")
+    email = _get_contact_field(data, "email")
+    phone = _get_contact_field(data, "phone")
+    location = _get_contact_field(data, "location")
+
+    name_color = page_cfg.get("sidebar_name_color", "#1A365D")
+    text_color = page_cfg.get("sidebar_text_color", "#333333")
+
+    header_bg = page_cfg.get("header_bg", "#F7F9FC")
+
+    # Name in header (centered)
+    if header.paragraphs:
+        p = header.paragraphs[0]
+        p.clear()
+    else:
+        p = header.add_paragraph()
+    run = p.add_run(name)
+    run.bold = True
+    run.font.size = Pt(page_cfg.get("sidebar_name_pt", 20))
+    rgb = _parse_hex_color(name_color)
+    if rgb:
+        run.font.color.rgb = RGBColor(*rgb)
+    _tight_paragraph(p, after_pt=0)
+    _center_paragraph(p)
+    bg_rgb = _parse_hex_color(header_bg)
+    if bg_rgb:
+        _apply_paragraph_shading(p, bg_rgb)
+
+    # Headline (centered)
+    if headline:
+        p2 = header.add_paragraph()
+        run2 = p2.add_run(headline)
+        run2.font.size = Pt(page_cfg.get("sidebar_headline_pt", 10))
+        rgb2 = _parse_hex_color(text_color)
+        if rgb2:
+            run2.font.color.rgb = RGBColor(*rgb2)
+        _tight_paragraph(p2, after_pt=2)
+        _center_paragraph(p2)
+        if bg_rgb:
+            _apply_paragraph_shading(p2, bg_rgb)
+
+    # Contact line (centered)
+    contact_parts = [x for x in [phone, email, location] if x]
+    if contact_parts:
+        p3 = header.add_paragraph()
+        run3 = p3.add_run(" | ".join(contact_parts))
+        run3.font.size = Pt(page_cfg.get("body_pt", 10) - 1)
+        rgb3 = _parse_hex_color("#666666")
+        if rgb3:
+            run3.font.color.rgb = RGBColor(*rgb3)
+        _tight_paragraph(p3, after_pt=6)
+        _center_paragraph(p3)
+        if bg_rgb:
+            _apply_paragraph_shading(p3, bg_rgb)
+
+    # Create two-column table for body (sidebar col empty, aligns with header)
     table = doc.add_table(rows=1, cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = False
 
-    # Set column widths
     table.columns[0].width = Inches(sidebar_width)
     table.columns[1].width = Inches(main_width)
 
     sidebar_cell = table.rows[0].cells[0]
     main_cell = table.rows[0].cells[1]
 
-    # Remove borders
     _remove_cell_borders(sidebar_cell)
     _remove_cell_borders(main_cell)
 
-    # Optional sidebar background
-    sidebar_bg = layout_cfg.get("sidebar_bg")
     if sidebar_bg:
         _set_cell_shading(sidebar_cell, sidebar_bg)
 
-    # Clear default paragraph
+    # Clear default paragraphs
     if sidebar_cell.paragraphs:
         sidebar_cell.paragraphs[0].clear()
     if main_cell.paragraphs:
         main_cell.paragraphs[0].clear()
 
-    # === SIDEBAR CONTENT ===
-    _render_sidebar_header(sidebar_cell, data, page_cfg)
-
-    # Contact section
-    contact_title = "Contacto"
-    for sec in (template.get("sections") or []):
-        if sec.get("key") == "contact":
-            contact_title = sec.get("title", "Contacto")
-            break
-    _render_sidebar_contact(sidebar_cell, data, page_cfg, contact_title)
-
-    # Profile/Summary in sidebar
+    # Page 1 sidebar: Profile + Skills (header already has name/contact)
     for sec in (template.get("sections") or []):
         if sec.get("key") == "summary":
             summary_items = data.get("summary") or []
@@ -775,7 +829,6 @@ def write_resume_docx_sidebar(
             elif isinstance(summary_items, list):
                 summary_items = [s.get("text", s) if isinstance(s, dict) else s for s in summary_items]
             if summary_items:
-                # Render as bullets
                 _render_sidebar_section(
                     sidebar_cell,
                     sec.get("title", "Perfil profesional"),
@@ -785,7 +838,6 @@ def write_resume_docx_sidebar(
                 )
             break
 
-    # Skills in sidebar
     for sec in (template.get("sections") or []):
         if sec.get("key") == "skills":
             skills_groups = data.get("skills_groups") or []
@@ -798,7 +850,7 @@ def write_resume_docx_sidebar(
                 _render_sidebar_section(sidebar_cell, sec.get("title", "Habilidades claves"), skill_items[:8], page_cfg)
             break
 
-    # === MAIN CONTENT ===
+    # === MAIN CONTENT (natural flow) ===
     sections = template.get("sections") or []
 
     for sec in sections:
@@ -817,51 +869,6 @@ def write_resume_docx_sidebar(
         elif key == "presentations":
             _render_main_section_heading(main_cell, title, page_cfg)
             _render_main_presentations(main_cell, data, page_cfg, sec)
-
-    # Add page break and second page with sidebar repeated
-    from docx.enum.text import WD_BREAK
-
-    # Check if we need page 2 (presentations usually overflow)
-    presentations = data.get("presentations") or []
-    if len(presentations) > 3:
-        # Add page break
-        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-
-        # Create second table with sidebar
-        table2 = doc.add_table(rows=1, cols=2)
-        table2.alignment = WD_TABLE_ALIGNMENT.CENTER
-        table2.autofit = False
-        table2.columns[0].width = Inches(sidebar_width)
-        table2.columns[1].width = Inches(main_width)
-
-        sidebar_cell2 = table2.rows[0].cells[0]
-        main_cell2 = table2.rows[0].cells[1]
-
-        _remove_cell_borders(sidebar_cell2)
-        _remove_cell_borders(main_cell2)
-
-        if sidebar_bg:
-            _set_cell_shading(sidebar_cell2, sidebar_bg)
-
-        # Clear default paragraphs
-        if sidebar_cell2.paragraphs:
-            sidebar_cell2.paragraphs[0].clear()
-        if main_cell2.paragraphs:
-            main_cell2.paragraphs[0].clear()
-
-        # Repeat sidebar content on page 2
-        _render_sidebar_header(sidebar_cell2, data, page_cfg)
-        _render_sidebar_contact(sidebar_cell2, data, page_cfg, contact_title)
-
-        # Add note that content continues
-        p = main_cell2.add_paragraph()
-        run = p.add_run("(continuación)")
-        run.italic = True
-        run.font.size = Pt(page_cfg.get("meta_pt", 9))
-        rgb = _parse_hex_color("#666666")
-        if rgb:
-            run.font.color.rgb = RGBColor(*rgb)
-        _tight_paragraph(p, after_pt=6)
 
     doc.save(out_path)
 
