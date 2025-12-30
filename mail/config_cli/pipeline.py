@@ -213,7 +213,8 @@ class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
                 files += 1
                 try:
                     total += p.stat().st_size
-                except Exception:  # noqa: S110 - fallback on error
+                except (OSError, PermissionError):  # nosec B110 - skip inaccessible/deleted files
+                    # File may have been deleted or became inaccessible between rglob and stat
                     pass
         return CacheStatsResult(path=str(root), files=files, size_bytes=total)
 
@@ -306,7 +307,8 @@ class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
                 if p.stat().st_mtime < cutoff:
                     p.unlink()
                     removed += 1
-            except Exception:  # noqa: S110 - fallback on error
+            except (OSError, FileNotFoundError, PermissionError):  # nosec B110 - skip deletion failures
+                # File may be already deleted, in use, or inaccessible; continue pruning others
                 pass
         return CachePruneResult(path=str(root), removed=removed, days=payload.days)
 
@@ -813,7 +815,7 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
                 venv.EnvBuilder(with_pip=True).create(str(venv_dir))
                 venv_created = True
             if not payload.skip_install:
-                import subprocess
+                import subprocess  # nosec B404 - needed for pip install in venv setup
                 py = venv_dir / 'bin' / 'python'
                 if not py.exists():
                     raise FileNotFoundError(f"Python not found in venv: {py}")
@@ -827,7 +829,8 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
                     p = Path(fname)
                     if p.exists():
                         os.chmod(p, (p.stat().st_mode | 0o111))
-                except Exception:  # noqa: S110 - fallback on error
+                except (OSError, PermissionError):  # nosec B110 - non-critical, safe to skip
+                    # chmod may fail on read-only filesystems or without permissions; not critical for setup
                     pass
 
         cred_path = payload.credentials
@@ -841,8 +844,10 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
                     cred_path = str(dest)
-                except Exception:  # noqa: S110 - fallback on error
-                    pass
+                except (OSError, PermissionError, IOError):  # nosec B110 - non-critical setup step
+                    # Example credential copy is optional; setup continues if it fails
+                    import sys
+                    print(f"Warning: Could not copy example credentials to {dest}", file=sys.stderr)
         if cred_path and not tok_path:
             tok_path = default_gmail_token_path()
 
@@ -850,7 +855,8 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
             if pth:
                 try:
                     Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
-                except Exception:  # noqa: S110 - fallback on error
+                except (OSError, PermissionError):  # nosec B110 - non-critical directory creation
+                    # Parent directory creation is best-effort; file operations will fail later if needed
                     pass
 
         if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
