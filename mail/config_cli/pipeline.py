@@ -4,9 +4,17 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import (
+    BaseProducer,
+    Consumer,
+    Processor,
+    Producer,
+    RequestConsumer,
+    ResultEnvelope,
+    SafeProcessor,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -32,12 +40,8 @@ class AuthResult:
     message: str
 
 
-class AuthRequestConsumer(Consumer[AuthRequest]):
-    def __init__(self, request: AuthRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AuthRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+AuthRequestConsumer = RequestConsumer[AuthRequest]
 
 
 class AuthProcessor(Processor[AuthRequest, ResultEnvelope[AuthResult]]):
@@ -129,12 +133,8 @@ class BackupResult:
     filters_count: int
 
 
-class BackupRequestConsumer(Consumer[BackupRequest]):
-    def __init__(self, request: BackupRequest) -> None:
-        self._request = request
-
-    def consume(self) -> BackupRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+BackupRequestConsumer = RequestConsumer[BackupRequest]
 
 
 class BackupProcessor(Processor[BackupRequest, ResultEnvelope[BackupResult]]):
@@ -234,12 +234,8 @@ class CacheStatsResult:
     size_bytes: int
 
 
-class CacheStatsRequestConsumer(Consumer[CacheStatsRequest]):
-    def __init__(self, request: CacheStatsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> CacheStatsRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+CacheStatsRequestConsumer = RequestConsumer[CacheStatsRequest]
 
 
 class CacheStatsProcessor(Processor[CacheStatsRequest, ResultEnvelope[CacheStatsResult]]):
@@ -289,12 +285,8 @@ class CacheClearResult:
     cleared: bool
 
 
-class CacheClearRequestConsumer(Consumer[CacheClearRequest]):
-    def __init__(self, request: CacheClearRequest) -> None:
-        self._request = request
-
-    def consume(self) -> CacheClearRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+CacheClearRequestConsumer = RequestConsumer[CacheClearRequest]
 
 
 class CacheClearProcessor(Processor[CacheClearRequest, ResultEnvelope[CacheClearResult]]):
@@ -348,12 +340,8 @@ class CachePruneResult:
     days: int
 
 
-class CachePruneRequestConsumer(Consumer[CachePruneRequest]):
-    def __init__(self, request: CachePruneRequest) -> None:
-        self._request = request
-
-    def consume(self) -> CachePruneRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+CachePruneRequestConsumer = RequestConsumer[CachePruneRequest]
 
 
 class CachePruneProcessor(Processor[CachePruneRequest, ResultEnvelope[CachePruneResult]]):
@@ -419,12 +407,8 @@ class ConfigInspectResult:
     sections: List[ConfigSection]
 
 
-class ConfigInspectRequestConsumer(Consumer[ConfigInspectRequest]):
-    def __init__(self, request: ConfigInspectRequest) -> None:
-        self._request = request
-
-    def consume(self) -> ConfigInspectRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+ConfigInspectRequestConsumer = RequestConsumer[ConfigInspectRequest]
 
 
 class ConfigInspectProcessor(Processor[ConfigInspectRequest, ResultEnvelope[ConfigInspectResult]]):
@@ -507,12 +491,8 @@ class DeriveLabelsResult:
     labels_count: int
 
 
-class DeriveLabelsRequestConsumer(Consumer[DeriveLabelsRequest]):
-    def __init__(self, request: DeriveLabelsRequest) -> None:
-        self._request = request
-
-    def consume(self) -> DeriveLabelsRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+DeriveLabelsRequestConsumer = RequestConsumer[DeriveLabelsRequest]
 
 
 class DeriveLabelsProcessor(Processor[DeriveLabelsRequest, ResultEnvelope[DeriveLabelsResult]]):
@@ -585,12 +565,8 @@ class DeriveFiltersResult:
     filters_count: int
 
 
-class DeriveFiltersRequestConsumer(Consumer[DeriveFiltersRequest]):
-    def __init__(self, request: DeriveFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> DeriveFiltersRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
 class DeriveFiltersProcessor(Processor[DeriveFiltersRequest, ResultEnvelope[DeriveFiltersResult]]):
@@ -694,12 +670,8 @@ class OptimizeFiltersResult:
     merged_groups: List[MergedGroup]
 
 
-class OptimizeFiltersRequestConsumer(Consumer[OptimizeFiltersRequest]):
-    def __init__(self, request: OptimizeFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> OptimizeFiltersRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 
 
 class OptimizeFiltersProcessor(Processor[OptimizeFiltersRequest, ResultEnvelope[OptimizeFiltersResult]]):
@@ -825,12 +797,8 @@ class AuditFiltersResult:
     missing_samples: List[tuple]
 
 
-class AuditFiltersRequestConsumer(Consumer[AuditFiltersRequest]):
-    def __init__(self, request: AuditFiltersRequest) -> None:
-        self._request = request
-
-    def consume(self) -> AuditFiltersRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
 class AuditFiltersProcessor(Processor[AuditFiltersRequest, ResultEnvelope[AuditFiltersResult]]):
@@ -951,12 +919,8 @@ class EnvSetupResult:
     message: str
 
 
-class EnvSetupRequestConsumer(Consumer[EnvSetupRequest]):
-    def __init__(self, request: EnvSetupRequest) -> None:
-        self._request = request
-
-    def consume(self) -> EnvSetupRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+EnvSetupRequestConsumer = RequestConsumer[EnvSetupRequest]
 
 
 class EnvSetupProcessor(Processor[EnvSetupRequest, ResultEnvelope[EnvSetupResult]]):
