@@ -17,7 +17,7 @@ dependencies = [
   "google-auth-oauthlib==1.2.1",
   "httplib2==0.22.0",
   "msal==1.28.0",
-  "numpy==1.26.4",
+  "numpy==2.4.0",
   "premailer==3.10.0",
   "requests==2.32.4",
   "shapely==2.0.3",
