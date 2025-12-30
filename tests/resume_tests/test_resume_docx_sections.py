@@ -91,6 +91,66 @@ class TestBulletRenderer(unittest.TestCase):
         self.assertIn("Python", bolded)
         self.assertIn("JavaScript", bolded)
 
+    def test_bold_keywords_overlapping(self):
+        """Test keyword bolding with overlapping keywords.
+
+        Note: When keywords overlap (e.g., "Python" within "Pythonic"),
+        the algorithm matches the first occurrence it finds, which may
+        consume characters needed for a longer match.
+        """
+        renderer, doc = self._get_renderer()
+        # "Python" appears both standalone and within "Pythonic"
+        renderer.add_bullet_line(
+            "Expert in Python and Pythonic code",
+            keywords=["Python", "Pythonic"],
+            glyph="•",
+        )
+        runs = doc.paragraphs[0].runs
+        bolded = [r.text for r in runs if r.bold]
+        # "Python" matches in both locations (including within "Pythonic")
+        # This documents current behavior - not ideal, but consistent
+        self.assertEqual(bolded.count("Python"), 2)
+
+    def test_bold_keywords_case_insensitive(self):
+        """Test keyword bolding is case-insensitive."""
+        renderer, doc = self._get_renderer()
+        renderer.add_bullet_line(
+            "Developed with PYTHON and javascript frameworks",
+            keywords=["Python", "JavaScript"],
+            glyph="•",
+        )
+        runs = doc.paragraphs[0].runs
+        # Should match case-insensitively
+        bolded = [r.text for r in runs if r.bold]
+        self.assertIn("PYTHON", bolded)
+        self.assertIn("javascript", bolded)
+
+    def test_bold_keywords_empty_list(self):
+        """Test keyword bolding with empty keyword list."""
+        renderer, doc = self._get_renderer()
+        renderer.add_bullet_line(
+            "Experience with Python",
+            keywords=[],
+            glyph="•",
+        )
+        runs = doc.paragraphs[0].runs
+        # With no keywords, text should not be bolded
+        bolded = [r.text for r in runs if r.bold]
+        self.assertEqual(len(bolded), 0)
+
+    def test_bold_keywords_none_in_list(self):
+        """Test keyword bolding handles None in keyword list."""
+        renderer, doc = self._get_renderer()
+        renderer.add_bullet_line(
+            "Experience with Python",
+            keywords=["Python", None, ""],
+            glyph="•",
+        )
+        runs = doc.paragraphs[0].runs
+        # Should still bold Python, ignore None/empty
+        bolded = [r.text for r in runs if r.bold]
+        self.assertIn("Python", bolded)
+
 
 @patch.dict("sys.modules", {
     "docx": MagicMock(),

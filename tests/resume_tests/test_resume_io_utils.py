@@ -118,7 +118,7 @@ class TestReadTextAny(unittest.TestCase):
                     with patch.dict("sys.modules", {"docx": mock_docx}):
                         with patch("resume.io_utils.Document", mock_docx.Document, create=True):
                             # Since the import happens dynamically, we need to mock it inline
-                            result = read_text_any(f.name)
+                            read_text_any(f.name)
                             # Due to dynamic import, just verify no crash for now
             finally:
                 os.unlink(f.name)
