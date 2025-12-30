@@ -42,6 +42,41 @@ class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
         raise NotImplementedError
 
 
+class SafeProcessor(Processor[T, ResultEnvelope[R]], Generic[T, R]):
+    """Base processor with automatic error handling wrapper."""
+
+    def process(self, payload: T) -> ResultEnvelope[R]:
+        """Wrap _process_safe with error handling."""
+        try:
+            result = self._process_safe(payload)
+            return ResultEnvelope(status="success", payload=result)
+        except Exception as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+
+    def _process_safe(self, payload: T) -> R:
+        """Override to implement processing logic without error handling boilerplate."""
+        raise NotImplementedError
+
+
+class AccountIteratorHelper:
+    """Helper for iterating accounts with authentication."""
+
+    @staticmethod
+    def iter_authenticated_accounts(config_path: str, accounts_filter: Optional[List[str]] = None):
+        """Load accounts, filter, build providers, and authenticate.
+
+        Yields:
+            Tuple of (account_dict, authenticated_client)
+        """
+        from .helpers import load_accounts, iter_accounts, build_provider_for_account
+
+        accts = load_accounts(config_path)
+        for account in iter_accounts(accts, accounts_filter):
+            client = build_provider_for_account(account)
+            client.authenticate()
+            yield account, client
+
+
 def canonicalize_filter(f: Dict[str, Any]) -> str:
     """Canonical string representation of a filter for comparison."""
     crit = f.get("criteria") or f.get("match") or {}
@@ -151,39 +186,34 @@ class AccountsExportLabelsResult:
 AccountsExportLabelsRequestConsumer = SimpleConsumer[AccountsExportLabelsRequest]
 
 
-class AccountsExportLabelsProcessor(Processor[AccountsExportLabelsRequest, ResultEnvelope[AccountsExportLabelsResult]]):
-    def process(self, payload: AccountsExportLabelsRequest) -> ResultEnvelope[AccountsExportLabelsResult]:
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
+class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, AccountsExportLabelsResult]):
+    def _process_safe(self, payload: AccountsExportLabelsRequest) -> AccountsExportLabelsResult:
         from ..yamlio import dump_config
 
-        try:
-            accts = load_accounts(payload.config_path)
-            out_dir = Path(payload.out_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = Path(payload.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-            exports: List[ExportedLabelsInfo] = []
-            for a in iter_accounts(accts, payload.accounts_filter):
-                client = build_provider_for_account(a)
-                client.authenticate()
-                labels = client.list_labels()
-                doc = {
-                    "labels": [
-                        {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
-                        for lab in labels if lab.get("type") != "system"
-                    ],
-                    "redirects": [],
-                }
-                path = out_dir / f"labels_{a.get('name', 'account')}.yaml"
-                dump_config(str(path), doc)
-                exports.append(ExportedLabelsInfo(
-                    account_name=a.get("name", "account"),
-                    output_path=str(path),
-                    label_count=len(doc["labels"]),
-                ))
+        exports: List[ExportedLabelsInfo] = []
+        for account, client in AccountIteratorHelper.iter_authenticated_accounts(
+            payload.config_path, payload.accounts_filter
+        ):
+            labels = client.list_labels()
+            doc = {
+                "labels": [
+                    {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
+                    for lab in labels if lab.get("type") != "system"
+                ],
+                "redirects": [],
+            }
+            path = out_dir / f"labels_{account.get('name', 'account')}.yaml"
+            dump_config(str(path), doc)
+            exports.append(ExportedLabelsInfo(
+                account_name=account.get("name", "account"),
+                output_path=str(path),
+                label_count=len(doc["labels"]),
+            ))
 
-            return ResultEnvelope(status="success", payload=AccountsExportLabelsResult(exports=exports))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsExportLabelsResult(exports=exports)
 
 
 class AccountsExportLabelsProducer(AccountsResultProducer[AccountsExportLabelsResult]):
