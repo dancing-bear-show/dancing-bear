@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from core.pipeline import Processor, Producer, ResultEnvelope, SafeProcessor, BaseProducer
+from core.pipeline import Processor, Producer, SafeProcessor, BaseProducer
 from .apply_ops import apply_plan_file
 from .planner import plan_from_config
 from .scan import run_scan

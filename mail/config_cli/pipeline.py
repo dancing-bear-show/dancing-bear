@@ -137,72 +137,66 @@ class BackupResult:
 BackupRequestConsumer = RequestConsumer[BackupRequest]
 
 
-class BackupProcessor(Processor[BackupRequest, ResultEnvelope[BackupResult]]):
-    def process(self, payload: BackupRequest) -> ResultEnvelope[BackupResult]:
+class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
+    def _process_safe(self, payload: BackupRequest) -> BackupResult:
         import argparse
         from datetime import datetime
         from ..utils.cli_helpers import gmail_provider_from_args
         from ..yamlio import dump_config
 
-        try:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
-            out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-            args = argparse.Namespace(
-                credentials=payload.credentials,
-                token=payload.token,
-                cache=payload.cache,
-                profile=payload.profile,
-            )
-            client = gmail_provider_from_args(args)
-            client.authenticate()
+        args = argparse.Namespace(
+            credentials=payload.credentials,
+            token=payload.token,
+            cache=payload.cache,
+            profile=payload.profile,
+        )
+        client = gmail_provider_from_args(args)
+        client.authenticate()
 
-            # Labels
-            labels = client.list_labels()
-            labels_doc = {
-                "labels": [
-                    {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
-                    for lab in labels if lab.get("type") != "system"
-                ],
-                "redirects": [],
+        # Labels
+        labels = client.list_labels()
+        labels_doc = {
+            "labels": [
+                {k: v for k, v in lab.items() if k in ("name", "color", "labelListVisibility", "messageListVisibility")}
+                for lab in labels if lab.get("type") != "system"
+            ],
+            "redirects": [],
+        }
+        dump_config(str(out_dir / "labels.yaml"), labels_doc)
+
+        # Filters
+        id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in labels}
+
+        def ids_to_names(ids):
+            return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
+
+        filters = client.list_filters()
+        dsl_filters = []
+        for f in filters:
+            crit = f.get("criteria", {}) or {}
+            act = f.get("action", {}) or {}
+            entry = {
+                "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
+                "action": {},
             }
-            dump_config(str(out_dir / "labels.yaml"), labels_doc)
+            if act.get("forward"):
+                entry["action"]["forward"] = act["forward"]
+            if act.get("addLabelIds"):
+                entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
+            if act.get("removeLabelIds"):
+                entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
+            dsl_filters.append(entry)
+        dump_config(str(out_dir / "filters.yaml"), {"filters": dsl_filters})
 
-            # Filters
-            id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in labels}
-
-            def ids_to_names(ids):
-                return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
-
-            filters = client.list_filters()
-            dsl_filters = []
-            for f in filters:
-                crit = f.get("criteria", {}) or {}
-                act = f.get("action", {}) or {}
-                entry = {
-                    "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
-                    "action": {},
-                }
-                if act.get("forward"):
-                    entry["action"]["forward"] = act["forward"]
-                if act.get("addLabelIds"):
-                    entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
-                if act.get("removeLabelIds"):
-                    entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
-                dsl_filters.append(entry)
-            dump_config(str(out_dir / "filters.yaml"), {"filters": dsl_filters})
-
-            return ResultEnvelope(
-                status="success",
-                payload=BackupResult(
-                    out_path=str(out_dir),
-                    labels_count=len(labels_doc["labels"]),
-                    filters_count=len(dsl_filters),
-                ),
-            )
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return BackupResult(
+            out_path=str(out_dir),
+            labels_count=len(labels_doc["labels"]),
+            filters_count=len(dsl_filters),
+        )
 
 
 class BackupProducer(Producer[ResultEnvelope[BackupResult]]):
@@ -238,8 +232,8 @@ class CacheStatsResult:
 CacheStatsRequestConsumer = RequestConsumer[CacheStatsRequest]
 
 
-class CacheStatsProcessor(Processor[CacheStatsRequest, ResultEnvelope[CacheStatsResult]]):
-    def process(self, payload: CacheStatsRequest) -> ResultEnvelope[CacheStatsResult]:
+class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
+    def _process_safe(self, payload: CacheStatsRequest) -> CacheStatsResult:
         root = Path(payload.cache_path)
         total = 0
         files = 0
@@ -250,10 +244,7 @@ class CacheStatsProcessor(Processor[CacheStatsRequest, ResultEnvelope[CacheStats
                     total += p.stat().st_size
                 except Exception:  # noqa: S110 - fallback on error
                     pass
-        return ResultEnvelope(
-            status="success",
-            payload=CacheStatsResult(path=str(root), files=files, size_bytes=total),
-        )
+        return CacheStatsResult(path=str(root), files=files, size_bytes=total)
 
 
 class CacheStatsProducer(Producer[ResultEnvelope[CacheStatsResult]]):
@@ -289,21 +280,15 @@ class CacheClearResult:
 CacheClearRequestConsumer = RequestConsumer[CacheClearRequest]
 
 
-class CacheClearProcessor(Processor[CacheClearRequest, ResultEnvelope[CacheClearResult]]):
-    def process(self, payload: CacheClearRequest) -> ResultEnvelope[CacheClearResult]:
+class CacheClearProcessor(SafeProcessor[CacheClearRequest, CacheClearResult]):
+    def _process_safe(self, payload: CacheClearRequest) -> CacheClearResult:
         import shutil
 
         root = Path(payload.cache_path)
         if not root.exists():
-            return ResultEnvelope(
-                status="success",
-                payload=CacheClearResult(path=str(root), cleared=False),
-            )
+            return CacheClearResult(path=str(root), cleared=False)
         shutil.rmtree(root)
-        return ResultEnvelope(
-            status="success",
-            payload=CacheClearResult(path=str(root), cleared=True),
-        )
+        return CacheClearResult(path=str(root), cleared=True)
 
 
 class CacheClearProducer(Producer[ResultEnvelope[CacheClearResult]]):
@@ -344,16 +329,13 @@ class CachePruneResult:
 CachePruneRequestConsumer = RequestConsumer[CachePruneRequest]
 
 
-class CachePruneProcessor(Processor[CachePruneRequest, ResultEnvelope[CachePruneResult]]):
-    def process(self, payload: CachePruneRequest) -> ResultEnvelope[CachePruneResult]:
+class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
+    def _process_safe(self, payload: CachePruneRequest) -> CachePruneResult:
         import time
 
         root = Path(payload.cache_path)
         if not root.exists():
-            return ResultEnvelope(
-                status="success",
-                payload=CachePruneResult(path=str(root), removed=0, days=payload.days),
-            )
+            return CachePruneResult(path=str(root), removed=0, days=payload.days)
         cutoff = time.time() - (payload.days * 86400)
         removed = 0
         for p in root.rglob("*.json"):
@@ -363,10 +345,7 @@ class CachePruneProcessor(Processor[CachePruneRequest, ResultEnvelope[CachePrune
                     removed += 1
             except Exception:  # noqa: S110 - fallback on error
                 pass
-        return ResultEnvelope(
-            status="success",
-            payload=CachePruneResult(path=str(root), removed=removed, days=payload.days),
-        )
+        return CachePruneResult(path=str(root), removed=removed, days=payload.days)
 
 
 class CachePruneProducer(Producer[ResultEnvelope[CachePruneResult]]):
@@ -411,34 +390,22 @@ class ConfigInspectResult:
 ConfigInspectRequestConsumer = RequestConsumer[ConfigInspectRequest]
 
 
-class ConfigInspectProcessor(Processor[ConfigInspectRequest, ResultEnvelope[ConfigInspectResult]]):
-    def process(self, payload: ConfigInspectRequest) -> ResultEnvelope[ConfigInspectResult]:
+class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectResult]):
+    def _process_safe(self, payload: ConfigInspectRequest) -> ConfigInspectResult:
         import configparser
         from ..utils.shield import mask_value as _mask_value
 
         ini = Path(os.path.expanduser(payload.path))
         if not ini.exists():
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Config not found: {ini}"},
-            )
+            raise FileNotFoundError(f"Config not found: {ini}")
         cp = configparser.ConfigParser()
-        try:
-            cp.read(ini)
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Failed to read INI: {e}"},
-            )
+        cp.read(ini)
 
         sections = cp.sections()
         if payload.section:
             sections = [s for s in sections if s == payload.section]
             if not sections:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Section not found: {payload.section}"},
-                )
+                raise ValueError(f"Section not found: {payload.section}")
         elif payload.only_mail:
             sections = [s for s in sections if s.startswith("mail")]
 
@@ -450,10 +417,7 @@ class ConfigInspectProcessor(Processor[ConfigInspectRequest, ResultEnvelope[Conf
                 items=[(k, _mask_value(k, v)) for k, v in cp.items(s)],
             ))
 
-        return ResultEnvelope(
-            status="success",
-            payload=ConfigInspectResult(sections=result_sections),
-        )
+        return ConfigInspectResult(sections=result_sections)
 
 
 class ConfigInspectProducer(Producer[ResultEnvelope[ConfigInspectResult]]):

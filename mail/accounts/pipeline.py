@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, SafeProcessor
 
 # -----------------------------------------------------------------------------
 # Shared abstractions
@@ -39,22 +39,6 @@ class AccountsResultProducer(Producer[ResultEnvelope[R]], Generic[R]):
 
     def _produce_items(self, payload: R) -> None:
         """Override to format and print result items."""
-        raise NotImplementedError
-
-
-class SafeProcessor(Processor[T, ResultEnvelope[R]], Generic[T, R]):
-    """Base processor with automatic error handling wrapper."""
-
-    def process(self, payload: T) -> ResultEnvelope[R]:
-        """Wrap _process_safe with error handling."""
-        try:
-            result = self._process_safe(payload)
-            return ResultEnvelope(status="success", payload=result)
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
-
-    def _process_safe(self, payload: T) -> R:
-        """Override to implement processing logic without error handling boilerplate."""
         raise NotImplementedError
 
 

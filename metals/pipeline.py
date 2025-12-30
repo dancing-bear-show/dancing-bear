@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from core.pipeline import RequestConsumer, ResultEnvelope, SafeProcessor, BaseProducer
+from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 from .extractors import MetalsAmount, OrderExtraction
 

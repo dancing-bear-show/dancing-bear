@@ -986,7 +986,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     agentic_result = assistant.maybe_emit_agentic(
         args,
-        emit_func=lambda fmt, compact: _lazy_emit_agentic()(fmt, compact),
+        emit_func=_lazy_emit_agentic(),
     )
     if agentic_result is not None:
         return agentic_result
