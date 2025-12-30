@@ -10,91 +10,91 @@ class TestMetalsCLI(unittest.TestCase):
 
     def test_app_initialization(self):
         """Test CLI app is properly initialized."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertEqual(app.name, "metals")
         self.assertIn("Precious metals", app.description)
 
     def test_main_help(self):
         """Test --help returns 0."""
-        from metals.__main__ import main
+        from metals.cli.main import main
         with self.assertRaises(SystemExit) as cm:
             main(["--help"])
         self.assertEqual(cm.exception.code, 0)
 
     def test_extract_gmail_command_exists(self):
         """Test extract.gmail command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("extract.gmail", app._commands)
 
     def test_extract_outlook_command_exists(self):
         """Test extract.outlook command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("extract.outlook", app._commands)
 
     def test_costs_gmail_command_exists(self):
         """Test costs.gmail command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("costs.gmail", app._commands)
 
     def test_costs_outlook_command_exists(self):
         """Test costs.outlook command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("costs.outlook", app._commands)
 
     def test_spot_fetch_command_exists(self):
         """Test spot.fetch command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("spot.fetch", app._commands)
 
     def test_premium_calc_command_exists(self):
         """Test premium.calc command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("premium.calc", app._commands)
 
     def test_premium_summary_command_exists(self):
         """Test premium.summary command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("premium.summary", app._commands)
 
     def test_build_summaries_command_exists(self):
         """Test build.summaries command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("build.summaries", app._commands)
 
     def test_excel_merge_command_exists(self):
         """Test excel.merge command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("excel.merge", app._commands)
 
     def test_scan_command_exists(self):
         """Test scan command exists."""
-        from metals.__main__ import app
+        from metals.cli.main import app
         self.assertIn("scan", app._commands)
 
     def test_extract_gmail_help(self):
         """Test extract gmail --help."""
-        from metals.__main__ import main
+        from metals.cli.main import main
         with self.assertRaises(SystemExit) as cm:
             main(["extract", "gmail", "--help"])
         self.assertEqual(cm.exception.code, 0)
 
     def test_extract_outlook_help(self):
         """Test extract outlook --help."""
-        from metals.__main__ import main
+        from metals.cli.main import main
         with self.assertRaises(SystemExit) as cm:
             main(["extract", "outlook", "--help"])
         self.assertEqual(cm.exception.code, 0)
 
     def test_spot_fetch_help(self):
         """Test spot fetch --help."""
-        from metals.__main__ import main
+        from metals.cli.main import main
         with self.assertRaises(SystemExit) as cm:
             main(["spot", "fetch", "--help"])
         self.assertEqual(cm.exception.code, 0)
 
     def test_premium_calc_help(self):
         """Test premium calc --help."""
-        from metals.__main__ import main
+        from metals.cli.main import main
         with self.assertRaises(SystemExit) as cm:
             main(["premium", "calc", "--help"])
         self.assertEqual(cm.exception.code, 0)
@@ -121,7 +121,7 @@ class TestMetalsExtractCommands(unittest.TestCase):
     @patch("metals.pipeline.ExtractProducer")
     def test_cmd_extract_gmail_success(self, mock_producer_class, mock_processor_class):
         """Test extract gmail command with mocked processor."""
-        from metals.__main__ import cmd_extract_gmail
+        from metals.cli.main import cmd_extract_gmail
         from metals.pipeline import ExtractResult, Result
         from metals.extractors import MetalsAmount
 
@@ -150,7 +150,7 @@ class TestMetalsExtractCommands(unittest.TestCase):
     @patch("metals.pipeline.ExtractProducer")
     def test_cmd_extract_outlook_success(self, mock_producer_class, mock_processor_class):
         """Test extract outlook command with mocked processor."""
-        from metals.__main__ import cmd_extract_outlook
+        from metals.cli.main import cmd_extract_outlook
         from metals.pipeline import ExtractResult, Result
         from metals.extractors import MetalsAmount
 
@@ -179,7 +179,7 @@ class TestMetalsExtractCommands(unittest.TestCase):
     @patch("metals.pipeline.ExtractProducer")
     def test_cmd_extract_gmail_failure(self, mock_producer_class, mock_processor_class):
         """Test extract gmail command returns 1 on error."""
-        from metals.__main__ import cmd_extract_gmail
+        from metals.cli.main import cmd_extract_gmail
         from metals.pipeline import Result
 
         mock_processor = MagicMock()
