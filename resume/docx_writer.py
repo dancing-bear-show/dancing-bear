@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .io_utils import safe_import
-from docx.shared import Pt, Inches, RGBColor, Twips  # type: ignore
+from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
 from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
 from docx.oxml.ns import qn  # type: ignore
@@ -349,12 +349,9 @@ def _remove_cell_borders(cell) -> None:
 
 
 def _render_sidebar_header(cell, data: Dict[str, Any], page_cfg: Dict[str, Any]) -> None:
-    """Render name, headline, and contact info in sidebar cell."""
+    """Render name and headline in sidebar cell."""
     name = _get_contact_field(data, "name")
     headline = _get_contact_field(data, "headline")
-    email = _get_contact_field(data, "email")
-    phone = _get_contact_field(data, "phone")
-    location = _get_contact_field(data, "location")
 
     name_color = page_cfg.get("sidebar_name_color", "#333333")
     text_color = page_cfg.get("sidebar_text_color", "#333333")
