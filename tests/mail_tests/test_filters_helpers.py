@@ -1,24 +1,34 @@
-import mail.__main__ as cli
+import unittest
 
+from mail.utils.filters import build_gmail_query, action_to_label_changes
 from tests.mail_tests.fixtures import FakeGmailClient, make_user_label, make_system_label
 
 
-def test_build_gmail_query_negated_and_attach():
-    q = cli._build_gmail_query(
-        {"query": "x", "negatedQuery": "y", "hasAttachment": True},
-        days=None,
-        only_inbox=False,
-    )
-    assert "x" in q and "-(y)" in q and "has:attachment" in q
+class TestBuildGmailQuery(unittest.TestCase):
+    def test_negated_and_attach(self):
+        q = build_gmail_query(
+            {"query": "x", "negatedQuery": "y", "hasAttachment": True},
+            days=None,
+            only_inbox=False,
+        )
+        self.assertIn("x", q)
+        self.assertIn("-(y)", q)
+        self.assertIn("has:attachment", q)
 
 
-def test_action_to_label_changes_resolution():
-    client = FakeGmailClient(labels=[
-        make_user_label("Lists/Newsletters", "L1"),
-        make_system_label("INBOX"),
-    ])
-    add, rem = cli._action_to_label_changes(
-        client,
-        {"add": ["Lists/Newsletters"], "remove": ["INBOX"]},
-    )
-    assert add == ["L1"] and rem == ["INBOX"]
+class TestActionToLabelChanges(unittest.TestCase):
+    def test_resolution(self):
+        client = FakeGmailClient(labels=[
+            make_user_label("Lists/Newsletters", "L1"),
+            make_system_label("INBOX"),
+        ])
+        add, rem = action_to_label_changes(
+            client,
+            {"add": ["Lists/Newsletters"], "remove": ["INBOX"]},
+        )
+        self.assertEqual(add, ["L1"])
+        self.assertEqual(rem, ["INBOX"])
+
+
+if __name__ == "__main__":
+    unittest.main()
