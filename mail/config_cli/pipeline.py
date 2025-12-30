@@ -772,21 +772,17 @@ class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResul
         )
 
 
-class AuditFiltersProducer(Producer[ResultEnvelope[AuditFiltersResult]]):
+class AuditFiltersProducer(BaseProducer):
     def __init__(self, preview_missing: bool = False) -> None:
         self._preview_missing = preview_missing
 
-    def produce(self, result: ResultEnvelope[AuditFiltersResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        print(f"Simple Gmail rules: {p.simple_total}")
-        print(f"Covered by unified: {p.covered}")
-        print(f"Not unified: {p.not_covered} ({p.percentage:.1f}%)")
-        if self._preview_missing and p.missing_samples:
+    def _produce_success(self, payload: AuditFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(f"Simple Gmail rules: {payload.simple_total}")
+        print(f"Covered by unified: {payload.covered}")
+        print(f"Not unified: {payload.not_covered} ({payload.percentage:.1f}%)")
+        if self._preview_missing and payload.missing_samples:
             print("Missing examples (dest, from):")
-            for dest, frm in p.missing_samples:
+            for dest, frm in payload.missing_samples:
                 print(f"- {dest} <- {frm}")
 
 
@@ -896,14 +892,10 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
         )
 
 
-class EnvSetupProducer(Producer[ResultEnvelope[EnvSetupResult]]):
-    def produce(self, result: ResultEnvelope[EnvSetupResult]) -> None:
-        if not result.ok():
-            print(f"Error: {(result.diagnostics or {}).get('message', 'Failed')}")
-            return
-        p = result.unwrap()
-        if p.profile_saved:
+class EnvSetupProducer(BaseProducer):
+    def _produce_success(self, payload: EnvSetupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        if payload.profile_saved:
             print("Persisted settings to ~/.config/credentials.ini")
         else:
             print("No profile settings provided; skipped INI write.")
-        print(p.message)
+        print(payload.message)
