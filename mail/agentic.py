@@ -65,11 +65,11 @@ def build_agentic_capsule(compact: bool = False) -> str:
     return _build_capsule("mail", "Gmail/Outlook CLI (labels, filters, signatures)", commands, sections)
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
+def emit_agentic_context(_fmt: str = "text", compact: bool = False) -> int:
     """Emit the agentic capsule.
 
     Args:
-        fmt: Output format ("text"|"yaml"). Currently only text is implemented.
+        _fmt: Output format ("text"|"yaml"). Currently only text is implemented.
         compact: If True, emit minimal capsule (commands + CLI tree only).
     """
     content = build_agentic_capsule(compact=compact)

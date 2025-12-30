@@ -99,7 +99,7 @@ def build_domain_map() -> str:
     return "\n".join([s for s in sections if s])
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
+def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:  # noqa: ARG001 - fmt/compact reserved
     """Emit the agentic capsule (fmt/compact best-effort for parity)."""
     # Currently only text output is supported; fmt/compact are ignored.
     print(build_agentic_capsule())

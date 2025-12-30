@@ -79,7 +79,7 @@ def _extract_amounts(text: str) -> Tuple[float, float]:
     return gold_oz, silver_oz
 
 
-def run(profile: str = "gmail_personal", days: int | None = 365) -> int:
+def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa: ARG001 - days reserved for future use
     cred, tok = resolve_paths_profile(arg_credentials=None, arg_token=None, profile=profile)
     client = GmailClient(credentials_path=cred, token_path=tok, cache_dir=".cache")
     client.authenticate()

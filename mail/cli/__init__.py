@@ -1,3 +1,3 @@
-def noop(*args, **kwargs):
+def noop(*_args, **_kwargs):
     return None
 
