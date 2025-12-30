@@ -24,6 +24,8 @@ class SidebarResumeWriter(ResumeWriterBase):
 
     def _render_content(self, seed: Optional[Dict[str, Any]] = None) -> None:
         """Render two-column sidebar resume content."""
+        # Default widths for US Letter (8.5" wide) with 0.5" margins = 7.5" usable
+        # Sidebar: 2.3" (~30%), Main: 5.2" (~70%)
         sidebar_width = self.layout_cfg.get("sidebar_width", 2.3)
         main_width = self.layout_cfg.get("main_width", 5.2)
         sidebar_bg = self.layout_cfg.get("sidebar_bg")
