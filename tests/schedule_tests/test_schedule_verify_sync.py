@@ -17,7 +17,7 @@ class TestScheduleVerifySync(unittest.TestCase):
         # Plan: weekly Monday 18:00–19:00 from 2025-10-06 to 2025-10-20 with exdate 2025-10-13
         import tempfile
         import textwrap
-        from schedule import __main__ as sa
+        from schedule.cli import main as sa
 
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
@@ -58,7 +58,7 @@ class TestScheduleVerifySync(unittest.TestCase):
     def test_verify_subject_time_reports_missing(self):
         import tempfile
         import textwrap
-        from schedule import __main__ as sa
+        from schedule.cli import main as sa
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
                 """
@@ -95,7 +95,7 @@ class TestScheduleVerifySync(unittest.TestCase):
     def test_sync_dry_run_counts_subject_time(self):
         import tempfile
         import textwrap
-        from schedule import __main__ as sa
+        from schedule.cli import main as sa
         with tempfile.TemporaryDirectory() as td:
             plan = self._write_plan(Path(td), textwrap.dedent(
                 """
@@ -140,7 +140,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
     def test_export_writes_yaml(self):
         import tempfile
-        from schedule import __main__ as sa
+        from schedule.cli import main as sa
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "activities.yaml"
             evs = [
