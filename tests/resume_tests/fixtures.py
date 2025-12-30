@@ -42,7 +42,7 @@ from __future__ import annotations
 from typing import Any
 
 # Re-export docx fakes from centralized fakes module
-from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun
+from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun  # noqa: F401
 
 # =============================================================================
 # Common Test Values
