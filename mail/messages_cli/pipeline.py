@@ -5,7 +5,7 @@ import json as _json
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope
+from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, RequestConsumer, SafeProcessor, BaseProducer
 
 
 # -----------------------------------------------------------------------------
@@ -41,64 +41,45 @@ class MessagesSearchResult:
     candidates: List[MessageCandidate] = field(default_factory=list)
 
 
-class MessagesSearchRequestConsumer(Consumer[MessagesSearchRequest]):
-    """Consumer for search requests."""
-
-    def __init__(self, request: MessagesSearchRequest) -> None:
-        self._request = request
-
-    def consume(self) -> MessagesSearchRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+MessagesSearchRequestConsumer = RequestConsumer[MessagesSearchRequest]
 
 
-class MessagesSearchProcessor(Processor[MessagesSearchRequest, ResultEnvelope[MessagesSearchResult]]):
-    """Process message search requests."""
+class MessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearchResult]):
+    """Process message search requests with automatic error handling."""
 
     def __init__(self, client: Any) -> None:
         self._client = client
 
-    def process(self, payload: MessagesSearchRequest) -> ResultEnvelope[MessagesSearchResult]:
+    def _process_safe(self, payload: MessagesSearchRequest) -> MessagesSearchResult:
         from ..utils.filters import build_gmail_query
         from ..messages import candidates_from_metadata
 
-        try:
-            crit = {"query": payload.query}
-            q = build_gmail_query(crit, days=payload.days, only_inbox=payload.only_inbox)
-            ids = self._client.list_message_ids(query=q, max_pages=1, page_size=payload.max_results)
-            msgs = self._client.get_messages_metadata(ids, use_cache=True)
-            cands = candidates_from_metadata(msgs)
-            result = MessagesSearchResult(
-                candidates=[
-                    MessageCandidate(
-                        id=c.id,
-                        subject=c.subject,
-                        from_header=c.from_header,
-                        snippet=c.snippet,
-                    )
-                    for c in cands
-                ]
-            )
-            return ResultEnvelope(status="success", payload=result)
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": str(e)},
-            )
+        crit = {"query": payload.query}
+        q = build_gmail_query(crit, days=payload.days, only_inbox=payload.only_inbox)
+        ids = self._client.list_message_ids(query=q, max_pages=1, page_size=payload.max_results)
+        msgs = self._client.get_messages_metadata(ids, use_cache=True)
+        cands = candidates_from_metadata(msgs)
+        return MessagesSearchResult(
+            candidates=[
+                MessageCandidate(
+                    id=c.id,
+                    subject=c.subject,
+                    from_header=c.from_header,
+                    snippet=c.snippet,
+                )
+                for c in cands
+            ]
+        )
 
 
-class MessagesSearchProducer(Producer[ResultEnvelope[MessagesSearchResult]]):
-    """Output search results."""
+class MessagesSearchProducer(BaseProducer):
+    """Output search results with automatic error handling."""
 
     def __init__(self, output_json: bool = False) -> None:
         self._output_json = output_json
 
-    def produce(self, result: ResultEnvelope[MessagesSearchResult]) -> None:
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message", "Search failed")
-            print(f"Error: {msg}")
-            return
-
-        payload = result.unwrap()
+    def _produce_success(self, payload: MessagesSearchResult, diagnostics: Optional[Any]) -> None:
         candidates = payload.candidates
 
         if self._output_json:
@@ -133,73 +114,49 @@ class MessagesSummarizeResult:
     message_id: str
 
 
-class MessagesSummarizeRequestConsumer(Consumer[MessagesSummarizeRequest]):
-    """Consumer for summarize requests."""
-
-    def __init__(self, request: MessagesSummarizeRequest) -> None:
-        self._request = request
-
-    def consume(self) -> MessagesSummarizeRequest:
-        return self._request
+# Type alias using generic RequestConsumer from core.pipeline
+MessagesSummarizeRequestConsumer = RequestConsumer[MessagesSummarizeRequest]
 
 
-class MessagesSummarizeProcessor(Processor[MessagesSummarizeRequest, ResultEnvelope[MessagesSummarizeResult]]):
-    """Process message summarize requests."""
+class MessagesSummarizeProcessor(SafeProcessor[MessagesSummarizeRequest, MessagesSummarizeResult]):
+    """Process message summarize requests with automatic error handling."""
 
     def __init__(self, client: Any) -> None:
         self._client = client
 
-    def process(self, payload: MessagesSummarizeRequest) -> ResultEnvelope[MessagesSummarizeResult]:
+    def _process_safe(self, payload: MessagesSummarizeRequest) -> MessagesSummarizeResult:
         from ..llm_adapter import summarize_text
         from ..utils.filters import build_gmail_query
 
-        try:
-            # Resolve message ID
-            mid = payload.message_id
-            if not mid and payload.query:
-                crit = {"query": payload.query}
-                q = build_gmail_query(crit, days=payload.days, only_inbox=payload.only_inbox)
-                ids = self._client.list_message_ids(query=q, max_pages=1, page_size=1)
-                if ids:
-                    mid = ids[0]
+        # Resolve message ID
+        mid = payload.message_id
+        if not mid and payload.query:
+            crit = {"query": payload.query}
+            q = build_gmail_query(crit, days=payload.days, only_inbox=payload.only_inbox)
+            ids = self._client.list_message_ids(query=q, max_pages=1, page_size=1)
+            if ids:
+                mid = ids[0]
 
-            if not mid:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": "No message found. Provide --id or a --query."},
-                )
+        if not mid:
+            raise ValueError("No message found. Provide --id or a --query.")
 
-            text = self._client.get_message_text(mid)
-            summary = summarize_text(text, max_words=payload.max_words)
-            if summary and not summary.lower().startswith("summary:"):
-                summary = f"Summary: {summary}"
+        text = self._client.get_message_text(mid)
+        summary = summarize_text(text, max_words=payload.max_words)
+        if summary and not summary.lower().startswith("summary:"):
+            summary = f"Summary: {summary}"
 
-            return ResultEnvelope(
-                status="success",
-                payload=MessagesSummarizeResult(summary=summary, message_id=mid),
-            )
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": str(e)},
-            )
+        return MessagesSummarizeResult(summary=summary, message_id=mid)
 
 
-class MessagesSummarizeProducer(Producer[ResultEnvelope[MessagesSummarizeResult]]):
-    """Output summarization results."""
+class MessagesSummarizeProducer(BaseProducer):
+    """Output summarization results with automatic error handling."""
 
     def __init__(self, out_path: Optional[str] = None) -> None:
         self._out_path = out_path
 
-    def produce(self, result: ResultEnvelope[MessagesSummarizeResult]) -> None:
+    def _produce_success(self, payload: MessagesSummarizeResult, diagnostics: Optional[Any]) -> None:
         from pathlib import Path
 
-        if not result.ok():
-            msg = (result.diagnostics or {}).get("message", "Summarization failed")
-            print(msg)
-            return
-
-        payload = result.unwrap()
         summary = payload.summary
 
         if self._out_path:
