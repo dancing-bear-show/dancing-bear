@@ -97,3 +97,9 @@ settings.init
 /config/*tokens*
 /config/*credentials*
 /config/**/private*.yaml
+
+# Resume profiles (PII) - ignore all except sample/example
+resume/_data/profiles_private/
+resume/config/profiles/*
+!resume/config/profiles/sample/
+!resume/config/profiles/*.example.yaml
