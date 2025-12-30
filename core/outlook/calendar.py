@@ -307,7 +307,7 @@ class OutlookCalendarMixin:
         calendar_id: Optional[str],
         series_id: str,
         exdates: List[str],
-        tz: str,
+        _tz: str,
         rng: Dict[str, Any],
     ) -> None:
         start_date = rng.get("startDate")

@@ -140,7 +140,7 @@ def make_message(
 # -----------------------------------------------------------------------------
 
 
-def noop_handler(*args, **kwargs):
+def noop_handler(*_args, **_kwargs):
     """No-op handler for CLI registration tests."""
     pass
 

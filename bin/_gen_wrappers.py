@@ -106,12 +106,12 @@ def _parse_simple_yaml(text: str) -> dict:
     return result
 
 
-def generate_bash(name: str, spec: dict) -> str:
+def generate_bash(_name: str, spec: dict) -> str:
     """Generate bash wrapper content."""
     return BASH_TEMPLATE.format(base=spec["base"], args=spec["args"])
 
 
-def generate_python(name: str, spec: dict) -> str:
+def generate_python(_name: str, spec: dict) -> str:
     """Generate Python wrapper content."""
     module = spec["module"]
     doc = spec.get("doc", f"Thin wrapper for {module}.")

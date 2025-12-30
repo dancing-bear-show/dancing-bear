@@ -51,7 +51,7 @@ class OutlookMailMixin:
         self: OutlookClientBase,
         name: str,
         color: Optional[Dict[str, Any]] = None,
-        **kwargs: Any
+        **_kwargs: Any
     ) -> Dict[str, Any]:
         body = {"displayName": name}
         if color and isinstance(color, dict) and color.get("name"):
