@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional, Sequence
 
-from core.text_utils import html_to_text
+from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
 
 
 DAY_MAP = {

@@ -1,11 +1,10 @@
 """Tests for mail/gmail_api.py Gmail client wrapper."""
 
 import base64
-import json
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from mail.gmail_api import (
     GmailClient,

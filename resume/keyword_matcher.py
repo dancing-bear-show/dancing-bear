@@ -306,9 +306,8 @@ class KeywordMatcher:
         if not k:
             return False
 
-        if word_boundary:
-            if re.search(rf"\b{re.escape(k)}\b", t):
-                return True
+        if word_boundary and re.search(rf"\b{re.escape(k)}\b", t):
+            return True
         return k in t
 
     def matches(
