@@ -154,9 +154,7 @@ class TestRunForwardingAdd(unittest.TestCase):
     @patch("mail.forwarding.commands.MailContext")
     def test_returns_zero_on_success(self, mock_ctx_cls):
         client = FakeForwardingClient()
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args(email="new@example.com")
         result = run_forwarding_add(args)
@@ -215,9 +213,7 @@ class TestRunForwardingStatus(unittest.TestCase):
                 "disposition": "archive",
             }
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args()
         result = run_forwarding_status(args)
@@ -229,9 +225,7 @@ class TestRunForwardingStatus(unittest.TestCase):
         client = FakeForwardingClient(
             auto_forwarding={"enabled": False}
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args()
         result = run_forwarding_status(args)
@@ -285,9 +279,7 @@ class TestRunForwardingEnable(unittest.TestCase):
         client = FakeForwardingClient(
             verified_addresses={"verified@example.com"}
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args(email="verified@example.com", disposition="leaveInInbox")
         result = run_forwarding_enable(args)
@@ -300,9 +292,7 @@ class TestRunForwardingEnable(unittest.TestCase):
         client = FakeForwardingClient(
             verified_addresses={"verified@example.com"}
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         # Args without disposition attribute
         args = SimpleNamespace(
@@ -320,9 +310,7 @@ class TestRunForwardingEnable(unittest.TestCase):
         client = FakeForwardingClient(
             verified_addresses={"other@example.com"}
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args(email="unverified@example.com", disposition="leaveInInbox")
         result = run_forwarding_enable(args)
@@ -376,9 +364,7 @@ class TestRunForwardingDisable(unittest.TestCase):
         client = FakeForwardingClient(
             auto_forwarding={"enabled": True, "emailAddress": "old@example.com"}
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args()
         result = run_forwarding_disable(args)
@@ -391,9 +377,7 @@ class TestRunForwardingDisable(unittest.TestCase):
         client = FakeForwardingClient(
             auto_forwarding={"enabled": False}
         )
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         args = _make_args()
         result = run_forwarding_disable(args)
@@ -446,9 +430,7 @@ class TestCommandIntegration(unittest.TestCase):
     @patch("mail.forwarding.commands.ForwardingListProducer")
     def test_list_calls_producer_produce(self, mock_prod_cls, mock_ctx_cls):
         client = FakeForwardingClient(forwarding_addresses=[])
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         mock_producer = MagicMock()
         mock_prod_cls.return_value = mock_producer
@@ -462,9 +444,7 @@ class TestCommandIntegration(unittest.TestCase):
     @patch("mail.forwarding.commands.ForwardingAddProducer")
     def test_add_calls_producer_produce(self, mock_prod_cls, mock_ctx_cls):
         client = FakeForwardingClient()
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         mock_producer = MagicMock()
         mock_prod_cls.return_value = mock_producer
@@ -478,9 +458,7 @@ class TestCommandIntegration(unittest.TestCase):
     @patch("mail.forwarding.commands.ForwardingStatusProducer")
     def test_status_calls_producer_produce(self, mock_prod_cls, mock_ctx_cls):
         client = FakeForwardingClient(auto_forwarding={"enabled": False})
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         mock_producer = MagicMock()
         mock_prod_cls.return_value = mock_producer
@@ -494,9 +472,7 @@ class TestCommandIntegration(unittest.TestCase):
     @patch("mail.forwarding.commands.ForwardingEnableProducer")
     def test_enable_calls_producer_produce(self, mock_prod_cls, mock_ctx_cls):
         client = FakeForwardingClient(verified_addresses={"test@example.com"})
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         mock_producer = MagicMock()
         mock_prod_cls.return_value = mock_producer
@@ -510,9 +486,7 @@ class TestCommandIntegration(unittest.TestCase):
     @patch("mail.forwarding.commands.ForwardingDisableProducer")
     def test_disable_calls_producer_produce(self, mock_prod_cls, mock_ctx_cls):
         client = FakeForwardingClient()
-        mock_ctx = MagicMock()
-        mock_ctx.gmail_client = client
-        mock_ctx_cls.from_args.return_value = mock_ctx
+        mock_ctx_cls.from_args.return_value = _make_mock_context(client)
 
         mock_producer = MagicMock()
         mock_prod_cls.return_value = mock_producer
