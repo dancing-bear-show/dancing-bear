@@ -8,7 +8,7 @@ import argparse
 import trimesh
 
 
-def make_rod(length_mm: float, diameter_mm: float, chamfer_mm: float = 1.0) -> trimesh.Trimesh:
+def make_rod(length_mm: float, diameter_mm: float, _chamfer_mm: float = 1.0) -> trimesh.Trimesh:
     r = diameter_mm / 2.0
     # Base cylinder along Z (no boolean ops to avoid external backends)
     cyl = trimesh.creation.cylinder(radius=r, height=length_mm, sections=128)
