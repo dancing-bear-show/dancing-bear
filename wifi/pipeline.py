@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from core.pipeline import BaseProducer, Processor, RequestConsumer, ResultEnvelope
+from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
 from .diagnostics import (
     CommandRunner,
@@ -38,7 +38,7 @@ class DiagnoseResult:
     out_path: Optional[Path]
 
 
-class DiagnoseProcessor(Processor[DiagnoseRequest, ResultEnvelope[DiagnoseResult]]):
+class DiagnoseProcessor(SafeProcessor[DiagnoseRequest, DiagnoseResult]):
     def __init__(
         self,
         runner: Optional[CommandRunner] = None,
@@ -51,27 +51,18 @@ class DiagnoseProcessor(Processor[DiagnoseRequest, ResultEnvelope[DiagnoseResult
         self._http_probe_fn = http_probe_fn
         self._run_fn = run_fn
 
-    def process(self, payload: DiagnoseRequest) -> ResultEnvelope[DiagnoseResult]:
-        try:
-            run = self._run_fn or run_diagnosis
-            report = run(
-                payload.config,
-                runner=self._runner,
-                resolver=self._resolver,
-                http_probe_fn=self._http_probe_fn,
-            )
-        except Exception as exc:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Diagnostics failed: {exc}", "code": 2},
-            )
-        return ResultEnvelope(
-            status="success",
-            payload=DiagnoseResult(
-                report=report,
-                emit_json=payload.emit_json,
-                out_path=payload.out_path,
-            ),
+    def _process_safe(self, payload: DiagnoseRequest) -> DiagnoseResult:
+        run = self._run_fn or run_diagnosis
+        report = run(
+            payload.config,
+            runner=self._runner,
+            resolver=self._resolver,
+            http_probe_fn=self._http_probe_fn,
+        )
+        return DiagnoseResult(
+            report=report,
+            emit_json=payload.emit_json,
+            out_path=payload.out_path,
         )
 
 

@@ -8,9 +8,8 @@ from typing import Any, Dict, List, Optional
 
 from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
-    Processor,
+    SafeProcessor,
     RequestConsumer,
-    ResultEnvelope,
 )
 
 from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
@@ -47,16 +46,16 @@ class ExportResult:
     out_path: Path
 
 
-class ExportProcessor(Processor[ExportRequest, ResultEnvelope[ExportResult]]):
-    def process(self, payload: ExportRequest) -> ResultEnvelope[ExportResult]:
+class ExportProcessor(SafeProcessor[ExportRequest, ExportResult]):
+    def _process_safe(self, payload: ExportRequest) -> ExportResult:
         try:
             layout = load_layout(None, payload.backup)
         except LayoutLoadError as err:
-            return ResultEnvelope(status="error", diagnostics={"message": str(err), "code": err.code})
+            raise err
         except Exception as exc:  # pragma: no cover - unexpected IO errors
-            return ResultEnvelope(status="error", diagnostics={"message": f"Error: {exc}", "code": 4})
+            raise ValueError(f"Error: {exc}")
         export = to_yaml_export(layout)
-        return ResultEnvelope(status="success", payload=ExportResult(document=export, out_path=payload.out_path))
+        return ExportResult(document=export, out_path=payload.out_path)
 
 
 class ExportProducer(BaseProducer):
@@ -81,14 +80,14 @@ class PlanResult:
     out_path: Path
 
 
-class PlanProcessor(Processor[PlanRequest, ResultEnvelope[PlanResult]]):
-    def process(self, payload: PlanRequest) -> ResultEnvelope[PlanResult]:
+class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
+    def _process_safe(self, payload: PlanRequest) -> PlanResult:
         try:
             layout = load_layout(payload.layout, payload.backup)
         except LayoutLoadError as err:
-            return ResultEnvelope(status="error", diagnostics={"message": str(err), "code": err.code})
+            raise err
         plan = scaffold_plan(layout)
-        return ResultEnvelope(status="success", payload=PlanResult(document=plan, out_path=payload.out_path))
+        return PlanResult(document=plan, out_path=payload.out_path)
 
 
 class PlanProducer(BaseProducer):
@@ -114,18 +113,18 @@ class ChecklistResult:
     out_path: Path
 
 
-class ChecklistProcessor(Processor[ChecklistRequest, ResultEnvelope[ChecklistResult]]):
-    def process(self, payload: ChecklistRequest) -> ResultEnvelope[ChecklistResult]:
+class ChecklistProcessor(SafeProcessor[ChecklistRequest, ChecklistResult]):
+    def _process_safe(self, payload: ChecklistRequest) -> ChecklistResult:
         try:
             layout = load_layout(payload.layout, payload.backup)
         except LayoutLoadError as err:
-            return ResultEnvelope(status="error", diagnostics={"message": str(err), "code": err.code})
+            raise err
         try:
             plan = read_yaml(payload.plan_path)
         except FileNotFoundError:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Plan not found: {payload.plan_path}", "code": 2})
+            raise ValueError(f"Plan not found: {payload.plan_path}")
         steps = checklist_from_plan(layout, plan)
-        return ResultEnvelope(status="success", payload=ChecklistResult(steps=steps, out_path=payload.out_path))
+        return ChecklistResult(steps=steps, out_path=payload.out_path)
 
 
 class ChecklistProducer(BaseProducer):
@@ -161,21 +160,21 @@ class UnusedResult:
     format: str
 
 
-class UnusedProcessor(Processor[UnusedRequest, ResultEnvelope[UnusedResult]]):
-    def process(self, payload: UnusedRequest) -> ResultEnvelope[UnusedResult]:
+class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
+    def _process_safe(self, payload: UnusedRequest) -> UnusedResult:
         from .layout import rank_unused_candidates
 
         try:
             layout = load_layout(payload.layout, payload.backup)
         except LayoutLoadError as err:
-            return ResultEnvelope(status="error", diagnostics={"message": str(err), "code": err.code})
+            raise err
 
         recent = _read_lines_file(payload.recent_path)
         keep = _read_lines_file(payload.keep_path)
         rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
         rows = [r for r in rows if r[1] >= payload.threshold][: payload.limit]
 
-        return ResultEnvelope(status="success", payload=UnusedResult(rows=rows, format=payload.format))
+        return UnusedResult(rows=rows, format=payload.format)
 
 
 class UnusedProducer(BaseProducer):
@@ -218,14 +217,14 @@ class PruneResult:
     out_path: Path
 
 
-class PruneProcessor(Processor[PruneRequest, ResultEnvelope[PruneResult]]):
-    def process(self, payload: PruneRequest) -> ResultEnvelope[PruneResult]:
+class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
+    def _process_safe(self, payload: PruneRequest) -> PruneResult:
         from .layout import rank_unused_candidates
 
         try:
             layout = load_layout(payload.layout, payload.backup)
         except LayoutLoadError as err:
-            return ResultEnvelope(status="error", diagnostics={"message": str(err), "code": err.code})
+            raise err
 
         recent = _read_lines_file(payload.recent_path)
         keep = _read_lines_file(payload.keep_path)
@@ -247,7 +246,7 @@ class PruneProcessor(Processor[PruneRequest, ResultEnvelope[PruneResult]]):
         for app, score, loc in rows:
             lines.append(f"- {app}  (score {score:.1f}; location: {loc})")
 
-        return ResultEnvelope(status="success", payload=PruneResult(lines=lines, out_path=payload.out_path))
+        return PruneResult(lines=lines, out_path=payload.out_path)
 
 
 class PruneProducer(BaseProducer):
@@ -280,27 +279,24 @@ class AnalyzeResult:
     format: str
 
 
-class AnalyzeProcessor(Processor[AnalyzeRequest, ResultEnvelope[AnalyzeResult]]):
-    def process(self, payload: AnalyzeRequest) -> ResultEnvelope[AnalyzeResult]:
+class AnalyzeProcessor(SafeProcessor[AnalyzeRequest, AnalyzeResult]):
+    def _process_safe(self, payload: AnalyzeRequest) -> AnalyzeResult:
         from .layout import analyze_layout
 
         try:
             layout = load_layout(payload.layout, payload.backup)
         except LayoutLoadError as err:
-            return ResultEnvelope(status="error", diagnostics={"message": str(err), "code": err.code})
+            raise err
 
         plan = None
         if payload.plan_path:
             try:
                 plan = read_yaml(Path(payload.plan_path))
             except FileNotFoundError:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Plan not found: {payload.plan_path}", "code": 2},
-                )
+                raise ValueError(f"Plan not found: {payload.plan_path}")
 
         metrics = analyze_layout(layout, plan)
-        return ResultEnvelope(status="success", payload=AnalyzeResult(metrics=metrics, format=payload.format))
+        return AnalyzeResult(metrics=metrics, format=payload.format)
 
 
 class AnalyzeProducer(BaseProducer):
@@ -356,14 +352,14 @@ class ExportDeviceResult:
     out_path: Path
 
 
-class ExportDeviceProcessor(Processor[ExportDeviceRequest, ResultEnvelope[ExportDeviceResult]]):
-    def process(self, payload: ExportDeviceRequest) -> ResultEnvelope[ExportDeviceResult]:
+class ExportDeviceProcessor(SafeProcessor[ExportDeviceRequest, ExportDeviceResult]):
+    def _process_safe(self, payload: ExportDeviceRequest) -> ExportDeviceResult:
         from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
 
         try:
             cfgutil = find_cfgutil_path()
         except FileNotFoundError as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 127})
+            raise e
 
         ecid = payload.ecid
         if not ecid and payload.udid:
@@ -372,15 +368,12 @@ class ExportDeviceProcessor(Processor[ExportDeviceRequest, ResultEnvelope[Export
         try:
             export = export_from_device(cfgutil, ecid)
         except RuntimeError as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 3})
+            raise e
 
         if not export:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Could not derive export from device layout", "code": 3},
-            )
+            raise ValueError("Could not derive export from device layout")
 
-        return ResultEnvelope(status="success", payload=ExportDeviceResult(document=export, out_path=payload.out_path))
+        return ExportDeviceResult(document=export, out_path=payload.out_path)
 
 
 class ExportDeviceProducer(BaseProducer):
@@ -407,15 +400,15 @@ class IconmapResult:
     out_path: Path
 
 
-class IconmapProcessor(Processor[IconmapRequest, ResultEnvelope[IconmapResult]]):
-    def process(self, payload: IconmapRequest) -> ResultEnvelope[IconmapResult]:
+class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
+    def _process_safe(self, payload: IconmapRequest) -> IconmapResult:
         import subprocess as _sp
         from .device import find_cfgutil_path, map_udid_to_ecid
 
         try:
             cfgutil = find_cfgutil_path()
         except FileNotFoundError as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 127})
+            raise e
 
         ecid = payload.ecid
         if not ecid and payload.udid:
@@ -429,17 +422,11 @@ class IconmapProcessor(Processor[IconmapRequest, ResultEnvelope[IconmapResult]])
         try:
             out = _sp.check_output(cmd, stderr=_sp.STDOUT)  # noqa: S603
         except _sp.CalledProcessError as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"cfgutil get-icon-layout failed: {e}", "code": 3},
-            )
+            raise ValueError(f"cfgutil get-icon-layout failed: {e}")
         except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"cfgutil get-icon-layout failed: {e}", "code": 3},
-            )
+            raise ValueError(f"cfgutil get-icon-layout failed: {e}")
 
-        return ResultEnvelope(status="success", payload=IconmapResult(data=out, out_path=payload.out_path))
+        return IconmapResult(data=out, out_path=payload.out_path)
 
 
 class IconmapProducer(BaseProducer):
@@ -469,23 +456,17 @@ class ManifestFromExportResult:
     out_path: Path
 
 
-class ManifestFromExportProcessor(Processor[ManifestFromExportRequest, ResultEnvelope[ManifestFromExportResult]]):
-    def process(self, payload: ManifestFromExportRequest) -> ResultEnvelope[ManifestFromExportResult]:
+class ManifestFromExportProcessor(SafeProcessor[ManifestFromExportRequest, ManifestFromExportResult]):
+    def _process_safe(self, payload: ManifestFromExportRequest) -> ManifestFromExportResult:
         import os
 
         try:
             exp = read_yaml(payload.export_path)
         except FileNotFoundError:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Export not found: {payload.export_path}", "code": 2},
-            )
+            raise ValueError(f"Export not found: {payload.export_path}")
 
         if not isinstance(exp, dict) or "dock" not in exp or "pages" not in exp:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Export file must contain 'dock' and 'pages' keys", "code": 2},
-            )
+            raise ValueError("Export file must contain 'dock' and 'pages' keys")
 
         dock = list(exp.get("dock") or [])
         pages_in = exp.get("pages") or []
@@ -534,10 +515,7 @@ class ManifestFromExportProcessor(Processor[ManifestFromExportRequest, ResultEnv
             "source": {"export_path": str(payload.export_path)},
         }
 
-        return ResultEnvelope(
-            status="success",
-            payload=ManifestFromExportResult(manifest=manifest, out_path=payload.out_path),
-        )
+        return ManifestFromExportResult(manifest=manifest, out_path=payload.out_path)
 
 
 class ManifestFromExportProducer(BaseProducer):
@@ -564,15 +542,15 @@ class ManifestFromDeviceResult:
     export_document: Optional[Dict[str, Any]]
 
 
-class ManifestFromDeviceProcessor(Processor[ManifestFromDeviceRequest, ResultEnvelope[ManifestFromDeviceResult]]):
-    def process(self, payload: ManifestFromDeviceRequest) -> ResultEnvelope[ManifestFromDeviceResult]:
+class ManifestFromDeviceProcessor(SafeProcessor[ManifestFromDeviceRequest, ManifestFromDeviceResult]):
+    def _process_safe(self, payload: ManifestFromDeviceRequest) -> ManifestFromDeviceResult:
         import os
         from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
 
         try:
             cfgutil = find_cfgutil_path()
         except FileNotFoundError as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 127})
+            raise e
 
         udid = payload.udid or os.environ.get("IOS_DEVICE_UDID")
         ecid = map_udid_to_ecid(cfgutil, udid) if udid else None
@@ -580,13 +558,10 @@ class ManifestFromDeviceProcessor(Processor[ManifestFromDeviceRequest, ResultEnv
         try:
             exp = export_from_device(cfgutil, ecid)
         except RuntimeError as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": 3})
+            raise e
 
         if not exp:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Could not derive export from device layout", "code": 3},
-            )
+            raise ValueError("Could not derive export from device layout")
 
         # Build manifest from export
         dock = list(exp.get("dock") or [])
@@ -637,15 +612,12 @@ class ManifestFromDeviceProcessor(Processor[ManifestFromDeviceRequest, ResultEnv
             "source": {"export_path": str(export_path)},
         }
 
-        return ResultEnvelope(
-            status="success",
-            payload=ManifestFromDeviceResult(
+        return ManifestFromDeviceResult(
                 manifest=manifest,
                 out_path=payload.out_path,
                 export_out=payload.export_out,
                 export_document=exp,
-            ),
-        )
+            )
 
 
 class ManifestFromDeviceProducer(BaseProducer):
@@ -687,8 +659,8 @@ class ManifestInstallResult:
     install_cmd: Optional[List[str]]
 
 
-class ManifestInstallProcessor(Processor[ManifestInstallRequest, ResultEnvelope[ManifestInstallResult]]):
-    def process(self, payload: ManifestInstallRequest) -> ResultEnvelope[ManifestInstallResult]:
+class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestInstallResult]):
+    def _process_safe(self, payload: ManifestInstallRequest) -> ManifestInstallResult:
         import os
         import plistlib
         from .profile import build_mobileconfig
@@ -696,26 +668,17 @@ class ManifestInstallProcessor(Processor[ManifestInstallRequest, ResultEnvelope[
         try:
             man = read_yaml(payload.manifest_path)
         except FileNotFoundError:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Manifest not found: {payload.manifest_path}", "code": 2},
-            )
+            raise ValueError(f"Manifest not found: {payload.manifest_path}")
 
         if not isinstance(man, dict):
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Invalid manifest", "code": 2},
-            )
+            raise ValueError("Invalid manifest")
 
         # Build plan from manifest
         plan = man.get("plan") or {}
         if not plan and man.get("layout"):
             plan = _plan_from_layout(man.get("layout") or {})
         if not plan:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Manifest missing 'plan' or 'layout' section", "code": 2},
-            )
+            raise ValueError("Manifest missing 'plan' or 'layout' section")
 
         prof = man.get("profile") or {}
         profile_dict = build_mobileconfig(
@@ -760,15 +723,12 @@ class ManifestInstallProcessor(Processor[ManifestInstallRequest, ResultEnvelope[
                 cmd.extend(["--device-label", label])
             install_cmd = cmd
 
-        return ResultEnvelope(
-            status="success",
-            payload=ManifestInstallResult(
+        return ManifestInstallResult(
                 profile_path=out_path,
                 profile_bytes=profile_bytes,
                 dry_run=payload.dry_run,
                 install_cmd=install_cmd,
-            ),
-        )
+            )
 
 
 class ManifestInstallProducer(BaseProducer):
@@ -840,8 +800,8 @@ class IdentityVerifyResult:
     org_match: Optional[bool]
 
 
-class IdentityVerifyProcessor(Processor[IdentityVerifyRequest, ResultEnvelope[IdentityVerifyResult]]):
-    def process(self, payload: IdentityVerifyRequest) -> ResultEnvelope[IdentityVerifyResult]:
+class IdentityVerifyProcessor(SafeProcessor[IdentityVerifyRequest, IdentityVerifyResult]):
+    def _process_safe(self, payload: IdentityVerifyRequest) -> IdentityVerifyResult:
         import os
         from .device import (
             read_credentials_ini,
@@ -864,24 +824,15 @@ class IdentityVerifyProcessor(Processor[IdentityVerifyRequest, ResultEnvelope[Id
         )
 
         if not p12_path:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "p12 path not provided (use --p12 or credentials.ini)", "code": 2},
-            )
+            raise ValueError("p12 path not provided (use --p12 or credentials.ini)")
 
         # Extract certificate info
         try:
             cert = extract_p12_cert_info(p12_path, p12_pass)
         except FileNotFoundError:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"p12 file not found: {p12_path}", "code": 2},
-            )
+            raise ValueError(f"p12 file not found: {p12_path}")
         except RuntimeError as e:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": str(e), "code": 3},
-            )
+            raise ValueError("Operation failed")
 
         # Resolve device UDID
         udid = payload.udid or os.environ.get("IOS_DEVICE_UDID")
@@ -898,9 +849,7 @@ class IdentityVerifyProcessor(Processor[IdentityVerifyRequest, ResultEnvelope[Id
         if payload.expected_org:
             org_match = (payload.expected_org in cert.subject) or (payload.expected_org in cert.issuer)
 
-        return ResultEnvelope(
-            status="success",
-            payload=IdentityVerifyResult(
+        return IdentityVerifyResult(
                 p12_path=p12_path,
                 cert_subject=cert.subject,
                 cert_issuer=cert.issuer,
@@ -908,8 +857,7 @@ class IdentityVerifyProcessor(Processor[IdentityVerifyRequest, ResultEnvelope[Id
                 supervised=supervised,
                 expected_org=payload.expected_org,
                 org_match=org_match,
-            ),
-        )
+            )
 
 
 class IdentityVerifyProducer(BaseProducer):
