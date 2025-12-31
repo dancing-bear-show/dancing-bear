@@ -277,7 +277,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:  # noqa: ARG001 - 
         oz_by_metal, units_by_metal = _summarize_ounces(items, metal_guess)
 
         # Fallback: if product name suggests 1/10 oz gold but no items parsed
-        if oz_by_metal['gold'] == 0.0 and re.search(r'(?i)1\s*/\s*10\s*[- ]?oz', body):
+        if abs(oz_by_metal['gold']) < 1e-9 and re.search(r'(?i)1\s*/\s*10\s*[- ]?oz', body):
             oz_by_metal['gold'] = 0.1
             units_by_metal['gold'][0.1] = 1.0
 
@@ -289,7 +289,7 @@ def run(profile: str, out_path: str, days: int = 365) -> int:  # noqa: ARG001 - 
             line_cost, per_item_rows = _compute_confirmation_line_costs(body, gold_items, oid, sub, recv)
 
         # Fall back to proximity-based pricing
-        if line_cost == 0.0:
+        if abs(line_cost) < 1e-9:
             line_cost = _compute_proximity_line_costs(gold_items, lines_use)
 
         # Determine total cost

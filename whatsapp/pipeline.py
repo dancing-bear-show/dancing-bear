@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from core.pipeline import BaseProducer, Processor, RequestConsumer, ResultEnvelope
+from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
 from .search import MessageRow, format_rows_json, format_rows_text, search_messages
 
@@ -35,34 +35,20 @@ class SearchResult:
     emit_json: bool = False
 
 
-class SearchProcessor(Processor[SearchRequest, ResultEnvelope[SearchResult]]):
-    """Execute WhatsApp search and return results in envelope."""
+class SearchProcessor(SafeProcessor[SearchRequest, SearchResult]):
+    """Execute WhatsApp search with automatic error handling."""
 
-    def process(self, payload: SearchRequest) -> ResultEnvelope[SearchResult]:
-        try:
-            rows = search_messages(
-                db_path=payload.db_path,
-                contains=payload.contains,
-                match_all=payload.match_all,
-                contact=payload.contact,
-                from_me=payload.from_me,
-                since_days=payload.since_days,
-                limit=payload.limit,
-            )
-            result = SearchResult(rows=rows, emit_json=payload.emit_json)
-            return ResultEnvelope(status="success", payload=result)
-        except FileNotFoundError as exc:
-            return ResultEnvelope(
-                status="error",
-                payload=None,
-                diagnostics={"code": 2, "error": str(exc), "hint": "db_not_found"},
-            )
-        except Exception as exc:
-            return ResultEnvelope(
-                status="error",
-                payload=None,
-                diagnostics={"code": 1, "error": str(exc)},
-            )
+    def _process_safe(self, payload: SearchRequest) -> SearchResult:
+        rows = search_messages(
+            db_path=payload.db_path,
+            contains=payload.contains,
+            match_all=payload.match_all,
+            contact=payload.contact,
+            from_me=payload.from_me,
+            since_days=payload.since_days,
+            limit=payload.limit,
+        )
+        return SearchResult(rows=rows, emit_json=payload.emit_json)
 
 
 class SearchProducer(BaseProducer):

@@ -41,7 +41,7 @@ class TestExtractAmounts(unittest.TestCase):
         """Test extracts fractional ounce amounts."""
         text = "1/10 oz Gold Eagle x 5"
         gold, silver = _extract_amounts(text)
-        self.assertEqual(gold, 0.5)  # 1/10 * 5 = 0.5
+        self.assertEqual(gold, 0.5)
         self.assertEqual(silver, 0.0)
 
     def test_extracts_with_quantity(self):

@@ -10,6 +10,11 @@ from maker.pipeline import (
     ConsoleProducer,
     ToolCatalogConsumer,
     ToolCatalogFormatter,
+    ToolCatalogProcessor,
+    ToolCatalogProducer,
+    ToolCatalogRequest,
+    ToolCatalogRequestConsumer,
+    ToolCatalogResult,
     ToolRequest,
     ToolRequestConsumer,
     ToolResult,
@@ -56,7 +61,7 @@ class MakerPipelineTests(TestCase):
             envelope = processor.process(ToolRequestConsumer(req).consume())
 
         self.assertFalse(envelope.ok())
-        self.assertIn("no callable", envelope.payload.error)
+        self.assertIn("no callable", envelope.diagnostics["message"])
 
     def test_tool_runner_handles_exception(self):
         req = ToolRequest(module="test_module")
@@ -66,12 +71,12 @@ class MakerPipelineTests(TestCase):
             envelope = processor.process(ToolRequestConsumer(req).consume())
 
         self.assertFalse(envelope.ok())
-        self.assertIn("No such module", envelope.payload.error)
+        self.assertIn("No such module", envelope.diagnostics["message"])
 
     def test_tool_result_producer_reports_failure(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=2, error="Something went wrong")
-        envelope = ResultEnvelope(status="error", payload=result)
+        # With BaseProducer pattern, error messages go in diagnostics
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Something went wrong", buf.getvalue())
@@ -177,8 +182,8 @@ class MakerPipelineTests(TestCase):
 
     def test_tool_result_producer_non_zero_exit_code(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=2)
-        envelope = ResultEnvelope(status="error", payload=result)
+        # With BaseProducer pattern, error messages go in diagnostics
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module exited with code 2"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("test.module", buf.getvalue())
@@ -186,9 +191,107 @@ class MakerPipelineTests(TestCase):
 
     def test_tool_result_producer_error_with_message(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=1, error="Import failed")
-        envelope = ResultEnvelope(status="error", payload=result)
+        # With BaseProducer pattern, error messages go in diagnostics
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module: Import failed"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Import failed", buf.getvalue())
         self.assertIn("test.module", buf.getvalue())
+
+
+class ToolCatalogProcessorTests(TestCase):
+    """Tests for the new SafeProcessor-based ToolCatalogProcessor."""
+
+    def setUp(self):
+        self.tools_root = repo_root() / "maker"
+
+    def test_processor_discovers_tools(self):
+        """ToolCatalogProcessor scans directories and returns ToolCatalogResult."""
+        request = ToolCatalogRequest(tools_root=self.tools_root)
+        env = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(request).consume())
+        self.assertTrue(env.ok())
+        self.assertIsInstance(env.payload, ToolCatalogResult)
+        self.assertGreater(len(env.payload.specs), 0)
+        self.assertIn("Available maker tools:", env.payload.text)
+
+    def test_processor_empty_directory(self):
+        """ToolCatalogProcessor handles empty directories gracefully."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            request = ToolCatalogRequest(tools_root=Path(tmp))
+            env = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(request).consume())
+            self.assertTrue(env.ok())
+            self.assertEqual(len(env.payload.specs), 0)
+            self.assertEqual(env.payload.text, "No maker tools found.")
+
+    def test_processor_handles_nonexistent_directory(self):
+        """ToolCatalogProcessor raises error for nonexistent directory."""
+        request = ToolCatalogRequest(tools_root=Path("/nonexistent/path"))
+        env = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(request).consume())
+        self.assertFalse(env.ok())
+        self.assertIn("message", env.diagnostics)
+
+    def test_request_consumer_returns_request(self):
+        """ToolCatalogRequestConsumer returns the original request."""
+        request = ToolCatalogRequest(tools_root=Path("/some/path"))
+        consumer = ToolCatalogRequestConsumer(request)
+        result = consumer.consume()
+        self.assertIs(result, request)
+
+
+class ToolCatalogProducerTests(TestCase):
+    """Tests for the new BaseProducer-based ToolCatalogProducer."""
+
+    def test_producer_prints_text(self):
+        """ToolCatalogProducer prints the text from ToolCatalogResult."""
+        specs = [ToolSpec(relative_path=Path("card/gen.py"), module="maker.card.gen")]
+        result = ToolCatalogResult(specs=specs, text="Available maker tools:\n- maker/card/gen.py")
+        env = ResultEnvelope(status="success", payload=result)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ToolCatalogProducer().produce(env)
+        self.assertIn("Available maker tools:", buf.getvalue())
+        self.assertIn("maker/card/gen.py", buf.getvalue())
+
+    def test_producer_handles_error(self):
+        """ToolCatalogProducer prints error message on failure."""
+        env = ResultEnvelope(status="error", diagnostics={"message": "Failed to scan"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ToolCatalogProducer().produce(env)
+        self.assertIn("Failed to scan", buf.getvalue())
+
+    def test_producer_empty_catalog(self):
+        """ToolCatalogProducer handles empty catalog."""
+        result = ToolCatalogResult(specs=[], text="No maker tools found.")
+        env = ResultEnvelope(status="success", payload=result)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ToolCatalogProducer().produce(env)
+        self.assertIn("No maker tools found.", buf.getvalue())
+
+
+class ToolCatalogResultTests(TestCase):
+    """Tests for ToolCatalogResult dataclass."""
+
+    def test_result_attributes(self):
+        """ToolCatalogResult stores specs and text."""
+        specs = [ToolSpec(relative_path=Path("a/b.py"), module="maker.a.b")]
+        result = ToolCatalogResult(specs=specs, text="test text")
+        self.assertEqual(len(result.specs), 1)
+        self.assertEqual(result.text, "test text")
+
+    def test_result_empty(self):
+        """ToolCatalogResult can be empty."""
+        result = ToolCatalogResult(specs=[], text="No tools")
+        self.assertEqual(result.specs, [])
+
+
+class ToolCatalogRequestTests(TestCase):
+    """Tests for ToolCatalogRequest dataclass."""
+
+    def test_request_stores_path(self):
+        """ToolCatalogRequest stores tools_root path."""
+        path = Path("/some/maker/path")
+        request = ToolCatalogRequest(tools_root=path)
+        self.assertEqual(request.tools_root, path)

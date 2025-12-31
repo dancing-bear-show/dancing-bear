@@ -601,7 +601,6 @@ class TestBuildProfitSeries(unittest.TestCase):
 
         result = _build_profit_series(recs)
 
-        # PnL = (spot - avg_cost) * oz = (2600 - 2500) * 1 = 100
         self.assertEqual(len(result), 2)  # Header + 1 data row
         pnl_idx = result[0].index("gold_pnl")
         self.assertEqual(result[1][pnl_idx], "100.00")

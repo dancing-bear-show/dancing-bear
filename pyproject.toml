@@ -18,11 +18,20 @@ dependencies = [
   "httplib2==0.31.0",
   "msal==1.28.0",
   "numpy==1.26.4",
+  "pdfminer.six==20231228",
   "premailer==3.10.0",
   "requests==2.32.4",
   "shapely==2.0.3",
   "trimesh==4.4.0",
   "urllib3==2.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.0.2",
+]
+pdf = [
+  "pdfplumber>=0.11.0",
 ]
 
 [project.scripts]

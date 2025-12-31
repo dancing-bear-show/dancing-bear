@@ -1,6 +1,7 @@
 """Vendor-specific parsers for precious metals email extraction."""
 from __future__ import annotations
 
+import math
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -271,7 +272,7 @@ class TDParser(VendorParser):
         items, lines = extract_basic_line_items(text)
 
         for item in items:
-            if item.qty == 1.0:
+            if math.isclose(item.qty, 1.0):
                 eq = find_qty_near(lines, item.idx)
                 if eq:
                     item.qty = eq
@@ -321,7 +322,7 @@ class CostcoParser(VendorParser):
         items, lines = extract_basic_line_items(text)
 
         for item in items:
-            if item.qty == 1.0:
+            if math.isclose(item.qty, 1.0):
                 eq = find_qty_near(lines, item.idx)
                 if eq:
                     item.qty = eq

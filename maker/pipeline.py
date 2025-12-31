@@ -4,9 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from core.pipeline import Consumer, Processor, Producer, ResultEnvelope, RequestConsumer
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 
 
 @dataclass
@@ -20,40 +20,58 @@ class ToolSpec:
         return f"- maker/{self.relative_path.as_posix()}"
 
 
-class ToolCatalogConsumer(Consumer[List[ToolSpec]]):
-    """Scan maker/ subdirectories for python modules to surface as tools."""
+# -----------------------------------------------------------------------------
+# Tool catalog pipeline (list available tools)
+# -----------------------------------------------------------------------------
 
-    def __init__(self, tools_root: Path) -> None:
-        self._root = tools_root
 
-    def consume(self) -> List[ToolSpec]:
+@dataclass
+class ToolCatalogRequest:
+    """Request to list available maker tools."""
+
+    tools_root: Path
+
+
+# Type alias using generic RequestConsumer from core.pipeline
+ToolCatalogRequestConsumer = RequestConsumer[ToolCatalogRequest]
+
+
+@dataclass
+class ToolCatalogResult:
+    """Result from scanning for maker tools."""
+
+    specs: List[ToolSpec]
+    text: str
+
+
+class ToolCatalogProcessor(SafeProcessor[ToolCatalogRequest, ToolCatalogResult]):
+    """Scan maker/ subdirectories and format catalog."""
+
+    def _process_safe(self, payload: ToolCatalogRequest) -> ToolCatalogResult:
         specs: List[ToolSpec] = []
-        for sub in sorted(self._root.iterdir()):
+        for sub in sorted(payload.tools_root.iterdir()):
             if not sub.is_dir():
                 continue
             for py in sorted(sub.glob("*.py")):
-                rel = py.relative_to(self._root)
+                rel = py.relative_to(payload.tools_root)
                 module = ".".join(("maker",) + rel.with_suffix("").parts)
                 specs.append(ToolSpec(relative_path=rel, module=module))
-        return specs
+
+        if not specs:
+            text = "No maker tools found."
+        else:
+            lines = ["Available maker tools:"]
+            lines.extend(spec.display_row() for spec in specs)
+            text = "\n".join(lines)
+
+        return ToolCatalogResult(specs=specs, text=text)
 
 
-class ToolCatalogFormatter(Processor[List[ToolSpec], str]):
-    """Render a catalog of tools into CLI-friendly text."""
+class ToolCatalogProducer(BaseProducer):
+    """Print tool catalog to stdout."""
 
-    def process(self, payload: List[ToolSpec]) -> str:
-        if not payload:
-            return "No maker tools found."
-        lines = ["Available maker tools:"]
-        lines.extend(spec.display_row() for spec in payload)
-        return "\n".join(lines)
-
-
-class ConsoleProducer(Producer[str]):
-    """Print textual output to stdout."""
-
-    def produce(self, result: str) -> None:
-        print(result)
+    def _produce_success(self, payload: ToolCatalogResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        print(payload.text)
 
 
 # -----------------------------------------------------------------------------
@@ -82,45 +100,63 @@ class ToolResult:
     error: Optional[str] = None
 
 
-class ToolRunnerProcessor(Processor[ToolRequest, ResultEnvelope[ToolResult]]):
+class ToolRunnerProcessor(SafeProcessor[ToolRequest, ToolResult]):
     """Run maker modules via direct import and call their entry point."""
 
-    def process(self, payload: ToolRequest) -> ResultEnvelope[ToolResult]:
-        try:
-            mod = import_module(payload.module)
-            entry: Callable[[], Any] = getattr(mod, payload.entry_point, None)
-            if not callable(entry):
-                return ResultEnvelope(
-                    status="error",
-                    payload=ToolResult(
-                        module=payload.module,
-                        return_code=1,
-                        error=f"Module {payload.module} has no callable '{payload.entry_point}'",
-                    ),
-                )
-            result = entry()
-            rc = int(result) if isinstance(result, int) else 0
-            return ResultEnvelope(
-                status="success",
-                payload=ToolResult(module=payload.module, return_code=rc),
-            )
-        except Exception as e:
-            return ResultEnvelope(
-                status="error",
-                payload=ToolResult(
-                    module=payload.module,
-                    return_code=1,
-                    error=str(e),
-                ),
-            )
+    def _process_safe(self, payload: ToolRequest) -> ToolResult:
+        mod = import_module(payload.module)
+        entry: Callable[[], Any] = getattr(mod, payload.entry_point, None)  # type: ignore[assignment]
+        if not callable(entry):
+            raise ValueError(f"Module {payload.module} has no callable '{payload.entry_point}'")
+        result = entry()
+        rc = int(result) if isinstance(result, int) else 0
+        return ToolResult(module=payload.module, return_code=rc)
 
 
-class ToolResultProducer(Producer[ResultEnvelope[ToolResult]]):
+class ToolResultProducer(BaseProducer):
     """Emit diagnostics for tool execution."""
 
-    def produce(self, result: ResultEnvelope[ToolResult]) -> None:
-        if not result.ok() and result.payload:
-            if result.payload.error:
-                print(f"[maker] {result.payload.module}: {result.payload.error}")
-            else:
-                print(f"[maker] {result.payload.module} exited with code {result.payload.return_code}")
+    def _produce_success(self, payload: ToolResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        # Success case: tool ran without errors, nothing to print
+        pass
+
+
+# -----------------------------------------------------------------------------
+# Backward compatibility aliases (deprecated)
+# -----------------------------------------------------------------------------
+
+
+class ToolCatalogConsumer:
+    """Deprecated: Use ToolCatalogProcessor with ToolCatalogRequest instead."""
+
+    def __init__(self, tools_root: Path) -> None:
+        self._root = tools_root
+
+    def consume(self) -> List[ToolSpec]:
+        specs: List[ToolSpec] = []
+        for sub in sorted(self._root.iterdir()):
+            if not sub.is_dir():
+                continue
+            for py in sorted(sub.glob("*.py")):
+                rel = py.relative_to(self._root)
+                module = ".".join(("maker",) + rel.with_suffix("").parts)
+                specs.append(ToolSpec(relative_path=rel, module=module))
+        return specs
+
+
+class ToolCatalogFormatter:
+    """Deprecated: Use ToolCatalogProcessor instead."""
+
+    def process(self, payload: List[ToolSpec]) -> str:
+        if not payload:
+            return "No maker tools found."
+        lines = ["Available maker tools:"]
+        lines.extend(spec.display_row() for spec in payload)
+        return "\n".join(lines)
+
+
+class ConsoleProducer:
+    """Deprecated: Use ToolCatalogProducer instead."""
+
+    def produce(self, result: str) -> None:
+        print(result)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -175,7 +176,7 @@ class TestExtractLineItems(unittest.TestCase):
         self.assertGreater(len(items), 0)
         # Should find qty of 5
         qty_values = [it.get("qty", 1) for it in items]
-        self.assertTrue(any(q == 5.0 for q in qty_values))
+        self.assertTrue(any(math.isclose(q, 5.0) for q in qty_values))
 
 
 class TestExtractOrderAmount(unittest.TestCase):
@@ -812,8 +813,8 @@ class TestTryUpgradeToConfirmation(unittest.TestCase):
         mock_cli.search_inbox_messages.return_value = ["conf-msg"]
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli.get_message.side_effect = [
-            {"subject": "Confirmation for order number PO123"},  # select_body=False
-            {  # select_body=True
+            {"subject": "Confirmation for order number PO123"},
+            {
                 "subject": "Confirmation for order number PO123",
                 "body": {"content": "<p>Confirmed</p>"},
                 "receivedDateTime": "2024-01-15T10:00:00Z",

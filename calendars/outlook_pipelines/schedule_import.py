@@ -6,22 +6,22 @@ Provides pipeline components for importing schedules into Outlook calendars.
 from __future__ import annotations
 
 from ._base import (
-    dataclass,
     Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Processor,
-    ResultEnvelope,
     BaseProducer,
-    RequestConsumer,
-    check_service_required,
-    MSG_PREVIEW_COMPLETE,
-    ERR_CODE_CALENDAR,
-    ERR_CODE_API,
-    LOG_DRY_RUN,
     DEFAULT_IMPORT_CALENDAR,
+    Dict,
+    ERR_CODE_API,
+    ERR_CODE_CALENDAR,
+    List,
+    LOG_DRY_RUN,
+    MSG_PREVIEW_COMPLETE,
+    Optional,
+    RequestConsumer,
+    ResultEnvelope,
+    SafeProcessor,
+    Tuple,
+    check_service_required,
+    dataclass,
 )
 
 
@@ -48,59 +48,40 @@ class OutlookScheduleImportResult:
     calendar: str
 
 
-class OutlookScheduleImportProcessor(
-    Processor[OutlookScheduleImportRequest, ResultEnvelope[OutlookScheduleImportResult]]
-):
+class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest, OutlookScheduleImportResult]):
     def __init__(self, schedule_loader=None) -> None:
         self._schedule_loader = schedule_loader
 
-    def process(self, payload: OutlookScheduleImportRequest) -> ResultEnvelope[OutlookScheduleImportResult]:
-        if err := check_service_required(payload.service):
-            return err
+    def _process_safe(self, payload: OutlookScheduleImportRequest) -> OutlookScheduleImportResult:
+        check_service_required(payload.service)
         svc = payload.service
         cal_name = payload.calendar or DEFAULT_IMPORT_CALENDAR
 
-        cal_id, err = self._ensure_calendar(svc, cal_name)
-        if err:
-            return err
+        cal_id = self._ensure_calendar(svc, cal_name)
+        items = self._load_items(payload)
 
-        items, err = self._load_items(payload)
-        if err:
-            return err
         if not items:
-            return ResultEnvelope(
-                status="success",
-                payload=OutlookScheduleImportResult(logs=["No schedule items parsed."], created=0, dry_run=payload.dry_run, calendar=cal_name),
-            )
+            return OutlookScheduleImportResult(logs=["No schedule items parsed."], created=0, dry_run=payload.dry_run, calendar=cal_name)
 
         logs: List[str] = []
         created = 0
         for item in items:
             result = self._process_item(item, svc, cal_id, cal_name, payload, logs)
             created += result
-        return ResultEnvelope(
-            status="success",
-            payload=OutlookScheduleImportResult(logs=logs, created=created, dry_run=payload.dry_run, calendar=cal_name),
-        )
+        return OutlookScheduleImportResult(logs=logs, created=created, dry_run=payload.dry_run, calendar=cal_name)
 
-    def _ensure_calendar(self, svc, cal_name: str) -> Tuple[Optional[str], Optional[ResultEnvelope]]:
-        try:
-            cal_id = svc.ensure_calendar_exists(cal_name)
-            return cal_id, None
-        except Exception as exc:
-            return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR})
+    def _ensure_calendar(self, svc, cal_name: str) -> str:
+        """Ensure calendar exists and return its ID."""
+        cal_id = svc.ensure_calendar_exists(cal_name)
+        return cal_id
 
-    def _load_items(self, payload: OutlookScheduleImportRequest) -> Tuple[Optional[List], Optional[ResultEnvelope]]:
+    def _load_items(self, payload: OutlookScheduleImportRequest) -> List:
+        """Load schedule items from source."""
         loader = self._schedule_loader
         if loader is None:
             from calendars.importer import load_schedule as default_loader
             loader = default_loader
-        try:
-            return loader(payload.source, kind=payload.kind), None
-        except (ValueError, NotImplementedError) as exc:
-            return None, ResultEnvelope(status="error", diagnostics={"message": str(exc), "code": ERR_CODE_API})
-        except Exception as exc:
-            return None, ResultEnvelope(status="error", diagnostics={"message": f"Failed to load schedule: {exc}", "code": ERR_CODE_API})
+        return loader(payload.source, kind=payload.kind)
 
     def _process_item(self, item, svc, cal_id: str, cal_name: str, payload: OutlookScheduleImportRequest, logs: List[str]) -> int:
         # One-off event

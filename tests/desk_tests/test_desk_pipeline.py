@@ -25,6 +25,7 @@ class DeskPipelineTests(TestCase):
             captured.update(kwargs)
             return {"ok": True}
 
+        from desk.pipeline import ScanRequestConsumer
         request = ScanRequest(
             paths=["~/Downloads"],
             min_size="10MB",
@@ -32,41 +33,49 @@ class DeskPipelineTests(TestCase):
             include_duplicates=True,
             top_dirs=5,
         )
-        result = ScanProcessor(runner=fake_runner).process(request)
-        self.assertEqual(result, {"ok": True})
+        envelope = ScanProcessor(runner=fake_runner).process(ScanRequestConsumer(request).consume())
+        self.assertTrue(envelope.ok())
+        self.assertEqual(envelope.unwrap(), {"ok": True})
         self.assertEqual(captured["min_size"], "10MB")
 
     def test_plan_processor_returns_plan(self):
         def fake_planner(path: str):
             return {"generated_from": path}
 
+        from desk.pipeline import PlanRequestConsumer
         request = PlanRequest(config_path="~/rules.yaml")
-        result = PlanProcessor(planner=fake_planner).process(request)
+        envelope = PlanProcessor(planner=fake_planner).process(PlanRequestConsumer(request).consume())
+        self.assertTrue(envelope.ok())
+        result = envelope.unwrap()
         self.assertEqual(result["generated_from"], "~/rules.yaml")
 
     def test_report_producer_writes_json(self):
+        from core.pipeline import ResultEnvelope
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "report.json"
-            ReportProducer(str(out_path)).produce({"a": 1})
+            envelope = ResultEnvelope(status="success", payload={"a": 1})
+            ReportProducer(str(out_path)).produce(envelope)
             data = json.loads(out_path.read_text())
             self.assertEqual(data["a"], 1)
 
     def test_apply_processor_success_and_failure(self):
+        from desk.pipeline import ApplyRequestConsumer
         request = ApplyRequest(plan_path="plan.yaml", dry_run=True)
-        success = ApplyProcessor(applier=lambda p, dry_run=False: None).process(request)
+        success = ApplyProcessor(applier=lambda p, dry_run=False: None).process(ApplyRequestConsumer(request).consume())
         self.assertTrue(success.ok())
 
         def boom(_path, dry_run=False):
             raise RuntimeError("fail")
 
-        failure = ApplyProcessor(applier=boom).process(request)
+        failure = ApplyProcessor(applier=boom).process(ApplyRequestConsumer(request).consume())
         self.assertFalse(failure.ok())
         self.assertIn("fail", failure.diagnostics["message"])
 
     def test_apply_result_producer_reports_error(self):
+        from desk.pipeline import ApplyRequestConsumer
         buf = io.StringIO()
         envelope = ApplyProcessor(applier=lambda *_: None).process(
-            ApplyRequest("plan.yaml", False)
+            ApplyRequestConsumer(ApplyRequest("plan.yaml", False)).consume()
         )
         envelope.status = "error"
         envelope.diagnostics = {"message": "oops"}
