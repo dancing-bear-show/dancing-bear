@@ -17,7 +17,7 @@ class TestBuildGmailServiceFromArgs(unittest.TestCase):
         mock_build.return_value = mock_service
 
         # Create args
-        args = Namespace(credentials='creds.json', token='token.json')
+        args = Namespace(credentials='creds.json', token='token.json')  # nosec B106 - test fixture, not a password
 
         # Call function
         result = build_gmail_service_from_args(args)
@@ -41,7 +41,7 @@ class TestBuildGmailServiceFromArgs(unittest.TestCase):
         from calendars.gmail_service import GmailService
 
         mock_build.return_value = MagicMock()
-        args = Namespace(credentials='c.json', token='t.json')
+        args = Namespace(credentials='c.json', token='t.json')  # nosec B106 - test fixture, not a password
 
         build_gmail_service_from_args(args)
 

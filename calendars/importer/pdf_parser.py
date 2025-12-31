@@ -108,8 +108,11 @@ class PDFParser(ScheduleParser):
                                         location='Aurora Pools',
                                         notes=f'Imported from PDF {path}',
                                     ))
-        except Exception:  # noqa: S110 - pdfplumber failure falls through to text extraction
-            pass
+        except (OSError, ValueError, KeyError) as e:  # nosec B110 - pdfplumber failures are non-fatal
+            # PDF parsing may fail due to corrupt files, missing tables, or format changes
+            # Return empty list and let caller fall back to text extraction
+            import sys
+            print(f"Warning: PDF table extraction failed ({type(e).__name__}), returning partial results", file=sys.stderr)
 
         return items
 

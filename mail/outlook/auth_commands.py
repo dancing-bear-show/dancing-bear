@@ -116,8 +116,10 @@ def run_outlook_auth_ensure(args) -> int:
     if tp.exists():
         try:
             cache.deserialize(tp.read_text(encoding="utf-8"))
-        except Exception:  # noqa: S110 - corrupt token cache, start fresh
-            pass
+        except (ValueError, OSError, IOError) as e:  # nosec B110 - corrupt/invalid cache, start fresh
+            # Token cache may be corrupt or invalid JSON; safe to start with empty cache
+            import sys
+            print(f"Warning: Could not load token cache ({type(e).__name__}), starting fresh", file=sys.stderr)
 
     app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
     scopes = [GRAPH_DEFAULT_SCOPE]

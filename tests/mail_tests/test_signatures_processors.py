@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
@@ -98,7 +99,7 @@ class TestSignaturesExportResult(unittest.TestCase):
         result = SignaturesExportResult(
             gmail_signatures=[{"sendAs": "test@example.com"}],
             default_html="<p>Sig</p>",
-            out_path=Path("/tmp/out"),
+            out_path=Path(test_path("out")),
         )
         self.assertEqual(len(result.gmail_signatures), 1)
         self.assertEqual(result.default_html, "<p>Sig</p>")
@@ -127,8 +128,8 @@ class TestSignaturesNormalizeResult(unittest.TestCase):
         self.assertTrue(result.success)
 
     def test_with_path(self):
-        result = SignaturesNormalizeResult(out_path=Path("/tmp/sig.html"), success=True)
-        self.assertEqual(result.out_path, Path("/tmp/sig.html"))
+        result = SignaturesNormalizeResult(out_path=Path(test_path("sig.html")), success=True)
+        self.assertEqual(result.out_path, Path(test_path("sig.html")))
 
 
 class TestSignaturesExportProcessor(unittest.TestCase):

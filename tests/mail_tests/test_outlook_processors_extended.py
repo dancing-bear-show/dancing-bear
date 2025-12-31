@@ -1,4 +1,6 @@
 """Tests for mail/outlook/processors.py."""
+
+from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,9 +70,9 @@ class TestOutlookRulesExportResult(unittest.TestCase):
         self.assertEqual(result.out_path, "")
 
     def test_custom_values(self):
-        result = OutlookRulesExportResult(count=5, out_path="/tmp/rules.yaml")  # noqa: S108
+        result = OutlookRulesExportResult(count=5, out_path=test_path("rules.yaml"))  # noqa: S108
         self.assertEqual(result.count, 5)
-        self.assertEqual(result.out_path, "/tmp/rules.yaml")  # noqa: S108
+        self.assertEqual(result.out_path, test_path("rules.yaml"))  # noqa: S108
 
 
 class TestOutlookRulesSyncResult(unittest.TestCase):

@@ -1,4 +1,6 @@
 """Unit tests for docx_writer helper functions."""
+from tests.fixtures import test_path
+
 
 import unittest
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -287,7 +289,7 @@ class TestWriteResumeDocx(unittest.TestCase):
     def test_raises_without_docx_module(self):
         with patch("resume.docx_writer.safe_import", return_value=None):
             with self.assertRaises(RuntimeError) as ctx:
-                write_resume_docx({}, {}, "/tmp/test.docx")  # noqa: S108
+                write_resume_docx({}, {}, test_path("test.docx"))  # noqa: S108
             self.assertIn("python-docx", str(ctx.exception))
 
 

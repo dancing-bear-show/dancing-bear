@@ -4,7 +4,6 @@ import unittest
 from pathlib import Path
 
 from resume.style import (
-    DEFAULT_STOPWORDS,
     _iter_texts,
     _sentences,
     _tokenize,

@@ -1,6 +1,8 @@
 """Tests for metals build_summaries module."""
+
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import csv
 import tempfile
 import unittest
@@ -99,7 +101,7 @@ class TestRun(unittest.TestCase):
     def test_raises_error_for_missing_file(self):
         """Test raises error when costs file doesn't exist."""
         with self.assertRaises(SystemExit):
-            run("/nonexistent/costs.csv", "/tmp/out")  # noqa: S108
+            run("/nonexistent/costs.csv", test_path("out"))  # noqa: S108
 
     def test_handles_case_insensitive_metal(self):
         """Test handles case-insensitive metal names."""

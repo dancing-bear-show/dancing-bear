@@ -970,11 +970,14 @@ def cmd_outlook_folders_sync(args) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point for the Mail Assistant CLI."""
     # Install conservative secret shielding for stdout/stderr (env-toggled)
+    # This is best-effort: if masking module is unavailable or fails to initialize,
+    # the CLI continues normally without output masking.
     try:
         from ..utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
-    except Exception:  # noqa: S110 - best-effort masking
-        pass
+    except Exception as e:  # nosec B110 - best-effort masking, safe to continue without
+        import sys
+        print(f"Warning: Output masking unavailable ({type(e).__name__}), continuing without secret shielding", file=sys.stderr)
 
     parser = app.build_parser()
     # Add top-level args before agentic flags

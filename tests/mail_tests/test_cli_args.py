@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from mail.cli.args import add_gmail_common_args, add_outlook_common_args
 

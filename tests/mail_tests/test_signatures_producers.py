@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
@@ -146,7 +147,7 @@ class TestSignaturesSyncProducer(unittest.TestCase):
 
     def test_prints_ios_asset_written(self):
         producer = SignaturesSyncProducer()
-        ios_path = Path("/tmp/ios_signature.html")
+        ios_path = Path(test_path("ios_signature.html"))
         payload = SignaturesSyncResult(
             gmail_updates=[],
             ios_asset_written=ios_path,
@@ -160,7 +161,7 @@ class TestSignaturesSyncProducer(unittest.TestCase):
 
     def test_prints_outlook_note_written(self):
         producer = SignaturesSyncProducer()
-        note_path = Path("/tmp/OUTLOOK_README.txt")
+        note_path = Path(test_path("OUTLOOK_README.txt"))
         payload = SignaturesSyncResult(
             gmail_updates=[],
             outlook_note_written=note_path,
@@ -205,7 +206,7 @@ class TestSignaturesNormalizeProducer(unittest.TestCase):
 
     def test_prints_output_path(self):
         producer = SignaturesNormalizeProducer()
-        out_path = Path("/tmp/signature.html")
+        out_path = Path(test_path("signature.html"))
         payload = SignaturesNormalizeResult(out_path=out_path, success=True)
         result = ResultEnvelope(status="success", payload=payload)
         with capture_stdout() as buf:

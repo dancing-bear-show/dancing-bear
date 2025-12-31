@@ -1,6 +1,8 @@
 """Tests for mail/outlook/processors.py."""
+
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -169,7 +171,7 @@ class TestOutlookRulesExportProcessor(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.list_filters.side_effect = Exception("Export error")
 
-        payload = OutlookRulesExportPayload(client=mock_client, out_path="/tmp/t.yaml")
+        payload = OutlookRulesExportPayload(client=mock_client, out_path=test_path("t.yaml"))
         envelope = OutlookRulesExportProcessor().process(payload)
         self.assertEqual(envelope.status, "error")
 

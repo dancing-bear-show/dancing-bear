@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import os
 import sys
 import tempfile
@@ -282,9 +283,9 @@ class TestResumeCLIResolveOut(unittest.TestCase):
         from resume.cli.main import _resolve_out
         import argparse
 
-        args = argparse.Namespace(out="/tmp/test.json", profile=None, out_dir="out")
+        args = argparse.Namespace(out=test_path("test.json"), profile=None, out_dir="out")
         result = _resolve_out(args, ".json", "data")
-        self.assertEqual(result, Path("/tmp/test.json"))
+        self.assertEqual(result, Path(test_path("test.json")))
 
     def test_resolve_out_with_profile(self):
         """Test _resolve_out builds nested path with profile."""

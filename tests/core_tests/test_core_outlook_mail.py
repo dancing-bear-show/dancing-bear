@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -109,7 +110,7 @@ class TestListLabels(OutlookMailTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": CATEGORIES_LIST})
 
-        client = FakeMailClient(cache_dir="/tmp/test")  # nosec B108 - test fixture
+        client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
         result = client.list_labels(use_cache=True)
 
         self.assertEqual(len(result), 2)
@@ -121,7 +122,7 @@ class TestListLabels(OutlookMailTestBase):
     def test_list_labels_with_cache_hit(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
-        client = FakeMailClient(cache_dir="/tmp/test")  # nosec B108 - test fixture
+        client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
         client._cfg_cache["categories"] = CATEGORIES_LIST
         result = client.list_labels(use_cache=True)
 
@@ -312,7 +313,7 @@ class TestListFilters(OutlookMailTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": RULES_LIST})
 
-        client = FakeMailClient(cache_dir="/tmp/test")  # nosec B108 - test fixture
+        client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
         result = client.list_filters(use_cache=True)
 
         self.assertEqual(len(result), 2)
@@ -322,7 +323,7 @@ class TestListFilters(OutlookMailTestBase):
     def test_list_filters_with_cache_hit(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
-        client = FakeMailClient(cache_dir="/tmp/test")  # nosec B108 - test fixture
+        client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
         client._cfg_cache["rules_inbox"] = RULES_LIST
         result = client.list_filters(use_cache=True)
 
@@ -477,7 +478,7 @@ class TestSearchInboxMessages(OutlookMailTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
-        client = FakeMailClient(cache_dir="/tmp/test")  # nosec B108 - test fixture
+        client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
         result = client.search_inbox_messages("test", use_cache=True)
 
         self.assertEqual(len(result), 2)
