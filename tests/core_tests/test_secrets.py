@@ -1,8 +1,8 @@
-"""Tests for mail/utils/secrets.py secret masking utilities."""
+"""Tests for core/secrets.py secret masking utilities."""
 
 import unittest
 
-from mail.utils.secrets import (
+from core.secrets import (
     mask_headers,
     mask_url,
     mask_text,
