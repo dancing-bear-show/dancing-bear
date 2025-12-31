@@ -812,8 +812,8 @@ class TestTryUpgradeToConfirmation(unittest.TestCase):
         mock_cli.search_inbox_messages.return_value = ["conf-msg"]
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli.get_message.side_effect = [
-            {"subject": "Confirmation for order number PO123"},  # select_body=False
-            {  # select_body=True
+            {"subject": "Confirmation for order number PO123"},
+            {
                 "subject": "Confirmation for order number PO123",
                 "body": {"content": "<p>Confirmed</p>"},
                 "receivedDateTime": "2024-01-15T10:00:00Z",
