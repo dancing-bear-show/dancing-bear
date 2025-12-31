@@ -1,7 +1,7 @@
 """Tests for calendars/importer/web_parser.py web schedule parsers."""
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from calendars.importer.web_parser import (
     WebParser,

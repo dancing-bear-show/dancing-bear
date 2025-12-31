@@ -31,7 +31,7 @@ from metals.excel_all import (
     _avgcost_formula,
     _summary_row,
 )
-from metals.workbook import WorkbookContext, ChartPlacement
+from metals.workbook import WorkbookContext
 
 
 def _make_wb(client=None):
