@@ -39,13 +39,9 @@ class OutlookMailListResult:
 
 class OutlookMailListProcessor(SafeProcessor[OutlookMailListRequest, OutlookMailListResult]):
     def _process_safe(self, payload: OutlookMailListRequest) -> OutlookMailListResult:
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)
         svc = payload.service
-        try:
-            msgs = svc.list_messages(folder=payload.folder, top=payload.top, pages=payload.pages)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list messages: {exc}", "code": ERR_CODE_CONFIG})
+        msgs = svc.list_messages(folder=payload.folder, top=payload.top, pages=payload.pages)
         msgs = msgs or []
         result = OutlookMailListResult(messages=msgs, folder=payload.folder)
         return result

@@ -46,22 +46,19 @@ class OutlookAddEventProcessor(SafeProcessor[OutlookAddEventRequest, OutlookAddE
     def _process_safe(self, payload: OutlookAddEventRequest) -> OutlookAddEventResult:
         check_service_required(payload.service)
         svc = payload.service
-        try:
-            evt = svc.create_event(
-                calendar_id=None,
-                calendar_name=payload.calendar,
-                subject=payload.subject,
-                start_iso=payload.start_iso,
-                end_iso=payload.end_iso,
-                tz=payload.tz,
-                body_html=payload.body_html,
-                all_day=payload.all_day,
-                location=payload.location,
-                no_reminder=payload.no_reminder,
-                reminder_minutes=payload.reminder_minutes,
-            )
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create event: {exc}", "code": ERR_CODE_CALENDAR})
+        evt = svc.create_event(
+            calendar_id=None,
+            calendar_name=payload.calendar,
+            subject=payload.subject,
+            start_iso=payload.start_iso,
+            end_iso=payload.end_iso,
+            tz=payload.tz,
+            body_html=payload.body_html,
+            all_day=payload.all_day,
+            location=payload.location,
+            no_reminder=payload.no_reminder,
+            reminder_minutes=payload.reminder_minutes,
+        )
         evt_id = (evt or {}).get("id") or ""
         result = OutlookAddEventResult(event_id=evt_id, subject=(evt or {}).get("subject") or payload.subject)
         return result

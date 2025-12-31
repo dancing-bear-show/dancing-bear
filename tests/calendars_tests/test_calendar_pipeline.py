@@ -851,8 +851,7 @@ class CheckServiceRequiredTests(TestCase):
         from calendars.pipeline_base import check_service_required
 
         # Should not raise for valid service
-        result = check_service_required(MagicMock())
-        self.assertIsNone(result)
+        check_service_required(MagicMock())
 
     def test_check_service_required_raises_when_none(self):
         """check_service_required() raises ValueError when service is None."""
