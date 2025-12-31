@@ -30,14 +30,10 @@ class TestGmailCliRegister(unittest.TestCase):
             parser.add_argument("--page-size", type=int, default=default_page_size)
         return add_paging_args
 
-    def test_register_creates_gmail_parser(self):
-        from calendars.cli.gmail import register
-
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers(dest="command")
-
-        p_gmail = register(
-            subparsers,
+    def _make_callbacks(self):
+        """Create GmailCommandCallbacks for testing."""
+        from calendars.cli.gmail import GmailCommandCallbacks
+        return GmailCommandCallbacks(
             f_scan_classes=self._make_mock_func("scan_classes"),
             f_scan_receipts=self._make_mock_func("scan_receipts"),
             f_scan_activerh=self._make_mock_func("scan_activerh"),
@@ -46,6 +42,14 @@ class TestGmailCliRegister(unittest.TestCase):
             add_common_gmail_auth_args=self._make_mock_add_auth_args(),
             add_common_gmail_paging_args=self._make_mock_add_paging_args(),
         )
+
+    def test_register_creates_gmail_parser(self):
+        from calendars.cli.gmail import register
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+
+        p_gmail = register(subparsers, self._make_callbacks())
 
         self.assertIsNotNone(p_gmail)
 
@@ -55,16 +59,7 @@ class TestGmailCliRegister(unittest.TestCase):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command")
 
-        register(
-            subparsers,
-            f_scan_classes=self._make_mock_func("scan_classes"),
-            f_scan_receipts=self._make_mock_func("scan_receipts"),
-            f_scan_activerh=self._make_mock_func("scan_activerh"),
-            f_mail_list=self._make_mock_func("mail_list"),
-            f_sweep_top=self._make_mock_func("sweep_top"),
-            add_common_gmail_auth_args=self._make_mock_add_auth_args(),
-            add_common_gmail_paging_args=self._make_mock_add_paging_args(),
-        )
+        register(subparsers, self._make_callbacks())
 
         args = parser.parse_args(["gmail", "scan-classes", "--out", "test.yaml"])
         self.assertEqual(args.command, "gmail")
@@ -77,16 +72,7 @@ class TestGmailCliRegister(unittest.TestCase):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command")
 
-        register(
-            subparsers,
-            f_scan_classes=self._make_mock_func("scan_classes"),
-            f_scan_receipts=self._make_mock_func("scan_receipts"),
-            f_scan_activerh=self._make_mock_func("scan_activerh"),
-            f_mail_list=self._make_mock_func("mail_list"),
-            f_sweep_top=self._make_mock_func("sweep_top"),
-            add_common_gmail_auth_args=self._make_mock_add_auth_args(),
-            add_common_gmail_paging_args=self._make_mock_add_paging_args(),
-        )
+        register(subparsers, self._make_callbacks())
 
         args = parser.parse_args(["gmail", "scan-receipts", "--out", "receipts.yaml"])
         self.assertEqual(args.gmail_cmd, "scan-receipts")
@@ -98,16 +84,7 @@ class TestGmailCliRegister(unittest.TestCase):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command")
 
-        register(
-            subparsers,
-            f_scan_classes=self._make_mock_func("scan_classes"),
-            f_scan_receipts=self._make_mock_func("scan_receipts"),
-            f_scan_activerh=self._make_mock_func("scan_activerh"),
-            f_mail_list=self._make_mock_func("mail_list"),
-            f_sweep_top=self._make_mock_func("sweep_top"),
-            add_common_gmail_auth_args=self._make_mock_add_auth_args(),
-            add_common_gmail_paging_args=self._make_mock_add_paging_args(),
-        )
+        register(subparsers, self._make_callbacks())
 
         args = parser.parse_args(["gmail", "scan-activerh", "--out", "activerh.yaml"])
         self.assertEqual(args.gmail_cmd, "scan-activerh")
@@ -119,16 +96,7 @@ class TestGmailCliRegister(unittest.TestCase):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command")
 
-        register(
-            subparsers,
-            f_scan_classes=self._make_mock_func("scan_classes"),
-            f_scan_receipts=self._make_mock_func("scan_receipts"),
-            f_scan_activerh=self._make_mock_func("scan_activerh"),
-            f_mail_list=self._make_mock_func("mail_list"),
-            f_sweep_top=self._make_mock_func("sweep_top"),
-            add_common_gmail_auth_args=self._make_mock_add_auth_args(),
-            add_common_gmail_paging_args=self._make_mock_add_paging_args(),
-        )
+        register(subparsers, self._make_callbacks())
 
         args = parser.parse_args(["gmail", "mail-list", "--inbox-only"])
         self.assertEqual(args.gmail_cmd, "mail-list")
@@ -140,16 +108,7 @@ class TestGmailCliRegister(unittest.TestCase):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command")
 
-        register(
-            subparsers,
-            f_scan_classes=self._make_mock_func("scan_classes"),
-            f_scan_receipts=self._make_mock_func("scan_receipts"),
-            f_scan_activerh=self._make_mock_func("scan_activerh"),
-            f_mail_list=self._make_mock_func("mail_list"),
-            f_sweep_top=self._make_mock_func("sweep_top"),
-            add_common_gmail_auth_args=self._make_mock_add_auth_args(),
-            add_common_gmail_paging_args=self._make_mock_add_paging_args(),
-        )
+        register(subparsers, self._make_callbacks())
 
         args = parser.parse_args(["gmail", "sweep-top", "--top", "20"])
         self.assertEqual(args.gmail_cmd, "sweep-top")
@@ -161,16 +120,7 @@ class TestGmailCliRegister(unittest.TestCase):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers(dest="command")
 
-        register(
-            subparsers,
-            f_scan_classes=self._make_mock_func("scan_classes"),
-            f_scan_receipts=self._make_mock_func("scan_receipts"),
-            f_scan_activerh=self._make_mock_func("scan_activerh"),
-            f_mail_list=self._make_mock_func("mail_list"),
-            f_sweep_top=self._make_mock_func("sweep_top"),
-            add_common_gmail_auth_args=self._make_mock_add_auth_args(),
-            add_common_gmail_paging_args=self._make_mock_add_paging_args(),
-        )
+        register(subparsers, self._make_callbacks())
 
         args = parser.parse_args(["gmail", "scan-classes"])
         self.assertEqual(args.from_text, "active rh")

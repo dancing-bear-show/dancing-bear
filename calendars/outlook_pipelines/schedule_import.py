@@ -19,6 +19,7 @@ from ._base import (
     check_service_required,
     dataclass,
 )
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
 @dataclass
@@ -97,12 +98,19 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
             logs.append(f"{LOG_DRY_RUN} would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{cal_name}'")
             return 1
         try:
-            svc.create_event(
-                calendar_id=cal_id, calendar_name=None, subject=item.subject,
-                start_iso=item.start_iso, end_iso=item.end_iso, tz=payload.tz,
-                body_html=item.notes, all_day=False, location=item.location,
+            params = EventCreationParams(
+                subject=item.subject,
+                start_iso=item.start_iso,
+                end_iso=item.end_iso,
+                calendar_id=cal_id,
+                calendar_name=None,
+                tz=payload.tz,
+                body_html=item.notes,
+                all_day=False,
+                location=item.location,
                 no_reminder=payload.no_reminder,
             )
+            svc.create_event(params)
             logs.append(f"Created one-off '{item.subject}'")
             return 1
         except Exception as exc:
@@ -116,13 +124,24 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
             logs.append(f"{LOG_DRY_RUN} would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{cal_name}'")
             return 1
         try:
-            svc.create_recurring_event(
-                calendar_id=cal_id, calendar_name=None, subject=item.subject,
-                start_time=item.start_time, end_time=item.end_time, tz=payload.tz,
-                repeat=rec, interval=1, byday=item.byday, range_start_date=item.range_start,
-                range_until=range_until, count=item.count, body_html=item.notes,
-                location=item.location, no_reminder=payload.no_reminder,
+            params = RecurringEventCreationParams(
+                subject=item.subject,
+                start_time=item.start_time,
+                end_time=item.end_time,
+                repeat=rec,
+                calendar_id=cal_id,
+                calendar_name=None,
+                tz=payload.tz,
+                interval=1,
+                byday=item.byday,
+                range_start_date=item.range_start,
+                range_until=range_until,
+                count=item.count,
+                body_html=item.notes,
+                location=item.location,
+                no_reminder=payload.no_reminder,
             )
+            svc.create_recurring_event(params)
             logs.append(f"Created recurring '{item.subject}'")
             return 1
         except Exception as exc:

@@ -182,8 +182,11 @@ class InferMetaFromTextTests(unittest.TestCase):
         self.assertIn(result["location"], ["Richmond Green", "Elgin West"])
 
     def test_default_year_used(self):
+        from calendars.scan_common import MetaParserConfig
+
         text = "From Jan 15 to Mar 30"
-        result = infer_meta_from_text(text, default_year=2026)
+        config = MetaParserConfig(default_year=2026)
+        result = infer_meta_from_text(text, config=config)
         self.assertIn("range", result)
         self.assertEqual(result["range"]["start_date"], "2026-01-15")
         self.assertEqual(result["range"]["until"], "2026-03-30")

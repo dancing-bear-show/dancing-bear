@@ -76,15 +76,21 @@ class TestInferMetaFromText(unittest.TestCase):
         self.assertEqual(meta.get('location'), 'Richmond Green Community Centre')
 
     def test_extracts_date_range(self):
+        from calendars.scan_common import MetaParserConfig
+
         text = "Session runs from January 15, 2025 to March 30, 2025"
-        meta = infer_meta_from_text(text, default_year=2025)
+        config = MetaParserConfig(default_year=2025)
+        meta = infer_meta_from_text(text, config=config)
         self.assertIn('range', meta)
         self.assertEqual(meta['range']['start_date'], '2025-01-15')
         self.assertEqual(meta['range']['until'], '2025-03-30')
 
     def test_extracts_date_range_abbreviated_months(self):
+        from calendars.scan_common import MetaParserConfig
+
         text = "Jan 5 to Feb 28, 2025"
-        meta = infer_meta_from_text(text, default_year=2025)
+        config = MetaParserConfig(default_year=2025)
+        meta = infer_meta_from_text(text, config=config)
         self.assertIn('range', meta)
         self.assertEqual(meta['range']['start_date'], '2025-01-05')
         self.assertEqual(meta['range']['until'], '2025-02-28')

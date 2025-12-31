@@ -7,64 +7,60 @@ from typing import Dict, List, Optional
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
+from .workbook import WorkbookContext
 
 
-def _headers(client: OutlookClient) -> Dict[str, str]:
-    return client._headers()  # noqa: SLF001 (intentional internal use)
-
-
-def _list_sheets(client: OutlookClient, drive_id: str, item_id: str) -> List[Dict[str, str]]:
+def _list_sheets(wb: WorkbookContext) -> List[Dict[str, str]]:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets?$select=id,name,position,visibility"
-    r = requests.get(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
+    url = f"{wb.base_url}/worksheets?$select=id,name,position,visibility"
+    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     r.raise_for_status()
     return (r.json() or {}).get("value", [])
 
 
-def _delete_sheet(client: OutlookClient, drive_id: str, item_id: str, name: str) -> None:
+def _delete_sheet(wb: WorkbookContext, name: str) -> None:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{name}')"
-    requests.delete(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
+    requests.delete(wb.sheet_url(name), headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
-def _list_charts(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> List[Dict[str, str]]:
+def _list_charts(wb: WorkbookContext, sheet: str) -> List[Dict[str, str]]:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts?$select=id,name"
-    r = requests.get(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
+    url = f"{wb.sheet_url(sheet)}/charts?$select=id,name"
+    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code >= 400:
         return []
     return (r.json() or {}).get("value", [])
 
 
-def _set_chart_title(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, title: str) -> None:
+def _set_chart_title(wb: WorkbookContext, sheet: str, chart_id: str, title: str) -> None:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/title"
-    requests.patch(url, headers=_headers(client), data=json.dumps({"text": title, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    url = f"{wb.chart_url(sheet, chart_id)}/title"
+    requests.patch(url, headers=wb.headers(), data=json.dumps({"text": title, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
-def _set_axis_titles(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, category: Optional[str], value: Optional[str]) -> None:
+def _set_axis_titles(wb: WorkbookContext, sheet: str, chart_id: str, category: Optional[str], value: Optional[str]) -> None:
     import requests  # type: ignore
-    base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/axes"
+    base = f"{wb.chart_url(sheet, chart_id)}/axes"
     if category:
-        requests.patch(f"{base}/categoryAxis/title", headers=_headers(client), data=json.dumps({"text": category, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
+        requests.patch(f"{base}/categoryAxis/title", headers=wb.headers(), data=json.dumps({"text": category, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
     if value:
-        requests.patch(f"{base}/valueAxis/title", headers=_headers(client), data=json.dumps({"text": value, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
+        requests.patch(f"{base}/valueAxis/title", headers=wb.headers(), data=json.dumps({"text": value, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
-def _used_rows(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> int:
+def _used_rows(wb: WorkbookContext, sheet: str) -> int:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=_headers(client), timeout=DEFAULT_REQUEST_TIMEOUT)
+    url = f"{wb.sheet_url(sheet)}/usedRange(valuesOnly=true)?$select=values"
+    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     if r.status_code >= 400:
         return 0
     vals = (r.json() or {}).get('values') or []
     return len(vals)
 
 
-def _set_chart_data(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_id: str, addr: str) -> None:
+def _set_chart_data(wb: WorkbookContext, sheet: str, chart_id: str, addr: str) -> None:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/charts('{chart_id}')/setData"
-    requests.post(url, headers=_headers(client), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    url = f"{wb.chart_url(sheet, chart_id)}/setData"
+    requests.post(url, headers=wb.headers(), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -91,51 +87,51 @@ def main(argv: Optional[List[str]] = None) -> int:
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir='.cache')
     client.authenticate()
 
-    drive = getattr(args, 'drive_id')
-    item = getattr(args, 'item_id')
+    wb = WorkbookContext(client, getattr(args, 'drive_id'), getattr(args, 'item_id'))
+
     # Remove untitled/default sheets (anything not in allowed set and with default-like names)
     allowed = {getattr(args, 'summary_sheet'), getattr(args, 'gold_sheet'), getattr(args, 'silver_sheet'), getattr(args, 'all_sheet'), getattr(args, 'profit_sheet')}
-    sheets = _list_sheets(client, drive, item)
+    sheets = _list_sheets(wb)
     for s in sheets:
         name = s.get('name') or ''
         low = name.lower()
         if name not in allowed and (low.startswith('sheet') or name.strip() == ''):
-            _delete_sheet(client, drive, item, name)
+            _delete_sheet(wb, name)
 
     # Tidy Summary chart titles
     sum_name = getattr(args, 'summary_sheet')
-    charts = _list_charts(client, drive, item, sum_name)
+    charts = _list_charts(wb, sum_name)
     if charts:
         # First chart is Totals by Metal
-        _set_chart_title(client, drive, item, sum_name, charts[0]['id'], 'Totals by Metal')
-        _set_axis_titles(client, drive, item, sum_name, charts[0]['id'], category=None, value=None)
+        _set_chart_title(wb, sum_name, charts[0]['id'], 'Totals by Metal')
+        _set_axis_titles(wb, sum_name, charts[0]['id'], category=None, value=None)
 
     # Tidy Profit charts (Portfolio PnL; Gold spot vs avg; Silver spot vs avg)
     profit = getattr(args, 'profit_sheet')
-    charts = _list_charts(client, drive, item, profit)
+    charts = _list_charts(wb, profit)
     if charts:
-        rows = max(_used_rows(client, drive, item, profit), 2)
+        rows = max(_used_rows(wb, profit), 2)
         try:
             ch = charts[0]
-            _set_chart_title(client, drive, item, profit, ch['id'], 'Portfolio PnL (CAD)')
-            _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$')
-            _set_chart_data(client, drive, item, profit, ch['id'], f"J2:J{rows}")
+            _set_chart_title(wb, profit, ch['id'], 'Portfolio PnL (CAD)')
+            _set_axis_titles(wb, profit, ch['id'], category='Date', value='C$')
+            _set_chart_data(wb, profit, ch['id'], f"J2:J{rows}")
         except Exception:  # noqa: S110 - non-critical chart update
             pass
         if len(charts) > 1:
             try:
                 ch = charts[1]
-                _set_chart_title(client, drive, item, profit, ch['id'], 'Gold: Spot vs Avg (C$/oz)')
-                _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
-                _set_chart_data(client, drive, item, profit, ch['id'], f"C2:D{rows}")
+                _set_chart_title(wb, profit, ch['id'], 'Gold: Spot vs Avg (C$/oz)')
+                _set_axis_titles(wb, profit, ch['id'], category='Date', value='C$/oz')
+                _set_chart_data(wb, profit, ch['id'], f"C2:D{rows}")
             except Exception:  # noqa: S110 - non-critical chart update
                 pass
         if len(charts) > 2:
             try:
                 ch = charts[2]
-                _set_chart_title(client, drive, item, profit, ch['id'], 'Silver: Spot vs Avg (C$/oz)')
-                _set_axis_titles(client, drive, item, profit, ch['id'], category='Date', value='C$/oz')
-                _set_chart_data(client, drive, item, profit, ch['id'], f"G2:H{rows}")
+                _set_chart_title(wb, profit, ch['id'], 'Silver: Spot vs Avg (C$/oz)')
+                _set_axis_titles(wb, profit, ch['id'], category='Date', value='C$/oz')
+                _set_chart_data(wb, profit, ch['id'], f"G2:H{rows}")
             except Exception:  # noqa: S110 - non-critical chart update
                 pass
 

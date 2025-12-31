@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from metals.excel_tidy import (
-    _headers,
     _list_sheets,
     _delete_sheet,
     _list_charts,
@@ -14,17 +13,16 @@ from metals.excel_tidy import (
     _set_axis_titles,
     _set_chart_data,
 )
+from metals.workbook import WorkbookContext
 
 
-class TestHeaders(unittest.TestCase):
-    """Tests for _headers function."""
-
-    def test_returns_client_headers(self):
-        """Test returns client headers."""
-        mock_client = MagicMock()
-        mock_client._headers.return_value = {"Authorization": "Bearer token"}
-        result = _headers(mock_client)
-        self.assertEqual(result, {"Authorization": "Bearer token"})
+def _make_wb(client=None):
+    """Helper to create a mock WorkbookContext."""
+    if client is None:
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+    return WorkbookContext(client, "drive-id", "item-id")
 
 
 class TestListSheets(unittest.TestCase):
@@ -33,9 +31,6 @@ class TestListSheets(unittest.TestCase):
     @patch("requests.get")
     def test_lists_sheets(self, mock_get):
         """Test lists worksheets."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
         mock_get.return_value.raise_for_status = MagicMock()
         mock_get.return_value.json.return_value = {
             "value": [
@@ -44,7 +39,7 @@ class TestListSheets(unittest.TestCase):
             ]
         }
 
-        result = _list_sheets(mock_client, "drive-id", "item-id")
+        result = _list_sheets(_make_wb())
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["name"], "Sheet1")
 
@@ -55,11 +50,7 @@ class TestDeleteSheet(unittest.TestCase):
     @patch("requests.delete")
     def test_deletes_sheet(self, mock_delete):
         """Test deletes worksheet."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
-
-        _delete_sheet(mock_client, "drive-id", "item-id", "Sheet1")
+        _delete_sheet(_make_wb(), "Sheet1")
         mock_delete.assert_called_once()
         call_url = mock_delete.call_args[0][0]
         self.assertIn("Sheet1", call_url)
@@ -71,9 +62,6 @@ class TestListCharts(unittest.TestCase):
     @patch("requests.get")
     def test_lists_charts(self, mock_get):
         """Test lists charts in worksheet."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
         mock_get.return_value.status_code = 200
         mock_get.return_value.json.return_value = {
             "value": [
@@ -81,19 +69,16 @@ class TestListCharts(unittest.TestCase):
             ]
         }
 
-        result = _list_charts(mock_client, "drive-id", "item-id", "Sheet1")
+        result = _list_charts(_make_wb(), "Sheet1")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "chart1")
 
     @patch("requests.get")
     def test_returns_empty_on_error(self, mock_get):
         """Test returns empty list on error."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
         mock_get.return_value.status_code = 404
 
-        result = _list_charts(mock_client, "drive-id", "item-id", "Sheet1")
+        result = _list_charts(_make_wb(), "Sheet1")
         self.assertEqual(result, [])
 
 
@@ -103,9 +88,6 @@ class TestUsedRows(unittest.TestCase):
     @patch("requests.get")
     def test_returns_row_count(self, mock_get):
         """Test returns row count."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
         mock_get.return_value.status_code = 200
         mock_get.return_value.json.return_value = {
             "values": [
@@ -115,18 +97,15 @@ class TestUsedRows(unittest.TestCase):
             ]
         }
 
-        result = _used_rows(mock_client, "drive-id", "item-id", "Sheet1")
+        result = _used_rows(_make_wb(), "Sheet1")
         self.assertEqual(result, 3)
 
     @patch("requests.get")
     def test_returns_zero_on_error(self, mock_get):
         """Test returns 0 on error."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
         mock_get.return_value.status_code = 404
 
-        result = _used_rows(mock_client, "drive-id", "item-id", "Sheet1")
+        result = _used_rows(_make_wb(), "Sheet1")
         self.assertEqual(result, 0)
 
 
@@ -136,11 +115,7 @@ class TestSetChartTitle(unittest.TestCase):
     @patch("requests.patch")
     def test_sets_chart_title(self, mock_patch):
         """Test sets chart title."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {"Authorization": "Bearer token"}
-
-        _set_chart_title(mock_client, "drive-id", "item-id", "Summary", "chart1", "My Chart")
+        _set_chart_title(_make_wb(), "Summary", "chart1", "My Chart")
 
         mock_patch.assert_called_once()
         call_args = mock_patch.call_args
@@ -155,11 +130,7 @@ class TestSetAxisTitles(unittest.TestCase):
     @patch("requests.patch")
     def test_sets_category_axis(self, mock_patch):
         """Test sets category axis title."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
-
-        _set_axis_titles(mock_client, "drive-id", "item-id", "Sheet1", "chart1", category="Date", value=None)
+        _set_axis_titles(_make_wb(), "Sheet1", "chart1", category="Date", value=None)
 
         mock_patch.assert_called_once()
         call_args = mock_patch.call_args
@@ -169,11 +140,7 @@ class TestSetAxisTitles(unittest.TestCase):
     @patch("requests.patch")
     def test_sets_value_axis(self, mock_patch):
         """Test sets value axis title."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
-
-        _set_axis_titles(mock_client, "drive-id", "item-id", "Sheet1", "chart1", category=None, value="Price")
+        _set_axis_titles(_make_wb(), "Sheet1", "chart1", category=None, value="Price")
 
         mock_patch.assert_called_once()
         call_args = mock_patch.call_args
@@ -183,22 +150,14 @@ class TestSetAxisTitles(unittest.TestCase):
     @patch("requests.patch")
     def test_sets_both_axes(self, mock_patch):
         """Test sets both axis titles."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
-
-        _set_axis_titles(mock_client, "drive-id", "item-id", "Sheet1", "chart1", category="Date", value="C$")
+        _set_axis_titles(_make_wb(), "Sheet1", "chart1", category="Date", value="C$")
 
         self.assertEqual(mock_patch.call_count, 2)
 
     @patch("requests.patch")
     def test_no_call_when_both_none(self, mock_patch):
         """Test no API call when both are None."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
-
-        _set_axis_titles(mock_client, "drive-id", "item-id", "Sheet1", "chart1", category=None, value=None)
+        _set_axis_titles(_make_wb(), "Sheet1", "chart1", category=None, value=None)
 
         mock_patch.assert_not_called()
 
@@ -209,11 +168,7 @@ class TestSetChartData(unittest.TestCase):
     @patch("requests.post")
     def test_sets_chart_data_range(self, mock_post):
         """Test sets chart data source range."""
-        mock_client = MagicMock()
-        mock_client.GRAPH = "https://graph.microsoft.com/v1.0"
-        mock_client._headers.return_value = {}
-
-        _set_chart_data(mock_client, "drive-id", "item-id", "Profit", "chart1", "A1:B10")
+        _set_chart_data(_make_wb(), "Profit", "chart1", "A1:B10")
 
         mock_post.assert_called_once()
         call_args = mock_post.call_args

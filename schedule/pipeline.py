@@ -201,6 +201,29 @@ def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, 
     return (sdt.strftime(FMT_DATETIME), edt.strftime(FMT_DATETIME))
 
 
+@dataclass
+class RecurrenceExpansionConfig:
+    """Configuration for expanding recurring event occurrences."""
+
+    start_date: _dt.date
+    end_date: _dt.date
+    start_time: str
+    end_time: str
+    excluded_dates: set
+    weekdays: Optional[List[int]] = None  # For weekly recurrence
+
+
+@dataclass
+class SyncMatchContext:
+    """Context for matching and synchronizing calendar events."""
+
+    plan_st_keys: set  # Planned subject-time keys
+    planned_subjects_set: set  # Set of planned subjects (lowercased)
+    have_keys: set  # Existing event keys
+    have_map: Dict[str, Dict[str, Any]]  # Map of existing events by key
+    match_mode: str  # "subject-time" or "subject"
+
+
 def _expand_daily(
     cur: _dt.date, end: _dt.date, start_time: str, end_time: str, ex_set: set
 ) -> List[Tuple[str, str]]:
@@ -214,15 +237,13 @@ def _expand_daily(
     return out
 
 
-def _expand_weekly(
-    cur: _dt.date, end: _dt.date, start_time: str, end_time: str, ex_set: set, days_idx: List[int]
-) -> List[Tuple[str, str]]:
+def _expand_weekly(config: RecurrenceExpansionConfig) -> List[Tuple[str, str]]:
     """Expand weekly occurrences within a date range."""
     out: List[Tuple[str, str]] = []
-    d = cur
-    while d <= end:
-        if d.weekday() in days_idx and d.isoformat() not in ex_set:
-            out.append(_make_occurrence(d, start_time, end_time))
+    d = config.start_date
+    while d <= config.end_date:
+        if config.weekdays and d.weekday() in config.weekdays and d.isoformat() not in config.excluded_dates:
+            out.append(_make_occurrence(d, config.start_time, config.end_time))
         d = d + _dt.timedelta(days=1)
     return out
 
@@ -260,7 +281,15 @@ def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str
         days_idx = [x for x in (_weekday_code_to_py(d) for d in byday) if x is not None]
         if not days_idx:
             return []
-        return _expand_weekly(cur, end, start_time, end_time, ex_set, days_idx)
+        config = RecurrenceExpansionConfig(
+            start_date=cur,
+            end_date=end,
+            start_time=start_time,
+            end_time=end_time,
+            excluded_dates=ex_set,
+            weekdays=days_idx,
+        )
+        return _expand_weekly(config)
 
     return []
 
@@ -586,16 +615,14 @@ def _determine_creates(
     events: List[Dict[str, Any]],
     series_by_subject: Dict[str, Dict[str, Any]],
     present_subjects: set,
-    plan_st_keys: set,
-    have_keys: set,
-    match_mode: str,
+    ctx: SyncMatchContext,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Determine which series and one-offs need to be created."""
     to_create_series = _find_missing_series(series_by_subject, present_subjects)
-    missing_occ = [k for k in plan_st_keys if k not in have_keys]
+    missing_occ = [k for k in ctx.plan_st_keys if k not in ctx.have_keys]
     to_create_oneoffs = [
         e for e in (events or [])
-        if _should_create_oneoff(e, match_mode, missing_occ, present_subjects)
+        if _should_create_oneoff(e, ctx.match_mode, missing_occ, present_subjects)
     ]
     return to_create_series, to_create_oneoffs
 
@@ -650,85 +677,80 @@ def _build_series_maps(
 
 
 def _should_delete_series(
-    sid: str, keys: List[str], series_subject: Dict[str, str],
-    plan_st_keys: set, planned_subjects_set: set, match_mode: str
+    sid: str,
+    keys: List[str],
+    series_subject: Dict[str, str],
+    ctx: SyncMatchContext,
 ) -> bool:
     """Check if a series should be deleted."""
     subj = (series_subject.get(sid) or "").strip().lower()
-    if subj in planned_subjects_set:
+    if subj in ctx.planned_subjects_set:
         return False
-    if match_mode == "subject-time":
-        return all(k not in plan_st_keys for k in keys)
+    if ctx.match_mode == "subject-time":
+        return all(k not in ctx.plan_st_keys for k in keys)
     return True
 
 
-def _find_series_to_delete(
-    have_map: Dict[str, Dict[str, Any]],
-    plan_st_keys: set,
-    planned_subjects_set: set,
-    match_mode: str,
-) -> List[str]:
+def _find_series_to_delete(ctx: SyncMatchContext) -> List[str]:
     """Find series master IDs to delete."""
-    series_keys, series_subject = _build_series_maps(have_map)
+    series_keys, series_subject = _build_series_maps(ctx.have_map)
     return [
         sid for sid, keys in series_keys.items()
-        if _should_delete_series(sid, keys, series_subject, plan_st_keys, planned_subjects_set, match_mode)
+        if _should_delete_series(sid, keys, series_subject, ctx)
     ]
 
 
 def _determine_deletes(
     payload: "SyncRequest",
-    have_map: Dict[str, Dict[str, Any]],
-    have_keys: set,
-    plan_st_keys: set,
-    planned_subjects_set: set,
-    match_mode: str,
+    ctx: SyncMatchContext,
 ) -> Tuple[List[str], List[str]]:
     """Determine which occurrences and series masters to delete."""
     if not payload.delete_missing:
         return [], []
 
-    extra_keys = [k for k in have_keys if k not in plan_st_keys]
-    if match_mode == "subject-time":
-        to_delete_occurrence_ids = _find_occurrences_to_delete_by_time(extra_keys, have_map)
+    extra_keys = [k for k in ctx.have_keys if k not in ctx.plan_st_keys]
+    if ctx.match_mode == "subject-time":
+        to_delete_occurrence_ids = _find_occurrences_to_delete_by_time(extra_keys, ctx.have_map)
     else:
-        to_delete_occurrence_ids = _find_occurrences_to_delete_by_subject(have_map, planned_subjects_set)
+        to_delete_occurrence_ids = _find_occurrences_to_delete_by_subject(ctx.have_map, ctx.planned_subjects_set)
 
     to_delete_series_master_ids: List[str] = []
     if payload.delete_unplanned_series:
-        to_delete_series_master_ids = _find_series_to_delete(
-            have_map, plan_st_keys, planned_subjects_set, match_mode
-        )
+        to_delete_series_master_ids = _find_series_to_delete(ctx)
 
     return to_delete_occurrence_ids, to_delete_series_master_ids
 
 
-def _build_dry_run_lines(
-    payload: "SyncRequest",
-    to_create_series: List[Dict[str, Any]],
-    to_create_oneoffs: List[Dict[str, Any]],
-    to_delete_occurrence_ids: List[str],
-    to_delete_series_master_ids: List[str],
-    match_mode: str,
-) -> List[str]:
+@dataclass
+class DryRunConfig:
+    """Configuration for building dry-run output."""
+
+    to_create_series: List[Dict[str, Any]]
+    to_create_oneoffs: List[Dict[str, Any]]
+    to_delete_occurrence_ids: List[str]
+    to_delete_series_master_ids: List[str]
+    match_mode: str
+
+
+def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> List[str]:
     """Build dry-run output lines."""
     lines = [
         f"[DRY-RUN] Sync window {payload.from_date} → {payload.to_date} on '{payload.calendar}'",
-        f"Would create series: {len(to_create_series)}",
+        f"Would create series: {len(config.to_create_series)}",
     ]
-    for e in to_create_series[:10]:
+    for e in config.to_create_series[:10]:
         lines.append(
             f"  - {e.get('subject')} (repeat={e.get('repeat')}, byday={e.get('byday')}, start_time={e.get('start_time')})"
         )
-    lines.append(f"Would create one-offs: {len(to_create_oneoffs)}")
-    for e in to_create_oneoffs[:10]:
+    lines.append(f"Would create one-offs: {len(config.to_create_oneoffs)}")
+    for e in config.to_create_oneoffs[:10]:
         lines.append(f"  - {e.get('subject')} @ {e.get('start')}→{e.get('end')}")
     if payload.delete_missing:
         lines.append(
-            f"Would delete extraneous occurrences: {len(to_delete_occurrence_ids)} (match={match_mode})"
+            f"Would delete extraneous occurrences: {len(config.to_delete_occurrence_ids)} (match={config.match_mode})"
         )
         if payload.delete_unplanned_series:
-            lines.append(f"Would delete entire unplanned series: {len(to_delete_series_master_ids)}")
+            lines.append(f"Would delete entire unplanned series: {len(config.to_delete_series_master_ids)}")
     else:
         lines.append("Delete extraneous: disabled (pass --delete-missing)")
     return lines
@@ -812,20 +834,31 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         have_map, have_keys = _build_have_map(occ)
         present_subjects = {(o.get("subject") or "").strip().lower() for o in occ}
 
+        # Create sync context
+        sync_ctx = SyncMatchContext(
+            plan_st_keys=plan_st_keys,
+            planned_subjects_set=planned_subjects_set,
+            have_keys=have_keys,
+            have_map=have_map,
+            match_mode=match_mode,
+        )
+
         # Determine creates and deletes
         to_create_series, to_create_oneoffs = _determine_creates(
-            events, series_by_subject, present_subjects, plan_st_keys, have_keys, match_mode
+            events, series_by_subject, present_subjects, sync_ctx
         )
-        to_delete_occurrence_ids, to_delete_series_master_ids = _determine_deletes(
-            payload, have_map, have_keys, plan_st_keys, planned_subjects_set, match_mode
-        )
+        to_delete_occurrence_ids, to_delete_series_master_ids = _determine_deletes(payload, sync_ctx)
 
         # Dry-run mode
         if not payload.apply:
-            lines = _build_dry_run_lines(
-                payload, to_create_series, to_create_oneoffs,
-                to_delete_occurrence_ids, to_delete_series_master_ids, match_mode
+            dry_run_cfg = DryRunConfig(
+                to_create_series=to_create_series,
+                to_create_oneoffs=to_create_oneoffs,
+                to_delete_occurrence_ids=to_delete_occurrence_ids,
+                to_delete_series_master_ids=to_delete_series_master_ids,
+                match_mode=match_mode,
             )
+            lines = _build_dry_run_lines(payload, dry_run_cfg)
             return SyncResult(lines=lines)
 
         # Execute creates

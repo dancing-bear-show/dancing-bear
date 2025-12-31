@@ -25,13 +25,22 @@ from metals.excel_all import (
     _write_filter_view,
     _spot_cad_series,
     _build_profit_series,
-    _workbook_url,
     _pad_rows,
     _poll_async_operation,
     _sumif_formula,
     _avgcost_formula,
     _summary_row,
 )
+from metals.workbook import WorkbookContext
+
+
+def _make_wb(client=None):
+    """Helper to create a mock WorkbookContext."""
+    if client is None:
+        client = MagicMock()
+        client.GRAPH = "https://graph.microsoft.com/v1.0"
+        client._headers.return_value = {}
+    return WorkbookContext(client, "drive123", "item456")
 
 
 class TestColLetter(unittest.TestCase):
@@ -271,7 +280,7 @@ class TestSetSheetPosition(unittest.TestCase):
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client._headers.return_value = {"Authorization": "Bearer token"}
 
-        _set_sheet_position(client, "drive123", "item456", "Sheet1", 2)
+        _set_sheet_position(_make_wb(client), "Sheet1", 2)
 
         mock_patch.assert_called_once()
         call_args = mock_patch.call_args
@@ -289,7 +298,7 @@ class TestSetSheetVisibility(unittest.TestCase):
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client._headers.return_value = {}
 
-        _set_sheet_visibility(client, "drive123", "item456", "Sheet1", True)
+        _set_sheet_visibility(_make_wb(client), "Sheet1", True)
 
         call_args = mock_patch.call_args
         self.assertIn('"visibility": "Visible"', call_args[1]["data"])
@@ -301,7 +310,7 @@ class TestSetSheetVisibility(unittest.TestCase):
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client._headers.return_value = {}
 
-        _set_sheet_visibility(client, "drive123", "item456", "Sheet1", False)
+        _set_sheet_visibility(_make_wb(client), "Sheet1", False)
 
         call_args = mock_patch.call_args
         self.assertIn('"visibility": "Hidden"', call_args[1]["data"])
@@ -349,11 +358,8 @@ class TestListWorksheets(unittest.TestCase):
             json=lambda: {"value": [{"name": "Sheet1"}, {"name": "Sheet2"}]},
             raise_for_status=lambda: None,
         )
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        result = _list_worksheets(client, "drive123", "item456")
+        result = _list_worksheets(_make_wb())
 
         self.assertEqual(result, ["Sheet1", "Sheet2"])
 
@@ -365,11 +371,8 @@ class TestListWorksheets(unittest.TestCase):
             json=lambda: {"value": [{"name": "Sheet1"}, {"name": ""}, {"name": None}]},
             raise_for_status=lambda: None,
         )
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        result = _list_worksheets(client, "drive123", "item456")
+        result = _list_worksheets(_make_wb())
 
         self.assertEqual(result, ["Sheet1"])
 
@@ -384,11 +387,8 @@ class TestGetUsedRangeValues(unittest.TestCase):
             status_code=200,
             json=lambda: {"values": [["A1", "B1"], ["A2", "B2"]]},
         )
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        result = _get_used_range_values(client, "drive123", "item456", "Sheet1")
+        result = _get_used_range_values(_make_wb(), "Sheet1")
 
         self.assertEqual(result, [["A1", "B1"], ["A2", "B2"]])
 
@@ -396,11 +396,8 @@ class TestGetUsedRangeValues(unittest.TestCase):
     def test_returns_empty_on_error(self, mock_get):
         """Test returns empty list on 4xx error."""
         mock_get.return_value = MagicMock(status_code=404)
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        result = _get_used_range_values(client, "drive123", "item456", "Sheet1")
+        result = _get_used_range_values(_make_wb(), "Sheet1")
 
         self.assertEqual(result, [])
 
@@ -416,11 +413,8 @@ class TestEnsureSheet(unittest.TestCase):
             status_code=200,
             json=lambda: {"id": "sheet123", "name": "Sheet1"},
         )
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        result = _ensure_sheet(client, "drive123", "item456", "Sheet1")
+        result = _ensure_sheet(_make_wb(), "Sheet1")
 
         self.assertEqual(result["name"], "Sheet1")
         mock_post.assert_not_called()
@@ -434,11 +428,8 @@ class TestEnsureSheet(unittest.TestCase):
             status_code=201,
             json=lambda: {"id": "new_sheet", "name": "NewSheet"},
         )
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        result = _ensure_sheet(client, "drive123", "item456", "NewSheet")
+        result = _ensure_sheet(_make_wb(), "NewSheet")
 
         self.assertEqual(result["name"], "NewSheet")
         mock_post.assert_called_once()
@@ -453,12 +444,9 @@ class TestWriteRange(unittest.TestCase):
         """Test clears range and writes values."""
         mock_post.return_value = MagicMock(status_code=200, json=lambda: {})
         mock_patch.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
         values = [["A", "B"], ["1", "2"]]
-        _write_range(client, "drive123", "item456", "Sheet1", values)
+        _write_range(_make_wb(), "Sheet1", values)
 
         # Should call clear, patch (write), and table add
         self.assertGreater(mock_post.call_count, 0)
@@ -469,11 +457,8 @@ class TestWriteRange(unittest.TestCase):
     def test_handles_empty_values(self, mock_patch, mock_post):
         """Test handles empty values - only clears."""
         mock_post.return_value = MagicMock(status_code=200)
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        _write_range(client, "drive123", "item456", "Sheet1", [])
+        _write_range(_make_wb(), "Sheet1", [])
 
         # Should still call clear
         self.assertEqual(mock_post.call_count, 1)
@@ -492,11 +477,8 @@ class TestAddChart(unittest.TestCase):
             json=lambda: {"id": "chart123"},
         )
         mock_patch.return_value = MagicMock(status_code=200)
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        _add_chart(client, "drive123", "item456", "Sheet1", "Line", "A1:B10")
+        _add_chart(_make_wb(), "Sheet1", "Line", "A1:B10")
 
         mock_post.assert_called_once()
         call_data = json.loads(mock_post.call_args[1]["data"])
@@ -506,12 +488,9 @@ class TestAddChart(unittest.TestCase):
     def test_handles_chart_error(self, mock_post):
         """Test handles chart creation error gracefully."""
         mock_post.return_value = MagicMock(status_code=400)
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
         # Should not raise
-        _add_chart(client, "drive123", "item456", "Sheet1", "Line", "A1:B10")
+        _add_chart(_make_wb(), "Sheet1", "Line", "A1:B10")
 
 
 class TestWriteFilterView(unittest.TestCase):
@@ -523,11 +502,8 @@ class TestWriteFilterView(unittest.TestCase):
         """Test writes FILTER formula to sheet."""
         mock_post.return_value = MagicMock(status_code=200)
         mock_patch.return_value = MagicMock(status_code=200)
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-        client._headers.return_value = {}
 
-        _write_filter_view(client, "drive123", "item456", "All", "Gold", "gold")
+        _write_filter_view(_make_wb(), "All", "Gold", "gold")
 
         # Should write header and formula
         self.assertGreater(mock_patch.call_count, 0)
@@ -625,17 +601,13 @@ class TestBuildProfitSeries(unittest.TestCase):
         self.assertEqual(result, [])
 
 
-class TestWorkbookUrl(unittest.TestCase):
-    """Tests for _workbook_url helper function."""
+class TestWorkbookContextBaseUrl(unittest.TestCase):
+    """Tests for WorkbookContext.base_url property."""
 
     def test_builds_correct_url(self):
         """Test builds correct Graph API URL."""
-        client = MagicMock()
-        client.GRAPH = "https://graph.microsoft.com/v1.0"
-
-        result = _workbook_url(client, "drive123", "item456")
-
-        self.assertEqual(result, "https://graph.microsoft.com/v1.0/drives/drive123/items/item456/workbook")
+        wb = _make_wb()
+        self.assertEqual(wb.base_url, "https://graph.microsoft.com/v1.0/drives/drive123/items/item456/workbook")
 
 
 class TestPadRows(unittest.TestCase):
