@@ -1,23 +1,14 @@
-import io
-import sys
 import unittest
 
-from tests.fixtures import repo_root
+from tests.fixtures import capture_stdout
 
 
 class TestPhoneLlmCli(unittest.TestCase):
     def test_agentic_stdout(self):
-        root = repo_root()
-        sys.path.insert(0, str(root.parent))
-        import phone.llm_cli as mod  # type: ignore
+        import phone.llm_cli as mod
 
-        buf = io.StringIO()
-        old = sys.stdout
-        try:
-            sys.stdout = buf
+        with capture_stdout() as buf:
             rc = mod.main(["agentic", "--stdout"])
-        finally:
-            sys.stdout = old
         out = buf.getvalue()
         self.assertEqual(rc, 0)
         self.assertIn("agentic: phone", out)
