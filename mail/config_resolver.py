@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple, Optional, Dict
 
@@ -39,6 +40,18 @@ def default_outlook_flow_path() -> str:
     return DEFAULT_OUTLOOK_FLOW
 
 
+@dataclass
+class ProfileSettings:
+    """Settings for a mail profile to persist to INI configuration."""
+
+    profile: Optional[str] = None
+    credentials: Optional[str] = None
+    token: Optional[str] = None
+    outlook_client_id: Optional[str] = None
+    tenant: Optional[str] = None
+    outlook_token: Optional[str] = None
+
+
 def _read_ini() -> Dict[str, Dict[str, str]]:
     try:
         import configparser
@@ -61,15 +74,8 @@ def _read_ini() -> Dict[str, Dict[str, str]]:
     return merged_sections
 
 
-def _write_ini(
-    creds: Optional[str],
-    token: Optional[str],
-    *,
-    profile: Optional[str] = None,
-    outlook_client_id: Optional[str] = None,
-    tenant: Optional[str] = None,
-    outlook_token: Optional[str] = None,
-) -> None:
+def _write_ini_from_settings(settings: ProfileSettings) -> None:
+    """Write profile settings to INI configuration file."""
     try:
         import configparser
     except Exception:
@@ -82,22 +88,46 @@ def _write_ini(
             cp.read(dest)
         except Exception:
             cp = configparser.ConfigParser()
-    section = _SECTION if not profile else f"{_SECTION}.{profile}"
+    section = _SECTION if not settings.profile else f"{_SECTION}.{settings.profile}"
     if not cp.has_section(section):
         cp.add_section(section)
-    if creds:
-        cp.set(section, "credentials", str(creds))
-    if token:
-        cp.set(section, "token", str(token))
-    if outlook_client_id:
-        cp.set(section, "outlook_client_id", str(outlook_client_id))
-    if tenant:
-        cp.set(section, "tenant", str(tenant))
-    if outlook_token:
-        cp.set(section, "outlook_token", str(outlook_token))
+    if settings.credentials:
+        cp.set(section, "credentials", str(settings.credentials))
+    if settings.token:
+        cp.set(section, "token", str(settings.token))
+    if settings.outlook_client_id:
+        cp.set(section, "outlook_client_id", str(settings.outlook_client_id))
+    if settings.tenant:
+        cp.set(section, "tenant", str(settings.tenant))
+    if settings.outlook_token:
+        cp.set(section, "outlook_token", str(settings.outlook_token))
     Path(os.path.dirname(dest)).mkdir(parents=True, exist_ok=True)
     with open(dest, "w", encoding="utf-8") as fh:
         cp.write(fh)
+
+
+def _write_ini(
+    creds: Optional[str],
+    token: Optional[str],
+    *,
+    profile: Optional[str] = None,
+    outlook_client_id: Optional[str] = None,
+    tenant: Optional[str] = None,
+    outlook_token: Optional[str] = None,
+) -> None:
+    """Write profile settings to INI (backward-compatible wrapper).
+
+    Prefer using persist_profile_settings() for new code.
+    """
+    settings = ProfileSettings(
+        profile=profile,
+        credentials=creds,
+        token=token,
+        outlook_client_id=outlook_client_id,
+        tenant=tenant,
+        outlook_token=outlook_token,
+    )
+    _write_ini_from_settings(settings)
 
 
 def resolve_paths(
@@ -135,26 +165,40 @@ def persist_if_provided(*, arg_credentials: Optional[str], arg_token: Optional[s
 
 
 def persist_profile_settings(
+    settings: Optional[ProfileSettings] = None,
     *,
-    profile: Optional[str],
+    profile: Optional[str] = None,
     credentials: Optional[str] = None,
     token: Optional[str] = None,
     outlook_client_id: Optional[str] = None,
     tenant: Optional[str] = None,
     outlook_token: Optional[str] = None,
 ) -> None:
-    """Persist any provided settings to the INI under the given profile.
+    """Persist profile settings to the INI configuration file.
+
+    Args:
+        settings: ProfileSettings object (preferred for new code)
+        profile: Profile name (for backward compatibility)
+        credentials: Gmail credentials path (for backward compatibility)
+        token: Gmail token path (for backward compatibility)
+        outlook_client_id: Outlook client ID (for backward compatibility)
+        tenant: Outlook tenant (for backward compatibility)
+        outlook_token: Outlook token path (for backward compatibility)
 
     Only provided values are written; others are left unchanged.
     """
-    _write_ini(
-        credentials,
-        token,
-        profile=profile,
-        outlook_client_id=outlook_client_id,
-        tenant=tenant,
-        outlook_token=outlook_token,
-    )
+    if settings is not None:
+        _write_ini_from_settings(settings)
+    else:
+        # Backward compatibility: construct settings from individual parameters
+        _write_ini(
+            credentials,
+            token,
+            profile=profile,
+            outlook_client_id=outlook_client_id,
+            tenant=tenant,
+            outlook_token=outlook_token,
+        )
 
 
 def _get_ini_section(profile: Optional[str]) -> Dict[str, str]:
