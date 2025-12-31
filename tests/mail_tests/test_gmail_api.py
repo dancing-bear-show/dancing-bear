@@ -368,5 +368,343 @@ class TestGmailClientEnsureLabel(unittest.TestCase):
         self.assertEqual(result, "NEW_LBL")
 
 
+class TestGmailClientListMessageIds(unittest.TestCase):
+    """Tests for list_message_ids with pagination."""
+
+    def setUp(self):
+        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
+        self.mock_service = MagicMock()
+        self.client._service = self.mock_service
+
+    @patch("mail.paging.paginate_gmail_messages")
+    @patch("mail.paging.gather_pages")
+    def test_list_message_ids_with_query(self, mock_gather, mock_paginate):
+        mock_paginate.return_value = iter([["m1", "m2"]])
+        mock_gather.return_value = ["m1", "m2"]
+
+        result = self.client.list_message_ids(query="is:unread", max_pages=2, page_size=100)
+
+        self.assertEqual(result, ["m1", "m2"])
+        mock_paginate.assert_called_once()
+        mock_gather.assert_called_once_with(mock_paginate.return_value, max_pages=2)
+
+    @patch("mail.paging.paginate_gmail_messages")
+    @patch("mail.paging.gather_pages")
+    def test_list_message_ids_with_labels(self, mock_gather, mock_paginate):
+        mock_paginate.return_value = iter([["m3", "m4"]])
+        mock_gather.return_value = ["m3", "m4"]
+
+        result = self.client.list_message_ids(label_ids=["INBOX"], max_pages=1, page_size=500)
+
+        self.assertEqual(result, ["m3", "m4"])
+        mock_gather.assert_called_once_with(mock_paginate.return_value, max_pages=1)
+
+
+class TestGmailClientMessageMetadata(unittest.TestCase):
+    """Tests for message metadata retrieval with caching."""
+
+    def setUp(self):
+        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
+        self.mock_service = MagicMock()
+        self.client._service = self.mock_service
+
+    def test_get_message_metadata_without_cache(self):
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m1",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "sender@test.com"},
+                    {"name": "Subject", "value": "Test"},
+                ]
+            },
+        }
+        result = self.client.get_message_metadata("m1", use_cache=False)
+        self.assertEqual(result["id"], "m1")
+
+    def test_get_message_metadata_with_cache_miss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.client = GmailClient("/fake/creds.json", "/fake/token.json", cache_dir=tmpdir)
+            self.client._service = self.mock_service
+
+            self.mock_service.users().messages().get().execute.return_value = {
+                "id": "m2",
+                "payload": {"headers": []},
+            }
+
+            result = self.client.get_message_metadata("m2", use_cache=True)
+            self.assertEqual(result["id"], "m2")
+
+    def test_get_message_metadata_with_cache_hit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.client = GmailClient("/fake/creds.json", "/fake/token.json", cache_dir=tmpdir)
+            self.client._service = self.mock_service
+
+            # First call - cache miss
+            self.mock_service.users().messages().get().execute.return_value = {
+                "id": "m3",
+                "payload": {"headers": []},
+            }
+            result1 = self.client.get_message_metadata("m3", use_cache=True)
+
+            # Second call - should use cache
+            result2 = self.client.get_message_metadata("m3", use_cache=True)
+
+            self.assertEqual(result1, result2)
+            # API should only be called once
+            self.assertEqual(self.mock_service.users().messages().get().execute.call_count, 1)
+
+    def test_get_messages_metadata_batch(self):
+        self.mock_service.users().messages().get().execute.side_effect = [
+            {"id": "m1", "payload": {"headers": []}},
+            {"id": "m2", "payload": {"headers": []}},
+        ]
+        result = self.client.get_messages_metadata(["m1", "m2"], use_cache=False)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["id"], "m1")
+        self.assertEqual(result[1]["id"], "m2")
+
+    def test_get_messages_metadata_with_error(self):
+        # First succeeds, second fails, third succeeds
+        self.mock_service.users().messages().get().execute.side_effect = [
+            {"id": "m1", "payload": {"headers": []}},
+            RuntimeError("API error"),
+            {"id": "m3", "payload": {"headers": []}},
+        ]
+        result = self.client.get_messages_metadata(["m1", "m2", "m3"], use_cache=False)
+        # Should skip m2 due to error
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["id"], "m1")
+        self.assertEqual(result[1]["id"], "m3")
+
+
+class TestGmailClientGetMessageText(unittest.TestCase):
+    """Tests for get_message_text complex parsing."""
+
+    def setUp(self):
+        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
+        self.mock_service = MagicMock()
+        self.client._service = self.mock_service
+
+    def test_get_message_text_plain(self):
+        # Single-part text/plain message
+        plain_text = "Hello World"
+        encoded = base64.urlsafe_b64encode(plain_text.encode("utf-8")).decode("utf-8")
+
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m1",
+            "payload": {
+                "mimeType": "text/plain",
+                "body": {"data": encoded},
+            },
+        }
+
+        result = self.client.get_message_text("m1")
+        self.assertEqual(result, plain_text)
+
+    def test_get_message_text_html(self):
+        # Single-part text/html message
+        html_text = "<p>Hello <strong>World</strong></p>"
+        encoded = base64.urlsafe_b64encode(html_text.encode("utf-8")).decode("utf-8")
+
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m2",
+            "payload": {
+                "mimeType": "text/html",
+                "body": {"data": encoded},
+            },
+        }
+
+        result = self.client.get_message_text("m2")
+        # Should be converted to plain text
+        self.assertIn("Hello", result)
+        self.assertIn("World", result)
+        # Should not have HTML tags
+        self.assertNotIn("<p>", result)
+
+    def test_get_message_text_multipart_prefers_plain(self):
+        # Multipart message with both plain and HTML
+        plain_text = "Plain version"
+        html_text = "<p>HTML version</p>"
+        plain_encoded = base64.urlsafe_b64encode(plain_text.encode("utf-8")).decode("utf-8")
+        html_encoded = base64.urlsafe_b64encode(html_text.encode("utf-8")).decode("utf-8")
+
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m3",
+            "payload": {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                    {"mimeType": "text/plain", "body": {"data": plain_encoded}},
+                    {"mimeType": "text/html", "body": {"data": html_encoded}},
+                ],
+            },
+        }
+
+        result = self.client.get_message_text("m3")
+        # Should prefer plain text
+        self.assertEqual(result, plain_text)
+
+    def test_get_message_text_multipart_html_only(self):
+        # Multipart message with only HTML
+        html_text = "<p>HTML only</p>"
+        html_encoded = base64.urlsafe_b64encode(html_text.encode("utf-8")).decode("utf-8")
+
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m4",
+            "payload": {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                    {"mimeType": "text/html", "body": {"data": html_encoded}},
+                ],
+            },
+        }
+
+        result = self.client.get_message_text("m4")
+        # Should use HTML and convert to plain
+        self.assertIn("HTML only", result)
+        self.assertNotIn("<p>", result)
+
+    def test_get_message_text_nested_parts(self):
+        # Nested multipart message
+        plain_text = "Nested plain"
+        plain_encoded = base64.urlsafe_b64encode(plain_text.encode("utf-8")).decode("utf-8")
+
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m5",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "parts": [
+                    {
+                        "mimeType": "multipart/alternative",
+                        "parts": [
+                            {"mimeType": "text/plain", "body": {"data": plain_encoded}},
+                        ],
+                    },
+                ],
+            },
+        }
+
+        result = self.client.get_message_text("m5")
+        self.assertEqual(result, plain_text)
+
+    def test_get_message_text_fallback_to_snippet(self):
+        # No readable parts - fallback to snippet
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m6",
+            "snippet": "This is the snippet",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "parts": [],
+            },
+        }
+
+        result = self.client.get_message_text("m6")
+        self.assertEqual(result, "This is the snippet")
+
+    def test_get_message_text_empty_body(self):
+        # Message with no data
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m7",
+            "snippet": "",
+            "payload": {
+                "mimeType": "text/plain",
+                "body": {},
+            },
+        }
+
+        result = self.client.get_message_text("m7")
+        self.assertEqual(result, "")
+
+
+class TestGmailClientForwarding(unittest.TestCase):
+    """Tests for forwarding address methods."""
+
+    def setUp(self):
+        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
+        self.mock_service = MagicMock()
+        self.client._service = self.mock_service
+
+    def test_create_forwarding_address(self):
+        self.mock_service.users().settings().forwardingAddresses().create().execute.return_value = {
+            "forwardingEmail": "forward@example.com",
+            "verificationStatus": "pending",
+        }
+
+        result = self.client.create_forwarding_address("forward@example.com")
+        self.assertEqual(result["forwardingEmail"], "forward@example.com")
+        self.assertEqual(result["verificationStatus"], "pending")
+
+    def test_list_forwarding_addresses_info(self):
+        self.mock_service.users().settings().forwardingAddresses().list().execute.return_value = {
+            "forwardingAddresses": [
+                {"forwardingEmail": "addr1@example.com", "verificationStatus": "accepted"},
+                {"forwardingEmail": "addr2@example.com", "verificationStatus": "pending"},
+            ]
+        }
+
+        result = self.client.list_forwarding_addresses_info()
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["forwardingEmail"], "addr1@example.com")
+        self.assertEqual(result[1]["verificationStatus"], "pending")
+
+
+class TestGmailClientCaching(unittest.TestCase):
+    """Tests for cache-enabled methods."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.client = GmailClient("/fake/creds.json", "/fake/token.json", cache_dir=self.tmpdir.name)
+        self.mock_service = MagicMock()
+        self.client._service = self.mock_service
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_list_labels_with_cache_miss(self):
+        self.mock_service.users().labels().list().execute.return_value = {
+            "labels": [{"id": "LBL_1", "name": "TestLabel"}]
+        }
+
+        result = self.client.list_labels(use_cache=True, ttl=300)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], "LBL_1")
+
+    def test_list_labels_with_cache_hit(self):
+        # First call - cache miss
+        self.mock_service.users().labels().list().execute.return_value = {
+            "labels": [{"id": "LBL_1", "name": "TestLabel"}]
+        }
+        result1 = self.client.list_labels(use_cache=True, ttl=300)
+
+        # Second call - should use cache
+        result2 = self.client.list_labels(use_cache=True, ttl=300)
+
+        self.assertEqual(result1, result2)
+        # API should only be called once
+        self.assertEqual(self.mock_service.users().labels().list().execute.call_count, 1)
+
+    def test_list_filters_with_cache_miss(self):
+        self.mock_service.users().settings().filters().list().execute.return_value = {
+            "filter": [{"id": "F1", "criteria": {"from": "test@example.com"}}]
+        }
+
+        result = self.client.list_filters(use_cache=True, ttl=300)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], "F1")
+
+    def test_list_filters_with_cache_hit(self):
+        # First call - cache miss
+        self.mock_service.users().settings().filters().list().execute.return_value = {
+            "filters": [{"id": "F2", "criteria": {"to": "me@example.com"}}]
+        }
+        result1 = self.client.list_filters(use_cache=True, ttl=300)
+
+        # Second call - should use cache
+        result2 = self.client.list_filters(use_cache=True, ttl=300)
+
+        self.assertEqual(result1, result2)
+        # API should only be called once
+        self.assertEqual(self.mock_service.users().settings().filters().list().execute.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
