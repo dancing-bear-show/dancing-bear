@@ -211,7 +211,7 @@ class ToolCatalogProcessorTests(TestCase):
         env = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertIsInstance(env.payload, ToolCatalogResult)
-        self.assertTrue(len(env.payload.specs) > 0)
+        self.assertGreater(len(env.payload.specs), 0)
         self.assertIn("Available maker tools:", env.payload.text)
 
     def test_processor_empty_directory(self):

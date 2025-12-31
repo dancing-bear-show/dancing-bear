@@ -53,8 +53,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
 
     def _process_safe(self, payload: OutlookRemoveRequest) -> OutlookRemoveResult:
         items = load_events_config(payload.config_path, self._config_loader)
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)  # Raises ValueError if None
         svc = payload.service
 
         plan: List[OutlookRemovePlanEntry] = []
