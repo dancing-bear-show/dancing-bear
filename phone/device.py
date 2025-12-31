@@ -13,6 +13,8 @@ from pathlib import Path
 from shutil import which
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.constants import credential_ini_paths
+
 from .constants import P12_PASS_KEYS, P12_PATH_KEYS
 from .layout import normalize_iconstate, to_yaml_export
 
@@ -187,8 +189,6 @@ def _fallback_parse(data: Any) -> Dict[str, Any]:
 # -----------------------------------------------------------------------------
 # Credentials and certificate helpers
 # -----------------------------------------------------------------------------
-
-from core.constants import credential_ini_paths
 
 
 def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Dict[str, str]]]:
