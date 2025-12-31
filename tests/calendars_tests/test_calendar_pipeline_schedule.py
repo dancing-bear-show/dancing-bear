@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from calendars.outlook_service import EventCreationParams, RecurringEventCreationParams
+from calendars.outlook_service import EventCreationParams
 from calendars.pipeline import (
     OutlookScheduleImportProcessor,
     OutlookScheduleImportProducer,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Pattern, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
 
@@ -41,14 +41,14 @@ DATE_RANGE_PAT = re.compile(
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MetaParserConfig:
     """Configuration for metadata parsing from class schedule text."""
 
     facilities: Sequence[str] = ()
-    date_range_pat: Pattern = DATE_RANGE_PAT
-    class_pat: Pattern = CLASS_PAT
-    loc_label_pat: Pattern = LOC_LABEL_PAT
+    date_range_pat: re.Pattern[str] = DATE_RANGE_PAT
+    class_pat: re.Pattern[str] = CLASS_PAT
+    loc_label_pat: re.Pattern[str] = LOC_LABEL_PAT
     default_year: Optional[int] = None
 
     def __post_init__(self):
