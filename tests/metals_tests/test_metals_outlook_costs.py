@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -175,7 +176,7 @@ class TestExtractLineItems(unittest.TestCase):
         self.assertGreater(len(items), 0)
         # Should find qty of 5
         qty_values = [it.get("qty", 1) for it in items]
-        self.assertTrue(any(q == 5.0 for q in qty_values))
+        self.assertTrue(any(math.isclose(q, 5.0) for q in qty_values))
 
 
 class TestExtractOrderAmount(unittest.TestCase):

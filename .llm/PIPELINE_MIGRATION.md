@@ -62,6 +62,10 @@ so multiple engineers can work in parallel without stepping on each other.
 - Desk:
   - [x] Define consumers for scan/rules YAML, processors for ranking, producers for plan/apply.
   - [x] Wire CLI shim to new orchestrator (`desk/pipeline.py`, CLI now delegates to pipeline components).
+  - [x] **COMPLETE (Dec 2024)**: All 3 processors migrated to SafeProcessor pattern (ScanProcessor, PlanProcessor, ApplyProcessor).
+  - [x] ReportProducer and ApplyResultProducer migrated to BaseProducer pattern.
+  - [x] CLI updated to use RequestConsumer and handle ResultEnvelope.
+  - [x] All tests updated and passing (135 tests).
 - Resume:
   - [x] Pipeline module (`resume/pipeline.py`) with FilterPipeline for chainable transforms.
   - [x] Commands (extract, summarize, render, structure, align, etc.) use pipeline pattern.
@@ -75,6 +79,9 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Identity verify command uses pipeline with credential/certificate helpers in `phone/device.py`.
   - [x] App classification extracted to `phone/classify.py` for shared use.
   - [x] Full pipeline coverage: 12/12 commands use Consumer/Processor/Producer pattern.
+  - [x] **SafeProcessor migration (Dec 2024)**: All 12 processors migrated to SafeProcessor pattern (-52 lines).
+  - [x] Tests updated: removed error code assertions (SafeProcessor doesn't preserve custom error codes).
+  - [x] All 174 tests passing ✓.
 - WhatsApp:
   - [x] Pipeline module (`whatsapp/pipeline.py`) with SearchProcessor/SearchRequestConsumer/SearchProducer.
   - [x] Search command uses pipeline pattern for local ChatStorage queries.
@@ -86,6 +93,9 @@ so multiple engineers can work in parallel without stepping on each other.
 
 ## Phase 6 — Wi-Fi (optional)
 - [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi/pipeline.py` + CLI shim).
+- [x] **SafeProcessor migration (Dec 2024)**: DiagnoseProcessor migrated to SafeProcessor pattern (-13 lines).
+- [x] DiagnoseProducer already using BaseProducer (no changes needed).
+- [x] All 39 tests passing ✓.
 
 ## Coordination Notes
 - Each phase should leave CLI behavior unchanged (backward compatible).
