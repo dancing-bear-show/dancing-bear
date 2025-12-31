@@ -56,7 +56,12 @@ so multiple engineers can work in parallel without stepping on each other.
   - [ ] CLI shim delegates to new domain orchestrator.
 - Schedule:
   - [x] Plan command uses dedicated pipeline consumers/processors/producers (`schedule/pipeline.py` + new tests).
-- [x] Update remaining commands (verify/sync/apply) + docs once calendar migration is done.
+  - [x] Update remaining commands (verify/sync/apply) + docs once calendar migration is done.
+  - [x] **COMPLETE (Dec 2024)**: All 4 processors migrated to SafeProcessor pattern (PlanProcessor, VerifyProcessor, SyncProcessor, ApplyProcessor).
+  - [x] All producers already using BaseProducer (no changes needed).
+  - [x] CLI already using RequestConsumer and ResultEnvelope pattern.
+  - [x] Helper function `_execute_sync_deletes` simplified (no longer returns error envelope).
+  - [x] All 78 tests passing ✓.
 
 ## Phase 3 — Desk & Resume (parallel-friendly)
 - Desk:
