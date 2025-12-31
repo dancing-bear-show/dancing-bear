@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from core.pipeline import Processor, Producer, ResultEnvelope, SafeProcessor, RequestConsumer
+from core.pipeline import Producer, ResultEnvelope, SafeProcessor, RequestConsumer
 
 # -----------------------------------------------------------------------------
 # Shared abstractions
@@ -71,6 +71,151 @@ def canonicalize_filter(f: Dict[str, Any]) -> str:
     })
 
 
+def _build_label_id_to_name_map(labels: list) -> Dict[str, str]:
+    """Build mapping from label IDs to names."""
+    return {lab.get("id", ""): lab.get("name", "") for lab in labels}
+
+
+def _convert_label_ids_to_names(ids: Optional[list], id_to_name: Dict[str, str]) -> list:
+    """Convert list of label IDs to names using provided mapping."""
+    return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
+
+
+def _extract_filter_criteria(criteria_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract relevant filter criteria fields."""
+    allowed_fields = ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison")
+    return {k: v for k, v in criteria_dict.items() if k in allowed_fields and v not in (None, "")}
+
+
+def _build_filter_dsl_entry(filter_obj: Dict[str, Any], id_to_name: Dict[str, str]) -> Dict[str, Any]:
+    """Build a DSL filter entry from a raw filter object."""
+    crit = filter_obj.get("criteria", {}) or {}
+    act = filter_obj.get("action", {}) or {}
+
+    entry: Dict[str, Any] = {
+        "match": _extract_filter_criteria(crit),
+        "action": {},
+    }
+
+    if act.get("forward"):
+        entry["action"]["forward"] = act["forward"]
+    if act.get("addLabelIds"):
+        entry["action"]["add"] = _convert_label_ids_to_names(act.get("addLabelIds"), id_to_name)
+    if act.get("removeLabelIds"):
+        entry["action"]["remove"] = _convert_label_ids_to_names(act.get("removeLabelIds"), id_to_name)
+
+    return entry
+
+
+def _needs_label_update(spec: Dict[str, Any], current: Dict[str, Any], provider: str) -> bool:
+    """Check if label needs updating based on spec vs current state."""
+    if provider == "gmail":
+        for k in ("color", "labelListVisibility", "messageListVisibility"):
+            if spec.get(k) and spec.get(k) != current.get(k):
+                return True
+    elif provider == "outlook":
+        if spec.get("color") and spec.get("color") != current.get("color"):
+            return True
+    return False
+
+
+def _build_label_update_dict(name: str, spec: Dict[str, Any], current: Dict[str, Any], provider: str) -> Optional[Dict[str, Any]]:
+    """Build update dict for a label if changes are needed."""
+    upd = {"name": name}
+    changed = False
+
+    if provider == "gmail":
+        for k in ("color", "labelListVisibility", "messageListVisibility"):
+            if spec.get(k) and spec.get(k) != current.get(k):
+                upd[k] = spec[k]
+                changed = True
+    elif provider == "outlook":
+        if spec.get("color") and spec.get("color") != current.get("color"):
+            upd["color"] = spec["color"]
+            changed = True
+
+    return upd if changed else None
+
+
+def _build_outlook_filter_action(action_spec: Dict[str, Any], name_to_id: Dict[str, str]) -> Dict[str, Any]:
+    """Build Outlook filter action from spec."""
+    from ..outlook.helpers import norm_label_name_outlook
+
+    action: Dict[str, Any] = {}
+    if action_spec.get("add"):
+        action["addLabelIds"] = [
+            name_to_id.get(x) or name_to_id.get(norm_label_name_outlook(x))
+            for x in action_spec["add"]
+        ]
+        action["addLabelIds"] = [x for x in action["addLabelIds"] if x]
+    if action_spec.get("forward"):
+        action["forward"] = action_spec["forward"]
+    return action
+
+
+def _sync_outlook_filters(client, desired_filters: list, existing_filters: list, name_to_id: Dict[str, str], dry_run: bool) -> tuple[int, int]:
+    """Sync Outlook filters and return (created, errors) counts."""
+    existing_keys = {canonicalize_filter(f): f for f in existing_filters}
+    created = 0
+    errors = 0
+
+    for spec in desired_filters:
+        match = spec.get("match") or {}
+        action_spec = spec.get("action") or {}
+        criteria = {k: v for k, v in match.items() if k in ("from", "to", "subject")}
+        action = _build_outlook_filter_action(action_spec, name_to_id)
+
+        key = str({
+            "from": criteria.get("from"),
+            "to": criteria.get("to"),
+            "subject": criteria.get("subject"),
+            "add": tuple(sorted(action.get("addLabelIds", []) or [])),
+            "forward": action.get("forward"),
+        })
+
+        if key in existing_keys:
+            continue
+
+        if not dry_run:
+            try:
+                client.create_filter(criteria, action)
+                created += 1
+            except Exception:  # nosec B110 - continue on filter creation errors
+                errors += 1
+        else:
+            created += 1
+
+    return created, errors
+
+
+def _sync_labels_for_account(client, desired: list, existing: Dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
+    """Sync labels for an account and return (created, updated) counts."""
+    created = 0
+    updated = 0
+
+    for spec in desired:
+        name = spec.get("name")
+        if not name:
+            continue
+
+        # Create new labels
+        if name not in existing:
+            if not dry_run:
+                client.create_label(**spec)
+            created += 1
+            continue
+
+        # Update existing labels if needed
+        cur = existing[name]
+        upd = _build_label_update_dict(name, spec, cur, provider)
+        if upd and not dry_run:
+            client.update_label(cur.get("id", ""), upd)
+        if upd:
+            updated += 1
+
+    return created, updated
+
+
 # -----------------------------------------------------------------------------
 # List accounts pipeline
 # -----------------------------------------------------------------------------
@@ -104,26 +249,22 @@ class AccountsListResult:
 AccountsListRequestConsumer = SimpleConsumer[AccountsListRequest]
 
 
-class AccountsListProcessor(Processor[AccountsListRequest, ResultEnvelope[AccountsListResult]]):
-    def process(self, payload: AccountsListRequest) -> ResultEnvelope[AccountsListResult]:
+class AccountsListProcessor(SafeProcessor[AccountsListRequest, AccountsListResult]):
+    def _process_safe(self, payload: AccountsListRequest) -> AccountsListResult:
         from .helpers import load_accounts
 
-        try:
-            accts = load_accounts(payload.config_path)
-            result = AccountsListResult(
-                accounts=[
-                    AccountInfo(
-                        name=a.get("name", "<noname>"),
-                        provider=a.get("provider", ""),
-                        credentials=a.get("credentials", ""),
-                        token=a.get("token", ""),
-                    )
-                    for a in accts
-                ]
-            )
-            return ResultEnvelope(status="success", payload=result)
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        accts = load_accounts(payload.config_path)
+        return AccountsListResult(
+            accounts=[
+                AccountInfo(
+                    name=a.get("name", "<noname>"),
+                    provider=a.get("provider", ""),
+                    credentials=a.get("credentials", ""),
+                    token=a.get("token", ""),
+                )
+                for a in accts
+            ]
+        )
 
 
 class AccountsListProducer(AccountsResultProducer[AccountsListResult]):
@@ -234,52 +375,32 @@ class AccountsExportFiltersResult:
 AccountsExportFiltersRequestConsumer = SimpleConsumer[AccountsExportFiltersRequest]
 
 
-class AccountsExportFiltersProcessor(Processor[AccountsExportFiltersRequest, ResultEnvelope[AccountsExportFiltersResult]]):
-    def process(self, payload: AccountsExportFiltersRequest) -> ResultEnvelope[AccountsExportFiltersResult]:
+class AccountsExportFiltersProcessor(SafeProcessor[AccountsExportFiltersRequest, AccountsExportFiltersResult]):
+    def _process_safe(self, payload: AccountsExportFiltersRequest) -> AccountsExportFiltersResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from ..yamlio import dump_config
 
-        try:
-            accts = load_accounts(payload.config_path)
-            out_dir = Path(payload.out_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
+        accts = load_accounts(payload.config_path)
+        out_dir = Path(payload.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-            exports: List[ExportedFiltersInfo] = []
-            for a in iter_accounts(accts, payload.accounts_filter):
-                client = build_provider_for_account(a)
-                client.authenticate()
-                id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in client.list_labels()}
+        exports: List[ExportedFiltersInfo] = []
+        for a in iter_accounts(accts, payload.accounts_filter):
+            client = build_provider_for_account(a)
+            client.authenticate()
+            id_to_name = _build_label_id_to_name_map(client.list_labels())
 
-                def ids_to_names(ids):
-                    return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
+            dsl = [_build_filter_dsl_entry(f, id_to_name) for f in client.list_filters()]
 
-                dsl = []
-                for f in client.list_filters():
-                    crit = f.get("criteria", {}) or {}
-                    act = f.get("action", {}) or {}
-                    entry = {
-                        "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
-                        "action": {},
-                    }
-                    if act.get("forward"):
-                        entry["action"]["forward"] = act["forward"]
-                    if act.get("addLabelIds"):
-                        entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
-                    if act.get("removeLabelIds"):
-                        entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
-                    dsl.append(entry)
+            path = out_dir / f"filters_{a.get('name', 'account')}.yaml"
+            dump_config(str(path), {"filters": dsl})
+            exports.append(ExportedFiltersInfo(
+                account_name=a.get("name", "account"),
+                output_path=str(path),
+                filter_count=len(dsl),
+            ))
 
-                path = out_dir / f"filters_{a.get('name', 'account')}.yaml"
-                dump_config(str(path), {"filters": dsl})
-                exports.append(ExportedFiltersInfo(
-                    account_name=a.get("name", "account"),
-                    output_path=str(path),
-                    filter_count=len(dsl),
-                ))
-
-            return ResultEnvelope(status="success", payload=AccountsExportFiltersResult(exports=exports))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsExportFiltersResult(exports=exports)
 
 
 class AccountsExportFiltersProducer(AccountsResultProducer[AccountsExportFiltersResult]):
@@ -322,54 +443,43 @@ class AccountsPlanLabelsResult:
 AccountsPlanLabelsRequestConsumer = SimpleConsumer[AccountsPlanLabelsRequest]
 
 
-class AccountsPlanLabelsProcessor(Processor[AccountsPlanLabelsRequest, ResultEnvelope[AccountsPlanLabelsResult]]):
-    def process(self, payload: AccountsPlanLabelsRequest) -> ResultEnvelope[AccountsPlanLabelsResult]:
+class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, AccountsPlanLabelsResult]):
+    def _process_safe(self, payload: AccountsPlanLabelsRequest) -> AccountsPlanLabelsResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from ..yamlio import load_config
         from ..dsl import normalize_labels_for_outlook
 
-        try:
-            accts = load_accounts(payload.config_path)
-            desired_doc = load_config(payload.labels_path)
-            base = desired_doc.get("labels") or []
+        accts = load_accounts(payload.config_path)
+        desired_doc = load_config(payload.labels_path)
+        base = desired_doc.get("labels") or []
 
-            plans: List[LabelsPlanInfo] = []
-            for a in iter_accounts(accts, payload.accounts_filter):
-                provider = (a.get("provider") or "").lower()
-                client = build_provider_for_account(a)
-                client.authenticate()
-                existing = {lab.get("name", ""): lab for lab in client.list_labels(use_cache=True)}
-                target = normalize_labels_for_outlook(base) if provider == "outlook" else base
+        plans: List[LabelsPlanInfo] = []
+        for a in iter_accounts(accts, payload.accounts_filter):
+            provider = (a.get("provider") or "").lower()
+            client = build_provider_for_account(a)
+            client.authenticate()
+            existing = {lab.get("name", ""): lab for lab in client.list_labels(use_cache=True)}
+            target = normalize_labels_for_outlook(base) if provider == "outlook" else base
 
-                to_create = []
-                to_update = []
-                for spec in target:
-                    name = spec.get("name")
-                    if not name:
-                        continue
-                    if name not in existing:
-                        to_create.append(name)
-                    else:
-                        cur = existing[name]
-                        if provider == "gmail":
-                            for k in ("color", "labelListVisibility", "messageListVisibility"):
-                                if spec.get(k) and spec.get(k) != cur.get(k):
-                                    to_update.append(name)
-                                    break
-                        elif provider == "outlook":
-                            if spec.get("color") and spec.get("color") != cur.get("color"):
-                                to_update.append(name)
+            to_create = []
+            to_update = []
+            for spec in target:
+                name = spec.get("name")
+                if not name:
+                    continue
+                if name not in existing:
+                    to_create.append(name)
+                elif _needs_label_update(spec, existing[name], provider):
+                    to_update.append(name)
 
-                plans.append(LabelsPlanInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    to_create=len(to_create),
-                    to_update=len(to_update),
-                ))
+            plans.append(LabelsPlanInfo(
+                account_name=a.get("name", "account"),
+                provider=provider,
+                to_create=len(to_create),
+                to_update=len(to_update),
+            ))
 
-            return ResultEnvelope(status="success", payload=AccountsPlanLabelsResult(plans=plans))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsPlanLabelsResult(plans=plans)
 
 
 class AccountsPlanLabelsProducer(AccountsResultProducer[AccountsPlanLabelsResult]):
@@ -413,63 +523,34 @@ class AccountsSyncLabelsResult:
 AccountsSyncLabelsRequestConsumer = SimpleConsumer[AccountsSyncLabelsRequest]
 
 
-class AccountsSyncLabelsProcessor(Processor[AccountsSyncLabelsRequest, ResultEnvelope[AccountsSyncLabelsResult]]):
-    def process(self, payload: AccountsSyncLabelsRequest) -> ResultEnvelope[AccountsSyncLabelsResult]:
+class AccountsSyncLabelsProcessor(SafeProcessor[AccountsSyncLabelsRequest, AccountsSyncLabelsResult]):
+    def _process_safe(self, payload: AccountsSyncLabelsRequest) -> AccountsSyncLabelsResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from ..yamlio import load_config
         from ..dsl import normalize_labels_for_outlook
 
-        try:
-            accts = load_accounts(payload.config_path)
-            desired_doc = load_config(payload.labels_path)
-            desired_base = desired_doc.get("labels") or []
+        accts = load_accounts(payload.config_path)
+        desired_doc = load_config(payload.labels_path)
+        desired_base = desired_doc.get("labels") or []
 
-            synced: List[SyncedLabelInfo] = []
-            for a in iter_accounts(accts, payload.accounts_filter):
-                provider = (a.get("provider") or "").lower()
-                client = build_provider_for_account(a)
-                client.authenticate()
-                desired = normalize_labels_for_outlook(desired_base) if provider == "outlook" else desired_base
-                existing = {lab.get("name", ""): lab for lab in client.list_labels()}
+        synced: List[SyncedLabelInfo] = []
+        for a in iter_accounts(accts, payload.accounts_filter):
+            provider = (a.get("provider") or "").lower()
+            client = build_provider_for_account(a)
+            client.authenticate()
+            desired = normalize_labels_for_outlook(desired_base) if provider == "outlook" else desired_base
+            existing = {lab.get("name", ""): lab for lab in client.list_labels()}
 
-                created = 0
-                updated = 0
-                for spec in desired:
-                    name = spec.get("name")
-                    if not name:
-                        continue
-                    if name not in existing:
-                        if not payload.dry_run:
-                            client.create_label(**spec)
-                        created += 1
-                    else:
-                        cur = existing[name]
-                        upd = {"name": name}
-                        changed = False
-                        if provider == "gmail":
-                            for k in ("color", "labelListVisibility", "messageListVisibility"):
-                                if spec.get(k) and spec.get(k) != cur.get(k):
-                                    upd[k] = spec[k]
-                                    changed = True
-                        elif provider == "outlook":
-                            if spec.get("color") and spec.get("color") != cur.get("color"):
-                                upd["color"] = spec["color"]
-                                changed = True
-                        if changed:
-                            if not payload.dry_run:
-                                client.update_label(cur.get("id", ""), upd)
-                            updated += 1
+            created, updated = _sync_labels_for_account(client, desired, existing, provider, payload.dry_run)
 
-                synced.append(SyncedLabelInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    created=created,
-                    updated=updated,
-                ))
+            synced.append(SyncedLabelInfo(
+                account_name=a.get("name", "account"),
+                provider=provider,
+                created=created,
+                updated=updated,
+            ))
 
-            return ResultEnvelope(status="success", payload=AccountsSyncLabelsResult(synced=synced))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsSyncLabelsResult(synced=synced)
 
 
 class AccountsSyncLabelsProducer(AccountsResultProducer[AccountsSyncLabelsResult]):
@@ -512,53 +593,42 @@ class AccountsPlanFiltersResult:
 AccountsPlanFiltersRequestConsumer = SimpleConsumer[AccountsPlanFiltersRequest]
 
 
-class AccountsPlanFiltersProcessor(Processor[AccountsPlanFiltersRequest, ResultEnvelope[AccountsPlanFiltersResult]]):
-    def process(self, payload: AccountsPlanFiltersRequest) -> ResultEnvelope[AccountsPlanFiltersResult]:
+class AccountsPlanFiltersProcessor(SafeProcessor[AccountsPlanFiltersRequest, AccountsPlanFiltersResult]):
+    def _process_safe(self, payload: AccountsPlanFiltersRequest) -> AccountsPlanFiltersResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from ..yamlio import load_config
         from ..dsl import normalize_filters_for_outlook
 
-        try:
-            accts = load_accounts(payload.config_path)
-            desired_doc = load_config(payload.filters_path)
-            base = desired_doc.get("filters") or []
+        accts = load_accounts(payload.config_path)
+        desired_doc = load_config(payload.filters_path)
+        base = desired_doc.get("filters") or []
 
-            plans: List[FiltersPlanInfo] = []
-            for a in iter_accounts(accts, payload.accounts_filter):
-                provider = (a.get("provider") or "").lower()
-                client = build_provider_for_account(a)
-                client.authenticate()
-                existing = client.list_filters(use_cache=True)
+        plans: List[FiltersPlanInfo] = []
+        for a in iter_accounts(accts, payload.accounts_filter):
+            provider = (a.get("provider") or "").lower()
+            client = build_provider_for_account(a)
+            client.authenticate()
+            existing = client.list_filters(use_cache=True)
 
-                to_create = 0
-                if provider == "gmail":
-                    ex_keys = {canonicalize_filter(f) for f in existing}
-                    for f in base:
-                        if canonicalize_filter(f) not in ex_keys:
-                            to_create += 1
-                elif provider == "outlook":
-                    desired = normalize_filters_for_outlook(base)
-                    ex_keys = {canonicalize_filter(f) for f in existing}
-                    for f in desired:
-                        if canonicalize_filter(f) not in ex_keys:
-                            to_create += 1
-                else:
-                    plans.append(FiltersPlanInfo(
-                        account_name=a.get("name", "account"),
-                        provider=provider,
-                        to_create=-1,  # unsupported
-                    ))
-                    continue
-
+            if provider not in ("gmail", "outlook"):
                 plans.append(FiltersPlanInfo(
                     account_name=a.get("name", "account"),
                     provider=provider,
-                    to_create=to_create,
+                    to_create=-1,  # unsupported
                 ))
+                continue
 
-            return ResultEnvelope(status="success", payload=AccountsPlanFiltersResult(plans=plans))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+            desired_filters = normalize_filters_for_outlook(base) if provider == "outlook" else base
+            ex_keys = {canonicalize_filter(f) for f in existing}
+            to_create = sum(1 for f in desired_filters if canonicalize_filter(f) not in ex_keys)
+
+            plans.append(FiltersPlanInfo(
+                account_name=a.get("name", "account"),
+                provider=provider,
+                to_create=to_create,
+            ))
+
+        return AccountsPlanFiltersResult(plans=plans)
 
 
 class AccountsPlanFiltersProducer(AccountsResultProducer[AccountsPlanFiltersResult]):
@@ -606,91 +676,54 @@ class AccountsSyncFiltersResult:
 AccountsSyncFiltersRequestConsumer = SimpleConsumer[AccountsSyncFiltersRequest]
 
 
-class AccountsSyncFiltersProcessor(Processor[AccountsSyncFiltersRequest, ResultEnvelope[AccountsSyncFiltersResult]]):
-    def process(self, payload: AccountsSyncFiltersRequest) -> ResultEnvelope[AccountsSyncFiltersResult]:
+class AccountsSyncFiltersProcessor(SafeProcessor[AccountsSyncFiltersRequest, AccountsSyncFiltersResult]):
+    def _process_safe(self, payload: AccountsSyncFiltersRequest) -> AccountsSyncFiltersResult:
         import argparse
         from .helpers import load_accounts, iter_accounts, build_client_for_account
         from ..yamlio import load_config
         from ..dsl import normalize_filters_for_outlook
         from ..filters.commands import run_filters_sync
-        from ..outlook.helpers import norm_label_name_outlook
 
-        try:
-            accts = load_accounts(payload.config_path)
-            synced: List[SyncedFiltersInfo] = []
+        accts = load_accounts(payload.config_path)
+        synced: List[SyncedFiltersInfo] = []
 
-            for a in iter_accounts(accts, payload.accounts_filter):
-                provider = (a.get("provider") or "").lower()
-                created = 0
-                errors = 0
+        for a in iter_accounts(accts, payload.accounts_filter):
+            provider = (a.get("provider") or "").lower()
 
-                if provider == "gmail":
-                    ns = argparse.Namespace(
-                        credentials=a.get("credentials"),
-                        token=a.get("token"),
-                        cache=a.get("cache"),
-                        config=payload.filters_path,
-                        dry_run=payload.dry_run,
-                        delete_missing=False,
-                        require_forward_verified=payload.require_forward_verified,
-                    )
-                    run_filters_sync(ns)
-                    synced.append(SyncedFiltersInfo(
-                        account_name=a.get("name", "account"),
-                        provider=provider,
-                        created=-1,  # delegated to run_filters_sync
-                        errors=0,
-                    ))
-                    continue
+            if provider == "gmail":
+                ns = argparse.Namespace(
+                    credentials=a.get("credentials"),
+                    token=a.get("token"),
+                    cache=a.get("cache"),
+                    config=payload.filters_path,
+                    dry_run=payload.dry_run,
+                    delete_missing=False,
+                    require_forward_verified=payload.require_forward_verified,
+                )
+                run_filters_sync(ns)
+                synced.append(SyncedFiltersInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    created=-1,  # delegated to run_filters_sync
+                    errors=0,
+                ))
+            elif provider == "outlook":
+                client = build_client_for_account(a)
+                client.authenticate()
+                doc = load_config(payload.filters_path)
+                desired = normalize_filters_for_outlook(doc.get("filters") or [])
+                existing = client.list_filters()
+                name_to_id = client.get_label_id_map()
 
-                if provider == "outlook":
-                    client = build_client_for_account(a)
-                    client.authenticate()
-                    doc = load_config(payload.filters_path)
-                    desired = normalize_filters_for_outlook(doc.get("filters") or [])
-                    existing = {canonicalize_filter(f): f for f in client.list_filters()}
-                    name_to_id = client.get_label_id_map()
+                created, errors = _sync_outlook_filters(client, desired, existing, name_to_id, payload.dry_run)
 
-                    for spec in desired:
-                        m = spec.get("match") or {}
-                        a_act = spec.get("action") or {}
-                        criteria = {k: v for k, v in m.items() if k in ("from", "to", "subject")}
-                        action: Dict[str, Any] = {}
-                        if a_act.get("add"):
-                            action["addLabelIds"] = [
-                                name_to_id.get(x) or name_to_id.get(norm_label_name_outlook(x))
-                                for x in a_act["add"]
-                            ]
-                            action["addLabelIds"] = [x for x in action["addLabelIds"] if x]
-                        if a_act.get("forward"):
-                            action["forward"] = a_act["forward"]
-
-                        key = str({
-                            "from": criteria.get("from"),
-                            "to": criteria.get("to"),
-                            "subject": criteria.get("subject"),
-                            "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-                            "forward": action.get("forward"),
-                        })
-                        if key in existing:
-                            continue
-                        if not payload.dry_run:
-                            try:
-                                client.create_filter(criteria, action)
-                                created += 1
-                            except Exception:
-                                errors += 1
-                        else:
-                            created += 1
-
-                    synced.append(SyncedFiltersInfo(
-                        account_name=a.get("name", "account"),
-                        provider=provider,
-                        created=created,
-                        errors=errors,
-                    ))
-                    continue
-
+                synced.append(SyncedFiltersInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    created=created,
+                    errors=errors,
+                ))
+            else:
                 synced.append(SyncedFiltersInfo(
                     account_name=a.get("name", "account"),
                     provider=provider,
@@ -698,9 +731,7 @@ class AccountsSyncFiltersProcessor(Processor[AccountsSyncFiltersRequest, ResultE
                     errors=0,
                 ))
 
-            return ResultEnvelope(status="success", payload=AccountsSyncFiltersResult(synced=synced))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsSyncFiltersResult(synced=synced)
 
 
 class AccountsSyncFiltersProducer(AccountsResultProducer[AccountsSyncFiltersResult]):
@@ -747,61 +778,58 @@ class AccountsExportSignaturesResult:
 AccountsExportSignaturesRequestConsumer = SimpleConsumer[AccountsExportSignaturesRequest]
 
 
-class AccountsExportSignaturesProcessor(Processor[AccountsExportSignaturesRequest, ResultEnvelope[AccountsExportSignaturesResult]]):
-    def process(self, payload: AccountsExportSignaturesRequest) -> ResultEnvelope[AccountsExportSignaturesResult]:
+class AccountsExportSignaturesProcessor(SafeProcessor[AccountsExportSignaturesRequest, AccountsExportSignaturesResult]):
+    def _process_safe(self, payload: AccountsExportSignaturesRequest) -> AccountsExportSignaturesResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
         from ..yamlio import dump_config
 
-        try:
-            accts = load_accounts(payload.config_path)
-            out_dir = Path(payload.out_dir)
-            out_dir.mkdir(parents=True, exist_ok=True)
+        accts = load_accounts(payload.config_path)
+        out_dir = Path(payload.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-            exports: List[ExportedSignaturesInfo] = []
-            for a in iter_accounts(accts, payload.accounts_filter):
-                name = a.get("name", "account")
-                provider = (a.get("provider") or "").lower()
-                path = out_dir / f"signatures_{name}.yaml"
-                assets = out_dir / f"{name}_assets"
-                assets.mkdir(parents=True, exist_ok=True)
-                doc: Dict[str, Any] = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
-                sig_count = 0
+        exports: List[ExportedSignaturesInfo] = []
+        for a in iter_accounts(accts, payload.accounts_filter):
+            name = a.get("name", "account")
+            provider = (a.get("provider") or "").lower()
+            path = out_dir / f"signatures_{name}.yaml"
+            assets = out_dir / f"{name}_assets"
+            assets.mkdir(parents=True, exist_ok=True)
+            doc: Dict[str, Any] = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
+            sig_count = 0
 
-                if provider == "gmail":
-                    client = build_provider_for_account(a)
-                    client.authenticate()
-                    sigs = client.list_signatures()
-                    doc["signatures"]["gmail"] = [
-                        {
-                            "sendAs": s.get("sendAsEmail"),
-                            "isPrimary": s.get("isPrimary", False),
-                            "signature_html": s.get("signature", ""),
-                        }
-                        for s in sigs
-                    ]
-                    sig_count = len(doc["signatures"]["gmail"])
-                    prim = next((s for s in doc["signatures"]["gmail"] if s.get("isPrimary")), None)
-                    if prim and prim.get("signature_html"):
-                        doc["signatures"]["default_html"] = prim["signature_html"]
-                        (assets / "ios_signature.html").write_text(prim["signature_html"], encoding="utf-8")
-                elif provider == "outlook":
-                    (assets / "OUTLOOK_README.txt").write_text(
-                        "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
-                        "Use ios_signature.html exported from a Gmail account, or paste HTML manually.",
-                        encoding="utf-8",
-                    )
+            if provider == "gmail":
+                client = build_provider_for_account(a)
+                client.authenticate()
+                sigs = client.list_signatures()
+                doc["signatures"]["gmail"] = [
+                    {
+                        "sendAs": s.get("sendAsEmail"),
+                        "isPrimary": s.get("isPrimary", False),
+                        "signature_html": s.get("signature", ""),
+                    }
+                    for s in sigs
+                ]
+                sig_count = len(doc["signatures"]["gmail"])
+                prim = next((s for s in doc["signatures"]["gmail"] if s.get("isPrimary")), None)
+                if prim and prim.get("signature_html"):
+                    doc["signatures"]["default_html"] = prim["signature_html"]
+                    (assets / "ios_signature.html").write_text(prim["signature_html"], encoding="utf-8")
+            elif provider == "outlook":
+                (assets / "OUTLOOK_README.txt").write_text(
+                    "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
+                    "Use ios_signature.html exported from a Gmail account, or paste HTML manually.",
+                    encoding="utf-8",
+                )
 
-                dump_config(str(path), doc)
-                exports.append(ExportedSignaturesInfo(
-                    account_name=name,
-                    provider=provider,
-                    output_path=str(path),
-                    signature_count=sig_count,
-                ))
+            dump_config(str(path), doc)
+            exports.append(ExportedSignaturesInfo(
+                account_name=name,
+                provider=provider,
+                output_path=str(path),
+                signature_count=sig_count,
+            ))
 
-            return ResultEnvelope(status="success", payload=AccountsExportSignaturesResult(exports=exports))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsExportSignaturesResult(exports=exports)
 
 
 class AccountsExportSignaturesProducer(AccountsResultProducer[AccountsExportSignaturesResult]):
@@ -844,57 +872,54 @@ class AccountsSyncSignaturesResult:
 AccountsSyncSignaturesRequestConsumer = SimpleConsumer[AccountsSyncSignaturesRequest]
 
 
-class AccountsSyncSignaturesProcessor(Processor[AccountsSyncSignaturesRequest, ResultEnvelope[AccountsSyncSignaturesResult]]):
-    def process(self, payload: AccountsSyncSignaturesRequest) -> ResultEnvelope[AccountsSyncSignaturesResult]:
+class AccountsSyncSignaturesProcessor(SafeProcessor[AccountsSyncSignaturesRequest, AccountsSyncSignaturesResult]):
+    def _process_safe(self, payload: AccountsSyncSignaturesRequest) -> AccountsSyncSignaturesResult:
         import argparse
         from .helpers import load_accounts, iter_accounts
         from ..signatures.commands import run_signatures_sync
 
-        try:
-            accts = load_accounts(payload.config_path)
-            synced: List[SyncedSignaturesInfo] = []
+        accts = load_accounts(payload.config_path)
+        synced: List[SyncedSignaturesInfo] = []
 
-            for a in iter_accounts(accts, payload.accounts_filter):
-                provider = (a.get("provider") or "").lower()
+        for a in iter_accounts(accts, payload.accounts_filter):
+            provider = (a.get("provider") or "").lower()
 
-                if provider == "gmail":
-                    ns = argparse.Namespace(
-                        credentials=a.get("credentials"),
-                        token=a.get("token"),
-                        config=payload.config_path,
-                        send_as=payload.send_as,
-                        dry_run=payload.dry_run,
-                        account_display_name=a.get("display_name"),
-                    )
-                    run_signatures_sync(ns)
-                    synced.append(SyncedSignaturesInfo(
-                        account_name=a.get("name", "account"),
-                        provider=provider,
-                        status="delegated",
-                    ))
-                elif provider == "outlook":
-                    assets = Path("signatures_assets")
-                    assets.mkdir(parents=True, exist_ok=True)
-                    (assets / "OUTLOOK_README.txt").write_text(
-                        "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
-                        "Use ios_signature.html or paste HTML manually.",
-                        encoding="utf-8",
-                    )
-                    synced.append(SyncedSignaturesInfo(
-                        account_name=a.get("name", "account"),
-                        provider=provider,
-                        status="wrote_guidance",
-                    ))
-                else:
-                    synced.append(SyncedSignaturesInfo(
-                        account_name=a.get("name", "account"),
-                        provider=provider,
-                        status="unsupported",
-                    ))
+            if provider == "gmail":
+                ns = argparse.Namespace(
+                    credentials=a.get("credentials"),
+                    token=a.get("token"),
+                    config=payload.config_path,
+                    send_as=payload.send_as,
+                    dry_run=payload.dry_run,
+                    account_display_name=a.get("display_name"),
+                )
+                run_signatures_sync(ns)
+                synced.append(SyncedSignaturesInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    status="delegated",
+                ))
+            elif provider == "outlook":
+                assets = Path("signatures_assets")
+                assets.mkdir(parents=True, exist_ok=True)
+                (assets / "OUTLOOK_README.txt").write_text(
+                    "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
+                    "Use ios_signature.html or paste HTML manually.",
+                    encoding="utf-8",
+                )
+                synced.append(SyncedSignaturesInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    status="wrote_guidance",
+                ))
+            else:
+                synced.append(SyncedSignaturesInfo(
+                    account_name=a.get("name", "account"),
+                    provider=provider,
+                    status="unsupported",
+                ))
 
-            return ResultEnvelope(status="success", payload=AccountsSyncSignaturesResult(synced=synced))
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+        return AccountsSyncSignaturesResult(synced=synced)
 
 
 class AccountsSyncSignaturesProducer(AccountsResultProducer[AccountsSyncSignaturesResult]):
