@@ -1,0 +1,92 @@
+# Brian's custom template: clean bullets with dark-mode friendly colors
+#
+# Uses plain bullets (flush left) with professional colors that work in both modes
+
+sections:
+  - key: summary
+    title: Profile
+    bulleted: false
+    max_sentences: 4
+  - key: skills
+    title: Core Abilities
+    bullets: true
+    columns: 1
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    max_groups: 6
+    max_items_per_group: 5
+    separator: " • "
+    group_title_color: "#0A2540"
+    group_title_bold: true
+    item_color: "#2E5090"
+  - key: technologies
+    title: Technical Stack
+    bullets: true
+    columns: 1
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    max_groups: 7
+    max_items_per_group: 5
+    separator: " • "
+    group_title_color: "#0A2540"
+    group_title_bold: true
+    item_color: "#2E5090"
+  - key: experience
+    title: Professional Experience
+    max_items: 5
+    inline_dates: true
+    role_style: Normal
+    bullet_style: List Bullet
+    item_color: "#2E5090"
+    location_color: "#5A5A5A"
+    duration_color: "#5A5A5A"
+    duration_brackets: true
+    location_brackets: true
+    meta_pt: 9.5
+    recent_roles_count: 3
+    recent_max_bullets: 5
+    prior_max_bullets: 3
+  - key: education
+    title: Education
+    item_color: "#2E5090"
+    duration_color: "#5A5A5A"
+    duration_brackets: true
+    meta_pt: 9.5
+  - key: projects
+    title: Notable Projects
+    bullets: true
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    item_color: "#2E5090"
+  - key: presentations
+    title: Speaking & Presentations
+    bullets: true
+    compact: true
+    plain_bullets: true
+    item_color: "#2E5090"
+  - key: interests
+    title: Personal Interests
+    bullets: true
+    compact: true
+    plain_bullets: true
+
+page:
+  compact: false          # Allow more breathing room
+  margins_in: 0.5         # Slightly larger margins than onepage
+  body_pt: 10             # Slightly larger than onepage (9.5)
+  h1_pt: 12               # Section headers
+  title_pt: 14            # Name header
+  h1_bg: "#E8EDF3"        # Light blue-gray background (works in dark mode)
+  h1_fg: "#1F4E79"        # Dark blue text on light background
+  name_color: "#1F4E79"   # Dark blue name (readable in both modes)
+  metadata_include_locations: true
+  header_level: 1
+  bullets:
+    style: plain          # CRITICAL: Clean flush-left bullets
+    glyph: "•"
