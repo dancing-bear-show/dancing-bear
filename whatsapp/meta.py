@@ -1,32 +1,20 @@
 from __future__ import annotations
 
-APP_ID = "whatsapp"
-PURPOSE = "Local WhatsApp ChatStorage search helpers"
+from core.meta_base import AppMeta
 
-AGENTIC_FALLBACK = f"agentic: {APP_ID}\npurpose: {PURPOSE}"
-DOMAIN_MAP_FALLBACK = "Domain Map not available"
-INVENTORY_FALLBACK = (
-    "# LLM Agent Inventory (WhatsApp)\n\n"
-    "See repo .llm/INVENTORY.md for shared guidance.\n"
+_META = AppMeta(
+    app_id="whatsapp",
+    purpose="Local WhatsApp ChatStorage search helpers",
+    display_name="WhatsApp",
+    example_cmd="./bin/whatsapp search --contains school --limit 20",
 )
-FAMILIAR_COMPACT_FALLBACK = (
-    "meta:\n"
-    "  name: whatsapp_familiarize\n"
-    "  version: 1\n"
-    "steps:\n"
-    "  - run: ./bin/whatsapp --help\n"
-)
-FAMILIAR_EXTENDED_FALLBACK = (
-    "meta:\n"
-    "  name: whatsapp_familiarize\n"
-    "  version: 1\n"
-    "steps:\n"
-    "  - run: ./bin/whatsapp search --contains school --limit 20\n"
-)
-POLICIES_FALLBACK = (
-    "policies:\n"
-    "  style:\n"
-    "    - Keep CLI stable; prefer dry-run flows\n"
-    "  tests:\n"
-    "    - Add lightweight unittest for new CLI surfaces\n"
-)
+
+# Re-export for backward compatibility
+APP_ID = _META.app_id
+PURPOSE = _META.purpose
+AGENTIC_FALLBACK = _META.agentic_fallback
+DOMAIN_MAP_FALLBACK = _META.domain_map_fallback
+INVENTORY_FALLBACK = _META.inventory_fallback
+FAMILIAR_COMPACT_FALLBACK = _META.familiar_compact_fallback
+FAMILIAR_EXTENDED_FALLBACK = _META.familiar_extended_fallback
+POLICIES_FALLBACK = _META.policies_fallback

@@ -11,6 +11,7 @@ System Identity
 - Project: Personal Assistants (mail, calendar, schedule, resume, phone, WhatsApp, maker)
 - Scope: Gmail/Outlook mail and Outlook calendar workflows plus supporting assistants.
 - Constraints: Python 3.11, dependency-light, stable public CLI
+- Self-contained: All helpers and utilities are repo-internal; external deps are minimal and lazily imported. This ensures public CLI backwards compatibility and reduces fragility. Internal APIs can be refactored freely—update all call sites atomically without backwards-compatible wrappers.
 
 Familiarize Mode (Strict + Tiers)
 - Strict (capsule-only): Read `.llm/familiarize.yaml`; generate with `./bin/llm familiar --stdout`.
@@ -47,6 +48,9 @@ Development Rules (avoid)
 - Broad refactors that rename modules or move public entry points
 - Heavy new dependencies; global imports for optional modules
 - Emitting secrets/tokens in logs or passing them via flags
+- Breaking backwards compatibility of public CLI commands or parameters (bin/* entry points)
+- Moving utilities to external packages (keep self-contained for stability)
+- Maintaining backwards-compatible wrappers for internal APIs (update all call sites instead)
 
 Activation Policy (Recommended)
 - At the start of a work session, run unit tests to establish current health when making code changes:

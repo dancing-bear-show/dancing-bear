@@ -7,27 +7,6 @@ from typing import Any, Dict, Optional, Sequence
 
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
 
-
-DAY_MAP = {
-    "monday": "MO",
-    "mon": "MO",
-    "tuesday": "TU",
-    "tue": "TU",
-    "tues": "TU",
-    "wednesday": "WE",
-    "wed": "WE",
-    "thursday": "TH",
-    "thu": "TH",
-    "thur": "TH",
-    "thurs": "TH",
-    "friday": "FR",
-    "fri": "FR",
-    "saturday": "SA",
-    "sat": "SA",
-    "sunday": "SU",
-    "sun": "SU",
-}
-
 TIME_PAT1 = r"(?P<h1>\d{1,2})(?::(?P<m1>\d{2}))?\s*(?P<ampm1>am|pm|a\.m\.|p\.m\.)?"
 TIME_PAT2 = r"(?P<h2>\d{1,2})(?::(?P<m2>\d{2}))?\s*(?P<ampm2>am|pm|a\.m\.|p\.m\.)?"
 RANGE_PAT = re.compile(

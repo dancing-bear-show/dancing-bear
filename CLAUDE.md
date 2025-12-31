@@ -6,6 +6,8 @@ Personal Assistants: unified, dependency-light CLIs for personal workflows acros
 
 **Constraints:** Python 3.11, dependency-light, stable public CLI
 
+**Self-contained:** All helpers and utilities are repo-internal. External dependencies are minimal and lazily imported. This design ensures public CLI backwards compatibility and reduces fragility from external package changes. Internal APIs can be refactored freely—update all call sites atomically without backwards-compatible wrappers.
+
 **Primary consumers:** LLM agents — CLI schemas, help text, and agentic capsules are designed for token-efficient LLM consumption. Keep output terse and accurate.
 
 ## Quick Start
@@ -75,6 +77,9 @@ Read in order for best context:
 - Bare `except Exception: continue/pass` blocks without a `# nosec` comment explaining the intent (e.g., `# nosec B110 - skip malformed entries silently`)
 - Verbose help strings that waste tokens
 - Mismatched argument names between argparse and code
+- Breaking backwards compatibility of public CLI commands or parameters (bin/* entry points)
+- Moving utilities to external packages (keep self-contained for stability)
+- Maintaining backwards-compatible wrappers for internal APIs (update all call sites instead)
 
 ## Testing
 

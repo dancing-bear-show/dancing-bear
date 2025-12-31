@@ -9,7 +9,6 @@ from ._base import (
     BaseProducer,
     RequestConsumer,
     check_service_required,
-    ERR_CODE_CALENDAR,
 )
 
 

@@ -185,7 +185,7 @@ def _auto_start_date(metal: str) -> Optional[str]:
             with p.open(newline="", encoding="utf-8") as f:
                 r = csv.DictReader(f)
                 for row in r:
-                    if m and "metal" in r.fieldnames or []:
+                    if m and "metal" in r.fieldnames:
                         # If costs.csv, filter by metal
                         metal_row = (row.get("metal") or "").strip().lower()
                         if metal_row and metal_row != m:
