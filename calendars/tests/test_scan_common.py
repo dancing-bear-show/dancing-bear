@@ -1,11 +1,11 @@
 """Tests for scan_common.py helper functions."""
 import unittest
 
+from calendars.constants import DAY_MAP
 from calendars.scan_common import (
     html_to_text,
     norm_time,
     infer_meta_from_text,
-    DAY_MAP,
     MONTH_MAP,
 )
 

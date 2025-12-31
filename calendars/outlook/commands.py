@@ -52,8 +52,8 @@ from ..outlook_pipelines import (
     OutlookMailListProducer,
     OutlookMailListRequest,
 )
+from ..constants import DAY_MAP
 from ..scan_common import (
-    DAY_MAP,
     RANGE_PAT,
     CLASS_PAT,
     LOC_LABEL_PAT,

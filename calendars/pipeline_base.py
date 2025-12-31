@@ -145,8 +145,9 @@ def dedupe_events(events: List[Dict[str, Any]], key_fn=None) -> List[Dict[str, A
     return uniq
 
 
-# Import shared mappings from scan_common
-from .scan_common import DAY_MAP, MONTH_MAP
+# Import shared mappings
+from .constants import DAY_MAP
+from .scan_common import MONTH_MAP
 
 # Backwards-compatible aliases
 MONTH_MAP_FULL = MONTH_MAP  # scan_common.MONTH_MAP includes both full and abbreviated

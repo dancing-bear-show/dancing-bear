@@ -15,8 +15,8 @@ from core.pipeline import SafeProcessor
 from .gmail_service import GmailService
 from .text_utils import to_24h, extract_email_address
 from core.text_utils import html_to_text
+from .constants import DAY_MAP
 from .scan_common import (
-    DAY_MAP,
     RANGE_PAT,
     CLASS_PAT,
     LOC_LABEL_PAT,
