@@ -18,7 +18,7 @@ dependencies = [
   "httplib2==0.31.0",
   "msal==1.28.0",
   "numpy==1.26.4",
-  "pdfminer.six==20251107",
+  "pdfminer.six==20251230",
   "premailer==3.10.0",
   "requests==2.32.4",
   "shapely==2.0.3",
@@ -30,6 +30,8 @@ dependencies = [
 dev = [
   "pytest==9.0.2",
 ]
+# Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
+# Keep as optional but not recommended for security-sensitive use
 pdf = [
   "pdfplumber>=0.11.0",
 ]
