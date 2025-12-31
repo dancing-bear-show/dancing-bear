@@ -35,7 +35,7 @@ MONTH_MAP = {m.lower(): i for i, m in enumerate(
 MONTH_MAP.update({k[:3]: v for k, v in list(MONTH_MAP.items())})
 
 DATE_RANGE_PAT = re.compile(
-    r"(?:(?:from)\s+)?([A-Z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",
+    r"(?:(?:from)\s+)?([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",
     re.I,
 )
 
