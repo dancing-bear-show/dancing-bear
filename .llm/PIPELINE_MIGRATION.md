@@ -103,6 +103,11 @@ so multiple engineers can work in parallel without stepping on each other.
 ## Phase 5 — Maker & Misc (optional)
 - [x] Maker CLI now uses pipeline consumers/processors/producers for listing + tool execution.
 - [x] Maker migrated to CLIApp decorator pattern with direct imports (no subprocess).
+- [x] **COMPLETE (Dec 2024)**: All 2 processors migrated to SafeProcessor pattern (ToolCatalogProcessor, ToolRunnerProcessor).
+- [x] Both producers already using BaseProducer (ToolCatalogProducer, ToolResultProducer).
+- [x] CLI using RequestConsumer and ResultEnvelope pattern.
+- [x] Deprecated backward compatibility classes retained (ToolCatalogConsumer, ToolCatalogFormatter, ConsoleProducer).
+- [x] All 34 tests passing ✓.
 - [ ] Update `.llm/FLOWS*.yaml` to point at standardized processors once assistants finish.
 
 ## Phase 6 — Wi-Fi (optional)
