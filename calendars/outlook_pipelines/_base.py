@@ -69,7 +69,7 @@ __all__ = [
     "Tuple",
     "ResultEnvelope",
     "SafeProcessor",
-    
+
     "_load_yaml",
     "normalize_event",
     "compute_window",
