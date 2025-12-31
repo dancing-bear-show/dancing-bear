@@ -6,14 +6,7 @@ from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import (
-    FakeDocument,
-    make_candidate,
-    make_experience_entry,
-    make_education_entry,
-    make_skills_group,
-    SAMPLE_CANDIDATE,
-)
+from tests.resume_tests.fixtures import make_candidate
 
 
 @patch.dict("sys.modules", {

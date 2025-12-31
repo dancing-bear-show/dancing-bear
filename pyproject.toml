@@ -11,10 +11,10 @@ readme = "README.md"
 dependencies = [
   "PyYAML==6.0.3",
   "python-docx==1.2.0",
-  "google-api-python-client==2.135.0",
+  "google-api-python-client==2.187.0",
   "google-auth==2.34.0",
   "google-auth-httplib2==0.2.0",
-  "google-auth-oauthlib==1.2.1",
+  "google-auth-oauthlib==1.2.3",
   "httplib2==0.22.0",
   "msal==1.28.0",
   "numpy==1.26.4",
