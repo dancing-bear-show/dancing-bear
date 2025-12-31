@@ -18,6 +18,7 @@ from ._base import (
     to_iso_str,
     LOG_DRY_RUN,
 )
+from ._context import EventProcessingContext
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
