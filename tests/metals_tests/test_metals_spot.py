@@ -460,7 +460,7 @@ class TestRun(unittest.TestCase):
     @patch("metals.spot._fetch_stooq_series")
     def test_run_falls_back_to_yahoo(self, mock_stooq):
         """Test run falls back to Yahoo when Stooq fails."""
-        mock_stooq.return_value = {}  # Empty = failure
+        mock_stooq.return_value = {}
 
         with patch("metals.spot._fetch_yahoo_series") as mock_yahoo:
             mock_yahoo.return_value = {"2024-01-01": 25.0}

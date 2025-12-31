@@ -83,35 +83,32 @@ class TestScheduleImportHelpers(TestCase):
         proc = self._make_processor()
         svc = MagicMock()
         svc.ensure_calendar_exists.return_value = "cal-1"
-        cal_id, err = proc._ensure_calendar(svc, "Family")
+        cal_id = proc._ensure_calendar(svc, "Family")
         self.assertEqual(cal_id, "cal-1")
-        self.assertIsNone(err)
 
     def test_ensure_calendar_failure(self):
         proc = self._make_processor()
         svc = MagicMock()
         svc.ensure_calendar_exists.side_effect = RuntimeError("fail")
-        cal_id, err = proc._ensure_calendar(svc, "Bad")
-        self.assertIsNone(cal_id)
-        self.assertIsNotNone(err)
-        self.assertEqual(err.diagnostics["code"], ERR_CODE_CALENDAR)
+        with self.assertRaises(RuntimeError) as ctx:
+            proc._ensure_calendar(svc, "Bad")
+        self.assertIn("fail", str(ctx.exception))
 
     def test_load_items_success(self):
         items = [MagicMock(subject="Test")]
         proc = self._make_processor(loader=lambda *_, **__: items)
         from calendars.outlook_pipelines.schedule_import import OutlookScheduleImportRequest
         payload = OutlookScheduleImportRequest(source="f.csv", kind=None, calendar=None, tz=None, until=None, dry_run=False, no_reminder=False, service=MagicMock())
-        result, err = proc._load_items(payload)
+        result = proc._load_items(payload)
         self.assertEqual(result, items)
-        self.assertIsNone(err)
 
     def test_load_items_value_error(self):
         proc = self._make_processor(loader=lambda *_, **__: (_ for _ in ()).throw(ValueError("bad")))
         from calendars.outlook_pipelines.schedule_import import OutlookScheduleImportRequest
         payload = OutlookScheduleImportRequest(source="f.csv", kind=None, calendar=None, tz=None, until=None, dry_run=False, no_reminder=False, service=MagicMock())
-        result, err = proc._load_items(payload)
-        self.assertIsNone(result)
-        self.assertEqual(err.diagnostics["code"], ERR_CODE_API)
+        with self.assertRaises(ValueError) as ctx:
+            proc._load_items(payload)
+        self.assertIn("bad", str(ctx.exception))
 
     def test_create_one_off_dry_run(self):
         proc = self._make_processor()

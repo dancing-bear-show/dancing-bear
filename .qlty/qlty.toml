@@ -64,8 +64,16 @@ default = true
 [[plugin]]
 name = "actionlint"
 
+# Bandit security configuration
+# Skip B404 (subprocess import) - necessary for system integration (cfgutil, diagnostics, pip)
+# We maintain security by:
+# 1. Never using shell=True (still checked via B602)
+# 2. Validating all executable paths before use
+# 3. Using list-form arguments only (still checked via B603)
+# 4. Using hardcoded or validated paths (still checked via B607)
 [[plugin]]
 name = "bandit"
+config = { skips = ["B404"] }
 
 [[plugin]]
 name = "osv-scanner"

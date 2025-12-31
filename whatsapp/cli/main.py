@@ -81,15 +81,16 @@ def cmd_search(args) -> int:
         return 0
     # Handle errors from envelope
     diag = envelope.diagnostics or {}
-    error_msg = diag.get("error", "Unknown error")
+    error_msg = diag.get("message", "Unknown error")
     print(error_msg, file=sys.stderr)
-    if diag.get("hint") == "db_not_found":
+    # Provide helpful hint for FileNotFoundError
+    if "not found" in error_msg.lower() or "no such file" in error_msg.lower():
         print(
             "Hint: use --db to specify the path. Default macOS path is:",
             default_db_path(),
             file=sys.stderr,
         )
-    return int(diag.get("code", 1))
+    return 1
 
 
 def main(argv: Optional[list[str]] = None) -> int:

@@ -12,8 +12,7 @@ from ._base import (
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     check_service_required,
     MSG_PREVIEW_COMPLETE,
     ERR_CODE_CALENDAR,
@@ -53,13 +52,12 @@ class OutlookRemindersResult:
     set_off: bool
 
 
-class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelope[OutlookRemindersResult]]):
+class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRemindersResult]):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookRemindersRequest) -> ResultEnvelope[OutlookRemindersResult]:
-        if err := check_service_required(payload.service):
-            return err
+    def _process_safe(self, payload: OutlookRemindersRequest) -> OutlookRemindersResult:
+        check_service_required(payload.service)
         svc = payload.service
 
         calendar_name = payload.calendar
@@ -67,16 +65,10 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
         if calendar_name:
             cal_id = svc.get_calendar_id_by_name(calendar_name)
             if not cal_id:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Calendar not found: {calendar_name}", "code": ERR_CODE_CALENDAR},
-                )
+                raise ValueError(f"Calendar not found: {calendar_name}")
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
-        try:
-            events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_API})
+        events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
 
         series_ids: set[str] = set()
         occurrence_ids: set[str] = set()
@@ -104,7 +96,7 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
         updated += self._update_ids(sorted(single_ids), "single", cal_id, svc, payload, logs)
 
         result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _update_ids(
         self,

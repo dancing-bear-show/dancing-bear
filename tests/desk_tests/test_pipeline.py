@@ -8,10 +8,13 @@ from io import StringIO
 
 from desk.pipeline import (
     ScanRequest,
+    ScanRequestConsumer,
     ScanProcessor,
     PlanRequest,
+    PlanRequestConsumer,
     PlanProcessor,
     ApplyRequest,
+    ApplyRequestConsumer,
     ApplyProcessor,
     ReportProducer,
     ApplyResultProducer,
@@ -46,7 +49,7 @@ class ScanProcessorTests(unittest.TestCase):
             include_duplicates=False,
             top_dirs=5,
         )
-        result = processor.process(req)
+        envelope = processor.process(ScanRequestConsumer(req).consume())
 
         mock_runner.assert_called_once_with(
             paths=["/test"],
@@ -55,7 +58,8 @@ class ScanProcessorTests(unittest.TestCase):
             include_duplicates=False,
             top_dirs=5,
         )
-        self.assertEqual(result, {"large_files": []})
+        self.assertTrue(envelope.ok())
+        self.assertEqual(envelope.unwrap(), {"large_files": []})
 
     def test_process_with_default_runner(self):
         processor = ScanProcessor()
@@ -66,8 +70,10 @@ class ScanProcessorTests(unittest.TestCase):
             include_duplicates=False,
             top_dirs=5,
         )
-        result = processor.process(req)
+        envelope = processor.process(ScanRequestConsumer(req).consume())
 
+        self.assertTrue(envelope.ok())
+        result = envelope.unwrap()
         self.assertIn("large_files", result)
 
 
@@ -83,10 +89,11 @@ class PlanProcessorTests(unittest.TestCase):
         processor = PlanProcessor(planner=mock_planner)
 
         req = PlanRequest(config_path="/test/config.yaml")
-        result = processor.process(req)
+        envelope = processor.process(PlanRequestConsumer(req).consume())
 
         mock_planner.assert_called_once_with("/test/config.yaml")
-        self.assertEqual(result, {"operations": []})
+        self.assertTrue(envelope.ok())
+        self.assertEqual(envelope.unwrap(), {"operations": []})
 
 
 class ApplyRequestTests(unittest.TestCase):
@@ -102,7 +109,7 @@ class ApplyProcessorTests(unittest.TestCase):
         processor = ApplyProcessor(applier=mock_applier)
 
         req = ApplyRequest(plan_path="/test/plan.json", dry_run=False)
-        result = processor.process(req)
+        result = processor.process(ApplyRequestConsumer(req).consume())
 
         mock_applier.assert_called_once_with("/test/plan.json", dry_run=False)
         self.assertIsInstance(result, ResultEnvelope)
@@ -113,7 +120,7 @@ class ApplyProcessorTests(unittest.TestCase):
         processor = ApplyProcessor(applier=mock_applier)
 
         req = ApplyRequest(plan_path="/test/plan.json", dry_run=False)
-        result = processor.process(req)
+        result = processor.process(ApplyRequestConsumer(req).consume())
 
         self.assertIsInstance(result, ResultEnvelope)
         self.assertFalse(result.ok())
@@ -124,7 +131,7 @@ class ApplyProcessorTests(unittest.TestCase):
         processor = ApplyProcessor(applier=mock_applier)
 
         req = ApplyRequest(plan_path="/test/plan.json", dry_run=True)
-        processor.process(req)
+        processor.process(ApplyRequestConsumer(req).consume())
 
         mock_applier.assert_called_once_with("/test/plan.json", dry_run=True)
 
@@ -139,9 +146,10 @@ class ReportProducerTests(unittest.TestCase):
 
     def test_produce_to_stdout(self):
         producer = ReportProducer(out_path=None)
+        envelope = ResultEnvelope(status="success", payload={"key": "value"})
 
         with patch("sys.stdout", new_callable=StringIO) as mock_out:
-            producer.produce({"key": "value"})
+            producer.produce(envelope)
             output = mock_out.getvalue()
 
         self.assertIn("key", output)
@@ -150,8 +158,9 @@ class ReportProducerTests(unittest.TestCase):
     def test_produce_to_file(self):
         out_path = os.path.join(self.tmpdir, "report.json")
         producer = ReportProducer(out_path=out_path)
+        envelope = ResultEnvelope(status="success", payload={"key": "value"})
 
-        producer.produce({"key": "value"})
+        producer.produce(envelope)
 
         self.assertTrue(os.path.exists(out_path))
 

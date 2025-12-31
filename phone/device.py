@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import configparser
 import os
-import subprocess
+import subprocess  # nosec B404 - required for cfgutil (Apple Configurator CLI)
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 from typing import Any, Dict, List, Optional, Tuple
+
+from core.constants import credential_ini_paths
 
 from .constants import P12_PASS_KEYS, P12_PATH_KEYS
 from .layout import normalize_iconstate, to_yaml_export
@@ -32,6 +34,21 @@ def find_cfgutil_path() -> str:
     raise FileNotFoundError("cfgutil not found; install Apple Configurator or add cfgutil to PATH")
 
 
+def _extract_ecid_from_parts(parts: List[str]) -> str:
+    """Extract ECID value from line parts."""
+    for i, tok in enumerate(parts):
+        if not tok.startswith("ECID:"):
+            continue
+        # Handle "ECID:value" or "ECID: value" explicitly
+        ecid_part = tok.split(":", 1)[1]
+        if ecid_part:
+            return ecid_part
+        if i + 1 < len(parts):
+            return parts[i + 1]
+        return ""
+    return ""
+
+
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
@@ -41,17 +58,7 @@ def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     for line in out.splitlines():
         if "UDID:" not in line or udid not in line:
             continue
-        parts = line.split()
-        for i, tok in enumerate(parts):
-            if not tok.startswith("ECID:"):
-                continue
-            # Handle "ECID:value" or "ECID: value" explicitly
-            ecid_part = tok.split(":", 1)[1]
-            if ecid_part:
-                return ecid_part
-            if i + 1 < len(parts):
-                return parts[i + 1]
-            return ""
+        return _extract_ecid_from_parts(line.split())
     return ""
 
 
@@ -100,28 +107,53 @@ def _get_bundle_id(item: Any) -> Optional[str]:
     return item.get("bundleIdentifier") or item.get("displayIdentifier")
 
 
+def _extract_folder_apps(folder_items: List[Any]) -> List[str]:
+    """Extract app list from folder items."""
+    apps = []
+    for sub in folder_items[1:]:
+        if isinstance(sub, str):
+            apps.append(sub)
+        elif isinstance(sub, list):
+            apps.extend(s for s in sub if isinstance(s, str))
+    return apps
+
+
+def _parse_page_item(it: Any) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Parse a single page item into app or folder.
+
+    Returns (app_id, folder_dict) where one will be None.
+    """
+    if isinstance(it, str):
+        return it, None
+
+    if isinstance(it, list) and it:
+        name = it[0] if isinstance(it[0], str) else "Folder"
+        apps = _extract_folder_apps(it)
+        if apps:
+            return None, {"name": name or "Folder", "apps": apps}
+
+    return None, None
+
+
 def _parse_list_format(data: List) -> Dict[str, Any]:
     """Parse cfgutil JSON list format: [dock, page1, page2, ...]."""
     dock = [s for s in (data[0] or []) if isinstance(s, str)]
     pages: List[Dict[str, Any]] = []
+
     for page in data[1:]:
         if not isinstance(page, list):
             continue
         page_out: Dict[str, Any] = {"apps": [], "folders": []}
+
         for it in page:
-            if isinstance(it, str):
-                page_out["apps"].append(it)
-            elif isinstance(it, list) and it:
-                name = it[0] if isinstance(it[0], str) else "Folder"
-                fapps = []
-                for sub in it[1:]:
-                    if isinstance(sub, str):
-                        fapps.append(sub)
-                    elif isinstance(sub, list):
-                        fapps.extend(s for s in sub if isinstance(s, str))
-                if fapps:
-                    page_out["folders"].append({"name": name or "Folder", "apps": fapps})
+            app_id, folder = _parse_page_item(it)
+            if app_id:
+                page_out["apps"].append(app_id)
+            elif folder:
+                page_out["folders"].append(folder)
+
         pages.append(page_out)
+
     return {"dock": dock, "pages": pages}
 
 
@@ -157,8 +189,6 @@ def _fallback_parse(data: Any) -> Dict[str, Any]:
 # -----------------------------------------------------------------------------
 # Credentials and certificate helpers
 # -----------------------------------------------------------------------------
-
-from core.constants import credential_ini_paths
 
 
 def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Dict[str, str]]]:

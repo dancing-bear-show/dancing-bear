@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from core.pipeline import Processor, Producer, SafeProcessor, BaseProducer
+from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
 from .apply_ops import apply_plan_file
 from .planner import plan_from_config
 from .scan import run_scan
@@ -20,11 +20,17 @@ class ScanRequest:
     top_dirs: int
 
 
-class ScanProcessor(Processor[ScanRequest, Dict[str, Any]]):
+# Type alias using generic RequestConsumer from core.pipeline
+ScanRequestConsumer = RequestConsumer[ScanRequest]
+
+
+class ScanProcessor(SafeProcessor[ScanRequest, Dict[str, Any]]):
+    """Scan for large, stale, and duplicate files with automatic error handling."""
+
     def __init__(self, runner: Callable[..., Dict[str, Any]] = run_scan) -> None:
         self._runner = runner
 
-    def process(self, payload: ScanRequest) -> Dict[str, Any]:
+    def _process_safe(self, payload: ScanRequest) -> Dict[str, Any]:
         return self._runner(
             paths=payload.paths,
             min_size=payload.min_size,
@@ -39,11 +45,17 @@ class PlanRequest:
     config_path: str
 
 
-class PlanProcessor(Processor[PlanRequest, Dict[str, Any]]):
+# Type alias using generic RequestConsumer from core.pipeline
+PlanRequestConsumer = RequestConsumer[PlanRequest]
+
+
+class PlanProcessor(SafeProcessor[PlanRequest, Dict[str, Any]]):
+    """Create a plan from config rules with automatic error handling."""
+
     def __init__(self, planner: Callable[[str], Dict[str, Any]] = plan_from_config) -> None:
         self._planner = planner
 
-    def process(self, payload: PlanRequest) -> Dict[str, Any]:
+    def _process_safe(self, payload: PlanRequest) -> Dict[str, Any]:
         return self._planner(payload.config_path)
 
 
@@ -51,6 +63,10 @@ class PlanProcessor(Processor[PlanRequest, Dict[str, Any]]):
 class ApplyRequest:
     plan_path: str
     dry_run: bool
+
+
+# Type alias using generic RequestConsumer from core.pipeline
+ApplyRequestConsumer = RequestConsumer[ApplyRequest]
 
 
 class ApplyProcessor(SafeProcessor[ApplyRequest, None]):
@@ -63,12 +79,14 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, None]):
         self._applier(payload.plan_path, dry_run=payload.dry_run)
 
 
-class ReportProducer(Producer[Dict[str, Any]]):
+class ReportProducer(BaseProducer):
+    """Produce output for scan/plan results with automatic error handling."""
+
     def __init__(self, out_path: Optional[str]) -> None:
         self._out_path = out_path
 
-    def produce(self, result: Dict[str, Any]) -> None:
-        dump_output(result, self._out_path)
+    def _produce_success(self, payload: Dict[str, Any], diagnostics: Optional[Dict[str, Any]]) -> None:
+        dump_output(payload, self._out_path)
 
 
 class ApplyResultProducer(BaseProducer):

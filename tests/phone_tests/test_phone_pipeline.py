@@ -82,8 +82,6 @@ class PhonePipelineTests(TestCase):
             request = ExportRequest(backup=None, out_path=Path("out.yaml"))
             env = ExportProcessor().process(ExportRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_export_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "export.yaml"
@@ -167,8 +165,6 @@ class PhonePipelineTests(TestCase):
             )
             env = UnusedProcessor().process(UnusedRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_unused_producer_text_output(self):
         payload = UnusedResult(rows=[("com.test.app", 0.9, "Page 1")], format="text")
         env = ResultEnvelope(status="success", payload=payload)
@@ -266,8 +262,6 @@ class PhonePipelineTests(TestCase):
             )
             env = AnalyzeProcessor().process(AnalyzeRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_analyze_producer_text_output(self):
         payload = AnalyzeResult(
             metrics={"dock_count": 4, "pages_count": 2, "totals": {"folders": 5}},
@@ -312,8 +306,6 @@ class PhonePipelineTests(TestCase):
             request = ExportDeviceRequest(udid=None, ecid=None, out_path=Path("out.yaml"))
             env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 127)
-
     def test_export_device_processor_empty_export(self):
         with patch("phone.device.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
              patch("phone.device.map_udid_to_ecid", return_value=""), \
@@ -321,8 +313,6 @@ class PhonePipelineTests(TestCase):
             request = ExportDeviceRequest(udid=None, ecid=None, out_path=Path("out.yaml"))
             env = ExportDeviceProcessor().process(ExportDeviceRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 3)
-
     def test_export_device_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "export.yaml"
@@ -348,8 +338,6 @@ class PhonePipelineTests(TestCase):
             request = IconmapRequest(udid=None, ecid=None, format="json", out_path=Path("out.json"))
             env = IconmapProcessor().process(IconmapRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 127)
-
     def test_iconmap_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "iconmap.json"
@@ -383,8 +371,6 @@ class PhonePipelineTests(TestCase):
         request = ManifestFromExportRequest(export_path=Path("/nonexistent.yaml"), out_path=Path("out.yaml"))
         env = ManifestFromExportProcessor().process(ManifestFromExportRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_manifest_from_export_producer_writes_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "manifest.yaml"
@@ -412,8 +398,6 @@ class PhonePipelineTests(TestCase):
             request = ManifestFromDeviceRequest(udid=None, export_out=None, out_path=Path("out.yaml"))
             env = ManifestFromDeviceProcessor().process(ManifestFromDeviceRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 127)
-
     # -------------------------------------------------------------------------
     # Identity verify pipeline tests
     # -------------------------------------------------------------------------
@@ -456,8 +440,6 @@ class PhonePipelineTests(TestCase):
             )
             env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_identity_verify_processor_p12_not_found(self):
         with patch("phone.device.read_credentials_ini", return_value=(None, {})), \
              patch("phone.device.resolve_p12_path", return_value=("/missing.p12", None)), \
@@ -473,8 +455,6 @@ class PhonePipelineTests(TestCase):
             )
             env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_identity_verify_producer_output(self):
         payload = IdentityVerifyResult(
             p12_path="/path/to/cert.p12",

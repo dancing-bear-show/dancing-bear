@@ -168,8 +168,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailScanClassesProcessor(service_builder=lambda _auth: (_ for _ in ()).throw(RuntimeError("boom")))
         env = processor.process(GmailScanClassesRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 1)
-
     def test_mail_list_processor_and_producer(self):
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m1"]
@@ -206,8 +204,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailMailListRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_sweep_top_processor_and_producer(self):
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m1", "m2"]
@@ -251,8 +247,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailSweepTopProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailSweepTopRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_receipts_processor_handles_auth_error(self):
         request = GmailReceiptsRequest(
             auth=GmailAuth(None, None, None, None),
@@ -403,8 +397,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         request = OutlookDedupRequest(service=svc)
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 4)
-
     def test_outlook_remove_processor_plan_and_producer(self):
         cfg = {
             "events": [
@@ -485,8 +477,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_outlook_reminders_processor_dry_run(self):
         svc = MagicMock()
         svc.get_calendar_id_by_name.return_value = "cal-123"
@@ -567,8 +557,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 3)
-
     def test_outlook_reminders_processor_set_minutes(self):
         svc = MagicMock()
         svc.get_calendar_id_by_name.return_value = "cal-1"
@@ -679,8 +667,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
 
 class RequestConsumerTests(TestCase):
     """Tests for the generic RequestConsumer class."""
@@ -864,41 +850,36 @@ class CheckServiceRequiredTests(TestCase):
         """check_service_required() returns None when service is not None."""
         from calendars.pipeline_base import check_service_required
 
-        result = check_service_required(MagicMock())
-        self.assertIsNone(result)
+        # Should not raise for valid service
+        check_service_required(MagicMock())
 
-    def test_check_service_required_returns_error_envelope_when_none(self):
-        """check_service_required() returns error envelope when service is None."""
+    def test_check_service_required_raises_when_none(self):
+        """check_service_required() raises ValueError when service is None."""
         from calendars.pipeline_base import check_service_required
 
-        result = check_service_required(None)
-        self.assertIsNotNone(result)
-        self.assertIsInstance(result, ResultEnvelope)
-        self.assertEqual("error", result.status)
-        self.assertEqual(1, result.diagnostics.get("code"))
-        self.assertIn("service is required", result.diagnostics.get("message", ""))
+        with self.assertRaises(ValueError) as ctx:
+            check_service_required(None)
+        self.assertIn("service is required", str(ctx.exception))
 
     def test_check_service_required_uses_custom_error_message(self):
         """check_service_required() uses custom error message when provided."""
         from calendars.pipeline_base import check_service_required
 
-        result = check_service_required(None, error_msg="Custom error message")
-        self.assertIsNotNone(result)
-        self.assertEqual("Custom error message", result.diagnostics.get("message"))
+        with self.assertRaises(ValueError) as ctx:
+            check_service_required(None, error_msg="Custom error message")
+        self.assertEqual("Custom error message", str(ctx.exception))
 
-    def test_check_service_required_walrus_pattern(self):
-        """check_service_required() works with walrus operator pattern."""
+    def test_check_service_required_in_processor_pattern(self):
+        """check_service_required() works within SafeProcessor pattern."""
         from calendars.pipeline_base import check_service_required
 
-        # Simulate the intended usage pattern
-        service = None
-        if err := check_service_required(service):
-            self.assertEqual("error", err.status)
-        else:
-            self.fail("Expected error envelope for None service")
-
-        # With valid service
+        # Valid service - no exception
         service = MagicMock()
-        if err := check_service_required(service):
-            self.fail("Expected None for valid service")
-        # Success - no error returned
+        try:
+            check_service_required(service)
+        except ValueError:
+            self.fail("Should not raise for valid service")
+
+        # None service - raises, which SafeProcessor catches
+        with self.assertRaises(ValueError):
+            check_service_required(None)

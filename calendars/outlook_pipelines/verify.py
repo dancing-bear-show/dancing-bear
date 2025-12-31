@@ -7,8 +7,7 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     normalize_event,
     compute_window,
     filter_events_by_day_time,
@@ -37,14 +36,12 @@ class OutlookVerifyResult:
     missing: int
 
 
-class OutlookVerifyProcessor(Processor[OutlookVerifyRequest, ResultEnvelope[OutlookVerifyResult]]):
+class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookVerifyRequest) -> ResultEnvelope[OutlookVerifyResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookVerifyRequest) -> OutlookVerifyResult:
+        items = load_events_config(payload.config_path, self._config_loader)
         svc = payload.service
         logs: List[str] = []
         total = duplicates = missing = 0
@@ -78,7 +75,7 @@ class OutlookVerifyProcessor(Processor[OutlookVerifyRequest, ResultEnvelope[Outl
                 missing += 1
                 logs.append(f"[{i}] missing:   {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_name or '<primary>'}'")
         result = OutlookVerifyResult(logs=logs, total=total, duplicates=duplicates, missing=missing)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
 
 class OutlookVerifyProducer(BaseProducer):

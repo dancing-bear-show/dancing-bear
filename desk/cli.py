@@ -13,9 +13,11 @@ from .pipeline import (
     ApplyResultProducer,
     PlanProcessor,
     PlanRequest,
+    PlanRequestConsumer,
     ReportProducer,
     ScanProcessor,
     ScanRequest,
+    ScanRequestConsumer,
 )
 
 
@@ -64,9 +66,9 @@ def cmd_scan(args) -> int:
         include_duplicates=args.duplicates,
         top_dirs=args.top_dirs,
     )
-    report = ScanProcessor().process(request)
-    ReportProducer(args.out).produce(report)
-    return 0
+    envelope = ScanProcessor().process(ScanRequestConsumer(request).consume())
+    ReportProducer(args.out).produce(envelope)
+    return 0 if envelope.ok() else 1
 
 
 # plan command
@@ -77,9 +79,9 @@ def cmd_scan(args) -> int:
 def cmd_plan(args) -> int:
     """Create a move/trash plan from config rules."""
     request = PlanRequest(config_path=args.config)
-    plan = PlanProcessor().process(request)
-    ReportProducer(args.out).produce(plan)
-    return 0
+    envelope = PlanProcessor().process(PlanRequestConsumer(request).consume())
+    ReportProducer(args.out).produce(envelope)
+    return 0 if envelope.ok() else 1
 
 
 # apply command
@@ -89,10 +91,11 @@ def cmd_plan(args) -> int:
 @app.argument("--debug", action="store_true", help="Enable verbose debug logging")
 def cmd_apply(args) -> int:
     """Apply a previously generated plan."""
+    from .pipeline import ApplyRequestConsumer
     request = ApplyRequest(plan_path=args.plan, dry_run=args.dry_run)
-    result = ApplyProcessor().process(request)
-    ApplyResultProducer().produce(result)
-    return 0
+    envelope = ApplyProcessor().process(ApplyRequestConsumer(request).consume())
+    ApplyResultProducer().produce(envelope)
+    return 0 if envelope.ok() else 1
 
 
 # rules group with export subcommand

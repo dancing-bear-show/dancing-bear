@@ -405,21 +405,6 @@ def _produce_token_updates(client: BaseProvider, updates: List[FilterTokenUpdate
             print(f"Failed to update filter id={fid}: {exc}")
     print(f"Updated {changed} filters.")
 
-    def _delete_with_retry(self, fid: str | None) -> bool:
-        if not fid:
-            return False
-        last_err = None
-        for attempt in range(3):
-            try:
-                self.client.delete_filter(fid)
-                print(f"Deleted filter id={fid}")
-                return True
-            except Exception as exc:  # pragma: no cover - retry logging
-                last_err = exc
-                time.sleep(1.5 * (2 ** attempt))
-        print(f"Warning: failed to delete filter id={fid}: {last_err}")
-        return False
-
 
 class FiltersExportProducer(Producer[ResultEnvelope[FiltersExportResult]]):
     """Write filter DSL export."""

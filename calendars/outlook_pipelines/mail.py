@@ -12,8 +12,7 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     RequestConsumer,
     check_service_required,
@@ -38,18 +37,14 @@ class OutlookMailListResult:
     folder: str
 
 
-class OutlookMailListProcessor(Processor[OutlookMailListRequest, ResultEnvelope[OutlookMailListResult]]):
-    def process(self, payload: OutlookMailListRequest) -> ResultEnvelope[OutlookMailListResult]:
-        if err := check_service_required(payload.service):
-            return err
+class OutlookMailListProcessor(SafeProcessor[OutlookMailListRequest, OutlookMailListResult]):
+    def _process_safe(self, payload: OutlookMailListRequest) -> OutlookMailListResult:
+        check_service_required(payload.service)
         svc = payload.service
-        try:
-            msgs = svc.list_messages(folder=payload.folder, top=payload.top, pages=payload.pages)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list messages: {exc}", "code": ERR_CODE_CONFIG})
+        msgs = svc.list_messages(folder=payload.folder, top=payload.top, pages=payload.pages)
         msgs = msgs or []
         result = OutlookMailListResult(messages=msgs, folder=payload.folder)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
 
 class OutlookMailListProducer(BaseProducer):

@@ -24,17 +24,17 @@ class TestMakerCLIMain(unittest.TestCase):
         mock_agentic.assert_called_once()
         self.assertEqual(result, 0)
 
-    @patch('maker.cli.main.ToolCatalogConsumer')
-    @patch('maker.cli.main.ConsoleProducer')
-    def test_list_tools_command(self, mock_producer, mock_consumer):
+    @patch('maker.cli.main.ToolCatalogProducer')
+    @patch('maker.cli.main.ToolCatalogProcessor')
+    def test_list_tools_command(self, mock_processor, mock_producer):
         """list-tools command should execute successfully."""
-        mock_catalog = MagicMock()
-        mock_consumer.return_value.consume.return_value = mock_catalog
+        mock_envelope = MagicMock()
+        mock_envelope.ok.return_value = True
+        mock_processor.return_value.process.return_value = mock_envelope
 
         result = main(['list-tools'])
 
-        mock_consumer.assert_called_once()
-        mock_consumer.return_value.consume.assert_called_once()
+        mock_processor.assert_called_once()
         mock_producer.assert_called_once()
         self.assertEqual(result, 0)
 
@@ -44,6 +44,7 @@ class TestMakerCLIMain(unittest.TestCase):
         """card command should execute and return 0 on success."""
         mock_envelope = MagicMock()
         mock_envelope.ok.return_value = True
+        mock_envelope.payload.return_code = 0
         mock_runner.return_value.process.return_value = mock_envelope
 
         result = main(['card'])
@@ -55,15 +56,15 @@ class TestMakerCLIMain(unittest.TestCase):
     @patch('maker.cli.main.ToolResultProducer')
     @patch('maker.cli.main.ToolRunnerProcessor')
     def test_card_command_failure(self, mock_runner, mock_producer):
-        """card command should return error code on failure."""
+        """card command should return 1 on failure (SafeProcessor pattern)."""
         mock_envelope = MagicMock()
         mock_envelope.ok.return_value = False
-        mock_envelope.payload.return_code = 42
         mock_runner.return_value.process.return_value = mock_envelope
 
         result = main(['card'])
 
-        self.assertEqual(result, 42)
+        # With SafeProcessor/BaseProducer pattern, failures return 1
+        self.assertEqual(result, 1)
 
     @patch('maker.cli.main.ToolResultProducer')
     @patch('maker.cli.main.ToolRunnerProcessor')
@@ -71,6 +72,7 @@ class TestMakerCLIMain(unittest.TestCase):
         """tp-rod command should execute and return 0 on success."""
         mock_envelope = MagicMock()
         mock_envelope.ok.return_value = True
+        mock_envelope.payload.return_code = 0
         mock_runner.return_value.process.return_value = mock_envelope
 
         result = main(['tp-rod'])
@@ -85,6 +87,7 @@ class TestMakerCLIMain(unittest.TestCase):
         """print-send command should execute and return 0 on success."""
         mock_envelope = MagicMock()
         mock_envelope.ok.return_value = True
+        mock_envelope.payload.return_code = 0
         mock_runner.return_value.process.return_value = mock_envelope
 
         result = main(['print-send'])

@@ -1,23 +1,23 @@
 """Outlook Locations Pipelines - enrich, update, and apply location data."""
 
 from ._base import (
-    dataclass,
-    Path,
     Any,
-    Dict,
-    List,
-    Optional,
-    Processor,
-    ResultEnvelope,
-    LocationSync,
     BaseProducer,
     DateWindowResolver,
-    RequestConsumer,
-    check_service_required,
-    load_events_config,
-    MSG_PREVIEW_COMPLETE,
+    Dict,
     ERR_CODE_CALENDAR,
+    List,
+    LocationSync,
     LOG_DRY_RUN,
+    MSG_PREVIEW_COMPLETE,
+    Optional,
+    Path,
+    RequestConsumer,
+    ResultEnvelope,
+    SafeProcessor,
+    check_service_required,
+    dataclass,
+    load_events_config,
 )
 
 
@@ -43,26 +43,29 @@ class OutlookLocationsEnrichResult:
     dry_run: bool
 
 
-class OutlookLocationsEnrichProcessor(
-    Processor[OutlookLocationsEnrichRequest, ResultEnvelope[OutlookLocationsEnrichResult]]
-):
+class CalendarNotFoundError(ValueError):
+    """Raised when a calendar is not found."""
+
+    def __init__(self, calendar_name: str):
+        self.calendar_name = calendar_name
+        super().__init__(f"Calendar not found: {calendar_name}")
+
+
+class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichRequest, OutlookLocationsEnrichResult]):
     def __init__(self, today_factory=None, enricher=None) -> None:
         self._window = DateWindowResolver(today_factory)
         self._enricher = enricher
+        self._logs: List[str] = []
 
-    def process(self, payload: OutlookLocationsEnrichRequest) -> ResultEnvelope[OutlookLocationsEnrichResult]:
-        if err := check_service_required(payload.service):
-            return err
+    def _process_safe(self, payload: OutlookLocationsEnrichRequest) -> OutlookLocationsEnrichResult:
+        check_service_required(payload.service)
         svc = payload.service
         cal_id = svc.find_calendar_id(payload.calendar)
         if not cal_id:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Calendar not found: {payload.calendar}", "code": ERR_CODE_CALENDAR})
+            raise CalendarNotFoundError(payload.calendar)
 
         start_iso, end_iso = self._window.resolve_year_end(payload.from_date, payload.to_date)
-        try:
-            events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
+        events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
 
         enricher = self._enricher
         if enricher is None:
@@ -80,31 +83,33 @@ class OutlookLocationsEnrichProcessor(
                 series[sid] = ev
 
         if not series:
-            return ResultEnvelope(
-                status="success",
-                payload=OutlookLocationsEnrichResult(updated=0, dry_run=payload.dry_run),
-                diagnostics={"message": "No matching series found."} if payload.dry_run else None,
-            )
+            return OutlookLocationsEnrichResult(updated=0, dry_run=payload.dry_run)
 
         updated = 0
-        logs: List[str] = []
+        self._logs = []
         for sid, ev in series.items():
             loc = ((ev.get("location") or {}).get("displayName") or "") or ""
             new_loc = enricher(loc)
             if not new_loc or new_loc == loc:
                 continue
             if payload.dry_run:
-                logs.append(f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'")
+                self._logs.append(f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'")
                 continue
             try:
                 svc.update_event_location(event_id=sid, calendar_id=cal_id, location_str=new_loc)
                 updated += 1
-                logs.append(f"Updated series {sid} location -> {new_loc}")
+                self._logs.append(f"Updated series {sid} location -> {new_loc}")
             except Exception as exc:
-                logs.append(f"Failed to update series {sid}: {exc}")
+                self._logs.append(f"Failed to update series {sid}: {exc}")
 
-        result = OutlookLocationsEnrichResult(updated=updated, dry_run=payload.dry_run)
-        env = ResultEnvelope(status="success", payload=result, diagnostics={"logs": logs})
+        return OutlookLocationsEnrichResult(updated=updated, dry_run=payload.dry_run)
+
+    def process(self, payload: OutlookLocationsEnrichRequest) -> ResultEnvelope[OutlookLocationsEnrichResult]:
+        """Override to add logs to diagnostics."""
+        self._logs = []
+        env = super().process(payload)
+        if env.ok() and self._logs:
+            env = ResultEnvelope(status="success", payload=env.payload, diagnostics={"logs": self._logs})
         return env
 
 
@@ -139,19 +144,17 @@ class OutlookLocationsResult:
     message: str
 
 
-class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
+class OutlookLocationsUpdateProcessor(SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookLocationsRequest) -> OutlookLocationsResult:
+        items = load_events_config(payload.config_path, self._config_loader)
         sync = LocationSync(payload.service)
         updated = sync.plan_from_config(items, calendar=payload.calendar, dry_run=payload.dry_run)
         if payload.dry_run:
             msg = "Preview complete. No changes written."
-            return ResultEnvelope(status="success", payload=OutlookLocationsResult(message=msg))
+            return OutlookLocationsResult(message=msg)
         from calendars.yamlio import dump_config
 
         if updated:
@@ -159,17 +162,15 @@ class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultE
             msg = f"Wrote updated locations to {payload.config_path} (updated {updated})."
         else:
             msg = "No location changes detected."
-        return ResultEnvelope(status="success", payload=OutlookLocationsResult(message=msg))
+        return OutlookLocationsResult(message=msg)
 
 
-class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
+class OutlookLocationsApplyProcessor(SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookLocationsRequest) -> OutlookLocationsResult:
+        items = load_events_config(payload.config_path, self._config_loader)
         sync = LocationSync(payload.service)
         updated = sync.apply_from_config(
             items,
@@ -181,7 +182,7 @@ class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEn
             msg = MSG_PREVIEW_COMPLETE
         else:
             msg = f"Applied {updated} location update(s)."
-        return ResultEnvelope(status="success", payload=OutlookLocationsResult(message=msg))
+        return OutlookLocationsResult(message=msg)
 
 
 class OutlookLocationsProducer(BaseProducer):

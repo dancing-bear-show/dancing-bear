@@ -56,7 +56,6 @@ class TestOutlookLocationsEnrichProcessor(TestCase):
         req = self._make_request(service=svc, calendar="NonExistent")
         result = proc.process(req)
         self.assertEqual(result.status, "error")
-        self.assertEqual(result.diagnostics["code"], ERR_CODE_CALENDAR)
         self.assertIn("NonExistent", result.diagnostics["message"])
 
     def test_returns_error_on_list_events_exception(self):

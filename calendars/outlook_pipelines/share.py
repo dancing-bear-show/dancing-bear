@@ -5,8 +5,7 @@ from ._base import (
     Any,
     Dict,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     RequestConsumer,
     check_service_required,
@@ -32,34 +31,18 @@ class OutlookCalendarShareResult:
     role: str
 
 
-class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, ResultEnvelope[OutlookCalendarShareResult]]):
-    def process(self, payload: OutlookCalendarShareRequest) -> ResultEnvelope[OutlookCalendarShareResult]:
-        if err := check_service_required(payload.service):
-            return err
+class OutlookCalendarShareProcessor(SafeProcessor[OutlookCalendarShareRequest, OutlookCalendarShareResult]):
+    def _process_safe(self, payload: OutlookCalendarShareRequest) -> OutlookCalendarShareResult:
+        check_service_required(payload.service)
         svc = payload.service
         cal_name = payload.calendar
-        try:
-            cal_id = svc.find_calendar_id(cal_name)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to resolve calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR})
+        cal_id = svc.find_calendar_id(cal_name)
         if not cal_id:
-            try:
-                cal_id = svc.ensure_calendar_exists(cal_name)
-            except Exception as exc:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Failed to ensure calendar '{cal_name}': {exc}", "code": ERR_CODE_CALENDAR},
-                )
+            cal_id = svc.ensure_calendar_exists(cal_name)
         role = self._normalize_role(payload.role)
-        try:
-            svc.ensure_calendar_permission(cal_id, payload.recipient, role)
-        except Exception as exc:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": f"Failed to share calendar '{cal_name}' with {payload.recipient}: {exc}", "code": ERR_CODE_CALENDAR},
-            )
+        svc.ensure_calendar_permission(cal_id, payload.recipient, role)
         result = OutlookCalendarShareResult(calendar=cal_name, recipient=payload.recipient, role=role)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _normalize_role(self, role: str) -> str:
         cleaned = (role or "write").strip().lower()

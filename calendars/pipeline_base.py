@@ -21,16 +21,14 @@ __all__ = ["RequestConsumer", "BaseProducer", "GmailAuth", "GmailServiceBuilder"
 ERR_SERVICE_REQUIRED = "Outlook service is required"
 
 
-def check_service_required(service: Any, error_msg: str = ERR_SERVICE_REQUIRED) -> Optional[ResultEnvelope]:
-    """Return error envelope if service is None, otherwise None.
+def check_service_required(service: Any, error_msg: str = ERR_SERVICE_REQUIRED) -> None:
+    """Raise ValueError if service is None.
 
     Usage:
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)
     """
     if service is None:
-        return ResultEnvelope(status="error", diagnostics={"message": error_msg, "code": 1})
-    return None
+        raise ValueError(error_msg)
 
 
 @dataclass

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.pipeline import RequestConsumer, Processor, ResultEnvelope, BaseProducer
+from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from core.auth import build_outlook_service
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
@@ -59,20 +59,16 @@ class PlanResult:
     out_path: Path
 
 
-class PlanProcessor(Processor[PlanRequest, ResultEnvelope[PlanResult]]):
+class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
+    """Generate a plan from schedule sources with automatic error handling."""
+
     def __init__(self, loader: Callable[[str, Optional[str]], List[Dict[str, dict]]] = _events_from_source) -> None:
         self._loader = loader
 
-    def process(self, payload: PlanRequest) -> ResultEnvelope[PlanResult]:
+    def _process_safe(self, payload: PlanRequest) -> PlanResult:
         all_events: List[Dict[str, dict]] = []
         for src in payload.sources:
-            try:
-                all_events.extend(self._loader(src, payload.kind))
-            except Exception as exc:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Error loading source {src}: {exc}", "code": 2},
-                )
+            all_events.extend(self._loader(src, payload.kind))
         if not all_events:
             plan = {
                 "#": "Add events under the 'events' key. Use subject, repeat/byday or start/end.",
@@ -80,7 +76,7 @@ class PlanProcessor(Processor[PlanRequest, ResultEnvelope[PlanResult]]):
             }
         else:
             plan = {"events": all_events}
-        return ResultEnvelope(status="success", payload=PlanResult(document=plan, out_path=payload.out_path))
+        return PlanResult(document=plan, out_path=payload.out_path)
 
 
 class PlanProducer(BaseProducer):
@@ -462,38 +458,31 @@ def _build_verify_lines_subject(
     return lines
 
 
-class VerifyProcessor(Processor[VerifyRequest, ResultEnvelope[VerifyResult]]):
-    def process(self, payload: VerifyRequest) -> ResultEnvelope[VerifyResult]:
+class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
+    """Verify calendar events against a plan with automatic error handling."""
+
+    def _process_safe(self, payload: VerifyRequest) -> VerifyResult:
         # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
         if err:
-            return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
+            raise ValueError(err)
         if not payload.calendar:
-            return ResultEnvelope(status="error", diagnostics={"message": "--calendar is required", "code": 2})
+            raise ValueError("--calendar is required")
         if not (payload.from_date and payload.to_date):
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "--from and --to are required (YYYY-MM-DD)", "code": 2},
-            )
+            raise ValueError("--from and --to are required (YYYY-MM-DD)")
         try:
             start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
             end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
         except Exception:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Invalid --from/--to date format; expected YYYY-MM-DD", "code": 2},
-            )
+            raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD")
 
         # Fetch calendar events
         svc, err = _build_outlook_service(payload.auth)
         if err:
-            return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
-        try:
-            occ = svc.list_events_in_range(
-                calendar_name=payload.calendar, start_iso=start_iso, end_iso=end_iso, top=400
-            )
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 2})
+            raise RuntimeError(err)
+        occ = svc.list_events_in_range(
+            calendar_name=payload.calendar, start_iso=start_iso, end_iso=end_iso, top=400
+        )
 
         # Build output based on match mode
         if payload.match == "subject-time":
@@ -503,7 +492,7 @@ class VerifyProcessor(Processor[VerifyRequest, ResultEnvelope[VerifyResult]]):
         else:
             lines = _build_verify_lines_subject(payload, events, occ)
 
-        return ResultEnvelope(status="success", payload=VerifyResult(lines=lines))
+        return VerifyResult(lines=lines)
 
 
 class VerifyProducer(BaseProducer):
@@ -773,43 +762,31 @@ def _execute_sync_deletes(
     payload: "SyncRequest",
     to_delete_occurrence_ids: List[str],
     to_delete_series_master_ids: List[str],
-) -> Tuple[int, Optional[ResultEnvelope[SyncResult]]]:
-    """Execute deletion of occurrences and series, return count and optional error."""
+) -> int:
+    """Execute deletion of occurrences and series, return count."""
     deleted = 0
     for oid in to_delete_occurrence_ids:
-        try:
-            raw_client.delete_event(oid, calendar_id=cal_id)
-            deleted += 1
-        except Exception as exc:
-            return deleted, ResultEnvelope(
-                status="error", diagnostics={"message": f"Failed deleting event id={oid}: {exc}", "code": 2}
-            )
+        raw_client.delete_event(oid, calendar_id=cal_id)
+        deleted += 1
     if payload.delete_unplanned_series and to_delete_series_master_ids:
         for sid in to_delete_series_master_ids:
-            try:
-                raw_client.delete_event(sid, calendar_id=cal_id)
-                deleted += 1
-            except Exception as exc:
-                return deleted, ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Failed deleting series master id={sid}: {exc}", "code": 2},
-                )
-    return deleted, None
+            raw_client.delete_event(sid, calendar_id=cal_id)
+            deleted += 1
+    return deleted
 
 
-class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
-    def process(self, payload: SyncRequest) -> ResultEnvelope[SyncResult]:
+class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
+    """Sync calendar events with a plan with automatic error handling."""
+
+    def _process_safe(self, payload: SyncRequest) -> SyncResult:
         # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
         if err:
-            return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
+            raise ValueError(err)
         if not payload.calendar:
-            return ResultEnvelope(status="error", diagnostics={"message": "--calendar is required", "code": 2})
+            raise ValueError("--calendar is required")
         if not (payload.from_date and payload.to_date):
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "--from and --to are required (YYYY-MM-DD)", "code": 2},
-            )
+            raise ValueError("--from and --to are required (YYYY-MM-DD)")
 
         # Build plan keys
         match_mode = payload.match or "subject-time"
@@ -820,25 +797,16 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
         # Connect to Outlook
         svc, err = _build_outlook_service(payload.auth)
         if err:
-            return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
-        try:
-            cal_id = svc.ensure_calendar(payload.calendar)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to resolve calendar: {exc}", "code": 2})
+            raise RuntimeError(err)
+        cal_id = svc.ensure_calendar(payload.calendar)
 
         try:
             start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
             end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
         except Exception:
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Invalid --from/--to date format; expected YYYY-MM-DD", "code": 2},
-            )
+            raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD")
 
-        try:
-            occ = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso, top=800)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": 2})
+        occ = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso, top=800)
 
         # Build existing calendar state
         have_map, have_keys = _build_have_map(occ)
@@ -858,7 +826,7 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
                 payload, to_create_series, to_create_oneoffs,
                 to_delete_occurrence_ids, to_delete_series_master_ids, match_mode
             )
-            return ResultEnvelope(status="success", payload=SyncResult(lines=lines))
+            return SyncResult(lines=lines)
 
         # Execute creates
         lines, created = _execute_sync_creates(svc, payload, to_create_series, to_create_oneoffs)
@@ -866,16 +834,14 @@ class SyncProcessor(Processor[SyncRequest, ResultEnvelope[SyncResult]]):
         # Execute deletes
         raw_client = getattr(svc, "client", None)
         if raw_client is None:
-            return ResultEnvelope(status="error", diagnostics={"message": "Outlook client unavailable; cannot delete events.", "code": 2})
+            raise RuntimeError("Outlook client unavailable; cannot delete events.")
 
-        deleted, error_env = _execute_sync_deletes(
+        deleted = _execute_sync_deletes(
             raw_client, cal_id, payload, to_delete_occurrence_ids, to_delete_series_master_ids
         )
-        if error_env:
-            return error_env
 
         lines.append(f"Sync complete. Created: {created}; Deleted: {deleted}")
-        return ResultEnvelope(status="success", payload=SyncResult(lines=lines))
+        return SyncResult(lines=lines)
 
 
 class SyncProducer(BaseProducer):
@@ -904,11 +870,13 @@ class ApplyResult:
     lines: List[str]
 
 
-class ApplyProcessor(Processor[ApplyRequest, ResultEnvelope[ApplyResult]]):
-    def process(self, payload: ApplyRequest) -> ResultEnvelope[ApplyResult]:
+class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
+    """Apply events from a plan to a calendar with automatic error handling."""
+
+    def _process_safe(self, payload: ApplyRequest) -> ApplyResult:
         events, err = _load_plan_events(payload.plan_path)
         if err:
-            return ResultEnvelope(status="error", diagnostics={"message": err, "code": 2})
+            raise ValueError(err)
         do_apply = bool(payload.apply)
         calendar_name = payload.calendar
         if not do_apply:
@@ -920,7 +888,7 @@ class ApplyProcessor(Processor[ApplyRequest, ResultEnvelope[ApplyResult]]):
                 rep = ev.get("repeat") or "one-off"
                 lines.append(f"  - {i}. {subj} ({rep})")
             lines.append("Pass --apply to perform changes.")
-            return ResultEnvelope(status="success", payload=ApplyResult(lines=lines))
+            return ApplyResult(lines=lines)
 
         provider = payload.provider or "outlook"
         lines = [
@@ -928,19 +896,17 @@ class ApplyProcessor(Processor[ApplyRequest, ResultEnvelope[ApplyResult]]):
             f"Provider: {provider}",
         ]
         if provider != "outlook":
-            lines.append("Unsupported provider for apply. Use --provider outlook.")
-            return ResultEnvelope(status="error", payload=ApplyResult(lines=lines), diagnostics={"code": 2})
+            raise ValueError("Unsupported provider for apply. Use --provider outlook.")
 
         svc, err = _build_outlook_service(payload.auth)
         if err:
-            lines.append(err)
-            return ResultEnvelope(status="error", payload=ApplyResult(lines=lines), diagnostics={"code": 2})
+            raise RuntimeError(err)
 
         rc, logs = _apply_outlook_events(events or [], calendar_name=calendar_name, service=svc)
         lines.extend(logs)
         if rc != 0:
-            return ResultEnvelope(status="error", payload=ApplyResult(lines=lines), diagnostics={"code": 2})
-        return ResultEnvelope(status="success", payload=ApplyResult(lines=lines))
+            raise RuntimeError("\n".join(logs))
+        return ApplyResult(lines=lines)
 
 
 class ApplyProducer(BaseProducer):
