@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import configparser
 import os
-import subprocess
+import subprocess  # nosec B404 - required for cfgutil (Apple Configurator CLI)
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which

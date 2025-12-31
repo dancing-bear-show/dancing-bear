@@ -322,7 +322,6 @@ def _collect_assigned_apps(
 def _add_all_apps_folder(
     builder: HomeScreenConfigBuilder,
     merged_all_apps_cfg: Dict[str, Any],
-    layout_export: Dict[str, Any],
     dock: List[str],
     pins: List[str],
     folders: Dict[str, List[str]],
@@ -420,7 +419,7 @@ def build_mobileconfig(
 
     # Add catch-all folder if configured
     if merged_all_apps_cfg and layout_export and not auto_categories:
-        _add_all_apps_folder(builder, merged_all_apps_cfg, layout_export, dock, pins, folders)
+        _add_all_apps_folder(builder, merged_all_apps_cfg, dock, pins, folders)
 
     # Auto-categorize remaining apps if enabled
     if auto_categories and layout_export:

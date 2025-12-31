@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import re
-from typing import List
+from typing import Any, List
 
 from .base import ScheduleParser
 from .model import ScheduleItem
@@ -55,6 +55,62 @@ class PDFParser(ScheduleParser):
         # Fallback
         raise NotImplementedError("Generic PDF parsing not implemented. This parser supports Aurora drop-in schedules.")
 
+    def _find_column_indices(self, header: List[str]) -> tuple[int | None, int | None]:
+        """Find day and leisure column indices in table header."""
+        day_idx = None
+        leisure_idx = None
+        for i, h in enumerate(header):
+            hl = h.replace('\n', ' ').lower()
+            if day_idx is None and 'day' in hl:
+                day_idx = i
+            if leisure_idx is None and 'leisure' in hl:
+                leisure_idx = i
+        return day_idx, leisure_idx
+
+    def _parse_table_row(
+        self, row: List[Any], day_idx: int, leisure_idx: int, path: str
+    ) -> List[ScheduleItem]:
+        """Parse a single table row and create schedule items."""
+        items: List[ScheduleItem] = []
+        if not row or len(row) <= max(day_idx, leisure_idx):
+            return items
+
+        day_spec = str(row[day_idx] or '').replace('\n', ' ').strip()
+        leisure_cell = str(row[leisure_idx] or '').replace('\n', ' ').strip()
+        if not leisure_cell:
+            return items
+
+        for code in normalize_days(day_spec):
+            for st, en in extract_time_ranges(leisure_cell):
+                items.append(ScheduleItem(
+                    subject='Leisure Swim',
+                    recurrence='weekly',
+                    byday=[code],
+                    start_time=st,
+                    end_time=en,
+                    range_start=_dt.date.today().isoformat(),
+                    location='Aurora Pools',
+                    notes=f'Imported from PDF {path}',
+                ))
+        return items
+
+    def _extract_from_table(self, tbl: List[List[Any]], path: str) -> List[ScheduleItem]:
+        """Extract schedule items from a single table."""
+        items: List[ScheduleItem] = []
+        if not tbl or not isinstance(tbl, list):
+            return items
+
+        header = [str(x or '').strip() for x in (tbl[0] or [])]
+        day_idx, leisure_idx = self._find_column_indices(header)
+
+        if day_idx is None or leisure_idx is None:
+            return items
+
+        for row in tbl[1:]:
+            items.extend(self._parse_table_row(row, day_idx, leisure_idx, path))
+
+        return items
+
     def _try_pdfplumber(self, path: str) -> List[ScheduleItem]:
         """Attempt to extract schedule using pdfplumber table extraction.
 
@@ -71,46 +127,10 @@ class PDFParser(ScheduleParser):
                 for page in pdf.pages:
                     tables = page.extract_tables() or []
                     for tbl in tables:
-                        if not tbl or not isinstance(tbl, list):
-                            continue
-                        header = [str(x or '').strip() for x in (tbl[0] or [])]
-
-                        # Identify Day and Leisure Swim columns
-                        day_idx = None
-                        leisure_idx = None
-                        for i, h in enumerate(header):
-                            hl = h.replace('\n', ' ').lower()
-                            if day_idx is None and 'day' in hl:
-                                day_idx = i
-                            if leisure_idx is None and 'leisure' in hl:
-                                leisure_idx = i
-
-                        if day_idx is None or leisure_idx is None:
-                            continue
-
-                        # Parse rows
-                        for row in tbl[1:]:
-                            if not row or len(row) <= max(day_idx, leisure_idx):
-                                continue
-                            day_spec = str(row[day_idx] or '').replace('\n', ' ').strip()
-                            leisure_cell = str(row[leisure_idx] or '').replace('\n', ' ').strip()
-                            if not leisure_cell:
-                                continue
-                            for code in normalize_days(day_spec):
-                                for st, en in extract_time_ranges(leisure_cell):
-                                    items.append(ScheduleItem(
-                                        subject='Leisure Swim',
-                                        recurrence='weekly',
-                                        byday=[code],
-                                        start_time=st,
-                                        end_time=en,
-                                        range_start=_dt.date.today().isoformat(),
-                                        location='Aurora Pools',
-                                        notes=f'Imported from PDF {path}',
-                                    ))
+                        items.extend(self._extract_from_table(tbl, path))
         except (OSError, ValueError, KeyError) as e:  # nosec B110 - pdfplumber failures are non-fatal
             # PDF parsing may fail due to corrupt files, missing tables, or format changes
-            # Return empty list and let caller fall back to text extraction
+            # Return partial results and let caller fall back to text extraction
             import sys
             print(f"Warning: PDF table extraction failed ({type(e).__name__}), returning partial results", file=sys.stderr)
 
@@ -128,7 +148,7 @@ class PDFParser(ScheduleParser):
         """
         items: List[ScheduleItem] = []
 
-        t = re.sub(r"\r", "\n", text)
+        t = text.replace("\r", "\n")
         t = re.sub(r"\n{2,}", "\n", t)
 
         # Split into rough sections by headers and process rows
@@ -142,10 +162,12 @@ class PDFParser(ScheduleParser):
                 continue
 
             # Split into row-ish chunks, starting with a day spec
+            # Match: Day name + rest of line, newline, then content until next day or end
+            day_pattern = r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
             rows = re.findall(
-                r'((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n]*?(?:\bto\b[^\n]*)?)\n([\s\S]*?)(?=\n(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)|\Z)',
+                rf'({day_pattern}[^\n]*)\n(.*?)(?=\n{day_pattern}|\Z)',
                 blk,
-                re.I
+                re.I | re.DOTALL
             )
             for day_spec, rest in rows:
                 # Extract Leisure Swim times from rest
