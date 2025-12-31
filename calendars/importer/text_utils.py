@@ -13,7 +13,7 @@ from .constants import (
     RE_PM_ONLY,
     RE_STRIP_TAGS,
 )
-from ..scan_common import DAY_MAP
+from ..constants import DAY_MAP
 
 
 def strip_html_tags(s: str) -> str:

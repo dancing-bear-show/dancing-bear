@@ -16,7 +16,6 @@ from ._base import (
     RequestConsumer,
     SafeProcessor,
     check_service_required,
-    ERR_CODE_API,
 )
 
 __all__ = [

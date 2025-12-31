@@ -19,25 +19,8 @@ def _normalize_byday(v: Any) -> Optional[List[str]]:
     if not v:
         return None
     # Accept ["MO","TU"], or comma/space separated variants, or full names
-    days_map = {
-        "monday": "MO",
-        "mon": "MO",
-        "tuesday": "TU",
-        "tue": "TU",
-        "tues": "TU",
-        "wednesday": "WE",
-        "wed": "WE",
-        "thursday": "TH",
-        "thu": "TH",
-        "thur": "TH",
-        "thurs": "TH",
-        "friday": "FR",
-        "fri": "FR",
-        "saturday": "SA",
-        "sat": "SA",
-        "sunday": "SU",
-        "sun": "SU",
-    }
+    from .constants import DAY_MAP
+
     if isinstance(v, str):
         toks = [t.strip() for t in v.replace(";", ",").replace(" ", ",").split(",") if t.strip()]
     elif isinstance(v, (list, tuple)):
@@ -52,7 +35,7 @@ def _normalize_byday(v: Any) -> Optional[List[str]]:
         if len(t) <= 2:
             code = tt
         else:
-            code = days_map.get(tt, None)
+            code = DAY_MAP.get(tt, None)
         code = code or (t[:2].upper() if len(t) > 2 else tt)
         if code not in seen:
             out.append(code)

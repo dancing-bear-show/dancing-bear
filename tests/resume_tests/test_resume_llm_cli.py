@@ -44,38 +44,38 @@ class TestResumeLLMCLIInternals(unittest.TestCase):
 
     def test_agentic_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._agentic()
+        result = mod.CONFIG.agentic()
         self.assertIsInstance(result, str)
         self.assertIn("resume", result.lower())
 
     def test_domain_map_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._domain_map()
+        result = mod.CONFIG.domain_map()
         self.assertIsInstance(result, str)
 
     def test_inventory_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._inventory()
+        result = mod.CONFIG.inventory()
         self.assertIsInstance(result, str)
         self.assertIn("Inventory", result)
 
     def test_familiar_compact_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._familiar_compact()
+        result = mod.CONFIG.familiar_compact()
         self.assertIsInstance(result, str)
         # Should contain YAML-like structure
         self.assertTrue("meta:" in result or "steps:" in result or "name:" in result)
 
     def test_familiar_extended_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._familiar_extended()
+        result = mod.CONFIG.familiar_extended()
         self.assertIsInstance(result, str)
         self.assertIn("meta:", result)
         self.assertIn("steps:", result)
 
     def test_policies_function_returns_string(self):
         mod = self._import_mod()
-        result = mod._policies()
+        result = mod.CONFIG.policies()
         self.assertIsInstance(result, str)
         self.assertIn("policies", result.lower())
 

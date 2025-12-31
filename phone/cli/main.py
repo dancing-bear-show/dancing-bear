@@ -532,7 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     # This is best-effort: if masking module is unavailable or fails to initialize,
     # the CLI continues normally without output masking.
     try:
-        from mail.utils.secrets import install_output_masking_from_env as _install_mask
+        from core.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
     except Exception as e:  # nosec B110 - best-effort masking, safe to continue without
         import sys

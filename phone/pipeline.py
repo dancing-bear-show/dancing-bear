@@ -17,6 +17,69 @@ from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
 
 
+def _build_manifest_from_export(
+    exp: Dict[str, Any],
+    export_path: str,
+) -> Dict[str, Any]:
+    """Build a manifest dict from raw export data.
+
+    Args:
+        exp: Raw export dict with 'dock' and 'pages' keys
+        export_path: Path string for source attribution
+
+    Returns:
+        Manifest dict with meta, device, layout, apps, counts, and source
+    """
+    import os
+
+    dock = list(exp.get("dock") or [])
+    pages_in = exp.get("pages") or []
+    pages_out: List[Dict[str, Any]] = []
+    all_apps: List[str] = []
+    seen: set = set()
+    folders_total = 0
+
+    for p in pages_in:
+        apps = list(p.get("apps") or [])
+        folders = []
+        for f in p.get("folders") or []:
+            name = f.get("name") or "Folder"
+            fapps = list(f.get("apps") or [])
+            folders.append({"name": name, "apps": fapps})
+            folders_total += 1
+        pages_out.append({"apps": apps, "folders": folders})
+        for a in apps:
+            if a and a not in seen:
+                seen.add(a)
+                all_apps.append(a)
+        for f in folders:
+            for a in f["apps"]:
+                if a and a not in seen:
+                    seen.add(a)
+                    all_apps.append(a)
+
+    for a in dock:
+        if a and a not in seen:
+            seen.add(a)
+            all_apps.append(a)
+
+    return {
+        "meta": {"name": "device_layout_manifest", "version": 1},
+        "device": {
+            "udid": os.environ.get("IOS_DEVICE_UDID"),
+            "label": os.environ.get("IOS_DEVICE_LABEL"),
+        },
+        "layout": {"dock": dock, "pages": pages_out},
+        "apps": {"all": all_apps},
+        "counts": {
+            "apps_total": len(all_apps),
+            "pages_count": len(pages_out),
+            "folders_count": folders_total,
+        },
+        "source": {"export_path": export_path},
+    }
+
+
 class BaseProducer(_CoreBaseProducer):
     """Phone-specific base producer that prints errors to stderr."""
 
@@ -459,8 +522,6 @@ class ManifestFromExportResult:
 
 class ManifestFromExportProcessor(SafeProcessor[ManifestFromExportRequest, ManifestFromExportResult]):
     def _process_safe(self, payload: ManifestFromExportRequest) -> ManifestFromExportResult:
-        import os
-
         try:
             exp = read_yaml(payload.export_path)
         except FileNotFoundError:
@@ -469,53 +530,7 @@ class ManifestFromExportProcessor(SafeProcessor[ManifestFromExportRequest, Manif
         if not isinstance(exp, dict) or "dock" not in exp or "pages" not in exp:
             raise ValueError("Export file must contain 'dock' and 'pages' keys")
 
-        dock = list(exp.get("dock") or [])
-        pages_in = exp.get("pages") or []
-        pages_out: List[Dict[str, Any]] = []
-        all_apps: List[str] = []
-        seen: set = set()
-        folders_total = 0
-
-        for p in pages_in:
-            apps = list(p.get("apps") or [])
-            folders = []
-            for f in p.get("folders") or []:
-                name = f.get("name") or "Folder"
-                fapps = list(f.get("apps") or [])
-                folders.append({"name": name, "apps": fapps})
-                folders_total += 1
-            pages_out.append({"apps": apps, "folders": folders})
-            for a in apps:
-                if a and a not in seen:
-                    seen.add(a)
-                    all_apps.append(a)
-            for f in folders:
-                for a in f["apps"]:
-                    if a and a not in seen:
-                        seen.add(a)
-                        all_apps.append(a)
-
-        for a in dock:
-            if a and a not in seen:
-                seen.add(a)
-                all_apps.append(a)
-
-        manifest = {
-            "meta": {"name": "device_layout_manifest", "version": 1},
-            "device": {
-                "udid": os.environ.get("IOS_DEVICE_UDID"),
-                "label": os.environ.get("IOS_DEVICE_LABEL"),
-            },
-            "layout": {"dock": dock, "pages": pages_out},
-            "apps": {"all": all_apps},
-            "counts": {
-                "apps_total": len(all_apps),
-                "pages_count": len(pages_out),
-                "folders_count": folders_total,
-            },
-            "source": {"export_path": str(payload.export_path)},
-        }
-
+        manifest = _build_manifest_from_export(exp, str(payload.export_path))
         return ManifestFromExportResult(manifest=manifest, out_path=payload.out_path)
 
 
@@ -564,61 +579,15 @@ class ManifestFromDeviceProcessor(SafeProcessor[ManifestFromDeviceRequest, Manif
         if not exp:
             raise ValueError("Could not derive export from device layout")
 
-        # Build manifest from export
-        dock = list(exp.get("dock") or [])
-        pages_in = exp.get("pages") or []
-        pages_out: List[Dict[str, Any]] = []
-        all_apps: List[str] = []
-        seen: set = set()
-        folders_total = 0
-
-        for p in pages_in:
-            apps = list(p.get("apps") or [])
-            folders = []
-            for f in p.get("folders") or []:
-                name = f.get("name") or "Folder"
-                fapps = list(f.get("apps") or [])
-                folders.append({"name": name, "apps": fapps})
-                folders_total += 1
-            pages_out.append({"apps": apps, "folders": folders})
-            for a in apps:
-                if a and a not in seen:
-                    seen.add(a)
-                    all_apps.append(a)
-            for f in folders:
-                for a in f["apps"]:
-                    if a and a not in seen:
-                        seen.add(a)
-                        all_apps.append(a)
-
-        for a in dock:
-            if a and a not in seen:
-                seen.add(a)
-                all_apps.append(a)
-
         export_path = payload.export_out or Path("out/device.IconState.yaml")
-        manifest = {
-            "meta": {"name": "device_layout_manifest", "version": 1},
-            "device": {
-                "udid": os.environ.get("IOS_DEVICE_UDID"),
-                "label": os.environ.get("IOS_DEVICE_LABEL"),
-            },
-            "layout": {"dock": dock, "pages": pages_out},
-            "apps": {"all": all_apps},
-            "counts": {
-                "apps_total": len(all_apps),
-                "pages_count": len(pages_out),
-                "folders_count": folders_total,
-            },
-            "source": {"export_path": str(export_path)},
-        }
+        manifest = _build_manifest_from_export(exp, str(export_path))
 
         return ManifestFromDeviceResult(
-                manifest=manifest,
-                out_path=payload.out_path,
-                export_out=payload.export_out,
-                export_document=exp,
-            )
+            manifest=manifest,
+            out_path=payload.out_path,
+            export_out=payload.export_out,
+            export_document=exp,
+        )
 
 
 class ManifestFromDeviceProducer(BaseProducer):

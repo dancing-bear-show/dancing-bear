@@ -9,6 +9,12 @@ Unified, dependency-light CLIs for personal workflows across mail, calendars, sc
 phone layouts, resumes, and WhatsApp. Built to be safe by default (plan and dry-run first),
 with a single YAML source of truth for Gmail and Outlook filters.
 
+**Self-contained repository:** All tools, helpers, and utilities are contained within this repo.
+External dependencies are minimized and lazily imported. This design ensures backwards
+compatibility of the public CLI interface and reduces fragility from external package changes.
+Internal APIs can be refactored freely—all call sites are updated atomically without needing
+backwards-compatible wrappers.
+
 ## Quick Start
 
 - Create venv and install:

@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest import TestCase, main as unittest_main
 from unittest.mock import MagicMock, patch
 
-from calendars.outlook_pipelines._base import ERR_CODE_CALENDAR
 from calendars.outlook_pipelines.locations import (
     OutlookLocationsEnrichRequest,
     OutlookLocationsEnrichResult,
