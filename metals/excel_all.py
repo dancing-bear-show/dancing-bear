@@ -23,11 +23,7 @@ from typing import Dict, List, Optional, Tuple
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
-
-
-def _workbook_url(client: OutlookClient, drive_id: str, item_id: str) -> str:
-    """Return base URL for workbook Graph API operations."""
-    return f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
+from .workbook import WorkbookContext, ChartPlacement
 
 
 def _col_letter(idx: int) -> str:
@@ -51,19 +47,19 @@ def _read_csv(path: str, metal: Optional[str] = None) -> List[Dict[str, str]]:
     return out
 
 
-def _list_worksheets(client: OutlookClient, drive_id: str, item_id: str) -> List[str]:
+def _list_worksheets(wb: WorkbookContext) -> List[str]:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets?$select=name"
-    r = requests.get(url, headers=client._headers())  # noqa: S113
+    url = f"{wb.base_url}/worksheets?$select=name"
+    r = requests.get(url, headers=wb.headers())  # noqa: S113
     r.raise_for_status()
     data = r.json() or {}
     return [w.get("name", "") for w in (data.get("value") or []) if w.get("name")]
 
 
-def _get_used_range_values(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> List[List[str]]:
+def _get_used_range_values(wb: WorkbookContext, sheet: str) -> List[List[str]]:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=client._headers())  # noqa: S113
+    url = f"{wb.sheet_url(sheet)}/usedRange(valuesOnly=true)?$select=values"
+    r = requests.get(url, headers=wb.headers())  # noqa: S113
     if r.status_code >= 400:
         return []
     data = r.json() or {}
@@ -133,42 +129,43 @@ def _poll_async_operation(
     raise RuntimeError("Timed out waiting for async operation")
 
 
-def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str) -> Tuple[str, str]:
+def _copy_item(wb: WorkbookContext, new_name: str) -> WorkbookContext:
     import requests  # type: ignore
 
-    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers()).json()  # noqa: S113
+    meta = requests.get(f"{wb.client.GRAPH}/drives/{wb.drive_id}/items/{wb.item_id}", headers=wb.headers()).json()  # noqa: S113
     parent_id = ((meta or {}).get("parentReference") or {}).get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
 
-    copy_url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/copy"
-    resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body))  # noqa: S113
+    copy_url = f"{wb.client.GRAPH}/drives/{wb.drive_id}/items/{wb.item_id}/copy"
+    resp = requests.post(copy_url, headers=wb.headers(), data=json.dumps(body))  # noqa: S113
     if resp.status_code not in (202, 200):
         raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
 
     location = resp.headers.get("Location") or resp.headers.get("Operation-Location")
     if not location:
         try:
-            return drive_id, resp.json().get("id")
+            new_id = resp.json().get("id")
+            return WorkbookContext(wb.client, wb.drive_id, new_id)
         except Exception:
             raise RuntimeError("Copy returned no body and no monitor location")
 
-    return drive_id, _poll_async_operation(client, location)
+    new_id = _poll_async_operation(wb.client, location)
+    return WorkbookContext(wb.client, wb.drive_id, new_id)
 
 
-def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> Dict[str, str]:
+def _ensure_sheet(wb: WorkbookContext, sheet: str) -> Dict[str, str]:
     import requests
     import time  # type: ignore
 
-    base = _workbook_url(client, drive_id, item_id)
-    r = requests.get(f"{base}/worksheets('{sheet}')", headers=client._headers())  # noqa: S113
+    r = requests.get(wb.sheet_url(sheet), headers=wb.headers())  # noqa: S113
     if r.status_code < 300:
         return r.json() or {}
 
     # Add if missing, with simple retries for transient 5xx
     for attempt in range(4):
-        rr = requests.post(f"{base}/worksheets/add", headers=client._headers(), data=json.dumps({"name": sheet}))  # noqa: S113
+        rr = requests.post(f"{wb.base_url}/worksheets/add", headers=wb.headers(), data=json.dumps({"name": sheet}))  # noqa: S113
         if rr.status_code < 300:
             return rr.json() or {}
         if rr.status_code >= 500:
@@ -184,13 +181,13 @@ def _pad_rows(values: List[List[str]], cols: int) -> List[List[str]]:
     return [r + [""] * (cols - len(r)) if len(r) < cols else r for r in values]
 
 
-def _write_range(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
+def _write_range(wb: WorkbookContext, sheet: str, values: List[List[str]]) -> None:
     import requests  # type: ignore
 
-    base = _workbook_url(client, drive_id, item_id)
+    sheet_url = wb.sheet_url(sheet)
     requests.post(  # noqa: S113
-        f"{base}/worksheets('{sheet}')/range(address='A1:Z100000')/clear",
-        headers=client._headers(),
+        f"{sheet_url}/range(address='A1:Z100000')/clear",
+        headers=wb.headers(),
         data=json.dumps({"applyTo": "contents"}),
     )
     if not values:
@@ -202,49 +199,55 @@ def _write_range(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     addr = f"A1:{end_col}{rows}"
 
     r = requests.patch(  # noqa: S113
-        f"{base}/worksheets('{sheet}')/range(address='{addr}')",
-        headers=client._headers(),
+        f"{sheet_url}/range(address='{addr}')",
+        headers=wb.headers(),
         data=json.dumps({"values": padded}),
     )
     r.raise_for_status()
 
     # Make a table (best-effort)
     tadd = requests.post(  # noqa: S113
-        f"{base}/tables/add",
-        headers=client._headers(),
+        f"{wb.base_url}/tables/add",
+        headers=wb.headers(),
         data=json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
     )
     try:
         if tid := (tadd.json() or {}).get("id"):
             requests.patch(  # noqa: S113
-                f"{base}/tables/{tid}",
-                headers=client._headers(),
+                f"{wb.base_url}/tables/{tid}",
+                headers=wb.headers(),
                 data=json.dumps({"style": "TableStyleMedium2"}),
             )
     except Exception:
         pass  # noqa: S110 - table styling is optional
 
     # Autofit columns and freeze header
-    requests.post(f"{base}/worksheets('{sheet}')/range(address='{sheet}!A:{end_col}')/format/autofitColumns", headers=client._headers())  # noqa: S113
-    requests.post(f"{base}/worksheets('{sheet}')/freezePanes/freeze", headers=client._headers(), data=json.dumps({"top": 1, "left": 0}))  # noqa: S113
+    requests.post(f"{sheet_url}/range(address='{sheet}!A:{end_col}')/format/autofitColumns", headers=wb.headers())  # noqa: S113
+    requests.post(f"{sheet_url}/freezePanes/freeze", headers=wb.headers(), data=json.dumps({"top": 1, "left": 0}))  # noqa: S113
 
 
-def _add_chart(client: OutlookClient, drive_id: str, item_id: str, sheet: str, chart_type: str, source_addr: str, left: int = 400, top: int = 10, width: int = 600, height: int = 360) -> None:
+def _add_chart(
+    wb: WorkbookContext,
+    sheet: str,
+    chart_type: str,
+    source_addr: str,
+    placement: Optional[ChartPlacement] = None,
+) -> None:
     import requests  # type: ignore
 
-    base = _workbook_url(client, drive_id, item_id)
-    url = f"{base}/worksheets('{sheet}')/charts/add"
+    placement = placement or ChartPlacement()
+    url = f"{wb.sheet_url(sheet)}/charts/add"
     body = {"type": chart_type, "sourceData": f"'{sheet}'!{source_addr}", "seriesBy": "Auto"}
-    r = requests.post(url, headers=client._headers(), data=json.dumps(body))  # noqa: S113
+    r = requests.post(url, headers=wb.headers(), data=json.dumps(body))  # noqa: S113
     if r.status_code >= 400:
         return
 
     try:
         if cid := (r.json() or {}).get("id"):
             requests.patch(  # noqa: S113
-                f"{base}/worksheets('{sheet}')/charts('{cid}')",
-                headers=client._headers(),
-                data=json.dumps({"top": top, "left": left, "width": width, "height": height}),
+                wb.chart_url(sheet, cid),
+                headers=wb.headers(),
+                data=json.dumps({"top": placement.top, "left": placement.left, "width": placement.width, "height": placement.height}),
             )
     except Exception:
         pass  # noqa: S110 - chart positioning is optional
@@ -257,33 +260,32 @@ def _to_values_all(recs: List[Dict[str, str]]) -> List[List[str]]:
         rows.append([r.get("date", ""), r.get("order_id", ""), r.get("vendor", ""), r.get("metal", ""), str(r.get("total_oz", "")), str(r.get("cost_per_oz", ""))])
     return rows
 
-def _set_sheet_position(client: OutlookClient, drive_id: str, item_id: str, sheet: str, position: int) -> None:
+def _set_sheet_position(wb: WorkbookContext, sheet: str, position: int) -> None:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')"
-    requests.patch(url, headers=client._headers(), data=json.dumps({"position": int(position)}))  # noqa: S113
+    requests.patch(wb.sheet_url(sheet), headers=wb.headers(), data=json.dumps({"position": int(position)}))  # noqa: S113
 
-def _set_sheet_visibility(client: OutlookClient, drive_id: str, item_id: str, sheet: str, visible: bool) -> None:
+
+def _set_sheet_visibility(wb: WorkbookContext, sheet: str, visible: bool) -> None:
     import requests  # type: ignore
-    url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook/worksheets('{sheet}')"
     vis = "Visible" if visible else "Hidden"
-    requests.patch(url, headers=client._headers(), data=json.dumps({"visibility": vis}))  # noqa: S113
+    requests.patch(wb.sheet_url(sheet), headers=wb.headers(), data=json.dumps({"visibility": vis}))  # noqa: S113
 
-def _write_filter_view(client: OutlookClient, drive_id: str, item_id: str, all_sheet: str, out_sheet: str, metal: str) -> None:
+
+def _write_filter_view(wb: WorkbookContext, all_sheet: str, out_sheet: str, metal: str) -> None:
     """Write a dynamic FILTER view on out_sheet that references 'all_sheet' and filters by metal."""
     import requests  # type: ignore
 
-    base = _workbook_url(client, drive_id, item_id)
-    headers_api = client._headers()
+    out_url = wb.sheet_url(out_sheet)
 
     # Clear, write header, write FILTER formula
-    requests.post(f"{base}/worksheets('{out_sheet}')/range(address='A1:Z100000')/clear", headers=headers_api, data=json.dumps({"applyTo": "contents"}))  # noqa: S113
-    requests.patch(f"{base}/worksheets('{out_sheet}')/range(address='A1:F1')", headers=headers_api, data=json.dumps({"values": [["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]]}))  # noqa: S113
+    requests.post(f"{out_url}/range(address='A1:Z100000')/clear", headers=wb.headers(), data=json.dumps({"applyTo": "contents"}))  # noqa: S113
+    requests.patch(f"{out_url}/range(address='A1:F1')", headers=wb.headers(), data=json.dumps({"values": [["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]]}))  # noqa: S113
     formula = f"=FILTER('{all_sheet}'!A2:F100000, '{all_sheet}'!D2:D100000=\"{metal}\")"
-    requests.patch(f"{base}/worksheets('{out_sheet}')/range(address='A2')", headers=headers_api, data=json.dumps({"values": [[formula]]}))  # noqa: S113
+    requests.patch(f"{out_url}/range(address='A2')", headers=wb.headers(), data=json.dumps({"values": [[formula]]}))  # noqa: S113
 
     # Autofit and freeze header
-    requests.post(f"{base}/worksheets('{out_sheet}')/range(address='{out_sheet}!A:F')/format/autofitColumns", headers=headers_api)  # noqa: S113
-    requests.post(f"{base}/worksheets('{out_sheet}')/freezePanes/freeze", headers=headers_api, data=json.dumps({"top": 1, "left": 0}))  # noqa: S113
+    requests.post(f"{out_url}/range(address='{out_sheet}!A:F')/format/autofitColumns", headers=wb.headers())  # noqa: S113
+    requests.post(f"{out_url}/freezePanes/freeze", headers=wb.headers(), data=json.dumps({"top": 1, "left": 0}))  # noqa: S113
 
 
 def _sumif_formula(sheet: str, match_col: str, match_val: str, sum_col: str) -> str:
@@ -600,13 +602,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
     client.authenticate()
 
-    drive_id = getattr(args, "drive_id")
-    item_id = getattr(args, "item_id")
+    wb = WorkbookContext(client, getattr(args, "drive_id"), getattr(args, "item_id"))
+
     # Read existing workbook sheets and consolidate to All
-    sheet_names = _list_worksheets(client, drive_id, item_id)
+    sheet_names = _list_worksheets(wb)
     existing_all: List[Dict[str, str]] = []
     for name in sheet_names:
-        vals = _get_used_range_values(client, drive_id, item_id, name)
+        vals = _get_used_range_values(wb, name)
         if not vals:
             continue
         assumed_metal = None
@@ -635,20 +637,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     summary_values, anchors = _build_summary_values(all_merged)
 
     # Copy workbook to new item
-    new_did, new_iid = _copy_item(client, drive_id, item_id, getattr(args, "out_name"))
+    new_wb = _copy_item(wb, getattr(args, "out_name"))
 
     # Ensure sheets
     all_name = getattr(args, "all_sheet")
     sum_name = getattr(args, "summary_sheet")
     gold_name = "Gold"
     silver_name = "Silver"
-    _ensure_sheet(client, new_did, new_iid, all_name)
-    _ensure_sheet(client, new_did, new_iid, sum_name)
-    _ensure_sheet(client, new_did, new_iid, gold_name)
-    _ensure_sheet(client, new_did, new_iid, silver_name)
+    _ensure_sheet(new_wb, all_name)
+    _ensure_sheet(new_wb, sum_name)
+    _ensure_sheet(new_wb, gold_name)
+    _ensure_sheet(new_wb, silver_name)
 
     # Write All and Summary (formulas)
-    _write_range(client, new_did, new_iid, all_name, all_values)
+    _write_range(new_wb, all_name, all_values)
 
     # Formula-driven Summary referencing All (D=metal, C=vendor, E=oz, F=cost_per_oz)
     sum_formulas = [
@@ -662,42 +664,42 @@ def main(argv: Optional[List[str]] = None) -> int:
         _summary_row(all_name, "TD", "C"),
         _summary_row(all_name, "Costco", "C"),
     ]
-    _write_range(client, new_did, new_iid, sum_name, sum_formulas)
+    _write_range(new_wb, sum_name, sum_formulas)
 
     # Gold/Silver sheets reference All via FILTER so data lives only once
-    _write_filter_view(client, new_did, new_iid, all_name, gold_name, "gold")
-    _write_filter_view(client, new_did, new_iid, all_name, silver_name, "silver")
+    _write_filter_view(new_wb, all_name, gold_name, "gold")
+    _write_filter_view(new_wb, all_name, silver_name, "silver")
 
     # Add charts on summary — chart totals by metal from Summary!B3:C4
-    _add_chart(client, new_did, new_iid, sum_name, "ColumnClustered", "B3:C4", left=360, top=10)
+    _add_chart(new_wb, sum_name, "ColumnClustered", "B3:C4", ChartPlacement(left=360, top=10))
 
     # Create Profit sheet with time-series PnL and charts
     profit_values = _build_profit_series(all_merged)
     if profit_values:
         profit_name = "Profit"
-        _ensure_sheet(client, new_did, new_iid, profit_name)
-        _write_range(client, new_did, new_iid, profit_name, profit_values)
+        _ensure_sheet(new_wb, profit_name)
+        _write_range(new_wb, profit_name, profit_values)
         # Chart: Portfolio PnL over time (column J)
         rows = len(profit_values)
         # Data range J2:J{rows}
-        _add_chart(client, new_did, new_iid, profit_name, "Line", f"J2:J{rows}", left=10, top=10, width=700, height=360)
+        _add_chart(new_wb, profit_name, "Line", f"J2:J{rows}", ChartPlacement(left=10, top=10, width=700, height=360))
         # Chart: Gold vs Silver spot and avg (columns C,D and G,H) — optional separate charts
-        _add_chart(client, new_did, new_iid, profit_name, "Line", f"C2:D{rows}", left=10, top=380, width=700, height=280)
-        _add_chart(client, new_did, new_iid, profit_name, "Line", f"G2:H{rows}", left=10, top=680, width=700, height=280)
+        _add_chart(new_wb, profit_name, "Line", f"C2:D{rows}", ChartPlacement(left=10, top=380, width=700, height=280))
+        _add_chart(new_wb, profit_name, "Line", f"G2:H{rows}", ChartPlacement(left=10, top=680, width=700, height=280))
 
     # Sheet order: Summary first, then Gold, then Silver; All last and hidden
     try:
-        _set_sheet_position(client, new_did, new_iid, sum_name, 0)
-        _set_sheet_position(client, new_did, new_iid, gold_name, 1)
-        _set_sheet_position(client, new_did, new_iid, silver_name, 2)
+        _set_sheet_position(new_wb, sum_name, 0)
+        _set_sheet_position(new_wb, gold_name, 1)
+        _set_sheet_position(new_wb, silver_name, 2)
     except Exception:  # noqa: S110 - non-critical sheet positioning
         pass
     try:
-        _set_sheet_visibility(client, new_did, new_iid, all_name, False)
+        _set_sheet_visibility(new_wb, all_name, False)
     except Exception:  # noqa: S110 - non-critical sheet visibility
         pass
 
-    print("created consolidated workbook:", new_did, new_iid, "(Summary, Gold, Silver; All hidden)")
+    print("created consolidated workbook:", new_wb.drive_id, new_wb.item_id, "(Summary, Gold, Silver; All hidden)")
     return 0
 
 

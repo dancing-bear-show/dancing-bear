@@ -67,7 +67,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
         # Verify byday was parsed correctly
         call_args = mock_pipeline.call_args
         request = call_args[0][0]
-        self.assertEqual(request.byday, ["MO", "WE", "FR"])
+        self.assertEqual(request.params.byday, ["MO", "WE", "FR"])
 
     @patch("calendars.outlook.commands._build_outlook_service")
     def test_returns_1_when_service_fails(self, mock_build_svc):
@@ -208,9 +208,9 @@ class TestRunOutlookAdd(unittest.TestCase):
         result = run_outlook_add(args)
         self.assertEqual(result, 0)
         request = mock_pipeline.call_args[0][0]
-        self.assertEqual(request.subject, "Meeting")
-        self.assertEqual(request.location, "Room A")
-        self.assertTrue(request.no_reminder)
+        self.assertEqual(request.params.subject, "Meeting")
+        self.assertEqual(request.params.location, "Room A")
+        self.assertTrue(request.params.no_reminder)
 
 
 class TestRunOutlookDedup(unittest.TestCase):

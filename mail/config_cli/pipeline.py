@@ -860,7 +860,9 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
                     pass
 
         if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
-            persist_profile_settings(
+            from mail.config_resolver import ProfileSettings
+
+            settings = ProfileSettings(
                 profile=payload.profile,
                 credentials=cred_path,
                 token=tok_path,
@@ -868,6 +870,7 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
                 tenant=payload.tenant,
                 outlook_token=payload.outlook_token,
             )
+            persist_profile_settings(settings)
             profile_saved = True
 
         return EnvSetupResult(

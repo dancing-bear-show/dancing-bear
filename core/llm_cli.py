@@ -40,38 +40,23 @@ class LlmConfig:
     policies_filename: str = DEFAULT_POLICIES_FILENAME
 
 
-def make_app_llm_config(
-    *,
-    prog: str,
-    description: str,
-    agentic: Callable[[], str],
-    domain_map: Optional[Callable[[], str]] = None,
-    inventory: Optional[Callable[[], str]] = None,
-    familiar_compact: Optional[Callable[[], str]] = None,
-    familiar_extended: Optional[Callable[[], str]] = None,
-    policies: Optional[Callable[[], str]] = None,
-    agentic_filename: str = DEFAULT_AGENTIC_FILENAME,
-    domain_map_filename: str = DEFAULT_DOMAIN_MAP_FILENAME,
-    inventory_filename: str = DEFAULT_INVENTORY_FILENAME,
-    familiar_filename: str = DEFAULT_FAMILIAR_FILENAME,
-    policies_filename: str = DEFAULT_POLICIES_FILENAME,
-) -> LlmConfig:
-    """Helper to build a common app LLM config without repeating boilerplate."""
-    return LlmConfig(
-        prog=prog,
-        description=description,
-        agentic=agentic,
-        domain_map=domain_map,
-        inventory=inventory,
-        familiar_compact=familiar_compact,
-        familiar_extended=familiar_extended,
-        policies=policies,
-        agentic_filename=agentic_filename,
-        domain_map_filename=domain_map_filename,
-        inventory_filename=inventory_filename,
-        familiar_filename=familiar_filename,
-        policies_filename=policies_filename,
-    )
+def make_app_llm_config(**kwargs) -> LlmConfig:
+    """Create LlmConfig instance.
+
+    This is a convenience wrapper around LlmConfig constructor.
+    For new code, prefer using LlmConfig(...) directly.
+
+    Args:
+        **kwargs: Arguments passed to LlmConfig constructor.
+                  Required: prog, description, agentic
+                  Optional: domain_map, inventory, familiar_compact, familiar_extended,
+                           policies, agentic_filename, domain_map_filename,
+                           inventory_filename, familiar_filename, policies_filename
+
+    Returns:
+        LlmConfig instance.
+    """
+    return LlmConfig(**kwargs)
 
 
 def make_domain_llm_module(

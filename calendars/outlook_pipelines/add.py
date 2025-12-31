@@ -18,6 +18,7 @@ from ._base import (
     to_iso_str,
     LOG_DRY_RUN,
 )
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
 @dataclass
@@ -85,15 +86,26 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             )
             return 1
         try:
-            evt = payload.service.create_recurring_event(
-                calendar_id=None, calendar_name=cal_name, subject=subj,
-                start_time=nev.get("start_time"), end_time=nev.get("end_time"), tz=nev.get("tz"),
-                repeat=nev.get("repeat"), interval=int(nev.get("interval", 1) or 1), byday=nev.get("byday"),
+            params = RecurringEventCreationParams(
+                subject=subj,
+                start_time=nev.get("start_time"),
+                end_time=nev.get("end_time"),
+                repeat=nev.get("repeat"),
+                calendar_id=None,
+                calendar_name=cal_name,
+                tz=nev.get("tz"),
+                interval=int(nev.get("interval", 1) or 1),
+                byday=nev.get("byday"),
                 range_start_date=(nev.get("range") or {}).get("start_date"),
-                range_until=(nev.get("range") or {}).get("until"), count=nev.get("count"),
-                body_html=nev.get("body_html"), location=nev.get("location"),
-                exdates=nev.get("exdates") or [], no_reminder=no_rem, reminder_minutes=rem_minutes,
+                range_until=(nev.get("range") or {}).get("until"),
+                count=nev.get("count"),
+                body_html=nev.get("body_html"),
+                location=nev.get("location"),
+                exdates=nev.get("exdates") or [],
+                no_reminder=no_rem,
+                reminder_minutes=rem_minutes,
             )
+            evt = payload.service.create_recurring_event(params)
             logs.append(f"[{idx}] Created series: {evt.get('id')} {subj}")
             return 1
         except Exception as exc:
@@ -114,12 +126,20 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             )
             return 1
         try:
-            evt = payload.service.create_event(
-                calendar_id=None, calendar_name=cal_name, subject=subj,
-                start_iso=to_iso_str(start_iso), end_iso=to_iso_str(end_iso), tz=nev.get("tz"),
-                body_html=nev.get("body_html"), all_day=bool(nev.get("all_day") or nev.get("allDay")),
-                location=nev.get("location"), no_reminder=no_rem, reminder_minutes=rem_minutes,
+            params = EventCreationParams(
+                subject=subj,
+                start_iso=to_iso_str(start_iso),
+                end_iso=to_iso_str(end_iso),
+                calendar_id=None,
+                calendar_name=cal_name,
+                tz=nev.get("tz"),
+                body_html=nev.get("body_html"),
+                all_day=bool(nev.get("all_day") or nev.get("allDay")),
+                location=nev.get("location"),
+                no_reminder=no_rem,
+                reminder_minutes=rem_minutes,
             )
+            evt = payload.service.create_event(params)
             logs.append(f"[{idx}] Created event: {evt.get('id')} {subj}")
             return 1
         except Exception as exc:

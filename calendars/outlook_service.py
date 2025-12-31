@@ -12,9 +12,13 @@ import requests
 
 from .context import OutlookContext
 from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL
+from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 
 # Backwards-compat alias
 _REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
+
+# Re-export for backwards compatibility
+__all__ = ["EventCreationParams", "RecurringEventCreationParams", "OutlookService"]
 
 
 @dataclass
@@ -25,74 +29,42 @@ class OutlookService:
         self.client = self.ctx.ensure_client()
 
     # Creation helpers
-    def create_event(
-        self,
-        *,
-        calendar_id: Optional[str],
-        calendar_name: Optional[str],
-        subject: str,
-        start_iso: str,
-        end_iso: str,
-        tz: Optional[str] = None,
-        body_html: Optional[str] = None,
-        all_day: bool = False,
-        location: Optional[str] = None,
-        no_reminder: bool = False,
-        reminder_minutes: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    def create_event(self, params: EventCreationParams) -> Dict[str, Any]:
+        """Create a one-time event using parameter object."""
         return self.client.create_event(
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            subject=subject,
-            start_iso=start_iso,
-            end_iso=end_iso,
-            tz=tz,
-            body_html=body_html,
-            all_day=all_day,
-            location=location,
-            no_reminder=no_reminder,
-            reminder_minutes=reminder_minutes,
+            calendar_id=params.calendar_id,
+            calendar_name=params.calendar_name,
+            subject=params.subject,
+            start_iso=params.start_iso,
+            end_iso=params.end_iso,
+            tz=params.tz,
+            body_html=params.body_html,
+            all_day=params.all_day,
+            location=params.location,
+            no_reminder=params.no_reminder,
+            reminder_minutes=params.reminder_minutes,
         )
 
-    def create_recurring_event(
-        self,
-        *,
-        calendar_id: Optional[str],
-        calendar_name: Optional[str],
-        subject: str,
-        start_time: str,
-        end_time: str,
-        tz: Optional[str],
-        repeat: str,
-        interval: int = 1,
-        byday: Optional[List[str]] = None,
-        range_start_date: Optional[str] = None,
-        range_until: Optional[str] = None,
-        count: Optional[int] = None,
-        body_html: Optional[str] = None,
-        location: Optional[str] = None,
-        exdates: Optional[List[str]] = None,
-        no_reminder: bool = False,
-        reminder_minutes: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    def create_recurring_event(self, params: RecurringEventCreationParams) -> Dict[str, Any]:
+        """Create a recurring event using parameter object."""
         return self.client.create_recurring_event(
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            subject=subject,
-            start_time=start_time,
-            end_time=end_time,
-            tz=tz,
-            repeat=repeat,
-            interval=interval,
-            byday=byday,
-            range_start_date=range_start_date,
-            range_until=range_until,
-            count=count,
-            body_html=body_html,
-            location=location,
-            exdates=exdates,
-            no_reminder=no_reminder,
-            reminder_minutes=reminder_minutes,
+            calendar_id=params.calendar_id,
+            calendar_name=params.calendar_name,
+            subject=params.subject,
+            start_time=params.start_time,
+            end_time=params.end_time,
+            tz=params.tz,
+            repeat=params.repeat,
+            interval=params.interval,
+            byday=params.byday,
+            range_start_date=params.range_start_date,
+            range_until=params.range_until,
+            count=params.count,
+            body_html=params.body_html,
+            location=params.location,
+            exdates=params.exdates,
+            no_reminder=params.no_reminder,
+            reminder_minutes=params.reminder_minutes,
         )
 
     # Query helpers
