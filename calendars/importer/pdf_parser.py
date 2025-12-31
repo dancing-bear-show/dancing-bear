@@ -132,7 +132,8 @@ class PDFParser(ScheduleParser):
         t = re.sub(r"\n{2,}", "\n", t)
 
         # Split into rough sections by headers and process rows
-        blocks = re.split(r'\n\s*Day\s*\n', t)
+        # Match Day header at start of string or after a newline
+        blocks = re.split(r'(?:^|\n)\s*Day\s*\n', t)
         for blk in blocks[1:]:
             # Heuristic: check if block contains "Leisure" header and at least one weekday
             if not re.search(r'Leisure', blk, re.I):
