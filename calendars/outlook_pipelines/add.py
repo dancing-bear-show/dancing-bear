@@ -53,7 +53,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             result = self._process_event(idx, ev, payload, logs)
             created += result
 
-        return ResultEnvelope(status="success", payload=OutlookAddResult(logs=logs, created=created, dry_run=payload.dry_run))
+        return OutlookAddResult(logs=logs, created=created, dry_run=payload.dry_run)
 
     def _process_event(self, idx: int, ev: Dict[str, Any], payload: OutlookAddRequest, logs: List[str]) -> int:
         nev = normalize_event(ev)
