@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -294,7 +295,7 @@ class TestWriteResumeDocx(unittest.TestCase):
         from resume.docx_writer import write_resume_docx
         mock_safe_import.return_value = None
         with self.assertRaises(RuntimeError) as ctx:
-            write_resume_docx({}, {}, "/tmp/out.docx")  # nosec B108 - test fixture path
+            write_resume_docx({}, {}, test_path("out.docx"))  # nosec B108 - test fixture path
         self.assertIn("python-docx", str(ctx.exception))
 
     @patch("resume.docx_writer.safe_import")
@@ -331,9 +332,9 @@ class TestWriteResumeDocx(unittest.TestCase):
         with patch.dict("sys.modules", {"docx": mock_docx}):
             data = {"name": "John Doe"}
             template = {"sections": [], "page": {"compact": False}}
-            write_resume_docx(data, template, "/tmp/test.docx")  # nosec B108 - test fixture path
+            write_resume_docx(data, template, test_path("test.docx"))  # nosec B108 - test fixture path
 
-        mock_doc.save.assert_called_once_with("/tmp/test.docx")  # nosec B108
+        mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108
 
 
 class TestSectionSynonyms(unittest.TestCase):
