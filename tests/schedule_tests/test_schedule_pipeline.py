@@ -286,26 +286,46 @@ class ExpandWeeklyTests(TestCase):
     """Tests for _expand_weekly function."""
 
     def test_expand_mondays_and_wednesdays(self):
+        from schedule.pipeline import RecurrenceExpansionConfig
+
         # 2025-01-13 is Monday, 2025-01-15 is Wednesday
-        cur = dt.date(2025, 1, 13)
-        end = dt.date(2025, 1, 19)
-        days_idx = [0, 2]  # Monday, Wednesday
-        result = _expand_weekly(cur, end, "10:00", "11:00", set(), days_idx)
+        config = RecurrenceExpansionConfig(
+            start_date=dt.date(2025, 1, 13),
+            end_date=dt.date(2025, 1, 19),
+            start_time="10:00",
+            end_time="11:00",
+            excluded_dates=set(),
+            weekdays=[0, 2],  # Monday, Wednesday
+        )
+        result = _expand_weekly(config)
         self.assertEqual(len(result), 2)
 
     def test_excludes_exdates(self):
-        cur = dt.date(2025, 1, 13)
-        end = dt.date(2025, 1, 19)
-        days_idx = [0, 2]  # Monday, Wednesday
-        ex_set = {"2025-01-13"}  # Exclude the Monday
-        result = _expand_weekly(cur, end, "10:00", "11:00", ex_set, days_idx)
+        from schedule.pipeline import RecurrenceExpansionConfig
+
+        config = RecurrenceExpansionConfig(
+            start_date=dt.date(2025, 1, 13),
+            end_date=dt.date(2025, 1, 19),
+            start_time="10:00",
+            end_time="11:00",
+            excluded_dates={"2025-01-13"},  # Exclude the Monday
+            weekdays=[0, 2],  # Monday, Wednesday
+        )
+        result = _expand_weekly(config)
         self.assertEqual(len(result), 1)
 
     def test_no_matching_days(self):
-        cur = dt.date(2025, 1, 14)  # Tuesday
-        end = dt.date(2025, 1, 14)
-        days_idx = [0]  # Monday only
-        result = _expand_weekly(cur, end, "10:00", "11:00", set(), days_idx)
+        from schedule.pipeline import RecurrenceExpansionConfig
+
+        config = RecurrenceExpansionConfig(
+            start_date=dt.date(2025, 1, 14),  # Tuesday
+            end_date=dt.date(2025, 1, 14),
+            start_time="10:00",
+            end_time="11:00",
+            excluded_dates=set(),
+            weekdays=[0],  # Monday only
+        )
+        result = _expand_weekly(config)
         self.assertEqual(len(result), 0)
 
 
