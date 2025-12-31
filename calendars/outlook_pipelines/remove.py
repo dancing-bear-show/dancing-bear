@@ -10,8 +10,7 @@ from ._base import (
     Optional,
     Sequence,
     Tuple,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     normalize_event,
     BaseProducer,
     RequestConsumer,
@@ -48,14 +47,12 @@ class OutlookRemoveResult:
     logs: List[str]
 
 
-class OutlookRemoveProcessor(Processor[OutlookRemoveRequest, ResultEnvelope[OutlookRemoveResult]]):
+class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookRemoveRequest) -> ResultEnvelope[OutlookRemoveResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookRemoveRequest) -> OutlookRemoveResult:
+        items = load_events_config(payload.config_path, self._config_loader)
         if err := check_service_required(payload.service):
             return err
         svc = payload.service
@@ -94,7 +91,7 @@ class OutlookRemoveProcessor(Processor[OutlookRemoveRequest, ResultEnvelope[Outl
                 deleted_total += self._apply_deletions(entry, svc, logs)
 
         result = OutlookRemoveResult(plan=plan, apply=payload.apply, deleted=deleted_total, logs=logs)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _resolve_window(self, event: Dict[str, Any]) -> Optional[Tuple[str, str]]:
         single_start = (event.get("start") or "").strip()

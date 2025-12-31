@@ -12,8 +12,7 @@ from ._base import (
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     check_service_required,
     MSG_PREVIEW_COMPLETE,
     ERR_CODE_CALENDAR,
@@ -53,11 +52,11 @@ class OutlookRemindersResult:
     set_off: bool
 
 
-class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelope[OutlookRemindersResult]]):
+class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRemindersResult]):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookRemindersRequest) -> ResultEnvelope[OutlookRemindersResult]:
+    def _process_safe(self, payload: OutlookRemindersRequest) -> OutlookRemindersResult:
         if err := check_service_required(payload.service):
             return err
         svc = payload.service
@@ -104,7 +103,7 @@ class OutlookRemindersProcessor(Processor[OutlookRemindersRequest, ResultEnvelop
         updated += self._update_ids(sorted(single_ids), "single", cal_id, svc, payload, logs)
 
         result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _update_ids(
         self,

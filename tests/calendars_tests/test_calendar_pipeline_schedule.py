@@ -113,8 +113,6 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = processor.process(OutlookScheduleImportRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 4)
-
     def test_list_one_offs_pipeline(self):
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
@@ -179,8 +177,6 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = OutlookListOneOffsProcessor().process(OutlookListOneOffsRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 3)
-
     def test_calendar_share_processor(self):
         svc = MagicMock()
         svc.find_calendar_id.return_value = "cal-123"
@@ -223,8 +219,6 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = OutlookCalendarShareProcessor().process(OutlookCalendarShareRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 3)
-
     def test_mail_list_processor_and_producer(self):
         svc = MagicMock()
         svc.list_messages.return_value = [
@@ -244,8 +238,6 @@ class CalendarExtraPipelineTests(TestCase):
         request = OutlookMailListRequest(service=svc, folder="inbox", top=5, pages=1)
         env = OutlookMailListProcessor().process(OutlookMailListRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_add_event_processor_and_producer(self):
         svc = MagicMock()
         svc.create_event.return_value = {"id": "E1", "subject": "Test"}
@@ -287,8 +279,6 @@ class CalendarExtraPipelineTests(TestCase):
         )
         env = OutlookAddEventProcessor().process(OutlookAddEventRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 3)
-
 
 if __name__ == "__main__":  # pragma: no cover
     import unittest

@@ -6,8 +6,7 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     RequestConsumer,
     check_service_required,
@@ -43,10 +42,9 @@ class OutlookAddEventResult:
     subject: str
 
 
-class OutlookAddEventProcessor(Processor[OutlookAddEventRequest, ResultEnvelope[OutlookAddEventResult]]):
-    def process(self, payload: OutlookAddEventRequest) -> ResultEnvelope[OutlookAddEventResult]:
-        if err := check_service_required(payload.service):
-            return err
+class OutlookAddEventProcessor(SafeProcessor[OutlookAddEventRequest, OutlookAddEventResult]):
+    def _process_safe(self, payload: OutlookAddEventRequest) -> OutlookAddEventResult:
+        check_service_required(payload.service)
         svc = payload.service
         try:
             evt = svc.create_event(
@@ -66,7 +64,7 @@ class OutlookAddEventProcessor(Processor[OutlookAddEventRequest, ResultEnvelope[
             return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create event: {exc}", "code": ERR_CODE_CALENDAR})
         evt_id = (evt or {}).get("id") or ""
         result = OutlookAddEventResult(event_id=evt_id, subject=(evt or {}).get("subject") or payload.subject)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
 
 class OutlookAddEventProducer(BaseProducer):
@@ -108,12 +106,9 @@ class OutlookAddRecurringResult:
     subject: str
 
 
-class OutlookAddRecurringProcessor(
-    Processor[OutlookAddRecurringRequest, ResultEnvelope[OutlookAddRecurringResult]]
-):
-    def process(self, payload: OutlookAddRecurringRequest) -> ResultEnvelope[OutlookAddRecurringResult]:
-        if err := check_service_required(payload.service):
-            return err
+class OutlookAddRecurringProcessor(SafeProcessor[OutlookAddRecurringRequest, OutlookAddRecurringResult]):
+    def _process_safe(self, payload: OutlookAddRecurringRequest) -> OutlookAddRecurringResult:
+        check_service_required(payload.service)
         svc = payload.service
         try:
             evt = svc.create_recurring_event(
@@ -140,7 +135,7 @@ class OutlookAddRecurringProcessor(
         evt_id = (evt or {}).get("id") or ""
         subject = (evt or {}).get("subject") or payload.subject
         result = OutlookAddRecurringResult(event_id=evt_id, subject=subject)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
 
 class OutlookAddRecurringProducer(BaseProducer):

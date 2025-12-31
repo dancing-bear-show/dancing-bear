@@ -14,8 +14,7 @@ from ._base import (
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     check_service_required,
     ERR_CODE_API,
 )
@@ -63,11 +62,11 @@ class OutlookDedupResult:
     logs: List[str]
 
 
-class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[OutlookDedupResult]]):
+class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResult]):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookDedupRequest) -> ResultEnvelope[OutlookDedupResult]:
+    def _process_safe(self, payload: OutlookDedupRequest) -> OutlookDedupResult:
         if err := check_service_required(payload.service):
             return err
         svc = payload.service
@@ -98,7 +97,7 @@ class OutlookDedupProcessor(Processor[OutlookDedupRequest, ResultEnvelope[Outloo
                         logs.append(f"Deleted series master {sid}")
 
         result = OutlookDedupResult(duplicates=duplicates, apply=payload.apply, deleted=deleted, logs=logs)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _find_duplicates(
         self,

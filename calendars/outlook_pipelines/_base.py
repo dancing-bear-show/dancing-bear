@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.pipeline import Processor, ResultEnvelope
+from core.pipeline import SafeProcessor
 
 from calendars.yamlio import load_config as _load_yaml
 from calendars.model import normalize_event
@@ -44,26 +44,14 @@ DEFAULT_IMPORT_CALENDAR = "Imported Schedules"
 def load_events_config(
     config_path: Path,
     loader=None,
-) -> Tuple[Optional[List[Dict[str, Any]]], Optional[ResultEnvelope]]:
-    """Load config and extract events list, returning error envelope if invalid.
-
-    Returns (events, None) on success, or (None, error_envelope) on failure.
-    """
+) -> List[Dict[str, Any]]:
+    """Load config and extract events list, raising on invalid config."""
     load_fn = loader if loader is not None else _load_yaml
-    try:
-        cfg = load_fn(str(config_path))
-    except Exception as exc:
-        return None, ResultEnvelope(
-            status="error",
-            diagnostics={"message": f"Failed to read config: {exc}", "code": ERR_CODE_CONFIG},
-        )
+    cfg = load_fn(str(config_path))
     items = cfg.get("events") if isinstance(cfg, dict) else None
     if not isinstance(items, list):
-        return None, ResultEnvelope(
-            status="error",
-            diagnostics={"message": ERR_CONFIG_MUST_CONTAIN_EVENTS, "code": ERR_CODE_CONFIG},
-        )
-    return items, None
+        raise ValueError(ERR_CONFIG_MUST_CONTAIN_EVENTS)
+    return items
 
 
 __all__ = [
@@ -79,8 +67,8 @@ __all__ = [
     "Optional",
     "Sequence",
     "Tuple",
-    "Processor",
-    "ResultEnvelope",
+    "SafeProcessor",
+    
     "_load_yaml",
     "normalize_event",
     "compute_window",

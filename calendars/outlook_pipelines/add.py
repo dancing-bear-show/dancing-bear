@@ -10,8 +10,7 @@ from ._base import (
     Optional,
     Path,
     Tuple,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     normalize_event,
     BaseProducer,
     RequestConsumer,
@@ -39,14 +38,12 @@ class OutlookAddResult:
     dry_run: bool
 
 
-class OutlookAddProcessor(Processor[OutlookAddRequest, ResultEnvelope[OutlookAddResult]]):
+class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookAddRequest) -> ResultEnvelope[OutlookAddResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookAddRequest) -> OutlookAddResult:
+        items = load_events_config(payload.config_path, self._config_loader)
 
         logs: List[str] = []
         created = 0

@@ -5,8 +5,7 @@ from ._base import (
     Any,
     Dict,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     RequestConsumer,
     check_service_required,
@@ -32,8 +31,8 @@ class OutlookCalendarShareResult:
     role: str
 
 
-class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, ResultEnvelope[OutlookCalendarShareResult]]):
-    def process(self, payload: OutlookCalendarShareRequest) -> ResultEnvelope[OutlookCalendarShareResult]:
+class OutlookCalendarShareProcessor(SafeProcessor[OutlookCalendarShareRequest, OutlookCalendarShareResult]):
+    def _process_safe(self, payload: OutlookCalendarShareRequest) -> OutlookCalendarShareResult:
         if err := check_service_required(payload.service):
             return err
         svc = payload.service
@@ -59,7 +58,7 @@ class OutlookCalendarShareProcessor(Processor[OutlookCalendarShareRequest, Resul
                 diagnostics={"message": f"Failed to share calendar '{cal_name}' with {payload.recipient}: {exc}", "code": ERR_CODE_CALENDAR},
             )
         result = OutlookCalendarShareResult(calendar=cal_name, recipient=payload.recipient, role=role)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _normalize_role(self, role: str) -> str:
         cleaned = (role or "write").strip().lower()

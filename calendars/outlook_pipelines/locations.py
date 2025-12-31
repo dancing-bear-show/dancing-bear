@@ -7,8 +7,7 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     LocationSync,
     BaseProducer,
     DateWindowResolver,
@@ -43,16 +42,13 @@ class OutlookLocationsEnrichResult:
     dry_run: bool
 
 
-class OutlookLocationsEnrichProcessor(
-    Processor[OutlookLocationsEnrichRequest, ResultEnvelope[OutlookLocationsEnrichResult]]
-):
+class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichRequest, OutlookLocationsEnrichResult]):
     def __init__(self, today_factory=None, enricher=None) -> None:
         self._window = DateWindowResolver(today_factory)
         self._enricher = enricher
 
-    def process(self, payload: OutlookLocationsEnrichRequest) -> ResultEnvelope[OutlookLocationsEnrichResult]:
-        if err := check_service_required(payload.service):
-            return err
+    def _process_safe(self, payload: OutlookLocationsEnrichRequest) -> OutlookLocationsEnrichResult:
+        check_service_required(payload.service)
         svc = payload.service
         cal_id = svc.find_calendar_id(payload.calendar)
         if not cal_id:
@@ -139,14 +135,12 @@ class OutlookLocationsResult:
     message: str
 
 
-class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
+class OutlookLocationsUpdateProcessor(SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookLocationsRequest) -> OutlookLocationsResult:
+        items = load_events_config(payload.config_path, self._config_loader)
         sync = LocationSync(payload.service)
         updated = sync.plan_from_config(items, calendar=payload.calendar, dry_run=payload.dry_run)
         if payload.dry_run:
@@ -162,14 +156,12 @@ class OutlookLocationsUpdateProcessor(Processor[OutlookLocationsRequest, ResultE
         return ResultEnvelope(status="success", payload=OutlookLocationsResult(message=msg))
 
 
-class OutlookLocationsApplyProcessor(Processor[OutlookLocationsRequest, ResultEnvelope[OutlookLocationsResult]]):
+class OutlookLocationsApplyProcessor(SafeProcessor[OutlookLocationsRequest, OutlookLocationsResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def process(self, payload: OutlookLocationsRequest) -> ResultEnvelope[OutlookLocationsResult]:
-        items, err = load_events_config(payload.config_path, self._config_loader)
-        if err:
-            return err
+    def _process_safe(self, payload: OutlookLocationsRequest) -> OutlookLocationsResult:
+        items = load_events_config(payload.config_path, self._config_loader)
         sync = LocationSync(payload.service)
         updated = sync.apply_from_config(
             items,

@@ -7,8 +7,7 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
@@ -39,11 +38,11 @@ class OutlookListOneOffsResult:
     out_path: Optional[Path]
 
 
-class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnvelope[OutlookListOneOffsResult]]):
+class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, OutlookListOneOffsResult]):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookListOneOffsRequest) -> ResultEnvelope[OutlookListOneOffsResult]:
+    def _process_safe(self, payload: OutlookListOneOffsRequest) -> OutlookListOneOffsResult:
         if err := check_service_required(payload.service):
             return err
         svc = payload.service
@@ -77,7 +76,7 @@ class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnv
             limit=payload.limit,
             out_path=payload.out_path,
         )
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
 
 class OutlookListOneOffsProducer(BaseProducer):

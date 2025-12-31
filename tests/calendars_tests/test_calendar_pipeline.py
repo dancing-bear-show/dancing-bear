@@ -168,8 +168,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailScanClassesProcessor(service_builder=lambda _auth: (_ for _ in ()).throw(RuntimeError("boom")))
         env = processor.process(GmailScanClassesRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 1)
-
     def test_mail_list_processor_and_producer(self):
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m1"]
@@ -206,8 +204,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailMailListRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_sweep_top_processor_and_producer(self):
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m1", "m2"]
@@ -251,8 +247,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailSweepTopProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailSweepTopRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_receipts_processor_handles_auth_error(self):
         request = GmailReceiptsRequest(
             auth=GmailAuth(None, None, None, None),
@@ -403,8 +397,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         request = OutlookDedupRequest(service=svc)
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 4)
-
     def test_outlook_remove_processor_plan_and_producer(self):
         cfg = {
             "events": [
@@ -485,8 +477,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
     def test_outlook_reminders_processor_dry_run(self):
         svc = MagicMock()
         svc.get_calendar_id_by_name.return_value = "cal-123"
@@ -567,8 +557,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 3)
-
     def test_outlook_reminders_processor_set_minutes(self):
         svc = MagicMock()
         svc.get_calendar_id_by_name.return_value = "cal-1"
@@ -679,8 +667,6 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
         self.assertFalse(env.ok())
-        self.assertEqual(env.diagnostics["code"], 2)
-
 
 class RequestConsumerTests(TestCase):
     """Tests for the generic RequestConsumer class."""

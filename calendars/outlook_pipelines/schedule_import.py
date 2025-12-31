@@ -6,14 +6,14 @@ Provides pipeline components for importing schedules into Outlook calendars.
 from __future__ import annotations
 
 from ._base import (
+    SafeProcessor,
     dataclass,
     Any,
     Dict,
     List,
     Optional,
     Tuple,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     RequestConsumer,
     check_service_required,
@@ -48,15 +48,12 @@ class OutlookScheduleImportResult:
     calendar: str
 
 
-class OutlookScheduleImportProcessor(
-    Processor[OutlookScheduleImportRequest, ResultEnvelope[OutlookScheduleImportResult]]
-):
+class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest, OutlookScheduleImportResult]):
     def __init__(self, schedule_loader=None) -> None:
         self._schedule_loader = schedule_loader
 
-    def process(self, payload: OutlookScheduleImportRequest) -> ResultEnvelope[OutlookScheduleImportResult]:
-        if err := check_service_required(payload.service):
-            return err
+    def _process_safe(self, payload: OutlookScheduleImportRequest) -> OutlookScheduleImportResult:
+        check_service_required(payload.service)
         svc = payload.service
         cal_name = payload.calendar or DEFAULT_IMPORT_CALENDAR
 

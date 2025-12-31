@@ -13,8 +13,7 @@ from ._base import (
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     check_service_required,
     _load_yaml,
     ERR_CODE_CONFIG,
@@ -52,13 +51,13 @@ class OutlookSettingsResult:
     dry_run: bool
 
 
-class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[OutlookSettingsResult]]):
+class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSettingsResult]):
     def __init__(self, config_loader=None, regex_module=re, today_factory=None) -> None:
         self._config_loader = config_loader if config_loader is not None else _load_yaml
         self._regex = regex_module
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookSettingsRequest) -> ResultEnvelope[OutlookSettingsResult]:
+    def _process_safe(self, payload: OutlookSettingsRequest) -> OutlookSettingsResult:
         try:
             doc = self._config_loader(str(payload.config_path)) or {}
         except Exception as exc:
@@ -131,7 +130,7 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
                 logs.append(f"Failed to update {eid}: {exc}")
 
         result = OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _evaluate_config(self, defaults, rules, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         subject = (event.get("subject") or "").strip()
