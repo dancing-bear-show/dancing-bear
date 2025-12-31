@@ -55,10 +55,6 @@ from ..outlook_pipelines import (
 from ..constants import DAY_MAP
 from ..scan_common import (
     RANGE_PAT,
-    CLASS_PAT,
-    LOC_LABEL_PAT,
-    FACILITIES,
-    DATE_RANGE_PAT,
     html_to_text,
     norm_time,
     infer_meta_from_text,
@@ -351,14 +347,10 @@ def run_outlook_scan_classes(args: argparse.Namespace) -> int:
         return 0
 
     def infer_meta(subj: str, text: str, recvd: str) -> dict:
-        meta = infer_meta_from_text(
-            f"{subj or ''}\n{text}",
-            facilities=FACILITIES,
-            date_range_pat=DATE_RANGE_PAT,
-            class_pat=CLASS_PAT,
-            loc_label_pat=LOC_LABEL_PAT,
-            default_year=int((recvd or "")[:4] or 0),
-        )
+        from ..scan_common import MetaParserConfig
+
+        config = MetaParserConfig(default_year=int((recvd or "")[:4] or 0))
+        meta = infer_meta_from_text(f"{subj or ''}\n{text}", config=config)
         if meta.get("subject"):
             meta["subject"] = meta["subject"].replace("Swim Kids", "Swim Kids").replace("Swimmer ", "Swimmer ")
         return meta

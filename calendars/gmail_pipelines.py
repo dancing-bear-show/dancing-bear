@@ -257,14 +257,13 @@ class GmailScanClassesResult:
 
 class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScanClassesResult]):
     def __init__(self, service_builder=None) -> None:
+        from .scan_common import MetaParserConfig
+
         self._service_builder = service_builder or self._default_service_builder
         self._day_map = DAY_MAP
         self._range_pat = RANGE_PAT
-        self._class_pat = CLASS_PAT
-        self._loc_label_pat = LOC_LABEL_PAT
-        self._facilities = FACILITIES
         self._month_map = MONTH_MAP
-        self._date_range_pat = DATE_RANGE_PAT
+        self._meta_config = MetaParserConfig()
 
     def _default_service_builder(self, auth: GmailAuth):
         return GmailServiceBuilder.build(auth)
@@ -328,13 +327,7 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
         return _norm_time_common(hour, minute, ampm)
 
     def _infer_meta(self, text: str) -> Dict[str, Any]:
-        return infer_meta_from_text(
-            text,
-            facilities=self._facilities,
-            date_range_pat=self._date_range_pat,
-            class_pat=self._class_pat,
-            loc_label_pat=self._loc_label_pat,
-        )
+        return infer_meta_from_text(text, config=self._meta_config)
 
 
 class GmailScanClassesProducer(BaseProducer):

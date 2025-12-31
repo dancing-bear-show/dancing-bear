@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, Pattern, Sequence
 
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
 
@@ -40,6 +41,22 @@ DATE_RANGE_PAT = re.compile(
 )
 
 
+@dataclass
+class MetaParserConfig:
+    """Configuration for metadata parsing from class schedule text."""
+
+    facilities: Sequence[str] = ()
+    date_range_pat: Pattern = DATE_RANGE_PAT
+    class_pat: Pattern = CLASS_PAT
+    loc_label_pat: Pattern = LOC_LABEL_PAT
+    default_year: Optional[int] = None
+
+    def __post_init__(self):
+        """Set default facilities if not provided."""
+        if not self.facilities:
+            object.__setattr__(self, "facilities", FACILITIES)
+
+
 def norm_time(hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
     hh = int(hour)
     mm = int(minute or 0)
@@ -53,26 +70,34 @@ def norm_time(hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
 
 def infer_meta_from_text(
     text: str,
-    facilities: Sequence[str] = FACILITIES,
-    date_range_pat=DATE_RANGE_PAT,
-    class_pat=CLASS_PAT,
-    loc_label_pat=LOC_LABEL_PAT,
-    default_year: Optional[int] = None,
+    config: Optional[MetaParserConfig] = None,
 ) -> Dict[str, Any]:
+    """Extract metadata from class schedule text.
+
+    Args:
+        text: Input text to parse
+        config: Optional parser configuration (uses defaults if None)
+
+    Returns:
+        Dictionary with extracted metadata (location, range, subject)
+    """
+    cfg = config or MetaParserConfig()
     meta: Dict[str, Any] = {}
-    loc_match = loc_label_pat.search(text or "")
+
+    loc_match = cfg.loc_label_pat.search(text or "")
     if loc_match:
         meta["location"] = loc_match.group(2).strip()
     else:
-        for facility in facilities:
+        for facility in cfg.facilities:
             if facility.lower() in (text or "").lower():
                 meta["location"] = facility
                 break
-    date_match = date_range_pat.search(text or "")
+
+    date_match = cfg.date_range_pat.search(text or "")
     if date_match:
         m1, d1, y1, m2, d2, y2 = date_match.groups()
         try:
-            cur_year = default_year or 0
+            cur_year = cfg.default_year or 0
             y1f = int(y1 or y2 or cur_year)
             y2f = int(y2 or y1 or cur_year)
             start_date = f"{y1f:04d}-{MONTH_MAP[m1.lower()]:02d}-{int(d1):02d}"
@@ -80,7 +105,9 @@ def infer_meta_from_text(
             meta["range"] = {"start_date": start_date, "until": end_date}
         except Exception:  # noqa: S110 - non-critical metadata extraction
             pass
-    class_match = class_pat.search(text or "")
+
+    class_match = cfg.class_pat.search(text or "")
     if class_match:
         meta["subject"] = class_match.group(0).strip().title()
+
     return meta

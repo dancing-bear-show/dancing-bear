@@ -2,7 +2,28 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
+
+
+@dataclass
+class OutlookServiceArgsConfig:
+    """Configuration for extracting Outlook service arguments from args object."""
+
+    profile_attr: str = "profile"
+    client_id_attr: str = "client_id"
+    tenant_attr: str = "tenant"
+    token_attr: str = "token"  # noqa: S107 - attribute name, not a secret
+
+
+@dataclass
+class GmailServiceArgsConfig:
+    """Configuration for extracting Gmail service arguments from args object."""
+
+    profile_attr: str = "profile"
+    credentials_attr: str = "credentials"
+    token_attr: str = "token"  # noqa: S107 - attribute name, not a secret
+    cache_attr: str = "cache"
 
 
 def resolve_gmail_credentials(
@@ -116,20 +137,27 @@ def build_gmail_service(
 
 def build_outlook_service_from_args(
     args,
-    *,
-    profile_attr: str = "profile",
-    client_id_attr: str = "client_id",
-    tenant_attr: str = "tenant",
-    token_attr: str = "token",  # noqa: S107 - attribute name, not a secret
+    config: Optional[OutlookServiceArgsConfig] = None,
     context_cls=None,
     service_cls=None,
 ):
-    """Instantiate an OutlookService using argparse-like args."""
+    """Instantiate an OutlookService using argparse-like args.
+
+    Args:
+        args: Argparse namespace or object with service configuration attributes
+        config: Optional configuration for attribute names (uses defaults if None)
+        context_cls: Optional custom context class
+        service_cls: Optional custom service class
+
+    Returns:
+        Configured OutlookService instance
+    """
+    cfg = config or OutlookServiceArgsConfig()
     return build_outlook_service(
-        profile=getattr(args, profile_attr, None),
-        client_id=getattr(args, client_id_attr, None),
-        tenant=getattr(args, tenant_attr, None),
-        token_path=getattr(args, token_attr, None),
+        profile=getattr(args, cfg.profile_attr, None),
+        client_id=getattr(args, cfg.client_id_attr, None),
+        tenant=getattr(args, cfg.tenant_attr, None),
+        token_path=getattr(args, cfg.token_attr, None),
         context_cls=context_cls,
         service_cls=service_cls,
     )
@@ -137,18 +165,24 @@ def build_outlook_service_from_args(
 
 def build_gmail_service_from_args(
     args,
-    *,
-    profile_attr: str = "profile",
-    credentials_attr: str = "credentials",
-    token_attr: str = "token",  # noqa: S107 - attribute name, not a secret
-    cache_attr: str = "cache",
+    config: Optional[GmailServiceArgsConfig] = None,
     service_cls=None,
 ):
-    """Instantiate a GmailService using argparse-like args."""
+    """Instantiate a GmailService using argparse-like args.
+
+    Args:
+        args: Argparse namespace or object with service configuration attributes
+        config: Optional configuration for attribute names (uses defaults if None)
+        service_cls: Optional custom service class
+
+    Returns:
+        Authenticated GmailService instance
+    """
+    cfg = config or GmailServiceArgsConfig()
     return build_gmail_service(
-        profile=getattr(args, profile_attr, None),
-        cache_dir=getattr(args, cache_attr, None),
-        credentials_path=getattr(args, credentials_attr, None),
-        token_path=getattr(args, token_attr, None),
+        profile=getattr(args, cfg.profile_attr, None),
+        cache_dir=getattr(args, cfg.cache_attr, None),
+        credentials_path=getattr(args, cfg.credentials_attr, None),
+        token_path=getattr(args, cfg.token_attr, None),
         service_cls=service_cls,
     )
