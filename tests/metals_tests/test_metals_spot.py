@@ -1,6 +1,8 @@
 """Tests for metals spot price module."""
+
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import csv
 import tempfile
 import unittest
@@ -452,7 +454,7 @@ class TestRun(unittest.TestCase):
                 metal="platinum",
                 start_date="2024-01-01",
                 end_date="2024-01-02",
-                out_path="/tmp/test.csv",  # noqa: S108
+                out_path=test_path("test.csv"),  # noqa: S108
             )
 
     @patch("metals.spot._fetch_stooq_series")
@@ -497,7 +499,7 @@ class TestMain(unittest.TestCase):
             "--metal", "gold",
             "--start-date", "2024-01-01",
             "--end-date", "2024-12-31",
-            "--out", "/tmp/test.csv",  # noqa: S108
+            "--out", test_path("test.csv"),  # noqa: S108
         ])
         self.assertEqual(result, 0)
         call_args = mock_run.call_args

@@ -5,7 +5,7 @@ import argparse
 import unittest
 
 from mail.cli.messages import register
-from tests.mail_tests.fixtures import CLIRegisterTestCase, make_noop_handlers, noop_handler
+from tests.mail_tests.fixtures import CLIRegisterTestCase, make_noop_handlers
 
 
 _MESSAGES_HANDLERS = ("f_search", "f_summarize", "f_reply", "f_apply_scheduled")

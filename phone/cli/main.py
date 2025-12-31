@@ -298,7 +298,8 @@ def cmd_auto_folders(args) -> int:
         try:
             if int(k) >= start_page:
                 del pages[k]
-        except Exception:  # noqa: S112 - skip on error
+        except (ValueError, TypeError):  # nosec B112 - skip non-integer page keys
+            # Page key is not convertible to int (malformed data); skip and continue
             continue
     new_pages = distribute_folders_across_pages(folder_names, per_page=per_page, start_page=start_page)
     # Merge in new pages
@@ -528,11 +529,14 @@ def cmd_identity_verify(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
     # Install conservative secret shielding for stdout/stderr (env-toggled)
+    # This is best-effort: if masking module is unavailable or fails to initialize,
+    # the CLI continues normally without output masking.
     try:
         from mail.utils.secrets import install_output_masking_from_env as _install_mask
         _install_mask()
-    except Exception:  # noqa: S110 - best-effort masking
-        pass
+    except Exception as e:  # nosec B110 - best-effort masking, safe to continue without
+        import sys
+        print(f"Warning: Output masking unavailable ({type(e).__name__}), continuing without secret shielding", file=sys.stderr)
 
     # Build parser and add agentic flags
     parser = app.build_parser()

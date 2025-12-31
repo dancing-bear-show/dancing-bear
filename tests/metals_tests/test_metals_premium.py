@@ -1,6 +1,8 @@
 """Tests for metals premium calculation module."""
+
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import csv
 import tempfile
 import unittest
@@ -222,8 +224,8 @@ class TestRun(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(
                 metal="platinum",
-                costs_path="/tmp/costs.csv",  # noqa: S108
-                out_path="/tmp/premium.csv",  # noqa: S108
+                costs_path=test_path("costs.csv"),  # noqa: S108
+                out_path=test_path("premium.csv"),  # noqa: S108
             )
 
     @patch("metals.premium._spot_series_cad")

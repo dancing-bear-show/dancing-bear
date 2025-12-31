@@ -37,6 +37,25 @@ def bin_path(name: str) -> Path:
     return REPO_ROOT / "bin" / name
 
 
+def test_path(filename: str = "test") -> str:
+    """Get a dummy path for test fixtures that don't need actual files.
+
+    Args:
+        filename: Base filename/path segment
+
+    Returns:
+        String path suitable for test mocking/validation
+
+    Note:
+        This returns a /tmp/ path but does NOT create any files.
+        For tests that need actual temp files, use:
+        - TempDirMixin.tmpdir
+        - temp_yaml_file() context manager
+        - tempfile.TemporaryDirectory()
+    """
+    return f"/tmp/{filename}"  # nosec B108 - test fixture path, not used for file creation
+
+
 def run(cmd: Sequence[str], cwd: Optional[str] = None):
     return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
 

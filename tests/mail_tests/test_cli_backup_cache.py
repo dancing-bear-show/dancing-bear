@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.fixtures import test_path
 import argparse
 import unittest
 
@@ -86,9 +87,9 @@ class TestBackupCacheCliRegister(unittest.TestCase):
         )
 
         # Parse cache command with required --cache arg
-        args = parser.parse_args(["cache", "--cache", "/tmp/cache"])  # nosec B108
+        args = parser.parse_args(["cache", "--cache", test_path("cache")])  # nosec B108
         self.assertEqual(args.command, "cache")
-        self.assertEqual(args.cache, "/tmp/cache")  # nosec B108
+        self.assertEqual(args.cache, test_path("cache"))  # nosec B108
 
     def test_register_cache_stats_subcommand(self):
         from mail.cli.backup_cache import register_cache
@@ -103,7 +104,7 @@ class TestBackupCacheCliRegister(unittest.TestCase):
             f_prune=self._make_mock_func("prune"),
         )
 
-        args = parser.parse_args(["cache", "--cache", "/tmp/cache", "stats"])  # nosec B108
+        args = parser.parse_args(["cache", "--cache", test_path("cache"), "stats"])  # nosec B108
         self.assertEqual(args.cache_cmd, "stats")
         self.assertTrue(hasattr(args, "func"))
 
@@ -120,7 +121,7 @@ class TestBackupCacheCliRegister(unittest.TestCase):
             f_prune=self._make_mock_func("prune"),
         )
 
-        args = parser.parse_args(["cache", "--cache", "/tmp/cache", "clear"])  # nosec B108
+        args = parser.parse_args(["cache", "--cache", test_path("cache"), "clear"])  # nosec B108
         self.assertEqual(args.cache_cmd, "clear")
         self.assertTrue(hasattr(args, "func"))
 
@@ -137,7 +138,7 @@ class TestBackupCacheCliRegister(unittest.TestCase):
             f_prune=self._make_mock_func("prune"),
         )
 
-        args = parser.parse_args(["cache", "--cache", "/tmp/cache", "prune", "--days", "30"])  # nosec B108
+        args = parser.parse_args(["cache", "--cache", test_path("cache"), "prune", "--days", "30"])  # nosec B108
         self.assertEqual(args.cache_cmd, "prune")
         self.assertEqual(args.days, 30)
         self.assertTrue(hasattr(args, "func"))
