@@ -7,26 +7,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
 
-
-DAY_MAP = {
-    "monday": "MO",
-    "mon": "MO",
-    "tuesday": "TU",
-    "tue": "TU",
-    "tues": "TU",
-    "wednesday": "WE",
-    "wed": "WE",
-    "thursday": "TH",
-    "thu": "TH",
-    "thur": "TH",
-    "thurs": "TH",
-    "friday": "FR",
-    "fri": "FR",
-    "saturday": "SA",
-    "sat": "SA",
-    "sunday": "SU",
-    "sun": "SU",
-}
+from .constants import DAY_MAP  # noqa: F401 - re-exported for backward compatibility
 
 TIME_PAT1 = r"(?P<h1>\d{1,2})(?::(?P<m1>\d{2}))?\s*(?P<ampm1>am|pm|a\.m\.|p\.m\.)?"
 TIME_PAT2 = r"(?P<h2>\d{1,2})(?::(?P<m2>\d{2}))?\s*(?P<ampm2>am|pm|a\.m\.|p\.m\.)?"
@@ -56,7 +37,7 @@ MONTH_MAP = {m.lower(): i for i, m in enumerate(
 MONTH_MAP.update({k[:3]: v for k, v in list(MONTH_MAP.items())})
 
 DATE_RANGE_PAT = re.compile(
-    r"(?:(?:from)\s+)?([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",
+    r"(?:(?:from)\s+)?([A-Z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",
     re.I,
 )
 

@@ -84,7 +84,7 @@ def mask_text(text: str) -> str:
     s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", r"\1***REDACTED***", s)
     s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", r"\1***REDACTED***", s)
     # Token=... pairs
-    s = re.sub(r"(?i)(token\s*=\s*)([A-Za-z0-9\-\._~+/=]+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(token\s*=\s*)([A-Z0-9\-\._~+/=]+)", r"\1***REDACTED***", s)
     # JSON fields
     s = re.sub(r"(?i)(\"(?:api[_-]?token|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
     # GitHub tokens
@@ -98,7 +98,7 @@ def mask_text(text: str) -> str:
     # URL query tokens
     s = re.sub(r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + ")=)([^&\s]+)", r"\1***REDACTED***", s)
     # Basic base64 creds
-    s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[A-Za-z0-9+/=]+", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[A-Z0-9+/=]+", r"\1***REDACTED***", s)
     return s
 
 
