@@ -1,7 +1,7 @@
 """Tests for calendars/importer/pdf_parser.py."""
 
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 import datetime
 
 from calendars.importer.pdf_parser import PDFParser, parse_pdf
