@@ -56,7 +56,7 @@ class MakerPipelineTests(TestCase):
             envelope = processor.process(ToolRequestConsumer(req).consume())
 
         self.assertFalse(envelope.ok())
-        self.assertIn("no callable", envelope.payload.error)
+        self.assertIn("no callable", envelope.diagnostics["message"])
 
     def test_tool_runner_handles_exception(self):
         req = ToolRequest(module="test_module")
@@ -66,12 +66,12 @@ class MakerPipelineTests(TestCase):
             envelope = processor.process(ToolRequestConsumer(req).consume())
 
         self.assertFalse(envelope.ok())
-        self.assertIn("No such module", envelope.payload.error)
+        self.assertIn("No such module", envelope.diagnostics["message"])
 
     def test_tool_result_producer_reports_failure(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=2, error="Something went wrong")
-        envelope = ResultEnvelope(status="error", payload=result)
+        # With BaseProducer pattern, error messages go in diagnostics
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Something went wrong", buf.getvalue())
@@ -177,8 +177,8 @@ class MakerPipelineTests(TestCase):
 
     def test_tool_result_producer_non_zero_exit_code(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=2)
-        envelope = ResultEnvelope(status="error", payload=result)
+        # With BaseProducer pattern, error messages go in diagnostics
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module exited with code 2"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("test.module", buf.getvalue())
@@ -186,8 +186,8 @@ class MakerPipelineTests(TestCase):
 
     def test_tool_result_producer_error_with_message(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=1, error="Import failed")
-        envelope = ResultEnvelope(status="error", payload=result)
+        # With BaseProducer pattern, error messages go in diagnostics
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module: Import failed"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Import failed", buf.getvalue())
