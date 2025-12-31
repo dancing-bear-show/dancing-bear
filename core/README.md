@@ -3,7 +3,7 @@
 Shared scaffolding for all assistants plus lightweight utilities used across CLIs.
 Modules:
 
-- `pipeline.py` — protocol definitions plus the `ResultEnvelope` helper.
+- `pipeline.py` — pipeline patterns: `SafeProcessor` (automatic error handling), `BaseProducer` (template method for output), `ResultEnvelope`, and `RequestConsumer` type alias.
 - `context.py` — lightweight `AppContext` used to pass args/config/root paths.
 - `testing.py` — reusable stubs to exercise individual stages in unit tests.
 - `agentic.py` — agentic capsule helpers (CLI tree, section building).

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.pipeline import Processor, ResultEnvelope
+from core.pipeline import SafeProcessor
 
 from .gmail_service import GmailService
 from .text_utils import to_24h, extract_email_address
@@ -94,39 +94,26 @@ class GmailPlanResult:
     out_path: Path
 
 
-class GmailReceiptsProcessor(Processor[GmailReceiptsRequest, ResultEnvelope[GmailPlanResult]]):
+class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult]):
     def __init__(self, service_builder=None) -> None:
         self._service_builder = service_builder or self._default_service_builder
 
     def _default_service_builder(self, auth: GmailAuth):
         return GmailServiceBuilder.build(auth, service_cls=GmailService)
 
-    def process(self, payload: GmailReceiptsRequest) -> ResultEnvelope[GmailPlanResult]:
-        try:
-            svc = self._service_builder(payload.auth)
-        except Exception as exc:  # pragma: no cover - passthrough
-            return ResultEnvelope(status="error", diagnostics={"message": f"Gmail auth error: {exc}", "code": 1})
-
+    def _process_safe(self, payload: GmailReceiptsRequest) -> GmailPlanResult:
+        svc = self._service_builder(payload.auth)
         query = GmailService.build_receipts_query(
             from_text=payload.from_text,
             days=payload.days,
             explicit=payload.query,
         )
-        try:
-            ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Gmail list error: {exc}", "code": 2})
+        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
-            return ResultEnvelope(
-                status="success",
-                payload=GmailPlanResult(document={"events": []}, out_path=payload.out_path),
-            )
+            return GmailPlanResult(document={"events": []}, out_path=payload.out_path)
         events = self._parse_receipts(svc, ids, payload.calendar)
         if not events:
-            return ResultEnvelope(
-                status="success",
-                payload=GmailPlanResult(document={"events": []}, out_path=payload.out_path),
-            )
+            return GmailPlanResult(document={"events": []}, out_path=payload.out_path)
 
         # Dedupe with child field included
         def key_fn(ev):
@@ -141,10 +128,7 @@ class GmailReceiptsProcessor(Processor[GmailReceiptsRequest, ResultEnvelope[Gmai
                 ev.get("child"),
             )
         uniq = dedupe_events(events, key_fn)
-        return ResultEnvelope(
-            status="success",
-            payload=GmailPlanResult(document={"events": uniq}, out_path=payload.out_path),
-        )
+        return GmailPlanResult(document={"events": uniq}, out_path=payload.out_path)
 
     def _parse_receipts(self, svc, ids: List[str], calendar: Optional[str]):
         events = []
@@ -271,7 +255,7 @@ class GmailScanClassesResult:
     out_path: Optional[Path]
 
 
-class GmailScanClassesProcessor(Processor[GmailScanClassesRequest, ResultEnvelope[GmailScanClassesResult]]):
+class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScanClassesResult]):
     def __init__(self, service_builder=None) -> None:
         self._service_builder = service_builder or self._default_service_builder
         self._day_map = DAY_MAP
@@ -285,24 +269,17 @@ class GmailScanClassesProcessor(Processor[GmailScanClassesRequest, ResultEnvelop
     def _default_service_builder(self, auth: GmailAuth):
         return GmailServiceBuilder.build(auth)
 
-    def process(self, payload: GmailScanClassesRequest) -> ResultEnvelope[GmailScanClassesResult]:
-        try:
-            svc = self._service_builder(payload.auth)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Gmail auth error: {exc}", "code": 1})
+    def _process_safe(self, payload: GmailScanClassesRequest) -> GmailScanClassesResult:
+        svc = self._service_builder(payload.auth)
         query = GmailService.build_query(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
         )
-        try:
-            ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Gmail list error: {exc}", "code": 2})
+        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
-            result = GmailScanClassesResult(events=[], message_count=0, out_path=payload.out_path)
-            return ResultEnvelope(status="success", payload=result)
+            return GmailScanClassesResult(events=[], message_count=0, out_path=payload.out_path)
         extracted: List[Dict[str, Any]] = []
         for mid in ids:
             try:
@@ -312,10 +289,8 @@ class GmailScanClassesProcessor(Processor[GmailScanClassesRequest, ResultEnvelop
             extracted.extend(self._extract_events(text, payload.calendar))
         events = dedupe_events(extracted)
         if not events:
-            result = GmailScanClassesResult(events=[], message_count=len(ids), out_path=payload.out_path)
-            return ResultEnvelope(status="success", payload=result)
-        result = GmailScanClassesResult(events=events, message_count=len(ids), out_path=payload.out_path)
-        return ResultEnvelope(status="success", payload=result)
+            return GmailScanClassesResult(events=[], message_count=len(ids), out_path=payload.out_path)
+        return GmailScanClassesResult(events=events, message_count=len(ids), out_path=payload.out_path)
 
     def _extract_events(self, message_text: str, calendar: Optional[str]) -> List[Dict[str, Any]]:
         plain = self._html_to_text(message_text)
@@ -409,31 +384,24 @@ class GmailMailListResult:
     messages: List[Dict[str, str]]
 
 
-class GmailMailListProcessor(Processor[GmailMailListRequest, ResultEnvelope[GmailMailListResult]]):
+class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListResult]):
     def __init__(self, service_builder=None) -> None:
         self._service_builder = service_builder or self._default_service_builder
 
     def _default_service_builder(self, auth: GmailAuth):
         return GmailServiceBuilder.build(auth)
 
-    def process(self, payload: GmailMailListRequest) -> ResultEnvelope[GmailMailListResult]:
-        try:
-            svc = self._service_builder(payload.auth)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Gmail auth error: {exc}", "code": 1})
+    def _process_safe(self, payload: GmailMailListRequest) -> GmailMailListResult:
+        svc = self._service_builder(payload.auth)
         query = GmailService.build_query(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
         )
-        try:
-            ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"List error: {exc}", "code": 2})
+        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
-            result = GmailMailListResult(messages=[])
-            return ResultEnvelope(status="success", payload=result)
+            return GmailMailListResult(messages=[])
         messages: List[Dict[str, str]] = []
         for mid in ids:
             try:
@@ -443,8 +411,7 @@ class GmailMailListProcessor(Processor[GmailMailListRequest, ResultEnvelope[Gmai
                 continue
             first_line = (text or "").splitlines()[0] if text else ""
             messages.append({"id": mid, "snippet": first_line[:100]})
-        result = GmailMailListResult(messages=messages)
-        return ResultEnvelope(status="success", payload=result)
+        return GmailMailListResult(messages=messages)
 
 
 class GmailMailListProducer(BaseProducer):
@@ -486,40 +453,32 @@ class GmailSweepTopResult:
     out_path: Optional[Path]
 
 
-class GmailSweepTopProcessor(Processor[GmailSweepTopRequest, ResultEnvelope[GmailSweepTopResult]]):
+class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopResult]):
     def __init__(self, service_builder=None) -> None:
         self._service_builder = service_builder or self._default_service_builder
 
     def _default_service_builder(self, auth: GmailAuth):
         return GmailServiceBuilder.build(auth)
 
-    def process(self, payload: GmailSweepTopRequest) -> ResultEnvelope[GmailSweepTopResult]:
-        try:
-            svc = self._service_builder(payload.auth)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Gmail auth error: {exc}", "code": 1})
+    def _process_safe(self, payload: GmailSweepTopRequest) -> GmailSweepTopResult:
+        svc = self._service_builder(payload.auth)
         query = GmailService.build_query(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
         )
-        try:
-            ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"List error: {exc}", "code": 2})
+        ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
-            result = GmailSweepTopResult(top_senders=[], freq_days=payload.days, inbox_only=payload.inbox_only, out_path=payload.out_path)
-            return ResultEnvelope(status="success", payload=result)
+            return GmailSweepTopResult(top_senders=[], freq_days=payload.days, inbox_only=payload.inbox_only, out_path=payload.out_path)
         freq = self._count_senders(svc, ids)
         top = freq.most_common(max(1, payload.top))
-        result = GmailSweepTopResult(
+        return GmailSweepTopResult(
             top_senders=top,
             freq_days=payload.days,
             inbox_only=payload.inbox_only,
             out_path=payload.out_path,
         )
-        return ResultEnvelope(status="success", payload=result)
 
     def _count_senders(self, svc, ids: List[str]) -> collections.Counter:
         """Count sender frequencies from message IDs."""

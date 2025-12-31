@@ -16,9 +16,10 @@ from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 
 from ..pipeline import (
-    ConsoleProducer,
-    ToolCatalogConsumer,
-    ToolCatalogFormatter,
+    ToolCatalogProcessor,
+    ToolCatalogProducer,
+    ToolCatalogRequest,
+    ToolCatalogRequestConsumer,
     ToolRequest,
     ToolRequestConsumer,
     ToolRunnerProcessor,
@@ -52,43 +53,38 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
 @app.command("list-tools", help="List available maker scripts")
 def cmd_list_tools(args) -> int:
     """List available maker tool scripts."""
-    catalog = ToolCatalogConsumer(ROOT).consume()
-    text = ToolCatalogFormatter().process(catalog)
-    ConsoleProducer().produce(text)
-    return 0
+    request = ToolCatalogRequest(tools_root=ROOT)
+    envelope = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(request).consume())
+    ToolCatalogProducer().produce(envelope)
+    return 0 if envelope.ok() else 1
+
+
+def _run_tool(module: str) -> int:
+    """Helper to run a maker tool and return exit code."""
+    request = ToolRequest(module=module)
+    envelope = ToolRunnerProcessor().process(ToolRequestConsumer(request).consume())
+    ToolResultProducer().produce(envelope)
+    if envelope.ok() and envelope.payload:
+        return envelope.payload.return_code
+    return 1
 
 
 @app.command("card", help="Generate snug-fit card variants for coin holders")
 def cmd_card(args) -> int:
     """Generate snug-fit card variants for coin holders."""
-    request = ToolRequest(module="maker.card.gen_snug_variants")
-    envelope = ToolRunnerProcessor().process(ToolRequestConsumer(request).consume())
-    ToolResultProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return envelope.payload.return_code if envelope.payload else 1
+    return _run_tool("maker.card.gen_snug_variants")
 
 
 @app.command("tp-rod", help="Generate TP rod model")
 def cmd_tp_rod(args) -> int:
     """Generate TP rod model."""
-    request = ToolRequest(module="maker.tp_rod.gen_tp_rod")
-    envelope = ToolRunnerProcessor().process(ToolRequestConsumer(request).consume())
-    ToolResultProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return envelope.payload.return_code if envelope.payload else 1
+    return _run_tool("maker.tp_rod.gen_tp_rod")
 
 
 @app.command("print-send", help="Upload/print G-code to printer")
 def cmd_print_send(args) -> int:
     """Upload/print G-code to printer."""
-    request = ToolRequest(module="maker.print.send_to_printer")
-    envelope = ToolRunnerProcessor().process(ToolRequestConsumer(request).consume())
-    ToolResultProducer().produce(envelope)
-    if envelope.ok():
-        return 0
-    return envelope.payload.return_code if envelope.payload else 1
+    return _run_tool("maker.print.send_to_printer")
 
 
 def main(argv: Optional[list[str]] = None) -> int:

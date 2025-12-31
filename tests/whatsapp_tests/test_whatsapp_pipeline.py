@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from whatsapp.pipeline import (
     SearchRequest,
+    SearchRequestConsumer,
     SearchResult,
     SearchProcessor,
     SearchProducer,
@@ -81,7 +82,7 @@ class TestSearchProcessor(unittest.TestCase):
 
         req = SearchRequest(contains=["hello"])
         processor = SearchProcessor()
-        envelope = processor.process(req)
+        envelope = processor.process(SearchRequestConsumer(req).consume())
 
         self.assertEqual(envelope.status, "success")
         self.assertIsNotNone(envelope.payload)
@@ -94,12 +95,11 @@ class TestSearchProcessor(unittest.TestCase):
 
         req = SearchRequest()
         processor = SearchProcessor()
-        envelope = processor.process(req)
+        envelope = processor.process(SearchRequestConsumer(req).consume())
 
         self.assertEqual(envelope.status, "error")
         self.assertIsNone(envelope.payload)
-        self.assertEqual(envelope.diagnostics["code"], 2)
-        self.assertEqual(envelope.diagnostics["hint"], "db_not_found")
+        self.assertIn("DB not found", envelope.diagnostics["message"])
 
     @patch("whatsapp.pipeline.search_messages")
     def test_process_generic_error(self, mock_search):
@@ -108,12 +108,11 @@ class TestSearchProcessor(unittest.TestCase):
 
         req = SearchRequest()
         processor = SearchProcessor()
-        envelope = processor.process(req)
+        envelope = processor.process(SearchRequestConsumer(req).consume())
 
         self.assertEqual(envelope.status, "error")
         self.assertIsNone(envelope.payload)
-        self.assertEqual(envelope.diagnostics["code"], 1)
-        self.assertIn("Some error", envelope.diagnostics["error"])
+        self.assertIn("Some error", envelope.diagnostics["message"])
 
     @patch("whatsapp.pipeline.search_messages")
     def test_process_passes_parameters(self, mock_search):
@@ -130,7 +129,7 @@ class TestSearchProcessor(unittest.TestCase):
             limit=25,
         )
         processor = SearchProcessor()
-        processor.process(req)
+        processor.process(SearchRequestConsumer(req).consume())
 
         mock_search.assert_called_once_with(
             db_path="/custom/path",

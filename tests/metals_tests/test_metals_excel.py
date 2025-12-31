@@ -87,9 +87,7 @@ class TestColLetterAdvanced(unittest.TestCase):
 
     def test_large_columns(self):
         """Test large column numbers."""
-        # BA = 53
         self.assertEqual(_col_letter(53), "BA")
-        # ZZ = 702
         self.assertEqual(_col_letter(702), "ZZ")
 
 

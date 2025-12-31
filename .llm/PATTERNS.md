@@ -154,7 +154,11 @@ class ResultEnvelope:
 SafeProcessor Pattern (Automatic Error Handling)
 ```python
 # Modern pattern: SafeProcessor handles errors automatically
-# Use this for new pipelines (mail/config_cli, mail/messages_cli migrated Dec 2024)
+# Use this for new pipelines
+# Migrated domains (Dec 2024):
+#   - mail/config_cli (11 pipelines), mail/messages_cli (2), mail/accounts (9)
+#   - calendars (19 pipelines: Gmail + Outlook)
+#   - desk (3), phone (12), wifi (1), metals (2), schedule (4)
 
 from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
 from dataclasses import dataclass

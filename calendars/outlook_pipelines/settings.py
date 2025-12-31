@@ -13,8 +13,7 @@ from ._base import (
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     check_service_required,
     _load_yaml,
     ERR_CODE_CONFIG,
@@ -52,39 +51,29 @@ class OutlookSettingsResult:
     dry_run: bool
 
 
-class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[OutlookSettingsResult]]):
+class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSettingsResult]):
     def __init__(self, config_loader=None, regex_module=re, today_factory=None) -> None:
         self._config_loader = config_loader if config_loader is not None else _load_yaml
         self._regex = regex_module
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookSettingsRequest) -> ResultEnvelope[OutlookSettingsResult]:
-        try:
-            doc = self._config_loader(str(payload.config_path)) or {}
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to load config: {exc}", "code": ERR_CODE_CONFIG})
+    def _process_safe(self, payload: OutlookSettingsRequest) -> OutlookSettingsResult:
+        doc = self._config_loader(str(payload.config_path)) or {}
         root = doc.get("settings") if isinstance(doc, dict) and "settings" in doc else doc
         defaults = (root.get("defaults") if isinstance(root, dict) else {}) or {}
         rules = (root.get("rules") if isinstance(root, dict) else None) or []
         if not isinstance(rules, list):
-            return ResultEnvelope(
-                status="error",
-                diagnostics={"message": "Config must contain settings.rules: [] or top-level rules: []", "code": ERR_CODE_CONFIG},
-            )
+            raise ValueError("Config must contain settings.rules: [] or top-level rules: []")
 
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)
         svc = payload.service
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
-        try:
-            events = svc.list_events_in_range(
-                calendar_name=payload.calendar,
-                start_iso=start_iso,
-                end_iso=end_iso,
-            )
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
+        events = svc.list_events_in_range(
+            calendar_name=payload.calendar,
+            start_iso=start_iso,
+            end_iso=end_iso,
+        )
 
         logs: List[str] = []
         selected = 0
@@ -131,7 +120,7 @@ class OutlookSettingsProcessor(Processor[OutlookSettingsRequest, ResultEnvelope[
                 logs.append(f"Failed to update {eid}: {exc}")
 
         result = OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
     def _evaluate_config(self, defaults, rules, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         subject = (event.get("subject") or "").strip()

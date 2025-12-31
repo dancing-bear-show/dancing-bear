@@ -7,8 +7,7 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Processor,
-    ResultEnvelope,
+    SafeProcessor,
     BaseProducer,
     DateWindowResolver,
     RequestConsumer,
@@ -39,25 +38,21 @@ class OutlookListOneOffsResult:
     out_path: Optional[Path]
 
 
-class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnvelope[OutlookListOneOffsResult]]):
+class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, OutlookListOneOffsResult]):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def process(self, payload: OutlookListOneOffsRequest) -> ResultEnvelope[OutlookListOneOffsResult]:
-        if err := check_service_required(payload.service):
-            return err
+    def _process_safe(self, payload: OutlookListOneOffsRequest) -> OutlookListOneOffsResult:
+        check_service_required(payload.service)
         svc = payload.service
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         start_date = payload.from_date or start_iso[:10]
         end_date = payload.to_date or end_iso[:10]
-        try:
-            evs = svc.list_events_in_range(
-                calendar_name=payload.calendar,
-                start_iso=start_iso,
-                end_iso=end_iso,
-            )
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
+        evs = svc.list_events_in_range(
+            calendar_name=payload.calendar,
+            start_iso=start_iso,
+            end_iso=end_iso,
+        )
         one_offs = []
         for ev in evs or []:
             etype = (ev.get("type") or "").lower()
@@ -77,7 +72,7 @@ class OutlookListOneOffsProcessor(Processor[OutlookListOneOffsRequest, ResultEnv
             limit=payload.limit,
             out_path=payload.out_path,
         )
-        return ResultEnvelope(status="success", payload=result)
+        return result
 
 
 class OutlookListOneOffsProducer(BaseProducer):
