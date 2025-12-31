@@ -43,20 +43,16 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
         self._window = DateWindowResolver(today_factory)
 
     def _process_safe(self, payload: OutlookListOneOffsRequest) -> OutlookListOneOffsResult:
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)
         svc = payload.service
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         start_date = payload.from_date or start_iso[:10]
         end_date = payload.to_date or end_iso[:10]
-        try:
-            evs = svc.list_events_in_range(
-                calendar_name=payload.calendar,
-                start_iso=start_iso,
-                end_iso=end_iso,
-            )
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_CALENDAR})
+        evs = svc.list_events_in_range(
+            calendar_name=payload.calendar,
+            start_iso=start_iso,
+            end_iso=end_iso,
+        )
         one_offs = []
         for ev in evs or []:
             etype = (ev.get("type") or "").lower()

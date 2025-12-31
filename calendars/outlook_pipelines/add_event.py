@@ -110,28 +110,25 @@ class OutlookAddRecurringProcessor(SafeProcessor[OutlookAddRecurringRequest, Out
     def _process_safe(self, payload: OutlookAddRecurringRequest) -> OutlookAddRecurringResult:
         check_service_required(payload.service)
         svc = payload.service
-        try:
-            evt = svc.create_recurring_event(
-                calendar_id=None,
-                calendar_name=payload.calendar,
-                subject=payload.subject,
-                start_time=payload.start_time,
-                end_time=payload.end_time,
-                tz=payload.tz,
-                repeat=payload.repeat,
-                interval=payload.interval,
-                byday=payload.byday,
-                range_start_date=payload.range_start_date,
-                range_until=payload.range_until,
-                count=payload.count,
-                body_html=payload.body_html,
-                location=payload.location,
-                exdates=payload.exdates or None,
-                no_reminder=payload.no_reminder,
-                reminder_minutes=payload.reminder_minutes,
-            )
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to create recurring event: {exc}", "code": ERR_CODE_CALENDAR})
+        evt = svc.create_recurring_event(
+            calendar_id=None,
+            calendar_name=payload.calendar,
+            subject=payload.subject,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            tz=payload.tz,
+            repeat=payload.repeat,
+            interval=payload.interval,
+            byday=payload.byday,
+            range_start_date=payload.range_start_date,
+            range_until=payload.range_until,
+            count=payload.count,
+            body_html=payload.body_html,
+            location=payload.location,
+            exdates=payload.exdates or None,
+            no_reminder=payload.no_reminder,
+            reminder_minutes=payload.reminder_minutes,
+        )
         evt_id = (evt or {}).get("id") or ""
         subject = (evt or {}).get("subject") or payload.subject
         result = OutlookAddRecurringResult(event_id=evt_id, subject=subject)

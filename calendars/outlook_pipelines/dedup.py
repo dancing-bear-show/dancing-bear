@@ -67,18 +67,14 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         self._window = DateWindowResolver(today_factory)
 
     def _process_safe(self, payload: OutlookDedupRequest) -> OutlookDedupResult:
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)
         svc = payload.service
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         cal_id = None
         if payload.calendar:
             cal_id = svc.find_calendar_id(payload.calendar)
-        try:
-            occ = svc.list_calendar_view(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Graph error: {exc}", "code": ERR_CODE_API})
+        occ = svc.list_calendar_view(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
 
         duplicates = self._find_duplicates(occ or [], payload)
         logs: List[str] = []

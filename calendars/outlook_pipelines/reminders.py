@@ -57,8 +57,7 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
         self._window = DateWindowResolver(today_factory)
 
     def _process_safe(self, payload: OutlookRemindersRequest) -> OutlookRemindersResult:
-        if err := check_service_required(payload.service):
-            return err
+        check_service_required(payload.service)
         svc = payload.service
 
         calendar_name = payload.calendar
@@ -66,16 +65,10 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
         if calendar_name:
             cal_id = svc.get_calendar_id_by_name(calendar_name)
             if not cal_id:
-                return ResultEnvelope(
-                    status="error",
-                    diagnostics={"message": f"Calendar not found: {calendar_name}", "code": ERR_CODE_CALENDAR},
-                )
+                raise ValueError(f"Calendar not found: {calendar_name}")
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
-        try:
-            events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
-        except Exception as exc:
-            return ResultEnvelope(status="error", diagnostics={"message": f"Failed to list events: {exc}", "code": ERR_CODE_API})
+        events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
 
         series_ids: set[str] = set()
         occurrence_ids: set[str] = set()

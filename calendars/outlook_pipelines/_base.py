@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.pipeline import SafeProcessor
+from core.pipeline import ResultEnvelope, SafeProcessor
 
 from calendars.yamlio import load_config as _load_yaml
 from calendars.model import normalize_event
@@ -67,6 +67,7 @@ __all__ = [
     "Optional",
     "Sequence",
     "Tuple",
+    "ResultEnvelope",
     "SafeProcessor",
     
     "_load_yaml",

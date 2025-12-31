@@ -850,41 +850,37 @@ class CheckServiceRequiredTests(TestCase):
         """check_service_required() returns None when service is not None."""
         from calendars.pipeline_base import check_service_required
 
+        # Should not raise for valid service
         result = check_service_required(MagicMock())
         self.assertIsNone(result)
 
-    def test_check_service_required_returns_error_envelope_when_none(self):
-        """check_service_required() returns error envelope when service is None."""
+    def test_check_service_required_raises_when_none(self):
+        """check_service_required() raises ValueError when service is None."""
         from calendars.pipeline_base import check_service_required
 
-        result = check_service_required(None)
-        self.assertIsNotNone(result)
-        self.assertIsInstance(result, ResultEnvelope)
-        self.assertEqual("error", result.status)
-        self.assertEqual(1, result.diagnostics.get("code"))
-        self.assertIn("service is required", result.diagnostics.get("message", ""))
+        with self.assertRaises(ValueError) as ctx:
+            check_service_required(None)
+        self.assertIn("service is required", str(ctx.exception))
 
     def test_check_service_required_uses_custom_error_message(self):
         """check_service_required() uses custom error message when provided."""
         from calendars.pipeline_base import check_service_required
 
-        result = check_service_required(None, error_msg="Custom error message")
-        self.assertIsNotNone(result)
-        self.assertEqual("Custom error message", result.diagnostics.get("message"))
+        with self.assertRaises(ValueError) as ctx:
+            check_service_required(None, error_msg="Custom error message")
+        self.assertEqual("Custom error message", str(ctx.exception))
 
-    def test_check_service_required_walrus_pattern(self):
-        """check_service_required() works with walrus operator pattern."""
+    def test_check_service_required_in_processor_pattern(self):
+        """check_service_required() works within SafeProcessor pattern."""
         from calendars.pipeline_base import check_service_required
 
-        # Simulate the intended usage pattern
-        service = None
-        if err := check_service_required(service):
-            self.assertEqual("error", err.status)
-        else:
-            self.fail("Expected error envelope for None service")
-
-        # With valid service
+        # Valid service - no exception
         service = MagicMock()
-        if err := check_service_required(service):
-            self.fail("Expected None for valid service")
-        # Success - no error returned
+        try:
+            check_service_required(service)
+        except ValueError:
+            self.fail("Should not raise for valid service")
+
+        # None service - raises, which SafeProcessor catches
+        with self.assertRaises(ValueError):
+            check_service_required(None)
