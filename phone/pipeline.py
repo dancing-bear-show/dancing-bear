@@ -10,6 +10,7 @@ from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
     SafeProcessor,
     RequestConsumer,
+    ResultEnvelope,
 )
 
 from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
@@ -832,7 +833,7 @@ class IdentityVerifyProcessor(SafeProcessor[IdentityVerifyRequest, IdentityVerif
         except FileNotFoundError:
             raise ValueError(f"p12 file not found: {p12_path}")
         except RuntimeError as e:
-            raise ValueError("Operation failed")
+            raise ValueError(f"Operation failed: {e}") from e
 
         # Resolve device UDID
         udid = payload.udid or os.environ.get("IOS_DEVICE_UDID")
