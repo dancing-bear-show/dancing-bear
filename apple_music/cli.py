@@ -6,6 +6,7 @@ import json
 import os
 import random
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,18 @@ app = CLIApp(
     "Apple Music assistant CLI for playlist management.",
     add_common_args=True,
 )
+
+
+@dataclass
+class PlaylistCreationConfig:
+    """Configuration for creating a playlist from seed tracks."""
+
+    name: str
+    description: str | None = None
+    count: int = 20
+    shuffle_seed: int | None = None
+    storefront: str | None = None
+    dry_run: bool = False
 
 
 # Playlist presets for the create command
@@ -337,21 +350,16 @@ def _output_json(args, payload: dict) -> int:
 def _create_from_seeds(
     client: AppleMusicClient,
     seeds: list[tuple[str, str]],
-    name: str,
-    description: str | None,
-    count: int,
-    shuffle_seed: int | None,
-    storefront: str | None,
-    dry_run: bool,
+    config: PlaylistCreationConfig,
 ) -> dict:
     """Helper to create a playlist from seed tracks."""
-    store = storefront
+    store = config.storefront
     if not store:
         store = client.ping().get("data", [{}])[0].get("id")
     seeds_copy = list(seeds)
-    rng = random.Random(shuffle_seed)  # noqa: S311 - used for playlist shuffling, not security
+    rng = random.Random(config.shuffle_seed)  # noqa: S311 - used for playlist shuffling, not security
     rng.shuffle(seeds_copy)
-    seeds_copy = seeds_copy[: min(count, len(seeds_copy))]
+    seeds_copy = seeds_copy[: min(config.count, len(seeds_copy))]
 
     tracks_data = []
     resolved = []
@@ -364,12 +372,12 @@ def _create_from_seeds(
         tracks_data.append({"id": song.get("id"), "type": song.get("type", "songs") or "songs"})
         resolved.append({"title": title, "artist": artist, "matched": song.get("attributes", {}).get("name")})
 
-    plan = {"storefront": store, "name": name, "tracks": resolved}
-    if dry_run:
+    plan = {"storefront": store, "name": config.name, "tracks": resolved}
+    if config.dry_run:
         return {"plan": plan}
     if not tracks_data:
         raise AppleMusicError("No tracks resolved from seeds; cannot create playlist.")
-    resp = client.create_playlist(name, tracks=tracks_data, description=description)
+    resp = client.create_playlist(config.name, tracks=tracks_data, description=config.description)
     return {"created": resp, "plan": plan}
 
 
@@ -487,16 +495,19 @@ def cmd_create(args) -> int:
     preset = PRESETS[args.preset]
     name = getattr(args, "name", None) or preset["name"]
     desc = args.description if getattr(args, "description", None) is not None else preset["description"]
+    config = PlaylistCreationConfig(
+        name=name,
+        description=desc,
+        count=args.count,
+        shuffle_seed=getattr(args, "shuffle_seed", None),
+        storefront=getattr(args, "storefront", None),
+        dry_run=getattr(args, "dry_run", False),
+    )
     try:
         payload = _create_from_seeds(
             client=client,
             seeds=preset["seeds"],
-            name=name,
-            description=desc,
-            count=args.count,
-            shuffle_seed=getattr(args, "shuffle_seed", None),
-            storefront=getattr(args, "storefront", None),
-            dry_run=getattr(args, "dry_run", False),
+            config=config,
         )
     except AppleMusicError as exc:
         print(str(exc), file=sys.stderr)

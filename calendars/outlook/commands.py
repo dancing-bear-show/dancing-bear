@@ -6,6 +6,7 @@ from pathlib import Path
 
 from core.auth import build_outlook_service_from_args
 from core.pipeline import run_pipeline
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 from ..outlook_pipelines import (
     OutlookAddProcessor,
@@ -87,12 +88,12 @@ def run_outlook_add(args: argparse.Namespace) -> int:
     svc = _build_outlook_service(args)
     if not svc:
         return 1
-    request = OutlookAddEventRequest(
-        service=svc,
-        calendar=getattr(args, "calendar", None),
+    params = EventCreationParams(
         subject=args.subject,
         start_iso=args.start,
         end_iso=args.end,
+        calendar_id=None,
+        calendar_name=getattr(args, "calendar", None),
         tz=getattr(args, "tz", None),
         body_html=getattr(args, "body_html", None),
         all_day=bool(getattr(args, "all_day", False)),
@@ -100,6 +101,7 @@ def run_outlook_add(args: argparse.Namespace) -> int:
         no_reminder=bool(getattr(args, "no_reminder", False)),
         reminder_minutes=getattr(args, "reminder_minutes", None),
     )
+    request = OutlookAddEventRequest(service=svc, params=params)
     return run_pipeline(request, OutlookAddEventProcessor, OutlookAddEventProducer)
 
 
@@ -160,14 +162,14 @@ def run_outlook_add_recurring(args: argparse.Namespace) -> int:
     svc = _build_outlook_service(args)
     if not svc:
         return 1
-    request = OutlookAddRecurringRequest(
-        service=svc,
-        calendar=getattr(args, "calendar", None),
+    params = RecurringEventCreationParams(
         subject=args.subject,
         start_time=args.start_time,
         end_time=args.end_time,
-        tz=getattr(args, "tz", None),
         repeat=args.repeat,
+        calendar_id=None,
+        calendar_name=getattr(args, "calendar", None),
+        tz=getattr(args, "tz", None),
         interval=int(getattr(args, "interval", 1) or 1),
         byday=byday,
         range_start_date=args.range_start,
@@ -179,6 +181,7 @@ def run_outlook_add_recurring(args: argparse.Namespace) -> int:
         no_reminder=bool(getattr(args, "no_reminder", False)),
         reminder_minutes=getattr(args, "reminder_minutes", None),
     )
+    request = OutlookAddRecurringRequest(service=svc, params=params)
     return run_pipeline(request, OutlookAddRecurringProcessor, OutlookAddRecurringProducer)
 
 

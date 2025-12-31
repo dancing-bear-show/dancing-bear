@@ -11,6 +11,7 @@ from ._base import (
     RequestConsumer,
     check_service_required,
 )
+from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
 # =============================================================================
@@ -19,17 +20,9 @@ from ._base import (
 
 @dataclass
 class OutlookAddEventRequest:
+    """Request to create a one-time event. Composes EventCreationParams."""
     service: Any
-    calendar: Optional[str]
-    subject: str
-    start_iso: str
-    end_iso: str
-    tz: Optional[str]
-    body_html: Optional[str]
-    all_day: bool
-    location: Optional[str]
-    no_reminder: bool
-    reminder_minutes: Optional[int]
+    params: EventCreationParams
 
 
 OutlookAddEventRequestConsumer = RequestConsumer[OutlookAddEventRequest]
@@ -45,21 +38,9 @@ class OutlookAddEventProcessor(SafeProcessor[OutlookAddEventRequest, OutlookAddE
     def _process_safe(self, payload: OutlookAddEventRequest) -> OutlookAddEventResult:
         check_service_required(payload.service)
         svc = payload.service
-        evt = svc.create_event(
-            calendar_id=None,
-            calendar_name=payload.calendar,
-            subject=payload.subject,
-            start_iso=payload.start_iso,
-            end_iso=payload.end_iso,
-            tz=payload.tz,
-            body_html=payload.body_html,
-            all_day=payload.all_day,
-            location=payload.location,
-            no_reminder=payload.no_reminder,
-            reminder_minutes=payload.reminder_minutes,
-        )
+        evt = svc.create_event(payload.params)
         evt_id = (evt or {}).get("id") or ""
-        result = OutlookAddEventResult(event_id=evt_id, subject=(evt or {}).get("subject") or payload.subject)
+        result = OutlookAddEventResult(event_id=evt_id, subject=(evt or {}).get("subject") or payload.params.subject)
         return result
 
 
@@ -74,23 +55,9 @@ class OutlookAddEventProducer(BaseProducer):
 
 @dataclass
 class OutlookAddRecurringRequest:
+    """Request to create a recurring event. Composes RecurringEventCreationParams."""
     service: Any
-    calendar: Optional[str]
-    subject: str
-    start_time: str
-    end_time: str
-    tz: Optional[str]
-    repeat: str
-    interval: int
-    byday: Optional[List[str]]
-    range_start_date: str
-    range_until: Optional[str]
-    count: Optional[int]
-    body_html: Optional[str]
-    location: Optional[str]
-    exdates: Optional[List[str]]
-    no_reminder: bool
-    reminder_minutes: Optional[int]
+    params: RecurringEventCreationParams
 
 
 OutlookAddRecurringRequestConsumer = RequestConsumer[OutlookAddRecurringRequest]
@@ -106,27 +73,9 @@ class OutlookAddRecurringProcessor(SafeProcessor[OutlookAddRecurringRequest, Out
     def _process_safe(self, payload: OutlookAddRecurringRequest) -> OutlookAddRecurringResult:
         check_service_required(payload.service)
         svc = payload.service
-        evt = svc.create_recurring_event(
-            calendar_id=None,
-            calendar_name=payload.calendar,
-            subject=payload.subject,
-            start_time=payload.start_time,
-            end_time=payload.end_time,
-            tz=payload.tz,
-            repeat=payload.repeat,
-            interval=payload.interval,
-            byday=payload.byday,
-            range_start_date=payload.range_start_date,
-            range_until=payload.range_until,
-            count=payload.count,
-            body_html=payload.body_html,
-            location=payload.location,
-            exdates=payload.exdates or None,
-            no_reminder=payload.no_reminder,
-            reminder_minutes=payload.reminder_minutes,
-        )
+        evt = svc.create_recurring_event(payload.params)
         evt_id = (evt or {}).get("id") or ""
-        subject = (evt or {}).get("subject") or payload.subject
+        subject = (evt or {}).get("subject") or payload.params.subject
         result = OutlookAddRecurringResult(event_id=evt_id, subject=subject)
         return result
 

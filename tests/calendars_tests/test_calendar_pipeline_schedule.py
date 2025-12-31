@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
+from calendars.outlook_service import EventCreationParams, RecurringEventCreationParams
 from calendars.pipeline import (
     OutlookScheduleImportProcessor,
     OutlookScheduleImportProducer,
@@ -241,12 +242,12 @@ class CalendarExtraPipelineTests(TestCase):
     def test_add_event_processor_and_producer(self):
         svc = MagicMock()
         svc.create_event.return_value = {"id": "E1", "subject": "Test"}
-        request = OutlookAddEventRequest(
-            service=svc,
-            calendar="Family",
+        params = EventCreationParams(
             subject="Test",
             start_iso="2025-01-01T10:00:00",
             end_iso="2025-01-01T11:00:00",
+            calendar_id=None,
+            calendar_name="Family",
             tz=None,
             body_html=None,
             all_day=False,
@@ -254,6 +255,7 @@ class CalendarExtraPipelineTests(TestCase):
             no_reminder=False,
             reminder_minutes=None,
         )
+        request = OutlookAddEventRequest(service=svc, params=params)
         env = OutlookAddEventProcessor().process(OutlookAddEventRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         buf = io.StringIO()
@@ -264,12 +266,12 @@ class CalendarExtraPipelineTests(TestCase):
     def test_add_event_processor_handles_error(self):
         svc = MagicMock()
         svc.create_event.side_effect = RuntimeError("boom")
-        request = OutlookAddEventRequest(
-            service=svc,
-            calendar="Family",
+        params = EventCreationParams(
             subject="Test",
             start_iso="2025-01-01T10:00:00",
             end_iso="2025-01-01T11:00:00",
+            calendar_id=None,
+            calendar_name="Family",
             tz=None,
             body_html=None,
             all_day=False,
@@ -277,6 +279,7 @@ class CalendarExtraPipelineTests(TestCase):
             no_reminder=False,
             reminder_minutes=None,
         )
+        request = OutlookAddEventRequest(service=svc, params=params)
         env = OutlookAddEventProcessor().process(OutlookAddEventRequestConsumer(request).consume())
         self.assertFalse(env.ok())
 
