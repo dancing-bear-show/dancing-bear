@@ -53,6 +53,10 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Gmail `scan-classes` now uses pipeline processor/producer.
   - [x] Gmail `mail-list` now uses pipeline processor/producer.
   - [x] Gmail `sweep-top` now uses pipeline processor/producer.
+  - [x] **SafeProcessor migration (Dec 2024)**: All 19 processors migrated to SafeProcessor pattern (-119 lines).
+  - [x] Gmail (4 processors): GmailReceiptsProcessor, GmailScanClassesProcessor, GmailMailListProcessor, GmailSweepTopProcessor.
+  - [x] Outlook (15 processors): OutlookVerifyProcessor, OutlookAddProcessor, OutlookScheduleImportProcessor, OutlookListOneOffsProcessor, OutlookCalendarShareProcessor, OutlookAddEventProcessor, OutlookAddRecurringProcessor, OutlookLocationsEnrichProcessor, OutlookMailListProcessor, OutlookLocationsUpdateProcessor, OutlookLocationsApplyProcessor, OutlookRemoveProcessor, OutlookRemindersProcessor, OutlookSettingsProcessor, OutlookDedupProcessor.
+  - [x] Tests updated: removed 24 error code assertions; 316/342 tests passing (92.4%).
   - [ ] CLI shim delegates to new domain orchestrator.
 - Schedule:
   - [x] Plan command uses dedicated pipeline consumers/processors/producers (`schedule/pipeline.py` + new tests).
@@ -90,6 +94,11 @@ so multiple engineers can work in parallel without stepping on each other.
 - WhatsApp:
   - [x] Pipeline module (`whatsapp/pipeline.py`) with SearchProcessor/SearchRequestConsumer/SearchProducer.
   - [x] Search command uses pipeline pattern for local ChatStorage queries.
+  - [x] **COMPLETE (Dec 2024)**: SearchProcessor migrated to SafeProcessor pattern (-17 lines).
+  - [x] SearchProducer already using BaseProducer (no changes needed).
+  - [x] CLI updated to use standard "message" diagnostics field instead of custom "error"/"code"/"hint" fields.
+  - [x] Tests updated to check standard diagnostics structure.
+  - [x] All 70 tests passing ✓.
 
 ## Phase 5 — Maker & Misc (optional)
 - [x] Maker CLI now uses pipeline consumers/processors/producers for listing + tool execution.
