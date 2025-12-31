@@ -74,6 +74,98 @@ def make_app_llm_config(
     )
 
 
+def make_domain_llm_module(
+    *,
+    app_id: str,
+    app_title: str,
+    purpose: str,
+    agentic_module: str,
+    familiar_compact_steps: Optional[List[str]] = None,
+    familiar_extended_steps: Optional[List[str]] = None,
+    policies_fallback: Optional[str] = None,
+) -> LlmConfig:
+    """Factory to create an LlmConfig for a domain module with minimal boilerplate.
+
+    Args:
+        app_id: Short identifier (e.g., "desk", "resume", "schedule")
+        app_title: Display title (e.g., "Desk", "Resume", "Schedule")
+        purpose: One-line description of the domain
+        agentic_module: Module path for .agentic imports (e.g., "desk.agentic")
+        familiar_compact_steps: List of commands for compact familiarization
+        familiar_extended_steps: List of commands for extended familiarization
+        policies_fallback: Custom policies YAML string (uses default if None)
+
+    Returns:
+        LlmConfig ready for use with build_parser() and run()
+    """
+    llm_dir = Path(".llm")
+
+    def _agentic() -> str:
+        try:
+            mod = importlib.import_module(agentic_module)
+            return mod.build_agentic_capsule()
+        except Exception:
+            return f"agentic: {app_id}\npurpose: {purpose}"
+
+    def _domain_map() -> str:
+        try:
+            mod = importlib.import_module(agentic_module)
+            return mod.build_domain_map()
+        except Exception:
+            return "Domain Map not available"
+
+    def _inventory() -> str:
+        return (
+            _read_text(llm_dir / "INVENTORY.md")
+            or f"# LLM Agent Inventory ({app_title})\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
+        )
+
+    def _familiar_compact() -> str:
+        if familiar_compact_steps:
+            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_compact_steps)
+            return (
+                f"meta:\n"
+                f"  name: {app_id}_familiarize\n"
+                f"  version: 1\n"
+                f"steps:\n{steps}\n"
+            )
+        return (
+            _read_text(llm_dir / "familiarize.yaml")
+            or f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n  - run: ./bin/{app_id} --help\n"
+        )
+
+    def _familiar_extended() -> str:
+        if familiar_extended_steps:
+            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_extended_steps)
+            return (
+                f"meta:\n"
+                f"  name: {app_id}_familiarize\n"
+                f"  version: 1\n"
+                f"steps:\n{steps}\n"
+            )
+        return _familiar_compact()
+
+    def _policies() -> str:
+        return (
+            _read_text(llm_dir / "PR_POLICIES.yaml")
+            or policies_fallback
+            or f"policies:\n  style:\n    - Keep CLI stable; prefer plan→apply\n  tests:\n    - Add lightweight unittest for new CLI surfaces\n"
+        )
+
+    return LlmConfig(
+        prog=f"llm-{app_id}",
+        description=f"{app_title} Assistant LLM utilities (inventory, familiar, policies, agentic, domain-map)",
+        agentic=_agentic,
+        domain_map=_domain_map,
+        inventory=_inventory,
+        familiar_compact=_familiar_compact,
+        familiar_extended=_familiar_extended,
+        policies=_policies,
+        agentic_filename=f"AGENTIC_{app_id.upper()}.md",
+        domain_map_filename=f"DOMAIN_MAP_{app_id.upper()}.md",
+    )
+
+
 DEFAULT_SKIP_DIRS = {
     "backups",
     "_disasm",

@@ -12,7 +12,6 @@ from ._base import (
     DateWindowResolver,
     RequestConsumer,
     check_service_required,
-    ERR_CODE_CALENDAR,
 )
 
 

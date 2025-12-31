@@ -8,7 +8,7 @@ import datetime as _dt
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.pipeline import BaseProducer, RequestConsumer, ResultEnvelope
+from core.pipeline import BaseProducer, RequestConsumer
 from core.auth import build_gmail_service as _build_gmail_service
 from core.constants import DAY_START_TIME, DAY_END_TIME, FMT_DATETIME_SEC, FMT_DAY_START
 
