@@ -47,24 +47,30 @@ class TestDedupHelpers(TestCase):
     def test_pick_keep_delete_prefers_oldest_by_default(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.dedup import OutlookDedupRequest
+        from calendars.outlook_pipelines._context import DedupSelectionContext
         payload = OutlookDedupRequest(service=MagicMock())
-        keep, delete = proc._pick_keep_delete(["A", "B"], [], ["A", "B"], "B", "A", payload)
+        ctx = DedupSelectionContext(sorted_sids=["A", "B"], std=[], non=["A", "B"], newest="B", oldest="A")
+        keep, delete = proc._pick_keep_delete(ctx, payload)
         self.assertEqual(keep, "A")
         self.assertEqual(delete, ["B"])
 
     def test_pick_keep_delete_keep_newest(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.dedup import OutlookDedupRequest
+        from calendars.outlook_pipelines._context import DedupSelectionContext
         payload = OutlookDedupRequest(service=MagicMock(), keep_newest=True)
-        keep, delete = proc._pick_keep_delete(["A", "B"], [], ["A", "B"], "B", "A", payload)
+        ctx = DedupSelectionContext(sorted_sids=["A", "B"], std=[], non=["A", "B"], newest="B", oldest="A")
+        keep, delete = proc._pick_keep_delete(ctx, payload)
         self.assertEqual(keep, "B")
         self.assertEqual(delete, ["A"])
 
     def test_pick_keep_delete_prefer_delete_nonstandard(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.dedup import OutlookDedupRequest
+        from calendars.outlook_pipelines._context import DedupSelectionContext
         payload = OutlookDedupRequest(service=MagicMock(), prefer_delete_nonstandard=True)
-        keep, delete = proc._pick_keep_delete(["A", "B"], ["A"], ["B"], "B", "A", payload)
+        ctx = DedupSelectionContext(sorted_sids=["A", "B"], std=["A"], non=["B"], newest="B", oldest="A")
+        keep, delete = proc._pick_keep_delete(ctx, payload)
         self.assertEqual(keep, "A")
         self.assertEqual(delete, ["B"])
 
@@ -112,6 +118,7 @@ class TestScheduleImportHelpers(TestCase):
     def test_create_one_off_dry_run(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.schedule_import import OutlookScheduleImportRequest
+        from calendars.outlook_pipelines._context import ScheduleImportContext
 
         @dataclass
         class FakeItem:
@@ -124,7 +131,8 @@ class TestScheduleImportHelpers(TestCase):
         svc = MagicMock()
         payload = OutlookScheduleImportRequest(source="", kind=None, calendar=None, tz=None, until=None, dry_run=True, no_reminder=False, service=svc)
         logs = []
-        result = proc._create_one_off(FakeItem(), svc, "cal-1", "Cal", payload, logs)
+        ctx = ScheduleImportContext(svc=svc, cal_id="cal-1", cal_name="Cal", logs=logs)
+        result = proc._create_one_off(FakeItem(), ctx, payload)
         self.assertEqual(result, 1)
         self.assertIn("[dry-run]", logs[0])
         svc.create_event.assert_not_called()
@@ -165,10 +173,13 @@ class TestAddHelpers(TestCase):
     def test_create_single_dry_run(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.add import OutlookAddRequest
+        from calendars.outlook_pipelines._context import EventProcessingContext
         svc = MagicMock()
         payload = OutlookAddRequest(config_path="", dry_run=True, force_no_reminder=False, service=svc)
         logs = []
-        result = proc._create_single(1, {"start": "2025-01-01T10:00:00", "end": "2025-01-01T11:00:00"}, "Test", False, None, payload, logs)
+        nev = {"start": "2025-01-01T10:00:00", "end": "2025-01-01T11:00:00"}
+        ctx = EventProcessingContext(idx=1, nev=nev, subj="Test", no_rem=False, rem_minutes=None, logs=logs)
+        result = proc._create_single(ctx, payload)
         self.assertEqual(result, 1)
         self.assertIn("[dry-run]", logs[0])
         svc.create_event.assert_not_called()
@@ -176,20 +187,25 @@ class TestAddHelpers(TestCase):
     def test_create_single_missing_start_end(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.add import OutlookAddRequest
+        from calendars.outlook_pipelines._context import EventProcessingContext
         payload = OutlookAddRequest(config_path="", dry_run=False, force_no_reminder=False, service=MagicMock())
         logs = []
-        result = proc._create_single(1, {}, "Test", False, None, payload, logs)
+        nev = {}
+        ctx = EventProcessingContext(idx=1, nev=nev, subj="Test", no_rem=False, rem_minutes=None, logs=logs)
+        result = proc._create_single(ctx, payload)
         self.assertEqual(result, 0)
         self.assertIn("missing start/end", logs[0])
 
     def test_create_recurring_dry_run(self):
         proc = self._make_processor()
         from calendars.outlook_pipelines.add import OutlookAddRequest
+        from calendars.outlook_pipelines._context import EventProcessingContext
         svc = MagicMock()
         payload = OutlookAddRequest(config_path="", dry_run=True, force_no_reminder=False, service=svc)
         logs = []
         nev = {"repeat": "weekly", "byday": ["MO"], "start_time": "10:00", "end_time": "11:00"}
-        result = proc._create_recurring(1, nev, "Series", False, None, payload, logs)
+        ctx = EventProcessingContext(idx=1, nev=nev, subj="Series", no_rem=False, rem_minutes=None, logs=logs)
+        result = proc._create_recurring(ctx, payload)
         self.assertEqual(result, 1)
         self.assertIn("[dry-run]", logs[0])
         svc.create_recurring_event.assert_not_called()
