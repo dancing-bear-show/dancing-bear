@@ -330,7 +330,13 @@ def cmd_export(args: argparse.Namespace) -> int:
         print("Invalid --from/--to date format; expected YYYY-MM-DD")
         return 2
     try:
-        evs = svc.list_events_in_range(calendar_name=cal_name, start_iso=start_iso, end_iso=end_iso, top=800)
+        from calendars.outlook_service import ListEventsRequest
+        evs = svc.list_events_in_range(ListEventsRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_name=cal_name,
+            top=800,
+        ))
     except Exception as e:
         print(f"Failed to list events: {e}")
         return 3

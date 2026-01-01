@@ -1,16 +1,14 @@
+import json
 import os
-import sys
 import unittest
-from pathlib import Path
+
+from tests.fixtures import capture_stdout
 
 
 class TestLLMCheckSLA(unittest.TestCase):
-    def setUp(self) -> None:
-        pkg_parent = Path(__file__).resolve().parents[2]
-        sys.path.insert(0, str(pkg_parent))
-
     def test_check_passes_with_high_sla(self):
-        import mail.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod
+
         old_env = os.environ.get('LLM_SLA')
         try:
             os.environ['LLM_SLA'] = 'Root:9999,mail:9999,bin:9999,.llm:9999,config:9999,tests:9999'
@@ -23,19 +21,12 @@ class TestLLMCheckSLA(unittest.TestCase):
         self.assertEqual(rc, 0)
 
     def test_stale_fails_with_low_sla(self):
-        import io
-        import mail.llm_cli as mod  # type: ignore
+        import mail.llm_cli as mod
 
         # First check if any files are actually stale (they won't be in CI fresh checkout)
-        buf = io.StringIO()
-        old_stdout = sys.stdout
-        try:
-            sys.stdout = buf
+        with capture_stdout() as buf:
             mod.main(['stale', '--format', 'json', '--limit', '5'])
-        finally:
-            sys.stdout = old_stdout
 
-        import json
         stats = json.loads(buf.getvalue())
         if not stats or all(s.get('staleness_days', 0) < 0.01 for s in stats):
             self.skipTest('Skipped in CI: fresh checkout has no stale files')

@@ -67,11 +67,12 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         svc = payload.service
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
-        events = svc.list_events_in_range(
-            calendar_name=payload.calendar,
+        from calendars.outlook_service import ListEventsRequest
+        events = svc.list_events_in_range(ListEventsRequest(
             start_iso=start_iso,
             end_iso=end_iso,
-        )
+            calendar_name=payload.calendar,
+        ))
 
         logs: List[str] = []
         selected = 0
@@ -104,7 +105,8 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
                 logs.append(f"{LOG_DRY_RUN} would update {eid} | {subject} -> {{" + ", ".join(parts) + "}}")
                 continue
             try:
-                svc.update_event_settings(
+                from calendars.outlook_service import EventSettingsPatch
+                svc.update_event_settings(EventSettingsPatch(
                     event_id=eid,
                     calendar_name=payload.calendar,
                     categories=patch.get("categories"),
@@ -112,7 +114,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
                     sensitivity=patch.get("sensitivity"),
                     is_reminder_on=patch.get("is_reminder_on"),
                     reminder_minutes=patch.get("reminder_minutes"),
-                )
+                ))
                 changed += 1
             except Exception as exc:
                 logs.append(f"Failed to update {eid}: {exc}")

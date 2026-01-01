@@ -1,0 +1,92 @@
+# Plantilla personalizada de Brian: bullets limpios con colores compatibles con modo oscuro
+#
+# Usa bullets simples (alineados a la izquierda) con colores profesionales que funcionan en ambos modos
+
+sections:
+  - key: summary
+    title: Perfil
+    bulleted: true
+    max_sentences: 4
+  - key: skills
+    title: Habilidades Principales
+    bullets: true
+    columns: 1
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    max_groups: 6
+    max_items_per_group: 5
+    separator: " • "
+    group_title_color: "#0A2540"
+    group_title_bold: true
+    item_color: "#2E5090"
+  - key: technologies
+    title: Stack Técnico
+    bullets: true
+    columns: 1
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    max_groups: 7
+    max_items_per_group: 5
+    separator: " • "
+    group_title_color: "#0A2540"
+    group_title_bold: true
+    item_color: "#2E5090"
+  - key: experience
+    title: Experiencia Profesional
+    max_items: 5
+    inline_dates: true
+    role_style: Normal
+    bullet_style: List Bullet
+    item_color: "#2E5090"
+    location_color: "#5A5A5A"
+    duration_color: "#5A5A5A"
+    duration_brackets: true
+    location_brackets: true
+    meta_pt: 9.5
+    recent_roles_count: 3
+    recent_max_bullets: 5
+    prior_max_bullets: 3
+  - key: education
+    title: Educación
+    item_color: "#2E5090"
+    duration_color: "#5A5A5A"
+    duration_brackets: true
+    meta_pt: 9.5
+  - key: projects
+    title: Proyectos Destacados
+    bullets: true
+    compact: true
+    plain_bullets: true
+    show_desc: true
+    desc_separator: ": "
+    item_color: "#2E5090"
+  - key: presentations
+    title: Charlas y Presentaciones
+    bullets: true
+    compact: true
+    plain_bullets: true
+    item_color: "#2E5090"
+  - key: interests
+    title: Intereses Personales
+    bullets: true
+    compact: true
+    plain_bullets: true
+
+page:
+  compact: false          # Permitir más espacio para respirar
+  margins_in: 0.5         # Márgenes ligeramente más grandes que onepage
+  body_pt: 10             # Ligeramente más grande que onepage (9.5)
+  h1_pt: 12               # Encabezados de sección
+  title_pt: 14            # Encabezado de nombre
+  h1_bg: "#E8EDF3"        # Fondo gris-azul claro (funciona en modo oscuro)
+  h1_fg: "#1F4E79"        # Texto azul oscuro sobre fondo claro
+  name_color: "#1F4E79"   # Nombre azul oscuro (legible en ambos modos)
+  metadata_include_locations: true
+  header_level: 1
+  bullets:
+    style: plain          # CRÍTICO: Bullets limpios alineados a la izquierda
+    glyph: "•"

@@ -531,11 +531,12 @@ Tuesday from 6:00 pm to 6:30 pm"""
         self.assertTrue(env.ok())
         self.assertFalse(env.payload.dry_run)  # type: ignore[union-attr]
         self.assertEqual(env.payload.updated, 2)  # type: ignore[union-attr]
+        from calendars.outlook_service import UpdateEventReminderRequest
         svc.update_event_reminder.assert_any_call(
-            event_id="S1", calendar_id=None, calendar_name=None, is_on=False
+            UpdateEventReminderRequest(event_id="S1", calendar_id=None, calendar_name=None, is_on=False)
         )
         svc.update_event_reminder.assert_any_call(
-            event_id="E1", calendar_id=None, calendar_name=None, is_on=False
+            UpdateEventReminderRequest(event_id="E1", calendar_id=None, calendar_name=None, is_on=False)
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -575,12 +576,15 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
         self.assertTrue(env.ok())
+        from calendars.outlook_service import UpdateEventReminderRequest
         svc.update_event_reminder.assert_called_once_with(
-            event_id="S1",
-            calendar_id="cal-1",
-            calendar_name="Family",
-            is_on=True,
-            minutes_before_start=15,
+            UpdateEventReminderRequest(
+                event_id="S1",
+                calendar_id="cal-1",
+                calendar_name="Family",
+                is_on=True,
+                minutes_before_start=15,
+            )
         )
 
     def test_outlook_settings_processor_dry_run(self):
@@ -640,14 +644,17 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
         self.assertTrue(env.ok())
+        from calendars.outlook_service import EventSettingsPatch
         svc.update_event_settings.assert_called_once_with(
-            event_id="E2",
-            calendar_name=None,
-            categories=["Default"],
-            show_as=None,
-            sensitivity="private",
-            is_reminder_on=True,
-            reminder_minutes=None,
+            EventSettingsPatch(
+                event_id="E2",
+                calendar_name=None,
+                categories=["Default"],
+                show_as=None,
+                sensitivity="private",
+                is_reminder_on=True,
+                reminder_minutes=None,
+            )
         )
         buf = io.StringIO()
         with redirect_stdout(buf):

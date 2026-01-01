@@ -17,6 +17,7 @@ from ._base import (
     SafeProcessor,
     check_service_required,
 )
+from ._context import DedupSelectionContext
 
 __all__ = [
     "OutlookDedupRequest",
@@ -73,7 +74,12 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         cal_id = None
         if payload.calendar:
             cal_id = svc.find_calendar_id(payload.calendar)
-        occ = svc.list_calendar_view(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
+        from calendars.outlook_service import ListCalendarViewRequest
+        occ = svc.list_calendar_view(ListCalendarViewRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_id=cal_id,
+        ))
 
         duplicates = self._find_duplicates(occ or [], payload)
         logs: List[str] = []
@@ -158,9 +164,10 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         std = [sid for sid in sorted_sids if self._is_standardized(sid, masters)]
         non = [sid for sid in sorted_sids if sid not in std]
 
-        keep, delete = self._pick_keep_delete(
-            sorted_sids, std, non, newest, oldest, payload
+        ctx = DedupSelectionContext(
+            sorted_sids=sorted_sids, std=std, non=non, newest=newest, oldest=oldest
         )
+        keep, delete = self._pick_keep_delete(ctx, payload)
         return keep, delete
 
     def _created_at(self, sid: str, masters: Dict[str, List[Dict[str, Any]]]) -> str:
@@ -181,23 +188,19 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
 
     def _pick_keep_delete(
         self,
-        sorted_sids: List[str],
-        std: List[str],
-        non: List[str],
-        newest: str,
-        oldest: str,
+        ctx: DedupSelectionContext,
         payload: OutlookDedupRequest,
     ) -> Tuple[str, List[str]]:
-        base_keep = newest if payload.keep_newest else oldest
+        base_keep = ctx.newest if payload.keep_newest else ctx.oldest
 
-        if payload.prefer_delete_nonstandard and non and std:
-            return base_keep, list(non)
+        if payload.prefer_delete_nonstandard and ctx.non and ctx.std:
+            return base_keep, list(ctx.non)
 
-        if payload.delete_standardized and std and non:
-            keep = non[-1] if (payload.keep_newest and len(non) > 1) else non[0]
-            return keep, list(std)
+        if payload.delete_standardized and ctx.std and ctx.non:
+            keep = ctx.non[-1] if (payload.keep_newest and len(ctx.non) > 1) else ctx.non[0]
+            return keep, list(ctx.std)
 
-        return base_keep, [sid for sid in sorted_sids if sid != base_keep]
+        return base_keep, [sid for sid in ctx.sorted_sids if sid != base_keep]
 
 
 class OutlookDedupProducer(BaseProducer):

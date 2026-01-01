@@ -28,7 +28,8 @@ class FakeCtx:
 class TestOutlookService(unittest.TestCase):
     def test_passthrough_calls(self):
         svc = OutlookService(FakeCtx())  # type: ignore[arg-type]
-        evs = svc.list_events_in_range(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
+        from calendars.outlook_service import ListEventsRequest
+        evs = svc.list_events_in_range(ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"))
         self.assertEqual(len(evs), 1)
         evt = svc.create_event(calendar_id=None, calendar_name=None, subject="X", start_iso="S", end_iso="E")
         self.assertEqual(evt.get("id"), "new")

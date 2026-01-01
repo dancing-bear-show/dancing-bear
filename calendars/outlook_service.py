@@ -12,13 +12,28 @@ import requests
 
 from .context import OutlookContext
 from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL
-from core.outlook.models import EventCreationParams, RecurringEventCreationParams
+from core.outlook.models import (
+    EventCreationParams,
+    EventSettingsPatch,
+    ListCalendarViewRequest,
+    ListEventsRequest,
+    RecurringEventCreationParams,
+    UpdateEventReminderRequest,
+)
 
 # Backwards-compat alias
 _REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
 
 # Re-export for backwards compatibility
-__all__ = ["EventCreationParams", "RecurringEventCreationParams", "OutlookService"]
+__all__ = [
+    "EventCreationParams",
+    "EventSettingsPatch",
+    "ListCalendarViewRequest",
+    "ListEventsRequest",
+    "RecurringEventCreationParams",
+    "UpdateEventReminderRequest",
+    "OutlookService",
+]
 
 
 @dataclass
@@ -68,24 +83,9 @@ class OutlookService:
         )
 
     # Query helpers
-    def list_events_in_range(
-        self,
-        *,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        start_iso: str,
-        end_iso: str,
-        subject_filter: Optional[str] = None,
-        **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        return self.client.list_events_in_range(
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            start_iso=start_iso,
-            end_iso=end_iso,
-            subject_filter=subject_filter,
-            **kwargs,
-        )
+    def list_events_in_range(self, params: ListEventsRequest) -> List[Dict[str, Any]]:
+        """List events in a date range using parameter object."""
+        return self.client.list_events_in_range(params)
 
     # Mail/message helpers (inbox search)
     def search_inbox_messages(self, query: str, *, days: int = 60, top: int = 25, pages: int = 2) -> List[str]:
@@ -130,46 +130,13 @@ class OutlookService:
             location_str=location_str,
         )
 
-    def update_event_reminder(
-        self,
-        *,
-        event_id: str,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        is_on: bool,
-        minutes_before_start: Optional[int] = None,
-    ) -> None:
-        return self.client.update_event_reminder(
-            event_id=event_id,
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            is_on=is_on,
-            minutes_before_start=minutes_before_start,
-        )
+    def update_event_reminder(self, params: UpdateEventReminderRequest) -> None:
+        """Update event reminder using parameter object."""
+        self.client.update_event_reminder(params)
 
-    def update_event_settings(
-        self,
-        *,
-        event_id: str,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        categories: Optional[list[str]] = None,
-        show_as: Optional[str] = None,
-        sensitivity: Optional[str] = None,
-        is_reminder_on: Optional[bool] = None,
-        reminder_minutes: Optional[int] = None,
-    ) -> None:
-        """Patch a subset of event settings (categories/showAs/sensitivity/reminder fields)."""
-        self.client.update_event_fields(
-            event_id=event_id,
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            categories=categories,
-            show_as=show_as,
-            sensitivity=sensitivity,
-            is_reminder_on=is_reminder_on,
-            reminder_minutes=reminder_minutes,
-        )
+    def update_event_settings(self, params: EventSettingsPatch) -> None:
+        """Patch a subset of event settings using parameter object."""
+        self.client.update_event_settings(params)
 
     def update_event_subject(
         self,
@@ -197,18 +164,11 @@ class OutlookService:
         return getattr(self.client, "GRAPH", GRAPH_API_URL)
 
     # Calendar view pagination + deletion helpers
-    def list_calendar_view(
-        self,
-        *,
-        calendar_id: Optional[str],
-        start_iso: str,
-        end_iso: str,
-        select: str = "subject,start,end,seriesMasterId,type,createdDateTime,location",
-        top: int = 200,
-    ) -> List[Dict[str, Any]]:
+    def list_calendar_view(self, params: ListCalendarViewRequest) -> List[Dict[str, Any]]:
+        """List calendar view with pagination using parameter object."""
         base = self.graph_base()
-        endpoint = f"{base}/me/calendars/{calendar_id}/calendarView" if calendar_id else f"{base}/me/calendarView"
-        url = f"{endpoint}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}&$select={select}"
+        endpoint = f"{base}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{base}/me/calendarView"
+        url = f"{endpoint}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}&$select={params.select}"
         hdrs = self.headers()
         out: List[Dict[str, Any]] = []
         nxt = url

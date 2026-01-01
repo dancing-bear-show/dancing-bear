@@ -44,7 +44,7 @@ class TestScheduleVerifySync(unittest.TestCase):
                     pass
                 def authenticate(self):
                     return None
-                def list_events_in_range(self, **kwargs):
+                def list_events_in_range(self, params):
                     return occ
 
             args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
@@ -81,7 +81,7 @@ class TestScheduleVerifySync(unittest.TestCase):
                     pass
                 def authenticate(self):
                     return None
-                def list_events_in_range(self, **kwargs):
+                def list_events_in_range(self, params):
                     return occ
 
             args = SimpleNamespace(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
@@ -125,7 +125,7 @@ class TestScheduleVerifySync(unittest.TestCase):
                     return None
                 def ensure_calendar(self, name: str) -> str:
                     return "CAL123"
-                def list_events_in_range(self, **kwargs):
+                def list_events_in_range(self, params):
                     return occ
 
             args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False, profile=None, client_id="dummy", tenant="consumers", token=None)
@@ -153,7 +153,7 @@ class TestScheduleVerifySync(unittest.TestCase):
                     pass
                 def authenticate(self):
                     return None
-                def list_events_in_range(self, **kwargs):
+                def list_events_in_range(self, params):
                     return evs
 
             args = SimpleNamespace(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out), profile=None, client_id="dummy", tenant="consumers", token=None)

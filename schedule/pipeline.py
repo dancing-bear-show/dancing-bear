@@ -509,9 +509,13 @@ class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
         svc, err = _build_outlook_service(payload.auth)
         if err:
             raise RuntimeError(err)
-        occ = svc.list_events_in_range(
-            calendar_name=payload.calendar, start_iso=start_iso, end_iso=end_iso, top=400
-        )
+        from calendars.outlook_service import ListEventsRequest
+        occ = svc.list_events_in_range(ListEventsRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_name=payload.calendar,
+            top=400,
+        ))
 
         # Build output based on match mode
         if payload.match == "subject-time":
@@ -828,7 +832,13 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         except Exception:
             raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD")
 
-        occ = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso, top=800)
+        from calendars.outlook_service import ListEventsRequest
+        occ = svc.list_events_in_range(ListEventsRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_id=cal_id,
+            top=800,
+        ))
 
         # Build existing calendar state
         have_map, have_keys = _build_have_map(occ)

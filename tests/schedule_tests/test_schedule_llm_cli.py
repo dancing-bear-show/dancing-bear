@@ -1,35 +1,22 @@
-import io
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.fixtures import repo_root
+from tests.fixtures import capture_stdout
 
 
 class TestScheduleLLMCLI(unittest.TestCase):
-    def _import_mod(self):
-        root = repo_root()
-        sys.path.insert(0, str(root))
-        sys.path.insert(0, str(root.parent))
-        import schedule.llm_cli as mod  # type: ignore
-
-        return mod
-
     def test_agentic_stdout(self):
-        mod = self._import_mod()
-        buf = io.StringIO()
-        old = sys.stdout
-        try:
-            sys.stdout = buf
+        import schedule.llm_cli as mod
+
+        with capture_stdout() as buf:
             rc = mod.main(["agentic", "--stdout"])
-        finally:
-            sys.stdout = old
         self.assertEqual(rc, 0)
         self.assertIn("agentic: schedule", buf.getvalue())
 
     def test_derive_all_outputs_files(self):
-        mod = self._import_mod()
+        import schedule.llm_cli as mod
+
         with tempfile.TemporaryDirectory() as td:
             rc = mod.main(["derive-all", "--out-dir", td, "--include-generated", "--stdout"])
             self.assertEqual(rc, 0)

@@ -17,6 +17,7 @@ from ._base import (
     MSG_PREVIEW_COMPLETE,
     LOG_DRY_RUN,
 )
+from ._context import ReminderUpdateContext
 
 __all__ = [
     "OutlookRemindersRequest",
@@ -66,7 +67,12 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
                 raise ValueError(f"Calendar not found: {calendar_name}")
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
-        events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
+        from calendars.outlook_service import ListEventsRequest
+        events = svc.list_events_in_range(ListEventsRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_id=cal_id,
+        ))
 
         series_ids: set[str] = set()
         occurrence_ids: set[str] = set()
@@ -88,54 +94,59 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
 
         logs: List[str] = []
         updated = 0
-        updated += self._update_ids(sorted(series_ids), "series master", cal_id, svc, payload, logs)
+
+        ctx = ReminderUpdateContext(ids=sorted(series_ids), label="series master", cal_id=cal_id, logs=logs)
+        updated += self._update_ids(ctx, svc, payload)
+
         if payload.all_occurrences:
-            updated += self._update_ids(sorted(occurrence_ids), "occurrence", cal_id, svc, payload, logs)
-        updated += self._update_ids(sorted(single_ids), "single", cal_id, svc, payload, logs)
+            ctx = ReminderUpdateContext(ids=sorted(occurrence_ids), label="occurrence", cal_id=cal_id, logs=logs)
+            updated += self._update_ids(ctx, svc, payload)
+
+        ctx = ReminderUpdateContext(ids=sorted(single_ids), label="single", cal_id=cal_id, logs=logs)
+        updated += self._update_ids(ctx, svc, payload)
 
         result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
         return result
 
     def _update_ids(
         self,
-        ids: Sequence[str],
-        label: str,
-        cal_id: Optional[str],
+        ctx: ReminderUpdateContext,
         svc,
         payload: OutlookRemindersRequest,
-        logs: List[str],
     ) -> int:
-        if not ids:
+        if not ctx.ids:
             return 0
         updated = 0
-        for eid in ids:
+        for eid in ctx.ids:
             if payload.dry_run:
                 if payload.set_off:
-                    logs.append(f"{LOG_DRY_RUN} would disable reminder for {label} {eid}")
+                    ctx.logs.append(f"{LOG_DRY_RUN} would disable reminder for {ctx.label} {eid}")
                 else:
-                    logs.append(
-                        f"{LOG_DRY_RUN} would set reminderMinutesBeforeStart={payload.minutes} for {label} {eid}"
+                    ctx.logs.append(
+                        f"{LOG_DRY_RUN} would set reminderMinutesBeforeStart={payload.minutes} for {ctx.label} {eid}"
                     )
                 continue
             try:
                 if payload.set_off:
-                    svc.update_event_reminder(
+                    from calendars.outlook_service import UpdateEventReminderRequest
+                    svc.update_event_reminder(UpdateEventReminderRequest(
                         event_id=eid,
-                        calendar_id=cal_id,
+                        calendar_id=ctx.cal_id,
                         calendar_name=payload.calendar,
                         is_on=False,
-                    )
+                    ))
                 else:
-                    svc.update_event_reminder(
+                    from calendars.outlook_service import UpdateEventReminderRequest
+                    svc.update_event_reminder(UpdateEventReminderRequest(
                         event_id=eid,
-                        calendar_id=cal_id,
+                        calendar_id=ctx.cal_id,
                         calendar_name=payload.calendar,
                         is_on=True,
                         minutes_before_start=payload.minutes,
-                    )
+                    ))
                 updated += 1
             except Exception as exc:
-                logs.append(f"Failed to update {label} {eid}: {exc}")
+                ctx.logs.append(f"Failed to update {ctx.label} {eid}: {exc}")
         return updated
 
 

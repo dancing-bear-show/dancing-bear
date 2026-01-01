@@ -1,11 +1,9 @@
 """Tests for mail/outlook/producers.py."""
 
-from tests.fixtures import test_path
-import io
-import sys
 import unittest
 
 from core.pipeline import ResultEnvelope
+from tests.fixtures import capture_stdout, test_path
 
 from mail.outlook.processors import (
     OutlookRulesListResult,
@@ -39,23 +37,6 @@ from mail.outlook.producers import (
 )
 
 
-class CaptureOutput:
-    """Context manager to capture stdout."""
-
-    def __enter__(self):
-        self.captured = io.StringIO()
-        self.old_stdout = sys.stdout
-        sys.stdout = self.captured
-        return self
-
-    def __exit__(self, *args):
-        sys.stdout = self.old_stdout
-
-    @property
-    def output(self):
-        return self.captured.getvalue()
-
-
 class TestOutlookRulesListProducer(unittest.TestCase):
     """Tests for OutlookRulesListProducer."""
 
@@ -76,12 +57,12 @@ class TestOutlookRulesListProducer(unittest.TestCase):
         )
         producer = OutlookRulesListProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("rule-1", cap.output)
-        self.assertIn("sender@example.com", cap.output)
-        self.assertIn("Work", cap.output)
+        self.assertIn("rule-1", buf.getvalue())
+        self.assertIn("sender@example.com", buf.getvalue())
+        self.assertIn("Work", buf.getvalue())
 
     def test_success_empty_rules(self):
         result = ResultEnvelope(
@@ -90,10 +71,10 @@ class TestOutlookRulesListProducer(unittest.TestCase):
         )
         producer = OutlookRulesListProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("No Inbox rules found", cap.output)
+        self.assertIn("No Inbox rules found", buf.getvalue())
 
     def test_error_result(self):
         result = ResultEnvelope(
@@ -103,11 +84,11 @@ class TestOutlookRulesListProducer(unittest.TestCase):
         )
         producer = OutlookRulesListProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Error", cap.output)
-        self.assertIn("API failure", cap.output)
+        self.assertIn("Error", buf.getvalue())
+        self.assertIn("API failure", buf.getvalue())
 
     def test_rule_with_forward_and_move(self):
         result = ResultEnvelope(
@@ -129,11 +110,11 @@ class TestOutlookRulesListProducer(unittest.TestCase):
         )
         producer = OutlookRulesListProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("forward=archive@example.com", cap.output)
-        self.assertIn("moveToFolder=Archive/Newsletters", cap.output)
+        self.assertIn("forward=archive@example.com", buf.getvalue())
+        self.assertIn("moveToFolder=Archive/Newsletters", buf.getvalue())
 
 
 class TestOutlookRulesExportProducer(unittest.TestCase):
@@ -146,11 +127,11 @@ class TestOutlookRulesExportProducer(unittest.TestCase):
         )
         producer = OutlookRulesExportProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Exported 5 rules", cap.output)
-        self.assertIn(test_path("rules.yaml"), cap.output)  # noqa: S108
+        self.assertIn("Exported 5 rules", buf.getvalue())
+        self.assertIn(test_path("rules.yaml"), buf.getvalue())  # noqa: S108
 
     def test_error(self):
         result = ResultEnvelope(
@@ -160,10 +141,10 @@ class TestOutlookRulesExportProducer(unittest.TestCase):
         )
         producer = OutlookRulesExportProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Error", cap.output)
+        self.assertIn("Error", buf.getvalue())
 
 
 class TestOutlookRulesSyncProducer(unittest.TestCase):
@@ -176,11 +157,11 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         )
         producer = OutlookRulesSyncProducer(dry_run=False)
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Sync complete", cap.output)
-        self.assertIn("Created: 3", cap.output)
+        self.assertIn("Sync complete", buf.getvalue())
+        self.assertIn("Created: 3", buf.getvalue())
 
     def test_dry_run(self):
         result = ResultEnvelope(
@@ -189,11 +170,11 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         )
         producer = OutlookRulesSyncProducer(dry_run=True, delete_missing=True)
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Would sync", cap.output)
-        self.assertIn("Deleted: 1", cap.output)
+        self.assertIn("Would sync", buf.getvalue())
+        self.assertIn("Deleted: 1", buf.getvalue())
 
     def test_error_with_hint(self):
         result = ResultEnvelope(
@@ -203,11 +184,11 @@ class TestOutlookRulesSyncProducer(unittest.TestCase):
         )
         producer = OutlookRulesSyncProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Auth failed", cap.output)
-        self.assertIn("outlook auth ensure", cap.output)
+        self.assertIn("Auth failed", buf.getvalue())
+        self.assertIn("outlook auth ensure", buf.getvalue())
 
 
 class TestOutlookRulesPlanProducer(unittest.TestCase):
@@ -223,11 +204,11 @@ class TestOutlookRulesPlanProducer(unittest.TestCase):
         )
         producer = OutlookRulesPlanProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Would create: rule1", cap.output)
-        self.assertIn("create=2", cap.output)
+        self.assertIn("Would create: rule1", buf.getvalue())
+        self.assertIn("create=2", buf.getvalue())
 
 
 class TestOutlookRulesDeleteProducer(unittest.TestCase):
@@ -240,11 +221,11 @@ class TestOutlookRulesDeleteProducer(unittest.TestCase):
         )
         producer = OutlookRulesDeleteProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Deleted Outlook rule", cap.output)
-        self.assertIn("rule-xyz", cap.output)
+        self.assertIn("Deleted Outlook rule", buf.getvalue())
+        self.assertIn("rule-xyz", buf.getvalue())
 
     def test_error(self):
         result = ResultEnvelope(
@@ -254,10 +235,10 @@ class TestOutlookRulesDeleteProducer(unittest.TestCase):
         )
         producer = OutlookRulesDeleteProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Error deleting", cap.output)
+        self.assertIn("Error deleting", buf.getvalue())
 
 
 class TestOutlookRulesSweepProducer(unittest.TestCase):
@@ -270,10 +251,10 @@ class TestOutlookRulesSweepProducer(unittest.TestCase):
         )
         producer = OutlookRulesSweepProducer(dry_run=False)
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Sweep summary: moved=15", cap.output)
+        self.assertIn("Sweep summary: moved=15", buf.getvalue())
 
     def test_dry_run(self):
         result = ResultEnvelope(
@@ -282,10 +263,10 @@ class TestOutlookRulesSweepProducer(unittest.TestCase):
         )
         producer = OutlookRulesSweepProducer(dry_run=True)
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Would move=10", cap.output)
+        self.assertIn("Would move=10", buf.getvalue())
 
 
 class TestOutlookCategoriesListProducer(unittest.TestCase):
@@ -303,12 +284,12 @@ class TestOutlookCategoriesListProducer(unittest.TestCase):
         )
         producer = OutlookCategoriesListProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("cat-1", cap.output)
-        self.assertIn("Work", cap.output)
-        self.assertIn("Personal", cap.output)
+        self.assertIn("cat-1", buf.getvalue())
+        self.assertIn("Work", buf.getvalue())
+        self.assertIn("Personal", buf.getvalue())
 
     def test_empty_categories(self):
         result = ResultEnvelope(
@@ -317,10 +298,10 @@ class TestOutlookCategoriesListProducer(unittest.TestCase):
         )
         producer = OutlookCategoriesListProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("No categories", cap.output)
+        self.assertIn("No categories", buf.getvalue())
 
 
 class TestOutlookCategoriesExportProducer(unittest.TestCase):
@@ -333,10 +314,10 @@ class TestOutlookCategoriesExportProducer(unittest.TestCase):
         )
         producer = OutlookCategoriesExportProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Exported 3 categories", cap.output)
+        self.assertIn("Exported 3 categories", buf.getvalue())
 
 
 class TestOutlookCategoriesSyncProducer(unittest.TestCase):
@@ -349,12 +330,12 @@ class TestOutlookCategoriesSyncProducer(unittest.TestCase):
         )
         producer = OutlookCategoriesSyncProducer(dry_run=False)
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("sync complete", cap.output)
-        self.assertIn("Created: 2", cap.output)
-        self.assertIn("Skipped: 5", cap.output)
+        self.assertIn("sync complete", buf.getvalue())
+        self.assertIn("Created: 2", buf.getvalue())
+        self.assertIn("Skipped: 5", buf.getvalue())
 
 
 class TestOutlookFoldersSyncProducer(unittest.TestCase):
@@ -367,11 +348,11 @@ class TestOutlookFoldersSyncProducer(unittest.TestCase):
         )
         producer = OutlookFoldersSyncProducer(dry_run=False)
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("sync complete", cap.output)
-        self.assertIn("Created: 1", cap.output)
+        self.assertIn("sync complete", buf.getvalue())
+        self.assertIn("Created: 1", buf.getvalue())
 
 
 class TestOutlookCalendarAddProducer(unittest.TestCase):
@@ -384,12 +365,12 @@ class TestOutlookCalendarAddProducer(unittest.TestCase):
         )
         producer = OutlookCalendarAddProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Created event", cap.output)
-        self.assertIn("evt-123", cap.output)
-        self.assertIn("Meeting", cap.output)
+        self.assertIn("Created event", buf.getvalue())
+        self.assertIn("evt-123", buf.getvalue())
+        self.assertIn("Meeting", buf.getvalue())
 
     def test_error(self):
         result = ResultEnvelope(
@@ -399,10 +380,10 @@ class TestOutlookCalendarAddProducer(unittest.TestCase):
         )
         producer = OutlookCalendarAddProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Failed to create event", cap.output)
+        self.assertIn("Failed to create event", buf.getvalue())
 
 
 class TestOutlookCalendarAddRecurringProducer(unittest.TestCase):
@@ -417,11 +398,11 @@ class TestOutlookCalendarAddRecurringProducer(unittest.TestCase):
         )
         producer = OutlookCalendarAddRecurringProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Created recurring series", cap.output)
-        self.assertIn("series-abc", cap.output)
+        self.assertIn("Created recurring series", buf.getvalue())
+        self.assertIn("series-abc", buf.getvalue())
 
 
 class TestOutlookCalendarAddFromConfigProducer(unittest.TestCase):
@@ -434,10 +415,10 @@ class TestOutlookCalendarAddFromConfigProducer(unittest.TestCase):
         )
         producer = OutlookCalendarAddFromConfigProducer()
 
-        with CaptureOutput() as cap:
+        with capture_stdout() as buf:
             producer.produce(result)
 
-        self.assertIn("Created 5 events", cap.output)
+        self.assertIn("Created 5 events", buf.getvalue())
 
 
 if __name__ == "__main__":

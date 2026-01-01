@@ -18,6 +18,7 @@ from ._base import (
     to_iso_str,
     LOG_DRY_RUN,
 )
+from ._context import EventProcessingContext
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
@@ -64,10 +65,13 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             return 0
 
         no_rem, rem_minutes = self._resolve_reminder(nev, payload)
+        ctx = EventProcessingContext(
+            idx=idx, nev=nev, subj=subj, no_rem=no_rem, rem_minutes=rem_minutes, logs=logs
+        )
 
         if nev.get("repeat"):
-            return self._create_recurring(idx, nev, subj, no_rem, rem_minutes, payload, logs)
-        return self._create_single(idx, nev, subj, no_rem, rem_minutes, payload, logs)
+            return self._create_recurring(ctx, payload)
+        return self._create_single(ctx, payload)
 
     def _resolve_reminder(self, nev: Dict[str, Any], payload: OutlookAddRequest) -> Tuple[bool, Optional[int]]:
         yaml_is_off = (nev.get("is_reminder_on") is False)
@@ -77,73 +81,73 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             no_rem = False
         return no_rem, rem_minutes
 
-    def _create_recurring(self, idx: int, nev: Dict[str, Any], subj: str, no_rem: bool, rem_minutes, payload: OutlookAddRequest, logs: List[str]) -> int:
-        cal_name = nev.get("calendar")
+    def _create_recurring(self, ctx: EventProcessingContext, payload: OutlookAddRequest) -> int:
+        cal_name = ctx.nev.get("calendar")
         if payload.dry_run:
-            logs.append(
-                f"{LOG_DRY_RUN}[{idx}] would create recurring: subj='{subj}', cal='{cal_name or '<primary>'}', "
-                f"byday={nev.get('byday')}, time={nev.get('start_time')}-{nev.get('end_time')}, range={nev.get('range')}"
+            ctx.logs.append(
+                f"{LOG_DRY_RUN}[{ctx.idx}] would create recurring: subj='{ctx.subj}', cal='{cal_name or '<primary>'}', "
+                f"byday={ctx.nev.get('byday')}, time={ctx.nev.get('start_time')}-{ctx.nev.get('end_time')}, range={ctx.nev.get('range')}"
             )
             return 1
         try:
             params = RecurringEventCreationParams(
-                subject=subj,
-                start_time=nev.get("start_time"),
-                end_time=nev.get("end_time"),
-                repeat=nev.get("repeat"),
+                subject=ctx.subj,
+                start_time=ctx.nev.get("start_time"),
+                end_time=ctx.nev.get("end_time"),
+                repeat=ctx.nev.get("repeat"),
                 calendar_id=None,
                 calendar_name=cal_name,
-                tz=nev.get("tz"),
-                interval=int(nev.get("interval", 1) or 1),
-                byday=nev.get("byday"),
-                range_start_date=(nev.get("range") or {}).get("start_date"),
-                range_until=(nev.get("range") or {}).get("until"),
-                count=nev.get("count"),
-                body_html=nev.get("body_html"),
-                location=nev.get("location"),
-                exdates=nev.get("exdates") or [],
-                no_reminder=no_rem,
-                reminder_minutes=rem_minutes,
+                tz=ctx.nev.get("tz"),
+                interval=int(ctx.nev.get("interval", 1) or 1),
+                byday=ctx.nev.get("byday"),
+                range_start_date=(ctx.nev.get("range") or {}).get("start_date"),
+                range_until=(ctx.nev.get("range") or {}).get("until"),
+                count=ctx.nev.get("count"),
+                body_html=ctx.nev.get("body_html"),
+                location=ctx.nev.get("location"),
+                exdates=ctx.nev.get("exdates") or [],
+                no_reminder=ctx.no_rem,
+                reminder_minutes=ctx.rem_minutes,
             )
             evt = payload.service.create_recurring_event(params)
-            logs.append(f"[{idx}] Created series: {evt.get('id')} {subj}")
+            ctx.logs.append(f"[{ctx.idx}] Created series: {evt.get('id')} {ctx.subj}")
             return 1
         except Exception as exc:
-            logs.append(f"[{idx}] Failed to create series '{subj}': {exc}")
+            ctx.logs.append(f"[{ctx.idx}] Failed to create series '{ctx.subj}': {exc}")
             return 0
 
-    def _create_single(self, idx: int, nev: Dict[str, Any], subj: str, no_rem: bool, rem_minutes, payload: OutlookAddRequest, logs: List[str]) -> int:
-        cal_name = nev.get("calendar")
-        start_iso = nev.get("start")
-        end_iso = nev.get("end")
+    def _create_single(self, ctx: EventProcessingContext, payload: OutlookAddRequest) -> int:
+        cal_name = ctx.nev.get("calendar")
+        start_iso = ctx.nev.get("start")
+        end_iso = ctx.nev.get("end")
         if not (start_iso and end_iso):
-            logs.append(f"[{idx}] Skipping one-time event '{subj}': missing start/end")
+            ctx.logs.append(f"[{ctx.idx}] Skipping one-time event '{ctx.subj}': missing start/end")
             return 0
         if payload.dry_run:
-            logs.append(
-                f"{LOG_DRY_RUN}[{idx}] would create single: subj='{subj}', cal='{cal_name or '<primary>'}', "
+            ctx.logs.append(
+                f"{LOG_DRY_RUN}[{ctx.idx}] would create single: subj='{ctx.subj}', cal='{cal_name or '<primary>'}', "
                 f"start={start_iso}, end={end_iso}"
             )
             return 1
         try:
             params = EventCreationParams(
-                subject=subj,
+                subject=ctx.subj,
                 start_iso=to_iso_str(start_iso),
                 end_iso=to_iso_str(end_iso),
                 calendar_id=None,
                 calendar_name=cal_name,
-                tz=nev.get("tz"),
-                body_html=nev.get("body_html"),
-                all_day=bool(nev.get("all_day") or nev.get("allDay")),
-                location=nev.get("location"),
-                no_reminder=no_rem,
-                reminder_minutes=rem_minutes,
+                tz=ctx.nev.get("tz"),
+                body_html=ctx.nev.get("body_html"),
+                all_day=bool(ctx.nev.get("all_day") or ctx.nev.get("allDay")),
+                location=ctx.nev.get("location"),
+                no_reminder=ctx.no_rem,
+                reminder_minutes=ctx.rem_minutes,
             )
             evt = payload.service.create_event(params)
-            logs.append(f"[{idx}] Created event: {evt.get('id')} {subj}")
+            ctx.logs.append(f"[{ctx.idx}] Created event: {evt.get('id')} {ctx.subj}")
             return 1
         except Exception as exc:
-            logs.append(f"[{idx}] Failed to create event '{subj}': {exc}")
+            ctx.logs.append(f"[{ctx.idx}] Failed to create event '{ctx.subj}': {exc}")
             return 0
 
 

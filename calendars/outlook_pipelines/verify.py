@@ -61,7 +61,13 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
                 continue
             start_iso, end_iso = win
             try:
-                events = svc.list_events_in_range(calendar_name=cal_name, start_iso=start_iso, end_iso=end_iso, subject_filter=subj)
+                from calendars.outlook_service import ListEventsRequest
+                events = svc.list_events_in_range(ListEventsRequest(
+                    start_iso=start_iso,
+                    end_iso=end_iso,
+                    calendar_name=cal_name,
+                    subject_filter=subj,
+                ))
             except Exception as e:
                 logs.append(f"[{i}] Unable to list events for '{subj}': {e}")
                 continue

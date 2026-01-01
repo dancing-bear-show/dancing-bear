@@ -1,39 +1,25 @@
-import io
-import sys
+import tempfile
 import unittest
 
-from tests.fixtures import repo_root
+from tests.fixtures import capture_stdout
 
 
 class TestCalendarLLMCLI(unittest.TestCase):
     def test_llm_calendar_agentic(self):
-        root = repo_root()
-        sys.path.insert(0, str(root.parent))
-        import calendars.llm_cli as mod  # type: ignore
-        buf = io.StringIO()
-        old = sys.stdout
-        try:
-            sys.stdout = buf
-            rc = mod.main(["agentic", "--stdout"])  # prints capsule
-        finally:
-            sys.stdout = old
+        import calendars.llm_cli as mod
+
+        with capture_stdout() as buf:
+            rc = mod.main(["agentic", "--stdout"])
         out = buf.getvalue()
         self.assertEqual(rc, 0)
         self.assertIn("agentic: calendar", out)
 
     def test_llm_calendar_derive_all(self):
-        root = repo_root()
-        sys.path.insert(0, str(root.parent))
-        import calendars.llm_cli as mod  # type: ignore
-        import tempfile
+        import calendars.llm_cli as mod
+
         with tempfile.TemporaryDirectory() as td:
-            buf = io.StringIO()
-            old = sys.stdout
-            try:
-                sys.stdout = buf
-                rc = mod.main(["derive-all", "--out-dir", td, "--stdout"])  # generate core capsules
-            finally:
-                sys.stdout = old
+            with capture_stdout() as buf:
+                rc = mod.main(["derive-all", "--out-dir", td, "--stdout"])
             out = buf.getvalue()
             self.assertEqual(rc, 0)
             self.assertIn("Generated:", out)

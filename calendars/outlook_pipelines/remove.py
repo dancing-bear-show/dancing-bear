@@ -17,6 +17,7 @@ from ._base import (
     check_service_required,
     load_events_config,
 )
+from ._context import EventMatchingCriteria
 from core.constants import DAY_START_TIME, DAY_END_TIME
 
 
@@ -71,12 +72,13 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
             start_iso, end_iso = window
             cal_name = payload.calendar or nev.get("calendar")
             try:
-                occ = svc.list_events_in_range(
-                    calendar_name=cal_name,
+                from calendars.outlook_service import ListEventsRequest
+                occ = svc.list_events_in_range(ListEventsRequest(
                     start_iso=start_iso,
                     end_iso=end_iso,
+                    calendar_name=cal_name,
                     subject_filter=subj,
-                )
+                ))
             except Exception as exc:
                 logs.append(f"[{idx}] list error: {exc}")
                 continue
@@ -124,54 +126,43 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         except Exception:  # nosec B110 - invalid datetime format
             return ""
 
-    def _matches_single_event(self, st: str, en: str, single_start: str, single_end: str) -> bool:
+    def _matches_single_event(self, st: str, en: str, ctx: EventMatchingCriteria) -> bool:
         """Check if occurrence matches single event criteria (specific start/end datetime)."""
-        return st.startswith(single_start[:16]) and en.startswith(single_end[:16])
+        return st.startswith(ctx.single_start[:16]) and en.startswith(ctx.single_end[:16])
 
-    def _matches_recurring_criteria(
-        self, st: str, en: str, want_days: set[str], start_time: str, end_time: str
-    ) -> bool:
+    def _matches_recurring_criteria(self, st: str, en: str, ctx: EventMatchingCriteria) -> bool:
         """Check if occurrence matches recurring event criteria (day of week + times)."""
         # Check weekday match
-        if want_days:
+        if ctx.want_days:
             wcode = self._get_weekday_code(st)
-            if not wcode or wcode.lower() not in want_days:
+            if not wcode or wcode.lower() not in ctx.want_days:
                 return False
 
         # Check start time match
-        if start_time:
+        if ctx.start_time:
             t1 = self._extract_time_from_datetime(st)
-            if t1 and start_time != t1:
+            if t1 and ctx.start_time != t1:
                 return False
 
         # Check end time match
-        if end_time:
+        if ctx.end_time:
             t2 = self._extract_time_from_datetime(en)
-            if t2 and end_time != t2:
+            if t2 and ctx.end_time != t2:
                 return False
 
         return True
 
-    def _is_matching_occurrence(
-        self,
-        ex: Dict[str, Any],
-        single_start: str,
-        single_end: str,
-        subject_only: bool,
-        want_days: set[str],
-        start_time: str,
-        end_time: str,
-    ) -> bool:
+    def _is_matching_occurrence(self, ex: Dict[str, Any], ctx: EventMatchingCriteria) -> bool:
         """Check if a single occurrence matches the event criteria."""
         st, en = self._extract_occurrence_times(ex)
 
         # Single event matching (specific date/time)
-        if single_start and single_end:
-            return self._matches_single_event(st, en, single_start, single_end)
+        if ctx.single_start and ctx.single_end:
+            return self._matches_single_event(st, en, ctx)
 
         # Recurring event matching (day of week + times)
-        if not subject_only:
-            return self._matches_recurring_criteria(st, en, want_days, start_time, end_time)
+        if not ctx.subject_only:
+            return self._matches_recurring_criteria(st, en, ctx)
 
         return True
 
@@ -183,9 +174,18 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         end_time = (event.get("end_time") or "").strip()
         want_days = set(d.lower() for d in (event.get("byday") or []) if d)
 
+        ctx = EventMatchingCriteria(
+            single_start=single_start,
+            single_end=single_end,
+            subject_only=subject_only,
+            want_days=want_days,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
         matches = []
         for ex in occ:
-            if self._is_matching_occurrence(ex, single_start, single_end, subject_only, want_days, start_time, end_time):
+            if self._is_matching_occurrence(ex, ctx):
                 matches.append(ex)
         return matches
 

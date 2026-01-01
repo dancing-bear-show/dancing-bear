@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
 import subprocess
+import sys
 import tempfile
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
+from unittest.mock import MagicMock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -193,3 +196,104 @@ class TempDirMixin:
 
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         super().tearDown()
+
+
+# -----------------------------------------------------------------------------
+# JSON file helpers
+# -----------------------------------------------------------------------------
+
+
+@contextmanager
+def temp_json_file(data: Dict[str, Any], suffix: str = ".json"):
+    """Context manager that yields a path to a temporary JSON file.
+
+    Example:
+        with temp_json_file({"key": "value"}) as path:
+            result = load_config(path)
+    """
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=suffix, encoding="utf-8") as tf:
+        json.dump(data, tf)
+        tf.flush()
+        yield tf.name
+    os.unlink(tf.name)
+
+
+# -----------------------------------------------------------------------------
+# Module path helpers
+# -----------------------------------------------------------------------------
+
+
+@contextmanager
+def temp_module_path(path: Path):
+    """Context manager that temporarily adds a path to sys.path.
+
+    Useful for importing modules from non-standard locations like bin/.
+
+    Example:
+        with temp_module_path(repo_root() / "bin"):
+            import some_script
+    """
+    path_str = str(path)
+    sys.path.insert(0, path_str)
+    try:
+        yield
+    finally:
+        if path_str in sys.path:
+            sys.path.remove(path_str)
+
+
+# -----------------------------------------------------------------------------
+# Mock helpers
+# -----------------------------------------------------------------------------
+
+
+def make_mock_envelope(ok: bool = True, result: Any = None, error: Optional[str] = None):
+    """Factory for creating ResultEnvelope mocks.
+
+    This reduces boilerplate when testing pipeline code that uses ResultEnvelope.
+
+    Args:
+        ok: Whether envelope.ok() should return True
+        result: The result payload (envelope.result and envelope.unwrap() return value)
+        error: Optional error message (envelope.error)
+
+    Returns:
+        MagicMock configured as a ResultEnvelope
+
+    Example:
+        envelope = make_mock_envelope(ok=True, result={"labels": []})
+        processor.process.return_value = envelope
+    """
+    envelope = MagicMock()
+    envelope.ok.return_value = ok
+    envelope.result = result
+    envelope.error = error
+    envelope.unwrap.return_value = result
+    if error:
+        envelope.diagnostics = {"message": error}
+    else:
+        envelope.diagnostics = None
+    return envelope
+
+
+def make_mock_processor(envelope=None, ok: bool = True, result: Any = None):
+    """Factory for creating Processor mocks with a pre-configured envelope.
+
+    Args:
+        envelope: Optional pre-built envelope (if None, creates one using ok/result)
+        ok: Whether the envelope should indicate success
+        result: The result payload for the envelope
+
+    Returns:
+        MagicMock configured as a Processor
+
+    Example:
+        processor = make_mock_processor(ok=True, result=stats)
+        with patch("module.MyProcessor", return_value=processor):
+            run_command(args)
+    """
+    if envelope is None:
+        envelope = make_mock_envelope(ok=ok, result=result)
+    processor = MagicMock()
+    processor.process.return_value = envelope
+    return processor

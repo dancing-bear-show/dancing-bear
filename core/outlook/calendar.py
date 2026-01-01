@@ -143,38 +143,28 @@ class OutlookCalendarMixin:
     # -------------------- Events --------------------
     def list_events_in_range(
         self: OutlookClientBase,
-        *,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        start_iso: str,
-        end_iso: str,
-        subject_filter: Optional[str] = None,
-        top: int = 50
+        params: "ListEventsRequest",
     ) -> List[Dict[str, Any]]:
         """List events for a calendar within [start_iso, end_iso].
 
         Uses calendarView which expands recurring series. Optional subject_filter
         performs a client-side case-insensitive match.
         """
-        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
+        cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
         base = f"{GRAPH}/me/calendars/{cal_id}/calendarView" if cal_id else f"{GRAPH}/me/calendarView"
-        events = self._paginated_get(f"{base}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}")
-        if not subject_filter:
+        events = self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
+        if not params.subject_filter:
             return events
-        needle = subject_filter.lower()
+        needle = params.subject_filter.lower()
         return [ev for ev in events if needle in (ev.get("subject") or "").lower()]
 
     def list_calendar_view(
         self: OutlookClientBase,
-        *,
-        calendar_id: Optional[str] = None,
-        start_iso: str,
-        end_iso: str,
-        top: int = 100
+        params: "ListCalendarViewRequest",
     ) -> List[Dict[str, Any]]:
         """List calendar view (expanded occurrences) for a date range."""
-        base = f"{GRAPH}/me/calendars/{calendar_id}/calendarView" if calendar_id else f"{GRAPH}/me/calendarView"
-        return self._paginated_get(f"{base}?startDateTime={start_iso}&endDateTime={end_iso}&$top={int(top)}")
+        base = f"{GRAPH}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{GRAPH}/me/calendarView"
+        return self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
 
     def _resolve_tz(self: OutlookClientBase, tz: Optional[str]) -> str:
         if tz and tz.strip():
@@ -354,46 +344,33 @@ class OutlookCalendarMixin:
 
     def update_event_reminder(
         self: OutlookClientBase,
-        *,
-        event_id: str,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        is_on: bool = False,
-        minutes_before_start: Optional[int] = None,
+        params: "UpdateEventReminderRequest",
     ) -> Dict[str, Any]:
         """Patch event reminder fields."""
-        body: Dict[str, Any] = {"isReminderOn": bool(is_on)}
-        if minutes_before_start is not None:
-            body["reminderMinutesBeforeStart"] = int(minutes_before_start)
-        return self._patch_event(event_id, calendar_id, calendar_name, body)
+        body: Dict[str, Any] = {"isReminderOn": bool(params.is_on)}
+        if params.minutes_before_start is not None:
+            body["reminderMinutesBeforeStart"] = int(params.minutes_before_start)
+        return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, body)
 
     def update_event_settings(
         self: OutlookClientBase,
-        *,
-        event_id: str,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        categories: Optional[List[str]] = None,
-        show_as: Optional[str] = None,
-        sensitivity: Optional[str] = None,
-        is_reminder_on: Optional[bool] = None,
-        reminder_minutes: Optional[int] = None,
+        params: "EventSettingsPatch",
     ) -> Dict[str, Any]:
         """Patch selected event fields in one request."""
         body: Dict[str, Any] = {}
-        if categories is not None:
-            body["categories"] = list(categories)
-        if show_as:
-            body["showAs"] = str(show_as)
-        if sensitivity:
-            body["sensitivity"] = str(sensitivity)
-        if is_reminder_on is not None:
-            body["isReminderOn"] = bool(is_reminder_on)
-        if reminder_minutes is not None:
-            body["reminderMinutesBeforeStart"] = int(reminder_minutes)
+        if params.categories is not None:
+            body["categories"] = list(params.categories)
+        if params.show_as:
+            body["showAs"] = str(params.show_as)
+        if params.sensitivity:
+            body["sensitivity"] = str(params.sensitivity)
+        if params.is_reminder_on is not None:
+            body["isReminderOn"] = bool(params.is_reminder_on)
+        if params.reminder_minutes is not None:
+            body["reminderMinutesBeforeStart"] = int(params.reminder_minutes)
         if not body:
             return {}
-        return self._patch_event(event_id, calendar_id, calendar_name, body)
+        return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, body)
 
     def update_event_subject(
         self: OutlookClientBase,
