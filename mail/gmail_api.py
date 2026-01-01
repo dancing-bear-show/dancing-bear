@@ -308,48 +308,62 @@ class GmailClient(ConfigCacheMixin):
     def get_message(self, msg_id: str, fmt: str = "full") -> Dict[str, Any]:
         return self.service.users().messages().get(userId="me", id=msg_id, format=fmt).execute()
 
-    def get_message_text(self, msg_id: str) -> str:
-        """Return a best-effort text content from a message (plain preferred, else HTML stripped)."""
+    @staticmethod
+    def _decode_message_data(data: str) -> str:
+        """Decode base64-encoded message data."""
         import base64
+        try:
+            return base64.urlsafe_b64decode(data.encode("utf-8")).decode("utf-8", errors="replace")
+        except Exception:  # noqa: S110 - best-effort decoding
+            return ""
 
-        def decode_data(s: str) -> str:
-            try:
-                return base64.urlsafe_b64decode(s.encode("utf-8")).decode("utf-8", errors="replace")
-            except Exception:
-                return ""
+    @staticmethod
+    def _walk_message_parts(payload: Dict[str, Any]) -> list[dict]:
+        """Recursively walk message parts to find all MIME parts."""
+        parts = payload.get("parts") or []
+        out = []
+        for part in parts:
+            out.append(part)
+            out.extend(GmailClient._walk_message_parts(part))
+        return out
 
-        msg = self.get_message(msg_id, fmt="full")
-        payload = msg.get("payload") or {}
+    def _find_text_parts(self, parts: list[dict]) -> tuple[Optional[str], Optional[str]]:
+        """Extract text/plain and text/html content from message parts.
 
-        # Walk parts; prefer text/plain
-        def walk_parts(p) -> list[dict]:
-            parts = p.get("parts") or []
-            out = []
-            for part in parts:
-                out.append(part)
-                out.extend(walk_parts(part))
-            return out
-
-        # Single-part message
-        candidates = [payload] + walk_parts(payload)
+        Returns:
+            Tuple of (plain_text, html_text) where either may be None
+        """
         text_plain = None
         text_html = None
-        for part in candidates:
+        for part in parts:
             mt = (part.get("mimeType") or "").lower()
             body = part.get("body") or {}
             data = body.get("data")
             if not data:
                 continue
-            decoded = decode_data(data)
+            decoded = self._decode_message_data(data)
             if mt == "text/plain" and not text_plain:
                 text_plain = decoded
             elif mt == "text/html" and not text_html:
                 text_html = decoded
+        return text_plain, text_html
+
+    def get_message_text(self, msg_id: str) -> str:
+        """Return a best-effort text content from a message (plain preferred, else HTML stripped)."""
+        msg = self.get_message(msg_id, fmt="full")
+        payload = msg.get("payload") or {}
+
+        # Gather all MIME parts (single-part + multipart)
+        candidates = [payload] + self._walk_message_parts(payload)
+
+        # Extract text content
+        text_plain, text_html = self._find_text_parts(candidates)
+
+        # Prefer plain text, fallback to HTML (converted), then snippet
         if text_plain:
             return text_plain
         if text_html:
             return html_to_text(text_html)
-        # Fallback to snippet
         return (msg.get("snippet") or "").strip()
 
     # Note: filter methods defined above with optional caching; avoid duplicate declarations.

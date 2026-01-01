@@ -31,7 +31,13 @@ class LocationSync:
         end_time: Optional[str],
     ) -> List[Dict[str, Any]]:
         start_iso, end_iso = win
-        events = self.svc.list_events_in_range(calendar_name=cal_name, start_iso=start_iso, end_iso=end_iso, subject_filter=subj)
+        from calendars.outlook_service import ListEventsRequest
+        events = self.svc.list_events_in_range(ListEventsRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_name=cal_name,
+            subject_filter=subj,
+        ))
         return filter_events_by_day_time(events, byday=byday, start_time=start_time, end_time=end_time) or events[:1]
 
     def plan_from_config(self, items: List[Dict[str, Any]], *, calendar: Optional[str], dry_run: bool = False) -> int:
