@@ -19,6 +19,7 @@ from ._base import (
     check_service_required,
     dataclass,
 )
+from ._context import ScheduleImportContext
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 
@@ -61,9 +62,10 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
             return OutlookScheduleImportResult(logs=["No schedule items parsed."], created=0, dry_run=payload.dry_run, calendar=cal_name)
 
         logs: List[str] = []
+        ctx = ScheduleImportContext(svc=svc, cal_id=cal_id, cal_name=cal_name, logs=logs)
         created = 0
         for item in items:
-            result = self._process_item(item, svc, cal_id, cal_name, payload, logs)
+            result = self._process_item(item, ctx, payload)
             created += result
         return OutlookScheduleImportResult(logs=logs, created=created, dry_run=payload.dry_run, calendar=cal_name)
 
@@ -80,29 +82,29 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
             loader = default_loader
         return loader(payload.source, kind=payload.kind)
 
-    def _process_item(self, item, svc, cal_id: str, cal_name: str, payload: OutlookScheduleImportRequest, logs: List[str]) -> int:
+    def _process_item(self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest) -> int:
         # One-off event
         if item.start_iso and item.end_iso:
-            return self._create_one_off(item, svc, cal_id, cal_name, payload, logs)
+            return self._create_one_off(item, ctx, payload)
 
         # Recurring event
         rec = item.recurrence or ("weekly" if item.byday else None)
         if rec in ("weekly", "daily", "monthly") and item.start_time and item.end_time and item.range_start:
-            return self._create_recurring(item, svc, cal_id, cal_name, payload, logs, rec)
+            return self._create_recurring(item, ctx, payload, rec)
 
-        logs.append(f"Skip non-recurring or incomplete row: {item.subject}")
+        ctx.logs.append(f"Skip non-recurring or incomplete row: {item.subject}")
         return 0
 
-    def _create_one_off(self, item, svc, cal_id: str, cal_name: str, payload: OutlookScheduleImportRequest, logs: List[str]) -> int:
+    def _create_one_off(self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest) -> int:
         if payload.dry_run:
-            logs.append(f"{LOG_DRY_RUN} would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{cal_name}'")
+            ctx.logs.append(f"{LOG_DRY_RUN} would create one-off '{item.subject}' {item.start_iso}->{item.end_iso} cal='{ctx.cal_name}'")
             return 1
         try:
             params = EventCreationParams(
                 subject=item.subject,
                 start_iso=item.start_iso,
                 end_iso=item.end_iso,
-                calendar_id=cal_id,
+                calendar_id=ctx.cal_id,
                 calendar_name=None,
                 tz=payload.tz,
                 body_html=item.notes,
@@ -110,18 +112,18 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
                 location=item.location,
                 no_reminder=payload.no_reminder,
             )
-            svc.create_event(params)
-            logs.append(f"Created one-off '{item.subject}'")
+            ctx.svc.create_event(params)
+            ctx.logs.append(f"Created one-off '{item.subject}'")
             return 1
         except Exception as exc:
-            logs.append(f"Failed to create one-off '{item.subject}': {exc}")
+            ctx.logs.append(f"Failed to create one-off '{item.subject}': {exc}")
             return 0
 
-    def _create_recurring(self, item, svc, cal_id: str, cal_name: str, payload: OutlookScheduleImportRequest, logs: List[str], rec: str) -> int:
+    def _create_recurring(self, item, ctx: ScheduleImportContext, payload: OutlookScheduleImportRequest, rec: str) -> int:
         range_until = payload.until or item.range_until
         if payload.dry_run:
             extra = f" {','.join(item.byday or [])}" if item.byday else ""
-            logs.append(f"{LOG_DRY_RUN} would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{cal_name}'")
+            ctx.logs.append(f"{LOG_DRY_RUN} would create {rec} '{item.subject}'{extra} {item.start_time}-{item.end_time} start={item.range_start} cal='{ctx.cal_name}'")
             return 1
         try:
             params = RecurringEventCreationParams(
@@ -129,7 +131,7 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
                 start_time=item.start_time,
                 end_time=item.end_time,
                 repeat=rec,
-                calendar_id=cal_id,
+                calendar_id=ctx.cal_id,
                 calendar_name=None,
                 tz=payload.tz,
                 interval=1,
@@ -141,11 +143,11 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
                 location=item.location,
                 no_reminder=payload.no_reminder,
             )
-            svc.create_recurring_event(params)
-            logs.append(f"Created recurring '{item.subject}'")
+            ctx.svc.create_recurring_event(params)
+            ctx.logs.append(f"Created recurring '{item.subject}'")
             return 1
         except Exception as exc:
-            logs.append(f"Failed to create recurring '{item.subject}': {exc}")
+            ctx.logs.append(f"Failed to create recurring '{item.subject}': {exc}")
             return 0
 
 
