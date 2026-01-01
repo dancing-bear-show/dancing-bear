@@ -47,11 +47,12 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
         start_date = payload.from_date or start_iso[:10]
         end_date = payload.to_date or end_iso[:10]
-        evs = svc.list_events_in_range(
-            calendar_name=payload.calendar,
+        from calendars.outlook_service import ListEventsRequest
+        evs = svc.list_events_in_range(ListEventsRequest(
             start_iso=start_iso,
             end_iso=end_iso,
-        )
+            calendar_name=payload.calendar,
+        ))
         one_offs = []
         for ev in evs or []:
             etype = (ev.get("type") or "").lower()

@@ -102,6 +102,40 @@ class EventSettingsPatch:
 
 
 @dataclass
+class ListEventsRequest:
+    """Parameters for listing events in a date range."""
+
+    start_iso: str
+    end_iso: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    subject_filter: Optional[str] = None
+    top: int = 50
+
+
+@dataclass
+class UpdateEventReminderRequest:
+    """Parameters for updating event reminder settings."""
+
+    event_id: str
+    is_on: bool
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    minutes_before_start: Optional[int] = None
+
+
+@dataclass
+class ListCalendarViewRequest:
+    """Parameters for listing calendar view (low-level pagination)."""
+
+    start_iso: str
+    end_iso: str
+    calendar_id: Optional[str] = None
+    select: str = "subject,start,end,seriesMasterId,type,createdDateTime,location"
+    top: int = 200
+
+
+@dataclass
 class SearchParams:
     """Parameters for inbox search."""
 

@@ -64,7 +64,12 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
             raise CalendarNotFoundError(payload.calendar)
 
         start_iso, end_iso = self._window.resolve_year_end(payload.from_date, payload.to_date)
-        events = svc.list_events_in_range(calendar_id=cal_id, start_iso=start_iso, end_iso=end_iso)
+        from calendars.outlook_service import ListEventsRequest
+        events = svc.list_events_in_range(ListEventsRequest(
+            start_iso=start_iso,
+            end_iso=end_iso,
+            calendar_id=cal_id,
+        ))
 
         enricher = self._enricher
         if enricher is None:

@@ -88,7 +88,7 @@ class FakeCalendarService:
 
     Example usage:
         svc = FakeCalendarService(events=[...])
-        svc.list_calendar_view(calendar_id="cal-1", start_iso="...", end_iso="...")
+        svc.list_calendar_view(ListCalendarViewRequest(calendar_id="cal-1", start_iso="...", end_iso="...")
     """
 
     events: List[Dict] = field(default_factory=list)
