@@ -10,13 +10,14 @@ from core.outlook.calendar import (
     _parse_location,
     _normalize_days,
 )
-from core.outlook.client import OutlookClientBase, _requests, GRAPH
+from core.outlook.client import OutlookClientBase, _requests
+from core.constants import GRAPH_API_URL
 
 __all__ = [
     "OutlookCalendarMixin",
     "OutlookClientBase",
     "_requests",
-    "GRAPH",
+    "GRAPH_API_URL",
     "_parse_location",
     "_normalize_days",
 ]

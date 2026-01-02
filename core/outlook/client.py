@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 from core.cache import ConfigCacheMixin
 from core.constants import (
     GRAPH_API_URL,
-    GRAPH_API_SCOPES,
     GRAPH_DEFAULT_SCOPE,
     DEFAULT_REQUEST_TIMEOUT,
 )
@@ -21,10 +20,6 @@ from core.constants import (
 # Lazy optional deps: avoid importing on --help to prevent warnings/overhead
 msal = None  # type: ignore
 requests = None  # type: ignore
-
-# Backwards-compat alias
-DEFAULT_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
-
 
 def _msal():  # type: ignore
     global msal
@@ -75,13 +70,8 @@ def _requests():  # type: ignore
     if _requests_wrapper is None:  # pragma: no cover - optional import
         import requests as _req  # type: ignore
         requests = _req
-        _requests_wrapper = _TimeoutRequestsWrapper(_req, DEFAULT_TIMEOUT)
+        _requests_wrapper = _TimeoutRequestsWrapper(_req, DEFAULT_REQUEST_TIMEOUT)
     return _requests_wrapper
-
-
-# Backwards-compat aliases for GRAPH and SCOPES
-GRAPH = GRAPH_API_URL
-SCOPES = GRAPH_API_SCOPES
 
 
 class OutlookClientBase(ConfigCacheMixin):
@@ -109,7 +99,7 @@ class OutlookClientBase(ConfigCacheMixin):
         self._cache: Optional["msal.SerializableTokenCache"] = None
         self._app: Optional["msal.PublicClientApplication"] = None
         self._scopes: List[str] = [GRAPH_DEFAULT_SCOPE]
-        self.GRAPH = GRAPH
+        self.GRAPH = GRAPH_API_URL
 
     # -------------------- Auth --------------------
     def authenticate(self) -> None:
@@ -213,7 +203,7 @@ class OutlookClientBase(ConfigCacheMixin):
     # -------------------- Mailbox settings --------------------
     def get_mailbox_timezone(self) -> Optional[str]:
         try:
-            r = _requests().get(f"{GRAPH}/me/mailboxSettings", headers=self._headers())
+            r = _requests().get(f"{GRAPH_API_URL}/me/mailboxSettings", headers=self._headers())
             r.raise_for_status()
             data = r.json() or {}
             tz = (data.get("timeZone") or "").strip()

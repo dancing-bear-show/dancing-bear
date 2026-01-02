@@ -1,24 +1,9 @@
-"""Calendar constants shared across modules."""
+"""Calendar constants shared across modules.
 
+Re-exports from core.date_utils for backwards compatibility.
+"""
 from __future__ import annotations
 
-# Day-of-week name/abbreviation to RRULE code mapping
-DAY_MAP = {
-    "monday": "MO",
-    "mon": "MO",
-    "tuesday": "TU",
-    "tue": "TU",
-    "tues": "TU",
-    "wednesday": "WE",
-    "wed": "WE",
-    "thursday": "TH",
-    "thu": "TH",
-    "thur": "TH",
-    "thurs": "TH",
-    "friday": "FR",
-    "fri": "FR",
-    "saturday": "SA",
-    "sat": "SA",
-    "sunday": "SU",
-    "sun": "SU",
-}
+from core.date_utils import DAY_MAP
+
+__all__ = ["DAY_MAP"]

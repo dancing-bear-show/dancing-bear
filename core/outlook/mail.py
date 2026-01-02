@@ -9,7 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .client import OutlookClientBase, _requests, GRAPH
+from .client import OutlookClientBase, _requests
+from core.constants import GRAPH_API_URL
 
 
 # Parameter dataclasses
@@ -42,12 +43,12 @@ class OutlookMailMixin:
             if isinstance(cached, list):
                 cats = cached
             else:
-                r = _requests().get(f"{GRAPH}/me/outlook/masterCategories", headers=self._headers())
+                r = _requests().get(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers())
                 r.raise_for_status()
                 cats = r.json().get("value", [])
                 self.cfg_put_json("categories", cats)
         else:
-            r = _requests().get(f"{GRAPH}/me/outlook/masterCategories", headers=self._headers())
+            r = _requests().get(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers())
             r.raise_for_status()
             cats = r.json().get("value", [])
         out = []
@@ -70,7 +71,7 @@ class OutlookMailMixin:
         body = {"displayName": name}
         if color and isinstance(color, dict) and color.get("name"):
             body["color"] = color.get("name")
-        r = _requests().post(f"{GRAPH}/me/outlook/masterCategories", headers=self._headers(), json=body)
+        r = _requests().post(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers(), json=body)
         r.raise_for_status()
         c = r.json()
         return {"id": c.get("id"), "name": c.get("displayName")}
@@ -88,7 +89,7 @@ class OutlookMailMixin:
         if not payload:
             return {}
         r = _requests().patch(
-            f"{GRAPH}/me/outlook/masterCategories/{label_id}",
+            f"{GRAPH_API_URL}/me/outlook/masterCategories/{label_id}",
             headers=self._headers(),
             json=payload
         )
@@ -97,7 +98,7 @@ class OutlookMailMixin:
 
     def delete_label(self: OutlookClientBase, label_id: str) -> None:
         r = _requests().delete(
-            f"{GRAPH}/me/outlook/masterCategories/{label_id}",
+            f"{GRAPH_API_URL}/me/outlook/masterCategories/{label_id}",
             headers=self._headers()
         )
         r.raise_for_status()
@@ -124,7 +125,7 @@ class OutlookMailMixin:
                 rules = cached
             else:
                 r = _requests().get(
-                    f"{GRAPH}/me/mailFolders/inbox/messageRules",
+                    f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
                     headers=self._headers()
                 )
                 r.raise_for_status()
@@ -132,7 +133,7 @@ class OutlookMailMixin:
                 self.cfg_put_json("rules_inbox", rules)
         else:
             r = _requests().get(
-                f"{GRAPH}/me/mailFolders/inbox/messageRules",
+                f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
                 headers=self._headers()
             )
             r.raise_for_status()
@@ -190,7 +191,7 @@ class OutlookMailMixin:
             "stopProcessingRules": True,
         }
         r = _requests().post(
-            f"{GRAPH}/me/mailFolders/inbox/messageRules",
+            f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
             headers=self._headers(),
             json=payload
         )
@@ -199,7 +200,7 @@ class OutlookMailMixin:
 
     def delete_filter(self: OutlookClientBase, filter_id: str) -> None:
         r = _requests().delete(
-            f"{GRAPH}/me/mailFolders/inbox/messageRules/{filter_id}",
+            f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules/{filter_id}",
             headers=self._headers()
         )
         r.raise_for_status()
@@ -222,7 +223,7 @@ class OutlookMailMixin:
             if isinstance(cached, list):
                 return [str(x) for x in cached]
         ids: List[str] = []
-        base = f"{GRAPH}/me/mailFolders/inbox/messages"
+        base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
         params = [f"$search=\"{search_query}\"", f"$top={int(top)}"]
         if days and int(days) > 0:
             import datetime as _dt
@@ -257,7 +258,7 @@ class OutlookMailMixin:
         pages: int = 1,
     ) -> List[Dict[str, Any]]:
         """List messages in a folder with pagination."""
-        base = f"{GRAPH}/me/mailFolders/{folder}/messages"
+        base = f"{GRAPH_API_URL}/me/mailFolders/{folder}/messages"
         url = f"{base}?$top={int(top)}&$orderby=receivedDateTime desc"
         msgs: List[Dict[str, Any]] = []
         for _ in range(max(1, int(pages))):
@@ -273,7 +274,7 @@ class OutlookMailMixin:
     def move_message(self: OutlookClientBase, msg_id: str, dest_folder_id: str) -> None:
         body = {"destinationId": dest_folder_id}
         r = _requests().post(
-            f"{GRAPH}/me/messages/{msg_id}/move",
+            f"{GRAPH_API_URL}/me/messages/{msg_id}/move",
             headers=self._headers(),
             json=body
         )
@@ -285,14 +286,14 @@ class OutlookMailMixin:
         select_body: bool = True
     ) -> Dict[str, Any]:
         sel = "$select=subject,receivedDateTime,from,bodyPreview" + (",body" if select_body else "")
-        url = f"{GRAPH}/me/messages/{msg_id}?{sel}"
+        url = f"{GRAPH_API_URL}/me/messages/{msg_id}?{sel}"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
         return r.json()
 
     # -------------------- Folders --------------------
     def list_folders(self: OutlookClientBase) -> List[Dict[str, Any]]:
-        url = f"{GRAPH}/me/mailFolders"
+        url = f"{GRAPH_API_URL}/me/mailFolders"
         out: List[Dict[str, Any]] = []
         while url:
             r = _requests().get(url, headers=self._headers())
@@ -313,7 +314,7 @@ class OutlookMailMixin:
         m0 = self.get_folder_id_map()
         if name in m0 and m0[name]:
             return m0[name]
-        for endpoint in [f"{GRAPH}/me/mailFolders", f"{GRAPH}/me/mailFolders/Inbox/childFolders"]:
+        for endpoint in [f"{GRAPH_API_URL}/me/mailFolders", f"{GRAPH_API_URL}/me/mailFolders/Inbox/childFolders"]:
             r = _requests().post(endpoint, headers=self._headers(), json=body)
             if r.status_code == 409:
                 m2 = self.get_folder_id_map()
@@ -346,7 +347,7 @@ class OutlookMailMixin:
         while queue:
             fid = queue.pop(0)
             r = _requests().get(
-                f"{GRAPH}/me/mailFolders/{fid}/childFolders",
+                f"{GRAPH_API_URL}/me/mailFolders/{fid}/childFolders",
                 headers=self._headers()
             )
             r.raise_for_status()
@@ -409,7 +410,7 @@ class OutlookMailMixin:
 
         for seg in parts[1:]:
             r = _requests().get(
-                f"{GRAPH}/me/mailFolders/{parent_id}/childFolders",
+                f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
                 headers=self._headers()
             )
             r.raise_for_status()
@@ -420,7 +421,7 @@ class OutlookMailMixin:
                 continue
             body = {"displayName": seg}
             r2 = _requests().post(
-                f"{GRAPH}/me/mailFolders/{parent_id}/childFolders",
+                f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
                 headers=self._headers(),
                 json=body
             )
@@ -428,7 +429,7 @@ class OutlookMailMixin:
                 # Folder already exists - re-fetch and find it
                 # noqa: S113 - timeout handled by _requests() wrapper
                 r3 = _requests().get(
-                    f"{GRAPH}/me/mailFolders/{parent_id}/childFolders",
+                    f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
                     headers=self._headers()
                 )
                 r3.raise_for_status()

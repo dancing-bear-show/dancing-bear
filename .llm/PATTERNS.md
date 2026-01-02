@@ -332,6 +332,73 @@ for item in items:
 # - nosec B607 - subprocess with partial path (known safe command)
 ```
 
+Dataclass Field Consolidation
+```python
+# Consolidate repeated field pairs into semantic value objects
+# Benefits: clearer intent, reduced duplication, easier refactoring
+
+# Bad: repeated field pairs across multiple dataclasses
+@dataclass
+class EventParams:
+    subject: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    no_reminder: bool = False
+    reminder_minutes: Optional[int] = None
+
+@dataclass
+class UpdateParams:
+    event_id: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+
+# Good: consolidated with semantic value objects
+@dataclass
+class CalendarRef:
+    """Calendar identifier - either by ID or name."""
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+
+@dataclass
+class ReminderSettings:
+    """Reminder configuration for events."""
+    no_reminder: bool = False
+    reminder_minutes: Optional[int] = None
+
+@dataclass
+class EventParams:
+    subject: str
+    calendar_ref: Optional[CalendarRef] = None
+    reminder: Optional[ReminderSettings] = None
+
+    # Legacy field support for backwards compatibility
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    no_reminder: bool = False
+    reminder_minutes: Optional[int] = None
+
+    def __post_init__(self):
+        """Convert legacy fields to new structure if needed."""
+        if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
+            self.calendar_ref = CalendarRef(
+                calendar_id=self.calendar_id,
+                calendar_name=self.calendar_name
+            )
+        if self.reminder is None and (self.no_reminder or self.reminder_minutes):
+            self.reminder = ReminderSettings(
+                no_reminder=self.no_reminder,
+                reminder_minutes=self.reminder_minutes
+            )
+
+# Existing consolidated models (core/outlook/models.py):
+# - CalendarRef: replaces calendar_id/calendar_name pairs
+# - DateRange: replaces start_iso/end_iso pairs
+# - ReminderSettings: replaces no_reminder/reminder_minutes pairs
+
+# New consolidated models (mail/models.py):
+# - LabelMapping: replaces id_to_name/name_to_id dictionary pairs
+```
+
 Constants Abstraction
 ```python
 # Extract constants into module-level or dedicated files for:

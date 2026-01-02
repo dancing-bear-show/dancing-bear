@@ -6,6 +6,12 @@ Structure:
     Docx Fakes:
         FakeRun, FakeParagraph, FakeDocument - Mock python-docx objects
 
+    Test Decorators:
+        mock_docx_modules - Patches sys.modules to mock python-docx imports
+
+    Test Mixins:
+        KeywordMatcherTestMixin - Provides self.matcher in setUp
+
     Data Builders (use defaults, override as needed):
         make_experience_entry() -> dict with title, company, bullets
         make_education_entry()  -> dict with degree, institution, year
@@ -13,6 +19,7 @@ Structure:
         make_skills_group()     -> dict with title, items
         make_keyword_spec()     -> dict with required, preferred, nice tiers
         make_empty_profile()    -> dict with all profile fields empty
+        make_fake_renderer()    -> (renderer, doc) tuple for testing
 
     Sample Data Constants:
         SAMPLE_EXPERIENCE_ENTRIES  - List of 3 experience dicts
@@ -35,14 +42,66 @@ Usage:
 
     # Use sample data directly
     candidate = {"name": "Test", "experience": SAMPLE_EXPERIENCE_ENTRIES[:1]}
+
+    # Use KeywordMatcher mixin
+    class MyTest(KeywordMatcherTestMixin, unittest.TestCase):
+        def test_something(self):
+            self.matcher.add_keyword("Python")  # self.matcher is available
+
+    # Use mock_docx_modules decorator
+    from tests.resume_tests.fixtures import mock_docx_modules
+
+    @mock_docx_modules
+    class TestDocxRenderer(unittest.TestCase):
+        def test_something(self):
+            # python-docx modules are mocked, imports will work
+            from resume.docx_sections import BulletRenderer
 """
 
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 # Re-export docx fakes from centralized fakes module
 from tests.fakes.docx import FakeDocument, FakeParagraph, FakeRun  # noqa: F401
+
+# =============================================================================
+# Test Decorators
+# =============================================================================
+
+# Common docx module mock pattern used across resume tests
+mock_docx_modules = patch.dict("sys.modules", {
+    "docx": MagicMock(),
+    "docx.shared": MagicMock(),
+    "docx.enum.text": MagicMock(),
+    "docx.enum.table": MagicMock(),
+    "docx.oxml": MagicMock(),
+    "docx.oxml.ns": MagicMock(),
+})
+
+
+# =============================================================================
+# Test Mixins
+# =============================================================================
+
+
+class KeywordMatcherTestMixin:
+    """Mixin to provide KeywordMatcher instance in setUp.
+
+    Use this mixin to avoid duplicating KeywordMatcher() setUp across test classes.
+
+    Example:
+        class TestMyFeature(KeywordMatcherTestMixin, unittest.TestCase):
+            def test_something(self):
+                self.matcher.add_keyword("Python")
+    """
+
+    def setUp(self):
+        from resume.keyword_matcher import KeywordMatcher
+        self.matcher = KeywordMatcher()
+        super().setUp() if hasattr(super(), 'setUp') else None
+
 
 # =============================================================================
 # Common Test Values
@@ -183,6 +242,26 @@ def make_empty_profile(**overrides: Any) -> dict[str, Any]:
     }
     profile.update(overrides)
     return profile
+
+
+def make_fake_renderer(renderer_class: type) -> tuple[Any, FakeDocument]:
+    """Create a renderer instance with FakeDocument for testing.
+
+    Args:
+        renderer_class: The renderer class to instantiate (e.g., BulletRenderer)
+
+    Returns:
+        Tuple of (renderer_instance, fake_document)
+
+    Example:
+        from resume.docx_sections import BulletRenderer
+        renderer, doc = make_fake_renderer(BulletRenderer)
+        renderer.add_bullet_line("Test", glyph="•")
+        assert len(doc.paragraphs) == 1
+    """
+    doc = FakeDocument()
+    renderer = renderer_class(doc)
+    return renderer, doc
 
 
 # =============================================================================

@@ -8,14 +8,28 @@ import datetime as _dt
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.collections import dedupe
+from core.date_utils import DAY_MAP, MONTH_MAP, parse_month, to_iso_str
 from core.pipeline import BaseProducer, RequestConsumer
 from core.auth import build_gmail_service as _build_gmail_service
-from core.constants import DAY_START_TIME, DAY_END_TIME, FMT_DATETIME_SEC, FMT_DAY_START
+from core.constants import DAY_START_TIME, DAY_END_TIME
 
 from .gmail_service import GmailService
 
 # Re-export for backward compatibility
-__all__ = ["RequestConsumer", "BaseProducer", "GmailAuth", "GmailServiceBuilder", "DateWindowResolver", "check_service_required"]
+__all__ = [
+    "RequestConsumer",
+    "BaseProducer",
+    "GmailAuth",
+    "GmailServiceBuilder",
+    "DateWindowResolver",
+    "check_service_required",
+    "to_iso_str",
+    "dedupe_events",
+    "parse_month",
+    "DAY_MAP",
+    "MONTH_MAP",
+]
 
 # Error message constant
 ERR_SERVICE_REQUIRED = "Outlook service is required"
@@ -96,20 +110,17 @@ class DateWindowResolver:
         return f"{start}{DAY_START_TIME}", f"{end}{DAY_END_TIME}"
 
 
-def to_iso_str(v: Any) -> Optional[str]:
-    """Convert a value to ISO datetime string."""
-    if v is None:
-        return None
-    if isinstance(v, str):
-        return v
-    try:
-        if isinstance(v, _dt.datetime):
-            return v.strftime(FMT_DATETIME_SEC)
-        if isinstance(v, _dt.date):
-            return v.strftime(FMT_DAY_START)
-    except Exception:  # nosec B110 - fallback to str(v)
-        pass
-    return str(v)
+def _default_event_key(ev: Dict[str, Any]) -> tuple:
+    """Default key function for event deduplication."""
+    return (
+        ev.get("subject"),
+        tuple(ev.get("byday") or []),
+        ev.get("start_time"),
+        ev.get("end_time"),
+        (ev.get("range") or {}).get("start_date"),
+        (ev.get("range") or {}).get("until"),
+        ev.get("location"),
+    )
 
 
 def dedupe_events(events: List[Dict[str, Any]], key_fn=None) -> List[Dict[str, Any]]:
@@ -123,39 +134,4 @@ def dedupe_events(events: List[Dict[str, Any]], key_fn=None) -> List[Dict[str, A
     Returns:
         Deduplicated list of events.
     """
-    if key_fn is None:
-        def key_fn(ev):
-            return (
-                ev.get("subject"),
-                tuple(ev.get("byday") or []),
-                ev.get("start_time"),
-                ev.get("end_time"),
-                (ev.get("range") or {}).get("start_date"),
-                (ev.get("range") or {}).get("until"),
-                ev.get("location"),
-            )
-
-    uniq, seen = [], set()
-    for ev in events:
-        key = key_fn(ev)
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(ev)
-    return uniq
-
-
-# Import shared mappings
-from .constants import DAY_MAP
-from .scan_common import MONTH_MAP
-
-# Backwards-compatible aliases
-MONTH_MAP_FULL = MONTH_MAP  # scan_common.MONTH_MAP includes both full and abbreviated
-MONTH_MAP_ABBREV = MONTH_MAP
-DAY_TO_CODE = DAY_MAP  # DAY_MAP is a superset of DAY_TO_CODE
-
-
-def parse_month(month_str: str) -> Optional[int]:
-    """Parse month name (full or abbreviated) to number (1-12)."""
-    cleaned = (month_str or "").strip().lower()
-    return MONTH_MAP.get(cleaned) or MONTH_MAP.get(cleaned[:3])
+    return dedupe(events, key_fn or _default_event_key)

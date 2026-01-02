@@ -6,11 +6,12 @@ New code should import directly from core.outlook.
 
 # Re-export everything from core.outlook.mail for backward compatibility
 from core.outlook.mail import OutlookMailMixin
-from core.outlook.client import OutlookClientBase, _requests, GRAPH
+from core.outlook.client import OutlookClientBase, _requests
+from core.constants import GRAPH_API_URL
 
 __all__ = [
     "OutlookMailMixin",
     "OutlookClientBase",
     "_requests",
-    "GRAPH",
+    "GRAPH_API_URL",
 ]

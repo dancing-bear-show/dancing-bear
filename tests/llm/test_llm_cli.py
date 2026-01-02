@@ -7,7 +7,7 @@ from tests.fixtures import bin_path, repo_root
 
 class TestLlmCli(unittest.TestCase):
     def test_help(self):
-        import subprocess
+        import subprocess  # nosec B404
         import sys
         root = repo_root()
         proc = subprocess.run([sys.executable, str(bin_path('llm')), '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))  # nosec B603 - test code with trusted local script
@@ -45,7 +45,7 @@ class TestLlmCli(unittest.TestCase):
         self.assertIn('mail_groups', data)
 
     def test_check_respects_sla_env(self):
-        import subprocess
+        import subprocess  # nosec B404
         import sys
         import os
         root = repo_root()

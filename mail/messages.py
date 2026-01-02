@@ -22,7 +22,7 @@ def _compose_reply(
     in_reply_to: Optional[str] = None,
     references: Optional[str] = None,
     cc: Optional[List[str]] = None,
-    bcc: Optional[List[str]] = None,  # noqa: ARG001 - reserved for future use
+    bcc: Optional[List[str]] = None,
     include_quote: bool = False,
     original_text: Optional[str] = None,
 ) -> EmailMessage:
@@ -31,6 +31,8 @@ def _compose_reply(
     msg["To"] = to_email
     if cc:
         msg["Cc"] = ", ".join(cc)
+    if bcc:
+        msg["Bcc"] = ", ".join(bcc)
     if subject.lower().startswith("re:"):
         msg["Subject"] = subject
     else:

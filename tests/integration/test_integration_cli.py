@@ -4,7 +4,7 @@ Tests that bin wrappers are executable and produce expected help output.
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 import unittest
 

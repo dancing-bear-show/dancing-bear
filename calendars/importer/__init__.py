@@ -58,6 +58,41 @@ _get_field = ScheduleParser._get_field
 _row_to_schedule_item = ScheduleParser._row_to_schedule_item
 
 
+# Parser registry: maps kind/extension to parser class
+_KIND_PARSERS = {
+    'csv': CSVParser,
+    'xlsx': XLSXParser,
+    'pdf': PDFParser,
+    'website': WebParser,
+    'html': WebParser,
+    'url': WebParser,
+}
+
+_EXT_PARSERS = {
+    '.csv': CSVParser,
+    '.xlsx': XLSXParser,
+    '.xlsm': XLSXParser,
+    '.pdf': PDFParser,
+}
+
+
+def _get_parser_for_source(source: str, kind: Optional[str]) -> ScheduleParser:
+    """Get appropriate parser for source based on kind or extension."""
+    k = (kind or '').strip().lower()
+
+    # Explicit kind takes precedence
+    if k and k != 'auto':
+        parser_cls = _KIND_PARSERS.get(k)
+        if parser_cls is None:
+            raise ValueError(f"Unknown schedule kind: {kind}")
+        return parser_cls()
+
+    # Auto-detect from extension
+    ext = (os.path.splitext(source)[1] or '').lower()
+    parser_cls = _EXT_PARSERS.get(ext, CSVParser)  # Default to CSV
+    return parser_cls()
+
+
 def load_schedule(source: str, kind: Optional[str] = None) -> List[ScheduleItem]:
     """Load schedule items from a source path/URL.
 
@@ -73,29 +108,7 @@ def load_schedule(source: str, kind: Optional[str] = None) -> List[ScheduleItem]
         ValueError: If kind is unknown
         NotImplementedError: If source format is not supported
     """
-    ext = (os.path.splitext(source)[1] or '').lower()
-    k = (kind or '').strip().lower()
-
-    if k in ('', 'auto'):
-        if ext == '.csv':
-            return CSVParser().parse(source)
-        if ext in ('.xlsx', '.xlsm'):
-            return XLSXParser().parse(source)
-        if ext == '.pdf':
-            return PDFParser().parse(source)
-        # Default to csv
-        return CSVParser().parse(source)
-
-    if k == 'csv':
-        return CSVParser().parse(source)
-    if k == 'xlsx':
-        return XLSXParser().parse(source)
-    if k == 'pdf':
-        return PDFParser().parse(source)
-    if k in ('website', 'html', 'url'):
-        return WebParser().parse(source)
-
-    raise ValueError(f"Unknown schedule kind: {kind}")
+    return _get_parser_for_source(source, kind).parse(source)
 
 
 __all__ = [

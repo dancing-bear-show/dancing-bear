@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence
 
+from core.date_utils import MONTH_MAP
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
 
 TIME_PAT1 = r"(?P<h1>\d{1,2})(?::(?P<m1>\d{2}))?\s*(?P<ampm1>am|pm|a\.m\.|p\.m\.)?"
@@ -28,12 +29,6 @@ FACILITIES = [
     "Richmond Green",
     "Oak Ridges",
 ]
-
-MONTH_MAP = {m.lower(): i for i, m in enumerate(
-    ["January","February","March","April","May","June","July","August","September","October","November","December"],
-    start=1,
-)}
-MONTH_MAP.update({k[:3]: v for k, v in list(MONTH_MAP.items())})
 
 DATE_RANGE_PAT = re.compile(
     r"(?:(?:from)\s+)?([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",

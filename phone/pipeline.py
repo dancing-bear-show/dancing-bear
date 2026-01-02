@@ -466,7 +466,7 @@ class IconmapResult:
 
 class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
     def _process_safe(self, payload: IconmapRequest) -> IconmapResult:
-        import subprocess as _sp
+        import subprocess as _sp  # nosec B404
         from .device import find_cfgutil_path, map_udid_to_ecid
 
         try:
@@ -703,7 +703,7 @@ class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestIns
 
 class ManifestInstallProducer(BaseProducer):
     def _produce_success(self, payload: ManifestInstallResult, diagnostics: Optional[Dict[str, Any]]) -> None:
-        import subprocess
+        import subprocess  # nosec B404
 
         # Write profile
         payload.profile_path.parent.mkdir(parents=True, exist_ok=True)

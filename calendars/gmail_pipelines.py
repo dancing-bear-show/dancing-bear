@@ -18,11 +18,7 @@ from core.text_utils import html_to_text
 from .constants import DAY_MAP
 from .scan_common import (
     RANGE_PAT,
-    CLASS_PAT,
-    LOC_LABEL_PAT,
-    FACILITIES,
     MONTH_MAP,
-    DATE_RANGE_PAT,
     norm_time as _norm_time_common,
     infer_meta_from_text,
 )
@@ -33,7 +29,7 @@ from .pipeline_base import (
     RequestConsumer,
     dedupe_events,
     parse_month,
-    DAY_TO_CODE,
+    DAY_MAP,
 )
 
 
@@ -165,7 +161,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
             "calendar": calendar,
             "subject": self._normalize_subject(m_cls.group("cls"), loc_hint),
             "repeat": "weekly",
-            "byday": [DAY_TO_CODE[(m_sched.group("day") or "").lower()]],
+            "byday": [DAY_MAP[(m_sched.group("day") or "").lower()]],
             "start_time": to_24h(m_sched.group("t1")),
             "end_time": to_24h(m_sched.group("t2")),
             "range": date_range,
@@ -202,21 +198,24 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         return child_first, child_full
 
     def _normalize_subject(self, raw: Optional[str], loc_hint: Optional[str]) -> str:
+        """Normalize subject text using predefined rules."""
         base = (raw or "").strip().split(" - ", 1)[0].strip()
         lower = base.lower()
-        if lower.startswith("swimmer "):
-            return base.title()
-        if lower.startswith("swim kids"):
-            return base.title()
-        if lower.startswith("chess"):
-            return "Chess"
-        if lower == "c":
-            return "Chess"
-        if lower == "s":
-            if loc_hint and "pool" in loc_hint.lower():
-                return "Swimmer"
-            return "Sports"
-        return base.title()
+
+        # Handle swimming-related subjects
+        if lower.startswith("swimmer ") or lower.startswith("swim kids"):
+            result = base.title()
+        # Handle chess subjects
+        elif lower.startswith("chess") or lower == "c":
+            result = "Chess"
+        # Handle single-letter 's' with location context
+        elif lower == "s":
+            result = "Swimmer" if (loc_hint and "pool" in loc_hint.lower()) else "Sports"
+        # Default: title case
+        else:
+            result = base.title()
+
+        return result
 
 
 class GmailPlanProducer(BaseProducer):

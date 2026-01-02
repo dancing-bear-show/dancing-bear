@@ -42,7 +42,7 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
     try:
         # agentic.py is in outer desk package
         from desk.agentic import emit_agentic_context
-        return emit_agentic_context(fmt, compact)
+        return emit_agentic_context(compact)
     except ImportError:
         print("agentic: desk\npurpose: Scan, plan, and tidy macOS folders")
         return 0
@@ -152,21 +152,7 @@ rules:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point for the Desk Assistant CLI."""
-    parser = app.build_parser()
-    assistant.add_agentic_flags(parser)
-
-    args = parser.parse_args(argv)
-
-    agentic_result = assistant.maybe_emit_agentic(args, emit_func=_emit_agentic)
-    if agentic_result is not None:
-        return int(agentic_result)
-
-    cmd_func = getattr(args, "_cmd_func", None)
-    if not cmd_func:
-        parser.print_help()
-        return 0
-
-    return int(cmd_func(args))
+    return app.run_with_assistant(assistant, emit_func=_emit_agentic, argv=argv)
 
 
 if __name__ == "__main__":  # pragma: no cover

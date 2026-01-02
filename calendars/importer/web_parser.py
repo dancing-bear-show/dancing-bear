@@ -18,6 +18,9 @@ from .text_utils import normalize_day, normalize_days, parse_time_range, extract
 # Standard day ordering for table parsing
 WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
+# Common swim activity names
+LEISURE_SWIM = 'Leisure Swim'
+
 
 def _make_schedule_item(
     subject: str,
@@ -132,32 +135,30 @@ class RichmondHillSkatingParser(ScheduleParser):
                 return tr
         return None
 
-    def _extract_day_headers(self, table, row, needed: int) -> List[str]:
-        """Extract day headers from table, inferring if needed."""
-        weekday_set = {d.lower() for d in WEEKDAYS}
+    def _extract_weekdays_from_cells(self, cells, weekday_set: set) -> List[str]:
+        """Extract weekday names from table cells."""
         days: List[str] = []
-
-        # Try to extract from table cells
-        for td in table.find_all('td'):
+        for td in cells:
             txt = (td.get_text(strip=True) or '').strip()
             if txt.lower() in weekday_set:
                 days.append(txt)
+        return days
+
+    def _extract_day_headers(self, table, row, needed: int) -> List[str]:
+        """Extract day headers from table, inferring if needed."""
+        weekday_set = {d.lower() for d in WEEKDAYS}
+
+        # Try to extract from all table cells
+        days = self._extract_weekdays_from_cells(table.find_all('td'), weekday_set)
 
         # Fall back to previous row if insufficient
         if len(days) < 7:
             header_tr = row.find_previous('tr')
-            days = []
             if header_tr:
-                for td in header_tr.find_all('td'):
-                    t = (td.get_text(strip=True) or '').strip()
-                    if t.lower() in weekday_set:
-                        days.append(t)
+                days = self._extract_weekdays_from_cells(header_tr.find_all('td'), weekday_set)
 
         # Default to standard weekdays if still insufficient
-        if len(days) < needed:
-            days = WEEKDAYS[:needed]
-
-        return days
+        return days if len(days) >= needed else WEEKDAYS[:needed]
 
     def _parse_time_cells(self, cells, days: List[str], location: str, url: str) -> List[ScheduleItem]:
         """Parse time cells and create ScheduleItems."""
@@ -200,7 +201,7 @@ class RichmondHillSkatingParser(ScheduleParser):
 class RichmondHillSwimmingParser(ScheduleParser):
     """Parser for Richmond Hill swimming schedules."""
 
-    SWIM_LABELS = ('Leisure Swim', 'Fun N Fit', 'Fun N Fit & Leisure Swim')
+    SWIM_LABELS = (LEISURE_SWIM, 'Fun N Fit', f'Fun N Fit & {LEISURE_SWIM}')
 
     def parse(self, url: str) -> List[ScheduleItem]:
         """Parse Richmond Hill swimming schedule."""
@@ -216,7 +217,7 @@ class RichmondHillSwimmingParser(ScheduleParser):
     def _extract_facility_name(self, block: str) -> str:
         """Extract facility name from HTML block."""
         m = re.search(r'>\s*([^<]+?)\s*</td>', block)
-        return re.sub(r'&nbsp;', ' ', m.group(1)).strip() if m else 'Pool'
+        return m.group(1).replace('&nbsp;', ' ').strip() if m else 'Pool'
 
     def _parse_swim_block(self, block: str, facility: str, url: str) -> List[ScheduleItem]:
         """Parse swim schedule from a single facility block."""
@@ -227,7 +228,7 @@ class RichmondHillSwimmingParser(ScheduleParser):
             if not mpos:
                 continue
 
-            subject = 'Leisure Swim' if 'Leisure' in label and 'Fun' not in label else 'Fun N Fit'
+            subject = LEISURE_SWIM if 'Leisure' in label and 'Fun' not in label else 'Fun N Fit'
             cells = re.findall(r'<td[^>]*>(.*?)</td>', block[mpos.end():], re.I | re.S)[:7]
 
             for i, cell in enumerate(cells):
@@ -301,7 +302,7 @@ class AuroraAquaticsParser(ScheduleParser):
 
             for code in normalize_days(day_spec):
                 for st, en in extract_time_ranges(leisure_cell):
-                    items.append(_make_schedule_item('Leisure Swim', [code], st, en, 'Aurora Pools', url))
+                    items.append(_make_schedule_item(LEISURE_SWIM, [code], st, en, 'Aurora Pools', url))
 
         return items
 
