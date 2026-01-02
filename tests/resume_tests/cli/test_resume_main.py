@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from unittest.mock import patch, MagicMock
 
 from tests.fixtures import repo_root, run
 
