@@ -116,17 +116,17 @@ class TestOutlookClientBaseInit(unittest.TestCase):
         client = OutlookClientBase(
             client_id="custom-id",
             tenant="common",
-            token_path="/tmp/token.json",  # nosec B106 - test file path
-            cache_dir="/tmp/cache"
+            token_path="/tmp/token.json",  # nosec  # Test uses temp directory
+            cache_dir="/tmp/cache"  # nosec  # Test uses temp directory
         )
         self.assertEqual(client.client_id, "custom-id")
         self.assertEqual(client.tenant, "common")
-        self.assertEqual(client.token_path, "/tmp/token.json")
-        self.assertEqual(client.cache_dir, "/tmp/cache")
+        self.assertEqual(client.token_path, "/tmp/token.json")  # nosec  # Test assertion
+        self.assertEqual(client.cache_dir, "/tmp/cache")  # nosec  # Test assertion
 
     def test_inherits_from_config_cache_mixin(self):
         """Test client inherits from ConfigCacheMixin."""
-        client = OutlookClientBase(client_id="test-id", cache_dir="/tmp/cache")
+        client = OutlookClientBase(client_id="test-id", cache_dir="/tmp/cache")  # nosec  # Test uses temp directory
         # ConfigCacheMixin should provide cfg_get_json and cfg_put_json methods
         self.assertTrue(hasattr(client, 'cfg_get_json'))
         self.assertTrue(hasattr(client, 'cfg_put_json'))
@@ -382,7 +382,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
         # Set up client with app and cache
         self.client._app = mock_app
         self.client._cache = mock_cache
-        self.client.token_path = "/tmp/token.json"  # nosec B106 - test file path
+        self.client.token_path = "/tmp/token.json"  # nosec  # Test uses temp file path
 
         with patch('builtins.open', mock_open()) as mock_file:
             headers = self.client._headers()

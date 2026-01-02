@@ -5,6 +5,9 @@
 # 2. Validating all executable paths before use
 # 3. Using list-form arguments only (still checked via B603)
 # 4. Using hardcoded or validated paths (still checked via B607)
+#
+# Note: B105, B106, B108 warnings in test files should use inline # nosec comments
+# Test files commonly use /tmp paths which trigger these warnings
 
 [bandit]
 skips = B404
