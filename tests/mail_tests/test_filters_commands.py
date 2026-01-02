@@ -319,6 +319,7 @@ class TestRunFilterPipeline(unittest.TestCase):
                 self.payload = payload
 
             def produce(self, envelope):
+                # Mock implementation - intentionally empty for testing
                 pass
 
         args = make_args()
@@ -346,6 +347,7 @@ class TestRunFilterPipeline(unittest.TestCase):
 
         class MockProcessor:
             def process(self, payload):
+                # Mock implementation - not called when consumer raises
                 pass
 
         args = make_args()
@@ -496,6 +498,7 @@ class TestRunFilterPipeline(unittest.TestCase):
                 received_payload.append(payload)
 
             def produce(self, envelope):
+                # Mock implementation - payload captured in __init__
                 pass
 
         args = make_args()
