@@ -347,83 +347,88 @@ class TestExecute(unittest.TestCase):
 class TestExtractMatchedKeywords(unittest.TestCase):
     """Tests for _extract_matched_keywords helper."""
 
+    def _write_alignment_json(self, data: dict) -> str:
+        """Write alignment data to temp JSON file and return path.
+
+        Args:
+            data: Dict to write as JSON
+
+        Returns:
+            Path to temp file (caller must unlink after use)
+        """
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump(data, f)
+        f.flush()
+        f.close()
+        return f.name
+
     def test_extracts_skill_names(self):
         """Extracts skill names from matched_keywords list."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "matched_keywords": [
-                    {"skill": "Python", "tier": "required"},
-                    {"skill": "AWS", "tier": "preferred"},
-                ]
-            }, f)
-            f.flush()
+        path = self._write_alignment_json({
+            "matched_keywords": [
+                {"skill": "Python", "tier": "required"},
+                {"skill": "AWS", "tier": "preferred"},
+            ]
+        })
 
-            pipeline = FilterPipeline({})
-            result = pipeline._extract_matched_keywords(f.name)
+        pipeline = FilterPipeline({})
+        result = pipeline._extract_matched_keywords(path)
 
-            self.assertEqual(result, ["Python", "AWS"])
-            Path(f.name).unlink()
+        self.assertEqual(result, ["Python", "AWS"])
+        Path(path).unlink()
 
     def test_handles_missing_skill_key(self):
         """Filters out entries without skill key."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "matched_keywords": [
-                    {"skill": "Python"},
-                    {"other": "data"},
-                    {"skill": "AWS"},
-                ]
-            }, f)
-            f.flush()
+        path = self._write_alignment_json({
+            "matched_keywords": [
+                {"skill": "Python"},
+                {"other": "data"},
+                {"skill": "AWS"},
+            ]
+        })
 
-            pipeline = FilterPipeline({})
-            result = pipeline._extract_matched_keywords(f.name)
+        pipeline = FilterPipeline({})
+        result = pipeline._extract_matched_keywords(path)
 
-            self.assertEqual(result, ["Python", "AWS"])
-            Path(f.name).unlink()
+        self.assertEqual(result, ["Python", "AWS"])
+        Path(path).unlink()
 
     def test_handles_non_dict_entries(self):
         """Filters out non-dict entries."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "matched_keywords": [
-                    {"skill": "Python"},
-                    "string_entry",
-                    None,
-                    {"skill": "AWS"},
-                ]
-            }, f)
-            f.flush()
+        path = self._write_alignment_json({
+            "matched_keywords": [
+                {"skill": "Python"},
+                "string_entry",
+                None,
+                {"skill": "AWS"},
+            ]
+        })
 
-            pipeline = FilterPipeline({})
-            result = pipeline._extract_matched_keywords(f.name)
+        pipeline = FilterPipeline({})
+        result = pipeline._extract_matched_keywords(path)
 
-            self.assertEqual(result, ["Python", "AWS"])
-            Path(f.name).unlink()
+        self.assertEqual(result, ["Python", "AWS"])
+        Path(path).unlink()
 
     def test_handles_empty_matched_keywords(self):
         """Returns empty list for empty matched_keywords."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"matched_keywords": []}, f)
-            f.flush()
+        path = self._write_alignment_json({"matched_keywords": []})
 
-            pipeline = FilterPipeline({})
-            result = pipeline._extract_matched_keywords(f.name)
+        pipeline = FilterPipeline({})
+        result = pipeline._extract_matched_keywords(path)
 
-            self.assertEqual(result, [])
-            Path(f.name).unlink()
+        self.assertEqual(result, [])
+        Path(path).unlink()
 
     def test_handles_missing_matched_keywords_key(self):
         """Returns empty list when matched_keywords key missing."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"other": "data"}, f)
-            f.flush()
+        path = self._write_alignment_json({"other": "data"})
 
-            pipeline = FilterPipeline({})
-            result = pipeline._extract_matched_keywords(f.name)
+        pipeline = FilterPipeline({})
+        result = pipeline._extract_matched_keywords(path)
 
-            self.assertEqual(result, [])
-            Path(f.name).unlink()
+        self.assertEqual(result, [])
+        Path(path).unlink()
 
 
 class TestCreatePipeline(unittest.TestCase):

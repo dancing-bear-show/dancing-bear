@@ -33,9 +33,7 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
     def test_applies_profile_config_from_new_path(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/tech")
             self._write_yaml(
                 profile_dir / "profile.yaml",
@@ -48,8 +46,6 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             self.assertEqual(result["name"], "Jane Smith")
             self.assertEqual(result["headline"], "Software Engineer")
             self.assertEqual(result["email"], "jane@example.com")
-        finally:
-            os.chdir(old_cwd)
 
     def test_applies_profile_config_from_legacy_path(self):
         from resume.overlays import apply_profile_overlays
