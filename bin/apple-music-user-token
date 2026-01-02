@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Wrapper for apple_music_assistant user-token helper."""
-
+"""Generate a URL to obtain Music User Token."""
 from pathlib import Path
 import sys
 
@@ -10,5 +9,5 @@ if str(REPO_ROOT) not in sys.path:
 
 from apple_music.user_token_cli import main  # noqa: E402
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     raise SystemExit(main())
