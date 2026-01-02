@@ -185,16 +185,3 @@ class PDFParser(ScheduleParser):
                         ))
 
         return items
-
-
-# Backward compatibility function
-def parse_pdf(path: str) -> List[ScheduleItem]:
-    """Parse schedule items from PDF file.
-
-    Args:
-        path: Path to PDF file
-
-    Returns:
-        List of ScheduleItem objects
-    """
-    return PDFParser().parse(path)

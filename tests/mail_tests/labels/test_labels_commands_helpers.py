@@ -3,9 +3,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
-    capture_stdout,
     make_user_label,
     make_system_label,
     make_label_with_visibility,

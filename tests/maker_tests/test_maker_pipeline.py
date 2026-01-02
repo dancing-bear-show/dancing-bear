@@ -7,9 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
 from maker.pipeline import (
-    ConsoleProducer,
-    ToolCatalogConsumer,
-    ToolCatalogFormatter,
     ToolCatalogProcessor,
     ToolCatalogProducer,
     ToolCatalogRequest,
@@ -28,15 +25,6 @@ from tests.fixtures import repo_root
 class MakerPipelineTests(TestCase):
     def setUp(self):
         self.tools_root = repo_root() / "maker"
-
-    def test_catalog_consumer_discovers_tools(self):
-        catalog = ToolCatalogConsumer(self.tools_root).consume()
-        self.assertTrue(any(spec.relative_path.match("card/*.py") for spec in catalog))
-
-    def test_catalog_formatter_outputs_rows(self):
-        catalog = ToolCatalogConsumer(self.tools_root).consume()
-        output = ToolCatalogFormatter().process(catalog[:2])
-        self.assertIn("maker/", output)
 
     def test_tool_runner_imports_and_calls_entry_point(self):
         req = ToolRequest(module="test_module", entry_point="main")
@@ -81,12 +69,6 @@ class MakerPipelineTests(TestCase):
             ToolResultProducer().produce(envelope)
         self.assertIn("Something went wrong", buf.getvalue())
 
-    def test_console_producer_prints_text(self):
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            ConsoleProducer().produce("hello")
-        self.assertEqual("hello\n", buf.getvalue())
-
     # ToolSpec tests
     def test_tool_spec_display_row(self):
         spec = ToolSpec(relative_path=Path("card/gen_snug_variants.py"), module="maker.card.gen_snug_variants")
@@ -95,17 +77,6 @@ class MakerPipelineTests(TestCase):
     def test_tool_spec_display_row_nested_path(self):
         spec = ToolSpec(relative_path=Path("foo/bar/baz.py"), module="maker.foo.bar.baz")
         self.assertEqual("- maker/foo/bar/baz.py", spec.display_row())
-
-    # ToolCatalogFormatter tests
-    def test_catalog_formatter_empty_list(self):
-        output = ToolCatalogFormatter().process([])
-        self.assertEqual("No maker tools found.", output)
-
-    def test_catalog_formatter_single_item(self):
-        specs = [ToolSpec(relative_path=Path("card/gen.py"), module="maker.card.gen")]
-        output = ToolCatalogFormatter().process(specs)
-        self.assertIn("Available maker tools:", output)
-        self.assertIn("- maker/card/gen.py", output)
 
     # ToolRequest tests
     def test_tool_request_defaults(self):

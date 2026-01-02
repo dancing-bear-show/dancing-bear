@@ -30,16 +30,3 @@ class CSVParser(ScheduleParser):
                 if item:
                     items.append(item)
         return items
-
-
-# Backward compatibility function
-def parse_csv(path: str) -> List[ScheduleItem]:
-    """Parse schedule items from CSV file.
-
-    Args:
-        path: Path to CSV file
-
-    Returns:
-        List of ScheduleItem objects
-    """
-    return CSVParser().parse(path)

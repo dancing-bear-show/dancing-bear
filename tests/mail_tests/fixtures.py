@@ -10,16 +10,10 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
-# Re-export shared fixtures for backwards compatibility
-from tests.fixtures import capture_stdout, temp_yaml_file, write_yaml
-
 # Re-export FakeGmailClient from centralized fakes module
 from tests.fakes.gmail import FakeGmailClient, make_gmail_client
 
 __all__ = [
-    "capture_stdout",
-    "temp_yaml_file",
-    "write_yaml",
     "make_args",
     "FakeGmailClient",
     "make_gmail_client",
