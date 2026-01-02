@@ -2,26 +2,17 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import FakeDocument
+from tests.resume_tests.fixtures import FakeDocument, make_fake_renderer, mock_docx_modules
 
 
-# Patch the docx_styles module before importing docx_sections
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestBulletRenderer(unittest.TestCase):
     """Tests for BulletRenderer class."""
 
     def _get_renderer(self):
         from resume.docx_sections import BulletRenderer
-        doc = FakeDocument()
-        return BulletRenderer(doc), doc
+        return make_fake_renderer(BulletRenderer)
 
     def test_get_bullet_config_defaults(self):
         """Test default bullet config."""
@@ -152,20 +143,13 @@ class TestBulletRenderer(unittest.TestCase):
         self.assertIn("Python", bolded)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestHeaderRenderer(unittest.TestCase):
     """Tests for HeaderRenderer class."""
 
     def _get_renderer(self):
         from resume.docx_sections import HeaderRenderer
-        doc = FakeDocument()
-        return HeaderRenderer(doc), doc
+        return make_fake_renderer(HeaderRenderer)
 
     def test_add_header_line_title_only(self):
         """Test header with title only."""
@@ -244,20 +228,13 @@ class TestHeaderRenderer(unittest.TestCase):
         self.assertEqual(len(doc.paragraphs), 0)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestListSectionRenderer(unittest.TestCase):
     """Tests for ListSectionRenderer class."""
 
     def _get_renderer(self):
         from resume.docx_sections import ListSectionRenderer
-        doc = FakeDocument()
-        return ListSectionRenderer(doc), doc
+        return make_fake_renderer(ListSectionRenderer)
 
     def test_extract_item_text_string(self):
         """Test extracting text from string item."""
@@ -302,21 +279,14 @@ class TestListSectionRenderer(unittest.TestCase):
         self.assertEqual(len(doc.paragraphs), 3)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestSectionRenderers(unittest.TestCase):
     """Tests for specific section renderers."""
 
     def test_interests_renderer(self):
         """Test InterestsSectionRenderer."""
         from resume.docx_sections import InterestsSectionRenderer
-        doc = FakeDocument()
-        renderer = InterestsSectionRenderer(doc)
+        renderer, _ = make_fake_renderer(InterestsSectionRenderer)
         data = {"interests": ["Reading", "Hiking", "Photography"]}
         result = renderer.render(data)
         self.assertEqual(len(result), 3)
@@ -324,8 +294,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_languages_renderer(self):
         """Test LanguagesSectionRenderer."""
         from resume.docx_sections import LanguagesSectionRenderer
-        doc = FakeDocument()
-        renderer = LanguagesSectionRenderer(doc)
+        renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
         data = {"languages": [
             {"name": "English", "level": "Native"},
             {"language": "Spanish", "level": "Fluent"},
@@ -336,8 +305,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_coursework_renderer(self):
         """Test CourseworkSectionRenderer."""
         from resume.docx_sections import CourseworkSectionRenderer
-        doc = FakeDocument()
-        renderer = CourseworkSectionRenderer(doc)
+        renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
         data = {"coursework": [
             {"name": "Data Structures"},
             {"course": "Algorithms"},
@@ -348,8 +316,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_certifications_renderer(self):
         """Test CertificationsSectionRenderer."""
         from resume.docx_sections import CertificationsSectionRenderer
-        doc = FakeDocument()
-        renderer = CertificationsSectionRenderer(doc)
+        renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
         data = {"certifications": [
             {"name": "AWS Certified", "year": "2023"},
             {"cert": "GCP Professional"},
@@ -360,8 +327,7 @@ class TestSectionRenderers(unittest.TestCase):
     def test_presentations_renderer(self):
         """Test PresentationsSectionRenderer."""
         from resume.docx_sections import PresentationsSectionRenderer
-        doc = FakeDocument()
-        renderer = PresentationsSectionRenderer(doc)
+        renderer, _ = make_fake_renderer(PresentationsSectionRenderer)
         data = {"presentations": [
             {"title": "Intro to Python", "event": "PyCon", "year": "2023"},
             "Another Talk",
@@ -370,20 +336,13 @@ class TestSectionRenderers(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestSummarySectionRenderer(unittest.TestCase):
     """Tests for SummarySectionRenderer."""
 
     def _get_renderer(self):
         from resume.docx_sections import SummarySectionRenderer
-        doc = FakeDocument()
-        return SummarySectionRenderer(doc), doc
+        return make_fake_renderer(SummarySectionRenderer)
 
     def test_render_string_summary(self):
         """Test rendering string summary."""
@@ -432,20 +391,13 @@ class TestSummarySectionRenderer(unittest.TestCase):
         self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestSkillsSectionRenderer(unittest.TestCase):
     """Tests for SkillsSectionRenderer."""
 
     def _get_renderer(self):
         from resume.docx_sections import SkillsSectionRenderer
-        doc = FakeDocument()
-        return SkillsSectionRenderer(doc), doc
+        return make_fake_renderer(SkillsSectionRenderer)
 
     def test_render_flat_skills(self):
         """Test rendering flat skills list."""
@@ -483,20 +435,13 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         self.assertIn("Python — Expert", result)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestExperienceSectionRenderer(unittest.TestCase):
     """Tests for ExperienceSectionRenderer."""
 
     def _get_renderer(self):
         from resume.docx_sections import ExperienceSectionRenderer
-        doc = FakeDocument()
-        return ExperienceSectionRenderer(doc), doc
+        return make_fake_renderer(ExperienceSectionRenderer)
 
     def test_render_experience(self):
         """Test rendering experience entries."""
@@ -586,20 +531,13 @@ class TestExperienceSectionRenderer(unittest.TestCase):
         self.assertEqual(len(result), 3)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestEducationSectionRenderer(unittest.TestCase):
     """Tests for EducationSectionRenderer."""
 
     def _get_renderer(self):
         from resume.docx_sections import EducationSectionRenderer
-        doc = FakeDocument()
-        return EducationSectionRenderer(doc), doc
+        return make_fake_renderer(EducationSectionRenderer)
 
     def test_render_education(self):
         """Test rendering education entries."""
@@ -627,20 +565,13 @@ class TestEducationSectionRenderer(unittest.TestCase):
         self.assertEqual(len(doc.paragraphs), 0)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestTechnologiesSectionRenderer(unittest.TestCase):
     """Tests for TechnologiesSectionRenderer."""
 
     def _get_renderer(self):
         from resume.docx_sections import TechnologiesSectionRenderer
-        doc = FakeDocument()
-        return TechnologiesSectionRenderer(doc), doc
+        return make_fake_renderer(TechnologiesSectionRenderer)
 
     def test_render_technologies(self):
         """Test rendering technologies."""

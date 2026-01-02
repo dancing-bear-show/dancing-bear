@@ -10,7 +10,7 @@ from metals.gmail_extract import (
     run,
     main,
 )
-from .fixtures import make_mock_gmail_client
+from tests.metals_tests.fixtures import make_mock_gmail_client
 
 
 class TestConstants(unittest.TestCase):

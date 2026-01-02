@@ -11,6 +11,7 @@ from tests.fixtures import TempDirMixin
 
 from core.text_utils import html_to_text
 from metals.costs_common import extract_order_amount, merge_costs_csv
+from tests.metals_tests.fixtures import make_cost_row, write_costs_csv
 from metals.outlook_costs import (
     _amount_near_item,
     _build_gold_row,
@@ -327,20 +328,20 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
         """Test writes new CSV file."""
         path = os.path.join(self.tmpdir, "costs.csv")
         rows = [
-            {
-                "vendor": "RCM",
-                "date": "2024-01-15",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": 350.00,
-                "cost_per_oz": 3500.00,
-                "order_id": "PO1234567",
-                "subject": "Confirmation",
-                "total_oz": 0.1,
-                "unit_count": 1,
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            }
+            make_cost_row(
+                vendor="RCM",
+                date="2024-01-15",
+                metal="gold",
+                currency="C$",
+                cost_total=350.00,
+                cost_per_oz=3500.00,
+                order_id="PO1234567",
+                subject="Confirmation",
+                total_oz=0.1,
+                unit_count=1,
+                units_breakdown="0.1ozx1",
+                alloc="line-item",
+            )
         ]
         merge_costs_csv(path, rows)
 
@@ -357,47 +358,40 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
         path = os.path.join(self.tmpdir, "costs.csv")
 
         # Write initial file
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(
-                f,
-                fieldnames=[
-                    "vendor", "date", "metal", "currency", "cost_total",
-                    "cost_per_oz", "order_id", "subject", "total_oz",
-                    "unit_count", "units_breakdown", "alloc"
-                ],
+        initial_rows = [
+            make_cost_row(
+                vendor="RCM",
+                date="2024-01-10",
+                metal="gold",
+                currency="C$",
+                cost_total=300.00,
+                cost_per_oz=3000.00,
+                order_id="PO1111111",
+                subject="First Order",
+                total_oz=0.1,
+                unit_count=1,
+                units_breakdown="0.1ozx1",
+                alloc="line-item",
             )
-            w.writeheader()
-            w.writerow({
-                "vendor": "RCM",
-                "date": "2024-01-10",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": "300.00",
-                "cost_per_oz": "3000.00",
-                "order_id": "PO1111111",
-                "subject": "First Order",
-                "total_oz": "0.1",
-                "unit_count": "1",
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            })
+        ]
+        write_costs_csv(path, initial_rows)
 
         # Merge new rows
         new_rows = [
-            {
-                "vendor": "RCM",
-                "date": "2024-01-15",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": 350.00,
-                "cost_per_oz": 3500.00,
-                "order_id": "PO2222222",
-                "subject": "Second Order",
-                "total_oz": 0.1,
-                "unit_count": 1,
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            }
+            make_cost_row(
+                vendor="RCM",
+                date="2024-01-15",
+                metal="gold",
+                currency="C$",
+                cost_total=350.00,
+                cost_per_oz=3500.00,
+                order_id="PO2222222",
+                subject="Second Order",
+                total_oz=0.1,
+                unit_count=1,
+                units_breakdown="0.1ozx1",
+                alloc="line-item",
+            )
         ]
         merge_costs_csv(path, new_rows)
 
@@ -410,36 +404,22 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
         """Test deduplicates identical rows."""
         path = os.path.join(self.tmpdir, "costs.csv")
 
-        rows = [
-            {
-                "vendor": "RCM",
-                "date": "2024-01-15",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": 350.00,
-                "cost_per_oz": 3500.00,
-                "order_id": "PO1234567",
-                "subject": "Confirmation",
-                "total_oz": 0.1,
-                "unit_count": 1,
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            },
-            {
-                "vendor": "RCM",
-                "date": "2024-01-15",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": 350.00,
-                "cost_per_oz": 3500.00,
-                "order_id": "PO1234567",
-                "subject": "Confirmation",
-                "total_oz": 0.1,
-                "unit_count": 1,
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            },
-        ]
+        # Create identical rows
+        row_params = dict(
+            vendor="RCM",
+            date="2024-01-15",
+            metal="gold",
+            currency="C$",
+            cost_total=350.00,
+            cost_per_oz=3500.00,
+            order_id="PO1234567",
+            subject="Confirmation",
+            total_oz=0.1,
+            unit_count=1,
+            units_breakdown="0.1ozx1",
+            alloc="line-item",
+        )
+        rows = [make_cost_row(**row_params), make_cost_row(**row_params)]
         merge_costs_csv(path, rows)
 
         with open(path, newline="", encoding="utf-8") as f:
@@ -451,35 +431,24 @@ class TestMergeWrite(TempDirMixin, unittest.TestCase):
         """Test prefers confirmation emails over shipping."""
         path = os.path.join(self.tmpdir, "costs.csv")
 
+        # Common parameters for both rows
+        base_params = dict(
+            vendor="RCM",
+            date="2024-01-15",
+            metal="gold",
+            currency="C$",
+            cost_total=350.00,
+            cost_per_oz=3500.00,
+            order_id="PO1234567",
+            total_oz=0.1,
+            unit_count=1,
+            units_breakdown="0.1ozx1",
+            alloc="line-item",
+        )
+
         rows = [
-            {
-                "vendor": "RCM",
-                "date": "2024-01-15",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": 350.00,
-                "cost_per_oz": 3500.00,
-                "order_id": "PO1234567",
-                "subject": "Shipping confirmation",
-                "total_oz": 0.1,
-                "unit_count": 1,
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            },
-            {
-                "vendor": "RCM",
-                "date": "2024-01-15",
-                "metal": "gold",
-                "currency": "C$",
-                "cost_total": 350.00,
-                "cost_per_oz": 3500.00,
-                "order_id": "PO1234567",
-                "subject": "Confirmation for order number PO1234567",
-                "total_oz": 0.1,
-                "unit_count": 1,
-                "units_breakdown": "0.1ozx1",
-                "alloc": "line-item",
-            },
+            make_cost_row(**base_params, subject="Shipping confirmation"),
+            make_cost_row(**base_params, subject="Confirmation for order number PO1234567"),
         ]
         merge_costs_csv(path, rows)
 

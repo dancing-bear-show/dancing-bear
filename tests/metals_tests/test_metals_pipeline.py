@@ -18,6 +18,7 @@ from metals.pipeline import (
 )
 from core.pipeline import ResultEnvelope
 from metals.extractors import MetalsAmount, OrderExtraction
+from tests.metals_tests.fixtures import make_mock_gmail_client
 
 
 class TestExtractRequest(unittest.TestCase):
@@ -109,13 +110,17 @@ class TestGmailExtractProcessor(unittest.TestCase):
     def test_process_success(self, mock_resolve, mock_client_class):
         """Test successful extraction."""
         mock_resolve.return_value = ("cred.json", "token.json")
-        mock_client = MagicMock()
+
+        mock_client = make_mock_gmail_client(
+            message_ids=["msg1"],
+            messages={
+                "msg1": {
+                    "id": "msg1",
+                    "internalDate": "1704067200000",
+                }
+            }
+        )
         mock_client_class.return_value = mock_client
-        mock_client.list_message_ids.return_value = ["msg1"]
-        mock_client.get_message.return_value = {
-            "id": "msg1",
-            "internalDate": "1704067200000",
-        }
         mock_client_class.headers_to_dict.return_value = {"subject": "Order #123456"}
         mock_client.get_message_text.return_value = "1 oz Gold x 2"
 

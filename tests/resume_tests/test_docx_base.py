@@ -6,14 +6,9 @@ from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+from tests.resume_tests.fixtures import mock_docx_modules
+
+@mock_docx_modules
 class TestCreateResumeWriter(unittest.TestCase):
     """Tests for create_resume_writer factory function."""
 
@@ -67,13 +62,7 @@ class TestCreateResumeWriter(unittest.TestCase):
         self.assertEqual(writer.layout_cfg, {"type": "standard", "columns": 1})
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestResumeWriterBase(unittest.TestCase):
     """Tests for ResumeWriterBase methods."""
 
@@ -177,13 +166,7 @@ class TestResumeWriterBase(unittest.TestCase):
         self.assertEqual(result, [])
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestResumeWriterBaseWrite(unittest.TestCase):
     """Tests for ResumeWriterBase.write() method."""
 

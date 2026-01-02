@@ -12,6 +12,7 @@ from resume.keyword_matcher import (
     keyword_match,
     expand_keywords,
 )
+from tests.resume_tests.fixtures import KeywordMatcherTestMixin
 
 
 class TestKeywordInfo(unittest.TestCase):
@@ -65,11 +66,8 @@ class TestMatchResult(unittest.TestCase):
         self.assertEqual(d["count"], 3)
 
 
-class TestKeywordMatcherSynonyms(unittest.TestCase):
+class TestKeywordMatcherSynonyms(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher synonym management."""
-
-    def setUp(self):
-        self.matcher = KeywordMatcher()
 
     def test_add_synonym(self):
         self.matcher.add_synonym("Python", "python3")
@@ -124,11 +122,8 @@ class TestKeywordMatcherSynonyms(unittest.TestCase):
         self.assertIsInstance(result, KeywordMatcher)
 
 
-class TestKeywordMatcherKeywordRegistration(unittest.TestCase):
+class TestKeywordMatcherKeywordRegistration(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher keyword registration."""
-
-    def setUp(self):
-        self.matcher = KeywordMatcher()
 
     def test_add_keyword(self):
         self.matcher.add_keyword("Python", tier="required", weight=2)
@@ -170,11 +165,8 @@ class TestKeywordMatcherKeywordRegistration(unittest.TestCase):
         self.assertIsInstance(result, KeywordMatcher)
 
 
-class TestKeywordMatcherTextMatching(unittest.TestCase):
+class TestKeywordMatcherTextMatching(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher text matching."""
-
-    def setUp(self):
-        self.matcher = KeywordMatcher()
 
     def test_normalize(self):
         self.assertEqual(KeywordMatcher.normalize("  Hello  World  "), "hello world")
@@ -217,11 +209,11 @@ class TestKeywordMatcherTextMatching(unittest.TestCase):
         self.assertTrue(self.matcher.matches_any("py developer", ["Python"]))
 
 
-class TestKeywordMatcherFindMatches(unittest.TestCase):
+class TestKeywordMatcherFindMatches(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher find_matches."""
 
     def setUp(self):
-        self.matcher = KeywordMatcher()
+        super().setUp()
         self.matcher.add_keyword("Python", tier="required", weight=2)
         self.matcher.add_keyword("Docker", tier="preferred", weight=1)
 
@@ -245,11 +237,11 @@ class TestKeywordMatcherFindMatches(unittest.TestCase):
         self.assertNotIn("Java", matched)
 
 
-class TestKeywordMatcherScoring(unittest.TestCase):
+class TestKeywordMatcherScoring(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher scoring."""
 
     def setUp(self):
-        self.matcher = KeywordMatcher()
+        super().setUp()
         self.matcher.add_keyword("Python", weight=3)
         self.matcher.add_keyword("Docker", weight=2)
         self.matcher.add_keyword("Git", weight=1)
@@ -282,11 +274,11 @@ class TestKeywordMatcherScoring(unittest.TestCase):
         self.assertEqual(score, 5)
 
 
-class TestKeywordMatcherBulkOperations(unittest.TestCase):
+class TestKeywordMatcherBulkOperations(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher bulk operations."""
 
     def setUp(self):
-        self.matcher = KeywordMatcher()
+        super().setUp()
         self.matcher.add_keyword("Python", tier="required", weight=2)
         self.matcher.add_keyword("API", tier="preferred", weight=1)
 

@@ -68,9 +68,9 @@ def _bold_keywords(paragraph, text: str, keywords: List[str]):
     renderer._bold_keywords(paragraph, text, keywords)
 
 
-def _add_bullet_line(doc, text: str, *, sec: Dict[str, Any] | None = None, keywords: List[str] | None = None, glyph: str = "•"):
+def _add_bullet_line(doc, text: str, *, keywords: List[str] | None = None, glyph: str = "•"):
     renderer = BulletRenderer(doc)
-    return renderer.add_bullet_line(text, sec=sec, keywords=keywords, glyph=glyph)
+    return renderer.add_bullet_line(text, keywords=keywords, glyph=glyph)
 
 
 def _add_plain_bullet(doc, text: str, keywords: List[str] | None = None):

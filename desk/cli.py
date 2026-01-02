@@ -42,7 +42,7 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
     try:
         # agentic.py is in outer desk package
         from desk.agentic import emit_agentic_context
-        return emit_agentic_context(fmt, compact)
+        return emit_agentic_context(compact)
     except ImportError:
         print("agentic: desk\npurpose: Scan, plan, and tidy macOS folders")
         return 0

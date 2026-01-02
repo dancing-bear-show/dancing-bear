@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from metals.cost_extractor import CostExtractor, MessageInfo, OrderData
 from metals.outlook_costs import OutlookCostExtractor
-from .fixtures import make_message_info
+from tests.metals_tests.fixtures import make_message_info
 
 
 class MockCostExtractor(CostExtractor):

@@ -43,7 +43,6 @@ class BulletRenderer:
         self,
         text: str,
         *,
-        sec: Optional[Dict[str, Any]] = None,
         keywords: Optional[List[str]] = None,
         glyph: str = "•",
     ):
@@ -97,7 +96,7 @@ class BulletRenderer:
         """Render a list of bullet items."""
         if plain:
             for it in items:
-                self.add_bullet_line(it, sec=sec, keywords=keywords, glyph=glyph)
+                self.add_bullet_line(it, keywords=keywords, glyph=glyph)
             return
 
         for it in items:

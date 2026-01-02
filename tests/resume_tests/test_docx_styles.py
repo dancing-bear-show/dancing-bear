@@ -2,16 +2,12 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+from tests.resume_tests.fixtures import mock_docx_modules
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestStyleManagerColorUtils(unittest.TestCase):
     """Tests for StyleManager color utilities."""
 
@@ -76,13 +72,7 @@ class TestStyleManagerColorUtils(unittest.TestCase):
         self.assertEqual(result, "#000000")
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestStyleManagerParagraphFormatting(unittest.TestCase):
     """Tests for StyleManager paragraph formatting methods."""
 
@@ -131,13 +121,7 @@ class TestStyleManagerParagraphFormatting(unittest.TestCase):
         self.assertIsNotNone(p.paragraph_format)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestStyleManagerRunFormatting(unittest.TestCase):
     """Tests for StyleManager run formatting methods."""
 
@@ -185,13 +169,7 @@ class TestStyleManagerRunFormatting(unittest.TestCase):
         # Should not raise
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestTextFormatter(unittest.TestCase):
     """Tests for TextFormatter class."""
 
@@ -325,13 +303,7 @@ class TestTextFormatter(unittest.TestCase):
         self.assertEqual(result, "This is a sentence.")
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestBackwardCompatAliases(unittest.TestCase):
     """Tests for backward-compatible function aliases."""
 

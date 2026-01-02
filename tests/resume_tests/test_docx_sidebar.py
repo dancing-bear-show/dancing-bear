@@ -6,17 +6,10 @@ from tests.fixtures import test_path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import make_candidate
+from tests.resume_tests.fixtures import make_candidate, mock_docx_modules
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestCellHelpers(unittest.TestCase):
     """Tests for cell styling helper functions."""
 
@@ -44,14 +37,7 @@ class TestCellHelpers(unittest.TestCase):
         cell._tc.get_or_add_tcPr.assert_called()
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestSidebarSectionRenderers(unittest.TestCase):
     """Tests for sidebar section rendering functions."""
 
@@ -117,14 +103,7 @@ class TestSidebarSectionRenderers(unittest.TestCase):
         self.assertEqual(len(cell.paragraphs), 3)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestMainColumnRenderers(unittest.TestCase):
     """Tests for main column section rendering functions."""
 
@@ -248,14 +227,7 @@ class TestMainColumnRenderers(unittest.TestCase):
         self.assertGreaterEqual(len(cell.paragraphs), 4)
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestSidebarResumeWriter(unittest.TestCase):
     """Tests for SidebarResumeWriter class."""
 
@@ -293,14 +265,7 @@ class TestSidebarResumeWriter(unittest.TestCase):
         self.assertEqual(result, "nested@example.com")
 
 
-@patch.dict("sys.modules", {
-    "docx": MagicMock(),
-    "docx.shared": MagicMock(),
-    "docx.enum.text": MagicMock(),
-    "docx.enum.table": MagicMock(),
-    "docx.oxml": MagicMock(),
-    "docx.oxml.ns": MagicMock(),
-})
+@mock_docx_modules
 class TestBackwardCompatibility(unittest.TestCase):
     """Tests for backward-compatible function."""
 

@@ -18,11 +18,7 @@ from core.text_utils import html_to_text
 from .constants import DAY_MAP
 from .scan_common import (
     RANGE_PAT,
-    CLASS_PAT,
-    LOC_LABEL_PAT,
-    FACILITIES,
     MONTH_MAP,
-    DATE_RANGE_PAT,
     norm_time as _norm_time_common,
     infer_meta_from_text,
 )
