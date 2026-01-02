@@ -127,10 +127,11 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Clear a generous range
-    requests.post(  # noqa: S113  # nosec B113 - internal Graph API calls, timeout handled by client
+    requests.post(
         f"{base}/worksheets('{sheet}')/range(address='A1:Z10000')/clear",
         headers=client._headers(),
         data=json.dumps({"applyTo": "contents"}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
     )
     if not values:
         return
@@ -145,10 +146,11 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
 
     # Spiff it up: convert to table, format, autofit, freeze header
     # Add table
-    tadd = requests.post(  # noqa: S113  # nosec B113 - internal Graph API calls, timeout handled by client
+    tadd = requests.post(
         f"{base}/tables/add",
         headers=client._headers(),
         data=json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
     )
     tid = None
     try:
@@ -157,21 +159,24 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
         tid = None
     if tid:
         # Apply a table style
-        requests.patch(  # noqa: S113  # nosec B113 - internal Graph API calls, timeout handled by client
+        requests.patch(
             f"{base}/tables/{tid}",
             headers=client._headers(),
             data=json.dumps({"style": "TableStyleMedium2"}),
+            timeout=DEFAULT_REQUEST_TIMEOUT,
         )
     # Autofit columns
-    requests.post(  # noqa: S113  # nosec B113 - internal Graph API calls, timeout handled by client
+    requests.post(
         f"{base}/worksheets('{sheet}')/range(address='{sheet}!A:{end_col}')/format/autofitColumns",
         headers=client._headers(),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
     )
     # Freeze header row
-    requests.post(  # noqa: S113  # nosec B113 - internal Graph API calls, timeout handled by client
+    requests.post(
         f"{base}/worksheets('{sheet}')/freezePanes/freeze",
         headers=client._headers(),
         data=json.dumps({"top": 1, "left": 0}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
     )
 
 
