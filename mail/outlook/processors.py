@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -372,10 +372,12 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             name_to_id = client.get_label_id_map()
             folder_path_map = client.get_folder_path_map() if payload.move_to_folders else {}
 
-            created = self._create_desired_rules(
+            created, desired_keys = self._create_desired_rules(
                 desired, existing, client, name_to_id, folder_path_map, payload
             )
-            deleted = self._delete_missing_rules(existing, payload) if payload.delete_missing else 0
+            deleted = (
+                self._delete_missing_rules(existing, desired_keys, payload) if payload.delete_missing else 0
+            )
 
             return ResultEnvelope(
                 status="success",
@@ -396,8 +398,12 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         name_to_id: Dict[str, str],
         folder_path_map: Dict[str, str],
         payload: OutlookRulesSyncPayload,
-    ) -> int:
-        """Create rules from desired specs that don't exist."""
+    ) -> Tuple[int, set]:
+        """Create rules from desired specs that don't exist.
+
+        Returns:
+            Tuple of (created_count, desired_keys_set)
+        """
         created = 0
         desired_keys: set = set()
         ctx = RuleContext(
@@ -428,15 +434,24 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                     pass
             created += 1
 
-        # Store desired_keys for deletion check
-        self._desired_keys = desired_keys
-        return created
+        return created, desired_keys
 
-    def _delete_missing_rules(self, existing: Dict[str, Any], payload: OutlookRulesSyncPayload) -> int:
-        """Delete rules that are not in desired set."""
+    def _delete_missing_rules(
+        self, existing: Dict[str, Any], desired_keys: set, payload: OutlookRulesSyncPayload
+    ) -> int:
+        """Delete rules that are not in desired set.
+
+        Args:
+            existing: Map of canonical rule keys to rule objects
+            desired_keys: Set of canonical keys for desired rules
+            payload: Sync request payload
+
+        Returns:
+            Number of rules deleted
+        """
         deleted = 0
         for k, rule in existing.items():
-            if k not in self._desired_keys:
+            if k not in desired_keys:
                 rid = rule.get("id")
                 if not payload.dry_run and rid:
                     try:

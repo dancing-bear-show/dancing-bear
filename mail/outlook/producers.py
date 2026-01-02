@@ -23,12 +23,15 @@ from .processors import (
 
 
 def _format_rule_criteria(criteria: Dict[str, Any]) -> str:
-    """Format rule criteria for display."""
+    """Format rule criteria for display.
+
+    Always includes from/to/subject fields to preserve stable tab-separated format,
+    using empty strings when values are not present.
+    """
     parts = []
     for k in ("from", "to", "subject"):
-        val = criteria.get(k)
-        if val:
-            parts.append(f"{k}={val}")
+        val = criteria.get(k) or ""
+        parts.append(f"{k}={val}")
     return "\t".join(parts)
 
 
