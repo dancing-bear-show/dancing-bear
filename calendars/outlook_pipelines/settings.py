@@ -90,34 +90,14 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             if not patch:
                 continue
             if payload.dry_run:
-                parts = []
-                if patch.get("categories") is not None:
-                    parts.append(f"categories={patch['categories']}")
-                if patch.get("show_as"):
-                    parts.append(f"showAs={patch['show_as']}")
-                if patch.get("sensitivity"):
-                    parts.append(f"sensitivity={patch['sensitivity']}")
-                if patch.get("is_reminder_on") is not None:
-                    parts.append(f"isReminderOn={patch['is_reminder_on']}")
-                if patch.get("reminder_minutes") is not None:
-                    parts.append(f"reminderMinutes={patch['reminder_minutes']}")
                 subject = (event.get("subject") or "").strip()
-                logs.append(f"{LOG_DRY_RUN} would update {eid} | {subject} -> {{" + ", ".join(parts) + "}}")
+                logs.append(self._format_patch_log(eid, subject, patch))
                 continue
-            try:
-                from calendars.outlook_service import EventSettingsPatch
-                svc.update_event_settings(EventSettingsPatch(
-                    event_id=eid,
-                    calendar_name=payload.calendar,
-                    categories=patch.get("categories"),
-                    show_as=patch.get("show_as"),
-                    sensitivity=patch.get("sensitivity"),
-                    is_reminder_on=patch.get("is_reminder_on"),
-                    reminder_minutes=patch.get("reminder_minutes"),
-                ))
+            ok, err = self._apply_event_patch(svc, eid, payload.calendar, patch)
+            if ok:
                 changed += 1
-            except Exception as exc:
-                logs.append(f"Failed to update {eid}: {exc}")
+            elif err:
+                logs.append(err)
 
         result = OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
         return result
@@ -176,6 +156,40 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             "is_reminder_on": is_rem_on,
             "reminder_minutes": rem_min,
         }
+
+    def _format_patch_log(self, eid: str, subject: str, patch: Dict[str, Any]) -> str:
+        """Format a dry-run log message for a patch operation."""
+        parts = []
+        if patch.get("categories") is not None:
+            parts.append(f"categories={patch['categories']}")
+        if patch.get("show_as"):
+            parts.append(f"showAs={patch['show_as']}")
+        if patch.get("sensitivity"):
+            parts.append(f"sensitivity={patch['sensitivity']}")
+        if patch.get("is_reminder_on") is not None:
+            parts.append(f"isReminderOn={patch['is_reminder_on']}")
+        if patch.get("reminder_minutes") is not None:
+            parts.append(f"reminderMinutes={patch['reminder_minutes']}")
+        return f"{LOG_DRY_RUN} would update {eid} | {subject} -> {{" + ", ".join(parts) + "}}"
+
+    def _apply_event_patch(
+        self, svc, eid: str, calendar: Optional[str], patch: Dict[str, Any]
+    ) -> tuple[bool, Optional[str]]:
+        """Apply settings patch to an event. Returns (success, error_message)."""
+        try:
+            from calendars.outlook_service import EventSettingsPatch
+            svc.update_event_settings(EventSettingsPatch(
+                event_id=eid,
+                calendar_name=calendar,
+                categories=patch.get("categories"),
+                show_as=patch.get("show_as"),
+                sensitivity=patch.get("sensitivity"),
+                is_reminder_on=patch.get("is_reminder_on"),
+                reminder_minutes=patch.get("reminder_minutes"),
+            ))
+            return True, None
+        except Exception as exc:
+            return False, f"Failed to update {eid}: {exc}"
 
     def _coerce_bool(self, value: Any) -> Optional[bool]:
         if isinstance(value, bool):

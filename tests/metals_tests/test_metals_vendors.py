@@ -7,9 +7,11 @@ from metals.vendors import (
     ALL_VENDORS,
     GMAIL_VENDORS,
     OUTLOOK_VENDORS,
+    BundleSearchContext,
     CostcoParser,
     LineItem,
     PriceHit,
+    PriceSearchContext,
     RCMParser,
     TDParser,
     dedupe_line_items,
@@ -379,7 +381,8 @@ class TestExtractPriceFromLines(unittest.TestCase):
     def test_finds_unit_price(self):
         """Test finds price with 'each' keyword."""
         lines = make_price_lines(price_kind="unit")
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "unit")
         self.assertAlmostEqual(hit.amount, 2500.0, places=2)
@@ -387,28 +390,32 @@ class TestExtractPriceFromLines(unittest.TestCase):
     def test_finds_total_price(self):
         """Test finds price with 'total' keyword."""
         lines = make_price_lines(price_kind="total")
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "total")
 
     def test_returns_unknown_for_no_keyword(self):
         """Test returns 'unknown' when no unit/total keyword."""
         lines = make_price_lines(price_kind="unknown")
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "unknown")
 
     def test_skips_banned_terms(self):
         """Test skips lines with banned terms like 'shipping'."""
         lines = make_price_lines(item_desc="1 oz Gold", include_banned=True)
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNotNone(hit)
         self.assertAlmostEqual(hit.amount, 2500.0, places=2)
 
     def test_skips_subtotal(self):
         """Test skips subtotal lines."""
         lines = ["1 oz Gold", "Subtotal: $2,500.00", "Unit: $2,400.00"]
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNotNone(hit)
         self.assertEqual(hit.kind, "unit")
         self.assertAlmostEqual(hit.amount, 2400.0, places=2)
@@ -416,25 +423,29 @@ class TestExtractPriceFromLines(unittest.TestCase):
     def test_respects_price_band(self):
         """Test filters prices outside expected band."""
         lines = make_price_lines(price=50.0, price_kind="unknown")  # Too low for 1oz gold
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNone(hit)
 
     def test_respects_window(self):
         """Test respects window parameter."""
         lines = LINES_3 + ["$2,500.00 gold"]
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0, window=2)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0, window=2)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNone(hit)  # Price is at line 3, window=2 won't reach it
 
     def test_returns_none_when_no_price(self):
         """Test returns None when no price found."""
         lines = ["1 oz Gold Coin", "Beautiful design"]
-        hit = extract_price_from_lines(lines, 0, "gold", 1.0)
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=1.0)
+        hit = extract_price_from_lines(ctx)
         self.assertIsNone(hit)
 
     def test_handles_comma_in_price(self):
         """Test handles prices with commas."""
         lines = make_price_lines(item_desc="Item", price=12500.0, price_kind="unknown")
-        hit = extract_price_from_lines(lines, 0, "gold", 5.0)  # ~5oz gold
+        ctx = PriceSearchContext(lines=lines, idx=0, metal="gold", unit_oz=5.0)  # ~5oz gold
+        hit = extract_price_from_lines(ctx)
         self.assertIsNotNone(hit)
         self.assertAlmostEqual(hit.amount, 12500.0, places=2)
 
@@ -497,62 +508,72 @@ class TestFindBundleQty(unittest.TestCase):
     def test_finds_pack_pattern(self):
         """Test finds X-pack pattern."""
         lines = ["1 oz Silver", "25-pack", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 25.0)
 
     def test_finds_pack_of_pattern(self):
         """Test finds pack of X pattern."""
         lines = ["1 oz Silver", "pack of 20", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 20.0)
 
     def test_finds_coins_pattern(self):
         """Test finds X coins pattern."""
         lines = ["1 oz Gold", "10 coins", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 10.0)
 
     def test_finds_roll_of_pattern(self):
         """Test finds roll of X pattern."""
         lines = ["Silver Eagle", "roll of 25", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 25.0)
 
     def test_finds_tube_of_pattern(self):
         """Test finds tube of X pattern."""
         lines = ["Silver Maple", "tube of 25", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 25.0)
 
     def test_uses_sku_map(self):
         """Test uses SKU mapping when provided."""
         lines = ["Item #: 3796875", "1 oz Silver"]
         sku_map = {"3796875": 25.0}
-        qty = find_bundle_qty(lines, 1, sku_map=sku_map)
+        ctx = BundleSearchContext(lines=lines, idx=1, sku_map=sku_map)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 25.0)
 
     def test_ignores_qty_of_one(self):
         """Test ignores bundle qty of 1."""
         lines = ["1 oz Gold", "1 coin", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertIsNone(qty)
 
     def test_returns_none_when_not_found(self):
         """Test returns None when no bundle found."""
         lines = ["1 oz Gold", "Price: $2500"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertIsNone(qty)
 
     def test_respects_window(self):
         """Test respects window parameter."""
         lines = ["1 oz Silver", "Line 1", "Line 2", "Line 3", "25-pack"]
-        qty = find_bundle_qty(lines, 0, window=2)
+        ctx = BundleSearchContext(lines=lines, idx=0, window=2)
+        qty = find_bundle_qty(ctx)
         self.assertIsNone(qty)
 
     def test_finds_ct_pattern(self):
         """Test finds X ct pattern."""
         lines = ["1 oz Silver", "25 ct", "Price"]
-        qty = find_bundle_qty(lines, 0)
+        ctx = BundleSearchContext(lines=lines, idx=0)
+        qty = find_bundle_qty(ctx)
         self.assertEqual(qty, 25.0)
 
 

@@ -47,6 +47,27 @@ class PriceHit:
     kind: str  # 'unit', 'total', or 'unknown'
 
 
+@dataclass
+class PriceSearchContext:
+    """Context for searching for prices near a line item."""
+    lines: List[str]  # All email lines
+    idx: int  # Index of line item in lines
+    metal: str  # Metal type (gold, silver)
+    unit_oz: float  # Unit weight in ounces
+    window: int = 13  # Search window size
+    ban_pattern: Optional[re.Pattern] = None  # Pattern to exclude lines
+    forward_only: bool = False  # Search only forward from idx
+
+
+@dataclass
+class BundleSearchContext:
+    """Context for searching for bundle quantities."""
+    lines: List[str]  # All email lines
+    idx: int  # Index of line item in lines
+    sku_map: Optional[Dict[str, float]] = None  # SKU to quantity mapping
+    window: int = 4  # Search window size
+
+
 class VendorParser(ABC):
     """Base class for vendor-specific email parsing."""
 
@@ -235,22 +256,17 @@ def _extract_bundle_qty_from_sku(ln: str, sku_map: Dict[str, float]) -> Optional
     return None
 
 
-def find_bundle_qty(
-    lines: List[str],
-    idx: int,
-    sku_map: Optional[Dict[str, float]] = None,
-    window: int = 4,
-) -> Optional[float]:
+def find_bundle_qty(ctx: BundleSearchContext) -> Optional[float]:
     """Find bundle quantity from patterns or SKU mapping."""
-    for _, ln in iter_nearby_lines(lines, idx, window):
+    for _, ln in iter_nearby_lines(ctx.lines, ctx.idx, ctx.window):
         # Check bundle patterns first
         qty = _extract_bundle_qty_from_pattern(ln)
         if qty:
             return qty
 
         # Check SKU mapping if available
-        if sku_map:
-            qty = _extract_bundle_qty_from_sku(ln, sku_map)
+        if ctx.sku_map:
+            qty = _extract_bundle_qty_from_sku(ln, ctx.sku_map)
             if qty:
                 return qty
 
@@ -275,20 +291,12 @@ def _classify_price_kind(ln: str) -> str:
     return 'unknown'
 
 
-def extract_price_from_lines(
-    lines: List[str],
-    idx: int,
-    metal: str,
-    unit_oz: float,
-    window: int = 13,
-    ban_pattern: Optional[re.Pattern] = None,
-    forward_only: bool = False,
-) -> Optional[PriceHit]:
+def extract_price_from_lines(ctx: PriceSearchContext) -> Optional[PriceHit]:
     """Shared price extraction logic used by multiple vendors."""
-    ban = ban_pattern or DEFAULT_PRICE_BAN
-    lb, ub = get_price_band(metal, unit_oz)
+    ban = ctx.ban_pattern or DEFAULT_PRICE_BAN
+    lb, ub = get_price_band(ctx.metal, ctx.unit_oz)
 
-    for _, ln in iter_nearby_lines(lines, idx, window, forward_only):
+    for _, ln in iter_nearby_lines(ctx.lines, ctx.idx, ctx.window, ctx.forward_only):
         if ban.search(ln):
             continue
 
@@ -326,7 +334,8 @@ def _enhance_item_qty(
 
     # For ~1oz items, check for bundle quantity
     if check_bundle and 0.98 <= item.unit_oz <= 1.02:
-        bq = find_bundle_qty(lines, item.idx, SKU_BUNDLE_MAP)
+        ctx = BundleSearchContext(lines=lines, idx=item.idx, sku_map=SKU_BUNDLE_MAP)
+        bq = find_bundle_qty(ctx)
         if bq:
             item.qty = bq
 
@@ -360,7 +369,8 @@ class TDParser(VendorParser):
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
-        return extract_price_from_lines(lines, idx, metal, unit_oz)
+        ctx = PriceSearchContext(lines=lines, idx=idx, metal=metal, unit_oz=unit_oz)
+        return extract_price_from_lines(ctx)
 
     def _extract_email(self, from_header: str) -> str:
         m = re.search(r"<([^>]+)>", from_header or '')
@@ -399,7 +409,8 @@ class CostcoParser(VendorParser):
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
-        hit = extract_price_from_lines(lines, idx, metal, unit_oz)
+        ctx = PriceSearchContext(lines=lines, idx=idx, metal=metal, unit_oz=unit_oz)
+        hit = extract_price_from_lines(ctx)
         return PriceHit(amount=hit.amount, kind='unit') if hit else None
 
 
@@ -608,6 +619,8 @@ def get_vendor_for_sender(from_header: str, vendors: List[VendorParser] = ALL_VE
 __all__ = [
     'LineItem',
     'PriceHit',
+    'PriceSearchContext',
+    'BundleSearchContext',
     'VendorParser',
     'TDParser',
     'CostcoParser',

@@ -59,6 +59,34 @@ class DateRangeConfig:
     default_days_forward: int = 180
 
 
+def _add_argument_with_help(parser, flag: str, help_text: Optional[str], **kwargs) -> None:
+    """Add argument to parser with optional help text.
+
+    Args:
+        parser: ArgumentParser to add argument to.
+        flag: Argument flag (e.g., "--profile").
+        help_text: Help text (None = no help).
+        **kwargs: Additional arguments for add_argument.
+    """
+    if help_text is None:
+        parser.add_argument(flag, **kwargs)
+    else:
+        parser.add_argument(flag, help=help_text, **kwargs)
+
+
+def _get_legacy_value(provided_value, default_value):
+    """Get value from legacy parameter, handling _UNSET sentinel.
+
+    Args:
+        provided_value: Value provided by caller (_UNSET if not provided).
+        default_value: Default to use if not provided.
+
+    Returns:
+        The appropriate value.
+    """
+    return default_value if provided_value is _UNSET else provided_value
+
+
 def add_outlook_auth_args(
     parser,
     config: Optional[OutlookAuthConfig] = None,
@@ -83,40 +111,29 @@ def add_outlook_auth_args(
     """
     # Use config if provided, otherwise build from legacy parameters
     if config is None:
-        # Build config from legacy parameters, preserving exact behavior
-        # Use _UNSET sentinel to distinguish "not provided" from "explicitly None"
         config = OutlookAuthConfig(
             include_profile=include_profile if include_profile is not None else False,
-            profile_help=profile_help if profile_help is not _UNSET else None,
-            client_id_help=client_id_help if client_id_help is not _UNSET else "Azure app (client) ID; defaults from profile or env",
-            tenant_help=tenant_help if tenant_help is not _UNSET else "AAD tenant (default: consumers)",
-            tenant_default=tenant_default if tenant_default is not _UNSET else "consumers",
-            token_help=token_help if token_help is not _UNSET else "Path to token cache JSON (optional)",
+            profile_help=_get_legacy_value(profile_help, None),
+            client_id_help=_get_legacy_value(client_id_help, "Azure app (client) ID; defaults from profile or env"),
+            tenant_help=_get_legacy_value(tenant_help, "AAD tenant (default: consumers)"),
+            tenant_default=_get_legacy_value(tenant_default, "consumers"),
+            token_help=_get_legacy_value(token_help, "Path to token cache JSON (optional)"),
         )
 
+    # Add profile argument if requested
     if config.include_profile:
-        if config.profile_help is None:
-            parser.add_argument("--profile")
-        else:
-            parser.add_argument("--profile", help=config.profile_help)
-    if config.client_id_help is None:
-        parser.add_argument("--client-id")
-    else:
-        parser.add_argument("--client-id", help=config.client_id_help)
-    if config.tenant_default is None:
-        if config.tenant_help is None:
-            parser.add_argument("--tenant")
-        else:
-            parser.add_argument("--tenant", help=config.tenant_help)
-    else:
-        if config.tenant_help is None:
-            parser.add_argument("--tenant", default=config.tenant_default)
-        else:
-            parser.add_argument("--tenant", default=config.tenant_default, help=config.tenant_help)
-    if config.token_help is None:
-        parser.add_argument("--token")
-    else:
-        parser.add_argument("--token", help=config.token_help)
+        _add_argument_with_help(parser, "--profile", config.profile_help)
+
+    # Add client-id argument
+    _add_argument_with_help(parser, "--client-id", config.client_id_help)
+
+    # Add tenant argument with optional default
+    tenant_kwargs = {"default": config.tenant_default} if config.tenant_default is not None else {}
+    _add_argument_with_help(parser, "--tenant", config.tenant_help, **tenant_kwargs)
+
+    # Add token argument
+    _add_argument_with_help(parser, "--token", config.token_help)
+
     return parser
 
 
