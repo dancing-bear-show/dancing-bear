@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from metals.cost_extractor import CostExtractor, MessageInfo, OrderData
 from metals.outlook_costs import OutlookCostExtractor
+from .fixtures import make_message_info
 
 
 class MockCostExtractor(CostExtractor):
@@ -24,7 +25,7 @@ class MockCostExtractor(CostExtractor):
         return self.fetched_ids
 
     def _get_message_info(self, msg_id: str) -> MessageInfo:
-        return MessageInfo(
+        return make_message_info(
             msg_id=msg_id,
             subject=f"Subject {msg_id}",
             from_header="test@example.com",
@@ -108,8 +109,8 @@ class TestCostExtractorBaseClass(unittest.TestCase):
         """Test _build_order_data selects best message."""
         extractor = MockCostExtractor('test', 'out/test.csv')
         messages = [
-            MessageInfo('msg1', 'Subject 1', 'test@ex.com', 'Body 1', '2024-01-15'),
-            MessageInfo('msg2', 'Subject 2', 'test@ex.com', 'Body 2', '2024-01-16'),
+            make_message_info(msg_id='msg1', subject='Subject 1', from_header='test@ex.com', body_text='Body 1', received_date='2024-01-15'),
+            make_message_info(msg_id='msg2', subject='Subject 2', from_header='test@ex.com', body_text='Body 2', received_date='2024-01-16'),
         ]
 
         order_data = extractor._build_order_data('ORD123', messages)
@@ -123,6 +124,27 @@ class TestCostExtractorBaseClass(unittest.TestCase):
         extractor = MockCostExtractor('test', 'out/test.csv')
         vendor = extractor._classify_vendor('unknown@example.com')
         self.assertEqual(vendor, 'Unknown')
+
+    def test_run_returns_one_when_orders_found_but_no_cost_rows(self):
+        """Test run() returns 1 when orders are extracted but produce no cost rows."""
+        # Create a mock extractor that returns empty rows for orders
+        class EmptyRowsExtractor(MockCostExtractor):
+            def _process_order_to_rows(self, order: OrderData):
+                self.processed_orders.append(order.order_id)
+                return []  # No cost rows extracted
+
+        extractor = EmptyRowsExtractor('test', 'out/test.csv')
+        extractor.fetched_ids = ['ord-msg1', 'ord-msg2']
+
+        with patch('metals.cost_extractor.merge_costs_csv') as mock_merge:
+            result = extractor.run()
+
+            # Should return 1 when no cost rows are produced
+            self.assertEqual(result, 1)
+            # merge_costs_csv should not be called when no rows
+            mock_merge.assert_not_called()
+            # Orders should still be processed
+            self.assertEqual(len(extractor.processed_orders), 2)
 
 
 class TestOutlookCostExtractorHelpers(unittest.TestCase):
@@ -366,7 +388,7 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
     def test_build_output_rows_returns_per_item_rows(self):
         """Test _build_output_rows returns per-item rows when available."""
         extractor = OutlookCostExtractor('test', 'out/test.csv')
-        msg = MessageInfo('msg1', 'Test', 'test@example.com', 'Body', '2024-01-15')
+        msg = make_message_info(msg_id='msg1', subject='Test', from_header='test@example.com', body_text='Body', received_date='2024-01-15')
         per_item_rows = [
             {'vendor': 'RCM', 'cost_total': 350.0, 'order_id': 'PO123'}
         ]
@@ -381,7 +403,7 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
     def test_build_output_rows_builds_aggregated_row(self):
         """Test _build_output_rows builds aggregated row when no per-item."""
         extractor = OutlookCostExtractor('test', 'out/test.csv')
-        msg = MessageInfo('msg1', 'Test', 'test@example.com', 'Body', '2024-01-15')
+        msg = make_message_info(msg_id='msg1', subject='Test', from_header='test@example.com', body_text='Body', received_date='2024-01-15')
 
         rows = extractor._build_output_rows(
             [], 350.0, {'gold': 0.1}, {'gold': {0.1: 1.0}},
@@ -398,7 +420,7 @@ class TestMessageInfo(unittest.TestCase):
 
     def test_message_info_creation(self):
         """Test MessageInfo can be created."""
-        msg = MessageInfo(
+        msg = make_message_info(
             msg_id='msg123',
             subject='Test Subject',
             from_header='test@example.com',
@@ -414,7 +436,7 @@ class TestMessageInfo(unittest.TestCase):
 
     def test_message_info_with_received_ms(self):
         """Test MessageInfo with received_ms field."""
-        msg = MessageInfo(
+        msg = make_message_info(
             msg_id='msg123',
             subject='Test',
             from_header='test@example.com',
@@ -432,8 +454,8 @@ class TestOrderData(unittest.TestCase):
     def test_order_data_creation(self):
         """Test OrderData can be created."""
         messages = [
-            MessageInfo('msg1', 'Subject 1', 'test@ex.com', 'Body 1', '2024-01-15'),
-            MessageInfo('msg2', 'Subject 2', 'test@ex.com', 'Body 2', '2024-01-16'),
+            make_message_info(msg_id='msg1', subject='Subject 1', from_header='test@ex.com', body_text='Body 1', received_date='2024-01-15'),
+            make_message_info(msg_id='msg2', subject='Subject 2', from_header='test@ex.com', body_text='Body 2', received_date='2024-01-16'),
         ]
 
         order = OrderData(
@@ -482,7 +504,7 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
         from metals.gmail_costs import GmailCostExtractor
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
-        msg = MessageInfo(
+        msg = make_message_info(
             msg_id='msg123',
             subject='Order #1234567 Confirmation',
             from_header='noreply@td.com',
@@ -499,7 +521,7 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
         from metals.gmail_costs import GmailCostExtractor
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
-        msg = MessageInfo(
+        msg = make_message_info(
             msg_id='msg123',
             subject='Your order',
             from_header='noreply@td.com',
@@ -516,7 +538,7 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
         from metals.gmail_costs import GmailCostExtractor
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
-        msg = MessageInfo(
+        msg = make_message_info(
             msg_id='msg123',
             subject='Costco.ca Order 1122334455',
             from_header='orders@costco.ca',
@@ -533,7 +555,7 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
         from metals.gmail_costs import GmailCostExtractor
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
-        msg = MessageInfo(
+        msg = make_message_info(
             msg_id='unique-msg-id',
             subject='No order number here',
             from_header='test@example.com',
@@ -551,8 +573,8 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
         messages = [
-            MessageInfo('msg1', 'Shipping Notice', 'noreply@td.com', 'Shipped', '', 100),
-            MessageInfo('msg2', 'Order Confirmation', 'noreply@td.com', 'Confirmed', '', 200),
+            make_message_info('msg1', 'Shipping Notice', 'noreply@td.com', 'Shipped', '', 100),
+            make_message_info('msg2', 'Order Confirmation', 'noreply@td.com', 'Confirmed', '', 200),
         ]
 
         best = extractor._select_best_message(messages)
@@ -566,8 +588,8 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
         messages = [
-            MessageInfo('msg1', 'Shipping Notice', 'noreply@td.com', 'Shipped', '', 100),
-            MessageInfo('msg2', 'Receipt', 'noreply@td.com', 'Receipt', '', 200),
+            make_message_info('msg1', 'Shipping Notice', 'noreply@td.com', 'Shipped', '', 100),
+            make_message_info('msg2', 'Receipt', 'noreply@td.com', 'Receipt', '', 200),
         ]
 
         best = extractor._select_best_message(messages)
@@ -625,7 +647,7 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
         extractor.client = Mock()
 
         messages = [
-            MessageInfo('msg1', 'Subject', 'test@example.com', 'Body', '', 1000)
+            make_message_info('msg1', 'Subject', 'test@example.com', 'Body', '', 1000)
         ]
         order = OrderData('ORD123', messages, 'TD')
 

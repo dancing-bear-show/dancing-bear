@@ -339,6 +339,7 @@ def make_message_info(
     from_header: str = "noreply@td.com",
     body_text: str = "Your order has been received.",
     received_date: str = DEFAULT_DATE,
+    received_ms: Optional[int] = None,
 ) -> MessageInfo:
     """Create a MessageInfo instance with sensible defaults.
 
@@ -348,6 +349,7 @@ def make_message_info(
         from_header: Sender email address
         body_text: Email body content
         received_date: Date received (ISO format)
+        received_ms: Optional timestamp in milliseconds
 
     Returns:
         MessageInfo instance
@@ -358,6 +360,7 @@ def make_message_info(
         from_header=from_header,
         body_text=body_text,
         received_date=received_date,
+        received_ms=received_ms,
     )
 
 
