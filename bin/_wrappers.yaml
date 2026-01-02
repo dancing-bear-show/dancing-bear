@@ -17,6 +17,19 @@ python:
   maker: {module: maker, doc: "Thin wrapper to run the Maker CLI."}
   assistant: {module: core.assistant_cli, doc: "Unified assistant entry point (dispatches to app CLIs)."}
   metals: {module: metals, doc: "Thin wrapper to run the Metals CLI."}
+  apple-music-assistant: {module: apple_music, doc: "Thin wrapper to run the Apple Music CLI."}
+  apple-music-user-token: {module: apple_music.user_token_cli, doc: "Generate a URL to obtain Music User Token."}
+
+  # Metals utilities
+  outlook-metals-scan: {module: metals.outlook_scan, doc: "Scan Outlook for metals purchase emails."}
+  extract-metals: {module: metals.gmail_extract, doc: "Extract metals data from Gmail."}
+  extract-metals-costs: {module: metals.gmail_costs, doc: "Extract metals costs from Gmail."}
+  extract-metals-costs-outlook: {module: metals.outlook_costs, doc: "Extract metals costs from Outlook."}
+  build-metals-summaries: {module: metals.build_summaries, doc: "Build metals summary spreadsheets."}
+  metals-premium: {module: metals.premium, doc: "Calculate metals premiums."}
+  metals-premium-summary: {module: metals.premium_summary, doc: "Generate metals premium summary."}
+  metals-spot-series: {module: metals.spot, doc: "Fetch metals spot price series."}
+  metals-excel-merge: {module: metals.excel_merge, doc: "Merge metals Excel files."}
 
   # Legacy -assistant aliases
   mail-assistant: {module: mail, doc: "Legacy alias for bin/mail."}
@@ -43,14 +56,3 @@ manual:
   - uuidgen-pair
   - apply-calendar-locations
   - reminders-off-sweep
-  - outlook-metals-scan
-  - extract-metals
-  - extract-metals-costs
-  - extract-metals-costs-outlook
-  - build-metals-summaries
-  - metals-premium
-  - metals-premium-summary
-  - metals-spot-series
-  - metals-excel-merge
-  - apple-music-assistant
-  - apple-music-user-token

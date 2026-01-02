@@ -14,10 +14,14 @@ from ._base import (
     RequestConsumer,
     ResultEnvelope,
     SafeProcessor,
+    Tuple,
     check_service_required,
     dataclass,
     load_events_config,
 )
+
+# Subject prefixes for location enrichment (case-insensitive)
+ENRICHABLE_SUBJECT_PREFIXES = ("public skating", "leisure swim", "fun n fit")
 
 
 # =============================================================================
@@ -74,21 +78,36 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
         enricher = self._enricher
         if enricher is None:
             from calendars.locations_map import enrich_location as default_enrich
-
             enricher = default_enrich
 
+        series = self._build_series_map(events or [])
+        if not series:
+            return OutlookLocationsEnrichResult(updated=0, dry_run=payload.dry_run)
+
+        updated = self._enrich_series(series, enricher, svc, cal_id, payload.dry_run)
+        return OutlookLocationsEnrichResult(updated=updated, dry_run=payload.dry_run)
+
+    def _build_series_map(self, events: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Build map of series ID -> event for enrichable subjects."""
         series: Dict[str, Dict[str, Any]] = {}
-        for ev in events or []:
+        for ev in events:
             sid = ev.get("seriesMasterId") or ev.get("id")
             if not sid or sid in series:
                 continue
             subj = (ev.get("subject") or "").strip().lower()
-            if subj.startswith(("public skating", "leisure swim", "fun n fit")):
+            if subj.startswith(ENRICHABLE_SUBJECT_PREFIXES):
                 series[sid] = ev
+        return series
 
-        if not series:
-            return OutlookLocationsEnrichResult(updated=0, dry_run=payload.dry_run)
-
+    def _enrich_series(
+        self,
+        series: Dict[str, Dict[str, Any]],
+        enricher,
+        svc,
+        cal_id: str,
+        dry_run: bool,
+    ) -> int:
+        """Enrich location data for series. Returns count of updated series."""
         updated = 0
         self._logs = []
         for sid, ev in series.items():
@@ -96,7 +115,7 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
             new_loc = enricher(loc)
             if not new_loc or new_loc == loc:
                 continue
-            if payload.dry_run:
+            if dry_run:
                 self._logs.append(f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'")
                 continue
             try:
@@ -105,8 +124,7 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
                 self._logs.append(f"Updated series {sid} location -> {new_loc}")
             except Exception as exc:
                 self._logs.append(f"Failed to update series {sid}: {exc}")
-
-        return OutlookLocationsEnrichResult(updated=updated, dry_run=payload.dry_run)
+        return updated
 
     def process(self, payload: OutlookLocationsEnrichRequest) -> ResultEnvelope[OutlookLocationsEnrichResult]:
         """Override to add logs to diagnostics."""

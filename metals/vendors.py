@@ -47,6 +47,27 @@ class PriceHit:
     kind: str  # 'unit', 'total', or 'unknown'
 
 
+@dataclass
+class PriceSearchContext:
+    """Context for searching for prices near a line item."""
+    lines: List[str]  # All email lines
+    idx: int  # Index of line item in lines
+    metal: str  # Metal type (gold, silver)
+    unit_oz: float  # Unit weight in ounces
+    window: int = 13  # Search window size
+    ban_pattern: Optional[re.Pattern] = None  # Pattern to exclude lines
+    forward_only: bool = False  # Search only forward from idx
+
+
+@dataclass
+class BundleSearchContext:
+    """Context for searching for bundle quantities."""
+    lines: List[str]  # All email lines
+    idx: int  # Index of line item in lines
+    sku_map: Optional[Dict[str, float]] = None  # SKU to quantity mapping
+    window: int = 4  # Search window size
+
+
 class VendorParser(ABC):
     """Base class for vendor-specific email parsing."""
 
@@ -118,25 +139,47 @@ def infer_metal_from_context(text: str) -> str:
     return ''
 
 
+def _parse_frac_match(m: re.Match) -> Tuple[float, str, float]:
+    """Parse fractional oz pattern: 1/2 oz gold (2)."""
+    num, den = float(m.group(1)), float(m.group(2) or 1)
+    unit_oz = num / max(den, 1.0)
+    metal = (m.group(3) or '').lower()
+    qty = float(m.group(4) or 1)
+    return (unit_oz, metal, qty)
+
+
+def _parse_decimal_match(m: re.Match) -> Tuple[float, str, float]:
+    """Parse decimal oz pattern: 1.5 oz silver (3)."""
+    unit_oz = float(m.group(1))
+    metal = (m.group(2) or '').lower()
+    qty = float(m.group(3) or 1)
+    return (unit_oz, metal, qty)
+
+
+def _parse_grams_match(m: re.Match) -> Tuple[float, str, float]:
+    """Parse grams pattern: 31.1 g gold (5)."""
+    unit_oz = float(m.group(1)) / G_PER_OZ
+    metal = (m.group(3) or '').lower()
+    qty = float(m.group(4) or 1)
+    return (unit_oz, metal, qty)
+
+
+# Weight pattern parsers: maps pattern type to parser function
+_WEIGHT_PARSERS = {
+    'frac': _parse_frac_match,
+    'decimal': _parse_decimal_match,
+    'grams': _parse_grams_match,
+}
+
+
 def _parse_weight_match(m: re.Match, pattern_type: str) -> Optional[Tuple[float, str, float]]:
     """Parse a weight regex match into (unit_oz, metal, qty). Returns None on error."""
+    parser = _WEIGHT_PARSERS.get(pattern_type)
+    if not parser:
+        return None
+
     try:
-        if pattern_type == 'frac':
-            num, den = float(m.group(1)), float(m.group(2) or 1)
-            unit_oz = num / max(den, 1.0)
-            metal = (m.group(3) or '').lower()
-            qty = float(m.group(4) or 1)
-        elif pattern_type == 'decimal':
-            unit_oz = float(m.group(1))
-            metal = (m.group(2) or '').lower()
-            qty = float(m.group(3) or 1)
-        elif pattern_type == 'grams':
-            unit_oz = float(m.group(1)) / G_PER_OZ
-            metal = (m.group(3) or '').lower()
-            qty = float(m.group(4) or 1)
-        else:
-            return None
-        return (unit_oz, metal, qty)
+        return parser(m)
     except (ValueError, IndexError):
         return None
 
@@ -190,46 +233,70 @@ def dedupe_line_items(items: List[LineItem]) -> List[LineItem]:
 DEFAULT_PRICE_BAN = PRICE_BAN_DEFAULT
 
 
-def find_bundle_qty(
-    lines: List[str],
-    idx: int,
-    sku_map: Optional[Dict[str, float]] = None,
-    window: int = 4,
-) -> Optional[float]:
-    """Find bundle quantity from patterns or SKU mapping."""
-    for _, ln in iter_nearby_lines(lines, idx, window):
-        # Check bundle patterns
-        for pat in BUNDLE_PATTERNS:
-            m = pat.search(ln)
-            if m:
-                for g in range(1, len(m.groups()) + 1):
-                    val = m.group(g)
-                    if val and val.isdigit():
-                        n = int(val)
-                        if 2 <= n <= 200:
-                            return float(n)
-        # Check SKU mapping
-        if sku_map:
-            m_sku = PAT_SKU.search(ln)
-            if m_sku and m_sku.group(1) in sku_map:
-                return sku_map[m_sku.group(1)]
+def _extract_bundle_qty_from_pattern(ln: str) -> Optional[float]:
+    """Extract bundle quantity from a line using regex patterns."""
+    for pat in BUNDLE_PATTERNS:
+        m = pat.search(ln)
+        if not m:
+            continue
+        for g in range(1, len(m.groups()) + 1):
+            val = m.group(g)
+            if val and val.isdigit():
+                n = int(val)
+                if 2 <= n <= 200:
+                    return float(n)
     return None
 
 
-def extract_price_from_lines(
-    lines: List[str],
-    idx: int,
-    metal: str,
-    unit_oz: float,
-    window: int = 13,
-    ban_pattern: Optional[re.Pattern] = None,
-    forward_only: bool = False,
-) -> Optional[PriceHit]:
-    """Shared price extraction logic used by multiple vendors."""
-    ban = ban_pattern or DEFAULT_PRICE_BAN
-    lb, ub = get_price_band(metal, unit_oz)
+def _extract_bundle_qty_from_sku(ln: str, sku_map: Dict[str, float]) -> Optional[float]:
+    """Extract bundle quantity from SKU mapping."""
+    m_sku = PAT_SKU.search(ln)
+    if m_sku and m_sku.group(1) in sku_map:
+        return sku_map[m_sku.group(1)]
+    return None
 
-    for _, ln in iter_nearby_lines(lines, idx, window, forward_only):
+
+def find_bundle_qty(ctx: BundleSearchContext) -> Optional[float]:
+    """Find bundle quantity from patterns or SKU mapping."""
+    for _, ln in iter_nearby_lines(ctx.lines, ctx.idx, ctx.window):
+        # Check bundle patterns first
+        qty = _extract_bundle_qty_from_pattern(ln)
+        if qty:
+            return qty
+
+        # Check SKU mapping if available
+        if ctx.sku_map:
+            qty = _extract_bundle_qty_from_sku(ln, ctx.sku_map)
+            if qty:
+                return qty
+
+    return None
+
+
+def _parse_price_amount(m: re.Match) -> Optional[float]:
+    """Parse price amount from regex match, handling commas."""
+    try:
+        return float(m.group(2).replace(",", ""))
+    except (ValueError, IndexError):
+        return None
+
+
+def _classify_price_kind(ln: str) -> str:
+    """Classify price as 'unit', 'total', or 'unknown' based on context."""
+    low = ln.lower()
+    if _PAT_UNIT.search(low):
+        return 'unit'
+    if _PAT_TOTAL.search(low):
+        return 'total'
+    return 'unknown'
+
+
+def extract_price_from_lines(ctx: PriceSearchContext) -> Optional[PriceHit]:
+    """Shared price extraction logic used by multiple vendors."""
+    ban = ctx.ban_pattern or DEFAULT_PRICE_BAN
+    lb, ub = get_price_band(ctx.metal, ctx.unit_oz)
+
+    for _, ln in iter_nearby_lines(ctx.lines, ctx.idx, ctx.window, ctx.forward_only):
         if ban.search(ln):
             continue
 
@@ -237,22 +304,40 @@ def extract_price_from_lines(
         if not m:
             continue
 
-        try:
-            amt = float(m.group(2).replace(",", ""))
-        except (ValueError, IndexError):
+        amt = _parse_price_amount(m)
+        if amt is None or not (lb <= amt <= ub):
             continue
 
-        if not (lb <= amt <= ub):
-            continue
-
-        low = ln.lower()
-        if _PAT_UNIT.search(low):
-            return PriceHit(amount=amt, kind='unit')
-        if _PAT_TOTAL.search(low):
-            return PriceHit(amount=amt, kind='total')
-        return PriceHit(amount=amt, kind='unknown')
+        kind = _classify_price_kind(ln)
+        return PriceHit(amount=amt, kind=kind)
 
     return None
+
+
+# =============================================================================
+# Shared Line Item Enhancement
+# =============================================================================
+
+
+def _enhance_item_qty(
+    item: LineItem, lines: List[str], check_bundle: bool = True
+) -> None:
+    """Enhance item quantity by finding explicit qty or bundle patterns."""
+    if not math.isclose(item.qty, 1.0):
+        return
+
+    # Try to find explicit quantity first
+    eq = find_qty_near(lines, item.idx)
+    if eq:
+        item.qty = eq
+        return
+
+    # For ~1oz items, check for bundle quantity
+    if check_bundle and 0.98 <= item.unit_oz <= 1.02:
+        ctx = BundleSearchContext(lines=lines, idx=item.idx, sku_map=SKU_BUNDLE_MAP)
+        bq = find_bundle_qty(ctx)
+        if bq:
+            item.qty = bq
 
 
 # =============================================================================
@@ -272,15 +357,9 @@ class TDParser(VendorParser):
         items, lines = extract_basic_line_items(text)
 
         for item in items:
-            if math.isclose(item.qty, 1.0):
-                eq = find_qty_near(lines, item.idx)
-                if eq:
-                    item.qty = eq
-                elif 0.98 <= item.unit_oz <= 1.02:
-                    bq = find_bundle_qty(lines, item.idx, SKU_BUNDLE_MAP)
-                    if bq:
-                        item.qty = bq
+            _enhance_item_qty(item, lines, check_bundle=True)
 
+            # TD-specific: Check for SKU-based unit oz override
             uov = self._get_unit_oz_override(lines, item.idx, item.metal)
             if uov:
                 item.unit_oz = uov
@@ -290,7 +369,8 @@ class TDParser(VendorParser):
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
-        return extract_price_from_lines(lines, idx, metal, unit_oz)
+        ctx = PriceSearchContext(lines=lines, idx=idx, metal=metal, unit_oz=unit_oz)
+        return extract_price_from_lines(ctx)
 
     def _extract_email(self, from_header: str) -> str:
         m = re.search(r"<([^>]+)>", from_header or '')
@@ -322,21 +402,15 @@ class CostcoParser(VendorParser):
         items, lines = extract_basic_line_items(text)
 
         for item in items:
-            if math.isclose(item.qty, 1.0):
-                eq = find_qty_near(lines, item.idx)
-                if eq:
-                    item.qty = eq
-                elif 0.98 <= item.unit_oz <= 1.02:
-                    bq = find_bundle_qty(lines, item.idx, SKU_BUNDLE_MAP)
-                    if bq:
-                        item.qty = bq
+            _enhance_item_qty(item, lines, check_bundle=True)
 
         return items, lines
 
     def extract_price_near_item(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Optional[PriceHit]:
-        hit = extract_price_from_lines(lines, idx, metal, unit_oz)
+        ctx = PriceSearchContext(lines=lines, idx=idx, metal=metal, unit_oz=unit_oz)
+        hit = extract_price_from_lines(ctx)
         return PriceHit(amount=hit.amount, kind='unit') if hit else None
 
 
@@ -372,12 +446,11 @@ class RCMParser(VendorParser):
         email = (from_header or '').lower()
         return any(x in email for x in ('email.mint.ca', 'mint.ca', 'royalcanadianmint.ca'))
 
-    def extract_line_items(self, text: str) -> Tuple[List[LineItem], List[str]]:
-        """Extract line items with RCM-specific patterns."""
-        t = normalize_unicode(text or '')
-        lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    def _extract_line_items_from_text(
+        self, lines: List[str], metal_guess: str
+    ) -> List[LineItem]:
+        """Extract all line items from text lines."""
         items: List[LineItem] = []
-        metal_guess = infer_metal_from_context(text) or 'gold'
 
         for idx, ln in enumerate(lines):
             metal = infer_metal_from_context(ln) or metal_guess
@@ -392,6 +465,15 @@ class RCMParser(VendorParser):
             for oz in self._extract_weights(ln):
                 items.append(LineItem(metal=metal, unit_oz=oz, qty=qty, idx=idx))
 
+        return items
+
+    def extract_line_items(self, text: str) -> Tuple[List[LineItem], List[str]]:
+        """Extract line items with RCM-specific patterns."""
+        t = normalize_unicode(text or '')
+        lines: List[str] = [ln.strip() for ln in t.splitlines() if ln.strip()]
+        metal_guess = infer_metal_from_context(text) or 'gold'
+
+        items = self._extract_line_items_from_text(lines, metal_guess)
         return dedupe_line_items(items), lines
 
     def _extract_weights(self, ln: str) -> List[float]:
@@ -414,31 +496,51 @@ class RCMParser(VendorParser):
                 continue
         return weights
 
-    def extract_price_near_item(
-        self, lines: List[str], idx: int, metal: str, unit_oz: float
-    ) -> Optional[PriceHit]:
-        """Find price near item with RCM-specific filtering (prefers 'total' lines)."""
+    def _is_price_in_range(self, amt: float, metal: str, unit_oz: float) -> bool:
+        """Check if price is within expected range for gold."""
+        if metal != 'gold':
+            return True
         lb, ub = get_price_band(metal, unit_oz)
+        return lb <= amt <= ub
+
+    def _extract_price_candidates(
+        self, lines: List[str], idx: int, metal: str, unit_oz: float
+    ) -> Dict[str, Tuple[float, int]]:
+        """Extract all price candidates near idx, ranked by distance."""
         best: Dict[str, Tuple[float, int]] = {}  # kind -> (amount, distance)
 
         for d, ln in iter_nearby_lines(lines, idx, window=21, forward_only=True):
             if self._PRICE_BAN.search(ln.lower()):
                 continue
+
             for m in MONEY_PATTERN.finditer(ln):
                 try:
                     amt = float(m.group(2).replace(",", ""))
                 except (ValueError, IndexError):
                     continue
-                if metal == 'gold' and not (lb <= amt <= ub):
+
+                if not self._is_price_in_range(amt, metal, unit_oz):
                     continue
+
                 dist = abs(d - idx)
                 kind = 'total' if _PAT_TOTAL.search(ln) else 'unit'
+
                 if kind not in best or dist < best[kind][1]:
                     best[kind] = (amt, dist)
 
+        return best
+
+    def extract_price_near_item(
+        self, lines: List[str], idx: int, metal: str, unit_oz: float
+    ) -> Optional[PriceHit]:
+        """Find price near item with RCM-specific filtering (prefers 'total' lines)."""
+        candidates = self._extract_price_candidates(lines, idx, metal, unit_oz)
+
+        # Prefer 'total' over 'unit'
         for kind in ('total', 'unit'):
-            if kind in best:
-                return PriceHit(amount=best[kind][0], kind=kind)
+            if kind in candidates:
+                return PriceHit(amount=candidates[kind][0], kind=kind)
+
         return None
 
     def classify_email(self, subject: str) -> Tuple[str, int]:
@@ -455,28 +557,40 @@ class RCMParser(VendorParser):
             re.search(r"(?i)\bPO\d{5,}\b", body or "")
         return m.group(0) if m else None
 
+    def _should_skip_total_line(self, ln: str) -> bool:
+        """Check if line should be skipped based on banned terms."""
+        ban = re.compile(r"(?i)(orders?\s+over|threshold|free\s+shipping|subtotal|savings)")
+        return ban.search(ln or '') is not None
+
+    def _extract_cad_total(self, ln: str) -> Optional[float]:
+        """Extract CAD total amount from a line."""
+        pat = re.compile(
+            r"(?i)\btotal\b[^\n]*?(?:C\$|CAD\s*\$|CAD\$|\$)\s*"
+            r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))\s*CAD"
+        )
+        m = pat.search(ln or '')
+        if not m:
+            return None
+
+        try:
+            return float((m.group(1) or '0').replace(',', ''))
+        except (ValueError, IndexError):
+            return None
+
     def extract_confirmation_totals(self, text: str) -> List[float]:
         """Extract per-item 'Total $X CAD' amounts from confirmation email."""
         t = (text or '').replace('\u00A0', ' ')
         lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
         amounts: List[float] = []
 
-        pat = re.compile(
-            r"(?i)\btotal\b[^\n]*?(?:C\$|CAD\s*\$|CAD\$|\$)\s*"
-            r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+(?:\.[0-9]{2}))\s*CAD"
-        )
-        ban = re.compile(r"(?i)(orders?\s+over|threshold|free\s+shipping|subtotal|savings)")
-
         for ln in lines:
-            if ban.search(ln or ''):
+            if self._should_skip_total_line(ln):
                 continue
-            m = pat.search(ln or '')
-            if m:
-                try:
-                    val = float((m.group(1) or '0').replace(',', ''))
-                    amounts.append(val)
-                except (ValueError, IndexError):
-                    continue
+
+            amount = self._extract_cad_total(ln)
+            if amount is not None:
+                amounts.append(amount)
+
         return amounts
 
 
@@ -505,6 +619,8 @@ def get_vendor_for_sender(from_header: str, vendors: List[VendorParser] = ALL_VE
 __all__ = [
     'LineItem',
     'PriceHit',
+    'PriceSearchContext',
+    'BundleSearchContext',
     'VendorParser',
     'TDParser',
     'CostcoParser',

@@ -565,8 +565,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _lazy_agentic():
     """Lazy loader for agentic emit function."""
-    from ..agentic import emit_agentic
-    return emit_agentic
+    from ..agentic import emit_agentic_context
+    return emit_agentic_context
 
 
 if __name__ == "__main__":  # pragma: no cover

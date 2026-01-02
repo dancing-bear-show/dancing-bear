@@ -181,31 +181,12 @@ class OutlookRulesExportConsumer(Consumer[OutlookRulesExportPayload]):
 class OutlookRulesSyncConsumer(Consumer[OutlookRulesSyncPayload]):
     """Consume args to create rules sync payload."""
 
-    def __init__(
-        self,
-        client: Any,
-        config_path: str,
-        dry_run: bool = False,
-        delete_missing: bool = False,
-        move_to_folders: bool = False,
-        verbose: bool = False,
-    ):
+    def __init__(self, client: Any, **kwargs: Any):
         self._client = client
-        self._config_path = config_path
-        self._dry_run = dry_run
-        self._delete_missing = delete_missing
-        self._move_to_folders = move_to_folders
-        self._verbose = verbose
+        self._kwargs = kwargs
 
     def consume(self) -> OutlookRulesSyncPayload:
-        return OutlookRulesSyncPayload(
-            client=self._client,
-            config_path=self._config_path,
-            dry_run=self._dry_run,
-            delete_missing=self._delete_missing,
-            move_to_folders=self._move_to_folders,
-            verbose=self._verbose,
-        )
+        return OutlookRulesSyncPayload(client=self._client, **self._kwargs)
 
 
 class OutlookRulesPlanConsumer(Consumer[OutlookRulesPlanPayload]):
@@ -249,37 +230,12 @@ class OutlookRulesDeleteConsumer(Consumer[OutlookRulesDeletePayload]):
 class OutlookRulesSweepConsumer(Consumer[OutlookRulesSweepPayload]):
     """Consume args to create rules sweep payload."""
 
-    def __init__(
-        self,
-        client: Any,
-        config_path: str,
-        dry_run: bool = False,
-        move_to_folders: bool = False,
-        clear_cache: bool = False,
-        days: int = 30,
-        top: int = 25,
-        pages: int = 2,
-    ):
+    def __init__(self, client: Any, **kwargs: Any):
         self._client = client
-        self._config_path = config_path
-        self._dry_run = dry_run
-        self._move_to_folders = move_to_folders
-        self._clear_cache = clear_cache
-        self._days = days
-        self._top = top
-        self._pages = pages
+        self._kwargs = kwargs
 
     def consume(self) -> OutlookRulesSweepPayload:
-        return OutlookRulesSweepPayload(
-            client=self._client,
-            config_path=self._config_path,
-            dry_run=self._dry_run,
-            move_to_folders=self._move_to_folders,
-            clear_cache=self._clear_cache,
-            days=self._days,
-            top=self._top,
-            pages=self._pages,
-        )
+        return OutlookRulesSweepPayload(client=self._client, **self._kwargs)
 
 
 class OutlookCategoriesListConsumer(Consumer[OutlookCategoriesListPayload]):
@@ -351,103 +307,23 @@ class OutlookFoldersSyncConsumer(Consumer[OutlookFoldersSyncPayload]):
 class OutlookCalendarAddConsumer(Consumer[OutlookCalendarAddPayload]):
     """Consume args to create calendar add payload."""
 
-    def __init__(
-        self,
-        client: Any,
-        subject: str,
-        start_iso: str,
-        end_iso: str,
-        calendar_name: Optional[str] = None,
-        tz: Optional[str] = None,
-        body_html: Optional[str] = None,
-        all_day: bool = False,
-        location: Optional[str] = None,
-        no_reminder: bool = False,
-    ):
+    def __init__(self, client: Any, **kwargs: Any):
         self._client = client
-        self._subject = subject
-        self._start_iso = start_iso
-        self._end_iso = end_iso
-        self._calendar_name = calendar_name
-        self._tz = tz
-        self._body_html = body_html
-        self._all_day = all_day
-        self._location = location
-        self._no_reminder = no_reminder
+        self._kwargs = kwargs
 
     def consume(self) -> OutlookCalendarAddPayload:
-        return OutlookCalendarAddPayload(
-            client=self._client,
-            subject=self._subject,
-            start_iso=self._start_iso,
-            end_iso=self._end_iso,
-            calendar_name=self._calendar_name,
-            tz=self._tz,
-            body_html=self._body_html,
-            all_day=self._all_day,
-            location=self._location,
-            no_reminder=self._no_reminder,
-        )
+        return OutlookCalendarAddPayload(client=self._client, **self._kwargs)
 
 
 class OutlookCalendarAddRecurringConsumer(Consumer[OutlookCalendarAddRecurringPayload]):
     """Consume args to create calendar add recurring payload."""
 
-    def __init__(
-        self,
-        client: Any,
-        subject: str,
-        start_time: str,
-        end_time: str,
-        repeat: str,
-        range_start: str,
-        calendar_name: Optional[str] = None,
-        tz: Optional[str] = None,
-        interval: int = 1,
-        byday: Optional[List[str]] = None,
-        until: Optional[str] = None,
-        count: Optional[int] = None,
-        body_html: Optional[str] = None,
-        location: Optional[str] = None,
-        exdates: Optional[List[str]] = None,
-        no_reminder: bool = False,
-    ):
+    def __init__(self, client: Any, **kwargs: Any):
         self._client = client
-        self._subject = subject
-        self._start_time = start_time
-        self._end_time = end_time
-        self._repeat = repeat
-        self._range_start = range_start
-        self._calendar_name = calendar_name
-        self._tz = tz
-        self._interval = interval
-        self._byday = byday
-        self._until = until
-        self._count = count
-        self._body_html = body_html
-        self._location = location
-        self._exdates = exdates
-        self._no_reminder = no_reminder
+        self._kwargs = kwargs
 
     def consume(self) -> OutlookCalendarAddRecurringPayload:
-        return OutlookCalendarAddRecurringPayload(
-            client=self._client,
-            subject=self._subject,
-            start_time=self._start_time,
-            end_time=self._end_time,
-            repeat=self._repeat,
-            range_start=self._range_start,
-            calendar_name=self._calendar_name,
-            tz=self._tz,
-            interval=self._interval,
-            byday=self._byday,
-            until=self._until,
-            count=self._count,
-            body_html=self._body_html,
-            location=self._location,
-            exdates=self._exdates,
-            no_reminder=self._no_reminder,
-        )
+        return OutlookCalendarAddRecurringPayload(client=self._client, **self._kwargs)
 
 
 class OutlookCalendarAddFromConfigConsumer(Consumer[OutlookCalendarAddFromConfigPayload]):

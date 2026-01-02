@@ -1,15 +1,13 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Scan Outlook for metals purchase emails."""
+from pathlib import Path
+import sys
 
-if [[ -x ".venv/bin/python" ]]; then
-  PY=".venv/bin/python"
-else
-  PY="python3"
-fi
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$SCRIPT_DIR/.."
-export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+from metals.outlook_scan import main  # noqa: E402
 
-exec "$PY" -m mail_assistant.utils.outlook_metals_scan "$@"
-
+if __name__ == "__main__":
+    raise SystemExit(main())

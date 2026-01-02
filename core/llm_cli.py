@@ -507,57 +507,32 @@ def _safe_call(builder: Optional[Callable[[], str]], fallback: str) -> str:
     return text or fallback
 
 
-def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=config.prog, description=config.description)
-    sub = parser.add_subparsers(dest="cmd", required=True)
+def _make_emit_command_handler(builder: Optional[Callable[[], str]], fallback: str) -> Callable:
+    """Create a handler function for emit commands (agentic, domain-map, etc.).
 
-    def _add_emit_cmd(
-        name: str,
-        help_text: str,
-        builder: Optional[Callable[[], str]],
-        fallback: str,
-    ) -> None:
-        cmd = sub.add_parser(name, help=help_text)
-        cmd.add_argument("--write", help="Write output path")
-        cmd.add_argument("--stdout", action="store_true", help="Print to stdout")
+    Args:
+        builder: Function to build the content.
+        fallback: Fallback content if builder fails.
 
-        def _run(args):
-            content = _safe_call(builder, fallback)
-            _emit_content(content, getattr(args, "write", None), getattr(args, "stdout", False))
-            return 0
+    Returns:
+        Handler function for argparse.
+    """
+    def _run(args):
+        content = _safe_call(builder, fallback)
+        _emit_content(content, getattr(args, "write", None), getattr(args, "stdout", False))
+        return 0
+    return _run
 
-        cmd.set_defaults(func=_run)
 
-    _add_emit_cmd(
-        "agentic",
-        "Emit the agentic capsule",
-        config.agentic,
-        "agentic: (not available)",
-    )
-    _add_emit_cmd(
-        "domain-map",
-        "Emit domain map",
-        config.domain_map,
-        "Domain Map not available",
-    )
-    _add_emit_cmd(
-        "inventory",
-        "Emit LLM inventory",
-        config.inventory,
-        "# LLM Agent Inventory\n\n(no data)",
-    )
-    _add_emit_cmd(
-        "policies",
-        "Emit PR/testing policies",
-        config.policies,
-        _default_policies(),
-    )
+def _make_familiar_handler(config: LlmConfig) -> Callable:
+    """Create handler for familiar command.
 
-    fam = sub.add_parser("familiar", help="Emit familiarization capsule")
-    fam.add_argument("--write", help="Write output path")
-    fam.add_argument("--stdout", action="store_true", help="Print to stdout")
-    fam.add_argument("--verbose", action="store_true", help="Include extended steps")
+    Args:
+        config: LlmConfig with familiar builders.
 
+    Returns:
+        Handler function for argparse.
+    """
     def _run_familiar(args):
         verbose = bool(getattr(args, "verbose", False))
         builder = config.familiar_extended if verbose and config.familiar_extended else config.familiar_compact
@@ -565,14 +540,18 @@ def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
         content = _safe_call(builder, fallback)
         _emit_content(content, getattr(args, "write", None), getattr(args, "stdout", False))
         return 0
+    return _run_familiar
 
-    fam.set_defaults(func=_run_familiar)
 
-    derive = sub.add_parser("derive-all", help="Generate agentic + domain map artifacts")
-    derive.add_argument("--out-dir", default=".llm", help="Directory for generated files (default .llm)")
-    derive.add_argument("--include-generated", action="store_true", help="Write artifacts to --out-dir")
-    derive.add_argument("--stdout", action="store_true", help="Print summary to stdout")
+def _make_derive_handler(config: LlmConfig) -> Callable:
+    """Create handler for derive-all command.
 
+    Args:
+        config: LlmConfig with all builders.
+
+    Returns:
+        Handler function for argparse.
+    """
     def _run_derive(args):
         outputs: List[Tuple[str, str]] = []
 
@@ -612,8 +591,54 @@ def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
         if getattr(args, "stdout", False) or not getattr(args, "include_generated", False):
             print(summary)
         return 0
+    return _run_derive
 
-    derive.set_defaults(func=_run_derive)
+
+def _add_emit_subcommand(
+    subparsers,
+    name: str,
+    help_text: str,
+    builder: Optional[Callable[[], str]],
+    fallback: str,
+) -> None:
+    """Add an emit-style subcommand to parser.
+
+    Args:
+        subparsers: Subparser object from add_subparsers().
+        name: Command name.
+        help_text: Help text for command.
+        builder: Function to build content.
+        fallback: Fallback content if builder fails.
+    """
+    cmd = subparsers.add_parser(name, help=help_text)
+    cmd.add_argument("--write", help="Write output path")
+    cmd.add_argument("--stdout", action="store_true", help="Print to stdout")
+    cmd.set_defaults(func=_make_emit_command_handler(builder, fallback))
+
+
+def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=config.prog, description=config.description)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # Add emit-style commands
+    _add_emit_subcommand(sub, "agentic", "Emit the agentic capsule", config.agentic, "agentic: (not available)")
+    _add_emit_subcommand(sub, "domain-map", "Emit domain map", config.domain_map, "Domain Map not available")
+    _add_emit_subcommand(sub, "inventory", "Emit LLM inventory", config.inventory, "# LLM Agent Inventory\n\n(no data)")
+    _add_emit_subcommand(sub, "policies", "Emit PR/testing policies", config.policies, _default_policies())
+
+    # Add familiar command
+    fam = sub.add_parser("familiar", help="Emit familiarization capsule")
+    fam.add_argument("--write", help="Write output path")
+    fam.add_argument("--stdout", action="store_true", help="Print to stdout")
+    fam.add_argument("--verbose", action="store_true", help="Include extended steps")
+    fam.set_defaults(func=_make_familiar_handler(config))
+
+    # Add derive-all command
+    derive = sub.add_parser("derive-all", help="Generate agentic + domain map artifacts")
+    derive.add_argument("--out-dir", default=".llm", help="Directory for generated files (default .llm)")
+    derive.add_argument("--include-generated", action="store_true", help="Write artifacts to --out-dir")
+    derive.add_argument("--stdout", action="store_true", help="Print summary to stdout")
+    derive.set_defaults(func=_make_derive_handler(config))
 
     return parser
 
@@ -632,200 +657,254 @@ def run(config: LlmConfig, argv: Optional[List[str]] = None) -> int:
     return int(func(args))
 
 
+def _handle_inventory(args, llm_dir: Path) -> int:
+    """Handle inventory command."""
+    if getattr(args, "format", "md") == "json":
+        data = {
+            "wrappers": ["bin/mail-assistant"],
+            "areas": ["mail", "calendar"],
+            "mail_groups": ["labels", "filters", "messages"],
+        }
+        print(json.dumps(data, indent=2))
+        return 0
+    content = _default_inventory()
+    target = Path(args.write or (llm_dir / DEFAULT_INVENTORY_FILENAME))
+    if args.write:
+        _write_text(target, content)
+    if args.stdout or not args.write:
+        print(content)
+    return 0
+
+
+def _handle_familiar(args, llm_dir: Path) -> int:
+    """Handle familiar command."""
+    content = _familiar_content(
+        verbose=getattr(args, "verbose", False),
+        compact=getattr(args, "compact", False),
+    )
+    target = Path(args.write or (llm_dir / DEFAULT_FAMILIAR_FILENAME))
+    if args.write:
+        _write_text(target, content)
+    if args.stdout or not args.write:
+        print(content)
+    return 0
+
+
+def _handle_policies(args, llm_dir: Path) -> int:
+    """Handle policies command."""
+    target = Path(args.write or (llm_dir / DEFAULT_POLICIES_FILENAME))
+    content = _read_text(target) or _default_policies()
+    if args.write:
+        _write_text(target, content)
+    if args.stdout or not args.write:
+        print(content)
+    return 0
+
+
+def _handle_agentic(args, llm_dir: Path) -> int:
+    """Handle agentic command."""
+    compact = getattr(args, "compact", False)
+    content = _mail_agentic_capsule(compact=compact)
+    target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
+    if args.write:
+        _write_text(target, content)
+    if args.stdout or not args.write:
+        print(content)
+    return 0
+
+
+def _handle_domain_map(args, llm_dir: Path) -> int:
+    """Handle domain-map command."""
+    content = _mail_domain_map()
+    target = Path(args.write or (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME))
+    if args.write:
+        _write_text(target, content)
+    if args.stdout or not args.write:
+        print(content)
+    return 0
+
+
+def _handle_flows(args, _llm_dir: Path) -> int:
+    """Handle flows command."""
+    flows = _mail_flows()
+    if args.tags:
+        tags = {t.strip() for t in args.tags.split(",") if t.strip()}
+        flows = [f for f in flows if tags.issubset(set(f.get("tags") or []))]
+
+    if args.list:
+        lines = [f"- {f.get('id')} ({', '.join(f.get('tags') or [])})" for f in flows] or ["(no flows)"]
+        content = "\n".join(lines)
+    elif args.id:
+        flow = next((f for f in flows if f.get("id") == args.id), None)
+        if not flow:
+            content = "(flow not found)"
+        elif args.format == "json":
+            content = json.dumps(flow, indent=2)
+        elif args.format == "yaml":
+            import yaml  # type: ignore
+            content = yaml.safe_dump(flow, sort_keys=False)
+        else:
+            content = (
+                f"id: {flow.get('id')}\n"
+                f"title: {flow.get('title')}\n"
+                f"tags: {', '.join(flow.get('tags') or [])}\n"
+                + "\n".join(flow.get("commands") or [])
+            )
+    else:
+        content = "(no flows)"
+
+    if args.write:
+        _write_text(Path(args.write), content)
+    if args.stdout or not args.write:
+        print(content)
+    return 0
+
+
+def _handle_derive_all(args, llm_dir: Path) -> int:
+    """Handle derive-all command."""
+    outputs = [
+        (llm_dir / DEFAULT_AGENTIC_FILENAME, _mail_agentic_capsule()),
+        (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME, _mail_domain_map()),
+        (llm_dir / DEFAULT_INVENTORY_FILENAME, _default_inventory()),
+        (llm_dir / DEFAULT_FAMILIAR_FILENAME, _familiar_content(verbose=False)),
+        (llm_dir / DEFAULT_POLICIES_FILENAME, _default_policies()),
+    ]
+    if getattr(args, "include_generated", False):
+        out_dir = Path(getattr(args, "out_dir", ".llm") or ".llm")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for target, content in outputs:
+            target_path = out_dir / target.name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(content, encoding="utf-8")
+    if getattr(args, "stdout", False):
+        print("Generated:")
+        for target, _ in outputs:
+            print(f"- {target}")
+    return 0
+
+
+def _handle_deps(args, _llm_dir: Path) -> int:
+    """Handle deps command."""
+    entries = _collect_dep_stats(Path(args.root), args.limit, args.order)
+    if args.format == "json":
+        print(json.dumps(entries, indent=2))
+    elif args.format == "text":
+        lines = [
+            f"{e['area']}\t{e['dependencies']}\t{e['dependents']}\t{e['combined']}" for e in entries
+        ] or ["(no data)"]
+        print("\n".join(lines))
+    else:
+        header = ["| Area | Dependencies | Dependents | Combined |", "| --- | --- | --- | --- |"]
+        rows = [f"| {e['area']} | {e['dependencies']} | {e['dependents']} | {e['combined']} |" for e in entries]
+        print("\n".join(header + rows))
+    return 0
+
+
+def _handle_stale(args, _llm_dir: Path) -> int:
+    """Handle stale command."""
+    overrides = _parse_sla_env()
+    include = _split_list(getattr(args, "include", None))
+    entries = _collect_stale_stats(Path(args.root), include, args.limit)
+
+    if args.format == "json":
+        print(json.dumps(entries, indent=2))
+    elif args.format == "text":
+        for entry in entries:
+            status = (
+                _status_for_area(entry["area"], entry["staleness_days"], overrides)
+                if getattr(args, "with_status", False)
+                else ""
+            )
+            priority = ""
+            if getattr(args, "with_priority", False):
+                priority = f"\tpriority={int(round(entry['staleness_days']))}"
+            line = f"{entry['area']}\t{entry['staleness_days']}d"
+            if status:
+                line += f"\t{status}"
+            if priority:
+                line += priority
+            print(line)
+    else:
+        header = ["| Area | Days | Status | Priority |", "| --- | --- | --- | --- |"]
+        rows = []
+        for entry in entries:
+            status = _status_for_area(entry["area"], entry["staleness_days"], overrides)
+            priority = int(round(entry["staleness_days"])) if getattr(args, "with_priority", False) else ""
+            rows.append(f"| {entry['area']} | {entry['staleness_days']} | {status} | {priority} |")
+        print("\n".join(header + rows))
+
+    if getattr(args, "fail_on_stale", False) and _fail_on_stale(entries, overrides):
+        return 2
+    return 0
+
+
+def _handle_check(args, _llm_dir: Path) -> int:
+    """Handle check command."""
+    overrides = _parse_sla_env()
+    if not overrides:
+        return 0
+
+    stats = _collect_stale_stats(Path(args.root), list(overrides.keys()), args.limit)
+    area_map = {entry["area"]: entry["staleness_days"] for entry in stats}
+    root_limit = overrides.pop("Root", None)
+
+    if root_limit is not None and stats:
+        values = [entry["staleness_days"] for entry in stats]
+        if args.agg == "min":
+            agg_value = min(values)
+        elif args.agg == "avg":
+            agg_value = sum(values) / len(values)
+        else:
+            agg_value = max(values)
+        if agg_value > root_limit:
+            return 2
+
+    for area, limit in overrides.items():
+        days = area_map.get(area)
+        if days is not None and limit is not None and days > limit:
+            return 2
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point for LLM CLI.
+
+    Args:
+        argv: Command-line arguments (defaults to sys.argv[1:]).
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
     raw_args = list(argv) if argv is not None else sys.argv[1:]
     try:
         app, remaining = _extract_app_arg(raw_args)
     except ValueError as exc:
         print(str(exc))
         return 2
+
     if app and app != "mail":
         return _run_app_cli(app, remaining)
+
     args = _build_repo_parser().parse_args(remaining)
     root = Path.cwd()
     llm_dir = root / ".llm"
 
-    if args.cmd == "inventory":
-        if getattr(args, "format", "md") == "json":
-            data = {
-                "wrappers": ["bin/mail-assistant"],
-                "areas": ["mail", "calendar"],
-                "mail_groups": ["labels", "filters", "messages"],
-            }
-            print(json.dumps(data, indent=2))
-            return 0
-        content = _default_inventory()
-        target = Path(args.write or (llm_dir / DEFAULT_INVENTORY_FILENAME))
-        if args.write:
-            _write_text(target, content)
-        if args.stdout or not args.write:
-            print(content)
-        return 0
+    # Command dispatch table
+    handlers = {
+        "inventory": _handle_inventory,
+        "familiar": _handle_familiar,
+        "policies": _handle_policies,
+        "agentic": _handle_agentic,
+        "domain-map": _handle_domain_map,
+        "flows": _handle_flows,
+        "derive-all": _handle_derive_all,
+        "deps": _handle_deps,
+        "stale": _handle_stale,
+        "check": _handle_check,
+    }
 
-    if args.cmd == "familiar":
-        content = _familiar_content(
-            verbose=getattr(args, "verbose", False),
-            compact=getattr(args, "compact", False),
-        )
-        target = Path(args.write or (llm_dir / DEFAULT_FAMILIAR_FILENAME))
-        if args.write:
-            _write_text(target, content)
-        if args.stdout or not args.write:
-            print(content)
-        return 0
-
-    if args.cmd == "policies":
-        target = Path(args.write or (llm_dir / DEFAULT_POLICIES_FILENAME))
-        content = _read_text(target) or _default_policies()
-        if args.write:
-            _write_text(target, content)
-        if args.stdout or not args.write:
-            print(content)
-        return 0
-
-    if args.cmd == "agentic":
-        compact = getattr(args, "compact", False)
-        content = _mail_agentic_capsule(compact=compact)
-        target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
-        if args.write:
-            _write_text(target, content)
-        if args.stdout or not args.write:
-            print(content)
-        return 0
-
-    if args.cmd == "domain-map":
-        content = _mail_domain_map()
-        target = Path(args.write or (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME))
-        if args.write:
-            _write_text(target, content)
-        if args.stdout or not args.write:
-            print(content)
-        return 0
-
-    if args.cmd == "flows":
-        flows = _mail_flows()
-        if args.tags:
-            tags = {t.strip() for t in args.tags.split(",") if t.strip()}
-            flows = [f for f in flows if tags.issubset(set(f.get("tags") or []))]
-        if args.list:
-            lines = [f"- {f.get('id')} ({', '.join(f.get('tags') or [])})" for f in flows] or ["(no flows)"]
-            content = "\n".join(lines)
-        elif args.id:
-            flow = next((f for f in flows if f.get("id") == args.id), None)
-            if not flow:
-                content = "(flow not found)"
-            elif args.format == "json":
-                content = json.dumps(flow, indent=2)
-            elif args.format == "yaml":
-                import yaml  # type: ignore
-
-                content = yaml.safe_dump(flow, sort_keys=False)
-            else:
-                content = (
-                    f"id: {flow.get('id')}\n"
-                    f"title: {flow.get('title')}\n"
-                    f"tags: {', '.join(flow.get('tags') or [])}\n"
-                    + "\n".join(flow.get("commands") or [])
-                )
-        else:
-            content = "(no flows)"
-        if args.write:
-            _write_text(Path(args.write), content)
-        if args.stdout or not args.write:
-            print(content)
-        return 0
-
-    if args.cmd == "derive-all":
-        outputs = [
-            (llm_dir / DEFAULT_AGENTIC_FILENAME, _mail_agentic_capsule()),
-            (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME, _mail_domain_map()),
-            (llm_dir / DEFAULT_INVENTORY_FILENAME, _default_inventory()),
-            (llm_dir / DEFAULT_FAMILIAR_FILENAME, _familiar_content(verbose=False)),
-            (llm_dir / DEFAULT_POLICIES_FILENAME, _default_policies()),
-        ]
-        if getattr(args, "include_generated", False):
-            out_dir = Path(getattr(args, "out_dir", ".llm") or ".llm")
-            out_dir.mkdir(parents=True, exist_ok=True)
-            for target, content in outputs:
-                target_path = out_dir / target.name
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_text(content, encoding="utf-8")
-        if getattr(args, "stdout", False):
-            print("Generated:")
-            for target, _ in outputs:
-                print(f"- {target}")
-        return 0
-
-    if args.cmd == "deps":
-        entries = _collect_dep_stats(Path(args.root), args.limit, args.order)
-        if args.format == "json":
-            print(json.dumps(entries, indent=2))
-        elif args.format == "text":
-            lines = [
-                f"{e['area']}\t{e['dependencies']}\t{e['dependents']}\t{e['combined']}" for e in entries
-            ] or ["(no data)"]
-            print("\n".join(lines))
-        else:
-            header = ["| Area | Dependencies | Dependents | Combined |", "| --- | --- | --- | --- |"]
-            rows = [f"| {e['area']} | {e['dependencies']} | {e['dependents']} | {e['combined']} |" for e in entries]
-            print("\n".join(header + rows))
-        return 0
-
-    if args.cmd == "stale":
-        overrides = _parse_sla_env()
-        include = _split_list(getattr(args, "include", None))
-        entries = _collect_stale_stats(Path(args.root), include, args.limit)
-        if args.format == "json":
-            print(json.dumps(entries, indent=2))
-        elif args.format == "text":
-            for entry in entries:
-                status = (
-                    _status_for_area(entry["area"], entry["staleness_days"], overrides)
-                    if getattr(args, "with_status", False)
-                    else ""
-                )
-                priority = ""
-                if getattr(args, "with_priority", False):
-                    priority = f"\tpriority={int(round(entry['staleness_days']))}"
-                line = f"{entry['area']}\t{entry['staleness_days']}d"
-                if status:
-                    line += f"\t{status}"
-                if priority:
-                    line += priority
-                print(line)
-        else:
-            header = ["| Area | Days | Status | Priority |", "| --- | --- | --- | --- |"]
-            rows = []
-            for entry in entries:
-                status = _status_for_area(entry["area"], entry["staleness_days"], overrides)
-                priority = int(round(entry["staleness_days"])) if getattr(args, "with_priority", False) else ""
-                rows.append(f"| {entry['area']} | {entry['staleness_days']} | {status} | {priority} |")
-            print("\n".join(header + rows))
-        if getattr(args, "fail_on_stale", False) and _fail_on_stale(entries, overrides):
-            return 2
-        return 0
-
-    if args.cmd == "check":
-        overrides = _parse_sla_env()
-        if not overrides:
-            return 0
-        stats = _collect_stale_stats(Path(args.root), list(overrides.keys()), args.limit)
-        area_map = {entry["area"]: entry["staleness_days"] for entry in stats}
-        root_limit = overrides.pop("Root", None)
-        if root_limit is not None and stats:
-            values = [entry["staleness_days"] for entry in stats]
-            if args.agg == "min":
-                agg_value = min(values)
-            elif args.agg == "avg":
-                agg_value = sum(values) / len(values)
-            else:
-                agg_value = max(values)
-            if agg_value > root_limit:
-                return 2
-        for area, limit in overrides.items():
-            days = area_map.get(area)
-            if days is not None and limit is not None and days > limit:
-                return 2
-        return 0
+    handler = handlers.get(args.cmd)
+    if handler:
+        return handler(args, llm_dir)
 
     return 2

@@ -6,9 +6,23 @@ Includes categories (labels), rules (filters), messages, and folders.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .client import OutlookClientBase, _requests, GRAPH
+
+
+# Parameter dataclasses
+
+@dataclass
+class SearchParams:
+    """Parameters for searching inbox messages."""
+    search_query: str
+    days: Optional[int] = None
+    top: int = 25
+    pages: int = 2
+    use_cache: bool = True
+    ttl: int = 300
 
 
 class OutlookMailMixin:

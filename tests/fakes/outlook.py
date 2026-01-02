@@ -3,6 +3,8 @@
 Provides configurable fake clients for Outlook API and calendar operations
 without requiring network access or credentials.
 """
+# ruff: noqa: ARG002
+# Unused parameters are intentional - these fakes must match the real interface signatures.
 
 from __future__ import annotations
 
@@ -44,21 +46,21 @@ class FakeOutlookClient:
         return None
 
     def list_events_in_range(
-        self, calendar_id: Optional[str] = None, start: Optional[str] = None,  # noqa: ARG002
-        end: Optional[str] = None, **kwargs  # noqa: ARG002
+        self, calendar_id: Optional[str] = None, start: Optional[str] = None,
+        end: Optional[str] = None, **kwargs
     ) -> List[Dict]:
         return list(self.events)
 
-    def create_event(self, calendar_id: str, event: Dict) -> Dict:  # noqa: ARG002 - interface match
+    def create_event(self, calendar_id: str, event: Dict) -> Dict:
         event_copy = dict(event)
         event_copy["id"] = f"EVT_{len(self.created_events)}"
         self.created_events.append(event_copy)
         return event_copy
 
-    def delete_event(self, calendar_id: str, event_id: str) -> None:  # noqa: ARG002 - interface match
+    def delete_event(self, calendar_id: str, event_id: str) -> None:
         self.deleted_event_ids.append(event_id)
 
-    def update_event(self, calendar_id: str, event_id: str, updates: Dict) -> Dict:  # noqa: ARG002 - interface match
+    def update_event(self, calendar_id: str, event_id: str, updates: Dict) -> Dict:
         self.updated_events.append({"id": event_id, **updates})
         return {"id": event_id, **updates}
 
@@ -105,8 +107,8 @@ class FakeCalendarService:
         return self.get_calendar_id_by_name(name)
 
     def list_calendar_view(
-        self, *, calendar_id: str, start_iso: str, end_iso: str,  # noqa: ARG002
-        select: str = "", top: int = 200  # noqa: ARG002
+        self, *, calendar_id: str, start_iso: str, end_iso: str,
+        select: str = "", top: int = 200
     ) -> List[Dict]:
         return list(self.events)
 
@@ -115,14 +117,14 @@ class FakeCalendarService:
         return True
 
     def list_events_in_range(
-        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,  # noqa: ARG002
-        **kwargs  # noqa: ARG002
+        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,
+        **kwargs
     ) -> List[Dict]:
         return list(self.events)
 
     def update_event_reminder(
-        self, *, event_id: str, calendar_id: Optional[str] = None,  # noqa: ARG002
-        calendar_name: Optional[str] = None, is_on: bool,  # noqa: ARG002
+        self, *, event_id: str, calendar_id: Optional[str] = None,
+        calendar_name: Optional[str] = None, is_on: bool,
         minutes_before_start: Optional[int] = None
     ) -> None:
         self.updated_reminders.append((event_id, is_on, minutes_before_start))
@@ -138,7 +140,7 @@ class FakeCalendarService:
         return evt
 
     def update_event_location(
-        self, *, event_id: str, calendar_name: Optional[str] = None,  # noqa: ARG002
-        calendar_id: Optional[str] = None, location_str: str  # noqa: ARG002
+        self, *, event_id: str, calendar_name: Optional[str] = None,
+        calendar_id: Optional[str] = None, location_str: str
     ) -> None:
         self.updated_locations.append((event_id, location_str))

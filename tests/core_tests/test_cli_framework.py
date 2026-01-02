@@ -317,6 +317,123 @@ class TestArgumentHelpers(unittest.TestCase):
         self.assertEqual(args.offset, 10)
 
 
+class TestOutputWriterHelperFunctions(unittest.TestCase):
+    """Test OutputWriter helper functions extracted during refactoring."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.output = io.StringIO()
+        self.config = OutputConfig(file=self.output)
+        self.writer = OutputWriter(self.config)
+
+    def test_row_to_strings_with_dict_and_headers(self):
+        """Test _row_to_strings converts dict with headers correctly."""
+        row = {"name": "Alice", "age": 30, "city": "NYC"}
+        headers = ["name", "age"]
+        result = self.writer._row_to_strings(row, headers)
+        self.assertEqual(result, ["Alice", "30"])
+
+    def test_row_to_strings_with_dict_no_headers(self):
+        """Test _row_to_strings converts dict without headers."""
+        row = {"name": "Bob", "age": 25}
+        result = self.writer._row_to_strings(row)
+        self.assertEqual(len(result), 2)
+        self.assertIn("Bob", result)
+        self.assertIn("25", result)
+
+    def test_row_to_strings_with_list(self):
+        """Test _row_to_strings converts list."""
+        row = ["Alice", 30, "NYC"]
+        result = self.writer._row_to_strings(row)
+        self.assertEqual(result, ["Alice", "30", "NYC"])
+
+    def test_row_to_strings_with_tuple(self):
+        """Test _row_to_strings converts tuple."""
+        row = ("Bob", 25)
+        result = self.writer._row_to_strings(row)
+        self.assertEqual(result, ["Bob", "25"])
+
+    def test_row_to_strings_with_other_type(self):
+        """Test _row_to_strings converts other types to single-item list."""
+        result = self.writer._row_to_strings(42)
+        self.assertEqual(result, ["42"])
+
+    def test_row_to_strings_handles_missing_keys(self):
+        """Test _row_to_strings handles missing dict keys."""
+        row = {"name": "Alice"}
+        headers = ["name", "age", "city"]
+        result = self.writer._row_to_strings(row, headers)
+        self.assertEqual(result, ["Alice", "", ""])
+
+    def test_calculate_column_widths_basic(self):
+        """Test _calculate_column_widths calculates correct widths."""
+        headers = ["Name", "Age"]
+        str_rows = [["Alice", "30"], ["Bob", "25"]]
+        widths = self.writer._calculate_column_widths(headers, str_rows)
+        self.assertEqual(widths, [5, 3])  # max("Name"=4, "Alice"=5), max("Age"=3, "30"=2, "25"=2)
+
+    def test_calculate_column_widths_with_long_data(self):
+        """Test _calculate_column_widths handles data wider than headers."""
+        headers = ["ID", "Name"]
+        str_rows = [["123456", "Alexander"], ["7", "Bo"]]
+        widths = self.writer._calculate_column_widths(headers, str_rows)
+        self.assertEqual(widths, [6, 9])  # max(2,6), max(4,9)
+
+    def test_calculate_column_widths_empty_rows(self):
+        """Test _calculate_column_widths with empty rows."""
+        headers = ["Name", "Age"]
+        str_rows = []
+        widths = self.writer._calculate_column_widths(headers, str_rows)
+        self.assertEqual(widths, [4, 3])  # Just header lengths
+
+    def test_calculate_column_widths_with_extra_columns(self):
+        """Test _calculate_column_widths ignores columns beyond headers."""
+        headers = ["Name", "Age"]
+        str_rows = [["Alice", "30", "Extra", "Data"]]
+        widths = self.writer._calculate_column_widths(headers, str_rows)
+        self.assertEqual(widths, [5, 3])  # Only first 2 columns considered
+
+    def test_print_table_with_headers_basic(self):
+        """Test _print_table_with_headers prints formatted table."""
+        headers = ["Name", "Age"]
+        str_rows = [["Alice", "30"], ["Bob", "25"]]
+        self.writer._print_table_with_headers(headers, str_rows)
+
+        output = self.output.getvalue()
+        self.assertIn("Name", output)
+        self.assertIn("Age", output)
+        self.assertIn("Alice", output)
+        self.assertIn("Bob", output)
+        self.assertIn("|", output)  # Column separator
+        self.assertIn("-", output)  # Header separator
+
+    def test_print_table_with_headers_alignment(self):
+        """Test _print_table_with_headers aligns columns properly."""
+        headers = ["ID", "Name"]
+        str_rows = [["1", "Alice"], ["123", "Bo"]]
+        self.writer._print_table_with_headers(headers, str_rows)
+
+        output = self.output.getvalue()
+        lines = output.strip().split("\n")
+        # Check that we have header, separator, and data rows
+        self.assertEqual(len(lines), 4)  # header + separator + 2 data rows
+        # Check that separator line uses dashes
+        self.assertTrue(all(c in "-" for c in lines[1]))
+        # Check that data lines contain the expected values
+        data_lines = [l for l in lines if "Alice" in l or "Bo" in l]
+        self.assertEqual(len(data_lines), 2)
+
+    def test_print_table_with_headers_empty_values(self):
+        """Test _print_table_with_headers handles empty values."""
+        headers = ["Name", "Age"]
+        str_rows = [["Alice", ""], ["", "25"]]
+        self.writer._print_table_with_headers(headers, str_rows)
+
+        output = self.output.getvalue()
+        self.assertIn("Alice", output)
+        self.assertIn("25", output)
+
+
 class TestDataclassOutput(unittest.TestCase):
     """Test output with dataclasses."""
 

@@ -284,27 +284,28 @@ def compute_location_map(layout: NormalizedLayout) -> Dict[str, str]:
     return loc
 
 
-def _add_unique(apps: List[str], seen: set, bid: str) -> None:
-    """Add bundle ID to list if not already seen."""
-    if bid and bid not in seen:
-        apps.append(bid)
-        seen.add(bid)
+def _iter_all_app_ids(layout: NormalizedLayout):
+    """Yield all app IDs from dock and pages (including folder contents)."""
+    yield from (a for a in layout.dock if a)
+    for page in layout.pages:
+        for it in page:
+            if _is_app_item(it):
+                bid = _get_app_id(it)
+                if bid:
+                    yield bid
+            elif _is_folder_item(it):
+                yield from (a for a in _get_folder_apps(it) if a)
 
 
 def list_all_apps(layout: NormalizedLayout) -> List[str]:
     """Return a de-duplicated list of all bundle IDs in layout (dock + pages)."""
-    apps: List[str] = []
     seen: set = set()
-    for a in layout.dock:
-        _add_unique(apps, seen, a)
-    for page in layout.pages:
-        for it in page:
-            if _is_app_item(it):
-                _add_unique(apps, seen, _get_app_id(it))
-            elif _is_folder_item(it):
-                for a in _get_folder_apps(it):
-                    _add_unique(apps, seen, a)
-    return apps
+    result = []
+    for a in _iter_all_app_ids(layout):
+        if a not in seen:
+            seen.add(a)
+            result.append(a)
+    return result
 
 
 def _parse_location(loc_str: str) -> Tuple[int, Optional[str]]:
@@ -327,37 +328,47 @@ def _parse_location(loc_str: str) -> Tuple[int, Optional[str]]:
     return (page, folder)
 
 
+def _score_location(page_idx: int, folder: Optional[str]) -> float:
+    """Score based on app location (page number and folder placement)."""
+    score = 0.0
+    if folder is None and page_idx == 1:
+        score -= 1.5  # Root app on page 1 = likely used
+    if page_idx > 1:
+        score += (page_idx - 1) * 0.6  # Higher pages = less used
+    if folder is not None:
+        score += 1.0  # In folder = somewhat hidden
+        if page_idx > 1:
+            score += 0.4  # Folder on later page = even more hidden
+    return score
+
+
+def _score_membership(app: str, dock: List[str], recent: set, keep: set) -> float:
+    """Score based on membership in dock, recent, and keep sets."""
+    score = 0.0
+    if app in keep:
+        score -= 99.0  # Explicitly kept
+    if app in dock:
+        score -= 3.0  # Dock = frequently used
+    if app in recent:
+        score -= 2.0  # Recently used
+    if app in COMMON_KEEP:
+        score -= 2.0  # Common essential app
+    if app in STOCK_MAYBE_UNUSED:
+        score += 0.5  # Stock app often unused
+    return score
+
+
 def _compute_app_score(
     app: str, layout: NormalizedLayout, loc: Dict[str, str],
     recent: set, keep: set
 ) -> float:
     """Compute unused likelihood score for an app."""
-    score = 0.0
-    if app in keep:
-        score -= 99.0
-    if app in (layout.dock or []):
-        score -= 3.0
-
     where = loc.get(app, "")
     page_idx, folder = _parse_location(where)
-
-    if folder is None and page_idx == 1:
-        score -= 1.5
-    if page_idx > 1:
-        score += (page_idx - 1) * 0.6
-    if folder is not None:
-        score += 1.0
-        if page_idx > 1:
-            score += 0.4
-
-    if app in recent:
-        score -= 2.0
-    if app in STOCK_MAYBE_UNUSED:
-        score += 0.5
-    if app in COMMON_KEEP:
-        score -= 2.0
-
-    return score
+    return (
+        _score_membership(app, layout.dock or [], recent, keep)
+        + _score_location(page_idx, folder)
+    )
 
 
 def rank_unused_candidates(
@@ -429,24 +440,11 @@ def _analyze_pages(layout: NormalizedLayout) -> Tuple[List[Dict], List[Dict], in
     return pages_info, folder_details, total_root_apps
 
 
-def _increment_count(counts: Dict[str, int], app: Optional[str]) -> None:
-    """Increment count for an app if it's not None."""
-    if app:
-        counts[app] = counts.get(app, 0) + 1
-
-
 def _count_app_occurrences(layout: NormalizedLayout) -> Dict[str, int]:
     """Count occurrences of each app across dock, root apps, and folder apps."""
     counts: Dict[str, int] = {}
-    for a in layout.dock or []:
-        _increment_count(counts, a)
-    for page in layout.pages:
-        for it in page:
-            if _is_app_item(it):
-                _increment_count(counts, _get_app_id(it))
-            elif _is_folder_item(it):
-                for a in _get_folder_apps(it):
-                    _increment_count(counts, a)
+    for app in _iter_all_app_ids(layout):
+        counts[app] = counts.get(app, 0) + 1
     return counts
 
 

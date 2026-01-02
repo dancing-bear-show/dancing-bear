@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import math
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
@@ -48,6 +49,44 @@ from .costs_common import (
     write_costs_csv,
 )
 from .vendors import DEFAULT_PRICE_BAN, GMAIL_VENDORS, get_vendor_for_sender
+
+
+@dataclass
+class LineItemContext:
+    """Context for applying quantity heuristics to a line item."""
+    lines: List[str]
+    ln: str
+    match: re.Match[str]
+    idx: int
+    unit_oz: float
+    metal: str
+    qty: float
+    explicit_qty: bool
+
+
+@dataclass
+class ExtractionContext:
+    """Context for anchored price extraction."""
+    ln: str
+    lower: str
+    metal: str
+    unit_oz: float | None
+    uoz_texts: List[str]
+    vendor: str
+
+
+@dataclass
+class OrderRowData:
+    """Data for building order output rows."""
+    oid: str
+    vendor: str
+    subject: str
+    cur: str
+    dt: str
+    oz_by_metal: Dict[str, float]
+    units_by_metal: Dict[str, Dict[float, float]]
+    cost_alloc: Dict[str, float]
+    alloc_strategy: str
 
 
 def _extract_first_match_group(
@@ -95,47 +134,109 @@ def _bundle_qty_near(lines: List[str], idx: int) -> float | None:
     return None
 
 
-def _unit_oz_override_near(lines: List[str], idx: int, metal_ctx: str) -> float | None:
-    """Map item numbers/phrases to unit-oz when emails omit explicit size."""
+def _get_metal_maps(metal_ctx: str) -> Tuple[Dict, Dict]:
+    """Get SKU and phrase maps for the given metal context.
+
+    Returns:
+        (sku_unit_map, phrase_map) for the metal.
+    """
     metal_key = (metal_ctx or '').strip().lower()
     sku_unit_map = _SKU_UNIT_MAP_SILVER if metal_key == 'silver' else _SKU_UNIT_MAP_GOLD
     phrase_map = _PHRASE_MAP_SILVER if metal_key == 'silver' else {}
-    for j in (idx, idx + 1, idx - 1, idx + 2):
-        if 0 <= j < len(lines):
-            s = lines[j]
-            m_item = _PAT_ITEM_SKU.search(s or '')
-            if m_item and m_item.group(1) in sku_unit_map:
-                return sku_unit_map[m_item.group(1)]
-            s_low = (s or '').lower()
-            for ph, uoz in phrase_map.items():
-                if ph in s_low:
-                    return uoz
+    return sku_unit_map, phrase_map
+
+
+def _check_sku_match(line: str, sku_unit_map: Dict) -> float | None:
+    """Check if line contains a SKU that maps to a unit-oz value."""
+    m_item = _PAT_ITEM_SKU.search(line or '')
+    if m_item and m_item.group(1) in sku_unit_map:
+        return sku_unit_map[m_item.group(1)]
     return None
 
 
-def _apply_qty_heuristics(
-    lines: List[str], ln: str, m: re.Match[str], idx: int, unit_oz: float, metal: str, qty: float, explicit_qty: bool
-) -> Tuple[float, float]:
+def _check_phrase_match(line: str, phrase_map: Dict) -> float | None:
+    """Check if line contains a phrase that maps to a unit-oz value."""
+    s_low = (line or '').lower()
+    for ph, uoz in phrase_map.items():
+        if ph in s_low:
+            return uoz
+    return None
+
+
+def _unit_oz_override_near(lines: List[str], idx: int, metal_ctx: str) -> float | None:
+    """Map item numbers/phrases to unit-oz when emails omit explicit size."""
+    sku_unit_map, phrase_map = _get_metal_maps(metal_ctx)
+
+    for j in (idx, idx + 1, idx - 1, idx + 2):
+        if not (0 <= j < len(lines)):
+            continue
+
+        # Check SKU match first
+        sku_result = _check_sku_match(lines[j], sku_unit_map)
+        if sku_result:
+            return sku_result
+
+        # Check phrase match
+        phrase_result = _check_phrase_match(lines[j], phrase_map)
+        if phrase_result:
+            return phrase_result
+
+    return None
+
+
+def _extract_leading_qty(ln: str, match_obj: re.Match[str]) -> float | None:
+    """Extract quantity from text before the match."""
+    pre = ln[max(0, match_obj.start() - 120):match_obj.start()]
+    mpre = _PAT_LEADING_QTY.search(pre)
+    return float(mpre.group(1)) if mpre else None
+
+
+def _determine_quantity(
+    lines: List[str], idx: int, unit_oz: float, pre_q: float | None
+) -> float:
+    """Determine the final quantity using various heuristics.
+
+    Args:
+        lines: All text lines.
+        idx: Current line index.
+        unit_oz: Unit ounces value.
+        pre_q: Quantity extracted from leading text.
+
+    Returns:
+        Determined quantity.
+    """
+    eq = _explicit_qty_near(lines, idx)
+    if eq:
+        # If we have both pre_q and eq, prefer pre_q for ~1oz items when eq < pre_q
+        if pre_q and (0.98 <= unit_oz <= 1.02) and eq < pre_q:
+            return pre_q
+        return eq
+
+    if pre_q:
+        return pre_q
+
+    # Try bundle quantity as last resort for ~1oz items
+    bq = _bundle_qty_near(lines, idx)
+    if bq and (0.98 <= unit_oz <= 1.02):
+        return bq
+
+    return 1.0
+
+
+def _apply_qty_heuristics(ctx: LineItemContext) -> Tuple[float, float]:
     """Apply quantity and unit-oz heuristics. Returns (qty, unit_oz)."""
-    if math.isclose(qty, 1.0) and not explicit_qty:
-        pre = ln[max(0, m.start() - 120):m.start()]
-        mpre = _PAT_LEADING_QTY.search(pre)
-        pre_q = float(mpre.group(1)) if mpre else None
-        eq = _explicit_qty_near(lines, idx)
-        if eq:
-            if pre_q and (0.98 <= unit_oz <= 1.02) and eq < pre_q:
-                qty = pre_q
-            else:
-                qty = eq
-        elif pre_q:
-            qty = pre_q
-        else:
-            bq = _bundle_qty_near(lines, idx)
-            if bq and (0.98 <= unit_oz <= 1.02):
-                qty = bq
-    uov = _unit_oz_override_near(lines, idx, metal)
+    qty, unit_oz = ctx.qty, ctx.unit_oz
+
+    # Apply quantity heuristics only if qty is ~1 and not explicitly stated
+    if math.isclose(qty, 1.0) and not ctx.explicit_qty:
+        pre_q = _extract_leading_qty(ctx.ln, ctx.match)
+        qty = _determine_quantity(ctx.lines, ctx.idx, unit_oz, pre_q)
+
+    # Apply unit-oz override if available
+    uov = _unit_oz_override_near(ctx.lines, ctx.idx, ctx.metal)
     if uov:
         unit_oz = uov
+
     return qty, unit_oz
 
 
@@ -174,7 +275,11 @@ def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]] | None:
         for pat, parser in patterns:
             for m in pat.finditer(ln):
                 unit_oz, metal, qty, explicit_qty = parser(m)
-                qty, unit_oz = _apply_qty_heuristics(lines, ln, m, idx, unit_oz, metal, qty, explicit_qty)
+                ctx = LineItemContext(
+                    lines=lines, ln=ln, match=m, idx=idx,
+                    unit_oz=unit_oz, metal=metal, qty=qty, explicit_qty=explicit_qty
+                )
+                qty, unit_oz = _apply_qty_heuristics(ctx)
                 items.append({'metal': metal, 'unit_oz': unit_oz, 'qty': qty, 'idx': idx})
     return items, lines
 
@@ -194,34 +299,32 @@ def _build_uoz_patterns(unit_oz: float | None) -> Tuple[re.Pattern[str] | None, 
     return uoz_pat, uoz_texts
 
 
-def _try_anchored_extraction(
-    ln: str, lower: str, metal: str, _unit_oz: float | None, uoz_texts: List[str], vendor: str
-) -> Tuple[str, float, str] | None:
+def _try_anchored_extraction(ctx: ExtractionContext) -> Tuple[str, float, str] | None:
     """Try anchored extraction for compact table-in-one-line cases (TD/Costco)."""
-    metal_kw = (metal or '').strip().lower()
-    if not uoz_texts or metal_kw not in ('gold', 'silver'):
+    metal_kw = (ctx.metal or '').strip().lower()
+    if not ctx.uoz_texts or metal_kw not in ('gold', 'silver'):
         return None
-    uoz_alt = "|".join(uoz_texts)
-    anch = re.search(fr"(?i)({uoz_alt}).{{0,200}}?\b{metal_kw}\b", ln) or \
-           re.search(fr"(?i)\b{metal_kw}\b.{{0,200}}?({uoz_alt})", ln)
+    uoz_alt = "|".join(ctx.uoz_texts)
+    anch = re.search(fr"(?i)({uoz_alt}).{{0,200}}?\b{metal_kw}\b", ctx.ln) or \
+           re.search(fr"(?i)\b{metal_kw}\b.{{0,200}}?({uoz_alt})", ctx.ln)
     if not anch:
         return None
     anchor_end = anch.end()
-    m_money = MONEY_PATTERN.search(ln, pos=anchor_end)
+    m_money = MONEY_PATTERN.search(ctx.ln, pos=anchor_end)
     if not m_money or (m_money.start() - anchor_end) > 80:
         return None
-    between = lower[anchor_end:m_money.start()]
+    between = ctx.lower[anchor_end:m_money.start()]
     if re.search(r"(?i)\b(subtotal|shipping|tax|total)\b", between):
         return None
     cur = m_money.group(1).upper()
     amt = float(m_money.group(2).replace(',', ''))
-    tail = lower[anchor_end:m_money.end()]
+    tail = ctx.lower[anchor_end:m_money.end()]
     kind = 'unit' if re.search(r"(?i)\b(unit|each|ea|per)\b", tail) else 'unknown'
-    before_amt = lower[max(0, m_money.start()-80):m_money.start()]
+    before_amt = ctx.lower[max(0, m_money.start()-80):m_money.start()]
     has_qty = bool(re.search(r"(?i)\bx\s*\d{1,3}\b", before_amt) or
                    re.search(r"(?i)\bqty(?:uantity)?\s*:?\s*\d{1,3}\b", before_amt))
     if has_qty and not re.search(r"(?i)\b(unit|each|ea|per)\b", tail):
-        kind = 'total' if vendor == 'td' else 'unit'
+        kind = 'total' if ctx.vendor == 'td' else 'unit'
     return cur, amt, kind
 
 
@@ -238,6 +341,87 @@ def _determine_price_kind(lower: str, has_uoz_here: bool, has_uoz_neighbor: bool
     return "unknown", mentions_price, mentions_total
 
 
+def _check_uoz_in_neighbors(lines: List[str], j: int, uoz_pat: re.Pattern[str] | None) -> bool:
+    """Check if unit-oz pattern appears in neighboring lines.
+
+    Args:
+        lines: All text lines.
+        j: Current line index.
+        uoz_pat: Unit-oz regex pattern.
+
+    Returns:
+        True if pattern found in neighbors.
+    """
+    if not uoz_pat:
+        return False
+    return any(
+        0 <= k < len(lines) and uoz_pat.search((lines[k] or "").lower())
+        for k in (j - 1, j + 1)
+    )
+
+
+def _is_valid_price_line(
+    has_metal: bool,
+    has_uoz_here: bool,
+    has_uoz_neighbor: bool,
+    mentions_price: bool,
+    mentions_total: bool,
+    kind: str
+) -> bool:
+    """Check if this line should be considered a valid price line.
+
+    Args:
+        has_metal: Line contains metal keyword.
+        has_uoz_here: Line contains unit-oz pattern.
+        has_uoz_neighbor: Neighbor lines contain unit-oz pattern.
+        mentions_price: Line mentions price-related keywords.
+        mentions_total: Line mentions "total".
+        kind: Determined price kind.
+
+    Returns:
+        True if line is valid for price extraction.
+    """
+    # Skip if mentions "total" but kind isn't "total"
+    if mentions_total and kind != "total":
+        return False
+
+    # Accept if line has metal, unit-oz, or price keywords
+    return has_metal or has_uoz_here or has_uoz_neighbor or mentions_price
+
+
+def _process_candidate_line(
+    ln: str,
+    lower: str,
+    lines: List[str],
+    j: int,
+    metal: str,
+    uoz_pat: re.Pattern[str] | None,
+) -> Tuple[str, float, str] | None:
+    """Process a single candidate line for price extraction.
+
+    Returns:
+        (currency, amount, kind) if valid price found, else None.
+    """
+    if DEFAULT_PRICE_BAN.search(ln):
+        return None
+
+    has_uoz_here = bool(uoz_pat and uoz_pat.search(lower))
+    has_uoz_neighbor = _check_uoz_in_neighbors(lines, j, uoz_pat)
+
+    money = find_money(ln)
+    if not money:
+        return None
+
+    want = (metal or "").lower()
+    has_metal = bool(want and want in lower)
+    kind, mentions_price, mentions_total = _determine_price_kind(lower, has_uoz_here, has_uoz_neighbor)
+
+    if _is_valid_price_line(has_metal, has_uoz_here, has_uoz_neighbor, mentions_price, mentions_total, kind):
+        return money[0], money[1], kind
+
+    return None
+
+
 def _extract_amount_near_line(
     lines: List[str], idx: int, metal: str, unit_oz: float | None = None, vendor: str | None = None
 ) -> Tuple[str, float, str] | None:
@@ -250,7 +434,6 @@ def _extract_amount_near_line(
       Allow 'total' only when 'price' or a unit-oz mention is present (to pick up line 'Total Price').
     - kind ∈ {unit,total,unknown}; caller uses kind to decide whether to multiply by quantity.
     """
-    want = (metal or "").lower()
     vendor_lower = (vendor or '').strip().lower()
     uoz_pat, uoz_texts = _build_uoz_patterns(unit_oz)
 
@@ -258,33 +441,25 @@ def _extract_amount_near_line(
     for j in candidates:
         if not (0 <= j < len(lines)):
             continue
+
         ln = lines[j] or ""
         lower = ln.lower()
 
+        # Try vendor-specific anchored extraction first
         if vendor_lower in ('td', 'costco'):
-            result = _try_anchored_extraction(ln, lower, metal, unit_oz, uoz_texts, vendor_lower)
+            extraction_ctx = ExtractionContext(
+                ln=ln, lower=lower, metal=metal, unit_oz=unit_oz,
+                uoz_texts=uoz_texts, vendor=vendor_lower
+            )
+            result = _try_anchored_extraction(extraction_ctx)
             if result:
                 return result
 
-        if DEFAULT_PRICE_BAN.search(ln):
-            continue
-        has_uoz_here = bool(uoz_pat and uoz_pat.search(lower))
-        has_uoz_neighbor = any(
-            0 <= k < len(lines) and uoz_pat and uoz_pat.search((lines[k] or "").lower())
-            for k in (j - 1, j + 1)
-        )
+        # Try general price extraction
+        result = _process_candidate_line(ln, lower, lines, j, metal, uoz_pat)
+        if result:
+            return result
 
-        money = find_money(ln)
-        if not money:
-            continue
-
-        has_metal = bool(want and want in lower)
-        kind, mentions_price, mentions_total = _determine_price_kind(lower, has_uoz_here, has_uoz_neighbor)
-
-        if has_metal or has_uoz_here or has_uoz_neighbor or mentions_price:
-            if mentions_total and kind != "total":
-                continue
-            return money[0], money[1], kind
     return None
 
 
@@ -399,92 +574,167 @@ def _allocate_costs(
     return alloc, 'order-proportional'
 
 
-def _build_order_rows(
-    oid: str, vendor: str, subject: str, cur: str, dt: str,
-    oz_by_metal: Dict[str, float], units_by_metal: Dict[str, Dict[float, float]],
-    cost_alloc: Dict[str, float], alloc_strategy: str
-) -> List[Dict[str, str | float]]:
+def _build_order_rows(data: OrderRowData) -> List[Dict[str, str | float]]:
     """Build output rows for an order."""
     rows: List[Dict[str, str | float]] = []
     for metal in ('gold', 'silver'):
-        oz = oz_by_metal.get(metal, 0.0)
+        oz = data.oz_by_metal.get(metal, 0.0)
         if oz <= 0:
             continue
-        alloc = cost_alloc.get(metal, 0.0)
+        alloc = data.cost_alloc.get(metal, 0.0)
         cpo = alloc / oz
-        metal_units = units_by_metal.get(metal, {})
-        cur_out = 'C$' if vendor in ('TD', 'Costco') else (cur or 'C$')
+        metal_units = data.units_by_metal.get(metal, {})
+        cur_out = 'C$' if data.vendor in ('TD', 'Costco') else (data.cur or 'C$')
         rows.append({
-            'vendor': vendor, 'date': dt, 'metal': metal, 'currency': cur_out,
+            'vendor': data.vendor, 'date': data.dt, 'metal': metal, 'currency': cur_out,
             'cost_total': round(alloc, 2), 'cost_per_oz': round(cpo, 2),
-            'order_id': oid, 'subject': subject, 'total_oz': round(oz, 3),
+            'order_id': data.oid, 'subject': data.subject, 'total_oz': round(oz, 3),
             'unit_count': format_qty(sum(metal_units.values())),
-            'units_breakdown': format_breakdown(metal_units), 'alloc': alloc_strategy,
+            'units_breakdown': format_breakdown(metal_units), 'alloc': data.alloc_strategy,
         })
     return rows
+
+
+def _extract_items_from_message(
+    client: GmailClient,
+    mid: str,
+    from_header: str,
+    price_hits: Dict[Tuple[str, float], List[Tuple[float, str]]]
+) -> Dict[Tuple[str, float], float]:
+    """Extract line items and prices from a single message.
+
+    Args:
+        client: Gmail client.
+        mid: Message ID.
+        from_header: From header for vendor classification.
+        price_hits: Dictionary to accumulate price hits (modified in-place).
+
+    Returns:
+        Quantity map {(metal, unit_oz): qty}.
+    """
+    text = client.get_message_text(mid)
+    result = _extract_line_items(text)
+    if not result:
+        return {}
+
+    items, _ = result
+    qmap: Dict[Tuple[str, float], float] = {}
+    lines_msg = [ln.strip() for ln in (text or '').splitlines() if ln.strip()]
+
+    for it in items:
+        metal, unit_oz = str(it.get('metal')), float(it.get('unit_oz') or 0.0)
+        qty = float(it.get('qty') or 1.0)
+        key = (metal, round(unit_oz, 4))
+        qmap[key] = qmap.get(key, 0.0) + qty
+
+        hit = _extract_amount_near_line(
+            lines_msg, int(it.get('idx') or 0), metal, unit_oz, _classify_vendor(from_header)
+        )
+        if hit:
+            price_hits.setdefault(key, []).append((float(hit[1]), str(hit[2])))
+
+    return qmap
+
+
+def _process_messages(
+    client: GmailClient,
+    msgs: List[Tuple[str, int, str, str]]
+) -> Tuple[Dict[Tuple[str, float], float], Dict[Tuple[str, float], List[Tuple[float, str]]], Tuple[str, float] | None, int]:
+    """Process all messages for an order.
+
+    Args:
+        client: Gmail client.
+        msgs: List of (msg_id, recv_ms, subject, from_header).
+
+    Returns:
+        (final_qty, price_hits, amount_pref, latest_recv_ms).
+    """
+    qty_by_msg: List[Dict[Tuple[str, float], float]] = []
+    price_hits: Dict[Tuple[str, float], List[Tuple[float, str]]] = {}
+    latest_recv_ms = 0
+    amount_pref: Tuple[str, float] | None = None
+
+    # Prefer confirmation messages
+    msgs_conf = [m for m in msgs if _is_order_confirmation(m[2], m[3])]
+    msgs_use = msgs_conf if msgs_conf else msgs
+
+    for mid, recv_ms, _, from_here in msgs_use:
+        latest_recv_ms = max(latest_recv_ms, recv_ms)
+        qmap = _extract_items_from_message(client, mid, from_here, price_hits)
+        if qmap:
+            qty_by_msg.append(qmap)
+
+        # Extract order total
+        text = client.get_message_text(mid)
+        amt = extract_order_amount(text)
+        if amt and (amount_pref is None or amt[1] > amount_pref[1]):
+            amount_pref = amt
+
+    # Merge quantities (use max across messages)
+    final_qty: Dict[Tuple[str, float], float] = {}
+    for qmap in qty_by_msg:
+        for key, q in qmap.items():
+            final_qty[key] = max(final_qty.get(key, 0.0), q)
+
+    return final_qty, price_hits, amount_pref, latest_recv_ms
+
+
+def _aggregate_metals(final_qty: Dict[Tuple[str, float], float]) -> Tuple[Dict[str, float], Dict[str, Dict[float, float]]]:
+    """Aggregate quantities by metal type.
+
+    Args:
+        final_qty: Final quantities {(metal, unit_oz): qty}.
+
+    Returns:
+        (oz_by_metal, units_by_metal).
+    """
+    oz_by_metal: Dict[str, float] = {'gold': 0.0, 'silver': 0.0}
+    units_by_metal: Dict[str, Dict[float, float]] = {'gold': {}, 'silver': {}}
+
+    for (metal, uoz), qty in final_qty.items():
+        if metal in oz_by_metal:
+            oz_by_metal[metal] += uoz * qty
+            units_by_metal[metal][uoz] = units_by_metal[metal].get(uoz, 0.0) + qty
+
+    return oz_by_metal, units_by_metal
 
 
 def _process_order(
     client: GmailClient, oid: str, msgs: List[Tuple[str, int, str, str]]
 ) -> List[Dict[str, str | float]]:
     """Process a single order and return its output rows."""
+    # Skip cancelled orders
     if any(_is_cancelled(m[2], m[3]) for m in msgs):
         return []
 
-    qty_by_msg: List[Dict[Tuple[str, float], float]] = []
-    price_hits: Dict[Tuple[str, float], List[Tuple[float, str]]] = {}
-    latest_recv_ms = 0
-    amount_pref: Tuple[str, float] | None = None
-
-    msgs_conf = [m for m in msgs if _is_order_confirmation(m[2], m[3])]
-    msgs_use = msgs_conf if msgs_conf else msgs
-
-    for mid, recv_ms, _, from_here in msgs_use:
-        latest_recv_ms = max(latest_recv_ms, recv_ms)
-        text = client.get_message_text(mid)
-        result = _extract_line_items(text)
-        if not result:
-            continue
-        items, _ = result
-        qmap: Dict[Tuple[str, float], float] = {}
-        lines_msg = [ln.strip() for ln in (text or '').splitlines() if ln.strip()]
-        for it in items:
-            metal, unit_oz = str(it.get('metal')), float(it.get('unit_oz') or 0.0)
-            qty = float(it.get('qty') or 1.0)
-            key = (metal, round(unit_oz, 4))
-            qmap[key] = qmap.get(key, 0.0) + qty
-            hit = _extract_amount_near_line(lines_msg, int(it.get('idx') or 0), metal, unit_oz, _classify_vendor(from_here))
-            if hit:
-                price_hits.setdefault(key, []).append((float(hit[1]), str(hit[2])))
-        qty_by_msg.append(qmap)
-        amt = extract_order_amount(text)
-        if amt and (amount_pref is None or amt[1] > amount_pref[1]):
-            amount_pref = amt
-
-    final_qty: Dict[Tuple[str, float], float] = {}
-    for qmap in qty_by_msg:
-        for key, q in qmap.items():
-            final_qty[key] = max(final_qty.get(key, 0.0), q)
+    # Extract items and prices from all messages
+    final_qty, price_hits, amount_pref, latest_recv_ms = _process_messages(client, msgs)
     if not final_qty:
         return []
 
+    # Get order metadata from first message
     msg0 = client.get_message(msgs[0][0], fmt='full')
     hdrs = GmailClient.headers_to_dict(msg0)
     subject, vendor = hdrs.get('subject', ''), _classify_vendor(hdrs.get('from', ''))
 
-    oz_by_metal: Dict[str, float] = {'gold': 0.0, 'silver': 0.0}
-    units_by_metal: Dict[str, Dict[float, float]] = {'gold': {}, 'silver': {}}
-    for (metal, uoz), qty in final_qty.items():
-        if metal in oz_by_metal:
-            oz_by_metal[metal] += uoz * qty
-            units_by_metal[metal][uoz] = units_by_metal[metal].get(uoz, 0.0) + qty
+    # Aggregate metals
+    oz_by_metal, units_by_metal = _aggregate_metals(final_qty)
 
+    # Compute costs
     cur, total = amount_pref if amount_pref else ('', 0.0)
     line_cost = _compute_line_costs(final_qty, price_hits, vendor)
     cost_alloc, alloc_strategy = _allocate_costs(oz_by_metal, line_cost, total, vendor)
+
+    # Format date
     dt = datetime.fromtimestamp(latest_recv_ms / 1000.0, tz=timezone.utc).astimezone().date().isoformat()
 
-    return _build_order_rows(oid, vendor, subject, cur, dt, oz_by_metal, units_by_metal, cost_alloc, alloc_strategy)
+    # Build output rows
+    row_data = OrderRowData(
+        oid=oid, vendor=vendor, subject=subject, cur=cur, dt=dt,
+        oz_by_metal=oz_by_metal, units_by_metal=units_by_metal,
+        cost_alloc=cost_alloc, alloc_strategy=alloc_strategy
+    )
+    return _build_order_rows(row_data)
 
 
 def main(argv: List[str] | None = None) -> int:

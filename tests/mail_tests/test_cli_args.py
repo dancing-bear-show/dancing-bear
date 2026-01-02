@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from mail.cli.args import add_gmail_common_args, add_outlook_common_args
+from core.cli_args import GmailAuthConfig, OutlookAuthConfig
 
 
 class TestAddGmailCommonArgs(unittest.TestCase):
@@ -19,12 +20,12 @@ class TestAddGmailCommonArgs(unittest.TestCase):
 
         result = add_gmail_common_args(parser)
 
-        # Verify delegation with correct parameters
-        mock_add_gmail.assert_called_once_with(
-            parser,
-            include_cache=True,
-            cache_help="Cache directory (optional)",
-        )
+        # Verify delegation with config object
+        mock_add_gmail.assert_called_once()
+        call_args = mock_add_gmail.call_args
+        self.assertEqual(call_args[0][0], parser)
+        config = call_args[0][1]
+        self.assertIsInstance(config, GmailAuthConfig)
         self.assertEqual(result, parser)
 
     @patch('mail.cli.args._add_gmail_auth_args')
@@ -34,9 +35,9 @@ class TestAddGmailCommonArgs(unittest.TestCase):
 
         add_gmail_common_args(parser)
 
-        call_kwargs = mock_add_gmail.call_args[1]
-        self.assertTrue(call_kwargs['include_cache'])
-        self.assertEqual(call_kwargs['cache_help'], "Cache directory (optional)")
+        config = mock_add_gmail.call_args[0][1]
+        self.assertTrue(config.include_cache)
+        self.assertEqual(config.cache_help, "Cache directory (optional)")
 
 
 class TestAddOutlookCommonArgs(unittest.TestCase):
@@ -50,11 +51,12 @@ class TestAddOutlookCommonArgs(unittest.TestCase):
 
         result = add_outlook_common_args(parser)
 
-        # Verify delegation with correct parameters
-        mock_add_outlook.assert_called_once_with(
-            parser,
-            tenant_default="consumers",
-        )
+        # Verify delegation with config object
+        mock_add_outlook.assert_called_once()
+        call_args = mock_add_outlook.call_args
+        self.assertEqual(call_args[0][0], parser)
+        config = call_args[0][1]
+        self.assertIsInstance(config, OutlookAuthConfig)
         self.assertEqual(result, parser)
 
     @patch('mail.cli.args._add_outlook_auth_args')
@@ -64,8 +66,8 @@ class TestAddOutlookCommonArgs(unittest.TestCase):
 
         add_outlook_common_args(parser)
 
-        call_kwargs = mock_add_outlook.call_args[1]
-        self.assertEqual(call_kwargs['tenant_default'], "consumers")
+        config = mock_add_outlook.call_args[0][1]
+        self.assertEqual(config.tenant_default, "consumers")
 
 
 if __name__ == '__main__':

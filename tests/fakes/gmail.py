@@ -3,6 +3,8 @@
 Provides a configurable fake Gmail client that supports common provider methods
 without requiring network access or credentials.
 """
+# ruff: noqa: ARG002
+# Unused parameters are intentional - these fakes must match the real interface signatures.
 
 from __future__ import annotations
 
@@ -46,12 +48,12 @@ class FakeGmailClient:
     def get_label_id_map(self) -> Dict[str, str]:
         return {lab["name"]: lab["id"] for lab in self.labels}
 
-    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict]:  # noqa: ARG002 - interface match
+    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict]:
         return list(self.filters)
 
     def list_message_ids(
-        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None,  # noqa: ARG002
-        max_pages: int = 1, page_size: int = 500  # noqa: ARG002
+        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None,
+        max_pages: int = 1, page_size: int = 500
     ) -> List[str]:
         q = (query or "").lower()
         for pattern, ids in self.message_ids_by_query.items():
@@ -59,10 +61,10 @@ class FakeGmailClient:
                 return ids
         return []
 
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:  # noqa: ARG002 - interface match
+    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:
         return [self.messages.get(mid, {"id": mid}) for mid in ids]
 
-    def get_message(self, msg_id: str, fmt: str = "full") -> Dict:  # noqa: ARG002 - interface match
+    def get_message(self, msg_id: str, fmt: str = "full") -> Dict:
         return self.messages.get(msg_id, {"id": msg_id, "payload": {"headers": []}})
 
     def get_message_text(self, msg_id: str) -> str:
@@ -86,7 +88,7 @@ class FakeGmailClient:
         """Alias for deleted_filter_ids for backward compatibility."""
         return self.deleted_filter_ids
 
-    def ensure_label(self, name: str, **kwargs) -> str:  # noqa: ARG002 - interface match
+    def ensure_label(self, name: str, **kwargs) -> str:
         mapping = self.get_label_id_map()
         if name in mapping:
             return mapping[name]
@@ -117,11 +119,11 @@ class FakeGmailClient:
     ) -> None:
         self.modified_batches.append((list(ids), list(add_label_ids or []), list(remove_label_ids or [])))
 
-    def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:  # noqa: ARG002 - interface match
+    def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:
         self.sent_messages.append(raw_bytes)
         return {"id": f"SENT_{len(self.sent_messages)}"}
 
-    def create_draft_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:  # noqa: ARG002 - interface match
+    def create_draft_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:
         self.created_drafts.append(raw_bytes)
         return {"id": f"DRAFT_{len(self.created_drafts)}"}
 
