@@ -47,16 +47,3 @@ class XLSXParser(ScheduleParser):
                 items.append(item)
 
         return items
-
-
-# Backward compatibility function
-def parse_xlsx(path: str) -> List[ScheduleItem]:
-    """Parse schedule items from XLSX file.
-
-    Args:
-        path: Path to XLSX file
-
-    Returns:
-        List of ScheduleItem objects
-    """
-    return XLSXParser().parse(path)

@@ -7,9 +7,6 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-# Re-export shared fixtures for backwards compatibility
-from tests.fixtures import temp_csv, write_csv, write_csv_content
-
 # Re-export fakes from centralized fakes module
 from tests.fakes.outlook import (
     FakeOutlookClient,
@@ -18,9 +15,6 @@ from tests.fakes.outlook import (
 )
 
 __all__ = [
-    "temp_csv",
-    "write_csv",
-    "write_csv_content",
     "make_outlook_event",
     "FakeOutlookClient",
     "make_outlook_client",

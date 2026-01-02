@@ -59,7 +59,7 @@ from mail.accounts.pipeline import (
     AccountsSyncSignaturesResult,
     AccountsSyncSignaturesProducer,
 )
-from tests.mail_tests.fixtures import capture_stdout
+from tests.fixtures import capture_stdout
 
 
 # -----------------------------------------------------------------------------

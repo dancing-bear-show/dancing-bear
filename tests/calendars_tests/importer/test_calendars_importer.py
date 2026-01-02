@@ -3,17 +3,15 @@
 import os
 import unittest
 
-from tests.fixtures import TempDirMixin
-from tests.calendars_tests.fixtures import write_csv_content
+from tests.fixtures import TempDirMixin, write_csv_content
 
 from calendars.importer import (
     ScheduleItem,
-    _get_field,
-    _row_to_schedule_item,
+    CSVParser,
+    ScheduleParser,
     extract_time_ranges,
     normalize_day,
     normalize_days,
-    parse_csv,
     parse_time_range,
     load_schedule,
     strip_html_tags,
@@ -72,7 +70,7 @@ Team Meeting,2025-01-15T10:00,2025-01-15T11:00,Room 101
 Lunch Break,2025-01-15T12:00,2025-01-15T13:00,Cafeteria
 """
         path = self._write_csv("basic.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0].subject, "Team Meeting")
@@ -88,7 +86,7 @@ Lunch Break,2025-01-15T12:00,2025-01-15T13:00,Cafeteria
 Weekly Standup,weekly,"MO,TU,WE,TH,FR",09:00,09:15,2025-01-06,2025-12-31,Virtual
 """
         path = self._write_csv("recurring.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 1)
         item = items[0]
@@ -107,7 +105,7 @@ Valid Event,2025-01-15T10:00,2025-01-15T11:00
 Another Event,2025-01-15T14:00,2025-01-15T15:00
 """
         path = self._write_csv("skip_empty.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0].subject, "Valid Event")
@@ -118,7 +116,7 @@ Another Event,2025-01-15T14:00,2025-01-15T15:00
 Event With Notes,2025-01-15T10:00,2025-01-15T11:00,Remember to bring laptop
 """
         path = self._write_csv("notes.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].notes, "Remember to bring laptop")
@@ -128,7 +126,7 @@ Event With Notes,2025-01-15T10:00,2025-01-15T11:00,Remember to bring laptop
 Limited Series,weekly,MO,10:00,11:00,5
 """
         path = self._write_csv("count.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].count, 5)
@@ -138,7 +136,7 @@ Limited Series,weekly,MO,10:00,11:00,5
 Event,weekly,not-a-number
 """
         path = self._write_csv("bad_count.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 1)
         self.assertIsNone(items[0].count)
@@ -148,7 +146,7 @@ Event,weekly,not-a-number
 Morning Yoga,06:00,07:00,"MO,WE,FR",weekly
 """
         path = self._write_csv("caps.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].subject, "Morning Yoga")
@@ -159,7 +157,7 @@ Morning Yoga,06:00,07:00,"MO,WE,FR",weekly
         csv_content = """subject,start,end
 """
         path = self._write_csv("empty.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
         self.assertEqual(len(items), 0)
 
     def test_parse_csv_alternate_column_names(self):
@@ -167,7 +165,7 @@ Morning Yoga,06:00,07:00,"MO,WE,FR",weekly
 Swim Class,weekly,14:00,15:00,2025-01-01,2025-06-30,Community Pool
 """
         path = self._write_csv("alt_names.csv", csv_content)
-        items = parse_csv(path)
+        items = CSVParser().parse(path)
 
         self.assertEqual(len(items), 1)
         item = items[0]
@@ -453,55 +451,55 @@ class TestGetField(unittest.TestCase):
     def test_finds_exact_key(self):
         """Test finds value with exact key match."""
         row = {"subject": "Meeting"}
-        result = _get_field(row, "subject")
+        result = ScheduleParser._get_field(row, "subject")
         self.assertEqual(result, "Meeting")
 
     def test_finds_lowercase_variant(self):
         """Test finds value with lowercase key variant."""
         row = {"Subject": "Meeting"}
-        result = _get_field(row, "subject")
+        result = ScheduleParser._get_field(row, "subject")
         self.assertEqual(result, "Meeting")
 
     def test_finds_title_variant(self):
         """Test finds value with title-case key variant."""
         row = {"subject": "Meeting"}
-        result = _get_field(row, "SUBJECT")
+        result = ScheduleParser._get_field(row, "SUBJECT")
         self.assertEqual(result, "Meeting")
 
     def test_returns_first_non_empty(self):
         """Test returns first non-empty value from multiple keys."""
         row = {"name": "", "title": "CEO", "subject": "Meeting"}
-        result = _get_field(row, "name", "title", "subject")
+        result = ScheduleParser._get_field(row, "name", "title", "subject")
         self.assertEqual(result, "CEO")
 
     def test_returns_default_when_missing(self):
         """Test returns default when key not found."""
         row = {"other": "value"}
-        result = _get_field(row, "subject", default="Unknown")
+        result = ScheduleParser._get_field(row, "subject", default="Unknown")
         self.assertEqual(result, "Unknown")
 
     def test_returns_default_when_empty(self):
         """Test returns default when value is empty."""
         row = {"subject": ""}
-        result = _get_field(row, "subject", default="Default")
+        result = ScheduleParser._get_field(row, "subject", default="Default")
         self.assertEqual(result, "Default")
 
     def test_strips_whitespace(self):
         """Test strips leading/trailing whitespace."""
         row = {"subject": "  Meeting  "}
-        result = _get_field(row, "subject")
+        result = ScheduleParser._get_field(row, "subject")
         self.assertEqual(result, "Meeting")
 
     def test_handles_none_value(self):
         """Test handles None value in row."""
         row = {"subject": None, "title": "Meeting"}
-        result = _get_field(row, "subject", "title")
+        result = ScheduleParser._get_field(row, "subject", "title")
         self.assertEqual(result, "Meeting")
 
     def test_returns_empty_string_default(self):
         """Test default default is empty string."""
         row = {}
-        result = _get_field(row, "subject")
+        result = ScheduleParser._get_field(row, "subject")
         self.assertEqual(result, "")
 
 
@@ -511,13 +509,13 @@ class TestRowToScheduleItem(unittest.TestCase):
     def test_returns_none_for_empty_subject(self):
         """Test returns None when subject is empty."""
         row = {"subject": "", "start": "2025-01-15T10:00"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertIsNone(result)
 
     def test_basic_item(self):
         """Test creates basic ScheduleItem."""
         row = {"subject": "Meeting", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertIsNotNone(result)
         self.assertEqual(result.subject, "Meeting")
         self.assertEqual(result.start_iso, "2025-01-15T10:00")
@@ -532,7 +530,7 @@ class TestRowToScheduleItem(unittest.TestCase):
             "starttime": "09:00",
             "endtime": "10:00",
         }
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertEqual(result.recurrence, "weekly")
         self.assertEqual(result.byday, ["MO", "WE", "FR"])
         self.assertEqual(result.start_time, "09:00")
@@ -541,25 +539,25 @@ class TestRowToScheduleItem(unittest.TestCase):
     def test_with_count(self):
         """Test creates item with occurrence count."""
         row = {"subject": "Limited", "count": "10"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertEqual(result.count, 10)
 
     def test_with_location(self):
         """Test creates item with location."""
         row = {"subject": "Meeting", "location": "Room A"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertEqual(result.location, "Room A")
 
     def test_with_notes(self):
         """Test creates item with notes."""
         row = {"subject": "Meeting", "notes": "Bring laptop"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertEqual(result.notes, "Bring laptop")
 
     def test_handles_alternate_keys(self):
         """Test handles alternate key names."""
         row = {"Subject": "Meeting", "Start": "2025-01-15T10:00", "Address": "123 Main St"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertEqual(result.subject, "Meeting")
         self.assertEqual(result.start_iso, "2025-01-15T10:00")
         self.assertEqual(result.location, "123 Main St")
@@ -567,13 +565,13 @@ class TestRowToScheduleItem(unittest.TestCase):
     def test_invalid_count_ignored(self):
         """Test invalid count is ignored."""
         row = {"subject": "Meeting", "count": "abc"}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertIsNone(result.count)
 
     def test_empty_byday_returns_none(self):
         """Test empty byday returns None."""
         row = {"subject": "Meeting", "byday": ""}
-        result = _row_to_schedule_item(row)
+        result = ScheduleParser._row_to_schedule_item(row)
         self.assertIsNone(result.byday)
 
 

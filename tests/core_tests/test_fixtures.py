@@ -2,9 +2,9 @@
 
 import unittest
 
+from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
-    capture_stdout,
     make_args,
     make_gmail_client,
 )

@@ -1,7 +1,8 @@
 import unittest
 from unittest.mock import patch
 
-from tests.mail_tests.fixtures import FakeGmailClient, capture_stdout, make_args, write_yaml
+from tests.fixtures import capture_stdout, write_yaml
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 
 class ConstructableFakeGmailClient(FakeGmailClient):
