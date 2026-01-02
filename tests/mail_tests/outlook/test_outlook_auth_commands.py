@@ -301,7 +301,7 @@ class TestRunOutlookAuthPoll(TempDirMixin, unittest.TestCase):
         }
         flow_path.write_text(json.dumps(flow_data))
 
-        args = make_args(flow=str(flow_path), token="token.json", verbose=False)  # nosec B106
+        args = make_args(flow=str(flow_path), token="token.json", verbose=False)  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_poll
