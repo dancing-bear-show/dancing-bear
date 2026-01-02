@@ -1,5 +1,6 @@
 """Tests for resume/overlays.py profile overlay functionality."""
 
+import tempfile
 import unittest
 from pathlib import Path
 
