@@ -1,6 +1,6 @@
 import os
 import stat
-import subprocess
+import subprocess  # nosec B404
 import tempfile
 import textwrap
 from pathlib import Path

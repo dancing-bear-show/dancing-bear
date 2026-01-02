@@ -13,7 +13,7 @@ class TestGenWrappers(unittest.TestCase):
 
     def test_check_mode_no_changes(self):
         """Verify --check returns 0 when wrappers are in sync."""
-        import subprocess
+        import subprocess  # nosec B404
         import sys
 
         proc = subprocess.run(  # nosec B603 - test uses trusted local script
@@ -27,7 +27,7 @@ class TestGenWrappers(unittest.TestCase):
 
     def test_verbose_lists_all_wrappers(self):
         """Verify --verbose shows unchanged files."""
-        import subprocess
+        import subprocess  # nosec B404
         import sys
 
         proc = subprocess.run(  # nosec B603 - test uses trusted local script

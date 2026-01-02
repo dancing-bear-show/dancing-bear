@@ -1,5 +1,5 @@
 import unittest
-import subprocess
+import subprocess  # nosec B404
 
 
 class TestScheduleImporterCLI(unittest.TestCase):
