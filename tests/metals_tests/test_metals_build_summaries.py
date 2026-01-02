@@ -101,7 +101,7 @@ class TestRun(unittest.TestCase):
     def test_raises_error_for_missing_file(self):
         """Test raises error when costs file doesn't exist."""
         with self.assertRaises(SystemExit):
-            run("/nonexistent/costs.csv", test_path("out"))  # noqa: S108
+            run("/nonexistent/costs.csv", test_path("out"))  # noqa: S108 - test fixture path
 
     def test_handles_case_insensitive_metal(self):
         """Test handles case-insensitive metal names."""

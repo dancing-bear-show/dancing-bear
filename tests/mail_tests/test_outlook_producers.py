@@ -123,7 +123,7 @@ class TestOutlookRulesExportProducer(unittest.TestCase):
     def test_success(self):
         result = ResultEnvelope(
             status="success",
-            payload=OutlookRulesExportResult(count=5, out_path=test_path("rules.yaml")),  # noqa: S108
+            payload=OutlookRulesExportResult(count=5, out_path=test_path("rules.yaml")),  # noqa: S108 - test fixture path
         )
         producer = OutlookRulesExportProducer()
 
@@ -131,7 +131,7 @@ class TestOutlookRulesExportProducer(unittest.TestCase):
             producer.produce(result)
 
         self.assertIn("Exported 5 rules", buf.getvalue())
-        self.assertIn(test_path("rules.yaml"), buf.getvalue())  # noqa: S108
+        self.assertIn(test_path("rules.yaml"), buf.getvalue())  # noqa: S108 - test fixture path
 
     def test_error(self):
         result = ResultEnvelope(
@@ -310,7 +310,7 @@ class TestOutlookCategoriesExportProducer(unittest.TestCase):
     def test_success(self):
         result = ResultEnvelope(
             status="success",
-            payload=OutlookCategoriesExportResult(count=3, out_path=test_path("cats.yaml")),  # noqa: S108
+            payload=OutlookCategoriesExportResult(count=3, out_path=test_path("cats.yaml")),  # noqa: S108 - test fixture path
         )
         producer = OutlookCategoriesExportProducer()
 

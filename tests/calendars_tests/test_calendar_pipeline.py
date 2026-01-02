@@ -696,7 +696,7 @@ class RequestConsumerTests(TestCase):
     def test_request_consumer_works_with_type_alias(self):
         """Type alias consumers work correctly with RequestConsumer."""
         request = OutlookVerifyRequest(
-            config_path=Path(test_path("test.yaml")),  # noqa: S108
+            config_path=Path(test_path("test.yaml")),  # noqa: S108 - test fixture path
             calendar="Family",
             service=MagicMock(),
         )
@@ -718,7 +718,7 @@ class RequestConsumerTests(TestCase):
             page_size=50,
             inbox_only=False,
             top=10,
-            out_path=Path(test_path("out.yaml")),  # noqa: S108
+            out_path=Path(test_path("out.yaml")),  # noqa: S108 - test fixture path
         )
         consumer = GmailSweepTopRequestConsumer(request)
         result = consumer.consume()

@@ -54,12 +54,12 @@ class TestOutlookRulesExportPayload(unittest.TestCase):
 
     def test_required_fields(self):
         client = Mock()
-        payload = OutlookRulesExportPayload(client=client, out_path=test_path("rules.yaml"))  # noqa: S108
-        self.assertEqual(payload.out_path, test_path("rules.yaml"))  # noqa: S108
+        payload = OutlookRulesExportPayload(client=client, out_path=test_path("rules.yaml"))  # noqa: S108 - test fixture path
+        self.assertEqual(payload.out_path, test_path("rules.yaml"))  # noqa: S108 - test fixture path
 
     def test_default_cache_values(self):
         client = Mock()
-        payload = OutlookRulesExportPayload(client=client, out_path=test_path("out.yaml"))  # noqa: S108
+        payload = OutlookRulesExportPayload(client=client, out_path=test_path("out.yaml"))  # noqa: S108 - test fixture path
         self.assertFalse(payload.use_cache)
         self.assertEqual(payload.cache_ttl, 600)
 
