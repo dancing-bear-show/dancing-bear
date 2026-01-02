@@ -390,7 +390,7 @@ def make_mock_gmail_client(
     mock_client.list_message_ids.return_value = message_ids or []
 
     if messages:
-        mock_client.get_message.side_effect = lambda mid: messages.get(mid, {})
+        mock_client.get_message.side_effect = lambda mid, **kwargs: messages.get(mid, {})
     else:
         mock_client.get_message.return_value = {}
 

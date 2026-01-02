@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from metals.gmail_extract import (
     G_PER_OZ,
@@ -10,6 +10,7 @@ from metals.gmail_extract import (
     run,
     main,
 )
+from .fixtures import make_mock_gmail_client
 
 
 class TestConstants(unittest.TestCase):
@@ -113,18 +114,19 @@ class TestRun(unittest.TestCase):
     def test_run_success(self, mock_resolve, mock_client_class):
         """Test successful run."""
         mock_resolve.return_value = ("cred.json", "token.json")
-        mock_client = MagicMock()
+
+        # Create mock client with fixture
+        mock_client = make_mock_gmail_client(
+            message_ids=["msg1", "msg2"],
+            messages={
+                "msg1": {"id": "msg1", "internalDate": "1704067200000"},
+                "msg2": {"id": "msg2", "internalDate": "1704153600000"},
+            }
+        )
         mock_client_class.return_value = mock_client
-
-        # Mock message list
-        mock_client.list_message_ids.return_value = ["msg1", "msg2"]
-
-        # Mock message details
-        mock_client.get_message.side_effect = [
-            {"id": "msg1", "internalDate": "1704067200000"},
-            {"id": "msg2", "internalDate": "1704153600000"},
-        ]
         mock_client_class.headers_to_dict.return_value = {"subject": "Order #123456"}
+
+        # Mock message text extraction
         mock_client.get_message_text.side_effect = [
             "1 oz Gold x 2",
             "10 oz Silver x 1",
@@ -141,9 +143,10 @@ class TestRun(unittest.TestCase):
     def test_run_no_messages(self, mock_resolve, mock_client_class):
         """Test run with no messages found."""
         mock_resolve.return_value = ("cred.json", "token.json")
-        mock_client = MagicMock()
+
+        # Create mock client with empty message list
+        mock_client = make_mock_gmail_client(message_ids=[])
         mock_client_class.return_value = mock_client
-        mock_client.list_message_ids.return_value = []
 
         result = run(profile="test", days=30)
         self.assertEqual(result, 0)
