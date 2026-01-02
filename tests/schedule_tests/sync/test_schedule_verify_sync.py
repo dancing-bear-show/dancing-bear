@@ -50,7 +50,7 @@ class TestScheduleVerifySync(unittest.TestCase):
             args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
-                rc = sa._cmd_verify(args)
+                rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
             self.assertIn("Missing: none", out)
@@ -87,7 +87,7 @@ class TestScheduleVerifySync(unittest.TestCase):
             args = SimpleNamespace(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
-                rc = sa._cmd_verify(args)
+                rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
             self.assertIn("Missing (subject@time):", out)
@@ -131,7 +131,7 @@ class TestScheduleVerifySync(unittest.TestCase):
             args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False, profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
-                rc = sa._cmd_sync(args)
+                rc = sa.cmd_sync(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
             self.assertIn("Would create series: 0", out)
@@ -159,7 +159,7 @@ class TestScheduleVerifySync(unittest.TestCase):
             args = SimpleNamespace(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out), profile=None, client_id="dummy", tenant="consumers", token=None)
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
-                rc = sa._cmd_export(args)
+                rc = sa.cmd_export(args)
             self.assertEqual(rc, 0)
             self.assertTrue(out.exists())
             txt = out.read_text(encoding="utf-8")

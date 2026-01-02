@@ -466,44 +466,8 @@ class OutlookCostExtractor(CostExtractor):
         return lines
 
 
-# Constants for backward compatibility wrappers
+# Test helper functions
 _TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', 'out/metals/costs.csv')
-
-
-# Module-level functions for backward compatibility with tests
-def _classify_subject(subject: str) -> str:
-    """Classify email subject for priority ranking."""
-    cat, _ = _rcm_parser.classify_email(subject)
-    return cat
-
-
-def _extract_order_id(subject: str, body_text: str) -> Optional[str]:
-    """Extract RCM order ID from subject or body."""
-    return _rcm_parser.extract_order_id(subject, body_text)
-
-
-def _extract_line_items(text: str) -> Tuple[List[Dict], List[str]]:
-    """Extract line items using the shared RCM parser."""
-    line_items, lines = _rcm_parser.extract_line_items(text)
-    # Convert LineItem dataclass to dict format for backward compatibility
-    items = [
-        {'metal': item.metal, 'unit_oz': item.unit_oz, 'qty': item.qty, 'idx': item.idx}
-        for item in line_items
-    ]
-    return items, lines
-
-
-def _amount_near_item(lines: List[str], idx: int, *, metal: str = '', unit_oz: float = 0.0) -> Optional[Tuple[float, str]]:
-    """Find a CAD amount near an item line using the shared RCM parser."""
-    hit = _rcm_parser.extract_price_near_item(lines, idx, metal, unit_oz)
-    if hit:
-        return hit.amount, hit.kind
-    return None
-
-
-def _extract_confirmation_item_totals(text: str) -> List[float]:
-    """Extract per-item 'Total $X CAD' amounts from a confirmation email body."""
-    return _rcm_parser.extract_confirmation_totals(text)
 
 
 def _fetch_rcm_message_ids(cli: OutlookClient) -> List[str]:

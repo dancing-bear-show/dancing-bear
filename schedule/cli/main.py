@@ -442,28 +442,6 @@ def cmd_apply(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-# Backward compatibility aliases for tests
-_cmd_plan = cmd_plan
-_cmd_verify = cmd_verify
-_cmd_sync = cmd_sync
-_cmd_export = cmd_export
-_cmd_compress = cmd_compress
-_cmd_apply = cmd_apply
-
-# Explicit exports to mark aliases as intentional public API
-__all__ = [
-    "app",
-    "main",
-    "_cmd_plan",
-    "_cmd_verify",
-    "_cmd_sync",
-    "_cmd_export",
-    "_cmd_compress",
-    "_cmd_apply",
-    "_expand_recurring_occurrences",
-]
-
-
 def main(argv: Optional[List[str]] = None) -> int:
     """Run the CLI."""
     # Build parser and add agentic flags

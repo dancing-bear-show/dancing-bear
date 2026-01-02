@@ -34,7 +34,7 @@ class TestScheduleCompress(unittest.TestCase):
             args = type("Args", (), {"in_path": str(inp), "out": str(outp), "calendar": "Activities", "min_occur": 2})
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = sa._cmd_compress(args)
+                rc = sa.cmd_compress(args)
             self.assertEqual(rc, 0)
             out = outp.read_text(encoding="utf-8")
             self.assertIn("repeat: weekly", out)

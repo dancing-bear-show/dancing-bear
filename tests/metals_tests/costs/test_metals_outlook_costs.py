@@ -12,15 +12,11 @@ from tests.fixtures import TempDirMixin
 from core.text_utils import html_to_text
 from metals.costs_common import extract_order_amount, merge_costs_csv
 from tests.metals_tests.fixtures import make_cost_row, write_costs_csv
+from metals.vendors import RCMParser
 from metals.outlook_costs import (
-    _amount_near_item,
     _build_gold_row,
-    _classify_subject,
     _compute_confirmation_line_costs,
     _compute_proximity_line_costs,
-    _extract_confirmation_item_totals,
-    _extract_line_items,
-    _extract_order_id,
     _fetch_rcm_message_ids,
     _filter_and_group_by_order,
     _summarize_ounces,
@@ -31,52 +27,64 @@ from metals.outlook_costs import (
 
 
 class TestClassifySubject(unittest.TestCase):
-    """Tests for _classify_subject function."""
+    """Tests for RCMParser.classify_email method."""
+
+    def setUp(self):
+        self.parser = RCMParser()
 
     def test_confirmation_with_order_number(self):
         """Test detects confirmation for order number."""
-        result = _classify_subject("Confirmation for order number PO1234567")
-        self.assertEqual(result, "confirmation")
+        email_type, priority = self.parser.classify_email("Confirmation for order number PO1234567")
+        self.assertEqual(email_type, "confirmation")
+        self.assertEqual(priority, 3)
 
     def test_confirmation_without_number(self):
         """Test detects confirmation for order (without 'number')."""
-        result = _classify_subject("Confirmation for order PO1234567")
-        self.assertEqual(result, "confirmation")
+        email_type, priority = self.parser.classify_email("Confirmation for order PO1234567")
+        self.assertEqual(email_type, "confirmation")
+        self.assertEqual(priority, 3)
 
     def test_confirmation_case_insensitive(self):
         """Test confirmation detection is case insensitive."""
-        result = _classify_subject("CONFIRMATION FOR ORDER NUMBER PO123")
-        self.assertEqual(result, "confirmation")
+        email_type, priority = self.parser.classify_email("CONFIRMATION FOR ORDER NUMBER PO123")
+        self.assertEqual(email_type, "confirmation")
+        self.assertEqual(priority, 3)
 
     def test_shipping_confirmation(self):
         """Test detects shipping confirmation."""
-        result = _classify_subject("Shipping Confirmation for your order")
-        self.assertEqual(result, "shipping")
+        email_type, priority = self.parser.classify_email("Shipping Confirmation for your order")
+        self.assertEqual(email_type, "shipping")
+        self.assertEqual(priority, 2)
 
     def test_was_shipped(self):
         """Test detects 'was shipped' pattern."""
-        result = _classify_subject("Your order was shipped")
-        self.assertEqual(result, "shipping")
+        email_type, priority = self.parser.classify_email("Your order was shipped")
+        self.assertEqual(email_type, "shipping")
+        self.assertEqual(priority, 2)
 
     def test_request_received(self):
         """Test detects request received."""
-        result = _classify_subject("We received your request")
-        self.assertEqual(result, "request")
+        email_type, priority = self.parser.classify_email("We received your request")
+        self.assertEqual(email_type, "request")
+        self.assertEqual(priority, 1)
 
     def test_other_subject(self):
         """Test returns 'other' for unrecognized subjects."""
-        result = _classify_subject("Random email subject")
-        self.assertEqual(result, "other")
+        email_type, priority = self.parser.classify_email("Random email subject")
+        self.assertEqual(email_type, "other")
+        self.assertEqual(priority, 0)
 
     def test_empty_subject(self):
         """Test handles empty subject."""
-        result = _classify_subject("")
-        self.assertEqual(result, "other")
+        email_type, priority = self.parser.classify_email("")
+        self.assertEqual(email_type, "other")
+        self.assertEqual(priority, 0)
 
     def test_none_subject(self):
         """Test handles None subject."""
-        result = _classify_subject(None)
-        self.assertEqual(result, "other")
+        email_type, priority = self.parser.classify_email(None)
+        self.assertEqual(email_type, "other")
+        self.assertEqual(priority, 0)
 
 
 class TestHtmlToText(unittest.TestCase):
@@ -112,71 +120,77 @@ class TestHtmlToText(unittest.TestCase):
 
 
 class TestExtractOrderId(unittest.TestCase):
-    """Tests for _extract_order_id function."""
+    """Tests for RCMParser.extract_order_id method."""
+
+    def setUp(self):
+        self.parser = RCMParser()
 
     def test_extracts_po_number_from_subject(self):
         """Test extracts PO number from subject."""
-        result = _extract_order_id("Order Confirmation PO1616870", "")
+        result = self.parser.extract_order_id("Order Confirmation PO1616870", "")
         self.assertEqual(result, "PO1616870")
 
     def test_extracts_po_number_from_body(self):
         """Test extracts PO number from body."""
-        result = _extract_order_id("Order Confirmation", "Your order PO1234567 has been received")
+        result = self.parser.extract_order_id("Order Confirmation", "Your order PO1234567 has been received")
         self.assertEqual(result, "PO1234567")
 
     def test_returns_none_when_not_found(self):
         """Test returns None when no PO number."""
-        result = _extract_order_id("Hello", "No order here")
+        result = self.parser.extract_order_id("Hello", "No order here")
         self.assertIsNone(result)
 
 
 class TestExtractLineItems(unittest.TestCase):
-    """Tests for _extract_line_items function."""
+    """Tests for RCMParser.extract_line_items method."""
+
+    def setUp(self):
+        self.parser = RCMParser()
 
     def test_extracts_fractional_oz(self):
         """Test extracts 1/10 oz gold."""
         text = "1/10 oz Gold Maple Leaf"
-        items, lines = _extract_line_items(text)
+        items, lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
         # At least one item should have unit_oz around 0.1
-        oz_values = [it["unit_oz"] for it in items]
+        oz_values = [it.unit_oz for it in items]
         self.assertTrue(any(abs(oz - 0.1) < 0.01 for oz in oz_values))
 
     def test_extracts_decimal_oz(self):
         """Test extracts decimal ounce."""
         text = "1 oz Gold Bar"
-        items, lines = _extract_line_items(text)
+        items, lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
 
     def test_extracts_grams(self):
         """Test extracts grams."""
         text = "31.1035 gram Gold Bar"
-        items, lines = _extract_line_items(text)
+        items, lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
         # Should be approximately 1 oz
-        oz_values = [it["unit_oz"] for it in items]
+        oz_values = [it.unit_oz for it in items]
         self.assertTrue(any(abs(oz - 1.0) < 0.1 for oz in oz_values))
 
     def test_handles_empty_text(self):
         """Test handles empty text."""
-        items, lines = _extract_line_items("")
+        items, lines = self.parser.extract_line_items("")
         self.assertEqual(items, [])
 
     def test_normalizes_unicode_dashes(self):
         """Test normalizes unicode dashes."""
         # 1/10-oz with en-dash
         text = "1/10\u2013oz Gold Maple"
-        items, lines = _extract_line_items(text)
+        items, lines = self.parser.extract_line_items(text)
         # Should still find the item
         self.assertGreater(len(items), 0)
 
     def test_finds_quantity_on_same_line(self):
         """Test finds quantity on same line."""
         text = "1/10 oz Gold Maple Leaf Qty: 5"
-        items, lines = _extract_line_items(text)
+        items, lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
         # Should find qty of 5
-        qty_values = [it.get("qty", 1) for it in items]
+        qty_values = [it.qty for it in items]
         self.assertTrue(any(math.isclose(q, 5.0) for q in qty_values))
 
 
@@ -206,7 +220,10 @@ class TestExtractOrderAmount(unittest.TestCase):
 
 
 class TestAmountNearItem(unittest.TestCase):
-    """Tests for _amount_near_item function."""
+    """Tests for RCMParser.extract_price_near_item method."""
+
+    def setUp(self):
+        self.parser = RCMParser()
 
     def test_finds_total_on_same_line(self):
         """Test finds 'total' labeled amount."""
@@ -214,11 +231,10 @@ class TestAmountNearItem(unittest.TestCase):
             "1/10 oz Gold Maple Leaf",
             "Total C$350.00",
         ]
-        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        result = self.parser.extract_price_near_item(lines, 0, metal="gold", unit_oz=0.1)
         self.assertIsNotNone(result)
-        amt, kind = result
-        self.assertEqual(amt, 350.00)
-        self.assertEqual(kind, "total")
+        self.assertEqual(result.amount, 350.00)
+        self.assertEqual(result.kind, "total")
 
     def test_finds_unit_price(self):
         """Test finds unit price when no 'total' label."""
@@ -226,11 +242,10 @@ class TestAmountNearItem(unittest.TestCase):
             "1/10 oz Gold Maple Leaf",
             "C$350.00",
         ]
-        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        result = self.parser.extract_price_near_item(lines, 0, metal="gold", unit_oz=0.1)
         self.assertIsNotNone(result)
-        amt, kind = result
-        self.assertEqual(amt, 350.00)
-        self.assertEqual(kind, "unit")
+        self.assertEqual(result.amount, 350.00)
+        self.assertEqual(result.kind, "unit")
 
     def test_skips_banned_lines(self):
         """Test skips subtotal/tax/shipping lines."""
@@ -242,16 +257,15 @@ class TestAmountNearItem(unittest.TestCase):
             "Total C$410.00",
         ]
         # The function should skip subtotal/shipping/tax
-        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        result = self.parser.extract_price_near_item(lines, 0, metal="gold", unit_oz=0.1)
         self.assertIsNotNone(result)
-        amt, kind = result
-        self.assertEqual(amt, 410.00)  # Should get the Total, not subtotal
-        self.assertEqual(kind, "total")
+        self.assertEqual(result.amount, 410.00)  # Should get the Total, not subtotal
+        self.assertEqual(result.kind, "total")
 
     def test_returns_none_when_no_amount(self):
         """Test returns None when no valid amount found."""
         lines = ["1/10 oz Gold Maple Leaf", "Description only"]
-        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        result = self.parser.extract_price_near_item(lines, 0, metal="gold", unit_oz=0.1)
         self.assertIsNone(result)
 
     def test_filters_by_price_range_for_gold(self):
@@ -260,17 +274,20 @@ class TestAmountNearItem(unittest.TestCase):
             "1/10 oz Gold Maple Leaf",
             "C$50.00",  # Too low for gold
         ]
-        result = _amount_near_item(lines, 0, metal="gold", unit_oz=0.1)
+        result = self.parser.extract_price_near_item(lines, 0, metal="gold", unit_oz=0.1)
         self.assertIsNone(result)  # Should reject $50 as too low
 
 
 class TestExtractConfirmationItemTotals(unittest.TestCase):
-    """Tests for _extract_confirmation_item_totals function."""
+    """Tests for RCMParser.extract_confirmation_totals method."""
+
+    def setUp(self):
+        self.parser = RCMParser()
 
     def test_extracts_single_total(self):
         """Test extracts single item total."""
         text = "Product: Gold Coin\nTotal $350.00 CAD"
-        totals = _extract_confirmation_item_totals(text)
+        totals = self.parser.extract_confirmation_totals(text)
         self.assertEqual(len(totals), 1)
         self.assertEqual(totals[0], 350.00)
 
@@ -282,7 +299,7 @@ class TestExtractConfirmationItemTotals(unittest.TestCase):
         Product 2: Gold Bar
         Total $1,500.00 CAD
         """
-        totals = _extract_confirmation_item_totals(text)
+        totals = self.parser.extract_confirmation_totals(text)
         self.assertEqual(len(totals), 2)
         self.assertEqual(totals[0], 350.00)
         self.assertEqual(totals[1], 1500.00)
@@ -294,7 +311,7 @@ class TestExtractConfirmationItemTotals(unittest.TestCase):
         Total $350.00 CAD
         Orders over $500 qualify for free shipping
         """
-        totals = _extract_confirmation_item_totals(text)
+        totals = self.parser.extract_confirmation_totals(text)
         self.assertEqual(len(totals), 1)
         self.assertEqual(totals[0], 350.00)
 
@@ -305,18 +322,18 @@ class TestExtractConfirmationItemTotals(unittest.TestCase):
         Subtotal $350.00 CAD
         """
         # Only the item total, not subtotal
-        totals = _extract_confirmation_item_totals(text)
+        totals = self.parser.extract_confirmation_totals(text)
         self.assertEqual(len(totals), 1)
 
     def test_handles_empty_text(self):
         """Test handles empty text."""
-        totals = _extract_confirmation_item_totals("")
+        totals = self.parser.extract_confirmation_totals("")
         self.assertEqual(totals, [])
 
     def test_handles_cad_formats(self):
         """Test handles various CAD formats."""
         text = "Total C$350.00 CAD"
-        totals = _extract_confirmation_item_totals(text)
+        totals = self.parser.extract_confirmation_totals(text)
         self.assertEqual(len(totals), 1)
         self.assertEqual(totals[0], 350.00)
 

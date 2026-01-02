@@ -14,20 +14,21 @@ from core.outlook import (
     OutlookClientBase,
     OutlookCalendarMixin,
     OutlookMailMixin,
-    GRAPH,
-    SCOPES,
+    GRAPH_API_URL,
+    GRAPH_API_SCOPES,
 )
 
 # Also re-export from submodules for code that imports from mail.outlook_api.client etc
-from core.outlook.client import _requests, DEFAULT_TIMEOUT
+from core.outlook.client import _requests
+from core.constants import DEFAULT_REQUEST_TIMEOUT
 
 __all__ = [
     "OutlookClient",
     "OutlookClientBase",
     "OutlookCalendarMixin",
     "OutlookMailMixin",
-    "GRAPH",
-    "SCOPES",
+    "GRAPH_API_URL",
+    "GRAPH_API_SCOPES",
     "_requests",
-    "DEFAULT_TIMEOUT",
+    "DEFAULT_REQUEST_TIMEOUT",
 ]

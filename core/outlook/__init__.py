@@ -13,7 +13,8 @@ Usage:
     calendars = client.list_calendars()
 """
 
-from .client import OutlookClientBase, GRAPH, SCOPES, _requests
+from .client import OutlookClientBase, _requests
+from core.constants import GRAPH_API_URL, GRAPH_API_SCOPES
 from .calendar import (
     OutlookCalendarMixin,
     CalendarRef,
@@ -55,7 +56,7 @@ __all__ = [
     "EventUpdateParams",
     "SearchParams",
     # Constants
-    "GRAPH",
-    "SCOPES",
+    "GRAPH_API_URL",
+    "GRAPH_API_SCOPES",
     "_requests",
 ]

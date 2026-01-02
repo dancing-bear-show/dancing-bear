@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from .client import OutlookClientBase, _requests, GRAPH
-from core.constants import DAY_START_TIME, DAY_END_TIME
+from .client import OutlookClientBase, _requests
+from core.constants import DAY_START_TIME, DAY_END_TIME, GRAPH_API_URL
 
 
 # Parameter dataclasses
@@ -132,9 +132,9 @@ class OutlookCalendarMixin:
     def _event_endpoint(calendar_id: Optional[str], event_id: Optional[str] = None) -> str:
         """Build Graph API endpoint for events."""
         if calendar_id:
-            base = f"{GRAPH}/me/calendars/{calendar_id}/events"
+            base = f"{GRAPH_API_URL}/me/calendars/{calendar_id}/events"
         else:
-            base = f"{GRAPH}/me/events"
+            base = f"{GRAPH_API_URL}/me/events"
         return f"{base}/{event_id}" if event_id else base
 
     @staticmethod
@@ -148,11 +148,11 @@ class OutlookCalendarMixin:
 
     # -------------------- Calendars --------------------
     def list_calendars(self: OutlookClientBase) -> List[Dict[str, Any]]:
-        return self._paginated_get(f"{GRAPH}/me/calendars")
+        return self._paginated_get(f"{GRAPH_API_URL}/me/calendars")
 
     def create_calendar(self: OutlookClientBase, name: str) -> Dict[str, Any]:
         body = {"name": name}
-        r = _requests().post(f"{GRAPH}/me/calendars", headers=self._headers(), json=body)
+        r = _requests().post(f"{GRAPH_API_URL}/me/calendars", headers=self._headers(), json=body)
         r.raise_for_status()
         return r.json()
 
@@ -188,7 +188,7 @@ class OutlookCalendarMixin:
 
     # -------------------- Calendar Sharing --------------------
     def list_calendar_permissions(self: OutlookClientBase, calendar_id: str) -> List[Dict[str, Any]]:
-        url = f"{GRAPH}/me/calendars/{calendar_id}/calendarPermissions"
+        url = f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
         return r.json().get("value", [])
@@ -213,7 +213,7 @@ class OutlookCalendarMixin:
                     if pid:
                         body = {"role": role}
                         rr = _requests().patch(
-                            f"{GRAPH}/me/calendars/{calendar_id}/calendarPermissions/{pid}",
+                            f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions/{pid}",
                             headers=self._headers(),
                             json=body
                         )
@@ -222,7 +222,7 @@ class OutlookCalendarMixin:
                 return p
         body = {"emailAddress": {"address": email}, "role": role}
         r = _requests().post(
-            f"{GRAPH}/me/calendars/{calendar_id}/calendarPermissions",
+            f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions",
             headers=self._headers(),
             json=body
         )
@@ -240,7 +240,7 @@ class OutlookCalendarMixin:
         performs a client-side case-insensitive match.
         """
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
-        base = f"{GRAPH}/me/calendars/{cal_id}/calendarView" if cal_id else f"{GRAPH}/me/calendarView"
+        base = f"{GRAPH_API_URL}/me/calendars/{cal_id}/calendarView" if cal_id else f"{GRAPH_API_URL}/me/calendarView"
         events = self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
         if not params.subject_filter:
             return events
@@ -252,7 +252,7 @@ class OutlookCalendarMixin:
         params: "ListCalendarViewRequest",
     ) -> List[Dict[str, Any]]:
         """List calendar view (expanded occurrences) for a date range."""
-        base = f"{GRAPH}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{GRAPH}/me/calendarView"
+        base = f"{GRAPH_API_URL}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{GRAPH_API_URL}/me/calendarView"
         return self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
 
     def _resolve_tz(self: OutlookClientBase, tz: Optional[str]) -> str:

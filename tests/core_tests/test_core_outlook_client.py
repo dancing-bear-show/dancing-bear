@@ -12,9 +12,11 @@ from unittest.mock import MagicMock, patch, mock_open
 from core.outlook.client import (
     OutlookClientBase,
     _TimeoutRequestsWrapper,
-    DEFAULT_TIMEOUT,
-    GRAPH,
-    SCOPES,
+)
+from core.constants import (
+    DEFAULT_REQUEST_TIMEOUT,
+    GRAPH_API_URL,
+    GRAPH_API_SCOPES,
 )
 
 
@@ -115,7 +117,7 @@ class TestOutlookClientBaseInit(unittest.TestCase):
         self.assertIsNone(client._token)
         self.assertIsNone(client._cache)
         self.assertIsNone(client._app)
-        self.assertEqual(client.GRAPH, GRAPH)
+        self.assertEqual(client.GRAPH, GRAPH_API_URL)
 
     def test_init_with_custom_values(self):
         """Test initialization with custom values."""
@@ -480,21 +482,21 @@ class TestOutlookClientBaseConstants(unittest.TestCase):
     """Tests for module-level constants."""
 
     def test_default_timeout_constant(self):
-        """Test DEFAULT_TIMEOUT is set correctly."""
-        self.assertIsInstance(DEFAULT_TIMEOUT, tuple)
-        self.assertEqual(len(DEFAULT_TIMEOUT), 2)
-        self.assertGreater(DEFAULT_TIMEOUT[0], 0)  # connect timeout
-        self.assertGreater(DEFAULT_TIMEOUT[1], 0)  # read timeout
+        """Test DEFAULT_REQUEST_TIMEOUT is set correctly."""
+        self.assertIsInstance(DEFAULT_REQUEST_TIMEOUT, tuple)
+        self.assertEqual(len(DEFAULT_REQUEST_TIMEOUT), 2)
+        self.assertGreater(DEFAULT_REQUEST_TIMEOUT[0], 0)  # connect timeout
+        self.assertGreater(DEFAULT_REQUEST_TIMEOUT[1], 0)  # read timeout
 
     def test_graph_constant(self):
-        """Test GRAPH constant is set."""
-        self.assertIsInstance(GRAPH, str)
-        self.assertIn("graph.microsoft.com", GRAPH)
+        """Test GRAPH_API_URL constant is set."""
+        self.assertIsInstance(GRAPH_API_URL, str)
+        self.assertIn("graph.microsoft.com", GRAPH_API_URL)
 
     def test_scopes_constant(self):
-        """Test SCOPES constant is set."""
-        self.assertIsInstance(SCOPES, list)
-        self.assertGreater(len(SCOPES), 0)
+        """Test GRAPH_API_SCOPES constant is set."""
+        self.assertIsInstance(GRAPH_API_SCOPES, list)
+        self.assertGreater(len(GRAPH_API_SCOPES), 0)
 
 
 if __name__ == "__main__":
