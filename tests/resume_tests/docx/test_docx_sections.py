@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from tests.resume_tests.fixtures import FakeDocument, make_fake_renderer, mock_docx_modules
+from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
 
 
 @mock_docx_modules
