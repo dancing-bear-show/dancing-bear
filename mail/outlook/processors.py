@@ -25,6 +25,22 @@ from .consumers import (
 from .helpers import norm_label_name_outlook
 
 
+# Context dataclasses
+
+@dataclass
+class RuleContext:
+    """Shared context for rule building operations."""
+    client: Any
+    name_to_id: Dict[str, str]
+    folder_map: Dict[str, str]
+    move_to_folders: bool
+
+    @classmethod
+    def for_plan(cls, name_to_id: Dict[str, str], folder_map: Dict[str, str], move_to_folders: bool) -> "RuleContext":
+        """Create context for plan operations (no client needed)."""
+        return cls(client=None, name_to_id=name_to_id, folder_map=folder_map, move_to_folders=move_to_folders)
+
+
 # Result dataclasses
 
 @dataclass
@@ -149,26 +165,20 @@ def _build_rule_criteria(match_spec: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in match_spec.items() if k in ("from", "to", "subject") and v}
 
 
-def _build_rule_action(
-    action_spec: Dict[str, Any],
-    client: Any,
-    name_to_id: Dict[str, str],
-    move_to_folders: bool,
-    folder_path_map: Dict[str, str],
-) -> Dict[str, Any]:
+def _build_rule_action(action_spec: Dict[str, Any], ctx: RuleContext) -> Dict[str, Any]:
     """Build action dict from action spec."""
     action = {}
     add_labs = action_spec.get("add") or []
 
     if action_spec.get("moveToFolder"):
-        fid = client.ensure_folder_path(str(action_spec.get("moveToFolder")))
+        fid = ctx.client.ensure_folder_path(str(action_spec.get("moveToFolder")))
         action["moveToFolderId"] = fid
-    elif move_to_folders and add_labs:
+    elif ctx.move_to_folders and add_labs:
         lab_name = str(add_labs[0])
-        fid = folder_path_map.get(lab_name) or client.ensure_folder_path(lab_name)
+        fid = ctx.folder_map.get(lab_name) or ctx.client.ensure_folder_path(lab_name)
         action["moveToFolderId"] = fid
     elif add_labs:
-        ids = [name_to_id.get(x) or name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
+        ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in add_labs]
         ids = [x for x in ids if x]
         if ids:
             action["addLabelIds"] = ids
@@ -191,22 +201,17 @@ def _create_rule_key(criteria: Dict[str, Any], action: Dict[str, Any]) -> str:
     })
 
 
-def _build_plan_action(
-    action_spec: Dict[str, Any],
-    name_to_id: Dict[str, str],
-    folder_map: Dict[str, str],
-    move_to_folders: bool,
-) -> Dict[str, Any]:
+def _build_plan_action(action_spec: Dict[str, Any], ctx: RuleContext) -> Dict[str, Any]:
     """Build action dict for plan (without creating folders)."""
     action = {}
     adds = action_spec.get("add") or []
 
-    if move_to_folders and adds:
+    if ctx.move_to_folders and adds:
         lab_name = norm_label_name_outlook(adds[0])
-        fid = folder_map.get(lab_name) or lab_name
+        fid = ctx.folder_map.get(lab_name) or lab_name
         action["moveToFolderId"] = fid
     elif adds:
-        ids = [name_to_id.get(x) or name_to_id.get(norm_label_name_outlook(x)) for x in adds]
+        ids = [ctx.name_to_id.get(x) or ctx.name_to_id.get(norm_label_name_outlook(x)) for x in adds]
         ids = [x for x in ids if x]
         if ids:
             action["addLabelIds"] = ids
@@ -395,6 +400,12 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         """Create rules from desired specs that don't exist."""
         created = 0
         desired_keys: set = set()
+        ctx = RuleContext(
+            client=client,
+            name_to_id=name_to_id,
+            folder_map=folder_path_map,
+            move_to_folders=payload.move_to_folders,
+        )
 
         for spec in desired:
             m = spec.get("match") or {}
@@ -403,7 +414,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             if not criteria:
                 continue
 
-            action = _build_rule_action(a_act, client, name_to_id, payload.move_to_folders, folder_path_map)
+            action = _build_rule_action(a_act, ctx)
             key = _create_rule_key(criteria, action)
             desired_keys.add(key)
 
@@ -492,6 +503,8 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
     ) -> List[str]:
         """Build plan items for rules that would be created."""
         plan_items = []
+        ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders)
+
         for spec in desired:
             m = spec.get("match") or {}
             a_act = spec.get("action") or {}
@@ -499,7 +512,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             if not criteria:
                 continue
 
-            action = _build_plan_action(a_act, name_to_id, folder_map, move_to_folders)
+            action = _build_plan_action(a_act, ctx)
             key = _create_rule_key(criteria, action)
 
             if key not in existing_keys:
