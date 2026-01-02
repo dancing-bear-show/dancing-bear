@@ -8,6 +8,7 @@ from ._base import (
     List,
     Optional,
     Path,
+    Tuple,
     dataclass,
     re,
     BaseProducer,
@@ -174,7 +175,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
     def _apply_event_patch(
         self, svc, eid: str, calendar: Optional[str], patch: Dict[str, Any]
-    ) -> tuple[bool, Optional[str]]:
+    ) -> Tuple[bool, Optional[str]]:
         """Apply settings patch to an event. Returns (success, error_message)."""
         try:
             from calendars.outlook_service import EventSettingsPatch
