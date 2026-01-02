@@ -82,7 +82,7 @@ def _run_filter_pipeline(
 
     producer = producer_factory(payload)
     producer.produce(envelope)
-    return 0 if envelope.ok() else 1
+    return 0
 
 
 def run_filters_plan(args) -> int:

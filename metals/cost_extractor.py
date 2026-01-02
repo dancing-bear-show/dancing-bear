@@ -175,13 +175,13 @@ class CostExtractor(ABC):
 
         if not ids:
             print('no messages found')
-            return 0
+            return 1
 
         by_order = self._group_by_order(ids)
 
         if not by_order:
             print('no orders found')
-            return 0
+            return 1
 
         out_rows: List[Dict[str, str | float]] = []
         for oid, messages in by_order.items():

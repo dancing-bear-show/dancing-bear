@@ -71,22 +71,22 @@ class TestCostExtractorBaseClass(unittest.TestCase):
             rows = args[1]
             self.assertEqual(len(rows), 2)  # 2 orders processed
 
-    def test_run_returns_zero_when_no_messages(self):
-        """Test run() returns 0 when no messages found."""
+    def test_run_returns_one_when_no_messages(self):
+        """Test run() returns 1 when no messages found."""
         extractor = MockCostExtractor('test', 'out/test.csv')
         extractor.fetched_ids = []
 
         result = extractor.run()
-        self.assertEqual(result, 0)
+        self.assertEqual(result, 1)
         self.assertTrue(extractor.authenticated)
 
-    def test_run_returns_zero_when_no_orders(self):
-        """Test run() returns 0 when no orders extracted."""
+    def test_run_returns_one_when_no_orders(self):
+        """Test run() returns 1 when no orders extracted."""
         extractor = MockCostExtractor('test', 'out/test.csv')
         extractor.fetched_ids = ['msg1', 'msg2']  # No 'ord' prefix
 
         result = extractor.run()
-        self.assertEqual(result, 0)
+        self.assertEqual(result, 1)
         self.assertEqual(len(extractor.processed_orders), 0)
 
     def test_group_by_order_groups_messages(self):

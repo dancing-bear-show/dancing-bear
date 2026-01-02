@@ -29,6 +29,9 @@ __all__ = [
     "parse_month",
     "DAY_MAP",
     "MONTH_MAP",
+    "MONTH_MAP_FULL",  # Backwards-compatible alias
+    "MONTH_MAP_ABBREV",  # Backwards-compatible alias
+    "DAY_TO_CODE",  # Backwards-compatible alias
 ]
 
 # Error message constant

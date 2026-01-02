@@ -202,21 +202,24 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         return child_first, child_full
 
     def _normalize_subject(self, raw: Optional[str], loc_hint: Optional[str]) -> str:
+        """Normalize subject text using predefined rules."""
         base = (raw or "").strip().split(" - ", 1)[0].strip()
         lower = base.lower()
-        if lower.startswith("swimmer "):
-            return base.title()
-        if lower.startswith("swim kids"):
-            return base.title()
-        if lower.startswith("chess"):
-            return "Chess"
-        if lower == "c":
-            return "Chess"
-        if lower == "s":
-            if loc_hint and "pool" in loc_hint.lower():
-                return "Swimmer"
-            return "Sports"
-        return base.title()
+
+        # Handle swimming-related subjects
+        if lower.startswith("swimmer ") or lower.startswith("swim kids"):
+            result = base.title()
+        # Handle chess subjects
+        elif lower.startswith("chess") or lower == "c":
+            result = "Chess"
+        # Handle single-letter 's' with location context
+        elif lower == "s":
+            result = "Swimmer" if (loc_hint and "pool" in loc_hint.lower()) else "Sports"
+        # Default: title case
+        else:
+            result = base.title()
+
+        return result
 
 
 class GmailPlanProducer(BaseProducer):
