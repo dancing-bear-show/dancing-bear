@@ -148,7 +148,7 @@ def _try_upgrade_to_confirmation(cli: OutlookClient, oid: str, rec: Dict[str, st
     for mid in ids:
         try:
             mm = cli.get_message(mid, select_body=False)
-        except Exception:  # nosec B110 - skip on error
+        except Exception:  # nosec B112 - skip unreadable messages
             continue
         sub = (mm.get('subject') or '').lower()
         if 'confirmation for order number' in sub:
