@@ -9,9 +9,11 @@ import csv
 import os
 import tempfile
 from contextlib import contextmanager
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock
 
 from metals.costs_common import COSTS_CSV_FIELDS, G_PER_OZ
+from metals.cost_extractor import MessageInfo
 
 # Re-export commonly used constants
 __all__ = [
@@ -29,6 +31,11 @@ __all__ = [
     'write_costs_csv',
     'temp_costs_csv',
     'make_price_lines',
+    'make_message_info',
+    'make_mock_gmail_client',
+    'make_mock_outlook_client',
+    'read_csv_as_dicts',
+    'assert_csv_content',
 ]
 
 # CSV headers for costs files
@@ -323,3 +330,166 @@ def make_price_lines(
     else:
         lines.append(price_str)
     return lines
+
+
+# Message/Email test data factories
+def make_message_info(
+    msg_id: str = "msg123",
+    subject: str = "Order Confirmation",
+    from_header: str = "noreply@td.com",
+    body_text: str = "Your order has been received.",
+    received_date: str = DEFAULT_DATE,
+) -> MessageInfo:
+    """Create a MessageInfo instance with sensible defaults.
+
+    Args:
+        msg_id: Message ID
+        subject: Email subject line
+        from_header: Sender email address
+        body_text: Email body content
+        received_date: Date received (ISO format)
+
+    Returns:
+        MessageInfo instance
+    """
+    return MessageInfo(
+        msg_id=msg_id,
+        subject=subject,
+        from_header=from_header,
+        body_text=body_text,
+        received_date=received_date,
+    )
+
+
+# Mock client factories
+def make_mock_gmail_client(
+    message_ids: Optional[List[str]] = None,
+    messages: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> MagicMock:
+    """Create a mock GmailClient with common test setup.
+
+    Args:
+        message_ids: List of message IDs to return from list_message_ids
+        messages: Dict mapping message_id -> message dict for get_message
+
+    Returns:
+        MagicMock configured as a GmailClient
+
+    Example:
+        client = make_mock_gmail_client(
+            message_ids=['msg1', 'msg2'],
+            messages={
+                'msg1': {'subject': 'Test', 'body': 'Content'}
+            }
+        )
+    """
+    mock_client = MagicMock()
+    mock_client.list_message_ids.return_value = message_ids or []
+
+    if messages:
+        mock_client.get_message.side_effect = lambda mid: messages.get(mid, {})
+    else:
+        mock_client.get_message.return_value = {}
+
+    # Common static method
+    mock_client.headers_to_dict.return_value = {"subject": "Default Subject"}
+
+    return mock_client
+
+
+def make_mock_outlook_client(
+    message_ids: Optional[List[str]] = None,
+    messages: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> MagicMock:
+    """Create a mock OutlookClient with common test setup.
+
+    Args:
+        message_ids: List of message IDs to return from search
+        messages: Dict mapping message_id -> message dict
+
+    Returns:
+        MagicMock configured as an OutlookClient
+
+    Example:
+        client = make_mock_outlook_client(
+            message_ids=['msg1'],
+            messages={'msg1': {'subject': 'Order', 'body': {'content': 'Text'}}}
+        )
+    """
+    mock_client = MagicMock()
+
+    # Configure search_messages to return message IDs
+    if message_ids:
+        mock_messages = [{'id': mid} for mid in message_ids]
+        mock_client.search_messages.return_value = mock_messages
+    else:
+        mock_client.search_messages.return_value = []
+
+    # Configure get_message
+    if messages:
+        mock_client.get_message.side_effect = lambda mid: messages.get(mid, {})
+    else:
+        mock_client.get_message.return_value = {}
+
+    return mock_client
+
+
+# CSV testing utilities
+def read_csv_as_dicts(path: str) -> List[Dict[str, str]]:
+    """Read a CSV file and return rows as list of dicts.
+
+    Args:
+        path: Path to CSV file
+
+    Returns:
+        List of row dicts with string values
+    """
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return list(reader)
+
+
+def assert_csv_content(
+    test_case,
+    csv_path: str,
+    expected_rows: int,
+    expected_values: Optional[Dict[int, Dict[str, str]]] = None,
+) -> List[Dict[str, str]]:
+    """Assert CSV file contents match expectations.
+
+    Args:
+        test_case: unittest.TestCase instance (for assertions)
+        csv_path: Path to CSV file to check
+        expected_rows: Expected number of data rows (excluding header)
+        expected_values: Optional dict mapping row_index -> {col: value}
+
+    Returns:
+        List of row dicts for further assertions
+
+    Example:
+        rows = assert_csv_content(
+            self,
+            'out.csv',
+            expected_rows=2,
+            expected_values={
+                0: {'vendor': 'TD', 'metal': 'gold'},
+                1: {'vendor': 'Costco', 'metal': 'silver'}
+            }
+        )
+    """
+    rows = read_csv_as_dicts(csv_path)
+    test_case.assertEqual(
+        len(rows), expected_rows,
+        f"Expected {expected_rows} rows, got {len(rows)}"
+    )
+
+    if expected_values:
+        for row_idx, expected_cols in expected_values.items():
+            for col, expected_val in expected_cols.items():
+                actual_val = rows[row_idx].get(col)
+                test_case.assertEqual(
+                    actual_val, expected_val,
+                    f"Row {row_idx}, col '{col}': expected '{expected_val}', got '{actual_val}'"
+                )
+
+    return rows
