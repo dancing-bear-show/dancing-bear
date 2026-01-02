@@ -1,6 +1,8 @@
 """Convenience orchestration helpers for filters commands."""
 from __future__ import annotations
 
+from typing import Any, Callable, Optional, Type
+
 from ..context import MailContext
 from .consumers import (
     FiltersPlanConsumer,
@@ -40,20 +42,56 @@ from .producers import (
 )
 
 
-def run_filters_plan(args) -> int:
+def _run_filter_pipeline(
+    args,
+    consumer_cls: Type,
+    processor_cls: Type,
+    producer_factory: Callable[[Any], Any],
+    handle_error: Optional[Callable[[Any], int]] = None,
+) -> int:
+    """Generic pipeline runner for filter commands.
+
+    Args:
+        args: CLI arguments
+        consumer_cls: Consumer class to instantiate
+        processor_cls: Processor class to instantiate
+        producer_factory: Callable that takes payload and returns producer instance
+        handle_error: Optional custom error handler for envelope errors
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
     context = MailContext.from_args(args)
-    consumer = FiltersPlanConsumer(context)
+    consumer = consumer_cls(context)
     try:
         payload = consumer.consume()
     except ValueError as exc:
         print(exc)
         return 1
 
-    processor = FiltersPlanProcessor()
-    producer = FiltersPlanProducer()
+    processor = processor_cls()
     envelope = processor.process(payload)
+
+    if not envelope.ok():
+        if handle_error:
+            return handle_error(envelope)
+        diagnostics = envelope.diagnostics or {}
+        message = diagnostics.get("message", "Pipeline failed.")
+        print(message)
+        return diagnostics.get("code", 1)
+
+    producer = producer_factory(payload)
     producer.produce(envelope)
     return 0 if envelope.ok() else 1
+
+
+def run_filters_plan(args) -> int:
+    return _run_filter_pipeline(
+        args,
+        FiltersPlanConsumer,
+        FiltersPlanProcessor,
+        lambda _: FiltersPlanProducer(),
+    )
 
 
 def run_filters_sync(args) -> int:

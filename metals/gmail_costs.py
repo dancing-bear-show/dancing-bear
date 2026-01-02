@@ -20,7 +20,7 @@ import math
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from core.text_utils import normalize_unicode
 from mail.config_resolver import resolve_paths_profile
@@ -48,6 +48,7 @@ from .costs_common import (
     format_qty,
     write_costs_csv,
 )
+from .cost_extractor import CostExtractor, MessageInfo, OrderData
 from .vendors import DEFAULT_PRICE_BAN, GMAIL_VENDORS, get_vendor_for_sender
 
 
@@ -319,11 +320,11 @@ def _try_anchored_extraction(ctx: ExtractionContext) -> Tuple[str, float, str] |
     cur = m_money.group(1).upper()
     amt = float(m_money.group(2).replace(',', ''))
     tail = ctx.lower[anchor_end:m_money.end()]
-    kind = 'unit' if re.search(r"(?i)\b(unit|each|ea|per)\b", tail) else 'unknown'
+    kind = 'unit' if _PAT_UNIT_PRICE.search(tail) else 'unknown'
     before_amt = ctx.lower[max(0, m_money.start()-80):m_money.start()]
     has_qty = bool(re.search(r"(?i)\bx\s*\d{1,3}\b", before_amt) or
                    re.search(r"(?i)\bqty(?:uantity)?\s*:?\s*\d{1,3}\b", before_amt))
-    if has_qty and not re.search(r"(?i)\b(unit|each|ea|per)\b", tail):
+    if has_qty and not _PAT_UNIT_PRICE.search(tail):
         kind = 'total' if ctx.vendor == 'td' else 'unit'
     return cur, amt, kind
 
@@ -332,7 +333,7 @@ def _determine_price_kind(lower: str, has_uoz_here: bool, has_uoz_neighbor: bool
     """Determine price kind from line content. Returns (kind, mentions_price, mentions_total)."""
     mentions_price = bool(re.search(r"(?i)\b(price|unit|each|ea|per)\b", lower))
     mentions_total = bool(re.search(r"(?i)\btotal\b", lower))
-    if re.search(r"(?i)\b(unit|each|ea|per)\b", lower):
+    if _PAT_UNIT_PRICE.search(lower):
         return "unit", mentions_price, mentions_total
     if re.search(r"(?i)\b(total\s*price|line\s*total|item\s*total)\b", lower):
         return "total", mentions_price, mentions_total
@@ -491,6 +492,7 @@ def _is_cancelled(subject: str, from_header: str) -> bool:
 
 _ORDER_PAT = re.compile(r"(?i)order\s*(?:number|#)?\s*[:#]?\s*(\d{6,})")
 _COSTCO_ORDER_PAT = re.compile(r"(?i)costco\.ca\s+order\D*(\d{6,})")
+_PAT_UNIT_PRICE = re.compile(r"(?i)\b(unit|each|ea|per)\b")
 
 _QUERIES = [
     'from:noreply@td.com subject:"TD Precious Metals"',
@@ -737,27 +739,106 @@ def _process_order(
     return _build_order_rows(row_data)
 
 
+class GmailCostExtractor(CostExtractor):
+    """Extract precious metals costs from Gmail order emails."""
+
+    def __init__(self, profile: str, out_path: str, days: int = 365):
+        super().__init__(profile, out_path, days)
+        self.client: GmailClient | None = None
+
+    def _authenticate(self) -> None:
+        """Authenticate with Gmail."""
+        cred, tok = resolve_paths_profile(arg_credentials=None, arg_token=None, profile=self.profile)
+        self.client = GmailClient(credentials_path=cred, token_path=tok, cache_dir='.cache')
+        self.client.authenticate()
+
+    def _fetch_message_ids(self) -> List[str]:
+        """Fetch message IDs from Gmail."""
+        return _fetch_message_ids(self.client)
+
+    def _get_message_info(self, msg_id: str) -> MessageInfo:
+        """Get normalized message information."""
+        msg = self.client.get_message(msg_id, fmt='full')
+        hdrs = GmailClient.headers_to_dict(msg)
+        text = self.client.get_message_text(msg_id)
+        recv_ms = int(msg.get('internalDate') or 0)
+
+        return MessageInfo(
+            msg_id=msg_id,
+            subject=hdrs.get('subject', ''),
+            from_header=hdrs.get('from', ''),
+            body_text=text,
+            received_date='',  # Not used for Gmail (uses received_ms)
+            received_ms=recv_ms
+        )
+
+    def _extract_order_id(self, msg: MessageInfo) -> Optional[str]:
+        """Extract order ID from message."""
+        m = _ORDER_PAT.search(msg.subject) or _ORDER_PAT.search(msg.body_text) or \
+            _COSTCO_ORDER_PAT.search(msg.subject)
+        return m.group(1) if m else msg.msg_id
+
+    def _select_best_message(self, messages: List[MessageInfo]) -> MessageInfo:
+        """Select best message (prefer confirmation)."""
+        conf_msgs = [m for m in messages if _is_order_confirmation(m.subject, m.from_header)]
+        return conf_msgs[0] if conf_msgs else messages[0]
+
+    def _classify_vendor(self, from_header: str) -> str:
+        """Classify vendor from sender."""
+        vendor = get_vendor_for_sender(from_header, GMAIL_VENDORS)
+        return vendor.name if vendor else 'Other'
+
+    def _process_order_to_rows(self, order: OrderData) -> List[Dict[str, str | float]]:
+        """Process a single order into output rows."""
+        # Convert MessageInfo list back to format expected by _process_order
+        msgs_tuple = [
+            (m.msg_id, m.received_ms, m.subject, m.from_header)
+            for m in order.messages
+        ]
+        return _process_order(self.client, order.order_id, msgs_tuple)
+
+    def run(self) -> int:
+        """Run Gmail cost extraction (override to use write_costs_csv)."""
+        self._authenticate()
+        ids = self._fetch_message_ids()
+
+        if not ids:
+            print('no messages found')
+            return 0
+
+        by_order = self._group_by_order(ids)
+
+        if not by_order:
+            print('no orders found')
+            return 0
+
+        out_rows: List[Dict[str, str | float]] = []
+        for oid, messages in by_order.items():
+            order = self._build_order_data(oid, messages)
+            rows = self._process_order_to_rows(order)
+            out_rows.extend(rows)
+
+        if out_rows:
+            write_costs_csv(self.out_path, out_rows)
+            print(f"wrote {self.out_path} rows={len(out_rows)}")
+        else:
+            print('messages found but no costs extracted')
+
+        return 0
+
+
 def main(argv: List[str] | None = None) -> int:
     p = argparse.ArgumentParser(description='Extract costs and cost-per-oz from Gmail order emails')
     p.add_argument('--profile', default='gmail_personal')
     p.add_argument('--out', default='out/metals/costs.csv')
     args = p.parse_args(argv)
 
-    cred, tok = resolve_paths_profile(arg_credentials=None, arg_token=None, profile=getattr(args, 'profile', None))
-    client = GmailClient(credentials_path=cred, token_path=tok, cache_dir='.cache')
-    client.authenticate()
-
-    ids = _fetch_message_ids(client)
-    by_order = _group_messages_by_order(client, ids)
-
-    rows_out: List[Dict[str, str | float]] = []
-    for oid, msgs in by_order.items():
-        rows_out.extend(_process_order(client, oid, msgs))
-
-    out_path = getattr(args, 'out', 'out/metals/costs.csv')
-    write_costs_csv(out_path, rows_out)
-    print(f"wrote {out_path} rows={len(rows_out)}")
-    return 0
+    extractor = GmailCostExtractor(
+        profile=getattr(args, 'profile', 'gmail_personal'),
+        out_path=getattr(args, 'out', 'out/metals/costs.csv'),
+        days=365
+    )
+    return extractor.run()
 
 
 if __name__ == '__main__':  # pragma: no cover

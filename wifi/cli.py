@@ -79,26 +79,11 @@ def cmd_diagnose(args) -> int:
 
 def main(argv: Optional[list[str]] = None) -> int:
     """Main entry point for the Wi-Fi CLI."""
-    # Build parser and add agentic flags
-    parser = app.build_parser()
-    assistant.add_agentic_flags(parser)
-
-    args = parser.parse_args(argv)
-
-    # Handle agentic output if requested
-    agentic_result = assistant.maybe_emit_agentic(
-        args, emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact)
+    return app.run_with_assistant(
+        assistant,
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+        argv=argv
     )
-    if agentic_result is not None:
-        return agentic_result
-
-    # Get the command function
-    cmd_func = getattr(args, "_cmd_func", None)
-    if cmd_func is None:
-        parser.print_help()
-        return 0
-
-    return int(cmd_func(args))
 
 
 if __name__ == "__main__":  # pragma: no cover
