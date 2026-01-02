@@ -121,9 +121,7 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
     def test_applies_skills_groups_overlay(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/skills")
             self._write_yaml(
                 profile_dir / "skills_groups.yaml",
@@ -139,15 +137,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
 
             self.assertEqual(len(result["skills_groups"]), 2)
             self.assertEqual(result["skills_groups"][0]["name"], "Languages")
-        finally:
-            os.chdir(old_cwd)
 
     def test_applies_experience_overlay(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/exp")
             self._write_yaml(
                 profile_dir / "experience.yaml",
@@ -163,15 +157,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
 
             self.assertEqual(len(result["experience"]), 2)
             self.assertEqual(result["experience"][0]["title"], "Senior Engineer")
-        finally:
-            os.chdir(old_cwd)
 
     def test_applies_experience_from_roles_key(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/roles")
             self._write_yaml(
                 profile_dir / "experience.yaml",
@@ -182,15 +172,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             result = apply_profile_overlays(data, "roles")
 
             self.assertEqual(result["experience"][0]["title"], "Manager")
-        finally:
-            os.chdir(old_cwd)
 
     def test_applies_list_overlays(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/lists")
             self._write_yaml(
                 profile_dir / "interests.yaml",
@@ -211,8 +197,6 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             self.assertEqual(result["interests"], ["Open Source", "Machine Learning"])
             self.assertEqual(result["languages"], ["English", "Spanish"])
             self.assertEqual(result["certifications"], ["AWS Solutions Architect"])
-        finally:
-            os.chdir(old_cwd)
 
     def test_handles_raw_list_overlay(self):
         from resume.overlays import apply_profile_overlays
