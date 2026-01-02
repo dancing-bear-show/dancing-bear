@@ -1,11 +1,8 @@
 """Tests for mail/accounts/commands.py accounts command orchestration."""
-from tests.fixtures import test_path
-
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from core.pipeline import ResultEnvelope
 from mail.accounts.commands import (
     run_accounts_list,
     run_accounts_export_labels,
@@ -17,7 +14,12 @@ from mail.accounts.commands import (
     run_accounts_export_signatures,
     run_accounts_sync_signatures,
 )
-from tests.mail_tests.fixtures import make_args as _make_args
+from tests.fixtures import test_path
+from tests.mail_tests.fixtures import (
+    make_args as _make_args,
+    make_success_envelope,
+    make_error_envelope,
+)
 
 
 def make_args(**kwargs):
@@ -44,8 +46,7 @@ class TestRunAccountsList(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsListRequestConsumer")
     @patch("mail.accounts.commands.AccountsListRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -59,8 +60,7 @@ class TestRunAccountsList(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsListRequestConsumer")
     @patch("mail.accounts.commands.AccountsListRequest")
     def test_returns_one_on_failure(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = False
+        mock_envelope = make_error_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -77,8 +77,7 @@ class TestRunAccountsExportLabels(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsExportLabelsRequestConsumer")
     @patch("mail.accounts.commands.AccountsExportLabelsRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args(out_dir="/output")
@@ -92,8 +91,7 @@ class TestRunAccountsExportLabels(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsExportLabelsRequestConsumer")
     @patch("mail.accounts.commands.AccountsExportLabelsRequest")
     def test_passes_accounts_filter(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args(accounts=["personal", "work"])
@@ -111,8 +109,7 @@ class TestRunAccountsSyncLabels(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsSyncLabelsRequestConsumer")
     @patch("mail.accounts.commands.AccountsSyncLabelsRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args(labels="/path/to/labels.yaml")
@@ -125,8 +122,7 @@ class TestRunAccountsSyncLabels(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsSyncLabelsRequestConsumer")
     @patch("mail.accounts.commands.AccountsSyncLabelsRequest")
     def test_passes_dry_run_flag(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args(dry_run=True)
@@ -145,8 +141,7 @@ class TestRunAccountsExportFilters(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsExportFiltersRequestConsumer")
     @patch("mail.accounts.commands.AccountsExportFiltersRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -163,8 +158,7 @@ class TestRunAccountsSyncFilters(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsSyncFiltersRequestConsumer")
     @patch("mail.accounts.commands.AccountsSyncFiltersRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -177,8 +171,7 @@ class TestRunAccountsSyncFilters(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsSyncFiltersRequestConsumer")
     @patch("mail.accounts.commands.AccountsSyncFiltersRequest")
     def test_passes_require_forward_verified(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args(require_forward_verified=True)
@@ -196,8 +189,7 @@ class TestRunAccountsPlanLabels(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsPlanLabelsRequestConsumer")
     @patch("mail.accounts.commands.AccountsPlanLabelsRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -210,8 +202,7 @@ class TestRunAccountsPlanLabels(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsPlanLabelsRequestConsumer")
     @patch("mail.accounts.commands.AccountsPlanLabelsRequest")
     def test_returns_one_on_failure(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = False
+        mock_envelope = make_error_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -228,8 +219,7 @@ class TestRunAccountsPlanFilters(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsPlanFiltersRequestConsumer")
     @patch("mail.accounts.commands.AccountsPlanFiltersRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -246,8 +236,7 @@ class TestRunAccountsExportSignatures(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsExportSignaturesRequestConsumer")
     @patch("mail.accounts.commands.AccountsExportSignaturesRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -264,8 +253,7 @@ class TestRunAccountsSyncSignatures(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsSyncSignaturesRequestConsumer")
     @patch("mail.accounts.commands.AccountsSyncSignaturesRequest")
     def test_returns_zero_on_success(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args()
@@ -278,8 +266,7 @@ class TestRunAccountsSyncSignatures(unittest.TestCase):
     @patch("mail.accounts.commands.AccountsSyncSignaturesRequestConsumer")
     @patch("mail.accounts.commands.AccountsSyncSignaturesRequest")
     def test_passes_send_as_filter(self, mock_request, mock_consumer, mock_processor, mock_producer):
-        mock_envelope = MagicMock(spec=ResultEnvelope)
-        mock_envelope.ok.return_value = True
+        mock_envelope = make_success_envelope()
         mock_processor.return_value.process.return_value = mock_envelope
 
         args = make_args(send_as="user@example.com")

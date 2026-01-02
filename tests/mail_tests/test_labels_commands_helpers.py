@@ -10,6 +10,8 @@ from tests.mail_tests.fixtures import (
     make_system_label,
     make_label_with_visibility,
     make_message,
+    NESTED_LABELS,
+    IMAP_STYLE_LABELS,
 )
 
 
@@ -23,21 +25,6 @@ def make_mock_client_with_headers(header_responses: list) -> MagicMock:
     client = MagicMock()
     client.headers_to_dict.side_effect = header_responses
     return client
-
-
-# Common test data
-NESTED_LABELS = [
-    {"name": "A"},
-    {"name": "A/B"},
-    {"name": "A/B/C"},
-    {"name": "A/B/C/D"},
-]
-
-IMAP_STYLE_LABELS = [
-    {"name": "[Gmail]/Trash"},
-    {"name": "IMAP/Folder"},
-    {"name": "Normal"},
-]
 
 
 # -----------------------------------------------------------------------------

@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock
 
 # Re-export shared fixtures for backwards compatibility
 from tests.fixtures import capture_stdout, temp_yaml_file, write_yaml
@@ -29,10 +30,36 @@ __all__ = [
     "make_system_label",
     "make_label_with_visibility",
     "make_message",
+    "make_message_with_headers",
+    # Mock builders
+    "make_success_envelope",
+    "make_error_envelope",
+    "make_mock_mail_context",
+    # Test data constants
+    "NESTED_LABELS",
+    "IMAP_STYLE_LABELS",
     # CLI register test helpers
     "noop_handler",
     "make_noop_handlers",
     "CLIRegisterTestCase",
+]
+
+
+# -----------------------------------------------------------------------------
+# Test data constants
+# -----------------------------------------------------------------------------
+
+NESTED_LABELS = [
+    {"name": "A"},
+    {"name": "A/B"},
+    {"name": "A/B/C"},
+    {"name": "A/B/C/D"},
+]
+
+IMAP_STYLE_LABELS = [
+    {"name": "[Gmail]/Trash"},
+    {"name": "IMAP/Folder"},
+    {"name": "Normal"},
 ]
 
 
@@ -212,6 +239,114 @@ def make_message(
         make_message("m1", ["INBOX", "CATEGORY_PROMOTIONS"])
     """
     return {"id": msg_id, "labelIds": label_ids or [], **kwargs}
+
+
+def make_message_with_headers(
+    msg_id: str,
+    headers: Dict[str, str],
+    label_ids: Optional[List[str]] = None,
+    internal_date: Optional[int] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Create a Gmail message dict with headers for testing.
+
+    Args:
+        msg_id: Message ID
+        headers: Dict of header name -> value (e.g., {"From": "a@b.com"})
+        label_ids: List of label IDs on the message
+        internal_date: Optional internal date timestamp
+        **kwargs: Additional message properties
+
+    Example:
+        make_message_with_headers("m1", {"From": "user@example.com", "Subject": "Hi"})
+    """
+    hdrs = [{"name": k, "value": v} for k, v in headers.items()]
+    msg = {
+        "id": msg_id,
+        "threadId": f"thread_{msg_id}",
+        "labelIds": label_ids or ["INBOX"],
+        "payload": {"headers": hdrs},
+        **kwargs,
+    }
+    if internal_date is not None:
+        msg["internalDate"] = str(internal_date)
+    return msg
+
+
+# -----------------------------------------------------------------------------
+# Mock builders
+# -----------------------------------------------------------------------------
+
+
+def make_success_envelope(payload: Any = None, **kwargs) -> MagicMock:
+    """Create a mock success ResultEnvelope.
+
+    Args:
+        payload: Optional payload for the envelope
+        **kwargs: Additional attributes to set on the mock
+
+    Example:
+        envelope = make_success_envelope(payload={"labels": []})
+        mock_processor.return_value.process.return_value = envelope
+    """
+    from core.pipeline import ResultEnvelope
+
+    envelope = MagicMock(spec=ResultEnvelope)
+    envelope.ok.return_value = True
+    envelope.status = "success"
+    envelope.payload = payload
+    envelope.diagnostics = {}
+    for k, v in kwargs.items():
+        setattr(envelope, k, v)
+    return envelope
+
+
+def make_error_envelope(diagnostics: Optional[Dict[str, Any]] = None, **kwargs) -> MagicMock:
+    """Create a mock error ResultEnvelope.
+
+    Args:
+        diagnostics: Optional diagnostics dict (e.g., {"error": "msg", "code": 1})
+        **kwargs: Additional attributes to set on the mock
+
+    Example:
+        envelope = make_error_envelope(diagnostics={"code": 5})
+        mock_processor.return_value.process.return_value = envelope
+    """
+    from core.pipeline import ResultEnvelope
+
+    envelope = MagicMock(spec=ResultEnvelope)
+    envelope.ok.return_value = False
+    envelope.status = "error"
+    envelope.payload = None
+    envelope.diagnostics = diagnostics or {}
+    for k, v in kwargs.items():
+        setattr(envelope, k, v)
+    return envelope
+
+
+def make_mock_mail_context(
+    gmail_client: Any = None,
+    outlook_client: Any = None,
+) -> MagicMock:
+    """Create a mock MailContext with given clients.
+
+    Args:
+        gmail_client: Optional Gmail client to return from get_gmail_client()
+        outlook_client: Optional Outlook client to return from get_outlook_client()
+
+    Example:
+        client = FakeGmailClient()
+        mock_ctx = make_mock_mail_context(gmail_client=client)
+        mock_ctx_cls.from_args.return_value = mock_ctx
+    """
+    mock_ctx = MagicMock()
+    if gmail_client is not None:
+        mock_ctx.gmail_client = gmail_client
+        mock_ctx.get_gmail_client.return_value = gmail_client
+    if outlook_client is not None:
+        mock_ctx.outlook_client = outlook_client
+        mock_ctx.get_outlook_client.return_value = outlook_client
+    return mock_ctx
 
 
 # -----------------------------------------------------------------------------
