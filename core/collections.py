@@ -27,8 +27,9 @@ def dedupe(items: List[T], key_fn: Optional[Callable[[T], Hashable]] = None) -> 
         dedupe([{'a': 1}, {'a': 1}, {'a': 2}], key_fn=lambda x: x['a']) -> [{'a': 1}, {'a': 2}]
     """
     if key_fn is None:
-        def key_fn(x: T) -> Hashable:
+        def _identity(x: T) -> Hashable:
             return x  # type: ignore[return-value]
+        key_fn = _identity
 
     seen: set[Hashable] = set()
     result: List[T] = []
