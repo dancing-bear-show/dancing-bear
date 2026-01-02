@@ -107,6 +107,81 @@ class SignaturesExportProcessor(Processor[SignaturesExportPayload, ResultEnvelop
             )
 
 
+def _sync_primary_signature(client, current: Dict, default_html: str, payload, result: SignaturesSyncResult) -> None:
+    """Apply default signature to primary send-as address."""
+    for sa in current.values():
+        if not sa.get("isPrimary"):
+            continue
+        email = sa.get("sendAsEmail")
+        disp = sa.get("displayName") or payload.account_display_name
+        html_final = _inline_css(_render_template(default_html, {"displayName": disp or "", "email": email or ""}))
+        if payload.dry_run:
+            result.gmail_updates.append(f"Would update {email} (primary)")
+        else:
+            client.update_signature(email, html_final)
+            result.gmail_updates.append(f"Updated {email}")
+
+
+def _sync_desired_signatures(client, current: Dict, desired: List, default_html: Optional[str], payload, result: SignaturesSyncResult) -> None:
+    """Sync specific desired signatures."""
+    for ent in desired:
+        email = ent.get("sendAs")
+        html = ent.get("signature_html") or default_html
+        if not email or not html:
+            continue
+        if payload.send_as and email != payload.send_as:
+            continue
+        disp = (current.get(email) or {}).get("displayName") or payload.account_display_name
+        html_final = _inline_css(_render_template(html, {"displayName": disp or "", "email": email}))
+        if payload.dry_run:
+            result.gmail_updates.append(f"Would update {email}")
+        else:
+            client.update_signature(email, html_final)
+            result.gmail_updates.append(f"Updated {email}")
+
+
+def _sync_gmail_signatures(payload, sigs: Dict, result: SignaturesSyncResult) -> None:
+    """Sync signatures to Gmail."""
+    default_html = sigs.get("default_html")
+    try:
+        client = payload.context.get_gmail_client()
+        client.authenticate()
+        current = {s.get("sendAsEmail"): s for s in client.list_signatures()}
+        desired = sigs.get("gmail") or []
+
+        if not desired and default_html:
+            _sync_primary_signature(client, current, default_html, payload, result)
+        else:
+            _sync_desired_signatures(client, current, desired, default_html, payload, result)
+    except Exception:  # nosec B110 - no Gmail credentials
+        pass
+
+
+def _write_ios_asset(default_html: Optional[str], sigs: Dict) -> Optional[Path]:
+    """Write iOS signature asset if configured."""
+    if default_html and sigs.get("ios") is not None:
+        out = Path("signatures_assets/ios_signature.html")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(default_html, encoding="utf-8")
+        return out
+    return None
+
+
+def _write_outlook_note(default_html: Optional[str], sigs: Dict) -> Optional[Path]:
+    """Write Outlook readme if signatures configured."""
+    if sigs.get("outlook") or default_html:
+        note = Path("signatures_assets/OUTLOOK_README.txt")
+        note.parent.mkdir(parents=True, exist_ok=True)
+        note.write_text(
+            "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
+            "Use the exported HTML (ios_signature.html) and paste into Outlook signature settings,\n"
+            "or configure roaming signatures as per Microsoft guidance.",
+            encoding="utf-8",
+        )
+        return note
+    return None
+
+
 class SignaturesSyncProcessor(Processor[SignaturesSyncPayload, ResultEnvelope[SignaturesSyncResult]]):
     """Sync signatures to Gmail and write assets."""
 
@@ -116,65 +191,9 @@ class SignaturesSyncProcessor(Processor[SignaturesSyncPayload, ResultEnvelope[Si
             sigs = payload.config.get("signatures") or {}
             default_html = sigs.get("default_html")
 
-            # Gmail sync
-            try:
-                client = payload.context.get_gmail_client()
-                client.authenticate()
-                current = {s.get("sendAsEmail"): s for s in client.list_signatures()}
-                desired = sigs.get("gmail") or []
-
-                if not desired and default_html:
-                    # Apply default to primary send-as
-                    for sa in current.values():
-                        if not sa.get("isPrimary"):
-                            continue
-                        email = sa.get("sendAsEmail")
-                        disp = sa.get("displayName") or payload.account_display_name
-                        html_final = _inline_css(
-                            _render_template(default_html, {"displayName": disp or "", "email": email or ""})
-                        )
-                        if payload.dry_run:
-                            result.gmail_updates.append(f"Would update {email} (primary)")
-                        else:
-                            client.update_signature(email, html_final)
-                            result.gmail_updates.append(f"Updated {email}")
-                else:
-                    for ent in desired:
-                        email = ent.get("sendAs")
-                        html = ent.get("signature_html") or default_html
-                        if not email or not html:
-                            continue
-                        if payload.send_as and email != payload.send_as:
-                            continue
-                        disp = (current.get(email) or {}).get("displayName") or payload.account_display_name
-                        html_final = _inline_css(_render_template(html, {"displayName": disp or "", "email": email}))
-                        if payload.dry_run:
-                            result.gmail_updates.append(f"Would update {email}")
-                        else:
-                            client.update_signature(email, html_final)
-                            result.gmail_updates.append(f"Updated {email}")
-            except Exception:  # nosec B110 - no Gmail credentials
-                pass
-
-            # iOS asset
-            ios = sigs.get("ios")
-            if default_html and ios is not None:
-                out = Path("signatures_assets/ios_signature.html")
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_text(default_html, encoding="utf-8")
-                result.ios_asset_written = out
-
-            # Outlook note
-            if sigs.get("outlook") or default_html:
-                note = Path("signatures_assets/OUTLOOK_README.txt")
-                note.parent.mkdir(parents=True, exist_ok=True)
-                note.write_text(
-                    "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
-                    "Use the exported HTML (ios_signature.html) and paste into Outlook signature settings,\n"
-                    "or configure roaming signatures as per Microsoft guidance.",
-                    encoding="utf-8",
-                )
-                result.outlook_note_written = note
+            _sync_gmail_signatures(payload, sigs, result)
+            result.ios_asset_written = _write_ios_asset(default_html, sigs)
+            result.outlook_note_written = _write_outlook_note(default_html, sigs)
 
             return ResultEnvelope(status="success", payload=result)
         except Exception as exc:
