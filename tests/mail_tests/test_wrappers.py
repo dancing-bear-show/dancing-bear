@@ -1,4 +1,4 @@
-import subprocess
+import subprocess  # nosec B404
 import unittest
 from pathlib import Path
 

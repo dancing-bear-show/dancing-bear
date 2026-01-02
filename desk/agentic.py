@@ -77,6 +77,6 @@ def build_domain_map() -> str:
     return "\n".join([s for s in sections if s])
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:  # noqa: ARG001 - fmt/compact reserved
+def emit_agentic_context(compact: bool = False) -> int:  # noqa: ARG001 - compact reserved
     print(build_agentic_capsule())
     return 0

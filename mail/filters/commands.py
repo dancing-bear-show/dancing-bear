@@ -1,6 +1,8 @@
 """Convenience orchestration helpers for filters commands."""
 from __future__ import annotations
 
+from typing import Any, Callable, Optional, Type
+
 from ..context import MailContext
 from .consumers import (
     FiltersPlanConsumer,
@@ -40,20 +42,56 @@ from .producers import (
 )
 
 
-def run_filters_plan(args) -> int:
+def _run_filter_pipeline(
+    args,
+    consumer_cls: Type,
+    processor_cls: Type,
+    producer_factory: Callable[[Any], Any],
+    handle_error: Optional[Callable[[Any], int]] = None,
+) -> int:
+    """Generic pipeline runner for filter commands.
+
+    Args:
+        args: CLI arguments
+        consumer_cls: Consumer class to instantiate
+        processor_cls: Processor class to instantiate
+        producer_factory: Callable that takes payload and returns producer instance
+        handle_error: Optional custom error handler for envelope errors
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
     context = MailContext.from_args(args)
-    consumer = FiltersPlanConsumer(context)
+    consumer = consumer_cls(context)
     try:
         payload = consumer.consume()
     except ValueError as exc:
         print(exc)
         return 1
 
-    processor = FiltersPlanProcessor()
-    producer = FiltersPlanProducer()
+    processor = processor_cls()
     envelope = processor.process(payload)
+
+    if not envelope.ok():
+        if handle_error:
+            return handle_error(envelope)
+        diagnostics = envelope.diagnostics or {}
+        message = diagnostics.get("message", "Pipeline failed.")
+        print(message)
+        return diagnostics.get("code", 1)
+
+    producer = producer_factory(payload)
     producer.produce(envelope)
-    return 0 if envelope.ok() else 1
+    return 0
+
+
+def run_filters_plan(args) -> int:
+    return _run_filter_pipeline(
+        args,
+        FiltersPlanConsumer,
+        FiltersPlanProcessor,
+        lambda _: FiltersPlanProducer(),
+    )
 
 
 def run_filters_sync(args) -> int:
@@ -82,93 +120,63 @@ def run_filters_sync(args) -> int:
 
 
 def run_filters_impact(args) -> int:
-    context = MailContext.from_args(args)
-    consumer = FiltersImpactConsumer(context)
-    try:
-        payload = consumer.consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-
-    processor = FiltersImpactProcessor()
-    producer = FiltersImpactProducer()
-    envelope = processor.process(payload)
-    producer.produce(envelope)
-    return 0 if envelope.ok() else 1
+    return _run_filter_pipeline(
+        args,
+        FiltersImpactConsumer,
+        FiltersImpactProcessor,
+        lambda _: FiltersImpactProducer(),
+    )
 
 
 def run_filters_export(args) -> int:
-    context = MailContext.from_args(args)
-    consumer = FiltersExportConsumer(context)
-    try:
-        payload = consumer.consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-
-    processor = FiltersExportProcessor()
-    producer = FiltersExportProducer()
-    envelope = processor.process(payload)
-    producer.produce(envelope)
-    return 0 if envelope.ok() else 1
+    return _run_filter_pipeline(
+        args,
+        FiltersExportConsumer,
+        FiltersExportProcessor,
+        lambda _: FiltersExportProducer(),
+    )
 
 
 def run_filters_sweep(args) -> int:
-    context = MailContext.from_args(args)
-    consumer = FiltersSweepConsumer(context)
-    try:
-        payload = consumer.consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-
-    processor = FiltersSweepProcessor()
-    producer = FiltersSweepProducer(
-        payload.client,
-        pages=payload.pages,
-        batch_size=payload.batch_size,
-        max_msgs=payload.max_msgs,
-        dry_run=payload.dry_run,
+    return _run_filter_pipeline(
+        args,
+        FiltersSweepConsumer,
+        FiltersSweepProcessor,
+        lambda p: FiltersSweepProducer(
+            p.client,
+            pages=p.pages,
+            batch_size=p.batch_size,
+            max_msgs=p.max_msgs,
+            dry_run=p.dry_run,
+        ),
     )
-    envelope = processor.process(payload)
-    producer.produce(envelope)
-    return 0 if envelope.ok() else 1
 
 
 def run_filters_sweep_range(args) -> int:
-    context = MailContext.from_args(args)
-    consumer = FiltersSweepRangeConsumer(context)
-    try:
-        payload = consumer.consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-
-    processor = FiltersSweepRangeProcessor()
-    producer = FiltersSweepRangeProducer(
-        payload.client,
-        pages=payload.pages,
-        batch_size=payload.batch_size,
-        max_msgs=payload.max_msgs,
-        dry_run=payload.dry_run,
+    return _run_filter_pipeline(
+        args,
+        FiltersSweepRangeConsumer,
+        FiltersSweepRangeProcessor,
+        lambda p: FiltersSweepRangeProducer(
+            p.client,
+            pages=p.pages,
+            batch_size=p.batch_size,
+            max_msgs=p.max_msgs,
+            dry_run=p.dry_run,
+        ),
     )
-    envelope = processor.process(payload)
-    producer.produce(envelope)
-    return 0 if envelope.ok() else 1
 
 
 def run_filters_prune_empty(args) -> int:
-    context = MailContext.from_args(args)
-    consumer = FiltersPruneConsumer(context)
-    payload = consumer.consume()
-    processor = FiltersPruneProcessor()
-    producer = FiltersPruneProducer(
-        payload.client,
-        dry_run=payload.dry_run,
+    return _run_filter_pipeline(
+        args,
+        FiltersPruneConsumer,
+        FiltersPruneProcessor,
+        lambda p: FiltersPruneProducer(
+            p.client,
+            dry_run=p.dry_run,
+        ),
     )
-    envelope = processor.process(payload)
-    producer.produce(envelope)
-    return 0 if envelope.ok() else 1
 
 
 def run_filters_add_forward_by_label(args) -> int:
@@ -197,31 +205,21 @@ def run_filters_add_forward_by_label(args) -> int:
 
 
 def run_filters_add_from_token(args) -> int:
-    context = MailContext.from_args(args)
-    try:
-        payload = FiltersAddTokenConsumer(context).consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-    processor = FiltersAddTokenProcessor()
-    envelope = processor.process(payload)
-    producer = FiltersAddTokenProducer(payload.client, dry_run=payload.dry_run)
-    producer.produce(envelope)
-    return 0
+    return _run_filter_pipeline(
+        args,
+        FiltersAddTokenConsumer,
+        FiltersAddTokenProcessor,
+        lambda p: FiltersAddTokenProducer(p.client, dry_run=p.dry_run),
+    )
 
 
 def run_filters_rm_from_token(args) -> int:
-    context = MailContext.from_args(args)
-    try:
-        payload = FiltersRemoveTokenConsumer(context).consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-    processor = FiltersRemoveTokenProcessor()
-    envelope = processor.process(payload)
-    producer = FiltersRemoveTokenProducer(payload.client, dry_run=payload.dry_run)
-    producer.produce(envelope)
-    return 0
+    return _run_filter_pipeline(
+        args,
+        FiltersRemoveTokenConsumer,
+        FiltersRemoveTokenProcessor,
+        lambda p: FiltersRemoveTokenProducer(p.client, dry_run=p.dry_run),
+    )
 
 
 def run_filters_list(args) -> int:

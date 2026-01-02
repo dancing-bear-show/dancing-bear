@@ -21,10 +21,6 @@ from core.outlook.models import (
     UpdateEventReminderRequest,
 )
 
-# Backwards-compat alias
-_REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
-
-# Re-export for backwards compatibility
 __all__ = [
     "EventCreationParams",
     "EventSettingsPatch",
@@ -173,7 +169,7 @@ class OutlookService:
         out: List[Dict[str, Any]] = []
         nxt = url
         while nxt:
-            r = requests.get(nxt, headers=hdrs, timeout=_REQUEST_TIMEOUT)
+            r = requests.get(nxt, headers=hdrs, timeout=DEFAULT_REQUEST_TIMEOUT)
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
@@ -184,7 +180,7 @@ class OutlookService:
         base = self.graph_base()
         hdrs = self.headers()
         url = f"{base}/me/events/{event_id}"
-        r = requests.delete(url, headers=hdrs, timeout=_REQUEST_TIMEOUT)
+        r = requests.delete(url, headers=hdrs, timeout=DEFAULT_REQUEST_TIMEOUT)
         return r.status_code == 204 or 200 <= r.status_code < 300
 
     # Mail listing (read-only)
@@ -204,7 +200,7 @@ class OutlookService:
         nxt = url
         remaining_pages = int(pages)
         while nxt and remaining_pages > 0:
-            r = requests.get(nxt, headers=hdrs, timeout=_REQUEST_TIMEOUT)
+            r = requests.get(nxt, headers=hdrs, timeout=DEFAULT_REQUEST_TIMEOUT)
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])

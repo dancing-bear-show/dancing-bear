@@ -263,7 +263,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 left, right = it.split(desc_sep, 1)
                 self.bullets.add_named_bullet(left, right, sec=cfg, glyph=glyph, sep=desc_sep)
             elif plain:
-                self.bullets.add_bullet_line(it, sec=cfg, glyph=glyph)
+                self.bullets.add_bullet_line(it, glyph=glyph)
             else:
                 p = self.doc.add_paragraph(style="List Bullet")
                 self.bullets.styles.tight_paragraph(p, after_pt=0)

@@ -142,15 +142,40 @@ class OutlookCalendarAddFromConfigPayload:
     no_reminder: bool = False
 
 
-# Consumer classes
+# Base consumer classes for common patterns
 
-class OutlookRulesListConsumer(Consumer[OutlookRulesListPayload]):
-    """Consume args to create rules list payload."""
+class _BaseCachedListConsumer(Consumer[Any]):
+    """Base consumer for list operations with caching."""
 
     def __init__(self, client: Any, use_cache: bool = False, cache_ttl: int = 600):
         self._client = client
         self._use_cache = use_cache
         self._cache_ttl = cache_ttl
+
+
+class _BaseCachedExportConsumer(Consumer[Any]):
+    """Base consumer for export operations with caching."""
+
+    def __init__(self, client: Any, out_path: str, use_cache: bool = False, cache_ttl: int = 600):
+        self._client = client
+        self._out_path = out_path
+        self._use_cache = use_cache
+        self._cache_ttl = cache_ttl
+
+
+class _BaseSyncConsumer(Consumer[Any]):
+    """Base consumer for sync operations."""
+
+    def __init__(self, client: Any, config_path: str, dry_run: bool = False):
+        self._client = client
+        self._config_path = config_path
+        self._dry_run = dry_run
+
+
+# Consumer classes
+
+class OutlookRulesListConsumer(_BaseCachedListConsumer):
+    """Consume args to create rules list payload."""
 
     def consume(self) -> OutlookRulesListPayload:
         return OutlookRulesListPayload(
@@ -160,14 +185,8 @@ class OutlookRulesListConsumer(Consumer[OutlookRulesListPayload]):
         )
 
 
-class OutlookRulesExportConsumer(Consumer[OutlookRulesExportPayload]):
+class OutlookRulesExportConsumer(_BaseCachedExportConsumer):
     """Consume args to create rules export payload."""
-
-    def __init__(self, client: Any, out_path: str, use_cache: bool = False, cache_ttl: int = 600):
-        self._client = client
-        self._out_path = out_path
-        self._use_cache = use_cache
-        self._cache_ttl = cache_ttl
 
     def consume(self) -> OutlookRulesExportPayload:
         return OutlookRulesExportPayload(
@@ -238,13 +257,8 @@ class OutlookRulesSweepConsumer(Consumer[OutlookRulesSweepPayload]):
         return OutlookRulesSweepPayload(client=self._client, **self._kwargs)
 
 
-class OutlookCategoriesListConsumer(Consumer[OutlookCategoriesListPayload]):
+class OutlookCategoriesListConsumer(_BaseCachedListConsumer):
     """Consume args to create categories list payload."""
-
-    def __init__(self, client: Any, use_cache: bool = False, cache_ttl: int = 600):
-        self._client = client
-        self._use_cache = use_cache
-        self._cache_ttl = cache_ttl
 
     def consume(self) -> OutlookCategoriesListPayload:
         return OutlookCategoriesListPayload(
@@ -254,14 +268,8 @@ class OutlookCategoriesListConsumer(Consumer[OutlookCategoriesListPayload]):
         )
 
 
-class OutlookCategoriesExportConsumer(Consumer[OutlookCategoriesExportPayload]):
+class OutlookCategoriesExportConsumer(_BaseCachedExportConsumer):
     """Consume args to create categories export payload."""
-
-    def __init__(self, client: Any, out_path: str, use_cache: bool = False, cache_ttl: int = 600):
-        self._client = client
-        self._out_path = out_path
-        self._use_cache = use_cache
-        self._cache_ttl = cache_ttl
 
     def consume(self) -> OutlookCategoriesExportPayload:
         return OutlookCategoriesExportPayload(
@@ -272,13 +280,8 @@ class OutlookCategoriesExportConsumer(Consumer[OutlookCategoriesExportPayload]):
         )
 
 
-class OutlookCategoriesSyncConsumer(Consumer[OutlookCategoriesSyncPayload]):
+class OutlookCategoriesSyncConsumer(_BaseSyncConsumer):
     """Consume args to create categories sync payload."""
-
-    def __init__(self, client: Any, config_path: str, dry_run: bool = False):
-        self._client = client
-        self._config_path = config_path
-        self._dry_run = dry_run
 
     def consume(self) -> OutlookCategoriesSyncPayload:
         return OutlookCategoriesSyncPayload(
@@ -288,13 +291,8 @@ class OutlookCategoriesSyncConsumer(Consumer[OutlookCategoriesSyncPayload]):
         )
 
 
-class OutlookFoldersSyncConsumer(Consumer[OutlookFoldersSyncPayload]):
+class OutlookFoldersSyncConsumer(_BaseSyncConsumer):
     """Consume args to create folders sync payload."""
-
-    def __init__(self, client: Any, config_path: str, dry_run: bool = False):
-        self._client = client
-        self._config_path = config_path
-        self._dry_run = dry_run
 
     def consume(self) -> OutlookFoldersSyncPayload:
         return OutlookFoldersSyncPayload(

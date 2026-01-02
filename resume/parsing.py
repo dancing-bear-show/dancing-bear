@@ -659,17 +659,23 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
 
 
 def _key_from_heading(text: str) -> Optional[str]:
+    """Map heading text to section key based on keyword patterns."""
     low = (text or "").strip().lower()
     if not low:
         return None
-    if any(k in low for k in ["work experiences", "work experience", "experience", "employment", "career"]):
-        return "experience"
-    if any(k in low for k in ["education", "academics"]):
-        return "education"
-    if any(k in low for k in ["technical skills", "skills", "technologies"]):
-        return "skills"
-    if any(k in low for k in ["summary", "profile", "about"]):
-        return "summary"
+
+    # Map section keys to their matching keywords
+    keyword_map = {
+        "experience": ["work experiences", "work experience", "experience", "employment", "career"],
+        "education": ["education", "academics"],
+        "skills": ["technical skills", "skills", "technologies"],
+        "summary": ["summary", "profile", "about"],
+    }
+
+    for section_key, keywords in keyword_map.items():
+        if any(k in low for k in keywords):
+            return section_key
+
     return None
 
 

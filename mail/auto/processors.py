@@ -88,7 +88,7 @@ def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
 class AutoProposeResult:
     """Result of auto propose."""
 
-    out_path: Path = None  # type: ignore
+    out_path: Optional[Path] = None
     total_considered: int = 0
     selected_count: int = 0
     query: str = ""

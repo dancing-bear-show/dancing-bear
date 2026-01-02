@@ -92,6 +92,45 @@ def run_outlook_auth_poll(args) -> int:
     return 0
 
 
+def _try_silent_auth(app, scopes: list, cache, tp: Path) -> tuple[bool, int]:
+    """Try silent token acquisition. Returns (success, exit_code)."""
+    accounts = []
+    try:
+        accounts = app.get_accounts()
+    except Exception:  # nosec B110 - cache lookup may fail, proceed with empty
+        pass
+
+    if accounts:
+        res = app.acquire_token_silent(scopes, account=accounts[0])
+        if res and "access_token" in res:
+            tp.parent.mkdir(parents=True, exist_ok=True)
+            tp.write_text(cache.serialize(), encoding="utf-8")
+            print(f"Token cache valid. Saved to {tp}")
+            return True, 0
+    return False, 0
+
+
+def _run_device_flow(app, scopes: list, cache, tp: Path) -> int:
+    """Run interactive device flow. Returns exit code."""
+    flow = app.initiate_device_flow(scopes=scopes)
+    if "user_code" not in flow:
+        print("Failed to start device flow.")
+        return 1
+
+    msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
+    print(msg)
+
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" not in result:
+        print(f"Device flow failed: {result}")
+        return 3
+
+    tp.parent.mkdir(parents=True, exist_ok=True)
+    tp.write_text(cache.serialize(), encoding="utf-8")
+    print(f"Saved Outlook token cache to {tp}")
+    return 0
+
+
 def run_outlook_auth_ensure(args) -> int:
     """Ensure a persistent Outlook MSAL token cache exists and is valid."""
     try:
@@ -117,45 +156,17 @@ def run_outlook_auth_ensure(args) -> int:
         try:
             cache.deserialize(tp.read_text(encoding="utf-8"))
         except (ValueError, OSError, IOError) as e:  # nosec B110 - corrupt/invalid cache, start fresh
-            # Token cache may be corrupt or invalid JSON; safe to start with empty cache
             import sys
             print(f"Warning: Could not load token cache ({type(e).__name__}), starting fresh", file=sys.stderr)
 
     app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
     scopes = [GRAPH_DEFAULT_SCOPE]
 
-    accounts = []
-    try:
-        accounts = app.get_accounts()
-    except Exception:
-        accounts = []  # Cache lookup failed; proceed with empty accounts
-
-    if accounts:
-        res = app.acquire_token_silent(scopes, account=accounts[0])
-        if res and "access_token" in res:
-            tp.parent.mkdir(parents=True, exist_ok=True)
-            tp.write_text(cache.serialize(), encoding="utf-8")
-            print(f"Token cache valid. Saved to {tp}")
-            return 0
-
-    # Fallback: interactive device flow
-    flow = app.initiate_device_flow(scopes=scopes)
-    if "user_code" not in flow:
-        print("Failed to start device flow.")
-        return 1
-
-    msg = flow.get("message") or f"To sign in, visit {flow.get('verification_uri')} and enter code: {flow.get('user_code')}"
-    print(msg)
-
-    result = app.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        print(f"Device flow failed: {result}")
-        return 3
-
-    tp.parent.mkdir(parents=True, exist_ok=True)
-    tp.write_text(cache.serialize(), encoding="utf-8")
-    print(f"Saved Outlook token cache to {tp}")
-    return 0
+    # Try silent auth first, fall back to device flow
+    success, code = _try_silent_auth(app, scopes, cache, tp)
+    if success:
+        return code
+    return _run_device_flow(app, scopes, cache, tp)
 
 
 def run_outlook_auth_validate(args) -> int:

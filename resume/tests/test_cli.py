@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 import json
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 

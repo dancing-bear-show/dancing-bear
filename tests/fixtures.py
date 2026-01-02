@@ -12,7 +12,7 @@ import importlib.util
 import io
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 from contextlib import contextmanager, redirect_stdout
@@ -196,6 +196,30 @@ class TempDirMixin:
 
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         super().tearDown()
+
+    def in_tmpdir(self):
+        """Context manager to temporarily change to tmpdir.
+
+        Usage:
+            with self.in_tmpdir():
+                # code runs in tmpdir
+                ...
+            # back to original directory
+        """
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _chdir():
+            import os
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(self.tmpdir)
+                yield
+            finally:
+                os.chdir(old_cwd)
+
+        return _chdir()
 
 
 # -----------------------------------------------------------------------------

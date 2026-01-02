@@ -315,20 +315,29 @@ def cmd_sync(args: argparse.Namespace) -> int:
 @app.argument("--tenant", help="Azure tenant (default consumers)")
 @app.argument("--token", help="Path to Outlook token cache")
 def cmd_export(args: argparse.Namespace) -> int:
+    """Export Outlook calendar events to plan YAML."""
     import datetime as _dt
+
+    # Validate service
     svc = _build_outlook_service_from_args(args)
     if not svc:
         return 2
+
+    # Validate calendar name
     cal_name = getattr(args, 'calendar', None)
     if not cal_name:
         print("--calendar is required")
         return 2
+
+    # Parse and validate date range
     try:
         start_iso = _dt.datetime.fromisoformat(args.from_date).strftime(FMT_DAY_START)
         end_iso = _dt.datetime.fromisoformat(args.to_date).strftime(FMT_DAY_END)
     except Exception:
         print("Invalid --from/--to date format; expected YYYY-MM-DD")
         return 2
+
+    # Fetch events from Outlook
     try:
         from calendars.outlook_service import ListEventsRequest
         evs = svc.list_events_in_range(ListEventsRequest(
@@ -340,6 +349,8 @@ def cmd_export(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Failed to list events: {e}")
         return 3
+
+    # Process and export events
     rows: List[Dict[str, Any]] = []
     for ev in evs:
         sub = (ev.get('subject') or '').strip()
@@ -349,10 +360,11 @@ def cmd_export(args: argparse.Namespace) -> int:
         if not sub or not st or not en:
             continue
         rows.append({'calendar': cal_name, 'subject': sub, 'start': st, 'end': en, 'location': loc})
-    # Sort by start ascending for readability
-    def _key(ev: Dict[str, Any]) -> str:
-        return ev.get('start', '')
-    rows.sort(key=_key)
+
+    # Sort by start time for readability
+    rows.sort(key=lambda ev: ev.get('start', ''))
+
+    # Write output
     out_path = Path(getattr(args, 'out'))
     _write_yaml(out_path, {'events': rows})
     print(f"Exported {len(rows)} events from '{cal_name}' to {out_path}")
@@ -428,28 +440,6 @@ def cmd_apply(args: argparse.Namespace) -> int:
     if envelope.ok():
         return 0
     return int((envelope.diagnostics or {}).get("code", 2))
-
-
-# Backward compatibility aliases for tests
-_cmd_plan = cmd_plan
-_cmd_verify = cmd_verify
-_cmd_sync = cmd_sync
-_cmd_export = cmd_export
-_cmd_compress = cmd_compress
-_cmd_apply = cmd_apply
-
-# Explicit exports to mark aliases as intentional public API
-__all__ = [
-    "app",
-    "main",
-    "_cmd_plan",
-    "_cmd_verify",
-    "_cmd_sync",
-    "_cmd_export",
-    "_cmd_compress",
-    "_cmd_apply",
-    "_expand_recurring_occurrences",
-]
 
 
 def main(argv: Optional[List[str]] = None) -> int:

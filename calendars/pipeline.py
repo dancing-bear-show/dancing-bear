@@ -1,7 +1,6 @@
 """Calendar assistant pipeline components.
 
-This module re-exports all pipeline components for backward compatibility.
-The actual implementations are organized into:
+This module re-exports all pipeline components from their implementation modules:
 - pipeline_base.py: Shared utilities and base classes
 - gmail_pipelines.py: Gmail-related pipelines
 - outlook_pipelines.py: Outlook-related pipelines
@@ -18,9 +17,8 @@ from .pipeline_base import (
     to_iso_str,
     dedupe_events,
     parse_month,
-    MONTH_MAP_FULL,
-    MONTH_MAP_ABBREV,
-    DAY_TO_CODE,
+    MONTH_MAP,
+    DAY_MAP,
 )
 
 # Re-export Gmail pipelines
@@ -124,9 +122,6 @@ from .outlook_pipelines import (
     OutlookDedupProducer,
 )
 
-# Backward-compatible alias
-_to_iso_str = to_iso_str
-
 
 def _load_schedule_sources(sources, kind):
     """Load schedule items from multiple sources."""
@@ -156,9 +151,8 @@ __all__ = [
     "to_iso_str",
     "dedupe_events",
     "parse_month",
-    "MONTH_MAP_FULL",
-    "MONTH_MAP_ABBREV",
-    "DAY_TO_CODE",
+    "MONTH_MAP",
+    "DAY_MAP",
     # Gmail pipelines
     "GmailReceiptsRequest",
     "GmailReceiptsRequestConsumer",
@@ -255,6 +249,5 @@ __all__ = [
     "OutlookDedupProcessor",
     "OutlookDedupProducer",
     # Utilities
-    "_to_iso_str",
     "_load_schedule_sources",
 ]

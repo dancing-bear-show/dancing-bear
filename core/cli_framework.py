@@ -275,6 +275,45 @@ class CLIApp:
         for arg in cmd_def.arguments:
             parser.add_argument(*arg.name_or_flags, **arg.kwargs)
 
+    def run_with_assistant(
+        self,
+        assistant: Any,
+        emit_func: Callable[[str, bool], int],
+        argv: Optional[Sequence[str]] = None,
+    ) -> int:
+        """Run the CLI application with agentic flag support.
+
+        This method builds the parser, adds agentic flags from the assistant,
+        and handles --agentic output before running commands.
+
+        Args:
+            assistant: BaseAssistant instance for agentic flag handling.
+            emit_func: Function to emit agentic output (fmt, compact) -> int.
+            argv: Command-line arguments (defaults to sys.argv[1:]).
+
+        Returns:
+            Exit code.
+        """
+        # Build parser and add agentic flags
+        parser = self.build_parser()
+        assistant.add_agentic_flags(parser)
+
+        args = parser.parse_args(argv)
+
+        # Handle agentic output if requested
+        agentic_result = assistant.maybe_emit_agentic(args, emit_func=emit_func)
+        if agentic_result is not None:
+            return int(agentic_result)
+
+        # Get the command function
+        cmd_func = getattr(args, "_cmd_func", None)
+        if cmd_func is None:
+            parser.print_help()
+            return 0
+
+        # Run the command
+        return int(cmd_func(args))
+
     def run(self, argv: Optional[Sequence[str]] = None) -> int:
         """Run the CLI application.
 

@@ -22,6 +22,16 @@ DEFAULT_INVENTORY_FILENAME = "INVENTORY.md"
 DEFAULT_FAMILIAR_FILENAME = "familiarize.yaml"
 DEFAULT_POLICIES_FILENAME = "PR_POLICIES.yaml"
 
+# Fallback messages
+_DOMAIN_MAP_UNAVAILABLE = "Domain Map not available"
+_DEFAULT_POLICIES_YAML = (
+    "policies:\n"
+    "  style:\n"
+    "    - Keep CLI stable; prefer plan→apply\n"
+    "  tests:\n"
+    "    - Add lightweight unittest for new CLI surfaces\n"
+)
+
 
 @dataclass
 class LlmConfig:
@@ -59,6 +69,91 @@ def make_app_llm_config(**kwargs) -> LlmConfig:
     return LlmConfig(**kwargs)
 
 
+def _build_agentic_builder(agentic_module: str, app_id: str, purpose: str) -> Callable[[], str]:
+    """Create agentic capsule builder for a domain module."""
+    def builder() -> str:
+        try:
+            mod = importlib.import_module(agentic_module)
+            return mod.build_agentic_capsule()
+        except Exception:  # nosec B110 - fallback on import/build failure
+            return f"agentic: {app_id}\npurpose: {purpose}"
+    return builder
+
+
+def _build_domain_map_builder(agentic_module: str) -> Callable[[], str]:
+    """Create domain map builder for a domain module."""
+    def builder() -> str:
+        try:
+            mod = importlib.import_module(agentic_module)
+            return mod.build_domain_map()
+        except Exception:  # nosec B110 - fallback on import/build failure
+            return _DOMAIN_MAP_UNAVAILABLE
+    return builder
+
+
+def _build_inventory_builder(app_title: str) -> Callable[[], str]:
+    """Create inventory builder for a domain module."""
+    llm_dir = Path(".llm")
+    def builder() -> str:
+        return (
+            _read_text(llm_dir / "INVENTORY.md")
+            or f"# LLM Agent Inventory ({app_title})\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
+        )
+    return builder
+
+
+def _build_familiar_compact_builder(
+    app_id: str, familiar_compact_steps: Optional[List[str]]
+) -> Callable[[], str]:
+    """Create compact familiarization builder for a domain module."""
+    llm_dir = Path(".llm")
+    def builder() -> str:
+        if familiar_compact_steps:
+            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_compact_steps)
+            return (
+                f"meta:\n"
+                f"  name: {app_id}_familiarize\n"
+                f"  version: 1\n"
+                f"steps:\n{steps}\n"
+            )
+        return (
+            _read_text(llm_dir / "familiarize.yaml")
+            or f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n  - run: ./bin/{app_id} --help\n"
+        )
+    return builder
+
+
+def _build_familiar_extended_builder(
+    app_id: str,
+    familiar_extended_steps: Optional[List[str]],
+    compact_builder: Callable[[], str],
+) -> Callable[[], str]:
+    """Create extended familiarization builder for a domain module."""
+    def builder() -> str:
+        if familiar_extended_steps:
+            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_extended_steps)
+            return (
+                f"meta:\n"
+                f"  name: {app_id}_familiarize\n"
+                f"  version: 1\n"
+                f"steps:\n{steps}\n"
+            )
+        return compact_builder()
+    return builder
+
+
+def _build_policies_builder(policies_fallback: Optional[str]) -> Callable[[], str]:
+    """Create policies builder for a domain module."""
+    llm_dir = Path(".llm")
+    def builder() -> str:
+        return (
+            _read_text(llm_dir / "PR_POLICIES.yaml")
+            or policies_fallback
+            or _DEFAULT_POLICIES_YAML
+        )
+    return builder
+
+
 def make_domain_llm_module(
     *,
     app_id: str,
@@ -83,69 +178,22 @@ def make_domain_llm_module(
     Returns:
         LlmConfig ready for use with build_parser() and run()
     """
-    llm_dir = Path(".llm")
-
-    def _agentic() -> str:
-        try:
-            mod = importlib.import_module(agentic_module)
-            return mod.build_agentic_capsule()
-        except Exception:
-            return f"agentic: {app_id}\npurpose: {purpose}"
-
-    def _domain_map() -> str:
-        try:
-            mod = importlib.import_module(agentic_module)
-            return mod.build_domain_map()
-        except Exception:
-            return "Domain Map not available"
-
-    def _inventory() -> str:
-        return (
-            _read_text(llm_dir / "INVENTORY.md")
-            or f"# LLM Agent Inventory ({app_title})\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
-        )
-
-    def _familiar_compact() -> str:
-        if familiar_compact_steps:
-            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_compact_steps)
-            return (
-                f"meta:\n"
-                f"  name: {app_id}_familiarize\n"
-                f"  version: 1\n"
-                f"steps:\n{steps}\n"
-            )
-        return (
-            _read_text(llm_dir / "familiarize.yaml")
-            or f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n  - run: ./bin/{app_id} --help\n"
-        )
-
-    def _familiar_extended() -> str:
-        if familiar_extended_steps:
-            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_extended_steps)
-            return (
-                f"meta:\n"
-                f"  name: {app_id}_familiarize\n"
-                f"  version: 1\n"
-                f"steps:\n{steps}\n"
-            )
-        return _familiar_compact()
-
-    def _policies() -> str:
-        return (
-            _read_text(llm_dir / "PR_POLICIES.yaml")
-            or policies_fallback
-            or f"policies:\n  style:\n    - Keep CLI stable; prefer plan→apply\n  tests:\n    - Add lightweight unittest for new CLI surfaces\n"
-        )
+    agentic_builder = _build_agentic_builder(agentic_module, app_id, purpose)
+    domain_map_builder = _build_domain_map_builder(agentic_module)
+    inventory_builder = _build_inventory_builder(app_title)
+    compact_builder = _build_familiar_compact_builder(app_id, familiar_compact_steps)
+    extended_builder = _build_familiar_extended_builder(app_id, familiar_extended_steps, compact_builder)
+    policies_builder = _build_policies_builder(policies_fallback)
 
     return LlmConfig(
         prog=f"llm-{app_id}",
         description=f"{app_title} Assistant LLM utilities (inventory, familiar, policies, agentic, domain-map)",
-        agentic=_agentic,
-        domain_map=_domain_map,
-        inventory=_inventory,
-        familiar_compact=_familiar_compact,
-        familiar_extended=_familiar_extended,
-        policies=_policies,
+        agentic=agentic_builder,
+        domain_map=domain_map_builder,
+        inventory=inventory_builder,
+        familiar_compact=compact_builder,
+        familiar_extended=extended_builder,
+        policies=policies_builder,
         agentic_filename=f"AGENTIC_{app_id.upper()}.md",
         domain_map_filename=f"DOMAIN_MAP_{app_id.upper()}.md",
     )
@@ -236,7 +284,7 @@ def _default_inventory() -> str:
 
 
 def _default_policies() -> str:
-    return "policies:\n  style:\n    - Keep public CLI stable\n"
+    return _DEFAULT_POLICIES_YAML
 
 
 def _familiar_content(verbose: bool, compact: bool = False) -> str:
@@ -352,8 +400,8 @@ def _mail_domain_map() -> str:
         from mail.agentic import build_domain_map
 
         return build_domain_map()
-    except Exception:
-        return "Domain Map not available"
+    except Exception:  # nosec B110 - fallback on import/build failure
+        return _DOMAIN_MAP_UNAVAILABLE
 
 
 def _mail_flows() -> List[Dict[str, any]]:
@@ -622,7 +670,7 @@ def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
 
     # Add emit-style commands
     _add_emit_subcommand(sub, "agentic", "Emit the agentic capsule", config.agentic, "agentic: (not available)")
-    _add_emit_subcommand(sub, "domain-map", "Emit domain map", config.domain_map, "Domain Map not available")
+    _add_emit_subcommand(sub, "domain-map", "Emit domain map", config.domain_map, _DOMAIN_MAP_UNAVAILABLE)
     _add_emit_subcommand(sub, "inventory", "Emit LLM inventory", config.inventory, "# LLM Agent Inventory\n\n(no data)")
     _add_emit_subcommand(sub, "policies", "Emit PR/testing policies", config.policies, _default_policies())
 

@@ -6,7 +6,7 @@ import time
 import unittest
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from unittest.mock import patch, MagicMock
 
 from mail.auto.processors import (
@@ -19,25 +19,7 @@ from mail.auto.consumers import (
     AutoSummaryPayload,
     AutoApplyPayload,
 )
-
-
-def _make_message(
-    msg_id: str,
-    headers: Dict[str, str],
-    label_ids: Optional[List[str]] = None,
-    internal_date: Optional[int] = None,
-) -> Dict[str, Any]:
-    """Create a fake Gmail message dict with headers."""
-    hdrs = [{"name": k, "value": v} for k, v in headers.items()]
-    msg = {
-        "id": msg_id,
-        "threadId": f"thread_{msg_id}",
-        "labelIds": label_ids or ["INBOX"],
-        "payload": {"headers": hdrs},
-    }
-    if internal_date is not None:
-        msg["internalDate"] = str(internal_date)
-    return msg
+from tests.mail_tests.fixtures import make_message_with_headers as _make_message
 
 
 class TestClassifyLowInterest(unittest.TestCase):

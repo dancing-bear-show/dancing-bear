@@ -248,12 +248,11 @@ def _expand_weekly(config: RecurrenceExpansionConfig) -> List[Tuple[str, str]]:
     return out
 
 
-def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[Tuple[str, str]]:
-    """Expand recurring event (weekly/daily) to list of (start_iso, end_iso) within window."""
-    rpt = (ev.get("repeat") or "").strip().lower()
-    if rpt not in ("daily", "weekly"):
-        return []
+def _extract_event_times(ev: Dict[str, Any], win_from: str, win_to: str) -> Optional[Tuple[str, str, str, str]]:
+    """Extract and validate time fields from event.
 
+    Returns (start_time, end_time, range_start, range_until) or None if invalid.
+    """
     start_time = ev.get("start_time")
     end_time = ev.get("end_time") or start_time
     rng = ev.get("range") or {}
@@ -261,37 +260,71 @@ def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str
     range_until = rng.get("until") or win_to
 
     if not (start_time and end_time and range_start):
-        return []
+        return None
 
+    return start_time, end_time, range_start, range_until
+
+
+def _calculate_expansion_window(
+    range_start: str, range_until: str, win_from: str, win_to: str
+) -> Optional[Tuple[_dt.date, _dt.date]]:
+    """Calculate effective date range for expansion.
+
+    Returns (start_date, end_date) or None if range is invalid.
+    """
     win_start = _to_date(win_from)
     win_end = _to_date(win_to)
     cur = max(_to_date(range_start), win_start)
     end = min(_to_date(range_until), win_end)
 
     if cur > end:
+        return None
+
+    return cur, end
+
+
+def _expand_weekly_occurrences(
+    ev: Dict[str, Any], start_date: _dt.date, end_date: _dt.date, start_time: str, end_time: str, ex_set: set
+) -> List[Tuple[str, str]]:
+    """Expand weekly recurrence for event."""
+    byday = ev.get("byday") or []
+    days_idx = [x for x in (_weekday_code_to_py(d) for d in byday) if x is not None]
+    if not days_idx:
         return []
 
+    config = RecurrenceExpansionConfig(
+        start_date=start_date,
+        end_date=end_date,
+        start_time=start_time,
+        end_time=end_time,
+        excluded_dates=ex_set,
+        weekdays=days_idx,
+    )
+    return _expand_weekly(config)
+
+
+def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[Tuple[str, str]]:
+    """Expand recurring event (weekly/daily) to list of (start_iso, end_iso) within window."""
+    rpt = (ev.get("repeat") or "").strip().lower()
+    if rpt not in ("daily", "weekly"):
+        return []
+
+    times = _extract_event_times(ev, win_from, win_to)
+    if not times:
+        return []
+
+    start_time, end_time, range_start, range_until = times
+    window = _calculate_expansion_window(range_start, range_until, win_from, win_to)
+    if not window:
+        return []
+
+    start_date, end_date = window
     ex_set = _parse_exdates(ev.get("exdates") or [])
 
     if rpt == "daily":
-        return _expand_daily(cur, end, start_time, end_time, ex_set)
+        return _expand_daily(start_date, end_date, start_time, end_time, ex_set)
 
-    if rpt == "weekly":
-        byday = ev.get("byday") or []
-        days_idx = [x for x in (_weekday_code_to_py(d) for d in byday) if x is not None]
-        if not days_idx:
-            return []
-        config = RecurrenceExpansionConfig(
-            start_date=cur,
-            end_date=end,
-            start_time=start_time,
-            end_time=end_time,
-            excluded_dates=ex_set,
-            weekdays=days_idx,
-        )
-        return _expand_weekly(config)
-
-    return []
+    return _expand_weekly_occurrences(ev, start_date, end_date, start_time, end_time, ex_set)
 
 
 def _apply_outlook_events(

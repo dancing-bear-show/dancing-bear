@@ -86,12 +86,145 @@ def run_messages_summarize(args) -> int:
     return 0 if envelope.ok() else 1
 
 
+def _reply_show_plan(args, to_email: str, orig_subj: str) -> int:
+    """Show plan preview for reply."""
+    when = getattr(args, "send_at", None) or getattr(args, "send_in", None)
+    print("Plan: reply")
+    print(f"  to: {to_email}")
+    if getattr(args, "cc", None):
+        print(f"  cc: {', '.join(args.cc)}")
+    if getattr(args, "bcc", None):
+        print(f"  bcc: {', '.join(args.bcc)}")
+    print(f"  subject: {'Re: ' + orig_subj if not getattr(args, 'subject', None) else args.subject}")
+    if when:
+        print(f"  when: {when}")
+    print("  action: send (with --apply) or create draft (--create-draft)")
+    return 0
+
+
+def _reply_schedule(args, raw: bytes, thread_id: Optional[str], to_email: str, subject: str) -> int:
+    """Schedule reply for later sending."""
+    from ..scheduler import parse_send_at, parse_send_in, enqueue, ScheduledItem
+    import base64
+
+    due = None
+    send_at = getattr(args, "send_at", None)
+    send_in = getattr(args, "send_in", None)
+    if send_at:
+        due = parse_send_at(str(send_at))
+    if due is None and send_in:
+        delta = parse_send_in(str(send_in))
+        if delta:
+            due = int(__import__("time").time()) + int(delta)
+    if due is None:
+        print("Invalid --send-at/--send-in; expected 'YYYY-MM-DD HH:MM' or like '2h30m'")
+        return 1
+
+    prof = getattr(args, "profile", None) or "default"
+    item = ScheduledItem(
+        provider="gmail",
+        profile=str(prof),
+        due_at=int(due),
+        raw_b64=base64.b64encode(raw).decode("utf-8"),
+        thread_id=thread_id,
+        to=to_email,
+        subject=subject or "",
+    )
+    enqueue(item)
+    from datetime import datetime
+    print(f"Queued reply to {to_email} at {datetime.fromtimestamp(due).strftime('%Y-%m-%d %H:%M')}")
+
+    draft_out = getattr(args, "draft_out", None)
+    if draft_out:
+        p = Path(draft_out)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(raw)
+        print(f"Draft written to {p}")
+    return 0
+
+
+def _load_points_from_file(plan_path: str, args) -> str:
+    """Load points text from a plan file."""
+    from ..yamlio import load_config
+    doc = load_config(plan_path)
+    goals = doc.get("goals") or doc.get("points") or []
+    points = "\n".join(f"- {g}" for g in goals if g) if isinstance(goals, list) else ""
+    if not getattr(args, "signoff", None) and doc.get("signoff"):
+        args.signoff = str(doc.get("signoff"))
+    return points
+
+
+def _format_points(points_text: str) -> list[str]:
+    """Format points text into body lines."""
+    if not points_text:
+        return []
+    pts = [ln.strip() for ln in str(points_text).splitlines() if ln.strip()]
+    if len(pts) == 1 and not pts[0].startswith("-"):
+        return [pts[0]]
+    return ["Here are the points:"] + [f"- {p.lstrip('-').strip()}" for p in pts]
+
+
+def _build_reply_body(args, client, mid: str) -> list[str]:
+    """Build reply body lines from args and message context."""
+    from ..llm_adapter import summarize_text
+
+    points_text = getattr(args, "points", None) or ""
+    plan_path = getattr(args, "points_file", None)
+    if plan_path:
+        points_text = points_text or _load_points_from_file(plan_path, args)
+
+    body_lines = _format_points(points_text)
+
+    if getattr(args, "include_summary", False):
+        summ = summarize_text(client.get_message_text(mid), max_words=80)
+        body_lines.insert(0, f"Summary: {summ}")
+
+    signoff = getattr(args, "signoff", None) or "Thanks,"
+    body_lines.extend(["", signoff])
+    return body_lines
+
+
+def _reply_execute(args, client, raw: bytes, thread_id: Optional[str], to_email: str) -> None:
+    """Execute reply action (send, draft, or preview)."""
+    if getattr(args, "apply", False):
+        client.send_message_raw(raw, thread_id=thread_id)
+        print(f"Sent reply to {to_email} (thread {thread_id or 'new'})")
+        return
+
+    if getattr(args, "create_draft", False):
+        d = client.create_draft_raw(raw, thread_id=thread_id)
+        did = (d or {}).get('id') or '(draft id unavailable)'
+        print(f"Created Gmail draft id={did}")
+        return
+
+    draft_out = getattr(args, "draft_out", None)
+    if draft_out:
+        p = Path(draft_out)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(raw)
+        print(f"Draft written to {p}")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+        head = "\n".join(text.splitlines()[:20])
+        print(head)
+        print("... (preview; use --draft-out to write .eml or --apply to send)")
+
+
+def _extract_reply_headers(msg_full: dict) -> dict:
+    """Extract relevant headers from message for reply."""
+    headers = {h.get("name", "").lower(): h.get("value", "") for h in ((msg_full.get("payload") or {}).get("headers") or [])}
+    return {
+        "subject": headers.get("subject", ""),
+        "message_id": headers.get("message-id"),
+        "references": headers.get("references"),
+        "reply_to": headers.get("reply-to") or headers.get("from") or "",
+    }
+
+
 def run_messages_reply(args) -> int:
     """Compose and send/draft a reply to a message."""
     from ..utils.cli_helpers import gmail_provider_from_args
     from ..messages import _compose_reply, encode_email_message
-    from ..llm_adapter import summarize_text
-    from ..yamlio import load_config
     from email.utils import formatdate
 
     client = gmail_provider_from_args(args)
@@ -102,152 +235,40 @@ def run_messages_reply(args) -> int:
         return 1
 
     # Fetch headers for reply context
-    msg_full = client.get_message(mid, fmt="full")
-    headers = {h.get("name", "").lower(): h.get("value", "") for h in ((msg_full.get("payload") or {}).get("headers") or [])}
-    orig_subj = headers.get("subject", "")
-    msg_id = headers.get("message-id")
-    refs = headers.get("references")
-    reply_to = headers.get("reply-to") or headers.get("from") or ""
-    _, to_email = __import__("email.utils").utils.parseaddr(reply_to)
+    hdr = _extract_reply_headers(client.get_message(mid, fmt="full"))
+    _, to_email = __import__("email.utils").utils.parseaddr(hdr["reply_to"])
     if not to_email:
         print("Could not determine recipient from original message headers")
         return 1
 
-    profile = None
-    try:
-        profile = client.get_profile()
-    except Exception:
-        profile = {"emailAddress": ""}
-    from_email = profile.get("emailAddress") or "me"
+    profile = client.get_profile() if hasattr(client, 'get_profile') else {}
+    from_email = (profile or {}).get("emailAddress") or "me"
 
-    # Build reply body
-    points_text = getattr(args, "points", None) or ""
-    plan_path = getattr(args, "points_file", None)
-    if plan_path:
-        doc = load_config(plan_path)
-        goals = doc.get("goals") or doc.get("points") or []
-        if isinstance(goals, list):
-            points_text = points_text or "\n".join(f"- {g}" for g in goals if g)
-        if not getattr(args, "signoff", None) and doc.get("signoff"):
-            args.signoff = str(doc.get("signoff"))
-
-    body_lines = []
-    if points_text:
-        pts = [ln.strip() for ln in str(points_text).splitlines() if ln.strip()]
-        if len(pts) == 1 and not pts[0].startswith("-"):
-            body_lines.append(pts[0])
-        else:
-            body_lines.append("Here are the points:")
-            body_lines.extend([f"- {p.lstrip('-').strip()}" for p in pts])
-
-    if getattr(args, "include_summary", False):
-        orig_text = client.get_message_text(mid)
-        summ = summarize_text(orig_text, max_words=80)
-        body_lines.insert(0, f"Summary: {summ}")
-
-    signoff = getattr(args, "signoff", None) or "Thanks,"
-    body_lines.append("")
-    body_lines.append(signoff)
-
-    # Compose message
-    subject = getattr(args, "subject", None) or orig_subj
+    # Build reply body and compose message
+    body_lines = _build_reply_body(args, client, mid)
+    subject = getattr(args, "subject", None) or hdr["subject"]
     include_quote = bool(getattr(args, "include_quote", False))
-    original_text = client.get_message_text(mid) if include_quote else None
     msg = _compose_reply(
         from_email=from_email,
         to_email=to_email,
         subject=subject,
         body_text="\n".join(body_lines).strip(),
-        in_reply_to=msg_id,
-        references=(f"{refs} {msg_id}".strip() if msg_id else refs),
+        in_reply_to=hdr["message_id"],
+        references=(f"{hdr['references']} {hdr['message_id']}".strip() if hdr["message_id"] else hdr["references"]),
         cc=[str(x) for x in getattr(args, "cc", []) if x],
         bcc=[str(x) for x in getattr(args, "bcc", []) if x],
         include_quote=include_quote,
-        original_text=original_text,
+        original_text=client.get_message_text(mid) if include_quote else None,
     )
-    # Date for better previews
     msg["Date"] = formatdate(localtime=True)
-
     raw = encode_email_message(msg)
-    # Planning path
+
+    # Dispatch to appropriate action handler
     if getattr(args, "plan", False):
-        when = None
-        if getattr(args, "send_at", None):
-            when = str(getattr(args, "send_at"))
-        elif getattr(args, "send_in", None):
-            when = str(getattr(args, "send_in"))
-        print("Plan: reply")
-        print(f"  to: {to_email}")
-        if args.cc:
-            print(f"  cc: {', '.join(args.cc)}")
-        if args.bcc:
-            print(f"  bcc: {', '.join(args.bcc)}")
-        print(f"  subject: {'Re: ' + orig_subj if not getattr(args, 'subject', None) else args.subject}")
-        if when:
-            print(f"  when: {when}")
-        print("  action: send (with --apply) or create draft (--create-draft)")
-        return 0
-    # Scheduling support
-    send_at = getattr(args, "send_at", None)
-    send_in = getattr(args, "send_in", None)
-    if send_at or send_in:
-        from ..scheduler import parse_send_at, parse_send_in, enqueue, ScheduledItem
-        import base64
-        due = None
-        if send_at:
-            due = parse_send_at(str(send_at))
-        if due is None and send_in:
-            delta = parse_send_in(str(send_in))
-            if delta:
-                due = int(__import__("time").time()) + int(delta)
-        if due is None:
-            print("Invalid --send-at/--send-in; expected 'YYYY-MM-DD HH:MM' or like '2h30m'")
-            return 1
-        prof = getattr(args, "profile", None) or "default"
-        item = ScheduledItem(
-            provider="gmail",
-            profile=str(prof),
-            due_at=int(due),
-            raw_b64=base64.b64encode(raw).decode("utf-8"),
-            thread_id=thread_id,
-            to=to_email,
-            subject=subject or "",
-        )
-        enqueue(item)
-        from datetime import datetime
-        print(f"Queued reply to {to_email} at {datetime.fromtimestamp(due).strftime('%Y-%m-%d %H:%M')}")
-        # Also write preview if requested
-        draft_out = getattr(args, "draft_out", None)
-        if draft_out:
-            p = Path(draft_out)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(raw)
-            print(f"Draft written to {p}")
-        return 0
-
-    if getattr(args, "apply", False):
-        client.send_message_raw(raw, thread_id=thread_id)
-        print(f"Sent reply to {to_email} (thread {thread_id or 'new'})")
-        return 0
-
-    if getattr(args, "create_draft", False):
-        d = client.create_draft_raw(raw, thread_id=thread_id)
-        did = (d or {}).get('id') or '(draft id unavailable)'
-        print(f"Created Gmail draft id={did}")
-        return 0
-
-    draft_out = getattr(args, "draft_out", None)
-    if draft_out:
-        p = Path(draft_out)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(raw)
-        print(f"Draft written to {p}")
-    else:
-        # Preview to stdout
-        text = raw.decode("utf-8", errors="replace")
-        head = "\n".join(text.splitlines()[:20])
-        print(head)
-        print("... (preview; use --draft-out to write .eml or --apply to send)")
+        return _reply_show_plan(args, to_email, hdr["subject"])
+    if getattr(args, "send_at", None) or getattr(args, "send_in", None):
+        return _reply_schedule(args, raw, thread_id, to_email, subject)
+    _reply_execute(args, client, raw, thread_id, to_email)
     return 0
 
 
@@ -258,6 +279,7 @@ def run_messages_apply_scheduled(args) -> int:
     import base64
 
     sent = 0
+    errors = 0
     due = pop_due(profile=getattr(args, "profile", None), limit=int(getattr(args, "max", 10) or 10))
     if not due:
         print("No scheduled messages due.")
@@ -271,12 +293,16 @@ def run_messages_apply_scheduled(args) -> int:
         client = gmail_provider_from_args(ns)
         client.authenticate()
         for it in items:
-            raw = base64.b64decode(it.get("raw_b64") or b"")
-            thread_id = it.get("thread_id")
-            client.send_message_raw(raw, thread_id=thread_id)
-            sent += 1
             to = it.get("to") or "recipient"
             subj = it.get("subject") or ""
-            print(f"Sent scheduled message to {to} subject='{subj}' profile={prof}")
-    print(f"Scheduled send complete. Sent: {sent}")
-    return 0
+            try:
+                raw = base64.b64decode(it.get("raw_b64") or b"")
+                thread_id = it.get("thread_id")
+                client.send_message_raw(raw, thread_id=thread_id)
+                sent += 1
+                print(f"Sent scheduled message to {to} subject='{subj}' profile={prof}")
+            except Exception as e:  # nosec B110 - log and continue on send failure
+                errors += 1
+                print(f"Failed to send to {to}: {e}")
+    print(f"Scheduled send complete. Sent: {sent}, Errors: {errors}")
+    return 1 if errors else 0

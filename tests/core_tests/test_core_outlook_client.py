@@ -12,9 +12,11 @@ from unittest.mock import MagicMock, patch, mock_open
 from core.outlook.client import (
     OutlookClientBase,
     _TimeoutRequestsWrapper,
-    DEFAULT_TIMEOUT,
-    GRAPH,
-    SCOPES,
+)
+from core.constants import (
+    DEFAULT_REQUEST_TIMEOUT,
+    GRAPH_API_URL,
+    GRAPH_API_SCOPES,
 )
 
 
@@ -24,12 +26,18 @@ def make_mock_response(json_data=None, status_code=200, text=None):
     """Create a mock HTTP response object."""
     resp = MagicMock()
     resp.status_code = status_code
-    resp.text = text if text is not None else (str(json_data) if json_data else "")
+    # Extract nested conditional for clarity
+    if text is not None:
+        resp.text = text
+    elif json_data:
+        resp.text = str(json_data)
+    else:
+        resp.text = ""
     resp.json.return_value = json_data
 
     def raise_for_status():
         if status_code >= 400:
-            raise Exception(f"HTTP {status_code}")
+            raise RuntimeError(f"HTTP {status_code}")
 
     resp.raise_for_status = raise_for_status
     return resp
@@ -109,24 +117,24 @@ class TestOutlookClientBaseInit(unittest.TestCase):
         self.assertIsNone(client._token)
         self.assertIsNone(client._cache)
         self.assertIsNone(client._app)
-        self.assertEqual(client.GRAPH, GRAPH)
+        self.assertEqual(client.GRAPH, GRAPH_API_URL)
 
     def test_init_with_custom_values(self):
         """Test initialization with custom values."""
         client = OutlookClientBase(
             client_id="custom-id",
             tenant="common",
-            token_path="/tmp/token.json",  # nosec B106 - test file path
-            cache_dir="/tmp/cache"
+            token_path="/tmp/token.json",  # nosec  # Test uses temp directory
+            cache_dir="/tmp/cache"  # nosec  # Test uses temp directory
         )
         self.assertEqual(client.client_id, "custom-id")
         self.assertEqual(client.tenant, "common")
-        self.assertEqual(client.token_path, "/tmp/token.json")
-        self.assertEqual(client.cache_dir, "/tmp/cache")
+        self.assertEqual(client.token_path, "/tmp/token.json")  # nosec  # Test assertion
+        self.assertEqual(client.cache_dir, "/tmp/cache")  # nosec  # Test assertion
 
     def test_inherits_from_config_cache_mixin(self):
         """Test client inherits from ConfigCacheMixin."""
-        client = OutlookClientBase(client_id="test-id", cache_dir="/tmp/cache")
+        client = OutlookClientBase(client_id="test-id", cache_dir="/tmp/cache")  # nosec  # Test uses temp directory
         # ConfigCacheMixin should provide cfg_get_json and cfg_put_json methods
         self.assertTrue(hasattr(client, 'cfg_get_json'))
         self.assertTrue(hasattr(client, 'cfg_put_json'))
@@ -382,7 +390,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
         # Set up client with app and cache
         self.client._app = mock_app
         self.client._cache = mock_cache
-        self.client.token_path = "/tmp/token.json"  # nosec B106 - test file path
+        self.client.token_path = "/tmp/token.json"  # nosec  # Test uses temp file path
 
         with patch('builtins.open', mock_open()) as mock_file:
             headers = self.client._headers()
@@ -474,21 +482,21 @@ class TestOutlookClientBaseConstants(unittest.TestCase):
     """Tests for module-level constants."""
 
     def test_default_timeout_constant(self):
-        """Test DEFAULT_TIMEOUT is set correctly."""
-        self.assertIsInstance(DEFAULT_TIMEOUT, tuple)
-        self.assertEqual(len(DEFAULT_TIMEOUT), 2)
-        self.assertGreater(DEFAULT_TIMEOUT[0], 0)  # connect timeout
-        self.assertGreater(DEFAULT_TIMEOUT[1], 0)  # read timeout
+        """Test DEFAULT_REQUEST_TIMEOUT is set correctly."""
+        self.assertIsInstance(DEFAULT_REQUEST_TIMEOUT, tuple)
+        self.assertEqual(len(DEFAULT_REQUEST_TIMEOUT), 2)
+        self.assertGreater(DEFAULT_REQUEST_TIMEOUT[0], 0)  # connect timeout
+        self.assertGreater(DEFAULT_REQUEST_TIMEOUT[1], 0)  # read timeout
 
     def test_graph_constant(self):
-        """Test GRAPH constant is set."""
-        self.assertIsInstance(GRAPH, str)
-        self.assertIn("graph.microsoft.com", GRAPH)
+        """Test GRAPH_API_URL constant is set."""
+        self.assertIsInstance(GRAPH_API_URL, str)
+        self.assertIn("graph.microsoft.com", GRAPH_API_URL)
 
     def test_scopes_constant(self):
-        """Test SCOPES constant is set."""
-        self.assertIsInstance(SCOPES, list)
-        self.assertGreater(len(SCOPES), 0)
+        """Test GRAPH_API_SCOPES constant is set."""
+        self.assertIsInstance(GRAPH_API_SCOPES, list)
+        self.assertGreater(len(GRAPH_API_SCOPES), 0)
 
 
 if __name__ == "__main__":
