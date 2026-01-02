@@ -18,10 +18,14 @@ from .pipeline_base import (
     to_iso_str,
     dedupe_events,
     parse_month,
-    MONTH_MAP_FULL,
-    MONTH_MAP_ABBREV,
-    DAY_TO_CODE,
+    MONTH_MAP,
+    DAY_MAP,
 )
+
+# Backwards-compatible aliases (maintained in this re-export module)
+MONTH_MAP_FULL = MONTH_MAP
+MONTH_MAP_ABBREV = MONTH_MAP
+DAY_TO_CODE = DAY_MAP
 
 # Re-export Gmail pipelines
 from .gmail_pipelines import (
@@ -156,9 +160,11 @@ __all__ = [
     "to_iso_str",
     "dedupe_events",
     "parse_month",
-    "MONTH_MAP_FULL",
-    "MONTH_MAP_ABBREV",
-    "DAY_TO_CODE",
+    "MONTH_MAP",
+    "DAY_MAP",
+    "MONTH_MAP_FULL",  # Backwards-compatible alias
+    "MONTH_MAP_ABBREV",  # Backwards-compatible alias
+    "DAY_TO_CODE",  # Backwards-compatible alias
     # Gmail pipelines
     "GmailReceiptsRequest",
     "GmailReceiptsRequestConsumer",

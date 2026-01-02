@@ -29,7 +29,7 @@ from .pipeline_base import (
     RequestConsumer,
     dedupe_events,
     parse_month,
-    DAY_TO_CODE,
+    DAY_MAP,
 )
 
 
@@ -161,7 +161,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
             "calendar": calendar,
             "subject": self._normalize_subject(m_cls.group("cls"), loc_hint),
             "repeat": "weekly",
-            "byday": [DAY_TO_CODE[(m_sched.group("day") or "").lower()]],
+            "byday": [DAY_MAP[(m_sched.group("day") or "").lower()]],
             "start_time": to_24h(m_sched.group("t1")),
             "end_time": to_24h(m_sched.group("t2")),
             "range": date_range,

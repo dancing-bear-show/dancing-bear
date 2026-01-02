@@ -29,9 +29,6 @@ __all__ = [
     "parse_month",
     "DAY_MAP",
     "MONTH_MAP",
-    "MONTH_MAP_FULL",  # Backwards-compatible alias
-    "MONTH_MAP_ABBREV",  # Backwards-compatible alias
-    "DAY_TO_CODE",  # Backwards-compatible alias
 ]
 
 # Error message constant
@@ -138,9 +135,3 @@ def dedupe_events(events: List[Dict[str, Any]], key_fn=None) -> List[Dict[str, A
         Deduplicated list of events.
     """
     return dedupe(events, key_fn or _default_event_key)
-
-
-# Backwards-compatible aliases
-MONTH_MAP_FULL = MONTH_MAP
-MONTH_MAP_ABBREV = MONTH_MAP
-DAY_TO_CODE = DAY_MAP
