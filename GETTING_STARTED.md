@@ -6,12 +6,15 @@ This guide gets you from zero to productive in 10 minutes.
 
 ## What Is This?
 
-**Dancing Bear** is a collection of command-line tools that automate tedious personal tasks:
+**Dancing Bear** is a collection of command-line tools that automate tedious personal tasks. It's also a demonstration of **LLM-first development** - the entire codebase was built using Claude Code as the primary coding interface.
 
+**Core tools:**
+- **Resume building** - Extract LinkedIn data, align with job postings, render tailored DOCX resumes
 - **Email management** - Sync Gmail/Outlook filters and labels from a single YAML file
-- **Calendar scheduling** - Bulk-create recurring events from spreadsheets
-- **Resume building** - Extract LinkedIn data and render tailored resumes
-- **And more** - WhatsApp search, iOS layouts, precious metals tracking
+- **iOS phone layouts** - Export, plan, and apply home screen configurations
+
+**Experimental:**
+- Calendar scheduling, WhatsApp search, precious metals tracking, WiFi diagnostics
 
 The key idea: **define your intent in YAML, preview changes safely, then apply.**
 
@@ -41,9 +44,28 @@ You should see a list of available commands (mail, calendar, schedule, resume, e
 
 ## Step 2: Pick Your First Task
 
-### Option A: Email Filter Management (Gmail)
+### Option A: Resume Building (Most Useful)
 
-If you want to manage Gmail filters/labels from YAML:
+Extract data from LinkedIn, align with job postings, and render tailored resumes:
+
+```bash
+# Extract from LinkedIn HTML export (save your profile page as HTML)
+./bin/assistant resume extract --linkedin profile.html --out candidate.yaml
+
+# Align with a job posting to find keyword matches
+./bin/assistant resume align --data candidate.yaml --job job.yaml --out alignment.json
+
+# Render to DOCX with a template
+./bin/assistant resume render --data candidate.yaml --template template.yaml --out resume.docx
+
+# Or render a tailored version filtered by alignment
+./bin/assistant resume render --data candidate.yaml --template template.yaml \
+  --filter-skills-alignment alignment.json --out tailored_resume.docx
+```
+
+### Option B: Email Filter Management (Gmail)
+
+Manage Gmail filters/labels from YAML:
 
 ```bash
 # Set up Gmail credentials (one-time)
@@ -60,36 +82,41 @@ If you want to manage Gmail filters/labels from YAML:
 ./bin/mail filters sync --config my_filters.yaml
 ```
 
-### Option B: Calendar Scheduling
+### Option C: iOS Phone Layouts
 
-If you want to bulk-create calendar events from a spreadsheet:
+Export your current home screen layout, plan changes, and apply:
 
 ```bash
-# Create a plan from your schedule CSV/XLSX
-./bin/schedule plan --source schedules/classes.csv --out schedule.yaml
+# Export current device layout
+./bin/phone export-device --out ios_layout.yaml
 
-# Preview what would be created
-./bin/schedule apply --plan schedule.yaml --dry-run
+# Build a plan for reorganization
+./bin/phone plan --layout ios_layout.yaml --out ios_plan.yaml
 
-# Apply to your Outlook calendar
-./bin/schedule apply --plan schedule.yaml --calendar "My Calendar" --apply
+# Generate a checklist of manual steps
+./bin/phone checklist --plan ios_plan.yaml --layout ios_layout.yaml --out checklist.txt
+
+# Build a .mobileconfig profile to apply
+./bin/phone profile build --plan ios_plan.yaml --out layout.mobileconfig
 ```
 
-### Option C: Resume Building
-
-If you want to extract and render resumes:
+### Option D: Other Tools (Experimental/POC)
 
 ```bash
-# Extract from LinkedIn HTML export
-./bin/assistant resume extract --linkedin profile.html --out candidate.yaml
+# Calendar: bulk-create events from spreadsheet
+./bin/schedule plan --source classes.csv --out schedule.yaml
+./bin/schedule apply --plan schedule.yaml --calendar "My Calendar" --apply
 
-# Render to DOCX
-./bin/assistant resume render --data candidate.yaml --template template.yaml --out resume.docx
+# WhatsApp: search local chat database (macOS only)
+./bin/whatsapp search --contains "meeting" --limit 20
+
+# Metals: track precious metals from email receipts (proof of concept)
+./bin/metals extract gmail --out metals.yaml
 ```
 
 ## Using with an LLM (Recommended)
 
-Dancing Bear is designed to work well with LLM coding assistants. The codebase includes context files that help LLMs understand the project structure.
+This project was built entirely with LLM assistance and is designed to be extended the same way. The codebase includes context files that help LLMs understand the project structure - you can add features, fix bugs, or explore the code by just asking.
 
 ### With Claude Code (Recommended)
 
@@ -205,14 +232,20 @@ Then use `--profile`:
 
 | Task | Command |
 |------|---------|
+| **Resume** | |
+| Extract from LinkedIn | `./bin/assistant resume extract --linkedin profile.html --out candidate.yaml` |
+| Align with job posting | `./bin/assistant resume align --data candidate.yaml --job job.yaml` |
+| Render to DOCX | `./bin/assistant resume render --data candidate.yaml --out resume.docx` |
+| **Email** | |
 | List Gmail labels | `./bin/mail labels list` |
 | Export Gmail filters | `./bin/mail filters export --out filters.yaml` |
-| Search emails | `./bin/mail messages search --query "from:boss"` |
-| List Outlook events | `./bin/calendar outlook list --from 2025-01-01` |
-| Create schedule plan | `./bin/schedule plan --source classes.csv --out plan.yaml` |
-| Extract resume data | `./bin/assistant resume extract --linkedin profile.html` |
+| Sync filters | `./bin/mail filters sync --config filters.yaml --dry-run` |
+| **iOS** | |
+| Export device layout | `./bin/phone export-device --out layout.yaml` |
+| Build layout profile | `./bin/phone profile build --plan plan.yaml --out layout.mobileconfig` |
+| **Other** | |
 | Search WhatsApp | `./bin/whatsapp search --contains "meeting"` |
-| Run WiFi diagnostics | `./bin/wifi diagnose` |
+| WiFi diagnostics | `./bin/wifi diagnose` |
 
 ## Troubleshooting
 
