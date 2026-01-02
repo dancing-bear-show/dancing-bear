@@ -14,7 +14,16 @@ Usage:
 """
 
 from .client import OutlookClientBase, GRAPH, SCOPES, _requests
-from .calendar import OutlookCalendarMixin, EventParams, RecurringEventParams, EventUpdateParams
+from .calendar import (
+    OutlookCalendarMixin,
+    CalendarRef,
+    ReminderSettings,
+    EventContent,
+    RecurrenceSettings,
+    EventParams,
+    RecurringEventParams,
+    EventUpdateParams,
+)
 from .mail import OutlookMailMixin, SearchParams
 
 
@@ -36,10 +45,16 @@ __all__ = [
     "OutlookClientBase",
     "OutlookCalendarMixin",
     "OutlookMailMixin",
+    # Parameter dataclasses
+    "CalendarRef",
+    "ReminderSettings",
+    "EventContent",
+    "RecurrenceSettings",
     "EventParams",
     "RecurringEventParams",
     "EventUpdateParams",
     "SearchParams",
+    # Constants
     "GRAPH",
     "SCOPES",
     "_requests",
