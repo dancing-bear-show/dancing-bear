@@ -300,7 +300,12 @@ def _iter_all_app_ids(layout: NormalizedLayout):
 def list_all_apps(layout: NormalizedLayout) -> List[str]:
     """Return a de-duplicated list of all bundle IDs in layout (dock + pages)."""
     seen: set = set()
-    return [a for a in _iter_all_app_ids(layout) if a not in seen and not seen.add(a)]
+    result = []
+    for a in _iter_all_app_ids(layout):
+        if a not in seen:
+            seen.add(a)
+            result.append(a)
+    return result
 
 
 def _parse_location(loc_str: str) -> Tuple[int, Optional[str]]:

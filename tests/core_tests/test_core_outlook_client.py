@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 import unittest
-from unittest.mock import MagicMock, Mock, patch, mock_open
+from unittest.mock import MagicMock, patch, mock_open
 
 from core.outlook.client import (
     OutlookClientBase,
@@ -389,6 +389,9 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
 
         # Verify token was refreshed
         self.assertEqual(self.client._token["access_token"], "refreshed-token")
+
+        # Verify Authorization header uses refreshed token
+        self.assertEqual(headers["Authorization"], "Bearer refreshed-token")
 
         # Verify token was saved
         mock_file.assert_called()
