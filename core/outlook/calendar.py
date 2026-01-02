@@ -3,10 +3,62 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from .client import OutlookClientBase, _requests, GRAPH
 from core.constants import DAY_START_TIME, DAY_END_TIME
+
+
+# Parameter dataclasses
+
+@dataclass
+class EventParams:
+    """Parameters for creating a single event."""
+    subject: str
+    start_iso: str
+    end_iso: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    tz: Optional[str] = None
+    body_html: Optional[str] = None
+    all_day: bool = False
+    location: Optional[str] = None
+    no_reminder: bool = False
+    reminder_minutes: Optional[int] = None
+
+
+@dataclass
+class RecurringEventParams:
+    """Parameters for creating a recurring event."""
+    subject: str
+    start_time: str
+    end_time: str
+    repeat: str
+    range_start_date: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    tz: Optional[str] = None
+    interval: int = 1
+    byday: Optional[List[str]] = None
+    range_until: Optional[str] = None
+    count: Optional[int] = None
+    body_html: Optional[str] = None
+    location: Optional[str] = None
+    exdates: Optional[List[str]] = None
+    no_reminder: bool = False
+    reminder_minutes: Optional[int] = None
+
+
+@dataclass
+class EventUpdateParams:
+    """Parameters for updating an event."""
+    event_id: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+    location_str: Optional[str] = None
+    location_obj: Optional[Dict[str, Any]] = None
+    subject: Optional[str] = None
 
 
 class OutlookCalendarMixin:

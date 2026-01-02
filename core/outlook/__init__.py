@@ -14,8 +14,8 @@ Usage:
 """
 
 from .client import OutlookClientBase, GRAPH, SCOPES, _requests
-from .calendar import OutlookCalendarMixin
-from .mail import OutlookMailMixin
+from .calendar import OutlookCalendarMixin, EventParams, RecurringEventParams, EventUpdateParams
+from .mail import OutlookMailMixin, SearchParams
 
 
 class OutlookClient(OutlookClientBase, OutlookCalendarMixin, OutlookMailMixin):
@@ -36,6 +36,10 @@ __all__ = [
     "OutlookClientBase",
     "OutlookCalendarMixin",
     "OutlookMailMixin",
+    "EventParams",
+    "RecurringEventParams",
+    "EventUpdateParams",
+    "SearchParams",
     "GRAPH",
     "SCOPES",
     "_requests",
