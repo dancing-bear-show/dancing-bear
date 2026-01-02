@@ -13,10 +13,6 @@ from typing import Optional, List, Any
 import argparse
 
 
-# Sentinel value to distinguish "not provided" from "explicitly None"
-_UNSET = object()
-
-
 @dataclass
 class OutlookAuthConfig:
     """Configuration for Outlook authentication arguments."""
@@ -74,51 +70,18 @@ def _add_argument_with_help(parser, flag: str, help_text: Optional[str], **kwarg
         parser.add_argument(flag, help=help_text, **kwargs)
 
 
-def _get_legacy_value(provided_value, default_value):
-    """Get value from legacy parameter, handling _UNSET sentinel.
-
-    Args:
-        provided_value: Value provided by caller (_UNSET if not provided).
-        default_value: Default to use if not provided.
-
-    Returns:
-        The appropriate value.
-    """
-    return default_value if provided_value is _UNSET else provided_value
-
-
-def add_outlook_auth_args(
-    parser,
-    config: Optional[OutlookAuthConfig] = None,
-    *,
-    # Legacy parameters for backward compatibility (use _UNSET to detect "not provided")
-    include_profile: Optional[bool] = None,
-    profile_help = _UNSET,
-    client_id_help = _UNSET,
-    tenant_help = _UNSET,
-    tenant_default = _UNSET,
-    token_help = _UNSET,
-):
+def add_outlook_auth_args(parser, config: Optional[OutlookAuthConfig] = None):
     """Add Outlook authentication arguments to parser.
 
     Args:
         parser: ArgumentParser to add arguments to.
-        config: OutlookAuthConfig with argument specifications (preferred).
-        **kwargs: Legacy individual parameters (deprecated, use config instead).
+        config: OutlookAuthConfig with argument specifications.
 
     Returns:
         The parser for chaining.
     """
-    # Use config if provided, otherwise build from legacy parameters
     if config is None:
-        config = OutlookAuthConfig(
-            include_profile=include_profile if include_profile is not None else False,
-            profile_help=_get_legacy_value(profile_help, None),
-            client_id_help=_get_legacy_value(client_id_help, "Azure app (client) ID; defaults from profile or env"),
-            tenant_help=_get_legacy_value(tenant_help, "AAD tenant (default: consumers)"),
-            tenant_default=_get_legacy_value(tenant_default, "consumers"),
-            token_help=_get_legacy_value(token_help, "Path to token cache JSON (optional)"),
-        )
+        config = OutlookAuthConfig()
 
     # Add profile argument if requested
     if config.include_profile:
@@ -137,34 +100,18 @@ def add_outlook_auth_args(
     return parser
 
 
-def add_gmail_auth_args(
-    parser,
-    config: Optional[GmailAuthConfig] = None,
-    *,
-    # Legacy parameters for backward compatibility
-    include_cache: Optional[bool] = None,
-    credentials_help: Optional[str] = None,
-    token_help: Optional[str] = None,
-    cache_help: Optional[str] = None,
-):
+def add_gmail_auth_args(parser, config: Optional[GmailAuthConfig] = None):
     """Add Gmail authentication arguments to parser.
 
     Args:
         parser: ArgumentParser to add arguments to.
-        config: GmailAuthConfig with argument specifications (preferred).
-        **kwargs: Legacy individual parameters (deprecated, use config instead).
+        config: GmailAuthConfig with argument specifications.
 
     Returns:
         The parser for chaining.
     """
-    # Use config if provided, otherwise build from legacy parameters
     if config is None:
-        config = GmailAuthConfig(
-            include_cache=include_cache if include_cache is not None else True,
-            credentials_help=credentials_help,
-            token_help=token_help,
-            cache_help=cache_help,
-        )
+        config = GmailAuthConfig()
 
     if config.credentials_help is None:
         parser.add_argument("--credentials", type=str)
@@ -182,34 +129,18 @@ def add_gmail_auth_args(
     return parser
 
 
-def add_output_args(
-    parser,
-    config: Optional[OutputConfig] = None,
-    *,
-    # Legacy parameters for backward compatibility
-    formats: Optional[List[str]] = None,
-    default_format: Optional[str] = None,
-    include_verbose: Optional[bool] = None,
-    include_quiet: Optional[bool] = None,
-):
+def add_output_args(parser, config: Optional[OutputConfig] = None):
     """Add output formatting arguments.
 
     Args:
         parser: ArgumentParser to add arguments to.
-        config: OutputConfig with argument specifications (preferred).
-        **kwargs: Legacy individual parameters (deprecated, use config instead).
+        config: OutputConfig with argument specifications.
 
     Returns:
         The parser for chaining.
     """
-    # Use config if provided, otherwise build from legacy parameters
     if config is None:
-        config = OutputConfig(
-            formats=formats,
-            default_format=default_format if default_format is not None else "text",
-            include_verbose=include_verbose if include_verbose is not None else True,
-            include_quiet=include_quiet if include_quiet is not None else True,
-        )
+        config = OutputConfig()
 
     output_formats = config.formats if config.formats is not None else ["text", "json", "yaml", "table"]
 
@@ -262,34 +193,18 @@ def add_dry_run_args(
     return parser
 
 
-def add_date_range_args(
-    parser,
-    config: Optional[DateRangeConfig] = None,
-    *,
-    # Legacy parameters for backward compatibility
-    include_days_back: Optional[bool] = None,
-    include_days_forward: Optional[bool] = None,
-    default_days_back: Optional[int] = None,
-    default_days_forward: Optional[int] = None,
-):
+def add_date_range_args(parser, config: Optional[DateRangeConfig] = None):
     """Add date range arguments.
 
     Args:
         parser: ArgumentParser to add arguments to.
-        config: DateRangeConfig with argument specifications (preferred).
-        **kwargs: Legacy individual parameters (deprecated, use config instead).
+        config: DateRangeConfig with argument specifications.
 
     Returns:
         The parser for chaining.
     """
-    # Use config if provided, otherwise build from legacy parameters
     if config is None:
-        config = DateRangeConfig(
-            include_days_back=include_days_back if include_days_back is not None else True,
-            include_days_forward=include_days_forward if include_days_forward is not None else False,
-            default_days_back=default_days_back if default_days_back is not None else 30,
-            default_days_forward=default_days_forward if default_days_forward is not None else 180,
-        )
+        config = DateRangeConfig()
 
     parser.add_argument(
         "--from-date",
