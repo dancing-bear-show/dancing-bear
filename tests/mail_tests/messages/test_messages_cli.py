@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests.mail_tests.fixtures import FakeGmailClient, capture_stdout, make_args
+from tests.fixtures import capture_stdout
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 from mail.messages_cli.commands import (
     run_messages_search,
     run_messages_summarize,

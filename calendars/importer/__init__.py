@@ -42,9 +42,9 @@ from .constants import (
 from .base import ScheduleParser
 
 # Public API - Format Parsers
-from .csv_parser import CSVParser, parse_csv
-from .xlsx_parser import XLSXParser, parse_xlsx
-from .pdf_parser import PDFParser, parse_pdf
+from .csv_parser import CSVParser
+from .xlsx_parser import XLSXParser
+from .pdf_parser import PDFParser
 from .web_parser import (
     WebParser,
     RichmondHillSkatingParser,
@@ -52,10 +52,6 @@ from .web_parser import (
     AuroraAquaticsParser,
     parse_website,
 )
-
-# Private helpers (exposed for backward compatibility with tests)
-_get_field = ScheduleParser._get_field
-_row_to_schedule_item = ScheduleParser._row_to_schedule_item
 
 
 # Parser registry: maps kind/extension to parser class
@@ -139,13 +135,7 @@ __all__ = [
     'RichmondHillSkatingParser',
     'RichmondHillSwimmingParser',
     'AuroraAquaticsParser',
-    # Functions (backward compatibility)
-    'parse_csv',
-    'parse_xlsx',
-    'parse_pdf',
+    # Functions
     'parse_website',
     'load_schedule',
-    # Private (for tests)
-    '_get_field',
-    '_row_to_schedule_item',
 ]

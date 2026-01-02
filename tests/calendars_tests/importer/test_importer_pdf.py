@@ -4,21 +4,8 @@ import unittest
 from unittest.mock import patch, MagicMock
 import datetime
 
-from calendars.importer.pdf_parser import PDFParser, parse_pdf
+from calendars.importer.pdf_parser import PDFParser
 from calendars.importer.model import ScheduleItem
-
-
-class TestParsePdfBackwardCompat(unittest.TestCase):
-    """Tests for parse_pdf backward compatibility function."""
-
-    @patch.object(PDFParser, 'parse')
-    def test_parse_pdf_delegates_to_parser(self, mock_parse):
-        """Test parse_pdf() delegates to PDFParser.parse()."""
-        mock_parse.return_value = [ScheduleItem(subject='Test')]
-        result = parse_pdf('/path/to/file.pdf')
-        mock_parse.assert_called_once_with('/path/to/file.pdf')
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].subject, 'Test')
 
 
 class TestPDFParserPdfminerMissing(unittest.TestCase):
