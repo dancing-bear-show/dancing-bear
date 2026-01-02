@@ -86,7 +86,7 @@ class TestIosInstallProfileAuth(unittest.TestCase):
         args = [str(self.bin_install), "--udid", "TESTUDID", "--profile", str(self.profile), "--creds-profile", "ios_layout_manager"]
         if extra_args:
             args.extend(extra_args)
-        return subprocess.run(args, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
+        return subprocess.run(args, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec S603 - test code with trusted local script
 
     def test_reads_identity_from_credentials_and_passes_to_cfgutil(self):
         # Run installer; stubs should cause success

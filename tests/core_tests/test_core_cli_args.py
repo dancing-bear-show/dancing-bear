@@ -81,7 +81,7 @@ class TestAddOutlookAuthArgsHelpers(unittest.TestCase):
         config = OutlookAuthConfig(
             client_id_help="Client ID help",
             tenant_help="Tenant help",
-            token_help="Token help"
+            token_help="Token help"  # nosec S106 - test help string
         )
         add_outlook_auth_args(parser, config)
 
@@ -149,7 +149,7 @@ class TestAddOutlookAuthArgsIntegration(unittest.TestCase):
             client_id_help="App client ID",
             tenant_help="Azure tenant",
             tenant_default="common",
-            token_help="Token cache path"
+            token_help="Token cache path"  # nosec S106 - test help string
         )
         add_outlook_auth_args(parser, config)
 

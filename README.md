@@ -259,11 +259,29 @@ App modules:
 - `maker/` - utility generators
 - `core/` - shared helpers
 
-## Cleaning and Tests
+## Code Quality and Testing
 
+### Linting (qlty)
+- Check files: `~/.qlty/bin/qlty check path/to/file.py`
+- Check module: `~/.qlty/bin/qlty check mail/`
+- Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
+- Linters: ruff (style), bandit (security), complexity metrics
+
+### Testing
+- Run tests: `make test` or `python3 -m unittest -v`
+- With coverage: `coverage run -m unittest discover && coverage report`
+- CI runs qlty + tests with coverage on every push/PR
+
+### Security Comments
+Use `# nosec B110/B112` (not `# noqa`) for intentional Bandit suppressions:
+```python
+except Exception:  # nosec B110 - non-fatal cache write
+except Exception:  # nosec B112 - skip malformed entries
+```
+
+### Cleaning
 - Clean: `make clean`
 - Deep clean: `make distclean`
-- Tests: `make test` or `python3 -m unittest -v`
 
 ## Specialty Binaries
 
