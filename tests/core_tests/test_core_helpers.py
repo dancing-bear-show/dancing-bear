@@ -161,12 +161,12 @@ class CoreAuthTests(unittest.TestCase):
                  patch("mail.config_resolver.get_outlook_tenant", return_value="profile_tenant"), \
                  patch("mail.config_resolver.get_outlook_token_path", return_value="~/token.json"):
                 client, tenant, token = core_auth.resolve_outlook_credentials(
-                    "profile", "cli_client", "cli_tenant", test_path("token.json")  # noqa: S108
+                    "profile", "cli_client", "cli_tenant", test_path("token.json")  # noqa: S108 - test fixture path
                 )
 
         self.assertEqual(client, "cli_client")
         self.assertEqual(tenant, "cli_tenant")
-        self.assertEqual(token, test_path("token.json"))  # noqa: S108
+        self.assertEqual(token, test_path("token.json"))  # noqa: S108 - test fixture path
 
     def test_build_outlook_service_from_args_passes_values(self):
         from core import auth as core_auth
@@ -182,7 +182,7 @@ class CoreAuthTests(unittest.TestCase):
             def __init__(self, ctx):
                 self.ctx = ctx
 
-        args = SimpleNamespace(profile="profile", client_id="cli_id", tenant="cli_tenant", token="cli_token")  # noqa: S106
+        args = SimpleNamespace(profile="profile", client_id="cli_id", tenant="cli_tenant", token="cli_token")  # noqa: S106 - test fixture path
         with patch("core.auth.resolve_outlook_credentials", return_value=("cid", "ten", "tok")) as mocked:
             svc = core_auth.build_outlook_service_from_args(
                 args,
@@ -209,7 +209,7 @@ class CoreAuthTests(unittest.TestCase):
             def authenticate(self):
                 self.authed = True
 
-        args = SimpleNamespace(profile="profile", credentials="cred", token="tok", cache="cache")  # noqa: S106
+        args = SimpleNamespace(profile="profile", credentials="cred", token="tok", cache="cache")  # noqa: S106 - test fixture path
         svc = core_auth.build_gmail_service_from_args(args, service_cls=DummyService)
         self.assertTrue(getattr(svc, "authed", False))
         self.assertEqual(DummyService.seen_args.profile, "profile")

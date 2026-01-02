@@ -156,7 +156,7 @@ def _to_iso_str(v: Any) -> Optional[str]:
             return v.strftime(FMT_DATETIME_SEC)
         if isinstance(v, _dt.date):
             return v.strftime(FMT_DAY_START)
-    except Exception:  # noqa: S110 - datetime format failure
+    except Exception:  # nosec B110 - datetime format failure
         pass
     return str(v)
 

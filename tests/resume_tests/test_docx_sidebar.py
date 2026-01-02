@@ -315,7 +315,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         data = make_candidate()
         template = {"page": {}}
 
-        write_resume_docx_sidebar(data, template, test_path("test.docx"))  # nosec B108
+        write_resume_docx_sidebar(data, template, test_path("test.docx"))  # nosec B108 - test fixture path
 
         mock_writer_class.assert_called_once_with(data, template)
         mock_writer.write.assert_called_once()

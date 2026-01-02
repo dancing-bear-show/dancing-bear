@@ -59,7 +59,7 @@ class LocationSync:
                 continue
             try:
                 matches = self._select_matches(cal_name=cal_name, subj=subj, win=win, byday=byday, start_time=start_time, end_time=end_time)
-            except Exception:  # noqa: S112 - skip events that fail to match
+            except Exception:  # nosec B112 - skip events that fail to match
                 continue
             if not matches:
                 continue
@@ -92,7 +92,7 @@ class LocationSync:
                 continue
             try:
                 matches = self._select_matches(cal_name=cal_name, subj=subj, win=win, byday=byday, start_time=start_time, end_time=end_time)
-            except Exception:  # noqa: S112 - skip events that fail to match
+            except Exception:  # nosec B112 - skip events that fail to match
                 continue
             if not matches:
                 continue

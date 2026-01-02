@@ -82,7 +82,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
         for mid in ids[:10]:
             try:
                 msg = cli.get_message(mid, select_body=False)
-            except Exception:  # noqa: S112 - skip on error
+            except Exception:  # nosec B112 - skip on error
                 continue
             sub = (msg.get("subject") or "").strip()
             recv = (msg.get("receivedDateTime") or "")

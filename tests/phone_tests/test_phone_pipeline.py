@@ -408,7 +408,7 @@ class PhonePipelineTests(TestCase):
         mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
         with (
             patch("phone.device.read_credentials_ini", return_value=(None, {})),
-            patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # noqa: S106
+            patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # noqa: S106 - test fixture path
             patch("phone.device.extract_p12_cert_info", return_value=mock_cert),
             patch("phone.device.get_device_supervision_status", return_value="true"),
         ):

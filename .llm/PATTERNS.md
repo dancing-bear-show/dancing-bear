@@ -282,6 +282,8 @@ Code Quality (qlty)
 # Common issue types:
 # - ruff:E402 - imports not at top of file (fix: move docstring before imports)
 # - python:S3776 - cognitive complexity too high (fix: extract helper functions)
+# - bandit:B110 - try-except-pass (requires # nosec B110 comment)
+# - bandit:B112 - try-except-continue (requires # nosec B112 comment)
 
 # Extract metrics for a file
 ~/.qlty/bin/qlty metrics path/to/file.py
@@ -291,6 +293,43 @@ Code Quality (qlty)
 
 # Fix auto-fixable issues
 ~/.qlty/bin/qlty check --fix path/to/file.py
+```
+
+Security Comment Patterns (Bandit Suppressions)
+```python
+# Use # nosec (not # noqa) for Bandit security warnings
+# Always include an explanation of why the exception is intentional
+
+# Bad: no comment, will trigger Bandit warning
+try:
+    risky_operation()
+except Exception:
+    pass
+
+# Bad: wrong suppression format (noqa is for ruff/flake8, not Bandit)
+try:
+    risky_operation()
+except Exception:  # noqa: B110
+    pass
+
+# Good: nosec with clear explanation
+try:
+    cache.write(data)
+except Exception:  # nosec B110 - non-fatal cache write
+    pass
+
+# Good: try-except-continue with explanation
+for item in items:
+    try:
+        process(item)
+    except Exception:  # nosec B112 - skip malformed entries silently
+        continue
+
+# Common patterns:
+# - nosec B110 - try-except-pass (non-critical failure, logging failure, best-effort operation)
+# - nosec B112 - try-except-continue (skip malformed/unreadable items in loops)
+# - nosec B603 - subprocess without shell=True (trusted input)
+# - nosec B607 - subprocess with partial path (known safe command)
 ```
 
 Constants Abstraction

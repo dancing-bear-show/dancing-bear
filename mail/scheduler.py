@@ -92,7 +92,7 @@ def parse_send_at(s: str) -> Optional[int]:
         try:
             dt = datetime.strptime(s, fmt)
             return int(dt.timestamp())
-        except Exception:  # noqa: S112 - skip on error
+        except Exception:  # nosec B112 - skip on error
             continue
     return None
 

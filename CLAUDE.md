@@ -74,19 +74,31 @@ Read in order for best context:
 - Broad refactors that rename modules or move public entry points
 - Heavy new dependencies; global imports for optional modules
 - Emitting secrets/tokens in logs or passing them via flags
-- Bare `except Exception: continue/pass` blocks without a `# nosec` comment explaining the intent (e.g., `# nosec B110 - skip malformed entries silently`)
+- Bare `except Exception: continue/pass` blocks without a `# nosec B110/B112` comment explaining the intent (e.g., `# nosec B112 - skip malformed entries silently`)
 - Verbose help strings that waste tokens
 - Mismatched argument names between argparse and code
 - Breaking backwards compatibility of public CLI commands or parameters (bin/* entry points)
 - Moving utilities to external packages (keep self-contained for stability)
 - Maintaining backwards-compatible wrappers for internal APIs (update all call sites instead)
 
-## Testing
+## Testing and Code Quality
 
+**Linting (qlty):**
+- Check files: `~/.qlty/bin/qlty check path/to/file.py`
+- Check module: `~/.qlty/bin/qlty check mail/`
+- Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
+- Linters: ruff (style), bandit (security), complexity metrics
+
+**Testing:**
 - Run tests: `make test` or `python3 -m unittest -v`
-- CI: `.github/workflows/ci.yml` runs tests on push and PRs
+- With coverage: `coverage run -m unittest discover && coverage report`
 - Add targeted tests only for new CLI surfaces/behaviors
 - Never run tests that require network/secrets without explicit user approval
+
+**CI/CD:**
+- `.github/workflows/ci.yml` runs qlty checks + tests with coverage on push/PR
+- Coverage uploaded to qlty for tracking
+- Both jobs must pass for merge
 
 ## Key Commands
 

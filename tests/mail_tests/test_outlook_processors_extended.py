@@ -70,9 +70,9 @@ class TestOutlookRulesExportResult(unittest.TestCase):
         self.assertEqual(result.out_path, "")
 
     def test_custom_values(self):
-        result = OutlookRulesExportResult(count=5, out_path=test_path("rules.yaml"))  # noqa: S108
+        result = OutlookRulesExportResult(count=5, out_path=test_path("rules.yaml"))  # noqa: S108 - test fixture path
         self.assertEqual(result.count, 5)
-        self.assertEqual(result.out_path, test_path("rules.yaml"))  # noqa: S108
+        self.assertEqual(result.out_path, test_path("rules.yaml"))  # noqa: S108 - test fixture path
 
 
 class TestOutlookRulesSyncResult(unittest.TestCase):

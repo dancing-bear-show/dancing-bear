@@ -347,7 +347,7 @@ class OutlookCalendarMixin:
                 sid = series.get("id")
                 if sid:
                     self._apply_exdate_deletions(cal_id, sid, exdates, tz_final, rng)
-            except Exception:  # noqa: S110 - non-fatal exdate deletion
+            except Exception:  # nosec B110 - non-fatal exdate deletion
                 pass
         return series
 
@@ -505,7 +505,7 @@ def _parse_location(loc: str) -> Dict[str, Any]:
                 nm, rest = s.split("(", 1)
                 addr = rest.rsplit(")", 1)[0]
                 return nm.strip(), addr.strip()
-            except Exception:  # noqa: S110 - malformed parens, try other patterns
+            except Exception:  # nosec B110 - malformed parens, try other patterns
                 pass
         if " at " in s:
             head, addr = s.rsplit(" at ", 1)

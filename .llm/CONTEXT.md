@@ -48,6 +48,7 @@ Development Rules (avoid)
 - Broad refactors that rename modules or move public entry points
 - Heavy new dependencies; global imports for optional modules
 - Emitting secrets/tokens in logs or passing them via flags
+- Bare `except Exception: continue/pass` blocks without a `# nosec B110/B112` comment explaining the intent
 - Breaking backwards compatibility of public CLI commands or parameters (bin/* entry points)
 - Moving utilities to external packages (keep self-contained for stability)
 - Maintaining backwards-compatible wrappers for internal APIs (update all call sites instead)
@@ -128,10 +129,13 @@ File-First Credentials (Preferred)
 - Outlook profile example: `[mail.outlook_personal]` with `outlook_client_id`, `tenant`, and `outlook_token`.
 - Search order: `$CREDENTIALS` -> `$XDG_CONFIG_HOME/credentials.ini` -> `~/.config/credentials.ini` -> `~/.config/sre-utils/credentials.ini` -> `~/.config/sreutils/credentials.ini` -> `~/.sre-utils/credentials.ini`.
 
-Testing
-- Run `make test` or `python3 -m unittest -v`
-- CI: `.github/workflows/ci.yml` runs `python -m unittest -v` on push and PRs
+Code Quality & Testing
+- Linting: `~/.qlty/bin/qlty check <path>` (ruff + bandit + complexity metrics)
+- Tests: `make test` or `python3 -m unittest -v`
+- Coverage: `coverage run -m unittest discover && coverage report`
+- CI: `.github/workflows/ci.yml` runs qlty checks + tests with coverage on push/PR
 - Add targeted tests only for new CLI surfaces/behaviors
+- Security: Use `# nosec B110` (try-except-pass) or `# nosec B112` (try-except-continue) for intentional suppressions
 
 Security
 - Never commit `credentials.json` or tokens

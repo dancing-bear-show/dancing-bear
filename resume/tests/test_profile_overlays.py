@@ -91,11 +91,11 @@ class TestProfileOverlays(unittest.TestCase):
                     pass
             try:
                 (prof_dir / "__pycache__").rmdir()
-            except Exception:  # noqa: S110 - test cleanup
+            except Exception:  # nosec B110 - test cleanup
                 pass
             try:
                 prof_dir.rmdir()
-            except Exception:  # noqa: S110 - test cleanup
+            except Exception:  # nosec B110 - test cleanup
                 pass
 
 

@@ -87,7 +87,7 @@ class StyleManager:
             pf.space_before = Pt(before_pt)
             pf.space_after = Pt(after_pt)
             pf.line_spacing = line_spacing
-        except Exception:  # noqa: S110 - paragraph format failure
+        except Exception:  # nosec B110 - paragraph format failure
             pass
 
     @staticmethod
@@ -100,7 +100,7 @@ class StyleManager:
             pf.space_before = Pt(0)
             pf.space_after = Pt(0)
             pf.line_spacing = 1.0
-        except Exception:  # noqa: S110 - bullet format failure
+        except Exception:  # nosec B110 - bullet format failure
             pass
 
     @staticmethod
@@ -111,7 +111,7 @@ class StyleManager:
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        except Exception:  # noqa: S110 - alignment failure
+        except Exception:  # nosec B110 - alignment failure
             pass
 
     @staticmethod
@@ -122,7 +122,7 @@ class StyleManager:
             pf = paragraph.paragraph_format
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
-        except Exception:  # noqa: S110 - center alignment failure
+        except Exception:  # nosec B110 - center alignment failure
             pass
 
     # -------------------------------------------------------------------------
@@ -144,7 +144,7 @@ class StyleManager:
                 if child.tag == qn('w:shd'):
                     pPr.remove(child)
             pPr.append(shd)
-        except Exception:  # noqa: S110 - shading failure
+        except Exception:  # nosec B110 - shading failure
             pass
 
     @staticmethod
@@ -156,7 +156,7 @@ class StyleManager:
         if rgb:
             try:
                 run.font.color.rgb = RGBColor(*rgb)
-            except Exception:  # noqa: S110 - color apply failure
+            except Exception:  # nosec B110 - color apply failure
                 pass
 
     @staticmethod
@@ -165,7 +165,7 @@ class StyleManager:
         if size_pt:
             try:
                 run.font.size = Pt(size_pt)
-            except Exception:  # noqa: S110 - font size failure
+            except Exception:  # nosec B110 - font size failure
                 pass
 
 

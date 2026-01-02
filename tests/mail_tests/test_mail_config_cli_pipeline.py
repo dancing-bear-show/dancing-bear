@@ -105,13 +105,13 @@ class CacheStatsTests(TestCase):
         """CacheStatsProducer prints stats."""
         result = ResultEnvelope(
             status="success",
-            payload=CacheStatsResult(path=test_path("cache"), files=10, size_bytes=1024),  # noqa: S108
+            payload=CacheStatsResult(path=test_path("cache"), files=10, size_bytes=1024),  # noqa: S108 - test fixture path
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
             CacheStatsProducer().produce(result)
         output = buf.getvalue()
-        self.assertIn(test_path("cache"), output)  # noqa: S108
+        self.assertIn(test_path("cache"), output)  # noqa: S108 - test fixture path
         self.assertIn("files=10", output)
         self.assertIn("size=1024", output)
 
@@ -121,7 +121,7 @@ class CacheClearTests(TestCase):
 
     def test_cache_clear_consumer_returns_request(self):
         """CacheClearRequestConsumer returns the request."""
-        request = CacheClearRequest(cache_path=test_path("test"))  # noqa: S108
+        request = CacheClearRequest(cache_path=test_path("test"))  # noqa: S108 - test fixture path
         consumer = CacheClearRequestConsumer(request)
         self.assertEqual(request, consumer.consume())
 
@@ -154,7 +154,7 @@ class CacheClearTests(TestCase):
         """CacheClearProducer prints cleared message."""
         result = ResultEnvelope(
             status="success",
-            payload=CacheClearResult(path=test_path("cache"), cleared=True),  # noqa: S108
+            payload=CacheClearResult(path=test_path("cache"), cleared=True),  # noqa: S108 - test fixture path
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -165,7 +165,7 @@ class CacheClearTests(TestCase):
         """CacheClearProducer prints not exist message."""
         result = ResultEnvelope(
             status="success",
-            payload=CacheClearResult(path=test_path("cache"), cleared=False),  # noqa: S108
+            payload=CacheClearResult(path=test_path("cache"), cleared=False),  # noqa: S108 - test fixture path
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -178,7 +178,7 @@ class CachePruneTests(TestCase):
 
     def test_cache_prune_consumer_returns_request(self):
         """CachePruneRequestConsumer returns the request."""
-        request = CachePruneRequest(cache_path=test_path("test"), days=7)  # noqa: S108
+        request = CachePruneRequest(cache_path=test_path("test"), days=7)  # noqa: S108 - test fixture path
         consumer = CachePruneRequestConsumer(request)
         self.assertEqual(request, consumer.consume())
 
@@ -218,7 +218,7 @@ class CachePruneTests(TestCase):
         """CachePruneProducer prints prune results."""
         result = ResultEnvelope(
             status="success",
-            payload=CachePruneResult(path=test_path("cache"), removed=5, days=7),  # noqa: S108
+            payload=CachePruneResult(path=test_path("cache"), removed=5, days=7),  # noqa: S108 - test fixture path
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -233,7 +233,7 @@ class ConfigInspectTests(TestCase):
 
     def test_config_inspect_consumer_returns_request(self):
         """ConfigInspectRequestConsumer returns the request."""
-        request = ConfigInspectRequest(path=test_path("test.ini"))  # noqa: S108
+        request = ConfigInspectRequest(path=test_path("test.ini"))  # noqa: S108 - test fixture path
         consumer = ConfigInspectRequestConsumer(request)
         self.assertEqual(request, consumer.consume())
 
@@ -350,8 +350,8 @@ class DeriveLabelsTests(TestCase):
         result = ResultEnvelope(
             status="success",
             payload=DeriveLabelsResult(
-                gmail_path=test_path("gmail.yaml"),  # noqa: S108
-                outlook_path=test_path("outlook.yaml"),  # noqa: S108
+                gmail_path=test_path("gmail.yaml"),  # noqa: S108 - test fixture path
+                outlook_path=test_path("outlook.yaml"),  # noqa: S108 - test fixture path
                 labels_count=5,
             ),
         )
@@ -417,8 +417,8 @@ class DeriveFiltersTests(TestCase):
         result = ResultEnvelope(
             status="success",
             payload=DeriveFiltersResult(
-                gmail_path=test_path("gmail.yaml"),  # noqa: S108
-                outlook_path=test_path("outlook.yaml"),  # noqa: S108
+                gmail_path=test_path("gmail.yaml"),  # noqa: S108 - test fixture path
+                outlook_path=test_path("outlook.yaml"),  # noqa: S108 - test fixture path
                 filters_count=10,
             ),
         )
@@ -502,7 +502,7 @@ class OptimizeFiltersTests(TestCase):
         result = ResultEnvelope(
             status="success",
             payload=OptimizeFiltersResult(
-                out_path=test_path("optimized.yaml"),  # noqa: S108
+                out_path=test_path("optimized.yaml"),  # noqa: S108 - test fixture path
                 original_count=10,
                 optimized_count=5,
                 merged_groups=[MergedGroup(destination="Label", rules_merged=3, unique_from_terms=3)],
@@ -520,7 +520,7 @@ class OptimizeFiltersTests(TestCase):
         result = ResultEnvelope(
             status="success",
             payload=OptimizeFiltersResult(
-                out_path=test_path("optimized.yaml"),  # noqa: S108
+                out_path=test_path("optimized.yaml"),  # noqa: S108 - test fixture path
                 original_count=10,
                 optimized_count=5,
                 merged_groups=[MergedGroup(destination="Label", rules_merged=3, unique_from_terms=3)],

@@ -136,7 +136,7 @@ def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | Non
             return int(sec.get("header_level"))
         if page_cfg and isinstance(page_cfg.get("header_level"), int):
             return int(page_cfg.get("header_level"))
-    except Exception:  # noqa: S110 - invalid header_level
+    except Exception:  # nosec B110 - invalid header_level
         pass
     return 1
 
@@ -159,7 +159,7 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
         sec.bottom_margin = Inches(m)
         sec.left_margin = Inches(m)
         sec.right_margin = Inches(m)
-    except Exception:  # noqa: S110 - margin setting failure
+    except Exception:  # nosec B110 - margin setting failure
         pass
 
     try:
@@ -188,7 +188,7 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
             rgbt = _parse_hex_color(title_color)
             if rgbt:
                 doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
-    except Exception:  # noqa: S110 - style setting failure
+    except Exception:  # nosec B110 - style setting failure
         pass
 
 
@@ -223,11 +223,11 @@ def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) 
             if uniq_locs:
                 try:
                     cp.category = "; ".join(uniq_locs)
-                except Exception:  # noqa: S110 - category set failure
+                except Exception:  # nosec B110 - category set failure
                     pass
 
         cp.keywords = "; ".join(kw)
-    except Exception:  # noqa: S110 - metadata set failure
+    except Exception:  # nosec B110 - metadata set failure
         pass
 
 
@@ -238,7 +238,7 @@ def _center_paragraph(para) -> None:
         pf = para.paragraph_format
         pf.left_indent = Pt(0)
         pf.first_line_indent = Pt(0)
-    except Exception:  # noqa: S110 - alignment failure
+    except Exception:  # nosec B110 - alignment failure
         pass
 
 

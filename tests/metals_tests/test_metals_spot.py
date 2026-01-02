@@ -454,7 +454,7 @@ class TestRun(unittest.TestCase):
                 metal="platinum",
                 start_date="2024-01-01",
                 end_date="2024-01-02",
-                out_path=test_path("test.csv"),  # noqa: S108
+                out_path=test_path("test.csv"),  # noqa: S108 - test fixture path
             )
 
     @patch("metals.spot._fetch_stooq_series")
@@ -499,7 +499,7 @@ class TestMain(unittest.TestCase):
             "--metal", "gold",
             "--start-date", "2024-01-01",
             "--end-date", "2024-12-31",
-            "--out", test_path("test.csv"),  # noqa: S108
+            "--out", test_path("test.csv"),  # noqa: S108 - test fixture path
         ])
         self.assertEqual(result, 0)
         call_args = mock_run.call_args
