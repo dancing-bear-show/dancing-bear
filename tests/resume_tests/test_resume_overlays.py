@@ -50,9 +50,7 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
     def test_applies_profile_config_from_legacy_path(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             # Legacy path: config/profile.<profile>.yaml
             self._write_yaml(
                 Path("config/profile.legacy.yaml"),
@@ -64,15 +62,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
 
             self.assertEqual(result["name"], "Legacy Name")
             self.assertEqual(result["phone"], "555-1234")
-        finally:
-            os.chdir(old_cwd)
 
     def test_new_path_takes_precedence_over_legacy(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             # Both paths exist - new should win
             profile_dir = Path("config/profiles/both")
             self._write_yaml(profile_dir / "profile.yaml", "name: New Path\n")
@@ -82,15 +76,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             result = apply_profile_overlays(data, "both")
 
             self.assertEqual(result["name"], "New Path")
-        finally:
-            os.chdir(old_cwd)
 
     def test_applies_contact_nested_fields(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/contact")
             self._write_yaml(
                 profile_dir / "profile.yaml",
@@ -109,15 +99,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             self.assertEqual(result["phone"], "555-9999")
             self.assertEqual(result["location"], "San Francisco")
             self.assertEqual(result["links"], [{"url": "https://github.com/user"}])
-        finally:
-            os.chdir(old_cwd)
 
     def test_does_not_overwrite_existing_contact_fields(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/partial")
             self._write_yaml(
                 profile_dir / "profile.yaml",
@@ -131,8 +117,6 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             self.assertEqual(result["email"], "existing@example.com")
             # Phone should be added since it didn't exist
             self.assertEqual(result["phone"], "555-NEW")
-        finally:
-            os.chdir(old_cwd)
 
     def test_applies_skills_groups_overlay(self):
         from resume.overlays import apply_profile_overlays
