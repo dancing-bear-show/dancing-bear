@@ -17,6 +17,7 @@ from mail.filters.commands import (
     run_filters_plan,
     run_filters_sync,
     run_filters_export,
+    _run_filter_pipeline,
 )
 
 from tests.mail_tests.fixtures import FakeGmailClient, make_args
@@ -288,6 +289,229 @@ class TestRunFiltersSync(unittest.TestCase):
             self.assertEqual(result, 0)
             # Filter should be created
             self.assertEqual(len(client.created_filters), 1)
+
+
+class TestRunFilterPipeline(unittest.TestCase):
+    """Tests for _run_filter_pipeline helper function."""
+
+    def test_successful_pipeline_returns_zero(self):
+        """Test successful pipeline execution returns 0."""
+        # Mock consumer
+        class MockConsumer:
+            def __init__(self, context):
+                self.context = context
+
+            def consume(self):
+                return SimpleNamespace(value="test_payload")
+
+        # Mock processor
+        class MockProcessor:
+            def process(self, payload):
+                # Return successful envelope
+                return SimpleNamespace(
+                    result=SimpleNamespace(output="processed"),
+                    ok=lambda: True,
+                )
+
+        # Mock producer
+        class MockProducer:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def produce(self, envelope):
+                pass
+
+        args = make_args()
+        ctx = MailContext.from_args(args)
+
+        with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
+            result = _run_filter_pipeline(
+                args,
+                MockConsumer,
+                MockProcessor,
+                MockProducer,
+            )
+
+        self.assertEqual(result, 0)
+
+    def test_consumer_value_error_returns_one(self):
+        """Test consumer ValueError is caught and returns 1."""
+
+        class MockConsumer:
+            def __init__(self, context):
+                self.context = context
+
+            def consume(self):
+                raise ValueError("Invalid configuration")
+
+        class MockProcessor:
+            def process(self, payload):
+                pass
+
+        args = make_args()
+        ctx = MailContext.from_args(args)
+
+        with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = _run_filter_pipeline(
+                    args,
+                    MockConsumer,
+                    MockProcessor,
+                    lambda p: None,
+                )
+
+        self.assertEqual(result, 1)
+        output = buf.getvalue()
+        self.assertIn("Invalid configuration", output)
+
+    def test_processor_error_with_default_handler(self):
+        """Test processor error with default error handling."""
+
+        class MockConsumer:
+            def __init__(self, context):
+                self.context = context
+
+            def consume(self):
+                return SimpleNamespace(value="test")
+
+        class MockProcessor:
+            def process(self, payload):
+                # Return failed envelope
+                return SimpleNamespace(
+                    ok=lambda: False,
+                    diagnostics={"message": "Processing failed", "code": 2},
+                )
+
+        args = make_args()
+        ctx = MailContext.from_args(args)
+
+        with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = _run_filter_pipeline(
+                    args,
+                    MockConsumer,
+                    MockProcessor,
+                    lambda p: None,
+                )
+
+        self.assertEqual(result, 2)
+        output = buf.getvalue()
+        self.assertIn("Processing failed", output)
+
+    def test_processor_error_with_custom_handler(self):
+        """Test processor error with custom error handler."""
+
+        class MockConsumer:
+            def __init__(self, context):
+                self.context = context
+
+            def consume(self):
+                return SimpleNamespace(value="test")
+
+        class MockProcessor:
+            def process(self, payload):
+                return SimpleNamespace(
+                    ok=lambda: False,
+                    diagnostics={"message": "Custom error", "code": 42},
+                )
+
+        def custom_error_handler(envelope):
+            print("Custom handler invoked")
+            return 99
+
+        args = make_args()
+        ctx = MailContext.from_args(args)
+
+        with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = _run_filter_pipeline(
+                    args,
+                    MockConsumer,
+                    MockProcessor,
+                    lambda p: None,
+                    handle_error=custom_error_handler,
+                )
+
+        self.assertEqual(result, 99)
+        output = buf.getvalue()
+        self.assertIn("Custom handler invoked", output)
+
+    def test_processor_error_missing_diagnostics(self):
+        """Test processor error with missing diagnostics."""
+
+        class MockConsumer:
+            def __init__(self, context):
+                self.context = context
+
+            def consume(self):
+                return SimpleNamespace(value="test")
+
+        class MockProcessor:
+            def process(self, payload):
+                return SimpleNamespace(
+                    ok=lambda: False,
+                    diagnostics=None,
+                )
+
+        args = make_args()
+        ctx = MailContext.from_args(args)
+
+        with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = _run_filter_pipeline(
+                    args,
+                    MockConsumer,
+                    MockProcessor,
+                    lambda p: None,
+                )
+
+        self.assertEqual(result, 1)
+        output = buf.getvalue()
+        self.assertIn("Pipeline failed", output)
+
+    def test_producer_receives_payload(self):
+        """Test producer receives correct payload."""
+        received_payload = []
+
+        class MockConsumer:
+            def __init__(self, context):
+                self.context = context
+
+            def consume(self):
+                return SimpleNamespace(value="test_value")
+
+        class MockProcessor:
+            def process(self, payload):
+                return SimpleNamespace(
+                    result=SimpleNamespace(output="processed"),
+                    ok=lambda: True,
+                )
+
+        class MockProducer:
+            def __init__(self, payload):
+                received_payload.append(payload)
+
+            def produce(self, envelope):
+                pass
+
+        args = make_args()
+        ctx = MailContext.from_args(args)
+
+        with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
+            result = _run_filter_pipeline(
+                args,
+                MockConsumer,
+                MockProcessor,
+                MockProducer,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(received_payload), 1)
+        self.assertEqual(received_payload[0].value, "test_value")
 
 
 if __name__ == "__main__":

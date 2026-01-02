@@ -45,7 +45,7 @@ class SignaturesExportResult:
 
     gmail_signatures: List[Dict[str, Any]] = field(default_factory=list)
     default_html: Optional[str] = None
-    out_path: Path = None  # type: ignore
+    out_path: Optional[Path] = None
     ios_asset_path: Optional[Path] = None
 
 
@@ -63,7 +63,7 @@ class SignaturesSyncResult:
 class SignaturesNormalizeResult:
     """Result of signatures normalize."""
 
-    out_path: Path = None  # type: ignore
+    out_path: Optional[Path] = None
     success: bool = True
 
 

@@ -41,9 +41,9 @@ class EventParams:
     content: EventContent
     start_iso: str
     end_iso: str
-    calendar: CalendarRef = None
+    calendar: Optional[CalendarRef] = None
     all_day: bool = False
-    reminders: ReminderSettings = None
+    reminders: Optional[ReminderSettings] = None
 
     def __post_init__(self):
         """Ensure nested dataclasses are initialized."""
@@ -72,8 +72,8 @@ class RecurringEventParams:
     start_time: str
     end_time: str
     recurrence: RecurrenceSettings
-    calendar: CalendarRef = None
-    reminders: ReminderSettings = None
+    calendar: Optional[CalendarRef] = None
+    reminders: Optional[ReminderSettings] = None
 
     def __post_init__(self):
         """Ensure nested dataclasses are initialized."""
@@ -87,7 +87,7 @@ class RecurringEventParams:
 class EventUpdateParams:
     """Parameters for updating an event."""
     event_id: str
-    calendar: CalendarRef = None
+    calendar: Optional[CalendarRef] = None
     location_str: Optional[str] = None
     location_obj: Optional[Dict[str, Any]] = None
     subject: Optional[str] = None
