@@ -3,10 +3,99 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from .client import OutlookClientBase, _requests, GRAPH
 from core.constants import DAY_START_TIME, DAY_END_TIME
+
+
+# Parameter dataclasses
+
+@dataclass
+class CalendarRef:
+    """Reference to a calendar by ID or name."""
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+
+
+@dataclass
+class ReminderSettings:
+    """Reminder configuration for events."""
+    no_reminder: bool = False
+    reminder_minutes: Optional[int] = None
+
+
+@dataclass
+class EventContent:
+    """Common content fields for events."""
+    subject: str
+    body_html: Optional[str] = None
+    location: Optional[str] = None
+    tz: Optional[str] = None
+
+
+@dataclass
+class EventParams:
+    """Parameters for creating a single event."""
+    content: EventContent
+    start_iso: str
+    end_iso: str
+    calendar: CalendarRef = None
+    all_day: bool = False
+    reminders: ReminderSettings = None
+
+    def __post_init__(self):
+        """Ensure nested dataclasses are initialized."""
+        if self.calendar is None:
+            self.calendar = CalendarRef()
+        if self.reminders is None:
+            self.reminders = ReminderSettings()
+
+
+@dataclass
+class RecurrenceSettings:
+    """Recurrence pattern configuration."""
+    repeat: str
+    range_start_date: str
+    interval: int = 1
+    byday: Optional[List[str]] = None
+    range_until: Optional[str] = None
+    count: Optional[int] = None
+    exdates: Optional[List[str]] = None
+
+
+@dataclass
+class RecurringEventParams:
+    """Parameters for creating a recurring event."""
+    content: EventContent
+    start_time: str
+    end_time: str
+    recurrence: RecurrenceSettings
+    calendar: CalendarRef = None
+    reminders: ReminderSettings = None
+
+    def __post_init__(self):
+        """Ensure nested dataclasses are initialized."""
+        if self.calendar is None:
+            self.calendar = CalendarRef()
+        if self.reminders is None:
+            self.reminders = ReminderSettings()
+
+
+@dataclass
+class EventUpdateParams:
+    """Parameters for updating an event."""
+    event_id: str
+    calendar: CalendarRef = None
+    location_str: Optional[str] = None
+    location_obj: Optional[Dict[str, Any]] = None
+    subject: Optional[str] = None
+
+    def __post_init__(self):
+        """Ensure nested dataclasses are initialized."""
+        if self.calendar is None:
+            self.calendar = CalendarRef()
 
 
 class OutlookCalendarMixin:

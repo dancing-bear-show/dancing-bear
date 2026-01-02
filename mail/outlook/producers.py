@@ -1,6 +1,8 @@
 """Producers for Outlook pipelines."""
 from __future__ import annotations
 
+from typing import Any, Dict, List
+
 from core.pipeline import Producer, ResultEnvelope
 
 from .processors import (
@@ -20,6 +22,48 @@ from .processors import (
 )
 
 
+def _format_rule_criteria(criteria: Dict[str, Any]) -> str:
+    """Format rule criteria for display.
+
+    Always includes from/to/subject fields to preserve stable tab-separated format,
+    using empty strings when values are not present.
+    """
+    parts = []
+    for k in ("from", "to", "subject"):
+        val = criteria.get(k) or ""
+        parts.append(f"{k}={val}")
+    return "\t".join(parts)
+
+
+def _format_rule_details(
+    action: Dict[str, Any],
+    id_to_name: Dict[str, str],
+    folder_path_rev: Dict[str, str],
+) -> str:
+    """Format rule action details for display."""
+    cats = []
+    for cid in (action.get("addLabelIds") or []):
+        nm = id_to_name.get(cid) or cid
+        cats.append(nm)
+
+    forward = action.get("forward") or None
+    move = action.get("moveToFolderId") or None
+    move_name = folder_path_rev.get(move) if move else None
+
+    if not (cats or forward or move):
+        return ""
+
+    details = []
+    if cats:
+        details.append("categories=" + ",".join(cats))
+    if forward:
+        details.append("forward=" + forward)
+    if move:
+        details.append("moveToFolder=" + (move_name or move))
+
+    return "  " + " ".join(details)
+
+
 class OutlookRulesListProducer(Producer[ResultEnvelope[OutlookRulesListResult]]):
     """Produce rules list output."""
 
@@ -34,31 +78,21 @@ class OutlookRulesListProducer(Producer[ResultEnvelope[OutlookRulesListResult]])
             print("No Inbox rules found.")
             return
 
-        id_to_name = result.payload.id_to_name
-        folder_path_rev = result.payload.folder_path_rev
+        self._print_rules(rules, result.payload.id_to_name, result.payload.folder_path_rev)
 
+    def _print_rules(
+        self, rules: List[Dict[str, Any]], id_to_name: Dict[str, str], folder_path_rev: Dict[str, str]
+    ) -> None:
+        """Print formatted rules."""
         for r in rules:
             rid = r.get("id", "")
             crit = r.get("criteria") or {}
             act = r.get("action") or {}
-            cats = []
-            for cid in (act.get("addLabelIds") or []):
-                nm = id_to_name.get(cid) or cid
-                cats.append(nm)
-            forward = act.get("forward") or None
-            move = act.get("moveToFolderId") or None
-            move_name = folder_path_rev.get(move) if move else None
 
-            print(f"{rid}\tfrom={crit.get('from') or ''}\tto={crit.get('to') or ''}\tsubject={crit.get('subject') or ''}")
-            if cats or forward or move:
-                details = []
-                if cats:
-                    details.append("categories=" + ",".join(cats))
-                if forward:
-                    details.append("forward=" + forward)
-                if move:
-                    details.append("moveToFolder=" + (move_name or move))
-                print("  " + " ".join(details))
+            print(f"{rid}\t{_format_rule_criteria(crit)}")
+            details = _format_rule_details(act, id_to_name, folder_path_rev)
+            if details:
+                print(details)
 
 
 class OutlookRulesExportProducer(Producer[ResultEnvelope[OutlookRulesExportResult]]):

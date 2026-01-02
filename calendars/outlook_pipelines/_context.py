@@ -67,10 +67,20 @@ class ScheduleImportContext:
     logs: List[str]  # Accumulated log messages
 
 
+@dataclass
+class EventClassification:
+    """Classification of calendar events by type for reminder updates."""
+
+    series_ids: set[str]  # Series master IDs
+    occurrence_ids: set[str]  # Individual occurrence IDs (when all_occurrences=True)
+    single_ids: set[str]  # Single (non-recurring) event IDs
+
+
 __all__ = [
     "EventProcessingContext",
     "DedupSelectionContext",
     "ReminderUpdateContext",
     "EventMatchingCriteria",
     "ScheduleImportContext",
+    "EventClassification",
 ]

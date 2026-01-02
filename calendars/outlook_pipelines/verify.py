@@ -42,7 +42,6 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
 
     def _process_safe(self, payload: OutlookVerifyRequest) -> OutlookVerifyResult:
         items = load_events_config(payload.config_path, self._config_loader)
-        svc = payload.service
         logs: List[str] = []
         total = duplicates = missing = 0
         for i, ev in enumerate(items, start=1):
@@ -55,33 +54,48 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
             if not (subj and rt == "weekly" and byday):
                 continue
             total += 1
-            cal_name = payload.calendar or nev.get("calendar")
-            win = compute_window(nev)
-            if not win:
-                continue
-            start_iso, end_iso = win
-            try:
-                from calendars.outlook_service import ListEventsRequest
-                events = svc.list_events_in_range(ListEventsRequest(
-                    start_iso=start_iso,
-                    end_iso=end_iso,
-                    calendar_name=cal_name,
-                    subject_filter=subj,
-                ))
-            except Exception as e:
-                logs.append(f"[{i}] Unable to list events for '{subj}': {e}")
-                continue
-            want_start = (nev.get("start_time") or "").strip()
-            want_end = (nev.get("end_time") or "").strip()
-            matches = filter_events_by_day_time(events, byday=byday, start_time=want_start, end_time=want_end)
-            if matches:
+            result = self._verify_single_event(payload, i, nev, subj, byday, logs)
+            if result == "duplicate":
                 duplicates += 1
-                logs.append(f"[{i}] duplicate: {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_name or '<primary>'}'")
-            else:
+            elif result == "missing":
                 missing += 1
-                logs.append(f"[{i}] missing:   {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_name or '<primary>'}'")
-        result = OutlookVerifyResult(logs=logs, total=total, duplicates=duplicates, missing=missing)
-        return result
+        return OutlookVerifyResult(logs=logs, total=total, duplicates=duplicates, missing=missing)
+
+    def _verify_single_event(
+        self,
+        payload: OutlookVerifyRequest,
+        idx: int,
+        nev: Dict[str, Any],
+        subj: str,
+        byday: List[str],
+        logs: List[str],
+    ) -> Optional[str]:
+        """Verify a single recurring event. Returns 'duplicate', 'missing', or None (skip)."""
+        cal_name = payload.calendar or nev.get("calendar")
+        win = compute_window(nev)
+        if not win:
+            return None
+        start_iso, end_iso = win
+        try:
+            from calendars.outlook_service import ListEventsRequest
+            events = payload.service.list_events_in_range(ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_name=cal_name,
+                subject_filter=subj,
+            ))
+        except Exception as e:
+            logs.append(f"[{idx}] Unable to list events for '{subj}': {e}")
+            return None
+        want_start = (nev.get("start_time") or "").strip()
+        want_end = (nev.get("end_time") or "").strip()
+        matches = filter_events_by_day_time(events, byday=byday, start_time=want_start, end_time=want_end)
+        cal_display = cal_name or "<primary>"
+        if matches:
+            logs.append(f"[{idx}] duplicate: {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_display}'")
+            return "duplicate"
+        logs.append(f"[{idx}] missing:   {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_display}'")
+        return "missing"
 
 
 class OutlookVerifyProducer(BaseProducer):

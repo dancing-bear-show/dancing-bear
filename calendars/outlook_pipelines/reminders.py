@@ -17,7 +17,7 @@ from ._base import (
     MSG_PREVIEW_COMPLETE,
     LOG_DRY_RUN,
 )
-from ._context import ReminderUpdateContext
+from ._context import EventClassification, ReminderUpdateContext
 
 __all__ = [
     "OutlookRemindersRequest",
@@ -74,39 +74,43 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
             calendar_id=cal_id,
         ))
 
+        classified = self._classify_events(events or [], payload.all_occurrences)
+
+        logs: List[str] = []
+        updated = 0
+
+        ctx = ReminderUpdateContext(ids=sorted(classified.series_ids), label="series master", cal_id=cal_id, logs=logs)
+        updated += self._update_ids(ctx, svc, payload)
+
+        if payload.all_occurrences:
+            ctx = ReminderUpdateContext(ids=sorted(classified.occurrence_ids), label="occurrence", cal_id=cal_id, logs=logs)
+            updated += self._update_ids(ctx, svc, payload)
+
+        ctx = ReminderUpdateContext(ids=sorted(classified.single_ids), label="single", cal_id=cal_id, logs=logs)
+        updated += self._update_ids(ctx, svc, payload)
+
+        result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
+        return result
+
+    def _classify_events(self, events: List[Dict[str, Any]], all_occurrences: bool) -> EventClassification:
+        """Classify events into series masters, occurrences, and single events."""
         series_ids: set[str] = set()
         occurrence_ids: set[str] = set()
         single_ids: set[str] = set()
-        for ev in events or []:
+        for ev in events:
             et = (ev.get("type") or "").lower()
             eid = ev.get("id")
             sid = ev.get("seriesMasterId")
             if et == "seriesmaster" and eid:
                 series_ids.add(eid)
             elif et == "occurrence":
-                if payload.all_occurrences and eid:
+                if all_occurrences and eid:
                     occurrence_ids.add(eid)
                 if sid:
                     series_ids.add(sid)
-            else:
-                if eid:
-                    single_ids.add(eid)
-
-        logs: List[str] = []
-        updated = 0
-
-        ctx = ReminderUpdateContext(ids=sorted(series_ids), label="series master", cal_id=cal_id, logs=logs)
-        updated += self._update_ids(ctx, svc, payload)
-
-        if payload.all_occurrences:
-            ctx = ReminderUpdateContext(ids=sorted(occurrence_ids), label="occurrence", cal_id=cal_id, logs=logs)
-            updated += self._update_ids(ctx, svc, payload)
-
-        ctx = ReminderUpdateContext(ids=sorted(single_ids), label="single", cal_id=cal_id, logs=logs)
-        updated += self._update_ids(ctx, svc, payload)
-
-        result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
-        return result
+            elif eid:
+                single_ids.add(eid)
+        return EventClassification(series_ids=series_ids, occurrence_ids=occurrence_ids, single_ids=single_ids)
 
     def _update_ids(
         self,

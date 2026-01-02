@@ -23,6 +23,8 @@ from metals.gmail_costs import (
     _parse_oz_match,
     _try_anchored_extraction,
     _unit_oz_override_near,
+    ExtractionContext,
+    OrderRowData,
     _PAT_FRAC,
     _PAT_G,
     _PAT_OZ,
@@ -881,7 +883,8 @@ class TestTryAnchoredExtraction(unittest.TestCase):
     def test_extracts_from_compact_line(self):
         """Test extracts price from compact line."""
         ln = "1 oz Gold Maple $1,850.00"
-        result = _try_anchored_extraction(ln, ln.lower(), "gold", 1.0, [r"\b1\s*oz\b"], "td")
+        ctx = ExtractionContext(ln=ln, lower=ln.lower(), metal="gold", unit_oz=1.0, uoz_texts=[r"\b1\s*oz\b"], vendor="td")
+        result = _try_anchored_extraction(ctx)
         self.assertIsNotNone(result)
         _, amt, _ = result
         self.assertAlmostEqual(amt, 1850.00)
@@ -889,19 +892,22 @@ class TestTryAnchoredExtraction(unittest.TestCase):
     def test_returns_none_for_invalid_metal(self):
         """Test returns None for invalid metal."""
         ln = "1 oz Platinum $500.00"
-        result = _try_anchored_extraction(ln, ln.lower(), "platinum", 1.0, [r"\b1\s*oz\b"], "td")
+        ctx = ExtractionContext(ln=ln, lower=ln.lower(), metal="platinum", unit_oz=1.0, uoz_texts=[r"\b1\s*oz\b"], vendor="td")
+        result = _try_anchored_extraction(ctx)
         self.assertIsNone(result)
 
     def test_returns_none_for_empty_uoz_texts(self):
         """Test returns None for empty uoz_texts."""
         ln = "1 oz Gold $1,850.00"
-        result = _try_anchored_extraction(ln, ln.lower(), "gold", 1.0, [], "td")
+        ctx = ExtractionContext(ln=ln, lower=ln.lower(), metal="gold", unit_oz=1.0, uoz_texts=[], vendor="td")
+        result = _try_anchored_extraction(ctx)
         self.assertIsNone(result)
 
     def test_returns_none_when_price_too_far(self):
         """Test returns None when price is too far from anchor."""
         ln = "1 oz Gold " + "x" * 100 + " $1,850.00"
-        result = _try_anchored_extraction(ln, ln.lower(), "gold", 1.0, [r"\b1\s*oz\b"], "td")
+        ctx = ExtractionContext(ln=ln, lower=ln.lower(), metal="gold", unit_oz=1.0, uoz_texts=[r"\b1\s*oz\b"], vendor="td")
+        result = _try_anchored_extraction(ctx)
         self.assertIsNone(result)
 
 
@@ -1020,13 +1026,14 @@ class TestBuildOrderRows(unittest.TestCase):
 
     def test_builds_single_metal_row(self):
         """Test builds row for single metal."""
-        rows = _build_order_rows(
+        data = OrderRowData(
             oid="123", vendor="TD", subject="Test Order", cur="C$", dt="2024-01-15",
             oz_by_metal={"gold": 1.0, "silver": 0.0},
             units_by_metal={"gold": {1.0: 1.0}, "silver": {}},
             cost_alloc={"gold": 1800.0, "silver": 0.0},
             alloc_strategy="order-single-metal"
         )
+        rows = _build_order_rows(data)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["metal"], "gold")
         self.assertEqual(rows[0]["cost_total"], 1800.0)
@@ -1034,13 +1041,14 @@ class TestBuildOrderRows(unittest.TestCase):
 
     def test_builds_multi_metal_rows(self):
         """Test builds rows for multiple metals."""
-        rows = _build_order_rows(
+        data = OrderRowData(
             oid="456", vendor="Costco", subject="Multi Order", cur="C$", dt="2024-01-16",
             oz_by_metal={"gold": 0.25, "silver": 25.0},
             units_by_metal={"gold": {0.25: 1.0}, "silver": {1.0: 25.0}},
             cost_alloc={"gold": 700.0, "silver": 875.0},
             alloc_strategy="line-item"
         )
+        rows = _build_order_rows(data)
         self.assertEqual(len(rows), 2)
         metals = [r["metal"] for r in rows]
         self.assertIn("gold", metals)
@@ -1048,25 +1056,27 @@ class TestBuildOrderRows(unittest.TestCase):
 
     def test_skips_zero_oz_metals(self):
         """Test skips metals with zero ounces."""
-        rows = _build_order_rows(
+        data = OrderRowData(
             oid="789", vendor="TD", subject="Gold Only", cur="C$", dt="2024-01-17",
             oz_by_metal={"gold": 2.0, "silver": 0.0},
             units_by_metal={"gold": {1.0: 2.0}, "silver": {}},
             cost_alloc={"gold": 3600.0, "silver": 0.0},
             alloc_strategy="order-single-metal"
         )
+        rows = _build_order_rows(data)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["metal"], "gold")
 
     def test_currency_override_for_canadian_vendors(self):
         """Test Canadian vendors use C$ currency."""
-        rows = _build_order_rows(
+        data = OrderRowData(
             oid="abc", vendor="Costco", subject="Test", cur="$", dt="2024-01-18",
             oz_by_metal={"gold": 0.0, "silver": 1.0},
             units_by_metal={"gold": {}, "silver": {1.0: 1.0}},
             cost_alloc={"gold": 0.0, "silver": 35.0},
             alloc_strategy="line-item"
         )
+        rows = _build_order_rows(data)
         self.assertEqual(rows[0]["currency"], "C$")
 
 

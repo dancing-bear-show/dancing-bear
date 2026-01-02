@@ -50,19 +50,19 @@ class CoreTextIOTests(unittest.TestCase):
 
 class CoreCliArgsTests(unittest.TestCase):
     def test_add_outlook_auth_args_tenant_none(self):
-        from core.cli_args import add_outlook_auth_args
+        from core.cli_args import add_outlook_auth_args, OutlookAuthConfig
 
         parser = argparse.ArgumentParser()
-        add_outlook_auth_args(parser, include_profile=True, tenant_default=None)
+        add_outlook_auth_args(parser, OutlookAuthConfig(include_profile=True, tenant_default=None))
         args = parser.parse_args([])
         self.assertIsNone(args.tenant)
         self.assertIsNone(args.profile)
 
     def test_add_gmail_auth_args_includes_cache(self):
-        from core.cli_args import add_gmail_auth_args
+        from core.cli_args import add_gmail_auth_args, GmailAuthConfig
 
         parser = argparse.ArgumentParser()
-        add_gmail_auth_args(parser, include_cache=True)
+        add_gmail_auth_args(parser, GmailAuthConfig(include_cache=True))
         args = parser.parse_args(["--cache", "tmp"])
         self.assertEqual(args.cache, "tmp")
 

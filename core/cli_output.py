@@ -152,42 +152,73 @@ class OutputWriter:
             # Fallback to JSON if yaml not available
             self._print_json(data)
 
+    def _row_to_strings(self, row: Any, headers: Optional[List[str]] = None) -> List[str]:
+        """Convert a row to list of strings based on its type.
+
+        Args:
+            row: Row data (dict, list, tuple, or other).
+            headers: Optional headers for dict extraction.
+
+        Returns:
+            List of string values.
+        """
+        if isinstance(row, dict):
+            return [str(row.get(h, "")) for h in headers] if headers else [str(v) for v in row.values()]
+        if isinstance(row, (list, tuple)):
+            return [str(v) for v in row]
+        return [str(row)]
+
+    def _calculate_column_widths(self, headers: List[str], str_rows: List[List[str]]) -> List[int]:
+        """Calculate column widths based on headers and data.
+
+        Args:
+            headers: Column headers.
+            str_rows: Rows as lists of strings.
+
+        Returns:
+            List of column widths.
+        """
+        widths = [len(h) for h in headers]
+        for str_row in str_rows:
+            for i, val in enumerate(str_row):
+                if i < len(widths):
+                    widths[i] = max(widths[i], len(val))
+        return widths
+
+    def _print_table_with_headers(self, headers: List[str], str_rows: List[List[str]]) -> None:
+        """Print table with headers and separator.
+
+        Args:
+            headers: Column headers.
+            str_rows: Rows as lists of strings.
+        """
+        widths = self._calculate_column_widths(headers, str_rows)
+
+        # Print header
+        header_line = " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers))
+        self.print(header_line)
+        self.print("-" * len(header_line))
+
+        # Print rows
+        for str_row in str_rows:
+            padded = [str_row[i].ljust(widths[i]) if i < len(widths) else str_row[i]
+                      for i in range(len(str_row))]
+            self.print(" | ".join(padded))
+
     def _print_table(self, data: Any, headers: Optional[List[str]] = None) -> None:
         """Print data as a table."""
         rows = self._to_rows(data)
         if not rows:
             return
 
-        # Determine headers
+        # Determine headers from first row if not provided
         if headers is None and rows and isinstance(rows[0], dict):
             headers = list(rows[0].keys())
 
         if headers:
-            # Calculate column widths
-            widths = [len(h) for h in headers]
-            str_rows = []
-            for row in rows:
-                if isinstance(row, dict):
-                    str_row = [str(row.get(h, "")) for h in headers]
-                elif isinstance(row, (list, tuple)):
-                    str_row = [str(v) for v in row]
-                else:
-                    str_row = [str(row)]
-                str_rows.append(str_row)
-                for i, val in enumerate(str_row):
-                    if i < len(widths):
-                        widths[i] = max(widths[i], len(val))
-
-            # Print header
-            header_line = " | ".join(h.ljust(widths[i]) for i, h in enumerate(headers))
-            self.print(header_line)
-            self.print("-" * len(header_line))
-
-            # Print rows
-            for str_row in str_rows:
-                padded = [str_row[i].ljust(widths[i]) if i < len(widths) else str_row[i]
-                          for i in range(len(str_row))]
-                self.print(" | ".join(padded))
+            # Convert rows to strings and print with headers
+            str_rows = [self._row_to_strings(row, headers) for row in rows]
+            self._print_table_with_headers(headers, str_rows)
         else:
             # No headers, just print rows
             for row in rows:
