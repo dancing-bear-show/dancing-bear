@@ -157,7 +157,7 @@ class CostExtractor(ABC):
         """
         return 'Unknown'
 
-    def run(self) -> int:  # radarlint:disable python:S3516
+    def run(self) -> int:
         """Template method: orchestrate cost extraction workflow.
 
         Workflow:
@@ -168,7 +168,7 @@ class CostExtractor(ABC):
         5. Merge results to CSV
 
         Returns:
-            Exit code (always 0 - non-fatal failures print warnings).
+            0 if costs were extracted and merged, 1 if no costs found.
         """
         self._authenticate()
         ids = self._fetch_message_ids()
@@ -192,10 +192,10 @@ class CostExtractor(ABC):
         if out_rows:
             merge_costs_csv(self.out_path, out_rows)
             print(f"merged {len(out_rows)} row(s) into {self.out_path}")
+            return 0
         else:
             print('messages found but no costs extracted')
-
-        return 0
+            return 1
 
 
 __all__ = ['CostExtractor', 'MessageInfo', 'OrderData']
