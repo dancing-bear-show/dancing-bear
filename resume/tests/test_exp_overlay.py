@@ -46,7 +46,7 @@ experience:
                 encoding="utf-8",
             )
             try:
-                r = subprocess.run(  # nosec S603 - test code with temp files
+                r = subprocess.run(  # nosec B603 - test code with temp files
                     CLI
                     + [
                         "render",

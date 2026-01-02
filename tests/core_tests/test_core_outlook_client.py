@@ -116,7 +116,7 @@ class TestOutlookClientBaseInit(unittest.TestCase):
         client = OutlookClientBase(
             client_id="custom-id",
             tenant="common",
-            token_path="/tmp/token.json",  # nosec S106 - test file path
+            token_path="/tmp/token.json",  # nosec B106 - test file path
             cache_dir="/tmp/cache"
         )
         self.assertEqual(client.client_id, "custom-id")
@@ -382,7 +382,7 @@ class TestOutlookClientBaseHeaders(unittest.TestCase):
         # Set up client with app and cache
         self.client._app = mock_app
         self.client._cache = mock_cache
-        self.client.token_path = "/tmp/token.json"  # nosec S106 - test file path
+        self.client.token_path = "/tmp/token.json"  # nosec B106 - test file path
 
         with patch('builtins.open', mock_open()) as mock_file:
             headers = self.client._headers()

@@ -60,7 +60,7 @@ def test_path(filename: str = "test") -> str:
 
 
 def run(cmd: Sequence[str], cwd: Optional[str] = None):
-    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec S603 - test helper with cmd controlled by test code
+    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test helper with cmd controlled by test code
 
 
 def has_pyyaml() -> bool:

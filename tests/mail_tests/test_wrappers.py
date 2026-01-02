@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def run(cmd, cwd=None):
-    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec S603 - test helper with cmd controlled by test code
+    return subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test helper with cmd controlled by test code
 
 
 class TestWrappers(unittest.TestCase):
