@@ -260,7 +260,7 @@ class TestRunOutlookAuthPoll(TempDirMixin, unittest.TestCase):
 
     def test_poll_missing_msal(self):
         """Test poll with missing msal dependency."""
-        args = make_args(flow="flow.json", token="token.json", verbose=False)
+        args = make_args(flow="flow.json", token="token.json", verbose=False)  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": None}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_poll
@@ -276,7 +276,7 @@ class TestRunOutlookAuthPoll(TempDirMixin, unittest.TestCase):
     def test_poll_flow_not_found(self):
         """Test poll when flow file doesn't exist."""
         msal = make_fake_msal_module()
-        args = make_args(flow="/nonexistent/flow.json", token="token.json", verbose=False)
+        args = make_args(flow="/nonexistent/flow.json", token="token.json", verbose=False)  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_poll
@@ -301,7 +301,7 @@ class TestRunOutlookAuthPoll(TempDirMixin, unittest.TestCase):
         }
         flow_path.write_text(json.dumps(flow_data))
 
-        args = make_args(flow=str(flow_path), token="token.json", verbose=False)
+        args = make_args(flow=str(flow_path), token="token.json", verbose=False)  # nosec B106
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_poll
@@ -384,7 +384,7 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
 
     def test_ensure_missing_msal(self):
         """Test ensure with missing msal dependency."""
-        args = make_args(client_id="test-client", tenant="consumers", token="token.json")
+        args = make_args(client_id="test-client", tenant="consumers", token="token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": None}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_ensure
@@ -400,7 +400,7 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
     def test_ensure_missing_client_id(self):
         """Test ensure with missing client_id."""
         msal = make_fake_msal_module()
-        args = make_args(client_id=None, tenant="consumers", token="token.json")
+        args = make_args(client_id=None, tenant="consumers", token="token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal}, clear=False):
             with patch("mail.outlook.auth_commands.resolve_outlook_credentials", return_value=(None, "consumers", "token.json")):
@@ -511,7 +511,7 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
 
     def test_validate_missing_dependencies(self):
         """Test validate with missing dependencies."""
-        args = make_args(client_id="test-client", tenant="consumers", token="token.json")
+        args = make_args(client_id="test-client", tenant="consumers", token="token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": None, "requests": None}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_validate
@@ -529,7 +529,7 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
         msal = make_fake_msal_module()
         requests = make_fake_requests_module()
 
-        args = make_args(client_id=None, tenant="consumers", token="token.json")
+        args = make_args(client_id=None, tenant="consumers", token="token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
             with patch("mail.outlook.auth_commands.resolve_outlook_credentials", return_value=(None, "consumers", "token.json")):
@@ -548,7 +548,7 @@ class TestRunOutlookAuthValidate(TempDirMixin, unittest.TestCase):
         msal = make_fake_msal_module()
         requests = make_fake_requests_module()
 
-        args = make_args(client_id="test-client", tenant="consumers", token="/nonexistent/token.json")
+        args = make_args(client_id="test-client", tenant="consumers", token="/nonexistent/token.json")  # nosec B106 - test fixture path
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
             from mail.outlook.auth_commands import run_outlook_auth_validate
