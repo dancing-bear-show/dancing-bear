@@ -484,7 +484,7 @@ class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
         cmd.extend(["--format", payload.format, "get-icon-layout"])
 
         try:
-            out = _sp.check_output(cmd, stderr=_sp.STDOUT)  # noqa: S603
+            out = _sp.check_output(cmd, stderr=_sp.STDOUT)  # nosec B603 - trusted Apple cfgutil with validated args
         except _sp.CalledProcessError as e:
             raise ValueError(f"cfgutil get-icon-layout failed: {e}")
         except Exception as e:
@@ -717,7 +717,7 @@ class ManifestInstallProducer(BaseProducer):
         if payload.install_cmd:
             print("Installing via:", " ".join(payload.install_cmd))
             try:
-                subprocess.call(payload.install_cmd)  # noqa: S603
+                subprocess.call(payload.install_cmd)  # nosec B603 - calling internal repo script with validated args
             except FileNotFoundError:
                 print("Error: ios-install-profile not found", file=sys.stderr)
 

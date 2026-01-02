@@ -107,8 +107,8 @@ def search_messages(
     where, params = _build_where(contains or [], match_all, contact, from_me, since_days)
     # Safe: where clause from _build_where uses only hardcoded column names
     # and ? placeholders - no user input in SQL string itself
-    sql = (  # nosec B608 - parameterized query, where has no user input
-        "SELECT datetime(m.ZMESSAGEDATE+?,'unixepoch','localtime') AS ts, "
+    sql = (
+        "SELECT datetime(m.ZMESSAGEDATE+?,'unixepoch','localtime') AS ts, "  # nosec B608
         "s.ZPARTNERNAME, m.ZISFROMME, m.ZTEXT "
         "FROM ZWAMESSAGE m JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION "
         f"WHERE {where} "

@@ -334,7 +334,7 @@ class TestWriteResumeDocx(unittest.TestCase):
             template = {"sections": [], "page": {"compact": False}}
             write_resume_docx(data, template, test_path("test.docx"))  # nosec B108 - test fixture path
 
-        mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108
+        mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108 - test fixture path
 
 
 class TestSectionSynonyms(unittest.TestCase):

@@ -10,7 +10,7 @@ class TestLlmCli(unittest.TestCase):
         import subprocess
         import sys
         root = repo_root()
-        proc = subprocess.run([sys.executable, str(bin_path('llm')), '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))  # noqa: S603
+        proc = subprocess.run([sys.executable, str(bin_path('llm')), '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root))  # nosec B603 - test code with trusted local script
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Unified LLM utilities', proc.stdout)
 
@@ -52,7 +52,7 @@ class TestLlmCli(unittest.TestCase):
         env = dict(os.environ)
         # Allow .llm to be considered within SLA to avoid failing in CI
         env['LLM_SLA'] = '.llm:365,Root:365'
-        proc = subprocess.run([sys.executable, str(bin_path('llm')), 'check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root), env=env)  # noqa: S603
+        proc = subprocess.run([sys.executable, str(bin_path('llm')), 'check'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(root), env=env)  # nosec B603 - test code with trusted local script
         self.assertEqual(proc.returncode, 0, msg=proc.stdout + "\n" + proc.stderr)
 
     def test_repo_llm_app_phone(self):

@@ -238,7 +238,7 @@ class TestResumeWriterBaseWrite(unittest.TestCase):
             writer = create_resume_writer(data, template)
             writer.write(test_path("test.docx"))  # nosec B108 - test fixture path
 
-        mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108
+        mock_doc.save.assert_called_once_with(test_path("test.docx"))  # nosec B108 - test fixture path
 
 
 if __name__ == "__main__":

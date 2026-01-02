@@ -105,7 +105,7 @@ class IniOperationsTests(unittest.TestCase):
             None,
             outlook_client_id="client-123",
             tenant="consumers",
-            outlook_token="/path/to/outlook.json",
+            outlook_token="/path/to/outlook.json",  # nosec B106 - test file path
         )
         result = _read_ini()
 
@@ -292,7 +292,7 @@ class OutlookSettingsTests(unittest.TestCase):
         self.assertEqual(result, "consumers")
 
     def test_get_outlook_token_path(self):
-        _write_ini(None, None, outlook_token="/path/to/outlook.json")
+        _write_ini(None, None, outlook_token="/path/to/outlook.json")  # nosec B106 - test file path
         result = get_outlook_token_path()
         self.assertEqual(result, "/path/to/outlook.json")
 

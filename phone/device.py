@@ -249,7 +249,7 @@ def _extract_cert_pem(p12_path: str, p12_pass: Optional[str]) -> bytes:
     """Extract certificate PEM from p12 file, trying legacy mode first."""
     for use_legacy in [True, False]:
         try:
-            cmd = ["openssl", "pkcs12"]  # nosec B607
+            cmd = ["openssl", "pkcs12"]  # nosec B607 - openssl required in PATH for cert operations
             if use_legacy:
                 cmd.append("-legacy")
             cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])

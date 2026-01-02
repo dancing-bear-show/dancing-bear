@@ -60,7 +60,7 @@ def _read_premium_csv(path: Optional[str], metal: str) -> List[PremRow]:
                         total_oz=float(row.get("total_oz") or 0.0),
                     )
                 )
-            except Exception:  # noqa: S112 - skip on error
+            except Exception:  # nosec B112 - skip on error
                 continue
     return out
 

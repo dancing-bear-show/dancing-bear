@@ -224,8 +224,8 @@ class TestRun(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(
                 metal="platinum",
-                costs_path=test_path("costs.csv"),  # noqa: S108
-                out_path=test_path("premium.csv"),  # noqa: S108
+                costs_path=test_path("costs.csv"),  # noqa: S108 - test fixture path
+                out_path=test_path("premium.csv"),  # noqa: S108 - test fixture path
             )
 
     @patch("metals.premium._spot_series_cad")

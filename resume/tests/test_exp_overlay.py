@@ -46,7 +46,7 @@ experience:
                 encoding="utf-8",
             )
             try:
-                r = subprocess.run(  # noqa: S603
+                r = subprocess.run(  # nosec B603 - test code with temp files
                     CLI
                     + [
                         "render",
@@ -73,7 +73,7 @@ experience:
             finally:
                 try:
                     cfg.unlink()
-                except Exception:  # noqa: S110 - test cleanup
+                except Exception:  # nosec B110 - test cleanup
                     pass
 
 

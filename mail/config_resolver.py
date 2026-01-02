@@ -65,7 +65,7 @@ def _read_ini() -> Dict[str, Dict[str, str]]:
         cp = configparser.ConfigParser()
         try:
             cp.read(p)
-        except Exception:  # noqa: S112 - skip on error
+        except Exception:  # nosec B112 - skip on error
             continue
         for section in cp.sections():
             sec = merged_sections.setdefault(section, {})

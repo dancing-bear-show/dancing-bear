@@ -57,7 +57,7 @@ Instructions for Claude when reviewing pull requests in this repository.
    - Missing edge case coverage
 
 2. **Error Handling**
-   - Bare `except:` or `except Exception:` without `# noqa: S110` comment
+   - Bare `except:` or `except Exception:` without `# nosec B110/B112` comment explaining the intent
    - Swallowed exceptions that hide failures
    - Missing error messages for user-facing failures
 
@@ -135,7 +135,7 @@ Since LLMs consume this library's output, verify:
 4. **Exception Suppression** — Must have explanatory comment:
    ```python
    # Good
-   except Exception:  # noqa: S110 - skip malformed entries silently
+   except Exception:  # nosec B112 - skip malformed entries silently
        pass
 
    # Bad
