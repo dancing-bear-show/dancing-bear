@@ -268,7 +268,7 @@ def _extract_email_from_header(from_val: str) -> str:
     if '<' in f and '>' in f:
         try:
             f = f.split('<')[-1].split('>')[0]
-        except Exception:  # noqa: S110 - malformed From header
+        except Exception:  # nosec B110 - malformed From header
             pass
     return f.strip()
 

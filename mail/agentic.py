@@ -458,13 +458,13 @@ def render_flow(flow: Dict[str, Any], fmt: str = 'md') -> str:
         try:
             import json as _json
             return _json.dumps(flow, indent=2)
-        except Exception:  # noqa: S110 - fallback to other format
+        except Exception:  # nosec B110 - fallback to other format
             pass
     if fmt == 'yaml':
         try:
             import yaml as _yaml  # type: ignore
             return _yaml.safe_dump(flow, sort_keys=False)
-        except Exception:  # noqa: S110 - fallback to md format
+        except Exception:  # nosec B110 - fallback to md format
             pass
     # md
     lines = [f"# {flow.get('title', flow.get('id'))}"]

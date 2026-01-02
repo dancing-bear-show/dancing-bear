@@ -68,7 +68,7 @@ def _extend_seed_with_style(seed: dict, style_profile_path) -> dict:
             if isinstance(cur, str):
                 cur = [cur]
             seed["keywords"] = list(dict.fromkeys(list(cur) + style_kws))
-    except Exception:  # noqa: S110 - non-fatal seed extension
+    except Exception:  # nosec B110 - non-fatal seed extension
         pass
     return seed
 
@@ -290,7 +290,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     # Ensure parent directory exists for nested profile layout
     try:
         out_docx.parent.mkdir(parents=True, exist_ok=True)
-    except Exception:  # noqa: S110 - mkdir failure
+    except Exception:  # nosec B110 - mkdir failure
         pass
     write_resume_docx(
         data=data,

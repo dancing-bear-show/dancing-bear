@@ -78,7 +78,7 @@ class ResumeWriterBase(ABC):
             sec.bottom_margin = Inches(m)
             sec.left_margin = Inches(m)
             sec.right_margin = Inches(m)
-        except Exception:  # noqa: S110
+        except Exception:  # nosec B110
             pass
 
         try:
@@ -107,7 +107,7 @@ class ResumeWriterBase(ABC):
                 rgbt = _parse_hex_color(title_color)
                 if rgbt:
                     self.doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
-        except Exception:  # noqa: S110
+        except Exception:  # nosec B110
             pass
 
     def _set_document_metadata(self) -> None:
@@ -135,11 +135,11 @@ class ResumeWriterBase(ABC):
                 if uniq_locs:
                     try:
                         cp.category = "; ".join(uniq_locs)
-                    except Exception:  # noqa: S110
+                    except Exception:  # nosec B110
                         pass
 
             cp.keywords = "; ".join(kw)
-        except Exception:  # noqa: S110
+        except Exception:  # nosec B110
             pass
 
     def _extract_experience_locations(self) -> List[str]:
@@ -180,7 +180,7 @@ class ResumeWriterBase(ABC):
             pf = para.paragraph_format
             pf.left_indent = Pt(0)
             pf.first_line_indent = Pt(0)
-        except Exception:  # noqa: S110
+        except Exception:  # nosec B110
             pass
 
     def _add_colored_run(self, paragraph, text: str, hex_color: Optional[str], **kwargs) -> Any:

@@ -219,7 +219,7 @@ def _write_range(wb: WorkbookContext, sheet: str, values: List[List[str]]) -> No
                 data=json.dumps({"style": "TableStyleMedium2"}),
             )
     except Exception:
-        pass  # noqa: S110 - table styling is optional
+        pass  # nosec B110 - table styling is optional
 
     # Autofit columns and freeze header
     requests.post(f"{sheet_url}/range(address='{sheet}!A:{end_col}')/format/autofitColumns", headers=wb.headers())  # noqa: S113
@@ -250,7 +250,7 @@ def _add_chart(
                 data=json.dumps({"top": placement.top, "left": placement.left, "width": placement.width, "height": placement.height}),
             )
     except Exception:
-        pass  # noqa: S110 - chart positioning is optional
+        pass  # nosec B110 - chart positioning is optional
 
 
 def _to_values_all(recs: List[Dict[str, str]]) -> List[List[str]]:
@@ -459,7 +459,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
                 v = cl[i]
                 if v is not None:
                     out[d] = float(v)
-            except Exception:  # noqa: S112 - skip on error
+            except Exception:  # nosec B112 - skip on error
                 continue
     except Exception:
         return out
@@ -488,7 +488,7 @@ def _spot_cad_series(metal: str, start_date: str, end_date: str) -> Dict[str, fl
         for k in keys:
             try:
                 cad_from_usd[k] = float(usd[k]) * float(usdcad[k])
-            except Exception:  # noqa: S112 - skip on error
+            except Exception:  # nosec B112 - skip on error
                 continue
     # Compose: prefer primary when available; otherwise use converted
     if not primary and cad_from_usd:
@@ -516,7 +516,7 @@ def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
             m = (r.get("metal") or "").lower()
             oz = float(r.get("total_oz") or 0)
             cpo = float(r.get("cost_per_oz") or 0)
-        except Exception:  # noqa: S112 - skip on error
+        except Exception:  # nosec B112 - skip on error
             continue
         if not d or m not in ("gold", "silver") or oz <= 0 or cpo <= 0:
             continue
@@ -692,11 +692,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         _set_sheet_position(new_wb, sum_name, 0)
         _set_sheet_position(new_wb, gold_name, 1)
         _set_sheet_position(new_wb, silver_name, 2)
-    except Exception:  # noqa: S110 - non-critical sheet positioning
+    except Exception:  # nosec B110 - non-critical sheet positioning
         pass
     try:
         _set_sheet_visibility(new_wb, all_name, False)
-    except Exception:  # noqa: S110 - non-critical sheet visibility
+    except Exception:  # nosec B110 - non-critical sheet visibility
         pass
 
     print("created consolidated workbook:", new_wb.drive_id, new_wb.item_id, "(Summary, Gold, Silver; All hidden)")

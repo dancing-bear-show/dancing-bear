@@ -75,7 +75,7 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
                 v = cl[i]
                 if v is not None:
                     out[d] = float(v)
-            except Exception:  # noqa: S112 - skip on error
+            except Exception:  # nosec B112 - skip on error
                 continue
     except Exception:
         # If shape unexpected, return empty
@@ -132,7 +132,7 @@ def _fetch_stooq_series(symbol: str, start_date: str, end_date: str) -> Dict[str
         ds = parts[0]
         try:
             close = float(parts[4])
-        except Exception:  # noqa: S112 - skip on error
+        except Exception:  # nosec B112 - skip on error
             continue
         out_raw[ds] = close
 
@@ -195,7 +195,7 @@ def _auto_start_date(metal: str) -> Optional[str]:
                         continue
                     if earliest is None or d < earliest:
                         earliest = d
-        except Exception:  # noqa: S112 - skip on error
+        except Exception:  # nosec B112 - skip on error
             continue
         if earliest:
             break

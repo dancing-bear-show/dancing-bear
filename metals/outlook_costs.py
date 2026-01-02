@@ -134,7 +134,7 @@ def _try_upgrade_to_confirmation(cli: OutlookClient, oid: str, rec: Dict[str, st
     q = f'"Confirmation for order number {oid}"'
     try:
         ids = cli.search_inbox_messages(q, days=None, top=10, pages=2, use_cache=False)
-    except Exception:  # noqa: S110 - skip on error
+    except Exception:  # nosec B110 - skip on error
         ids = []
     if not ids:
         url = f"{cli.GRAPH}/me/messages?$search=\"Confirmation for order number {oid}\"&$top=10"
@@ -148,7 +148,7 @@ def _try_upgrade_to_confirmation(cli: OutlookClient, oid: str, rec: Dict[str, st
     for mid in ids:
         try:
             mm = cli.get_message(mid, select_body=False)
-        except Exception:  # noqa: S110 - skip on error
+        except Exception:  # nosec B110 - skip on error
             continue
         sub = (mm.get('subject') or '').lower()
         if 'confirmation for order number' in sub:
@@ -160,7 +160,7 @@ def _try_upgrade_to_confirmation(cli: OutlookClient, oid: str, rec: Dict[str, st
         body_html = ((m.get('body') or {}).get('content') or '')
         body = html_to_text(body_html)
         return {'id': best_mid, 'recv': (m.get('receivedDateTime') or ''), 'sub': (m.get('subject') or ''), 'body': body, 'cat': 'confirmation'}
-    except Exception:  # noqa: S110 - fallback to original
+    except Exception:  # nosec B110 - fallback to original
         return rec
 
 

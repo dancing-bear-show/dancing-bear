@@ -430,7 +430,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             if not payload.dry_run:
                 try:
                     client.create_filter(criteria, action)
-                except Exception:  # noqa: S110 - filter creation failure logged elsewhere
+                except Exception:  # nosec B110 - filter creation failure logged elsewhere
                     pass
             created += 1
 
@@ -457,7 +457,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                     try:
                         payload.client.delete_filter(rid)
                         deleted += 1
-                    except Exception:  # noqa: S110 - filter deletion failure
+                    except Exception:  # nosec B110 - filter deletion failure
                         pass
                 else:
                     deleted += 1
@@ -588,7 +588,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
         if clear_cache:
             try:
                 client.cfg_clear()
-            except Exception:  # noqa: S110 - non-critical cache clear
+            except Exception:  # nosec B110 - non-critical cache clear
                 pass
 
     def _process_sweep_rules(
@@ -654,7 +654,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
             try:
                 client.move_message(mid, dest_id)
                 moved += 1
-            except Exception:  # noqa: S110 - individual move failure
+            except Exception:  # nosec B110 - individual move failure
                 pass
         return moved
 
@@ -746,7 +746,7 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
                         color = entry.get("color") if isinstance(entry, dict) else None
                         client.create_label(name, color=color)
                         created += 1
-                    except Exception:  # noqa: S110 - category creation failure
+                    except Exception:  # nosec B110 - category creation failure
                         pass
 
             return ResultEnvelope(
@@ -955,7 +955,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
                 no_reminder=no_reminder,
             )
             return True
-        except Exception:  # noqa: S110 - recurring event creation failure
+        except Exception:  # nosec B110 - recurring event creation failure
             return False
 
     def _create_single_event(self, ev: Dict[str, Any], client: Any, no_reminder: bool) -> bool:
@@ -979,5 +979,5 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
                 no_reminder=no_reminder,
             )
             return True
-        except Exception:  # noqa: S110 - event creation failure
+        except Exception:  # nosec B110 - event creation failure
             return False
