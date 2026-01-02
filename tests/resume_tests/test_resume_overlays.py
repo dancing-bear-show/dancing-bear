@@ -201,9 +201,7 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
     def test_handles_raw_list_overlay(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/rawlist")
             # Some overlays might be raw lists
             self._write_yaml(
@@ -215,15 +213,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             result = apply_profile_overlays(data, "rawlist")
 
             self.assertEqual(result["interests"], ["Photography", "Hiking"])
-        finally:
-            os.chdir(old_cwd)
 
     def test_handles_interests_in_profile(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/inprofile")
             self._write_yaml(
                 profile_dir / "profile.yaml",
@@ -235,15 +229,11 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
 
             self.assertEqual(result["interests"], ["Reading"])
             self.assertEqual(result["presentations"], ["Talk 1"])
-        finally:
-            os.chdir(old_cwd)
 
     def test_handles_malformed_files_gracefully(self):
         from resume.overlays import apply_profile_overlays
 
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(self.tmpdir)
+        with self.in_tmpdir():
             profile_dir = Path("config/profiles/bad")
             # Write invalid YAML
             (profile_dir / "profile.yaml").parent.mkdir(parents=True, exist_ok=True)
@@ -254,8 +244,6 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             result = apply_profile_overlays(data, "bad")
 
             self.assertEqual(result["name"], "Original")
-        finally:
-            os.chdir(old_cwd)
 
 
 class TestTryLoadFromPaths(unittest.TestCase):
