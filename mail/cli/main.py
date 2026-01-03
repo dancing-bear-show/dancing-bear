@@ -967,39 +967,27 @@ def cmd_outlook_folders_sync(args) -> int:
     return run_outlook_folders_sync(args)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    """Main entry point for the Mail Assistant CLI."""
-    # Install conservative secret shielding for stdout/stderr (env-toggled)
-    # This is best-effort: if masking module is unavailable or fails to initialize,
-    # the CLI continues normally without output masking.
-    try:
-        from ..utils.secrets import install_output_masking_from_env as _install_mask
-        _install_mask()
-    except Exception as e:  # nosec B110 - best-effort masking, safe to continue without
-        import sys
-        print(f"Warning: Output masking unavailable ({type(e).__name__}), continuing without secret shielding", file=sys.stderr)
+def _install_output_masking() -> None:
+    """Install output masking for secret shielding."""
+    from core.secrets import install_output_masking_from_env
+    install_output_masking_from_env()
 
-    parser = app.build_parser()
-    # Add top-level args before agentic flags
+
+def _add_common_args(parser) -> None:
+    """Add common arguments to parser."""
     parser.add_argument("--profile", help="Credentials profile (INI section suffix)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    assistant.add_agentic_flags(parser)
 
-    args = parser.parse_args(argv)
 
-    agentic_result = assistant.maybe_emit_agentic(
-        args,
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point for the Mail Assistant CLI."""
+    return app.run_with_assistant(
+        assistant=assistant,
         emit_func=_lazy_emit_agentic(),
+        argv=argv,
+        pre_run_hook=_install_output_masking,
+        post_build_hook=_add_common_args,
     )
-    if agentic_result is not None:
-        return agentic_result
-
-    cmd_func = getattr(args, "_cmd_func", None)
-    if not cmd_func:
-        parser.print_help()
-        return 0
-
-    return int(cmd_func(args) or 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

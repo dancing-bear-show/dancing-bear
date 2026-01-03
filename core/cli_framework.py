@@ -282,6 +282,7 @@ class CLIApp:
         argv: Optional[Sequence[str]] = None,
         *,
         pre_run_hook: Optional[Callable[[], None]] = None,
+        post_build_hook: Optional[Callable[[argparse.ArgumentParser], None]] = None,
     ) -> int:
         """Run the CLI application with agentic flag support.
 
@@ -293,6 +294,7 @@ class CLIApp:
             emit_func: Function to emit agentic output (fmt, compact) -> int.
             argv: Command-line arguments (defaults to sys.argv[1:]).
             pre_run_hook: Optional function to call before parsing (e.g., output masking).
+            post_build_hook: Optional function to customize parser after build (e.g., add args).
 
         Returns:
             Exit code.
@@ -306,6 +308,8 @@ class CLIApp:
 
         # Build parser and add agentic flags
         parser = self.build_parser()
+        if post_build_hook:
+            post_build_hook(parser)
         assistant.add_agentic_flags(parser)
 
         args = parser.parse_args(argv)
