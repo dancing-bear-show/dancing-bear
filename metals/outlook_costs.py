@@ -161,9 +161,12 @@ class OutlookCostExtractor(CostExtractor):
         import requests as _req
 
         # Try using client search first
+        from core.outlook.mail import SearchParams
         q = f'"Confirmation for order number {order_id}"'
         try:
-            ids = self.client.search_inbox_messages(q, days=None, top=10, pages=2, use_cache=False)
+            ids = self.client.search_inbox_messages(
+                SearchParams(search_query=q, days=None, top=10, pages=2, use_cache=False)
+            )
             if ids:
                 return ids
         except Exception:  # nosec B110 - skip on error

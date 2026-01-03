@@ -625,21 +625,26 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
         self, client: Any, query: str, payload: OutlookRulesSweepPayload
     ) -> List[str]:
         """Search for messages matching query."""
+        from core.outlook.mail import SearchParams
         try:
             return client.search_inbox_messages(
-                query,
-                days=payload.days,
-                top=payload.top,
-                pages=payload.pages,
-                use_cache=not payload.clear_cache,
+                SearchParams(
+                    search_query=query,
+                    days=payload.days,
+                    top=payload.top,
+                    pages=payload.pages,
+                    use_cache=not payload.clear_cache,
+                )
             )
         except Exception:
             return client.search_inbox_messages(
-                query,
-                days=None,
-                top=payload.top,
-                pages=payload.pages,
-                use_cache=not payload.clear_cache,
+                SearchParams(
+                    search_query=query,
+                    days=None,
+                    top=payload.top,
+                    pages=payload.pages,
+                    use_cache=not payload.clear_cache,
+                )
             )
 
     def _move_messages(

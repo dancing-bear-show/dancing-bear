@@ -208,31 +208,26 @@ class OutlookMailMixin:
     # -------------------- Messages --------------------
     def search_inbox_messages(
         self: OutlookClientBase,
-        search_query: str,
-        days: Optional[int] = None,
-        top: int = 25,
-        pages: int = 2,
-        use_cache: bool = True,
-        ttl: int = 300,
+        params: SearchParams,
     ) -> List[str]:
         """Return message IDs in Inbox matching $search query, optional days filter."""
-        if self.cache_dir and use_cache:
+        if self.cache_dir and params.use_cache:
             import hashlib
-            key = f"search_{hashlib.sha256(f'{search_query}|{top}|{pages}|{days}'.encode()).hexdigest()}"
-            cached = self.cfg_get_json(key, ttl)
+            key = f"search_{hashlib.sha256(f'{params.search_query}|{params.top}|{params.pages}|{params.days}'.encode()).hexdigest()}"
+            cached = self.cfg_get_json(key, params.ttl)
             if isinstance(cached, list):
                 return [str(x) for x in cached]
         ids: List[str] = []
         base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
-        params = [f"$search=\"{search_query}\"", f"$top={int(top)}"]
-        if days and int(days) > 0:
+        search_params = [f"$search=\"{params.search_query}\"", f"$top={int(params.top)}"]
+        if params.days and int(params.days) > 0:
             import datetime as _dt
-            start = _dt.datetime.utcnow() - _dt.timedelta(days=int(days))
+            start = _dt.datetime.utcnow() - _dt.timedelta(days=int(params.days))
             start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
-            params.append(f"$filter=receivedDateTime ge {start_iso}")
-        url = base + "?" + "&".join(params)
+            search_params.append(f"$filter=receivedDateTime ge {start_iso}")
+        url = base + "?" + "&".join(search_params)
         nxt = url
-        for _ in range(max(1, int(pages))):
+        for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
             data = r.json()
@@ -244,7 +239,7 @@ class OutlookMailMixin:
             nxt = data.get("@odata.nextLink")
             if not nxt:
                 break
-        if self.cache_dir and use_cache:
+        if self.cache_dir and params.use_cache:
             try:
                 self.cfg_put_json(key, ids)
             except Exception:  # nosec B110 - non-fatal cache write

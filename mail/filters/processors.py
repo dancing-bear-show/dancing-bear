@@ -348,6 +348,14 @@ def _ids_to_names(ids: List[str] | None, id_to_name: Dict[str, str]) -> List[str
 
 
 @dataclass
+class SweepConfig:
+    """Configuration for sweep operations."""
+    days: int | None = None
+    only_inbox: bool = False
+    older_than_days: int | None = None
+
+
+@dataclass
 class FiltersSweepInstruction:
     query: str
     add_label_ids: List[str]
@@ -363,13 +371,9 @@ class FiltersSweepProcessor(Processor[FiltersSweepPayload, ResultEnvelope[Filter
     """Prepare sweep instructions from YAML filters."""
 
     def process(self, payload: FiltersSweepPayload) -> ResultEnvelope[FiltersSweepResult]:
+        config = SweepConfig(days=payload.days, only_inbox=payload.only_inbox)
         instructions = [
-            _build_sweep_instruction(
-                spec,
-                payload.client,
-                days=payload.days,
-                only_inbox=payload.only_inbox,
-            )
+            _build_sweep_instruction(spec, payload.client, config)
             for spec in payload.filters
         ]
         return ResultEnvelope(status="success", payload=FiltersSweepResult(instructions=instructions))
@@ -395,14 +399,9 @@ class FiltersSweepRangeProcessor(Processor[FiltersSweepRangePayload, ResultEnvel
         while cur < payload.to_days:
             newer = min(cur + payload.step_days, payload.to_days)
             label = f"newer_than:{newer}d older_than:{cur}d"
+            config = SweepConfig(days=newer, only_inbox=False, older_than_days=cur)
             instructions = [
-                _build_sweep_instruction(
-                    spec,
-                    payload.client,
-                    days=newer,
-                    only_inbox=False,
-                    older_than_days=cur,
-                )
+                _build_sweep_instruction(spec, payload.client, config)
                 for spec in payload.filters
             ]
             windows.append(FiltersSweepWindowResult(label=label, instructions=instructions))
@@ -590,17 +589,14 @@ class FiltersRemoveTokenProcessor(Processor[FiltersRemoveTokenPayload, ResultEnv
 def _build_sweep_instruction(
     spec: Dict,
     client: object,
-    *,
-    days: int | None,
-    only_inbox: bool,
-    older_than_days: int | None = None,
+    config: SweepConfig,
 ) -> FiltersSweepInstruction:
     match = spec.get("match") or {}
     query = build_gmail_query(
         match,
-        days=days,
-        only_inbox=only_inbox,
-        older_than_days=older_than_days,
+        days=config.days,
+        only_inbox=config.only_inbox,
+        older_than_days=config.older_than_days,
     )
     action_spec = dict(spec.get("action") or {})
     add_names = list(action_spec.get("add") or [])

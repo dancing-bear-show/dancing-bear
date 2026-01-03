@@ -9,6 +9,18 @@ from .model import normalize_event
 
 
 @dataclass
+class MatchCriteria:
+    """Criteria for matching calendar events."""
+
+    cal_name: Optional[str]
+    subj: str
+    win: Tuple[str, str]
+    byday: List[str]
+    start_time: Optional[str]
+    end_time: Optional[str]
+
+
+@dataclass
 class LocationSync:
     svc: Any  # OutlookService
 
@@ -20,6 +32,19 @@ class LocationSync:
         addr_str = ", ".join([p for p in parts if p])
         return addr_str or disp
 
+    def _select_matches_from_criteria(self, criteria: MatchCriteria) -> List[Dict[str, Any]]:
+        """Select matching events using MatchCriteria."""
+        from calendars.outlook_service import ListEventsRequest
+        events = self.svc.list_events_in_range(ListEventsRequest(
+            start_iso=criteria.win[0],
+            end_iso=criteria.win[1],
+            calendar_name=criteria.cal_name,
+            subject_filter=criteria.subj,
+        ))
+        return filter_events_by_day_time(
+            events, byday=criteria.byday, start_time=criteria.start_time, end_time=criteria.end_time
+        ) or events[:1]
+
     def _select_matches(
         self,
         *,
@@ -30,15 +55,16 @@ class LocationSync:
         start_time: Optional[str],
         end_time: Optional[str],
     ) -> List[Dict[str, Any]]:
-        start_iso, end_iso = win
-        from calendars.outlook_service import ListEventsRequest
-        events = self.svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=cal_name,
-            subject_filter=subj,
-        ))
-        return filter_events_by_day_time(events, byday=byday, start_time=start_time, end_time=end_time) or events[:1]
+        """Select matching events (legacy signature)."""
+        criteria = MatchCriteria(
+            cal_name=cal_name,
+            subj=subj,
+            win=win,
+            byday=byday,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        return self._select_matches_from_criteria(criteria)
 
     def plan_from_config(self, items: List[Dict[str, Any]], *, calendar: Optional[str], dry_run: bool = False) -> int:
         updated = 0

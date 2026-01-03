@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import re
+from dataclasses import dataclass
 from typing import List, Optional
 
 import requests
@@ -22,6 +23,32 @@ WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'S
 LEISURE_SWIM = 'Leisure Swim'
 
 
+@dataclass
+class ScheduleItemParams:
+    """Parameters for creating a schedule item."""
+
+    subject: str
+    byday: List[str]
+    start_time: str
+    end_time: str
+    location: str
+    url: str
+
+
+def _make_schedule_item_from_params(params: ScheduleItemParams) -> ScheduleItem:
+    """Create a weekly recurring ScheduleItem from params."""
+    return ScheduleItem(
+        subject=params.subject,
+        recurrence='weekly',
+        byday=params.byday,
+        start_time=params.start_time,
+        end_time=params.end_time,
+        range_start=_dt.date.today().isoformat(),
+        location=params.location,
+        notes=f'Imported from {params.url}',
+    )
+
+
 def _make_schedule_item(
     subject: str,
     byday: List[str],
@@ -30,17 +57,16 @@ def _make_schedule_item(
     location: str,
     url: str,
 ) -> ScheduleItem:
-    """Create a weekly recurring ScheduleItem with standard fields."""
-    return ScheduleItem(
+    """Create a weekly recurring ScheduleItem (legacy signature)."""
+    params = ScheduleItemParams(
         subject=subject,
-        recurrence='weekly',
         byday=byday,
         start_time=start_time,
         end_time=end_time,
-        range_start=_dt.date.today().isoformat(),
         location=location,
-        notes=f'Imported from {url}',
+        url=url,
     )
+    return _make_schedule_item_from_params(params)
 
 
 def _fetch_html(url: str) -> str:

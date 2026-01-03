@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-def register(
-    subparsers,
-    *,
-    f_list,
-    f_export_labels,
-    f_sync_labels,
-    f_export_filters,
-    f_sync_filters,
-    f_plan_labels,
-    f_plan_filters,
-    f_export_signatures,
-    f_sync_signatures,
-):
+def register(subparsers, **handlers):
+    """Register accounts subcommands.
+
+    Args:
+        subparsers: Argument subparsers to register commands with
+        **handlers: Command handler functions (f_list, f_export_labels, etc.)
+    """
+    f_list = handlers["f_list"]
+    f_export_labels = handlers["f_export_labels"]
+    f_sync_labels = handlers["f_sync_labels"]
+    f_export_filters = handlers["f_export_filters"]
+    f_sync_filters = handlers["f_sync_filters"]
+    f_plan_labels = handlers["f_plan_labels"]
+    f_plan_filters = handlers["f_plan_filters"]
+    f_export_signatures = handlers["f_export_signatures"]
+    f_sync_signatures = handlers["f_sync_signatures"]
     p_accts = subparsers.add_parser("accounts", help="Operate across multiple email accounts/providers")
     sub_accts = p_accts.add_subparsers(dest="accounts_cmd")
 

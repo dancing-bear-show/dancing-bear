@@ -1,6 +1,7 @@
 """Producers for mail filters pipelines."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
@@ -28,6 +29,16 @@ from .processors import (
     FiltersRemoveTokenResult,
     FilterTokenUpdate,
 )
+
+
+@dataclass
+class SweepProducerConfig:
+    """Configuration for sweep producer operations."""
+
+    pages: int
+    batch_size: int
+    max_msgs: int | None
+    dry_run: bool = False
 
 
 class FiltersPlanProducer(Producer[ResultEnvelope[FiltersPlanResult]]):
@@ -161,20 +172,14 @@ class FiltersImpactProducer(Producer[ResultEnvelope[FiltersImpactResult]]):
 class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
     """Apply sweep actions to historical messages."""
 
-    def __init__(
-        self,
-        client: BaseProvider,
-        *,
-        pages: int,
-        batch_size: int,
-        max_msgs: int | None,
-        dry_run: bool = False,
-    ):
+    def __init__(self, client: BaseProvider, config: SweepProducerConfig):
         self.client = client
-        self.pages = pages
-        self.batch_size = batch_size
-        self.max_msgs = max_msgs
-        self.dry_run = dry_run
+        self.config = config
+        # Legacy field access for backwards compatibility
+        self.pages = config.pages
+        self.batch_size = config.batch_size
+        self.max_msgs = config.max_msgs
+        self.dry_run = config.dry_run
 
     def produce(self, result: ResultEnvelope[FiltersSweepResult]) -> None:
         if not result.ok() or not result.payload:
@@ -212,20 +217,14 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
 class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]]):
     """Apply sweep actions across multiple windows."""
 
-    def __init__(
-        self,
-        client: BaseProvider,
-        *,
-        pages: int,
-        batch_size: int,
-        max_msgs: int | None,
-        dry_run: bool = False,
-    ):
+    def __init__(self, client: BaseProvider, config: SweepProducerConfig):
         self.client = client
-        self.pages = pages
-        self.batch_size = batch_size
-        self.max_msgs = max_msgs
-        self.dry_run = dry_run
+        self.config = config
+        # Legacy field access for backwards compatibility
+        self.pages = config.pages
+        self.batch_size = config.batch_size
+        self.max_msgs = config.max_msgs
+        self.dry_run = config.dry_run
 
     def produce(self, result: ResultEnvelope[FiltersSweepRangeResult]) -> None:
         if not result.ok() or not result.payload:

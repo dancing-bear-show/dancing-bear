@@ -39,6 +39,7 @@ from .producers import (
     FiltersAddForwardProducer,
     FiltersAddTokenProducer,
     FiltersRemoveTokenProducer,
+    SweepProducerConfig,
 )
 
 
@@ -144,10 +145,12 @@ def run_filters_sweep(args) -> int:
         FiltersSweepProcessor,
         lambda p: FiltersSweepProducer(
             p.client,
-            pages=p.pages,
-            batch_size=p.batch_size,
-            max_msgs=p.max_msgs,
-            dry_run=p.dry_run,
+            SweepProducerConfig(
+                pages=p.pages,
+                batch_size=p.batch_size,
+                max_msgs=p.max_msgs,
+                dry_run=p.dry_run,
+            ),
         ),
     )
 
@@ -159,10 +162,12 @@ def run_filters_sweep_range(args) -> int:
         FiltersSweepRangeProcessor,
         lambda p: FiltersSweepRangeProducer(
             p.client,
-            pages=p.pages,
-            batch_size=p.batch_size,
-            max_msgs=p.max_msgs,
-            dry_run=p.dry_run,
+            SweepProducerConfig(
+                pages=p.pages,
+                batch_size=p.batch_size,
+                max_msgs=p.max_msgs,
+                dry_run=p.dry_run,
+            ),
         ),
     )
 

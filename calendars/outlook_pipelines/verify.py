@@ -36,6 +36,16 @@ class OutlookVerifyResult:
     missing: int
 
 
+@dataclass
+class VerificationContext:
+    """Context for verifying a single event."""
+
+    idx: int
+    nev: Dict[str, Any]
+    subj: str
+    byday: List[str]
+
+
 class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
@@ -61,18 +71,15 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
                 missing += 1
         return OutlookVerifyResult(logs=logs, total=total, duplicates=duplicates, missing=missing)
 
-    def _verify_single_event(
+    def _verify_single_event_from_context(
         self,
         payload: OutlookVerifyRequest,
-        idx: int,
-        nev: Dict[str, Any],
-        subj: str,
-        byday: List[str],
+        context: VerificationContext,
         logs: List[str],
     ) -> Optional[str]:
-        """Verify a single recurring event. Returns 'duplicate', 'missing', or None (skip)."""
-        cal_name = payload.calendar or nev.get("calendar")
-        win = compute_window(nev)
+        """Verify a single recurring event using VerificationContext."""
+        cal_name = payload.calendar or context.nev.get("calendar")
+        win = compute_window(context.nev)
         if not win:
             return None
         start_iso, end_iso = win
@@ -82,20 +89,33 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
                 start_iso=start_iso,
                 end_iso=end_iso,
                 calendar_name=cal_name,
-                subject_filter=subj,
+                subject_filter=context.subj,
             ))
         except Exception as e:
-            logs.append(f"[{idx}] Unable to list events for '{subj}': {e}")
+            logs.append(f"[{context.idx}] Unable to list events for '{context.subj}': {e}")
             return None
-        want_start = (nev.get("start_time") or "").strip()
-        want_end = (nev.get("end_time") or "").strip()
-        matches = filter_events_by_day_time(events, byday=byday, start_time=want_start, end_time=want_end)
+        want_start = (context.nev.get("start_time") or "").strip()
+        want_end = (context.nev.get("end_time") or "").strip()
+        matches = filter_events_by_day_time(events, byday=context.byday, start_time=want_start, end_time=want_end)
         cal_display = cal_name or "<primary>"
         if matches:
-            logs.append(f"[{idx}] duplicate: {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_display}'")
+            logs.append(f"[{context.idx}] duplicate: {context.subj} {','.join(context.byday)} {want_start}-{want_end} in '{cal_display}'")
             return "duplicate"
-        logs.append(f"[{idx}] missing:   {subj} {','.join(byday)} {want_start}-{want_end} in '{cal_display}'")
+        logs.append(f"[{context.idx}] missing:   {context.subj} {','.join(context.byday)} {want_start}-{want_end} in '{cal_display}'")
         return "missing"
+
+    def _verify_single_event(
+        self,
+        payload: OutlookVerifyRequest,
+        idx: int,
+        nev: Dict[str, Any],
+        subj: str,
+        byday: List[str],
+        logs: List[str],
+    ) -> Optional[str]:
+        """Verify a single recurring event (legacy signature)."""
+        context = VerificationContext(idx=idx, nev=nev, subj=subj, byday=byday)
+        return self._verify_single_event_from_context(payload, context, logs)
 
 
 class OutlookVerifyProducer(BaseProducer):
