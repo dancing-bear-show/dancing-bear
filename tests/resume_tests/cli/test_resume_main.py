@@ -95,5 +95,73 @@ class TestResumeCliMain(unittest.TestCase):
         self.assertEqual(result, 0)
 
 
+class TestResumeCommandHelpers(unittest.TestCase):
+    """Test resume command helper functions."""
+
+    def test_resolve_out_with_explicit_out(self):
+        """Test _resolve_out uses explicit --out path."""
+        from resume.cli.main import _resolve_out
+        from pathlib import Path
+
+        args = MagicMock()
+        args.out = "custom/path.json"
+        args.profile = None
+        args.out_dir = "out"
+
+        result = _resolve_out(args, ".json", kind="data")
+        self.assertEqual(result, Path("custom/path.json"))
+
+    def test_resolve_out_with_profile(self):
+        """Test _resolve_out generates path from profile."""
+        from resume.cli.main import _resolve_out
+        from pathlib import Path
+
+        args = MagicMock()
+        args.out = None
+        args.profile = "test_profile"
+        args.out_dir = "out"
+
+        result = _resolve_out(args, ".json", kind="data")
+        self.assertEqual(result, Path("out/test_profile/data.json"))
+
+    def test_resolve_out_default(self):
+        """Test _resolve_out uses DEFAULT_PROFILE when no profile."""
+        from resume.cli.main import _resolve_out, DEFAULT_PROFILE
+        from pathlib import Path
+
+        args = MagicMock()
+        args.out = None
+        args.profile = None
+        args.out_dir = "out"
+
+        result = _resolve_out(args, ".json", kind="data")
+        self.assertEqual(result, Path(f"out/{DEFAULT_PROFILE}/data.json"))
+
+    def test_extend_seed_with_style_no_profile(self):
+        """Test _extend_seed_with_style returns seed unchanged when no style profile."""
+        from resume.cli.main import _extend_seed_with_style
+
+        seed = {"keywords": ["python", "testing"]}
+        result = _extend_seed_with_style(seed, None)
+        self.assertEqual(result, seed)
+
+    @patch('resume.cli.main.read_yaml_or_json')
+    @patch('resume.style.extract_style_keywords')
+    def test_extend_seed_with_style_adds_keywords(self, mock_extract, mock_read):
+        """Test _extend_seed_with_style adds style keywords to seed."""
+        from resume.cli.main import _extend_seed_with_style
+
+        mock_read.return_value = {"style": "data"}
+        mock_extract.return_value = ["leadership", "management"]
+
+        seed = {"keywords": ["python"]}
+        result = _extend_seed_with_style(seed, "style.json")
+
+        # Should have original + new keywords
+        self.assertIn("python", result["keywords"])
+        self.assertIn("leadership", result["keywords"])
+        self.assertIn("management", result["keywords"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

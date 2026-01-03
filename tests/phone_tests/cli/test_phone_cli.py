@@ -5,6 +5,26 @@ from unittest.mock import patch
 from tests.fixtures import bin_path, repo_root, run
 
 
+class TestPhoneMain(unittest.TestCase):
+    """Test phone/__main__.py module entry point."""
+
+    def test_main_import_exists(self):
+        """Test that main function can be imported from __main__."""
+        from phone.__main__ import main
+
+        self.assertIsNotNone(main)
+        self.assertTrue(callable(main))
+
+    def test_main_returns_zero_with_help(self):
+        """Test that main returns 0 when showing help."""
+        from phone.__main__ import main
+
+        # Help exits with 0
+        with self.assertRaises(SystemExit) as ctx:
+            main(["--help"])
+        self.assertEqual(ctx.exception.code, 0)
+
+
 class PhoneCLITests(unittest.TestCase):
     def test_help_via_module_invocation(self):
         proc = run([sys.executable, '-m', 'phone', '--help'])
@@ -68,3 +88,5 @@ class PhoneMainTests(unittest.TestCase):
         emit_func = _lazy_agentic()
         self.assertIsNotNone(emit_func)
         self.assertTrue(callable(emit_func))
+
+
