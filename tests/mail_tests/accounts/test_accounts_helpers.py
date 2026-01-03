@@ -208,7 +208,7 @@ class TestBuildClientForAccount(unittest.TestCase):
 
         mock_client_class.assert_called_once_with(
             credentials_path="/default/creds.json",
-            token_path="/default/token.json",
+            token_path="/default/token.json",  # nosec B106 - test fixture path
             cache_dir=None,
         )
 
@@ -232,7 +232,7 @@ class TestBuildClientForAccount(unittest.TestCase):
 
         mock_client_class.assert_called_once_with(
             credentials_path="/expanded/my/creds.json",
-            token_path="/expanded/my/token.json",
+            token_path="/expanded/my/token.json",  # nosec B106 - test fixture path
             cache_dir="/my/cache",
         )
 
@@ -261,7 +261,7 @@ class TestBuildClientForAccount(unittest.TestCase):
             mock_outlook_api.OutlookClient.assert_called_once_with(
                 client_id="my-client-id",
                 tenant="my-tenant",
-                token_path="/my/token.json",
+                token_path="/my/token.json",  # nosec B106 - test fixture path
                 cache_dir="/my/cache",
             )
             self.assertEqual(result, mock_client_instance)
@@ -331,7 +331,7 @@ class TestBuildProviderForAccount(unittest.TestCase):
 
             mock_provider.assert_called_once_with(
                 credentials_path="/default/creds.json",
-                token_path="/default/token.json",
+                token_path="/default/token.json",  # nosec B106 - test fixture path
                 cache_dir=None,
             )
 
@@ -353,7 +353,7 @@ class TestBuildProviderForAccount(unittest.TestCase):
 
             mock_provider.assert_called_once_with(
                 credentials_path="/expanded/my/creds.json",
-                token_path="/expanded/my/token.json",
+                token_path="/expanded/my/token.json",  # nosec B106 - test fixture path
                 cache_dir="/my/cache",
             )
 

@@ -149,7 +149,7 @@ class ResolvePathsTests(unittest.TestCase):
         _write_ini("/ini/creds.json", "/ini/token.json")
         creds, token = resolve_paths(
             arg_credentials=None,
-            arg_token="/arg/token.json",
+            arg_token="/arg/token.json",  # nosec B106 - test fixture path
         )
         self.assertEqual(token, "/arg/token.json")
 
@@ -225,7 +225,7 @@ class PersistIfProvidedTests(unittest.TestCase):
     def test_persists_with_profile(self):
         persist_if_provided(
             arg_credentials="/work/creds.json",
-            arg_token="/work/token.json",
+            arg_token="/work/token.json",  # nosec B106 - test fixture path
             profile="work",
         )
         result = _read_ini()
