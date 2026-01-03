@@ -75,7 +75,7 @@ def make_unused_args(
     backup: Optional[str] = None,
     keep: Optional[str] = None,
     limit: int = 20,
-    output: str = "text",
+    format: str = "text",  # Note: CLI uses 'format' not 'output'
     out: Optional[str] = None,
 ) -> MagicMock:
     """Create args for cmd_unused."""
@@ -84,7 +84,7 @@ def make_unused_args(
         backup=backup,
         keep=keep,
         limit=limit,
-        output=output,
+        format=format,
         out=out,
     )
 
@@ -94,7 +94,7 @@ def make_prune_args(
     backup: Optional[str] = None,
     keep: Optional[str] = None,
     limit: int = 20,
-    delete: bool = False,
+    mode: str = "offload",  # Note: CLI uses 'mode' not 'delete'
     out: str = "out/ios.prune_plan.txt",
 ) -> MagicMock:
     """Create args for cmd_prune."""
@@ -103,7 +103,7 @@ def make_prune_args(
         backup=backup,
         keep=keep,
         limit=limit,
-        delete=delete,
+        mode=mode,
         out=out,
     )
 
@@ -112,10 +112,10 @@ def make_analyze_args(
     layout: Optional[str] = None,
     backup: Optional[str] = None,
     plan: Optional[str] = None,
-    output: str = "text",
+    format: str = "text",  # Note: CLI uses 'format' not 'output'
 ) -> MagicMock:
     """Create args for cmd_analyze."""
-    return make_args(layout=layout, backup=backup, plan=plan, output=output)
+    return make_args(layout=layout, backup=backup, plan=plan, format=format)
 
 
 def make_manifest_from_export_args(
