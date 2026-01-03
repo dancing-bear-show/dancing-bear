@@ -164,41 +164,15 @@ def persist_if_provided(*, arg_credentials: Optional[str], arg_token: Optional[s
         _write_ini(arg_credentials, arg_token, profile=profile)
 
 
-def persist_profile_settings(
-    settings: Optional[ProfileSettings] = None,
-    *,
-    profile: Optional[str] = None,
-    credentials: Optional[str] = None,
-    token: Optional[str] = None,
-    outlook_client_id: Optional[str] = None,
-    tenant: Optional[str] = None,
-    outlook_token: Optional[str] = None,
-) -> None:
+def persist_profile_settings(settings: ProfileSettings) -> None:
     """Persist profile settings to the INI configuration file.
 
     Args:
-        settings: ProfileSettings object (preferred for new code)
-        profile: Profile name (for backward compatibility)
-        credentials: Gmail credentials path (for backward compatibility)
-        token: Gmail token path (for backward compatibility)
-        outlook_client_id: Outlook client ID (for backward compatibility)
-        tenant: Outlook tenant (for backward compatibility)
-        outlook_token: Outlook token path (for backward compatibility)
+        settings: ProfileSettings object with profile configuration
 
-    Only provided values are written; others are left unchanged.
+    Only provided values in settings are written; others are left unchanged.
     """
-    if settings is not None:
-        _write_ini_from_settings(settings)
-    else:
-        # Backward compatibility: construct settings from individual parameters
-        _write_ini(
-            credentials,
-            token,
-            profile=profile,
-            outlook_client_id=outlook_client_id,
-            tenant=tenant,
-            outlook_token=outlook_token,
-        )
+    _write_ini_from_settings(settings)
 
 
 def _get_ini_section(profile: Optional[str]) -> Dict[str, str]:

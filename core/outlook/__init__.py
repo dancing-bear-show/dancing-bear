@@ -15,17 +15,22 @@ Usage:
 
 from .client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL, GRAPH_API_SCOPES
-from .calendar import (
-    OutlookCalendarMixin,
+from .calendar import OutlookCalendarMixin
+from .models import (
     CalendarRef,
+    DateRange,
     ReminderSettings,
-    EventContent,
-    RecurrenceSettings,
-    EventParams,
-    RecurringEventParams,
-    EventUpdateParams,
+    EventCreationParams,
+    RecurrencePattern,
+    RecurrenceRange,
+    RecurringEventCreationParams,
+    EventSettingsPatch,
+    ListEventsRequest,
+    UpdateEventReminderRequest,
+    ListCalendarViewRequest,
+    SearchParams,
 )
-from .mail import OutlookMailMixin, SearchParams
+from .mail import OutlookMailMixin
 
 
 class OutlookClient(OutlookClientBase, OutlookCalendarMixin, OutlookMailMixin):

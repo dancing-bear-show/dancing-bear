@@ -6,22 +6,25 @@ shape exactly.
 from __future__ import annotations
 
 
-def register(
-    subparsers,
-    *,
-    f_list,
-    f_export,
-    f_sync,
-    f_plan,
-    f_impact,
-    f_sweep,
-    f_sweep_range,
-    f_delete,
-    f_prune_empty,
-    f_add_forward_by_label,
-    f_add_from_token,
-    f_rm_from_token,
-):
+def register(subparsers, **handlers):
+    """Register filters subcommands.
+
+    Args:
+        subparsers: Argument subparsers to register commands with
+        **handlers: Command handler functions (f_list, f_export, etc.)
+    """
+    f_list = handlers["f_list"]
+    f_export = handlers["f_export"]
+    f_sync = handlers["f_sync"]
+    f_plan = handlers["f_plan"]
+    f_impact = handlers["f_impact"]
+    f_sweep = handlers["f_sweep"]
+    f_sweep_range = handlers["f_sweep_range"]
+    f_delete = handlers["f_delete"]
+    f_prune_empty = handlers["f_prune_empty"]
+    f_add_forward_by_label = handlers["f_add_forward_by_label"]
+    f_add_from_token = handlers["f_add_from_token"]
+    f_rm_from_token = handlers["f_rm_from_token"]
     p_filters = subparsers.add_parser("filters", help="Message filter operations (including forwarding)")
     # Group-level common Gmail args
     p_filters.add_argument("--credentials", type=str)

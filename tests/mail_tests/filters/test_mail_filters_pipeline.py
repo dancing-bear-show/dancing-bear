@@ -45,6 +45,7 @@ from mail.filters.producers import (
     FiltersAddForwardProducer,
     FiltersAddTokenProducer,
     FiltersRemoveTokenProducer,
+    SweepProducerConfig,
 )
 
 from tests.mail_tests.fixtures import FakeGmailClient
@@ -298,10 +299,12 @@ filters:
         envelope = processor.process(payload)
         producer = FiltersSweepProducer(
             payload.client,
-            pages=payload.pages,
-            batch_size=payload.batch_size,
-            max_msgs=payload.max_msgs,
-            dry_run=payload.dry_run,
+            SweepProducerConfig(
+                pages=payload.pages,
+                batch_size=payload.batch_size,
+                max_msgs=payload.max_msgs,
+                dry_run=payload.dry_run,
+            ),
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -332,10 +335,12 @@ filters:
         envelope = processor.process(payload)
         producer = FiltersSweepProducer(
             payload.client,
-            pages=payload.pages,
-            batch_size=payload.batch_size,
-            max_msgs=payload.max_msgs,
-            dry_run=payload.dry_run,
+            SweepProducerConfig(
+                pages=payload.pages,
+                batch_size=payload.batch_size,
+                max_msgs=payload.max_msgs,
+                dry_run=payload.dry_run,
+            ),
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -366,10 +371,12 @@ filters:
         envelope = processor.process(payload)
         producer = FiltersSweepRangeProducer(
             payload.client,
-            pages=payload.pages,
-            batch_size=payload.batch_size,
-            max_msgs=payload.max_msgs,
-            dry_run=payload.dry_run,
+            SweepProducerConfig(
+                pages=payload.pages,
+                batch_size=payload.batch_size,
+                max_msgs=payload.max_msgs,
+                dry_run=payload.dry_run,
+            ),
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -399,10 +406,12 @@ filters:
         envelope = processor.process(payload)
         producer = FiltersSweepRangeProducer(
             payload.client,
-            pages=payload.pages,
-            batch_size=payload.batch_size,
-            max_msgs=payload.max_msgs,
-            dry_run=payload.dry_run,
+            SweepProducerConfig(
+                pages=payload.pages,
+                batch_size=payload.batch_size,
+                max_msgs=payload.max_msgs,
+                dry_run=payload.dry_run,
+            ),
         )
         buf = io.StringIO()
         with redirect_stdout(buf):

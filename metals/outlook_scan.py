@@ -59,12 +59,15 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
                 break
         return ids
 
+    from core.outlook.mail import SearchParams
     for name, q in QUERIES:
         try:
             if (folder or 'inbox').lower() == 'all':
                 ids = _search_all(q)
             else:
-                ids = cli.search_inbox_messages(q, days=days, top=top, pages=pages, use_cache=False)
+                ids = cli.search_inbox_messages(
+                    SearchParams(search_query=q, days=days, top=top, pages=pages, use_cache=False)
+                )
         except Exception:
             ids = []
         summary[name] = ids

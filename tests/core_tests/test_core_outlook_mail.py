@@ -443,43 +443,55 @@ class TestSearchInboxMessages(OutlookMailTestBase):
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_basic(self, mock_requests_fn):
+        from core.outlook.mail import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
-        result = FakeMailClient().search_inbox_messages("test query", use_cache=False)
+        result = FakeMailClient().search_inbox_messages(
+            SearchParams(search_query="test query", use_cache=False)
+        )
 
         self.assertEqual(result, ["msg-1", "msg-2"])
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_with_days_filter(self, mock_requests_fn):
+        from core.outlook.mail import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
-        FakeMailClient().search_inbox_messages("test", days=7, use_cache=False)
+        FakeMailClient().search_inbox_messages(
+            SearchParams(search_query="test", days=7, use_cache=False)
+        )
 
         call_url = mock_requests.get.call_args[0][0]
         self.assertIn("$filter=receivedDateTime", call_url)
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_pagination(self, mock_requests_fn):
+        from core.outlook.mail import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
             make_mock_response({"value": [{"id": "msg-1"}], "@odata.nextLink": "http://next"}),
             make_mock_response({"value": [{"id": "msg-2"}]}),
         ]
 
-        result = FakeMailClient().search_inbox_messages("test", pages=2, use_cache=False)
+        result = FakeMailClient().search_inbox_messages(
+            SearchParams(search_query="test", pages=2, use_cache=False)
+        )
 
         self.assertEqual(result, ["msg-1", "msg-2"])
         self.assertEqual(mock_requests.get.call_count, 2)
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_with_cache(self, mock_requests_fn):
+        from core.outlook.mail import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
         client = FakeMailClient(cache_dir=test_path("test"))  # nosec B108 - test fixture
-        result = client.search_inbox_messages("test", use_cache=True)
+        result = client.search_inbox_messages(
+            SearchParams(search_query="test", use_cache=True)
+        )
 
         self.assertEqual(len(result), 2)
 

@@ -46,34 +46,12 @@ class AutoApplyPayload:
 class AutoProposeConsumer(Consumer[AutoProposePayload]):
     """Consume args to create propose payload."""
 
-    def __init__(
-        self,
-        context: MailContext,
-        out_path: Path,
-        days: int,
-        pages: int,
-        protect: List[str],
-        dry_run: bool = False,
-        log_path: str = "logs/auto_runs.jsonl",
-    ):
+    def __init__(self, context: MailContext, **kwargs):
         self._context = context
-        self._out_path = out_path
-        self._days = days
-        self._pages = pages
-        self._protect = protect
-        self._dry_run = dry_run
-        self._log_path = log_path
+        self._kwargs = kwargs
 
     def consume(self) -> AutoProposePayload:
-        return AutoProposePayload(
-            context=self._context,
-            out_path=self._out_path,
-            days=self._days,
-            pages=self._pages,
-            protect=self._protect,
-            dry_run=self._dry_run,
-            log_path=self._log_path,
-        )
+        return AutoProposePayload(context=self._context, **self._kwargs)
 
 
 class AutoSummaryConsumer(Consumer[AutoSummaryPayload]):
@@ -90,29 +68,11 @@ class AutoSummaryConsumer(Consumer[AutoSummaryPayload]):
 class AutoApplyConsumer(Consumer[AutoApplyPayload]):
     """Consume args to create apply payload."""
 
-    def __init__(
-        self,
-        context: MailContext,
-        proposal_path: Path,
-        cutoff_days: Optional[int] = None,
-        batch_size: int = 500,
-        dry_run: bool = False,
-        log_path: str = "logs/auto_runs.jsonl",
-    ):
+    def __init__(self, context: MailContext, proposal_path: Path, **kwargs):
         self._context = context
         self._proposal_path = proposal_path
-        self._cutoff_days = cutoff_days
-        self._batch_size = batch_size
-        self._dry_run = dry_run
-        self._log_path = log_path
+        self._kwargs = kwargs
 
     def consume(self) -> AutoApplyPayload:
         proposal = json.loads(self._proposal_path.read_text(encoding="utf-8"))
-        return AutoApplyPayload(
-            context=self._context,
-            proposal=proposal,
-            cutoff_days=self._cutoff_days,
-            batch_size=self._batch_size,
-            dry_run=self._dry_run,
-            log_path=self._log_path,
-        )
+        return AutoApplyPayload(context=self._context, proposal=proposal, **self._kwargs)
