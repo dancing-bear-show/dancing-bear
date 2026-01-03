@@ -25,13 +25,17 @@ class TestPhoneMain(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 0)
 
 
-class PhoneCLITests(unittest.TestCase):
-    def test_help_via_module_invocation(self):
+class TestPhoneCLI(unittest.TestCase):
+    """CLI integration tests for phone assistant."""
+
+    def test_module_invocation_help(self):
+        """Test that python -m phone --help works."""
         proc = run([sys.executable, '-m', 'phone', '--help'])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('Phone Assistant CLI', proc.stdout)
 
     def test_help_via_executable_script(self):
+        """Test that bin/phone --help works."""
         root = repo_root()
         wrapper = bin_path('phone')
         self.assertTrue(wrapper.exists(), 'bin/phone not found')
@@ -40,6 +44,7 @@ class PhoneCLITests(unittest.TestCase):
         self.assertIn('Phone Assistant CLI', proc.stdout)
 
     def test_help_via_legacy_script(self):
+        """Test that bin/phone-assistant --help works."""
         root = repo_root()
         wrapper = bin_path('phone-assistant')
         self.assertTrue(wrapper.exists(), 'bin/phone-assistant not found')
@@ -48,13 +53,14 @@ class PhoneCLITests(unittest.TestCase):
         self.assertIn('Phone Assistant CLI', proc.stdout)
 
     def test_agentic_flag(self):
+        """Test that --agentic flag works."""
         proc = run([sys.executable, '-m', 'phone', '--agentic'])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('agentic: phone', proc.stdout)
 
 
-class PhoneMainTests(unittest.TestCase):
-    """Tests for phone/cli/main.py main() function."""
+class TestPhoneCliMain(unittest.TestCase):
+    """Test phone/cli/main.py main() function."""
 
     def test_main_returns_zero_for_agentic(self):
         """Test main() returns 0 for agentic output."""

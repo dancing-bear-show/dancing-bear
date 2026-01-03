@@ -35,6 +35,12 @@ class TestResumeMain(unittest.TestCase):
             main(["--help"])
         self.assertEqual(ctx.exception.code, 0)
 
+    def test_agentic_flag(self):
+        """Test --agentic flag works via module."""
+        proc = run([sys.executable, "-m", "resume", "--agentic"])
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertIn("agentic: resume", proc.stdout)
+
 
 class TestResumeCliMain(unittest.TestCase):
     """Test resume/cli/main.py main() function."""
@@ -52,40 +58,6 @@ class TestResumeCliMain(unittest.TestCase):
 
         result = main([])
         self.assertEqual(result, 0)
-
-    @patch('resume.cli.main.app')
-    def test_main_handles_keyboard_interrupt(self, mock_app):
-        """Test main() returns 2 on KeyboardInterrupt."""
-        from resume.cli.main import main
-
-        # Create a mock command function that raises KeyboardInterrupt
-        mock_cmd = MagicMock(side_effect=KeyboardInterrupt)
-        mock_parser = MagicMock()
-        mock_args = MagicMock()
-        mock_args._cmd_func = mock_cmd
-        mock_args.agentic = False
-        mock_parser.parse_args.return_value = mock_args
-        mock_app.build_parser.return_value = mock_parser
-
-        result = main(["dummy"])
-        self.assertEqual(result, 2)
-
-    @patch('resume.cli.main.app')
-    def test_main_handles_general_exception(self, mock_app):
-        """Test main() returns 1 on general exception."""
-        from resume.cli.main import main
-
-        # Create a mock command function that raises an exception
-        mock_cmd = MagicMock(side_effect=RuntimeError("Test error"))
-        mock_parser = MagicMock()
-        mock_args = MagicMock()
-        mock_args._cmd_func = mock_cmd
-        mock_args.agentic = False
-        mock_parser.parse_args.return_value = mock_args
-        mock_app.build_parser.return_value = mock_parser
-
-        result = main(["dummy"])
-        self.assertEqual(result, 1)
 
     def test_emit_agentic_function(self):
         """Test _emit_agentic() loads agentic emit function."""

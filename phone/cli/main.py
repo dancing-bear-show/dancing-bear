@@ -526,41 +526,20 @@ def cmd_identity_verify(args) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
+def _install_output_masking() -> None:
+    """Install output masking for secret shielding."""
+    from core.secrets import install_output_masking_from_env
+    install_output_masking_from_env()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
-    # Install conservative secret shielding for stdout/stderr (env-toggled)
-    # This is best-effort: if masking module is unavailable or fails to initialize,
-    # the CLI continues normally without output masking.
-    try:
-        from core.secrets import install_output_masking_from_env as _install_mask
-        _install_mask()
-    except Exception as e:  # nosec B110 - best-effort masking, safe to continue without
-        import sys
-        print(f"Warning: Output masking unavailable ({type(e).__name__}), continuing without secret shielding", file=sys.stderr)
-
-    # Build parser and add agentic flags
-    parser = app.build_parser()
-    assistant.add_agentic_flags(parser)
-
-    # Parse args
-    args = parser.parse_args(argv)
-
-    # Handle agentic output
-    agentic_result = assistant.maybe_emit_agentic(
-        args,
+    return app.run_with_assistant(
+        assistant=assistant,
         emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+        argv=argv,
+        pre_run_hook=_install_output_masking,
     )
-    if agentic_result is not None:
-        return agentic_result
-
-    # Get the command function
-    cmd_func = getattr(args, "_cmd_func", None)
-    if cmd_func is None:
-        parser.print_help()
-        return 0
-
-    # Run the command
-    return cmd_func(args)
 
 
 def _lazy_agentic():
