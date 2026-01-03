@@ -444,26 +444,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Run the CLI."""
-    # Build parser and add agentic flags
-    parser = app.build_parser()
-    assistant.add_agentic_flags(parser)
-
-    # Parse args
-    args = parser.parse_args(argv)
-
-    # Handle agentic output
-    agentic_result = assistant.maybe_emit_agentic(args, emit_func=_emit_agentic)
-    if agentic_result is not None:
-        return int(agentic_result)
-
-    # Get the command function
-    cmd_func = getattr(args, "_cmd_func", None)
-    if cmd_func is None:
-        parser.print_help()
-        return 0
-
-    # Run the command
-    return int(cmd_func(args))
+    return app.run_with_assistant(
+        assistant=assistant,
+        emit_func=_emit_agentic,
+        argv=argv,
+    )
 
 
 if __name__ == "__main__":

@@ -7,13 +7,19 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Code style: qlty](https://img.shields.io/badge/code%20style-qlty-black)](https://qlty.sh)
 
-**New here? Start with the [Getting Started Guide](GETTING_STARTED.md)** - zero to productive in 10 minutes.
+**New here?**
+- **[Getting Started Guide](GETTING_STARTED.md)** - zero to productive in 10 minutes
+- **[Claude Code Setup](GETTING_STARTED.md#claude-code-setup)** - use AI to navigate and extend this project
 
 ---
 
 Unified, dependency-light CLIs for personal workflows across mail, calendars, schedules,
 phone layouts, resumes, and WhatsApp. Built to be safe by default (plan and dry-run first),
 with a single YAML source of truth for Gmail and Outlook filters.
+
+**Built with Claude Code:** This entire codebase was developed using [Claude Code](https://claude.ai/claude-code),
+Anthropic's AI coding assistant. You can use Claude Code to explore the project, add features,
+fix bugs, or just ask questions about how things work. See the [Claude Code Setup](GETTING_STARTED.md#claude-code-setup) guide.
 
 **Self-contained repository:** All tools, helpers, and utilities are contained within this repo.
 External dependencies are minimized and lazily imported. This design ensures backwards
@@ -23,13 +29,24 @@ backwards-compatible wrappers.
 
 ## Quick Start
 
-- Create venv and install:
-  - `make venv`
-- See help:
-  - `./bin/assistant <apple-music|calendar|mail|maker|metals|phone|resume|schedule|whatsapp|wifi> --help`
-  - `./bin/mail --help`
-  - `./bin/calendar --help`
-  - `./bin/schedule --help`
+```bash
+# Clone and setup
+git clone https://github.com/dancing-bear-show/dancing-bear.git
+cd dancing-bear
+make venv
+
+# See what's available
+./bin/assistant --help
+
+# Or use Claude Code to explore (recommended)
+claude  # then ask: "What can this project do?"
+```
+
+**CLI help:**
+- `./bin/assistant <apple-music|calendar|mail|maker|metals|phone|resume|schedule|whatsapp|wifi> --help`
+- `./bin/mail --help`
+- `./bin/calendar --help`
+- `./bin/schedule --help`
 
 ## Core CLIs
 

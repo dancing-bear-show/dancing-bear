@@ -478,27 +478,11 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point for the Resume Assistant CLI."""
-    parser = app.build_parser()
-    assistant.add_agentic_flags(parser)
-
-    args = parser.parse_args(argv)
-
-    agentic_result = assistant.maybe_emit_agentic(args, emit_func=_emit_agentic)
-    if agentic_result is not None:
-        return int(agentic_result)
-
-    cmd_func = getattr(args, "_cmd_func", None)
-    if not cmd_func:
-        parser.print_help()
-        return 0
-
-    try:
-        return int(cmd_func(args))
-    except KeyboardInterrupt:
-        return 2
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    return app.run_with_assistant(
+        assistant=assistant,
+        emit_func=_emit_agentic,
+        argv=argv,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
