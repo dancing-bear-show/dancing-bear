@@ -557,6 +557,105 @@ class TestResumeCommands(unittest.TestCase):
         self.assertIn("experience", written_data)
         self.assertEqual(len(written_data["experience"][0]["bullets"]), 2)
 
+    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.style.build_style_profile')
+    def test_cmd_style_build(self, mock_build, mock_write):
+        """Test cmd_style_build command."""
+        from resume.cli.main import cmd_style_build
+
+        mock_build.return_value = {"word_freq": {"leadership": 10}}
+
+        args = MagicMock()
+        args.corpus_dir = "corpus"
+        args.out = None
+        args.profile = "test"
+        args.out_dir = "out"
+
+        result = cmd_style_build(args)
+        self.assertEqual(result, 0)
+        mock_build.assert_called_once_with("corpus")
+        mock_write.assert_called_once()
+
+    @patch('resume.cli.main.write_text')
+    @patch('resume.cli.main.build_summary')
+    @patch('resume.cli.main.FilterPipeline')
+    @patch('resume.cli.main.read_yaml_or_json')
+    def test_cmd_summarize_markdown_output(self, mock_read, mock_pipeline_class, mock_build_summary, mock_write_text):
+        """Test cmd_summarize with markdown output."""
+        from resume.cli.main import cmd_summarize
+
+        mock_read.return_value = {"name": "Test"}
+        mock_pipeline = MagicMock()
+        mock_pipeline.with_profile_overlays.return_value = mock_pipeline
+        mock_pipeline.with_skill_filter.return_value = mock_pipeline
+        mock_pipeline.with_experience_filter.return_value = mock_pipeline
+        mock_pipeline.execute.return_value = {"name": "Test"}
+        mock_pipeline_class.return_value = mock_pipeline
+
+        mock_build_summary.return_value = {
+            "headline": "Software Engineer",
+            "top_skills": ["Python", "Docker"],
+            "experience_highlights": ["Built systems", "Led teams"],
+        }
+
+        args = MagicMock()
+        args.data = "data.json"
+        args.seed = None
+        args.style_profile = None
+        args.filter_skills_alignment = None
+        args.filter_skills_job = None
+        args.filter_exp_alignment = None
+        args.filter_exp_job = None
+        args.out = None
+        args.profile = "test"
+        args.out_dir = "out"
+
+        result = cmd_summarize(args)
+        self.assertEqual(result, 0)
+        mock_write_text.assert_called_once()
+
+        # Check markdown formatting
+        written_text = mock_write_text.call_args[0][0]
+        self.assertIn("# Resume Summary", written_text)
+        self.assertIn("## Headline", written_text)
+        self.assertIn("Software Engineer", written_text)
+        self.assertIn("## Top Skills", written_text)
+        self.assertIn("Python, Docker", written_text)
+
+    @patch('resume.cli.main.write_yaml_or_json')
+    @patch('resume.cli.main.build_summary')
+    @patch('resume.cli.main.FilterPipeline')
+    @patch('resume.cli.main.read_yaml_or_json')
+    def test_cmd_summarize_json_output(self, mock_read, mock_pipeline_class, mock_build_summary, mock_write_json):
+        """Test cmd_summarize with JSON output."""
+        from resume.cli.main import cmd_summarize
+
+        mock_read.return_value = {"name": "Test"}
+        mock_pipeline = MagicMock()
+        mock_pipeline.with_profile_overlays.return_value = mock_pipeline
+        mock_pipeline.with_skill_filter.return_value = mock_pipeline
+        mock_pipeline.with_experience_filter.return_value = mock_pipeline
+        mock_pipeline.execute.return_value = {"name": "Test"}
+        mock_pipeline_class.return_value = mock_pipeline
+
+        mock_build_summary.return_value = {"headline": "Engineer"}
+
+        args = MagicMock()
+        args.data = "data.json"
+        args.seed = None
+        args.style_profile = None
+        args.filter_skills_alignment = None
+        args.filter_skills_job = None
+        args.filter_exp_alignment = None
+        args.filter_exp_job = None
+        args.out = "summary.json"
+        args.profile = None
+        args.out_dir = "out"
+
+        result = cmd_summarize(args)
+        self.assertEqual(result, 0)
+        mock_write_json.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
