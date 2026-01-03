@@ -5,7 +5,6 @@ Provides arg builders for all phone CLI commands to simplify testing.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import MagicMock
 

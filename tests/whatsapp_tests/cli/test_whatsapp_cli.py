@@ -46,6 +46,17 @@ class WhatsAppMainTests(unittest.TestCase):
         self.assertIsNotNone(emit_func)
         self.assertTrue(callable(emit_func))
 
+    @patch('core.secrets.install_output_masking_from_env')
+    def test_main_handles_masking_failure(self, mock_install):
+        """Test main() continues when output masking fails."""
+        from whatsapp.cli.main import main
+
+        # Simulate masking failure
+        mock_install.side_effect = RuntimeError("Masking unavailable")
+
+        result = main(['--agentic'])
+        self.assertEqual(result, 0)
+
     @patch('whatsapp.cli.main.SearchProcessor')
     @patch('whatsapp.cli.main.SearchProducer')
     def test_cmd_search_mutual_exclusivity_error(self, mock_producer, mock_processor):
