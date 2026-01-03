@@ -14,7 +14,7 @@ class TestResolveGmailCredentials(unittest.TestCase):
         creds, token = resolve_gmail_credentials(
             profile=None,
             credentials_path="/explicit/creds.json",
-            token_path="/explicit/token.json",  # noqa: S106 - test file path
+            token_path="/explicit/token.json",  # noqa: S106  # nosec B106 - test file path
         )
         self.assertEqual(creds, "/explicit/creds.json")
         self.assertEqual(token, "/explicit/token.json")
@@ -42,7 +42,7 @@ class TestResolveOutlookCredentials(unittest.TestCase):
             profile=None,
             client_id="explicit-client-id",
             tenant="explicit-tenant",
-            token_path="/explicit/outlook_token.json",  # noqa: S106 - test file path
+            token_path="/explicit/outlook_token.json",  # noqa: S106  # nosec B106 - test file path
         )
         self.assertEqual(client_id, "explicit-client-id")
         self.assertEqual(tenant, "explicit-tenant")

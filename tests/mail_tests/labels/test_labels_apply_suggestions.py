@@ -25,7 +25,7 @@ class LabelsApplySuggestionsTests(unittest.TestCase):
         cfg_path = write_yaml(cfg, filename="suggestions.yaml")
         args = make_args(
             credentials="cred.json",
-            token="tok.json",  # noqa: S106 - test file path
+            token="tok.json",  # noqa: S106  # nosec B106 - test file path
             config=cfg_path,
             dry_run=True,
             sweep_days=None,
