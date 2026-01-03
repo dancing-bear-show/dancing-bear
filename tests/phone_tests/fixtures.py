@@ -132,6 +132,98 @@ def make_ini_section(
 
 
 # -----------------------------------------------------------------------------
+# YAML structure fixtures (for CLI testing)
+# -----------------------------------------------------------------------------
+
+
+def make_mock_layout_export(
+    dock: Optional[List[str]] = None,
+    pages: Optional[Dict[int, List[str]]] = None,
+    folders: Optional[Dict[str, List[str]]] = None,
+) -> Dict[str, Any]:
+    """Create a mock layout export YAML structure.
+
+    Args:
+        dock: List of bundle IDs for dock
+        pages: Dict of page_num -> list of bundle IDs
+        folders: Dict of folder_name -> list of bundle IDs
+
+    Returns:
+        Dict matching the structure of phone export YAML files
+    """
+    return {
+        "dock": dock or ["com.apple.mobilesafari"],
+        "pages": pages or {1: ["com.apple.Music", "com.apple.podcasts"]},
+        "folders": folders or {"Utilities": ["com.apple.calculator", "com.apple.compass"]},
+    }
+
+
+def make_mock_plan(
+    pins: Optional[List[str]] = None,
+    folders: Optional[Dict[str, List[str]]] = None,
+    pages: Optional[Dict[int, List[str]]] = None,
+    unassigned: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Create a mock plan YAML structure.
+
+    Args:
+        pins: List of bundle IDs to pin to page 1
+        folders: Dict of folder_name -> list of bundle IDs
+        pages: Dict of page_num -> list of folder names
+        unassigned: List of bundle IDs not yet assigned
+
+    Returns:
+        Dict matching the structure of phone plan YAML files
+    """
+    return {
+        "pins": pins or ["com.apple.mobilesafari", "com.apple.Music"],
+        "folders": folders or {
+            "Work": ["com.slack.Slack", "com.microsoft.Office.Outlook"],
+            "Utilities": ["com.apple.calculator", "com.apple.compass"],
+        },
+        "pages": pages or {2: ["Work"], 3: ["Utilities"]},
+        "unassigned": unassigned or [],
+    }
+
+
+def make_mock_manifest(
+    plan: Optional[Dict[str, Any]] = None,
+    layout_export_path: Optional[str] = None,
+    device_label: Optional[str] = None,
+    device_udid: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create a mock manifest YAML structure.
+
+    Args:
+        plan: Embedded plan dict (defaults to make_mock_plan())
+        layout_export_path: Optional path to layout export YAML
+        device_label: Optional device label
+        device_udid: Optional device UDID
+
+    Returns:
+        Dict matching the structure of phone manifest YAML files
+    """
+    manifest = {
+        "meta": {"name": "ios_layout_manifest", "version": 1},
+        "device": {
+            "label": device_label or "Test Device",
+            "udid": device_udid,
+            "creds_profile": "ios_layout_manager",
+        },
+        "profile": {
+            "identifier": "com.example.profile",
+            "hs_identifier": "com.example.hslayout",
+            "display_name": "Home Screen Layout",
+            "organization": "Personal",
+        },
+        "plan": plan or make_mock_plan(),
+    }
+    if layout_export_path:
+        manifest["layout_export_path"] = layout_export_path
+    return manifest
+
+
+# -----------------------------------------------------------------------------
 # Common test fixtures (pre-built items for reuse)
 # -----------------------------------------------------------------------------
 

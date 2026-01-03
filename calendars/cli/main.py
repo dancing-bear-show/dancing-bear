@@ -387,26 +387,19 @@ def cmd_gmail_sweep_top(args) -> int:
     return run_gmail_sweep_top(args)
 
 
+def _add_profile_arg(parser) -> None:
+    """Add --profile argument to parser."""
+    parser.add_argument("--profile", help="Credentials profile (INI section suffix)")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point for the Calendar Assistant CLI."""
-    parser = app.build_parser()
-    parser.add_argument("--profile", help="Credentials profile (INI section suffix)")
-    assistant.add_agentic_flags(parser)
-
-    args = parser.parse_args(argv)
-
-    agentic_result = assistant.maybe_emit_agentic(
-        args, emit_func=lambda fmt, compact: (print(_lazy_agentic()()), 0)[1]
+    return app.run_with_assistant(
+        assistant=assistant,
+        emit_func=lambda fmt, compact: (print(_lazy_agentic()()), 0)[1],
+        argv=argv,
+        post_build_hook=_add_profile_arg,
     )
-    if agentic_result is not None:
-        return agentic_result
-
-    cmd_func = getattr(args, "_cmd_func", None)
-    if not cmd_func:
-        parser.print_help()
-        return 0
-
-    return int(cmd_func(args) or 0)
 
 
 if __name__ == "__main__":

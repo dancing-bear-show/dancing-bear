@@ -93,36 +93,20 @@ def cmd_search(args) -> int:
     return 1
 
 
+def _install_output_masking() -> None:
+    """Install output masking for secret shielding."""
+    from core.secrets import install_output_masking_from_env
+    install_output_masking_from_env()
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """Main entry point for the WhatsApp CLI."""
-    # Install conservative secret shielding for stdout/stderr (env-toggled)
-    try:
-        from core.secrets import install_output_masking_from_env as _install_mask
-
-        _install_mask()
-    except Exception:  # nosec B110 - best-effort masking, non-critical  # pragma: no cover
-        pass  # optional module may not exist
-
-    # Build parser and add agentic flags
-    parser = app.build_parser()
-    assistant.add_agentic_flags(parser)
-
-    args = parser.parse_args(argv)
-
-    # Handle agentic output if requested
-    agentic_result = assistant.maybe_emit_agentic(
-        args, emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact)
+    return app.run_with_assistant(
+        assistant=assistant,
+        emit_func=lambda fmt, compact: _lazy_agentic()(fmt, compact),
+        argv=argv,
+        pre_run_hook=_install_output_masking,
     )
-    if agentic_result is not None:
-        return agentic_result
-
-    # Get the command function
-    cmd_func = getattr(args, "_cmd_func", None)
-    if cmd_func is None:
-        parser.print_help()
-        return 0
-
-    return int(cmd_func(args))
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -280,6 +280,9 @@ class CLIApp:
         assistant: Any,
         emit_func: Callable[[str, bool], int],
         argv: Optional[Sequence[str]] = None,
+        *,
+        pre_run_hook: Optional[Callable[[], None]] = None,
+        post_build_hook: Optional[Callable[[argparse.ArgumentParser], None]] = None,
     ) -> int:
         """Run the CLI application with agentic flag support.
 
@@ -290,12 +293,23 @@ class CLIApp:
             assistant: BaseAssistant instance for agentic flag handling.
             emit_func: Function to emit agentic output (fmt, compact) -> int.
             argv: Command-line arguments (defaults to sys.argv[1:]).
+            pre_run_hook: Optional function to call before parsing (e.g., output masking).
+            post_build_hook: Optional function to customize parser after build (e.g., add args).
 
         Returns:
             Exit code.
         """
+        # Run pre-run hook if provided (e.g., install output masking)
+        if pre_run_hook:
+            try:
+                pre_run_hook()
+            except Exception as e:  # nosec B110 - best-effort hook, safe to continue
+                print(f"Warning: Pre-run hook failed ({type(e).__name__}), continuing", file=sys.stderr)
+
         # Build parser and add agentic flags
         parser = self.build_parser()
+        if post_build_hook:
+            post_build_hook(parser)
         assistant.add_agentic_flags(parser)
 
         args = parser.parse_args(argv)
@@ -311,8 +325,16 @@ class CLIApp:
             parser.print_help()
             return 0
 
-        # Run the command
-        return int(cmd_func(args))
+        # Run the command with error handling
+        try:
+            return int(cmd_func(args))
+        except CLIError as e:
+            return handle_error(e, verbose=getattr(args, "verbose", False))
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            return ExitCode.INTERRUPTED
+        except Exception as e:
+            return handle_error(e, verbose=getattr(args, "verbose", False))
 
     def run(self, argv: Optional[Sequence[str]] = None) -> int:
         """Run the CLI application.

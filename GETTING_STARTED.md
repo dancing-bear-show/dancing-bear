@@ -25,6 +25,7 @@ Every destructive action has a `--dry-run` or `plan` step first. You won't accid
 - **Python 3.11+** installed
 - **Git** to clone the repo
 - A terminal (macOS Terminal, iTerm2, Windows Terminal, etc.)
+- **Claude Code** (optional but recommended) - see [Claude Code Setup](#claude-code-setup) below
 
 ## Step 1: Clone and Set Up
 
@@ -114,13 +115,62 @@ Export your current home screen layout, plan changes, and apply:
 ./bin/metals extract gmail --out metals.yaml
 ```
 
-## Using with an LLM (Recommended)
+## Claude Code Setup
 
-This project was built entirely with LLM assistance and is designed to be extended the same way. The codebase includes context files that help LLMs understand the project structure - you can add features, fix bugs, or explore the code by just asking.
+This project was built entirely with Claude Code and is designed to be extended the same way. Claude Code is an AI coding assistant that runs in your terminal - it can read files, write code, run commands, and help you navigate the codebase.
 
-### With Claude Code (Recommended)
+### What is Claude Code?
 
-[Claude Code](https://claude.com/claude-code) works best because this project was built with it:
+Claude Code is Anthropic's command-line tool that brings Claude directly into your terminal. It can:
+- Read and understand code in your project
+- Write and edit files
+- Run terminal commands
+- Help you debug, refactor, and add features
+- Automatically read project context from `CLAUDE.md`
+
+### Installing Claude Code
+
+**Option 1: npm (Recommended)**
+```bash
+# Install globally with npm
+npm install -g @anthropic-ai/claude-code
+
+# Verify installation
+claude --version
+```
+
+**Option 2: Homebrew (macOS)**
+```bash
+brew install claude-code
+```
+
+**Option 3: Direct download**
+
+Visit [claude.ai/claude-code](https://claude.ai/claude-code) and follow the installation instructions for your platform.
+
+### First-Time Setup
+
+1. **Get an API key** (if you don't have one):
+   - Go to [console.anthropic.com](https://console.anthropic.com)
+   - Sign up or log in
+   - Navigate to API Keys and create a new key
+   - Copy the key (starts with `sk-ant-`)
+
+2. **Configure Claude Code**:
+   ```bash
+   # Set your API key (one-time setup)
+   claude config set api_key sk-ant-your-key-here
+
+   # Or set it as an environment variable
+   export ANTHROPIC_API_KEY=sk-ant-your-key-here
+   ```
+
+3. **Verify it works**:
+   ```bash
+   claude --help
+   ```
+
+### Using Claude Code with This Project
 
 ```bash
 # Navigate to the project
@@ -129,51 +179,62 @@ cd dancing-bear
 # Start Claude Code
 claude
 
-# Ask it to help with tasks like:
-# "Set up Gmail authentication for me"
-# "Create a filter that archives newsletters"
-# "Help me schedule my weekly classes from this CSV"
+# You're now in an interactive session. Try asking:
 ```
 
-Claude Code automatically reads `CLAUDE.md` for project context.
+**Example prompts to get started:**
 
-### With Codex / ChatGPT
+```
+# Understanding the project
+"What does this project do?"
+"Show me the main CLI entry points"
+"How is the codebase organized?"
 
-Copy the context from `.llm/CONTEXT.md` into your conversation:
+# Getting help with tasks
+"Help me set up Gmail authentication"
+"Create a filter that archives newsletters from example.com"
+"Export my current email filters to YAML"
 
-```bash
-# Get the context file
-cat .llm/CONTEXT.md | pbcopy  # macOS
-# or
-cat .llm/CONTEXT.md | xclip   # Linux
+# Working with resumes
+"Extract data from my LinkedIn profile (saved as profile.html)"
+"Help me align my resume with this job posting"
+"Render a tailored resume for a Python developer role"
+
+# Debugging
+"Why am I getting an authentication error?"
+"The calendar sync isn't working - help me debug"
 ```
 
-Then paste it at the start of your ChatGPT/Codex session before asking questions.
+### How It Works
 
-### With Gemini
+When you run `claude` in this project directory, Claude Code automatically:
 
-Same approach as Codex - provide the context file:
+1. Reads `CLAUDE.md` for project-specific instructions
+2. Understands the codebase structure
+3. Can run commands like `./bin/mail --help`
+4. Can read, create, and edit files
+5. Remembers context throughout your session
+
+### Tips for Best Results
+
+- **Be specific**: "Add a filter for emails from @newsletter.com that archives them" works better than "help with filters"
+- **Let it explore**: Say "look at how the existing filters work first" before asking for changes
+- **Use dry-run**: Ask it to use `--dry-run` flags when testing changes
+- **Review changes**: Claude will show you what it's about to do - review before confirming
+
+### Alternative: Other LLMs
+
+If you prefer ChatGPT, Gemini, or another LLM:
 
 ```bash
-cat .llm/CONTEXT.md
-```
+# Get context to paste into your LLM conversation
+cat .llm/CONTEXT.md | pbcopy  # macOS - copies to clipboard
 
-Copy the output and include it in your Gemini prompt.
-
-### Getting LLM Context Programmatically
-
-The project includes utilities to generate context for LLMs:
-
-```bash
-# Compact context for any LLM
+# Or get a compact summary
 ./bin/llm agentic --stdout
-
-# Domain map (what's where in the codebase)
-./bin/llm domain-map --stdout
-
-# Familiarize yourself with the project
-./bin/llm familiar --stdout
 ```
+
+Paste the context at the start of your conversation, then ask your questions.
 
 ## Core Concepts
 
