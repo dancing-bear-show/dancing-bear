@@ -1,5 +1,6 @@
 import sys
 import unittest
+from unittest.mock import patch
 
 from tests.fixtures import bin_path, repo_root, run
 
@@ -30,3 +31,40 @@ class PhoneCLITests(unittest.TestCase):
         proc = run([sys.executable, '-m', 'phone', '--agentic'])
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn('agentic: phone', proc.stdout)
+
+
+class PhoneMainTests(unittest.TestCase):
+    """Tests for phone/cli/main.py main() function."""
+
+    def test_main_returns_zero_for_agentic(self):
+        """Test main() returns 0 for agentic output."""
+        from phone.cli.main import main
+
+        result = main(['--agentic'])
+        self.assertEqual(result, 0)
+
+    def test_main_no_command_shows_help(self):
+        """Test main() shows help when no command provided."""
+        from phone.cli.main import main
+
+        result = main([])
+        self.assertEqual(result, 0)
+
+    @patch('core.secrets.install_output_masking_from_env')
+    def test_main_handles_masking_failure(self, mock_install):
+        """Test main() continues when output masking fails."""
+        from phone.cli.main import main
+
+        # Simulate masking failure
+        mock_install.side_effect = RuntimeError("Masking unavailable")
+
+        result = main(['--agentic'])
+        self.assertEqual(result, 0)
+
+    def test_lazy_agentic_loader(self):
+        """Test _lazy_agentic() loads agentic emit function."""
+        from phone.cli.main import _lazy_agentic
+
+        emit_func = _lazy_agentic()
+        self.assertIsNotNone(emit_func)
+        self.assertTrue(callable(emit_func))
