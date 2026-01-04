@@ -12,7 +12,19 @@ def register(subparsers, **handlers):
     Args:
         subparsers: Argument subparsers to register commands with
         **handlers: Command handler functions (f_list, f_export, etc.)
+
+    Raises:
+        ValueError: If any required handler is missing
     """
+    required_keys = [
+        "f_list", "f_export", "f_sync", "f_plan", "f_impact", "f_sweep",
+        "f_sweep_range", "f_delete", "f_prune_empty", "f_add_forward_by_label",
+        "f_add_from_token", "f_rm_from_token"
+    ]
+    missing = [k for k in required_keys if k not in handlers]
+    if missing:
+        raise ValueError(f"Missing required handlers: {missing}")
+
     f_list = handlers["f_list"]
     f_export = handlers["f_export"]
     f_sync = handlers["f_sync"]

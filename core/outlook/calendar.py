@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from .client import OutlookClientBase, _requests
 from .models import (
@@ -184,7 +184,7 @@ class OutlookCalendarMixin:
 
     def create_event(
         self: OutlookClientBase,
-        params: Union[EventCreationParams, None] = None,
+        params: Optional[EventCreationParams] = None,
         *,
         calendar_id: Optional[str] = None,
         calendar_name: Optional[str] = None,
@@ -257,7 +257,7 @@ class OutlookCalendarMixin:
 
     def create_recurring_event(
         self: OutlookClientBase,
-        params: Union[RecurringEventCreationParams, None] = None,
+        params: Optional[RecurringEventCreationParams] = None,
         *,
         calendar_id: Optional[str] = None,
         calendar_name: Optional[str] = None,
