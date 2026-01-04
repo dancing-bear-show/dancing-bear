@@ -371,9 +371,8 @@ class FiltersSweepProcessor(Processor[FiltersSweepPayload, ResultEnvelope[Filter
     """Prepare sweep instructions from YAML filters."""
 
     def process(self, payload: FiltersSweepPayload) -> ResultEnvelope[FiltersSweepResult]:
-        config = SweepConfig(days=payload.days, only_inbox=payload.only_inbox)
         instructions = [
-            _build_sweep_instruction(spec, payload.client, config)
+            _build_sweep_instruction(spec, payload.client, payload.sweep_config)
             for spec in payload.filters
         ]
         return ResultEnvelope(status="success", payload=FiltersSweepResult(instructions=instructions))

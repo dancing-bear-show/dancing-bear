@@ -143,15 +143,7 @@ def run_filters_sweep(args) -> int:
         args,
         FiltersSweepConsumer,
         FiltersSweepProcessor,
-        lambda p: FiltersSweepProducer(
-            p.client,
-            SweepProducerConfig(
-                pages=p.pages,
-                batch_size=p.batch_size,
-                max_msgs=p.max_msgs,
-                dry_run=p.dry_run,
-            ),
-        ),
+        lambda p: FiltersSweepProducer(p.client, p.producer_config),
     )
 
 
@@ -160,15 +152,7 @@ def run_filters_sweep_range(args) -> int:
         args,
         FiltersSweepRangeConsumer,
         FiltersSweepRangeProcessor,
-        lambda p: FiltersSweepRangeProducer(
-            p.client,
-            SweepProducerConfig(
-                pages=p.pages,
-                batch_size=p.batch_size,
-                max_msgs=p.max_msgs,
-                dry_run=p.dry_run,
-            ),
-        ),
+        lambda p: FiltersSweepRangeProducer(p.client, p.producer_config),
     )
 
 

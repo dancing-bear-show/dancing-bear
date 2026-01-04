@@ -297,15 +297,7 @@ filters:
         payload = consumer.consume()
         processor = FiltersSweepProcessor()
         envelope = processor.process(payload)
-        producer = FiltersSweepProducer(
-            payload.client,
-            SweepProducerConfig(
-                pages=payload.pages,
-                batch_size=payload.batch_size,
-                max_msgs=payload.max_msgs,
-                dry_run=payload.dry_run,
-            ),
-        )
+        producer = FiltersSweepProducer(payload.client, payload.producer_config)
         buf = io.StringIO()
         with redirect_stdout(buf):
             producer.produce(envelope)
@@ -333,15 +325,7 @@ filters:
         payload = consumer.consume()
         processor = FiltersSweepProcessor()
         envelope = processor.process(payload)
-        producer = FiltersSweepProducer(
-            payload.client,
-            SweepProducerConfig(
-                pages=payload.pages,
-                batch_size=payload.batch_size,
-                max_msgs=payload.max_msgs,
-                dry_run=payload.dry_run,
-            ),
-        )
+        producer = FiltersSweepProducer(payload.client, payload.producer_config)
         buf = io.StringIO()
         with redirect_stdout(buf):
             producer.produce(envelope)
@@ -369,15 +353,7 @@ filters:
         payload = consumer.consume()
         processor = FiltersSweepRangeProcessor()
         envelope = processor.process(payload)
-        producer = FiltersSweepRangeProducer(
-            payload.client,
-            SweepProducerConfig(
-                pages=payload.pages,
-                batch_size=payload.batch_size,
-                max_msgs=payload.max_msgs,
-                dry_run=payload.dry_run,
-            ),
-        )
+        producer = FiltersSweepRangeProducer(payload.client, payload.producer_config)
         buf = io.StringIO()
         with redirect_stdout(buf):
             producer.produce(envelope)
@@ -404,15 +380,7 @@ filters:
         payload = consumer.consume()
         processor = FiltersSweepRangeProcessor()
         envelope = processor.process(payload)
-        producer = FiltersSweepRangeProducer(
-            payload.client,
-            SweepProducerConfig(
-                pages=payload.pages,
-                batch_size=payload.batch_size,
-                max_msgs=payload.max_msgs,
-                dry_run=payload.dry_run,
-            ),
-        )
+        producer = FiltersSweepRangeProducer(payload.client, payload.producer_config)
         buf = io.StringIO()
         with redirect_stdout(buf):
             producer.produce(envelope)

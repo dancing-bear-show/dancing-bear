@@ -235,7 +235,7 @@ class ListCalendarViewRequest:
 class SearchParams:
     """Parameters for inbox search."""
 
-    query: str
+    search_query: str
     days: Optional[int] = None
     top: int = 25
     pages: int = 2
