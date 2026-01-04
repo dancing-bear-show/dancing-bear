@@ -175,11 +175,6 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
     def __init__(self, client: BaseProvider, config: SweepProducerConfig):
         self.client = client
         self.config = config
-        # Legacy field access for backwards compatibility
-        self.pages = config.pages
-        self.batch_size = config.batch_size
-        self.max_msgs = config.max_msgs
-        self.dry_run = config.dry_run
 
     def produce(self, result: ResultEnvelope[FiltersSweepResult]) -> None:
         if not result.ok() or not result.payload:
@@ -190,11 +185,11 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
             ids = _list_message_ids_shared(
                 self.client,
                 query=instruction.query,
-                pages=self.pages,
-                max_msgs=self.max_msgs,
+                pages=self.config.pages,
+                max_msgs=self.config.max_msgs,
             )
             query_display = instruction.query if instruction.query else "(empty)"
-            if self.dry_run:
+            if self.config.dry_run:
                 print(
                     f"Query: {query_display} => {len(ids)} messages; "
                     f"+{instruction.add_label_ids} -{instruction.remove_label_ids}"
@@ -207,7 +202,7 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
                         remove_label_ids=instruction.remove_label_ids,
                     ),
                     ids,
-                    self.batch_size,
+                    self.config.batch_size,
                 )
                 print(f"Modified {len(ids)} messages for rule")
             total += len(ids)
@@ -220,11 +215,6 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
     def __init__(self, client: BaseProvider, config: SweepProducerConfig):
         self.client = client
         self.config = config
-        # Legacy field access for backwards compatibility
-        self.pages = config.pages
-        self.batch_size = config.batch_size
-        self.max_msgs = config.max_msgs
-        self.dry_run = config.dry_run
 
     def produce(self, result: ResultEnvelope[FiltersSweepRangeResult]) -> None:
         if not result.ok() or not result.payload:
@@ -238,10 +228,10 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
                 ids = _list_message_ids_shared(
                     self.client,
                     query=instruction.query,
-                    pages=self.pages,
-                    max_msgs=self.max_msgs,
+                    pages=self.config.pages,
+                    max_msgs=self.config.max_msgs,
                 )
-                if self.dry_run:
+                if self.config.dry_run:
                     query_display = instruction.query if instruction.query else "(empty)"
                     print(
                         f"  {len(ids)} msgs; +{instruction.add_label_ids} "
@@ -255,7 +245,7 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
                             remove_label_ids=instruction.remove_label_ids,
                         ),
                         ids,
-                        self.batch_size,
+                        self.config.batch_size,
                     )
                 window_total += len(ids)
             print(f"Window modified: {window_total}")
