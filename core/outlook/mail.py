@@ -213,13 +213,13 @@ class OutlookMailMixin:
         """Return message IDs in Inbox matching $search query, optional days filter."""
         if self.cache_dir and params.use_cache:
             import hashlib
-            key = f"search_{hashlib.sha256(f'{params.query}|{params.top}|{params.pages}|{params.days}'.encode()).hexdigest()}"
+            key = f"search_{hashlib.sha256(f'{params.search_query}|{params.top}|{params.pages}|{params.days}'.encode()).hexdigest()}"
             cached = self.cfg_get_json(key, params.ttl)
             if isinstance(cached, list):
                 return [str(x) for x in cached]
         ids: List[str] = []
         base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
-        search_params = [f"$search=\"{params.query}\"", f"$top={int(params.top)}"]
+        search_params = [f"$search=\"{params.search_query}\"", f"$top={int(params.top)}"]
         if params.days and int(params.days) > 0:
             import datetime as _dt
             start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(params.days))
