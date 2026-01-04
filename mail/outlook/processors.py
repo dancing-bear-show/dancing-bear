@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple
 
 from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 from core.pipeline import Processor, ResultEnvelope
