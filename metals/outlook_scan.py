@@ -39,7 +39,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
         params = [f"$search=\"{q}\"", f"$top={int(top)}"]
         if days and int(days) > 0:
             import datetime as _dt
-            start = _dt.datetime.utcnow() - _dt.timedelta(days=int(days))
+            start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(days))
             start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
             params.append(f"$filter=receivedDateTime ge {start_iso}")
         url = base + "?" + "&".join(params)

@@ -222,7 +222,7 @@ class OutlookMailMixin:
         search_params = [f"$search=\"{params.search_query}\"", f"$top={int(params.top)}"]
         if params.days and int(params.days) > 0:
             import datetime as _dt
-            start = _dt.datetime.utcnow() - _dt.timedelta(days=int(params.days))
+            start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(params.days))
             start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
             search_params.append(f"$filter=receivedDateTime ge {start_iso}")
         url = base + "?" + "&".join(search_params)
