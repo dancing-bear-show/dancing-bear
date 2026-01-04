@@ -182,182 +182,60 @@ class OutlookCalendarMixin:
             return mbx
         return "America/Toronto"
 
-    def create_event(
-        self: OutlookClientBase,
-        params: Optional[EventCreationParams] = None,
-        *,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        subject: Optional[str] = None,
-        start_iso: Optional[str] = None,
-        end_iso: Optional[str] = None,
-        tz: Optional[str] = None,
-        body_html: Optional[str] = None,
-        all_day: bool = False,
-        location: Optional[str] = None,
-        no_reminder: bool = False,
-        reminder_minutes: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """Create a one-time event.
-
-        Args:
-            params: EventCreationParams object (preferred). If provided, other args are ignored.
-            calendar_id: Calendar ID (legacy, use params instead).
-            calendar_name: Calendar name (legacy, use params instead).
-            subject: Event subject (legacy, use params instead).
-            start_iso: Start datetime ISO string (legacy, use params instead).
-            end_iso: End datetime ISO string (legacy, use params instead).
-            tz: Timezone (legacy, use params instead).
-            body_html: HTML body content (legacy, use params instead).
-            all_day: Whether this is an all-day event (legacy, use params instead).
-            location: Location string (legacy, use params instead).
-            no_reminder: Disable reminder (legacy, use params instead).
-            reminder_minutes: Reminder minutes before start (legacy, use params instead).
-
-        Returns:
-            Created event response from Graph API.
-        """
-        # Support both params object and legacy kwargs
-        if params is not None:
-            p = params
-        else:
-            if subject is None or start_iso is None or end_iso is None:
-                raise ValueError("subject, start_iso, and end_iso are required")
-            p = EventCreationParams(
-                subject=subject,
-                start_iso=start_iso,
-                end_iso=end_iso,
-                calendar_id=calendar_id,
-                calendar_name=calendar_name,
-                tz=tz,
-                body_html=body_html,
-                all_day=all_day,
-                location=location,
-                no_reminder=no_reminder,
-                reminder_minutes=reminder_minutes,
-            )
-
-        tz_final = self._resolve_tz(p.tz)
-        cal_id = self._resolve_calendar_id(p.calendar_id, p.calendar_name)
+    def create_event(self: OutlookClientBase, params: EventCreationParams) -> Dict[str, Any]:
+        """Create a one-time event."""
+        tz_final = self._resolve_tz(params.tz)
+        cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
         payload: Dict[str, Any] = {
-            "subject": p.subject,
-            "start": {"dateTime": p.start_iso, "timeZone": tz_final},
-            "end": {"dateTime": p.end_iso, "timeZone": tz_final},
+            "subject": params.subject,
+            "start": {"dateTime": params.start_iso, "timeZone": tz_final},
+            "end": {"dateTime": params.end_iso, "timeZone": tz_final},
         }
-        if p.body_html:
-            payload["body"] = {"contentType": "HTML", "content": p.body_html}
-        if p.location:
-            payload["location"] = _parse_location(p.location)
-        if p.all_day:
+        if params.body_html:
+            payload["body"] = {"contentType": "HTML", "content": params.body_html}
+        if params.location:
+            payload["location"] = _parse_location(params.location)
+        if params.all_day:
             payload["isAllDay"] = True
-        self._apply_reminder(payload, p.no_reminder, p.reminder_minutes)
+        self._apply_reminder(payload, params.no_reminder, params.reminder_minutes)
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         return r.json()
 
     def create_recurring_event(
-        self: OutlookClientBase,
-        params: Optional[RecurringEventCreationParams] = None,
-        *,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
-        subject: Optional[str] = None,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        tz: Optional[str] = None,
-        repeat: Optional[str] = None,
-        interval: int = 1,
-        byday: Optional[List[str]] = None,
-        range_start_date: Optional[str] = None,
-        range_until: Optional[str] = None,
-        count: Optional[int] = None,
-        body_html: Optional[str] = None,
-        location: Optional[str] = None,
-        exdates: Optional[List[str]] = None,
-        no_reminder: bool = False,
-        reminder_minutes: Optional[int] = None,
+        self: OutlookClientBase, params: RecurringEventCreationParams
     ) -> Dict[str, Any]:
-        """Create a recurring event series.
+        """Create a recurring event series."""
+        tz_final = self._resolve_tz(params.tz)
+        cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
 
-        Args:
-            params: RecurringEventCreationParams object (preferred). If provided, other args are ignored.
-            calendar_id: Calendar ID (legacy, use params instead).
-            calendar_name: Calendar name (legacy, use params instead).
-            subject: Event subject (legacy, use params instead).
-            start_time: Start time HH:MM:SS (legacy, use params instead).
-            end_time: End time HH:MM:SS (legacy, use params instead).
-            tz: Timezone (legacy, use params instead).
-            repeat: Recurrence type: daily|weekly|monthly (legacy, use params instead).
-            interval: Recurrence interval (legacy, use params instead).
-            byday: Days for weekly recurrence ["MO","WE","FR"] (legacy, use params instead).
-            range_start_date: Start date YYYY-MM-DD (legacy, use params instead).
-            range_until: End date YYYY-MM-DD (legacy, use params instead).
-            count: Number of occurrences (legacy, use params instead).
-            body_html: HTML body content (legacy, use params instead).
-            location: Location string (legacy, use params instead).
-            exdates: Dates to exclude (legacy, use params instead).
-            no_reminder: Disable reminder (legacy, use params instead).
-            reminder_minutes: Reminder minutes before start (legacy, use params instead).
+        pattern = self._build_recurrence_pattern(params.repeat, params.interval, params.byday)
+        rng = self._build_recurrence_range(params.range_start_date, params.range_until, params.count)
 
-        Returns:
-            Created series master event from Graph API.
-        """
-        # Support both params object and legacy kwargs
-        if params is not None:
-            p = params
-        else:
-            if subject is None or start_time is None or end_time is None or repeat is None or range_start_date is None:
-                raise ValueError("subject, start_time, end_time, repeat, and range_start_date are required")
-            p = RecurringEventCreationParams(
-                subject=subject,
-                start_time=start_time,
-                end_time=end_time,
-                repeat=repeat,
-                calendar_id=calendar_id,
-                calendar_name=calendar_name,
-                tz=tz,
-                interval=interval,
-                byday=byday,
-                range_start_date=range_start_date,
-                range_until=range_until,
-                count=count,
-                body_html=body_html,
-                location=location,
-                exdates=exdates,
-                no_reminder=no_reminder,
-                reminder_minutes=reminder_minutes,
-            )
-
-        tz_final = self._resolve_tz(p.tz)
-        cal_id = self._resolve_calendar_id(p.calendar_id, p.calendar_name)
-
-        pattern = self._build_recurrence_pattern(p.repeat, p.interval, p.byday)
-        rng = self._build_recurrence_range(p.range_start_date, p.range_until, p.count)
-
-        start_iso = f"{p.range_start_date}T{p.start_time}"
-        end_iso = f"{p.range_start_date}T{p.end_time}"
+        start_iso = f"{params.range_start_date}T{params.start_time}"
+        end_iso = f"{params.range_start_date}T{params.end_time}"
 
         payload: Dict[str, Any] = {
-            "subject": p.subject,
+            "subject": params.subject,
             "start": {"dateTime": start_iso, "timeZone": tz_final},
             "end": {"dateTime": end_iso, "timeZone": tz_final},
             "recurrence": {"pattern": pattern, "range": rng},
         }
-        if p.body_html:
-            payload["body"] = {"contentType": "HTML", "content": p.body_html}
-        if p.location:
-            payload["location"] = _parse_location(p.location)
-        self._apply_reminder(payload, p.no_reminder, p.reminder_minutes)
+        if params.body_html:
+            payload["body"] = {"contentType": "HTML", "content": params.body_html}
+        if params.location:
+            payload["location"] = _parse_location(params.location)
+        self._apply_reminder(payload, params.no_reminder, params.reminder_minutes)
 
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         series = r.json()
 
-        if p.exdates:
+        if params.exdates:
             try:
                 sid = series.get("id")
                 if sid:
-                    self._apply_exdate_deletions(cal_id, sid, p.exdates, tz_final, rng)
+                    self._apply_exdate_deletions(cal_id, sid, params.exdates, tz_final, rng)
             except Exception:  # nosec B110 - non-fatal exdate deletion
                 pass
         return series

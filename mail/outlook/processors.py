@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
+from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 from core.pipeline import Processor, ResultEnvelope
 
 from .consumers import (
@@ -823,8 +824,7 @@ class OutlookCalendarAddProcessor(Processor[OutlookCalendarAddPayload, ResultEnv
 
     def process(self, payload: OutlookCalendarAddPayload) -> ResultEnvelope[OutlookCalendarAddResult]:
         try:
-            evt = payload.client.create_event(
-                calendar_id=None,
+            evt = payload.client.create_event(EventCreationParams(
                 calendar_name=payload.calendar_name,
                 subject=payload.subject,
                 start_iso=payload.start_iso,
@@ -834,7 +834,7 @@ class OutlookCalendarAddProcessor(Processor[OutlookCalendarAddPayload, ResultEnv
                 all_day=payload.all_day,
                 location=payload.location,
                 no_reminder=payload.no_reminder,
-            )
+            ))
             return ResultEnvelope(
                 status="success",
                 payload=OutlookCalendarAddResult(
@@ -855,8 +855,7 @@ class OutlookCalendarAddRecurringProcessor(Processor[OutlookCalendarAddRecurring
 
     def process(self, payload: OutlookCalendarAddRecurringPayload) -> ResultEnvelope[OutlookCalendarAddRecurringResult]:
         try:
-            evt = payload.client.create_recurring_event(
-                calendar_id=None,
+            evt = payload.client.create_recurring_event(RecurringEventCreationParams(
                 calendar_name=payload.calendar_name,
                 subject=payload.subject,
                 start_time=payload.start_time,
@@ -872,7 +871,7 @@ class OutlookCalendarAddRecurringProcessor(Processor[OutlookCalendarAddRecurring
                 location=payload.location,
                 exdates=payload.exdates,
                 no_reminder=payload.no_reminder,
-            )
+            ))
             return ResultEnvelope(
                 status="success",
                 payload=OutlookCalendarAddRecurringResult(
@@ -941,24 +940,23 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
     def _create_recurring_event(self, ev: Dict[str, Any], client: Any, no_reminder: bool) -> bool:
         """Create a recurring event from config dict."""
         try:
-            client.create_recurring_event(
-                calendar_id=None,
+            client.create_recurring_event(RecurringEventCreationParams(
                 calendar_name=ev.get("calendar"),
-                subject=ev.get("subject"),
-                start_time=ev.get("start_time") or ev.get("startTime") or ev.get("start-time"),
-                end_time=ev.get("end_time") or ev.get("endTime") or ev.get("end-time"),
+                subject=ev.get("subject") or "",
+                start_time=ev.get("start_time") or ev.get("startTime") or ev.get("start-time") or "",
+                end_time=ev.get("end_time") or ev.get("endTime") or ev.get("end-time") or "",
                 tz=ev.get("tz"),
-                repeat=ev.get("repeat"),
+                repeat=ev.get("repeat") or "",
                 interval=int(ev.get("interval", 1)),
                 byday=ev.get("byday") or ev.get("byDay"),
-                range_start_date=(ev.get("range", {}) or {}).get("start_date") or ev.get("start_date") or ev.get("startDate"),
+                range_start_date=(ev.get("range", {}) or {}).get("start_date") or ev.get("start_date") or ev.get("startDate") or "",
                 range_until=(ev.get("range", {}) or {}).get("until") or ev.get("until"),
                 count=ev.get("count"),
                 body_html=ev.get("body_html") or ev.get("bodyHtml"),
                 location=ev.get("location"),
                 exdates=ev.get("exdates") or ev.get("exceptions") or [],
                 no_reminder=no_reminder,
-            )
+            ))
             return True
         except Exception:  # nosec B110 - recurring event creation failure
             return False
@@ -971,10 +969,9 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
             return False
 
         try:
-            client.create_event(
-                calendar_id=None,
+            client.create_event(EventCreationParams(
                 calendar_name=ev.get("calendar"),
-                subject=ev.get("subject"),
+                subject=ev.get("subject") or "",
                 start_iso=start_iso,
                 end_iso=end_iso,
                 tz=ev.get("tz"),
@@ -982,7 +979,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
                 all_day=bool(ev.get("all_day") or ev.get("allDay")),
                 location=ev.get("location"),
                 no_reminder=no_reminder,
-            )
+            ))
             return True
         except Exception:  # nosec B110 - event creation failure
             return False
