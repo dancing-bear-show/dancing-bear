@@ -32,6 +32,88 @@ class LocationSync:
         addr_str = ", ".join([p for p in parts if p])
         return addr_str or disp
 
+    def _parse_config_item(self, ev: Dict[str, Any], calendar: Optional[str]) -> Optional[MatchCriteria]:
+        """Parse config item into MatchCriteria, returns None if invalid."""
+        if not isinstance(ev, dict):
+            return None
+        nev = normalize_event(ev)
+        subj = (nev.get("subject") or "").strip()
+        if not subj:
+            return None
+        cal_name = calendar or nev.get("calendar")
+        win = compute_window(nev)
+        if not win:
+            return None
+        return MatchCriteria(
+            cal_name=cal_name,
+            subj=subj,
+            win=win,
+            byday=nev.get("byday") or [],
+            start_time=(nev.get("start_time") or "").strip(),
+            end_time=(nev.get("end_time") or "").strip(),
+        )
+
+    def _find_matches_safe(self, criteria: MatchCriteria) -> List[Dict[str, Any]]:
+        """Find matching events, returns empty list on error."""
+        try:
+            return self._select_matches_from_criteria(criteria)
+        except Exception:  # nosec B112 - skip events that fail to match
+            return []
+
+    def _collect_event_ids(self, matches: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+        """Collect series IDs and occurrence IDs from matches."""
+        series_ids = set()
+        occ_ids = []
+        for m in matches:
+            sid = m.get("seriesMasterId")
+            if sid:
+                series_ids.add(sid)
+            else:
+                oid = m.get("id")
+                if oid:
+                    occ_ids.append(oid)
+        return list(series_ids), occ_ids
+
+    def _update_all_occurrences(self, subj: str, yaml_loc: str, cal_name: Optional[str],
+                                matches: List[Dict[str, Any]], dry_run: bool) -> int:
+        """Update all occurrences (series and standalone events)."""
+        series_ids, occ_ids = self._collect_event_ids(matches)
+        updated = 0
+        for sid in series_ids:
+            if dry_run:
+                updated += 1
+                print(f"[dry-run] would update series '{subj}' -> '{yaml_loc}' (seriesId={sid})")
+            else:
+                self.svc.update_event_location(event_id=sid, calendar_name=cal_name, location_str=yaml_loc)
+                updated += 1
+                print(f"Updated series: {subj} -> {yaml_loc}")
+        for oid in occ_ids:
+            if dry_run:
+                updated += 1
+                print(f"[dry-run] would update occurrence '{subj}' -> '{yaml_loc}' (eventId={oid})")
+            else:
+                self.svc.update_event_location(event_id=oid, calendar_name=cal_name, location_str=yaml_loc)
+                updated += 1
+                print(f"Updated occurrence: {subj} -> {yaml_loc}")
+        return updated
+
+    def _update_first_match(self, subj: str, yaml_loc: str, cal_name: Optional[str],
+                           sel: Dict[str, Any], dry_run: bool) -> int:
+        """Update the first matching event."""
+        cur = self._current_location_str(sel)
+        if cur == yaml_loc:
+            return 0
+        tgt = sel.get("seriesMasterId") or sel.get("id")
+        if not tgt:
+            return 0
+        if dry_run:
+            print(f"[dry-run] would update '{subj}' -> '{yaml_loc}' (eventId={tgt})")
+            return 1
+        else:
+            self.svc.update_event_location(event_id=tgt, calendar_name=cal_name, location_str=yaml_loc)
+            print(f"Updated: {subj} location -> {yaml_loc}")
+            return 1
+
     def _select_matches_from_criteria(self, criteria: MatchCriteria) -> List[Dict[str, Any]]:
         """Select matching events using MatchCriteria."""
         from calendars.outlook_service import ListEventsRequest
@@ -69,24 +151,12 @@ class LocationSync:
     def plan_from_config(self, items: List[Dict[str, Any]], *, calendar: Optional[str], dry_run: bool = False) -> int:
         updated = 0
         for i, ev in enumerate(items, start=1):
-            if not isinstance(ev, dict):
+            criteria = self._parse_config_item(ev, calendar)
+            if not criteria:
                 continue
             nev = normalize_event(ev)
-            subj = (nev.get("subject") or "").strip()
-            if not subj:
-                continue
-            cal_name = calendar or nev.get("calendar")
             yaml_loc = (nev.get("location") or "").strip()
-            byday = nev.get("byday") or []
-            start_time = (nev.get("start_time") or "").strip()
-            end_time = (nev.get("end_time") or "").strip()
-            win = compute_window(nev)
-            if not win:
-                continue
-            try:
-                matches = self._select_matches(cal_name=cal_name, subj=subj, win=win, byday=byday, start_time=start_time, end_time=end_time)
-            except Exception:  # nosec B112 - skip events that fail to match
-                continue
+            matches = self._find_matches_safe(criteria)
             if not matches:
                 continue
             sel = matches[0]
@@ -102,66 +172,18 @@ class LocationSync:
     def apply_from_config(self, items: List[Dict[str, Any]], *, calendar: Optional[str], all_occurrences: bool = False, dry_run: bool = False) -> int:
         updated = 0
         for i, ev in enumerate(items, start=1):
-            if not isinstance(ev, dict):
+            criteria = self._parse_config_item(ev, calendar)
+            if not criteria:
                 continue
             nev = normalize_event(ev)
-            subj = (nev.get("subject") or "").strip()
             yaml_loc = (nev.get("location") or "").strip()
-            if not (subj and yaml_loc):
+            if not yaml_loc:
                 continue
-            cal_name = calendar or nev.get("calendar")
-            byday = nev.get("byday") or []
-            start_time = (nev.get("start_time") or "").strip()
-            end_time = (nev.get("end_time") or "").strip()
-            win = compute_window(nev)
-            if not win:
-                continue
-            try:
-                matches = self._select_matches(cal_name=cal_name, subj=subj, win=win, byday=byday, start_time=start_time, end_time=end_time)
-            except Exception:  # nosec B112 - skip events that fail to match
-                continue
+            matches = self._find_matches_safe(criteria)
             if not matches:
                 continue
             if all_occurrences:
-                series_ids = set()
-                occ_ids = []
-                for m in matches:
-                    sid = m.get("seriesMasterId")
-                    if sid:
-                        series_ids.add(sid)
-                    else:
-                        oid = m.get("id")
-                        if oid:
-                            occ_ids.append(oid)
-                for sid in series_ids:
-                    if dry_run:
-                        updated += 1
-                        print(f"[dry-run] would update series '{subj}' -> '{yaml_loc}' (seriesId={sid})")
-                    else:
-                        self.svc.update_event_location(event_id=sid, calendar_name=cal_name, location_str=yaml_loc)
-                        updated += 1
-                        print(f"Updated series: {subj} -> {yaml_loc}")
-                for oid in occ_ids:
-                    if dry_run:
-                        updated += 1
-                        print(f"[dry-run] would update occurrence '{subj}' -> '{yaml_loc}' (eventId={oid})")
-                    else:
-                        self.svc.update_event_location(event_id=oid, calendar_name=cal_name, location_str=yaml_loc)
-                        updated += 1
-                        print(f"Updated occurrence: {subj} -> {yaml_loc}")
+                updated += self._update_all_occurrences(criteria.subj, yaml_loc, criteria.cal_name, matches, dry_run)
             else:
-                sel = matches[0]
-                cur = self._current_location_str(sel)
-                if cur == yaml_loc:
-                    continue
-                tgt = sel.get("seriesMasterId") or sel.get("id")
-                if not tgt:
-                    continue
-                if dry_run:
-                    updated += 1
-                    print(f"[dry-run] would update '{subj}' -> '{yaml_loc}' (eventId={tgt})")
-                else:
-                    self.svc.update_event_location(event_id=tgt, calendar_name=cal_name, location_str=yaml_loc)
-                    updated += 1
-                    print(f"Updated: {subj} location -> {yaml_loc}")
+                updated += self._update_first_match(criteria.subj, yaml_loc, criteria.cal_name, matches[0], dry_run)
         return updated

@@ -112,6 +112,38 @@ class OutlookCalendarMixin:
         r.raise_for_status()
         return r.json().get("value", [])
 
+    def _update_permission_role(
+        self: OutlookClientBase,
+        calendar_id: str,
+        permission_id: str,
+        role: str
+    ) -> Dict[str, Any]:
+        """Update an existing calendar permission to a new role."""
+        body = {"role": role}
+        rr = _requests().patch(
+            f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions/{permission_id}",
+            headers=self._headers(),
+            json=body
+        )
+        rr.raise_for_status()
+        return rr.json() if rr.text else {}
+
+    def _create_permission(
+        self: OutlookClientBase,
+        calendar_id: str,
+        email: str,
+        role: str
+    ) -> Dict[str, Any]:
+        """Create a new calendar permission."""
+        body = {"emailAddress": {"address": email}, "role": role}
+        r = _requests().post(
+            f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions",
+            headers=self._headers(),
+            json=body
+        )
+        r.raise_for_status()
+        return r.json()
+
     def ensure_calendar_permission(
         self: OutlookClientBase,
         calendar_id: str,
@@ -123,30 +155,19 @@ class OutlookCalendarMixin:
         role: one of read | write | limitedRead | freeBusyRead | delegateWithoutPrivateEventAccess | delegateWithPrivateEventAccess
         """
         perms = self.list_calendar_permissions(calendar_id)
+        target_email = (email or "").strip().lower()
+        target_role = role.strip().lower()
+
         for p in perms:
             em = ((p.get("emailAddress") or {}).get("address") or "").strip().lower()
-            if em == (email or "").strip().lower():
+            if em == target_email:
                 cur = (p.get("role") or "").strip()
-                if cur.lower() != role.strip().lower():
+                if cur.lower() != target_role:
                     pid = p.get("id")
                     if pid:
-                        body = {"role": role}
-                        rr = _requests().patch(
-                            f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions/{pid}",
-                            headers=self._headers(),
-                            json=body
-                        )
-                        rr.raise_for_status()
-                        return rr.json() if rr.text else {}
+                        return self._update_permission_role(calendar_id, pid, role)
                 return p
-        body = {"emailAddress": {"address": email}, "role": role}
-        r = _requests().post(
-            f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions",
-            headers=self._headers(),
-            json=body
-        )
-        r.raise_for_status()
-        return r.json()
+        return self._create_permission(calendar_id, email, role)
 
     # -------------------- Events --------------------
     def list_events_in_range(
@@ -384,94 +405,151 @@ class OutlookCalendarMixin:
 
 
 # -------------------- Location parsing --------------------
+def _is_word_city(w: str) -> bool:
+    """Check if a word is a city name (contains letters, no digits)."""
+    return any(ch.isalpha() for ch in w) and not any(ch.isdigit() for ch in w)
+
+
+def _split_name_and_addr(s: str) -> Tuple[str, str]:
+    """Split location string into name and address parts."""
+    if "(" in s and ")" in s:
+        try:
+            nm, rest = s.split("(", 1)
+            addr = rest.rsplit(")", 1)[0]
+            return nm.strip(), addr.strip()
+        except Exception:  # nosec B110 - malformed parens, try other patterns
+            pass
+    if " at " in s:
+        head, addr = s.rsplit(" at ", 1)
+        return head.strip(), addr.strip()
+    m = re.search(r"\b\d+\b", s)
+    if m:
+        return s[:m.start()].strip(), s[m.start():].strip()
+    return s.strip(), ""
+
+
+def _extract_canadian_postal_code(toks: List[str]) -> Tuple[Optional[str], List[str]]:
+    """Extract Canadian postal code from token list if present."""
+    if len(toks) >= 2:
+        pair = (toks[-2] + " " + toks[-1]).upper()
+        if re.match(r"^[A-Z]\d[A-Z]\s\d[A-Z]\d$", pair):
+            return pair, toks[:-2]
+    return None, toks
+
+
+def _extract_state_from_tokens(toks: List[str]) -> Optional[str]:
+    """Extract 2-letter state code from token list."""
+    for t in toks:
+        tt = t.strip().strip(",")
+        if len(tt) == 2 and tt.isalpha():
+            return tt
+    return None
+
+
+def _extract_postal_from_tokens(toks: List[str]) -> Optional[str]:
+    """Extract postal code from token list (any token with digits)."""
+    for t in reversed(toks):
+        if any(ch.isdigit() for ch in t):
+            return t
+    return None
+
+
+def _parse_two_part_address(parts: List[str]) -> Dict[str, Any]:
+    """Parse a 2-part address (street, city/state/postal)."""
+    tail = parts[1]
+    toks = tail.split()
+
+    # Check for Canadian format: state code + postal code
+    if len(toks) >= 2 and re.match(r"^[A-Z]{2}$", toks[0]):
+        rest = " ".join(toks[1:]).upper()
+        if re.match(r"^[A-Z]\d[A-Z]$|^[A-Z]\d[A-Z]\s\d[A-Z]\d$", rest):
+            state = toks[0]
+            mpc = re.search(r"[A-Z]\d[A-Z]\s?\d[A-Z]\d", rest)
+            postal = rest[mpc.start():mpc.end()].replace(" ", " ") if mpc else None
+
+            # Extract city from first part
+            cand = parts[0].strip()
+            words = [w for w in cand.split() if w]
+            city = None
+            street = parts[0]
+
+            if len(words) >= 2 and _is_word_city(words[-1]) and _is_word_city(words[-2]):
+                city = f"{words[-2]} {words[-1]}"
+                street = " ".join(words[:-2]) or street
+            elif len(words) >= 1 and _is_word_city(words[-1]):
+                city = words[-1]
+                street = " ".join(words[:-1]) or street
+
+            return {"street": street, "city": city, "state": state, "postal": postal}
+
+    # Default: second part is city
+    return {"street": parts[0], "city": parts[1], "state": None, "postal": None}
+
+
+def _parse_multi_part_address(parts: List[str]) -> Dict[str, Any]:
+    """Parse a 3+ part address (street, city, state/postal, country)."""
+    city = parts[-2]
+    tail = parts[-1]
+    toks = tail.split()
+
+    # Try to extract Canadian postal code
+    postal, toks = _extract_canadian_postal_code(toks)
+
+    # Extract state code
+    state = _extract_state_from_tokens(toks)
+
+    # Extract postal code if not already found
+    if not postal:
+        postal = _extract_postal_from_tokens(toks)
+
+    # Extract country if 4+ parts
+    country = parts[-1] if len(parts) >= 4 else None
+
+    return {
+        "street": parts[0],
+        "city": city,
+        "state": state,
+        "postal": postal,
+        "country": country
+    }
+
+
+def _parse_addr(addr: str) -> Dict[str, Any]:
+    """Parse address string into structured components."""
+    parts = [p.strip() for p in (addr or "").split(",") if p.strip()]
+
+    if not parts:
+        return {}
+
+    if len(parts) == 1:
+        return {"street": parts[0]}
+
+    if len(parts) == 2:
+        result = _parse_two_part_address(parts)
+    else:
+        result = _parse_multi_part_address(parts)
+
+    # Build address object with non-None values
+    addr_obj: Dict[str, Any] = {}
+    if result.get("street"):
+        addr_obj["street"] = result["street"]
+    if result.get("city"):
+        addr_obj["city"] = result["city"]
+    if result.get("state"):
+        addr_obj["state"] = result["state"]
+    if result.get("postal"):
+        addr_obj["postalCode"] = result["postal"]
+    if result.get("country"):
+        addr_obj["countryOrRegion"] = result["country"]
+
+    return addr_obj
+
+
 def _parse_location(loc: str) -> Dict[str, Any]:
     """Parse a location string into Outlook location with structured address when possible."""
     disp = (loc or "").strip()
-
-    def _split_name_and_addr(s: str) -> Tuple[str, str]:
-        if "(" in s and ")" in s:
-            try:
-                nm, rest = s.split("(", 1)
-                addr = rest.rsplit(")", 1)[0]
-                return nm.strip(), addr.strip()
-            except Exception:  # nosec B110 - malformed parens, try other patterns
-                pass
-        if " at " in s:
-            head, addr = s.rsplit(" at ", 1)
-            return head.strip(), addr.strip()
-        m = re.search(r"\b\d+\b", s)
-        if m:
-            return s[:m.start()].strip(), s[m.start():].strip()
-        return s.strip(), ""
-
-    def _parse_addr(addr: str) -> Dict[str, Any]:
-        parts = [p.strip() for p in (addr or "").split(",") if p.strip()]
-        street = city = state = postal = country = None
-        if parts:
-            street = parts[0]
-        if len(parts) == 2:
-            tail = parts[1]
-            toks = tail.split()
-            if len(toks) >= 2 and re.match(r"^[A-Z]{2}$", toks[0]) and re.match(
-                r"^[A-Z][0-9][A-Z]$|^[A-Z][0-9][A-Z]\s[0-9][A-Z][0-9]$",
-                (" ".join(toks[1:])).upper()
-            ):
-                state = toks[0]
-                rest = " ".join(toks[1:]).upper()
-                mpc = re.search(r"[A-Z][0-9][A-Z]\s?[0-9][A-Z][0-9]", rest)
-                if mpc:
-                    postal = rest[mpc.start():mpc.end()].replace(" ", " ")
-                cand = parts[0].strip()
-                words = [w for w in cand.split() if w]
-
-                def is_word_city(w: str) -> bool:
-                    return any(ch.isalpha() for ch in w) and not any(ch.isdigit() for ch in w)
-
-                if len(words) >= 2 and is_word_city(words[-1]) and is_word_city(words[-2]):
-                    city = f"{words[-2]} {words[-1]}"
-                    street = " ".join(words[:-2]) or street
-                elif len(words) >= 1 and is_word_city(words[-1]):
-                    city = words[-1]
-                    street = " ".join(words[:-1]) or street
-            else:
-                city = parts[1]
-        if len(parts) >= 3:
-            city = parts[-2]
-            tail = parts[-1]
-            toks = tail.split()
-            canada_pc = None
-            if len(toks) >= 2:
-                pair = (toks[-2] + " " + toks[-1]).upper()
-                if re.match(r"^[A-Z][0-9][A-Z]\s[0-9][A-Z][0-9]$", pair):
-                    canada_pc = pair
-                    toks = toks[:-2]
-            if canada_pc:
-                postal = canada_pc
-            for t in toks:
-                tt = t.strip().strip(",")
-                if len(tt) == 2 and tt.isalpha():
-                    state = tt
-            if not postal:
-                for t in reversed(toks):
-                    if any(ch.isdigit() for ch in t):
-                        postal = t
-                        break
-        if len(parts) >= 4 and not country:
-            country = parts[-1]
-        addr_obj: Dict[str, Any] = {}
-        if street:
-            addr_obj["street"] = street
-        if city:
-            addr_obj["city"] = city
-        if state:
-            addr_obj["state"] = state
-        if postal:
-            addr_obj["postalCode"] = postal
-        if country:
-            addr_obj["countryOrRegion"] = country
-        return addr_obj
-
     name, addr = _split_name_and_addr(disp)
+
     if addr:
         try:
             addr_obj = _parse_addr(addr)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Help text constants
+_HELP_UNIFIED_FILTERS_YAML = "Unified filters YAML (filters: [])"
+
 
 def register(subparsers, **handlers):
     """Register config subcommands.
@@ -42,7 +45,7 @@ def register(subparsers, **handlers):
     p_cfg_derive_labels.set_defaults(func=f_derive_labels)
 
     p_cfg_derive_filters = sub_cfg_derive.add_parser("filters", help="Derive Gmail and Outlook filters YAML from unified filters.yaml")
-    p_cfg_derive_filters.add_argument("--in", dest="in_path", required=True, help="Unified filters YAML (filters: [])")
+    p_cfg_derive_filters.add_argument("--in", dest="in_path", required=True, help=_HELP_UNIFIED_FILTERS_YAML)
     p_cfg_derive_filters.add_argument("--out-gmail", required=True, help="Output Gmail filters YAML")
     p_cfg_derive_filters.add_argument("--out-outlook", required=True, help="Output Outlook rules YAML")
     p_cfg_derive_filters.set_defaults(outlook_move_to_folders=True)
@@ -60,7 +63,7 @@ def register(subparsers, **handlers):
     p_cfg_opt = sub_cfg.add_parser("optimize", help="Optimize unified configs by merging similar rules")
     sub_cfg_opt = p_cfg_opt.add_subparsers(dest="optimize_cmd")
     p_cfg_opt_filters = sub_cfg_opt.add_parser("filters", help="Merge rules with same destination label and simple from criteria")
-    p_cfg_opt_filters.add_argument("--in", dest="in_path", required=True, help="Unified filters YAML (filters: [])")
+    p_cfg_opt_filters.add_argument("--in", dest="in_path", required=True, help=_HELP_UNIFIED_FILTERS_YAML)
     p_cfg_opt_filters.add_argument("--out", required=True, help="Output optimized unified filters YAML")
     p_cfg_opt_filters.add_argument("--merge-threshold", type=int, default=2, help="Minimum number of rules to merge (default 2)")
     p_cfg_opt_filters.add_argument("--preview", action="store_true", help="Print a summary of merges")
@@ -70,7 +73,7 @@ def register(subparsers, **handlers):
     p_cfg_audit = sub_cfg.add_parser("audit", help="Audit unified coverage vs provider exports")
     sub_cfg_audit = p_cfg_audit.add_subparsers(dest="audit_cmd")
     p_cfg_audit_filters = sub_cfg_audit.add_parser("filters", help="Report percentage of simple Gmail rules not present in unified config")
-    p_cfg_audit_filters.add_argument("--in", dest="in_path", required=True, help="Unified filters YAML (filters: [])")
+    p_cfg_audit_filters.add_argument("--in", dest="in_path", required=True, help=_HELP_UNIFIED_FILTERS_YAML)
     p_cfg_audit_filters.add_argument("--export", dest="export_path", required=True, help="Gmail exported filters YAML (from 'filters export')")
     p_cfg_audit_filters.add_argument("--preview-missing", action="store_true", help="List a few missing simple rules")
     p_cfg_audit_filters.set_defaults(func=f_audit_filters)
