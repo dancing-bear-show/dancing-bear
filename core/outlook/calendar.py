@@ -3,99 +3,18 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from .client import OutlookClientBase, _requests
+from .models import (
+    EventCreationParams,
+    EventSettingsPatch,
+    ListCalendarViewRequest,
+    ListEventsRequest,
+    RecurringEventCreationParams,
+    UpdateEventReminderRequest,
+)
 from core.constants import DAY_START_TIME, DAY_END_TIME, GRAPH_API_URL
-
-
-# Parameter dataclasses
-
-@dataclass
-class CalendarRef:
-    """Reference to a calendar by ID or name."""
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
-
-
-@dataclass
-class ReminderSettings:
-    """Reminder configuration for events."""
-    no_reminder: bool = False
-    reminder_minutes: Optional[int] = None
-
-
-@dataclass
-class EventContent:
-    """Common content fields for events."""
-    subject: str
-    body_html: Optional[str] = None
-    location: Optional[str] = None
-    tz: Optional[str] = None
-
-
-@dataclass
-class EventParams:
-    """Parameters for creating a single event."""
-    content: EventContent
-    start_iso: str
-    end_iso: str
-    calendar: Optional[CalendarRef] = None
-    all_day: bool = False
-    reminders: Optional[ReminderSettings] = None
-
-    def __post_init__(self):
-        """Ensure nested dataclasses are initialized."""
-        if self.calendar is None:
-            self.calendar = CalendarRef()
-        if self.reminders is None:
-            self.reminders = ReminderSettings()
-
-
-@dataclass
-class RecurrenceSettings:
-    """Recurrence pattern configuration."""
-    repeat: str
-    range_start_date: str
-    interval: int = 1
-    byday: Optional[List[str]] = None
-    range_until: Optional[str] = None
-    count: Optional[int] = None
-    exdates: Optional[List[str]] = None
-
-
-@dataclass
-class RecurringEventParams:
-    """Parameters for creating a recurring event."""
-    content: EventContent
-    start_time: str
-    end_time: str
-    recurrence: RecurrenceSettings
-    calendar: Optional[CalendarRef] = None
-    reminders: Optional[ReminderSettings] = None
-
-    def __post_init__(self):
-        """Ensure nested dataclasses are initialized."""
-        if self.calendar is None:
-            self.calendar = CalendarRef()
-        if self.reminders is None:
-            self.reminders = ReminderSettings()
-
-
-@dataclass
-class EventUpdateParams:
-    """Parameters for updating an event."""
-    event_id: str
-    calendar: Optional[CalendarRef] = None
-    location_str: Optional[str] = None
-    location_obj: Optional[Dict[str, Any]] = None
-    subject: Optional[str] = None
-
-    def __post_init__(self):
-        """Ensure nested dataclasses are initialized."""
-        if self.calendar is None:
-            self.calendar = CalendarRef()
 
 
 class OutlookCalendarMixin:
@@ -263,90 +182,60 @@ class OutlookCalendarMixin:
             return mbx
         return "America/Toronto"
 
-    def create_event(
-        self: OutlookClientBase,
-        *,
-        calendar_id: Optional[str],
-        calendar_name: Optional[str],
-        subject: str,
-        start_iso: str,
-        end_iso: str,
-        tz: Optional[str] = None,
-        body_html: Optional[str] = None,
-        all_day: bool = False,
-        location: Optional[str] = None,
-        no_reminder: bool = False,
-        reminder_minutes: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        tz_final = self._resolve_tz(tz)
-        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
+    def create_event(self: OutlookClientBase, params: EventCreationParams) -> Dict[str, Any]:
+        """Create a one-time event."""
+        tz_final = self._resolve_tz(params.tz)
+        cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
         payload: Dict[str, Any] = {
-            "subject": subject,
-            "start": {"dateTime": start_iso, "timeZone": tz_final},
-            "end": {"dateTime": end_iso, "timeZone": tz_final},
+            "subject": params.subject,
+            "start": {"dateTime": params.start_iso, "timeZone": tz_final},
+            "end": {"dateTime": params.end_iso, "timeZone": tz_final},
         }
-        if body_html:
-            payload["body"] = {"contentType": "HTML", "content": body_html}
-        if location:
-            payload["location"] = _parse_location(location)
-        if all_day:
+        if params.body_html:
+            payload["body"] = {"contentType": "HTML", "content": params.body_html}
+        if params.location:
+            payload["location"] = _parse_location(params.location)
+        if params.all_day:
             payload["isAllDay"] = True
-        self._apply_reminder(payload, no_reminder, reminder_minutes)
+        self._apply_reminder(payload, params.no_reminder, params.reminder_minutes)
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         return r.json()
 
     def create_recurring_event(
-        self: OutlookClientBase,
-        *,
-        calendar_id: Optional[str],
-        calendar_name: Optional[str],
-        subject: str,
-        start_time: str,
-        end_time: str,
-        tz: Optional[str],
-        repeat: str,
-        interval: int = 1,
-        byday: Optional[List[str]] = None,
-        range_start_date: str,
-        range_until: Optional[str] = None,
-        count: Optional[int] = None,
-        body_html: Optional[str] = None,
-        location: Optional[str] = None,
-        exdates: Optional[List[str]] = None,
-        no_reminder: bool = False,
-        reminder_minutes: Optional[int] = None,
+        self: OutlookClientBase, params: RecurringEventCreationParams
     ) -> Dict[str, Any]:
-        tz_final = self._resolve_tz(tz)
-        cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
+        """Create a recurring event series."""
+        tz_final = self._resolve_tz(params.tz)
+        cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
 
-        pattern = self._build_recurrence_pattern(repeat, interval, byday)
-        rng = self._build_recurrence_range(range_start_date, range_until, count)
+        pattern = self._build_recurrence_pattern(params.repeat, params.interval, params.byday)
+        rng = self._build_recurrence_range(params.range_start_date, params.range_until, params.count)
 
-        start_iso = f"{range_start_date}T{start_time}"
-        end_iso = f"{range_start_date}T{end_time}"
+        start_iso = f"{params.range_start_date}T{params.start_time}"
+        end_iso = f"{params.range_start_date}T{params.end_time}"
 
         payload: Dict[str, Any] = {
-            "subject": subject,
+            "subject": params.subject,
             "start": {"dateTime": start_iso, "timeZone": tz_final},
             "end": {"dateTime": end_iso, "timeZone": tz_final},
             "recurrence": {"pattern": pattern, "range": rng},
         }
-        if body_html:
-            payload["body"] = {"contentType": "HTML", "content": body_html}
-        if location:
-            payload["location"] = _parse_location(location)
-        self._apply_reminder(payload, no_reminder, reminder_minutes)
+        if params.body_html:
+            payload["body"] = {"contentType": "HTML", "content": params.body_html}
+        if params.location:
+            payload["location"] = _parse_location(params.location)
+        self._apply_reminder(payload, params.no_reminder, params.reminder_minutes)
 
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         series = r.json()
 
-        if exdates:
+        if params.exdates:
             try:
                 sid = series.get("id")
                 if sid:
-                    self._apply_exdate_deletions(cal_id, sid, exdates, tz_final, rng)
+                    self._apply_exdate_deletions(cal_id, sid, params.exdates, tz_final, rng)
             except Exception:  # nosec B110 - non-fatal exdate deletion
                 pass
         return series

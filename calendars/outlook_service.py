@@ -42,41 +42,11 @@ class OutlookService:
     # Creation helpers
     def create_event(self, params: EventCreationParams) -> Dict[str, Any]:
         """Create a one-time event using parameter object."""
-        return self.client.create_event(
-            calendar_id=params.calendar_id,
-            calendar_name=params.calendar_name,
-            subject=params.subject,
-            start_iso=params.start_iso,
-            end_iso=params.end_iso,
-            tz=params.tz,
-            body_html=params.body_html,
-            all_day=params.all_day,
-            location=params.location,
-            no_reminder=params.no_reminder,
-            reminder_minutes=params.reminder_minutes,
-        )
+        return self.client.create_event(params)
 
     def create_recurring_event(self, params: RecurringEventCreationParams) -> Dict[str, Any]:
         """Create a recurring event using parameter object."""
-        return self.client.create_recurring_event(
-            calendar_id=params.calendar_id,
-            calendar_name=params.calendar_name,
-            subject=params.subject,
-            start_time=params.start_time,
-            end_time=params.end_time,
-            tz=params.tz,
-            repeat=params.repeat,
-            interval=params.interval,
-            byday=params.byday,
-            range_start_date=params.range_start_date,
-            range_until=params.range_until,
-            count=params.count,
-            body_html=params.body_html,
-            location=params.location,
-            exdates=params.exdates,
-            no_reminder=params.no_reminder,
-            reminder_minutes=params.reminder_minutes,
-        )
+        return self.client.create_recurring_event(params)
 
     # Query helpers
     def list_events_in_range(self, params: ListEventsRequest) -> List[Dict[str, Any]]:
@@ -85,7 +55,10 @@ class OutlookService:
 
     # Mail/message helpers (inbox search)
     def search_inbox_messages(self, query: str, *, days: int = 60, top: int = 25, pages: int = 2) -> List[str]:
-        return self.client.search_inbox_messages(query, days=days, top=top, pages=pages)
+        from core.outlook.mail import SearchParams
+        return self.client.search_inbox_messages(
+            SearchParams(search_query=query, days=days, top=top, pages=pages)
+        )
 
     def get_message(self, message_id: str, *, select_body: bool = True) -> Dict[str, Any]:
         return self.client.get_message(message_id, select_body=select_body)

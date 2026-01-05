@@ -403,10 +403,10 @@ class TestOutlookCalendarAddProcessor(unittest.TestCase):
         processor.process(payload)
 
         mock_client.create_event.assert_called_once()
-        call_kwargs = mock_client.create_event.call_args[1]
-        self.assertEqual(call_kwargs["subject"], "All Day Event")
-        self.assertTrue(call_kwargs["all_day"])
-        self.assertTrue(call_kwargs["no_reminder"])
+        params = mock_client.create_event.call_args[0][0]
+        self.assertEqual(params.subject, "All Day Event")
+        self.assertTrue(params.all_day)
+        self.assertTrue(params.no_reminder)
 
     def test_error_handling(self):
         mock_client = Mock()
