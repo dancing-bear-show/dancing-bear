@@ -206,13 +206,13 @@ class OutlookMailMixin:
                 return [str(x) for x in cached]
         ids: List[str] = []
         base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
-        search_params = [f"$search=\"{params.search_query}\"", f"$top={int(params.top)}"]
+        query_params = [f"$search=\"{params.search_query}\"", f"$top={int(params.top)}"]
         if params.days and int(params.days) > 0:
             import datetime as _dt
             start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(params.days))
             start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
-            search_params.append(f"$filter=receivedDateTime ge {start_iso}")
-        url = base + "?" + "&".join(search_params)
+            query_params.append(f"$filter=receivedDateTime ge {start_iso}")
+        url = base + "?" + "&".join(query_params)
         nxt = url
         for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
