@@ -16,7 +16,7 @@ dependencies = [
   "google-auth-httplib2==0.2.0",
   "google-auth-oauthlib==1.2.3",
   "httplib2==0.31.0",
-  "msal==1.28.0",
+  "msal==1.34.0",
   "numpy==1.26.4",
   "pdfminer.six==20251230",
   "premailer==3.10.0",
