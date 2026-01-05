@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 
-def register(
-    subparsers,
-    *,
-    f_inspect,
-    f_derive_labels,
-    f_derive_filters,
-    f_optimize_filters,
-    f_audit_filters,
-):
-    """Register config subcommands."""
+def register(subparsers, **handlers):
+    """Register config subcommands.
+
+    Args:
+        subparsers: Argument subparsers to register commands with
+        **handlers: Command handler functions (f_inspect, f_derive_labels, etc.)
+
+    Raises:
+        ValueError: If any required handler is missing
+    """
+    required_keys = ["f_inspect", "f_derive_labels", "f_derive_filters", "f_optimize_filters", "f_audit_filters"]
+    missing = [k for k in required_keys if k not in handlers]
+    if missing:
+        raise ValueError(f"Missing required handlers: {missing}")
+
+    f_inspect = handlers["f_inspect"]
+    f_derive_labels = handlers["f_derive_labels"]
+    f_derive_filters = handlers["f_derive_filters"]
+    f_optimize_filters = handlers["f_optimize_filters"]
+    f_audit_filters = handlers["f_audit_filters"]
     p_cfg = subparsers.add_parser("config", help="Inspect and manage configuration")
     sub_cfg = p_cfg.add_subparsers(dest="config_cmd")
 

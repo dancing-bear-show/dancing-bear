@@ -9,7 +9,9 @@ without requiring network access or credentials.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 
 
 @dataclass
@@ -129,14 +131,14 @@ class FakeCalendarService:
     ) -> None:
         self.updated_reminders.append((event_id, is_on, minutes_before_start))
 
-    def create_event(self, **kwargs) -> Dict:
-        evt = {"id": f"evt_{len(self.created_events)}", **kwargs}
-        self.created_events.append(("single", kwargs))
+    def create_event(self, params: EventCreationParams) -> Dict[str, Any]:
+        evt: Dict[str, Any] = {"id": f"evt_{len(self.created_events)}", "subject": params.subject}
+        self.created_events.append(("single", params))
         return evt
 
-    def create_recurring_event(self, **kwargs) -> Dict:
-        evt = {"id": f"evt_rec_{len(self.created_events)}", **kwargs}
-        self.created_events.append(("recurring", kwargs))
+    def create_recurring_event(self, params: RecurringEventCreationParams) -> Dict[str, Any]:
+        evt: Dict[str, Any] = {"id": f"evt_rec_{len(self.created_events)}", "subject": params.subject}
+        self.created_events.append(("recurring", params))
         return evt
 
     def update_event_location(

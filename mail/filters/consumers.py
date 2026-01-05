@@ -3,12 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, TYPE_CHECKING
 
 from core.pipeline import Consumer
 
 from ..context import MailContext
 from ..yamlio import load_config
+
+if TYPE_CHECKING:
+    from .processors import SweepConfig
+    from .producers import SweepProducerConfig
 
 
 @dataclass
@@ -50,12 +54,8 @@ class FiltersExportPayload:
 @dataclass
 class FiltersSweepPayload:
     filters: List[dict]
-    days: int | None
-    only_inbox: bool
-    pages: int
-    max_msgs: int | None
-    batch_size: int
-    dry_run: bool
+    sweep_config: SweepConfig
+    producer_config: SweepProducerConfig
     client: object
 
 
@@ -65,10 +65,7 @@ class FiltersSweepRangePayload:
     from_days: int
     to_days: int
     step_days: int
-    pages: int
-    max_msgs: int | None
-    batch_size: int
-    dry_run: bool
+    producer_config: SweepProducerConfig
     client: object
 
 
@@ -205,6 +202,9 @@ class FiltersSweepConsumer(Consumer[FiltersSweepPayload]):
         self.context = context
 
     def consume(self) -> FiltersSweepPayload:
+        from .processors import SweepConfig
+        from .producers import SweepProducerConfig
+
         args = self.context.args
         doc = load_config(getattr(args, "config", None))
         filters = _load_desired_filters(
@@ -218,14 +218,20 @@ class FiltersSweepConsumer(Consumer[FiltersSweepPayload]):
         batch_size = int(getattr(args, "batch_size", 500) or 500)
         max_msgs = getattr(args, "max_msgs", None)
         max_msgs_val = int(max_msgs) if max_msgs not in (None, "") else None
-        return FiltersSweepPayload(
-            filters=filters,
+        sweep_config = SweepConfig(
             days=days,
             only_inbox=bool(getattr(args, "only_inbox", False)),
+        )
+        producer_config = SweepProducerConfig(
             pages=pages,
-            max_msgs=max_msgs_val,
             batch_size=batch_size,
+            max_msgs=max_msgs_val,
             dry_run=bool(getattr(args, "dry_run", False)),
+        )
+        return FiltersSweepPayload(
+            filters=filters,
+            sweep_config=sweep_config,
+            producer_config=producer_config,
             client=client,
         )
 
@@ -237,6 +243,8 @@ class FiltersSweepRangeConsumer(Consumer[FiltersSweepRangePayload]):
         self.context = context
 
     def consume(self) -> FiltersSweepRangePayload:
+        from .producers import SweepProducerConfig
+
         args = self.context.args
         doc = load_config(getattr(args, "config", None))
         filters = _load_desired_filters(
@@ -254,15 +262,18 @@ class FiltersSweepRangeConsumer(Consumer[FiltersSweepRangePayload]):
         batch_size = int(getattr(args, "batch_size", 500) or 500)
         max_msgs = getattr(args, "max_msgs", None)
         max_msgs_val = int(max_msgs) if max_msgs not in (None, "") else None
+        producer_config = SweepProducerConfig(
+            pages=pages,
+            batch_size=batch_size,
+            max_msgs=max_msgs_val,
+            dry_run=bool(getattr(args, "dry_run", False)),
+        )
         return FiltersSweepRangePayload(
             filters=filters,
             from_days=from_days,
             to_days=to_days,
             step_days=step_days,
-            pages=pages,
-            max_msgs=max_msgs_val,
-            batch_size=batch_size,
-            dry_run=bool(getattr(args, "dry_run", False)),
+            producer_config=producer_config,
             client=client,
         )
 

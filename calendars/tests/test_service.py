@@ -1,6 +1,7 @@
 import unittest
 
 from calendars.outlook_service import OutlookService
+from core.outlook.models import EventCreationParams
 
 
 class FakeClient:
@@ -12,8 +13,8 @@ class FakeClient:
         self.calls.append(("list", kwargs))
         return [{"id": "e1"}]
 
-    def create_event(self, **kwargs):
-        self.calls.append(("create", kwargs))
+    def create_event(self, params: EventCreationParams):
+        self.calls.append(("create", params))
         return {"id": "new"}
 
     def _headers(self):
@@ -31,7 +32,7 @@ class TestOutlookService(unittest.TestCase):
         from calendars.outlook_service import ListEventsRequest
         evs = svc.list_events_in_range(ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"))
         self.assertEqual(len(evs), 1)
-        evt = svc.create_event(calendar_id=None, calendar_name=None, subject="X", start_iso="S", end_iso="E")
+        evt = svc.create_event(EventCreationParams(subject="X", start_iso="S", end_iso="E"))
         self.assertEqual(evt.get("id"), "new")
         self.assertTrue(svc.headers().get("Authorization"))
         self.assertTrue(svc.graph_base().startswith("https://"))
