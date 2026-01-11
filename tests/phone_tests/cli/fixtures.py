@@ -8,6 +8,16 @@ from __future__ import annotations
 from typing import Any, Optional
 from unittest.mock import MagicMock
 
+# Default paths used across fixtures
+_DEFAULT_ICON_STATE_PATH = "out/ios.IconState.yaml"
+_DEFAULT_PLAN_PATH = "out/ios.plan.yaml"
+_DEFAULT_MANIFEST_PATH = "out/ios.manifest.yaml"
+
+# Default profile identifiers (match phone/cli/main.py constants)
+_DEFAULT_PROFILE_IDENTIFIER = "com.example.profile"
+_DEFAULT_HS_IDENTIFIER = "com.example.hslayout"
+_DEFAULT_DISPLAY_NAME = "Home Screen Layout"
+
 
 def make_args(**kwargs: Any) -> MagicMock:
     """Create a MagicMock args object with given attributes.
@@ -26,14 +36,14 @@ def make_args(**kwargs: Any) -> MagicMock:
 
 def make_export_args(
     backup: Optional[str] = None,
-    out: str = "out/ios.IconState.yaml",
+    out: str = _DEFAULT_ICON_STATE_PATH,
 ) -> MagicMock:
     """Create args for cmd_export."""
     return make_args(backup=backup, out=out)
 
 
 def make_export_device_args(
-    out: str = "out/ios.IconState.yaml",
+    out: str = _DEFAULT_ICON_STATE_PATH,
     udid: Optional[str] = None,
     timeout: int = 30,
 ) -> MagicMock:
@@ -53,14 +63,14 @@ def make_iconmap_args(
 def make_plan_args(
     layout: Optional[str] = None,
     backup: Optional[str] = None,
-    out: str = "out/ios.plan.yaml",
+    out: str = _DEFAULT_PLAN_PATH,
 ) -> MagicMock:
     """Create args for cmd_plan."""
     return make_args(layout=layout, backup=backup, out=out)
 
 
 def make_checklist_args(
-    plan: str = "out/ios.plan.yaml",
+    plan: str = _DEFAULT_PLAN_PATH,
     layout: Optional[str] = None,
     backup: Optional[str] = None,
     out: str = "out/ios.checklist.txt",
@@ -118,14 +128,14 @@ def make_analyze_args(
 
 
 def make_manifest_from_export_args(
-    export: str = "out/ios.IconState.yaml",
+    export: str = _DEFAULT_ICON_STATE_PATH,
     out: str = "out/ios.manifest.from_export.yaml",
     label: Optional[str] = None,
     udid: Optional[str] = None,
     creds_profile: str = "ios_layout_manager",
-    identifier: str = "com.example.profile",
-    hs_identifier: str = "com.example.hslayout",
-    display_name: str = "Home Screen Layout",
+    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
+    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
+    display_name: str = _DEFAULT_DISPLAY_NAME,
     organization: str = "Personal",
 ) -> MagicMock:
     """Create args for cmd_manifest_from_export."""
@@ -148,9 +158,9 @@ def make_manifest_from_device_args(
     timeout: int = 30,
     label: Optional[str] = None,
     creds_profile: str = "ios_layout_manager",
-    identifier: str = "com.example.profile",
-    hs_identifier: str = "com.example.hslayout",
-    display_name: str = "Home Screen Layout",
+    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
+    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
+    display_name: str = _DEFAULT_DISPLAY_NAME,
     organization: str = "Personal",
 ) -> MagicMock:
     """Create args for cmd_manifest_from_device."""
@@ -168,7 +178,7 @@ def make_manifest_from_device_args(
 
 
 def make_manifest_install_args(
-    manifest: str = "out/ios.manifest.yaml",
+    manifest: str = _DEFAULT_MANIFEST_PATH,
 ) -> MagicMock:
     """Create args for cmd_manifest_install."""
     return make_args(manifest=manifest)
@@ -193,7 +203,7 @@ def make_identity_verify_args(
 
 
 def make_auto_folders_args(
-    plan: str = "out/ios.plan.yaml",
+    plan: str = _DEFAULT_PLAN_PATH,
     out: str = "out/ios.plan.folderized.yaml",
     start_page: int = 2,
     per_page: int = 12,
@@ -212,16 +222,18 @@ def make_auto_folders_args(
 
 
 def make_profile_build_args(
-    plan: str = "out/ios.plan.yaml",
+    plan: str = _DEFAULT_PLAN_PATH,
     out: str = "out/ios.mobileconfig",
     layout: Optional[str] = None,
-    identifier: str = "com.example.profile",
-    hs_identifier: str = "com.example.hslayout",
-    display_name: str = "Home Screen Layout",
+    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
+    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
+    display_name: str = _DEFAULT_DISPLAY_NAME,
     organization: Optional[str] = None,
     all_apps_folder_name: Optional[str] = None,
     all_apps_folder_page: Optional[int] = None,
     dock_count: int = 4,
+    sign_p12: Optional[str] = None,
+    sign_pass: Optional[str] = None,
 ) -> MagicMock:
     """Create args for cmd_profile_build."""
     return make_args(
@@ -235,19 +247,21 @@ def make_profile_build_args(
         all_apps_folder_name=all_apps_folder_name,
         all_apps_folder_page=all_apps_folder_page,
         dock_count=dock_count,
+        sign_p12=sign_p12,
+        sign_pass=sign_pass,
     )
 
 
 def make_manifest_create_args(
-    from_plan: str = "out/ios.plan.yaml",
-    out: str = "out/ios.manifest.yaml",
+    from_plan: str = _DEFAULT_PLAN_PATH,
+    out: str = _DEFAULT_MANIFEST_PATH,
     label: Optional[str] = None,
     udid: Optional[str] = None,
     creds_profile: str = "ios_layout_manager",
     layout: Optional[str] = None,
-    identifier: str = "com.example.profile",
-    hs_identifier: str = "com.example.hslayout",
-    display_name: str = "Home Screen Layout",
+    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
+    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
+    display_name: str = _DEFAULT_DISPLAY_NAME,
     organization: str = "Personal",
 ) -> MagicMock:
     """Create args for cmd_manifest_create."""
@@ -266,7 +280,7 @@ def make_manifest_create_args(
 
 
 def make_manifest_build_args(
-    manifest: str = "out/ios.manifest.yaml",
+    manifest: str = _DEFAULT_MANIFEST_PATH,
     out: str = "out/ios.mobileconfig",
 ) -> MagicMock:
     """Create args for cmd_manifest_build."""
