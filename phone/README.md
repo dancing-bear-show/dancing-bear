@@ -8,6 +8,40 @@
   - `./bin/llm --app phone domain-map --stdout`
   - `./bin/llm --app phone derive-all --out-dir .llm --include-generated`
 
+## Full Profile Sync Workflow
+
+End-to-end workflow for syncing device layout and creating/installing profiles:
+
+```bash
+# 1. Export current layout from device
+./bin/phone export-device --device-label bcsphone --out out/ios.IconState.yaml
+
+# 2. (Optional) Refresh icon map for raw JSON
+./bin/ios-iconmap-refresh --device-label bcsphone
+
+# 3. Create/update plan YAML from layout
+#    Edit out/ios.plan.yaml to organize apps into folders and pages
+
+# 4. Build the mobileconfig profile
+./bin/phone profile build \
+    --plan out/ios.plan.yaml \
+    --layout out/ios.IconState.yaml \
+    --out out/ios.mobileconfig
+
+# 5. Install profile to device (requires on-device tap to approve)
+./bin/ios-install-profile \
+    --profile out/ios.mobileconfig \
+    --device-label bcsphone
+
+# 6. Verify the layout was applied
+./bin/ios-verify-layout --device-label bcsphone
+```
+
+Key points:
+- Step 5 returns Code 625 (user interaction required) - tap "Install" on device, then re-run
+- Use `--use-configurator-identity` flag if supervision identity issues occur
+- Missing apps are skipped; install via Configurator UI first
+
 ## Repeatable Home Screen Org Flow (single-page, category folders)
 
 1) **Export/inspect layout**
@@ -18,6 +52,7 @@
 2) **Build profile** (spec-aligned, single page)
    - Example (latest profile used): `out/homescreen.spec.mobileconfig`
    - Procedural build: `./bin/phone profile build --plan <plan.yaml> --layout <export.yaml> --all-apps-folder-name "All Apps" --all-apps-folder-page 2 --out out/ios.mobileconfig`
+   - With signing: `./bin/phone profile build --plan <plan.yaml> --out out/ios.mobileconfig --sign-p12 /path/to/cert.p12 --sign-pass <password>`
    - Current canned layout: dock = Mail/Safari; root apps on page 1: Settings, Calculator, Camera, Clock, Find My, Calendar, Messages, Photos, Edge, YouTube, YouTube Kids; folders on page 1: Home Freeform, Socials, News, Financials, Retail, Media, Utilities.
 
 3) **Install apps**
@@ -62,3 +97,52 @@ Notes:
 - cfgutil cannot pull App Store apps; you must add them via Configurator UI or local IPAs.
 - Profiles place apps only if installed; missing apps are skipped until added.
 - Helpers: `bin/ios-install-profile` (profile push) and `bin/ios-verify-layout` (layout snapshot).
+
+## Plan YAML structure
+
+The plan YAML supports explicit page control with the `pages` key:
+
+```yaml
+dock:
+- com.app.one
+- com.app.two
+pins:              # Apps listed here are placed as loose apps (not in folders)
+- com.apple.mobilesafari
+- com.apple.Preferences
+pages:             # Explicit page layout control
+  1:
+    apps:          # Loose apps on page 1
+    - com.apple.mobilesafari
+    - com.apple.Preferences
+    folders: []    # No folders on page 1
+  2:
+    apps: []       # No loose apps on page 2
+    folders:       # Folders start on page 2
+    - Social
+    - Finance
+    - Travel
+folders:           # Folder contents
+  Social:
+  - com.burbn.instagram
+  - com.twitter.twitter
+  Finance:
+  - com.chase
+  - com.venmo
+```
+
+## Profile signing
+
+Profile signing authenticates the profile source (different from supervision identity used for silent MDM install).
+
+```bash
+# Sign with password on command line
+./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig \
+    --sign-p12 /path/to/cert.p12 --sign-pass mypassword
+
+# Or use environment variable for password
+export IOS_SIGN_PASS=mypassword
+./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig \
+    --sign-p12 /path/to/cert.p12
+```
+
+Note: Signing requires a valid code signing certificate (.p12). Self-signed certificates will show as "unverified" on device but still work.
