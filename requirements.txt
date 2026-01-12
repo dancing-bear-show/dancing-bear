@@ -12,6 +12,6 @@ msal==1.28.0
 numpy==1.26.4
 pdfminer.six==20251230
 shapely==2.0.3
-trimesh==4.4.0
+trimesh==4.11.0
 pypdf==6.4.0
 docx2pdf==0.1.8
