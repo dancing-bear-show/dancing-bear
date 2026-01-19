@@ -21,7 +21,7 @@ dependencies = [
   "pdfminer.six==20251230",
   "premailer==3.10.0",
   "requests==2.32.4",
-  "shapely==2.0.3",
+  "shapely==2.0.6",
   "trimesh==4.4.0",
   "urllib3==2.6.0",
 ]
