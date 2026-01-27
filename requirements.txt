@@ -10,7 +10,7 @@ python-docx==1.2.0
 premailer==3.10.0
 msal==1.28.0
 numpy==1.26.4
-pdfminer.six==20251230
+pdfminer.six==20260107
 shapely==2.0.3
 trimesh==4.4.0
 pypdf==6.4.0
