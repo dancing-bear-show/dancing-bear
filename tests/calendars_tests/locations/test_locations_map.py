@@ -27,8 +27,8 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_enrich_location_handles_empty_string(self):
         """enrich_location should return empty string for empty input."""
-        from calendars.locations_map import enrich_location
         import calendars.locations_map as lm
+        from calendars.locations_map import enrich_location
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         self.assertEqual(enrich_location(''), '')
@@ -37,8 +37,8 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_get_locations_map_caches_result(self):
         """get_locations_map should cache the result."""
-        from calendars.locations_map import get_locations_map
         import calendars.locations_map as lm
+        from calendars.locations_map import get_locations_map
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         # First call loads map
@@ -50,8 +50,8 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_get_locations_map_returns_address_map_fallback(self):
         """get_locations_map should return ADDRESS_MAP when no YAML exists."""
-        from calendars.locations_map import get_locations_map, ADDRESS_MAP
         import calendars.locations_map as lm
+        from calendars.locations_map import get_locations_map, ADDRESS_MAP
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         result = get_locations_map()

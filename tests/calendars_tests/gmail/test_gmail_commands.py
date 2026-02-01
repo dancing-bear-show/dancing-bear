@@ -2,7 +2,7 @@
 import argparse
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from calendars.gmail.commands import (
     run_gmail_mail_list,
@@ -96,7 +96,7 @@ class TestRunGmailSweepTop(unittest.TestCase):
         mock_run_pipeline.return_value = 0
         args = argparse.Namespace()
 
-        result = run_gmail_sweep_top(args)
+        run_gmail_sweep_top(args)
 
         call_args = mock_run_pipeline.call_args
         request = call_args[0][0]
@@ -140,7 +140,7 @@ class TestRunGmailScanClasses(unittest.TestCase):
         mock_run_pipeline.return_value = 0
         args = argparse.Namespace()
 
-        result = run_gmail_scan_classes(args)
+        run_gmail_scan_classes(args)
 
         call_args = mock_run_pipeline.call_args
         request = call_args[0][0]

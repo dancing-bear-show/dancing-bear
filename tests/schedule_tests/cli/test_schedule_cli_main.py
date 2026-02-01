@@ -5,12 +5,11 @@ Focuses on untested lines: 51, 54, 68-82, 101, 208-238, 269, 306, 324, 329-396, 
 
 from __future__ import annotations
 
-import sys
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.fixtures import TempDirMixin, has_pyyaml, write_yaml, temp_yaml_file
+from tests.fixtures import TempDirMixin, has_pyyaml, write_yaml
 
 # Skip module if PyYAML not available
 if not has_pyyaml():  # pragma: no cover
@@ -28,7 +27,6 @@ from schedule.cli.main import (
     _build_series_event,
     _compress_events,
     _compress_sort_key,
-    _emit_agentic,
     _build_outlook_service_from_args,
     cmd_plan,
     cmd_verify,

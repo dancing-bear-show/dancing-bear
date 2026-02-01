@@ -541,7 +541,7 @@ class TestMainColumnRenderers(unittest.TestCase):
         _adjust_presentation_spacing(para)
 
         # Should set space_after
-        self.assertTrue(para.paragraph_format.space_after is not None)
+        self.assertIsNot(para.paragraph_format.space_after, None)
 
     def test_adjust_presentation_spacing_with_none(self):
         """Test adjusting presentation spacing with None paragraph."""

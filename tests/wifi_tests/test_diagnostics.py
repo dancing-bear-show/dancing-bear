@@ -1,4 +1,3 @@
-import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -307,7 +306,7 @@ class DnsTests(unittest.TestCase):
     def test_dns_lookup_success(self):
         result = dns_lookup("google.com")
         self.assertTrue(result.success)
-        self.assertTrue(len(result.addresses) > 0)
+        self.assertGreater(len(result.addresses), 0)
         self.assertIsNotNone(result.elapsed_ms)
 
     def test_dns_lookup_invalid_host(self):
@@ -333,7 +332,7 @@ class TraceRouteTests(unittest.TestCase):
         runner.add(["tracepath", "8.8.8.8"], stdout=tracepath_out, returncode=0)
         result = trace_route("8.8.8.8", runner=runner, max_hops=10)
         self.assertTrue(result.success)
-        self.assertTrue(len(result.lines) > 0)
+        self.assertGreater(len(result.lines), 0)
 
 
 class HttpProbeTests(unittest.TestCase):
@@ -777,7 +776,7 @@ class RunDiagnosisIntegrationTests(unittest.TestCase):
 
         self.assertIsNotNone(report)
         self.assertEqual(report.gateway, "192.168.1.1")
-        self.assertTrue(len(report.ping_results) >= 1)
+        self.assertGreaterEqual(len(report.ping_results), 1)
         self.assertIsNotNone(report.dns)
         self.assertTrue(report.dns.success)
 
