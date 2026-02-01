@@ -2,6 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import calendars.locations_map as lm
+from calendars.locations_map import (
+    ADDRESS_MAP,
+    _default_locations_yaml_paths,
+    _load_yaml_locations,
+    enrich_location,
+    get_locations_map,
+)
+
 from tests.fixtures import has_pyyaml
 
 
@@ -9,10 +18,8 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_enrich_location_from_yaml(self):
         # Use built-in fallback map when config/locations.yaml is absent
-        from calendars.locations_map import enrich_location, ADDRESS_MAP
         # Clear any cache to force reload from built-in map
         try:
-            import calendars.locations_map as lm
             lm._CACHED_MAP = None  # type: ignore[attr-defined]
         except Exception:  # nosec B110 - test setup
             pass
@@ -27,8 +34,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_enrich_location_handles_empty_string(self):
         """enrich_location should return empty string for empty input."""
-        import calendars.locations_map as lm
-        from calendars.locations_map import enrich_location
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         self.assertEqual(enrich_location(''), '')
@@ -37,8 +42,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_get_locations_map_caches_result(self):
         """get_locations_map should cache the result."""
-        import calendars.locations_map as lm
-        from calendars.locations_map import get_locations_map
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         # First call loads map
@@ -50,8 +53,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_get_locations_map_returns_address_map_fallback(self):
         """get_locations_map should return ADDRESS_MAP when no YAML exists."""
-        import calendars.locations_map as lm
-        from calendars.locations_map import get_locations_map, ADDRESS_MAP
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         result = get_locations_map()
@@ -62,7 +63,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_load_yaml_locations_from_file(self):
         """_load_yaml_locations should load from valid YAML file."""
-        from calendars.locations_map import _load_yaml_locations
         import yaml
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp:
@@ -83,7 +83,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_load_yaml_locations_unwraps_locations_key(self):
         """_load_yaml_locations should unwrap {locations: {...}} format."""
-        from calendars.locations_map import _load_yaml_locations
         import yaml
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp:
@@ -104,7 +103,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_load_yaml_locations_returns_none_for_invalid_format(self):
         """_load_yaml_locations should return None for invalid YAML structure."""
-        from calendars.locations_map import _load_yaml_locations
         import yaml
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp:
@@ -120,8 +118,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_load_yaml_locations_returns_none_for_missing_file(self):
         """_load_yaml_locations should return empty dict for missing file."""
-        from calendars.locations_map import _load_yaml_locations
-
         # load_config returns {} for missing files, which is a valid dict
         # but doesn't contain locations, so it returns empty dict after conversion
         result = _load_yaml_locations(Path('/nonexistent/path.yaml'))
@@ -131,8 +127,6 @@ class LocationsMapTests(unittest.TestCase):
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_default_locations_yaml_paths_returns_list(self):
         """_default_locations_yaml_paths should return list of Path objects."""
-        from calendars.locations_map import _default_locations_yaml_paths
-
         paths = _default_locations_yaml_paths()
         self.assertIsInstance(paths, list)
         self.assertGreater(len(paths), 0)

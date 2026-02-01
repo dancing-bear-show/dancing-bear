@@ -296,7 +296,7 @@ class PingTests(unittest.TestCase):
 
     def test_parse_ping_bytes_input(self):
         ping_bytes = b"10 packets transmitted, 8 packets received, 20.0% packet loss\n"
-        transmitted, received, loss_pct, min_ms, avg_ms, max_ms = _parse_ping(ping_bytes)
+        transmitted, received, loss_pct, _, _, _ = _parse_ping(ping_bytes)
         self.assertEqual(transmitted, 10)
         self.assertEqual(received, 8)
         self.assertEqual(loss_pct, 20.0)
@@ -757,11 +757,11 @@ class RunDiagnosisIntegrationTests(unittest.TestCase):
         # Survey pings (count=4)
         for label in ["survey-gateway", "survey-1.1.1.1"]:
             target = "192.168.1.1" if label == "survey-gateway" else "1.1.1.1"
-            runner.add(["ping", "-c", "4", target], stdout=f"4 packets transmitted, 4 packets received, 0.0% packet loss\n")
+            runner.add(["ping", "-c", "4", target], stdout="4 packets transmitted, 4 packets received, 0.0% packet loss\n")
 
         # Main pings (count=12)
         for target in ["192.168.1.1", "1.1.1.1"]:
-            runner.add(["ping", "-c", "12", target], stdout=f"12 packets transmitted, 12 packets received, 0.0% packet loss\nround-trip min/avg/max/stddev = 1.0/2.0/3.0/0.5 ms\n")
+            runner.add(["ping", "-c", "12", target], stdout="12 packets transmitted, 12 packets received, 0.0% packet loss\nround-trip min/avg/max/stddev = 1.0/2.0/3.0/0.5 ms\n")
 
         runner.add(["traceroute", "-m", "12", "-q", "1", "1.1.1.1"], stdout="traceroute to 1.1.1.1\n")
 

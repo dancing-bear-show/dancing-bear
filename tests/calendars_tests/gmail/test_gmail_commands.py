@@ -96,6 +96,7 @@ class TestRunGmailSweepTop(unittest.TestCase):
         mock_run_pipeline.return_value = 0
         args = argparse.Namespace()
 
+        mock_run_pipeline.return_value = 0
         run_gmail_sweep_top(args)
 
         call_args = mock_run_pipeline.call_args
@@ -140,6 +141,7 @@ class TestRunGmailScanClasses(unittest.TestCase):
         mock_run_pipeline.return_value = 0
         args = argparse.Namespace()
 
+        mock_run_pipeline.return_value = 0
         run_gmail_scan_classes(args)
 
         call_args = mock_run_pipeline.call_args

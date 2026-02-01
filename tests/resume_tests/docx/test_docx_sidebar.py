@@ -533,7 +533,6 @@ class TestMainColumnRenderers(unittest.TestCase):
     def test_adjust_presentation_spacing(self):
         """Test adjusting presentation spacing."""
         from resume.docx_sidebar import _adjust_presentation_spacing
-        from docx.shared import Pt
 
         para = MagicMock()
         para.paragraph_format = MagicMock()

@@ -143,13 +143,11 @@ class TestGroupOneOffs(unittest.TestCase):
 
     def test_group_one_offs_groups_by_key(self):
         """Test _group_one_offs groups events by key tuple."""
-        import datetime as _dt
-
         events = [
             {"subject": "Class", "start": "2025-10-13T10:00", "end": "2025-10-13T11:00", "location": "Room A"},
             {"subject": "Class", "start": "2025-10-20T10:00", "end": "2025-10-20T11:00", "location": "Room A"},
         ]
-        groups, meta = _group_one_offs(events)
+        groups, _ = _group_one_offs(events)
 
         # Should have one group with two dates
         self.assertEqual(len(groups), 1)
