@@ -23,6 +23,7 @@ make test
 ./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker> --help
 ./bin/mail-assistant --help
 ./bin/calendar-assistant --help
+./bin/pr-assistant --help  # PR workflow: manage PRs, Copilot feedback, resolve conversations
 ```
 
 ## Architecture
@@ -113,7 +114,15 @@ Read in order for best context:
 # Flows
 ./bin/llm flows --list
 ./bin/llm flows --id <flow_id> --format md
+
+# PR Workflow (manage PRs, Copilot feedback, qlty issues, conversations)
+./bin/pr-assistant                    # Full workflow: create/update PR, review Copilot & qlty, resolve
+./bin/pr-assistant --dry-run          # Preview what would happen
+./bin/pr-assistant --no-create        # Only process feedback (no PR creation)
+./bin/pr-assistant --no-check-qlty    # Skip qlty linting checks
 ```
+
+See `.llm/PR_WORKFLOW.md` for detailed usage.
 
 ## Credentials (Profiles)
 

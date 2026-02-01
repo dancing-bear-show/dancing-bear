@@ -84,6 +84,32 @@ curated:
       desc: Run all tests (verbose)
       cmd: python3 -m unittest -v
 
+  pr_workflow:
+    - id: pr_auto
+      desc: Full PR workflow (create/update, review Copilot & qlty, resolve conversations, add summary)
+      cmd: ./bin/pr-assistant
+    - id: pr_dry_run
+      desc: PR workflow dry-run (show what would happen)
+      cmd: ./bin/pr-assistant --dry-run
+    - id: pr_create
+      desc: Create PR for current branch
+      cmd: ./bin/pr-assistant --no-resolve-copilot --no-update-summary --no-check-qlty
+    - id: pr_review_all
+      desc: Review and resolve Copilot feedback + check qlty issues
+      cmd: ./bin/pr-assistant --no-create
+    - id: pr_review_copilot_only
+      desc: Review Copilot feedback only (skip qlty)
+      cmd: ./bin/pr-assistant --no-create --no-check-qlty
+    - id: pr_check_qlty_only
+      desc: Check qlty issues only (skip Copilot)
+      cmd: ./bin/pr-assistant --no-create --no-resolve-copilot
+    - id: pr_summary
+      desc: Add combined summary without resolving
+      cmd: ./bin/pr-assistant --no-resolve-copilot
+    - id: pr_update_title
+      desc: Update PR title
+      cmd: ./bin/pr-assistant --no-resolve-copilot --no-update-summary --no-check-qlty --title "Your new title here"
+
   ios_phone:
     - id: ios_export_layout
       desc: Export current Home Screen layout from Finder backup

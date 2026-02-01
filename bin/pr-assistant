@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""PR workflow assistant: manage PRs, Copilot feedback, and review conversations."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+# Add repo root to path
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from core.pr_workflow import run_pr_workflow  # noqa: E402
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Main entry point for PR assistant."""
+    parser = argparse.ArgumentParser(
+        prog="pr-assistant",
+        description="Manage PRs: create, review Copilot feedback, resolve conversations, update metadata",
+    )
+
+    parser.add_argument(
+        "--create",
+        action="store_true",
+        help="Create PR if one doesn't exist for current branch",
+    )
+    parser.add_argument(
+        "--no-create",
+        dest="create",
+        action="store_false",
+        help="Don't auto-create PR (fail if none exists)",
+    )
+    parser.add_argument(
+        "--resolve-copilot",
+        action="store_true",
+        default=True,
+        help="Auto-resolve Copilot review conversations (default: True)",
+    )
+    parser.add_argument(
+        "--no-resolve-copilot",
+        dest="resolve_copilot",
+        action="store_false",
+        help="Don't resolve Copilot conversations",
+    )
+    parser.add_argument(
+        "--update-summary",
+        action="store_true",
+        default=True,
+        help="Add Copilot summary comment to PR (default: True)",
+    )
+    parser.add_argument(
+        "--no-update-summary",
+        dest="update_summary",
+        action="store_false",
+        help="Don't add summary comment",
+    )
+    parser.add_argument(
+        "--check-qlty",
+        action="store_true",
+        default=True,
+        help="Check for qlty linting issues on PR files (default: True)",
+    )
+    parser.add_argument(
+        "--no-check-qlty",
+        dest="check_qlty",
+        action="store_false",
+        help="Skip qlty linting checks",
+    )
+    parser.add_argument(
+        "--base",
+        default="main",
+        help="Base branch for new PRs (default: main)",
+    )
+    parser.add_argument(
+        "--title",
+        help="Override PR title",
+    )
+    parser.add_argument(
+        "--body",
+        help="Override PR body/description",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would happen without making changes",
+    )
+
+    # Set create default to True
+    parser.set_defaults(create=True)
+
+    args = parser.parse_args(argv)
+
+    return run_pr_workflow(
+        auto_create=args.create,
+        resolve_copilot=args.resolve_copilot,
+        update_summary=args.update_summary,
+        check_qlty=args.check_qlty,
+        base_branch=args.base,
+        title=args.title,
+        body=args.body,
+        dry_run=args.dry_run,
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
