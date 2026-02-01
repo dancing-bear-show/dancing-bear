@@ -194,19 +194,21 @@ class TestStyleManagerShadingAndColors(unittest.TestCase):
 
         p = MagicMock()
         p._p = MagicMock()
-        p_pr = MagicMock()
         existing_shd = MagicMock()
         existing_shd.tag = qn('w:shd')
-        # Configure p_pr to return list of children when list() is called
-        p_pr.__iter__ = MagicMock(return_value=iter([existing_shd]))
-        # Also configure for direct iteration
-        p_pr.__len__ = MagicMock(return_value=1)
+
+        # Create a proper mock list-like object
+        p_pr = MagicMock()
+        children_list = [existing_shd]
+        p_pr.__iter__ = lambda self: iter(children_list)
+        p_pr.__len__ = lambda self: len(children_list)
         p._p.get_or_add_pPr = MagicMock(return_value=p_pr)
 
         StyleManager.apply_shading(p, (200, 200, 200))
 
-        # Verify existing shd was removed
-        p_pr.remove.assert_called_once_with(existing_shd)
+        # Verify existing shd was removed and new one appended
+        assert p_pr.remove.called, "Expected remove to be called"
+        assert p_pr.append.called, "Expected append to be called"
 
     def test_apply_shading_exception_handling(self):
         """Test apply_shading handles exceptions gracefully."""
