@@ -1,6 +1,6 @@
 # PR Workflow Assistant
 
-Automated PR management: create PRs, review GitHub Copilot feedback, check qlty linting issues, resolve conversations, and update PR metadata.
+Automated PR management: create PRs, review GitHub Copilot feedback, check qlty linting issues, check CI/CD status, resolve conversations, and update PR metadata.
 
 ## Quick Start
 
@@ -23,8 +23,9 @@ Automated PR management: create PRs, review GitHub Copilot feedback, check qlty 
 - **Auto-create PRs**: Creates a PR if one doesn't exist for the current branch
 - **Review Copilot feedback**: Fetches all GitHub Copilot review comments
 - **Check qlty issues**: Runs qlty linter on all PR files and reports issues by severity
+- **Check CI/CD status**: Fetches GitHub Actions and other CI/CD check results
 - **Resolve conversations**: Automatically marks Copilot review conversations as resolved
-- **Add summaries**: Posts a combined summary of Copilot feedback and qlty issues to the PR
+- **Add summaries**: Posts a combined summary of Copilot feedback, qlty issues, and CI/CD status to the PR
 - **Update metadata**: Update PR title and description
 
 ## Usage
@@ -40,9 +41,10 @@ This will:
 1. Check for existing PR (create if missing)
 2. Fetch Copilot review comments
 3. Check qlty linting issues on all PR files
-4. Display combined summary
-5. Resolve all Copilot conversations
-6. Add combined summary comment to PR
+4. Check CI/CD status (GitHub Actions, etc.)
+5. Display combined summary
+6. Resolve all Copilot conversations
+7. Add combined summary comment to PR
 
 ### Common Scenarios
 
@@ -76,6 +78,7 @@ This will:
 - `--create` / `--no-create`: Control PR creation (default: create)
 - `--resolve-copilot` / `--no-resolve-copilot`: Auto-resolve Copilot conversations (default: resolve)
 - `--check-qlty` / `--no-check-qlty`: Check qlty linting issues on PR files (default: check)
+- `--check-ci` / `--no-check-ci`: Check CI/CD status (default: check)
 - `--update-summary` / `--no-update-summary`: Add summary comment (default: add)
 - `--base BRANCH`: Base branch for new PRs (default: main)
 - `--title TEXT`: Override PR title

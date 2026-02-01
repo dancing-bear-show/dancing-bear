@@ -70,6 +70,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Skip qlty linting checks",
     )
     parser.add_argument(
+        "--check-ci",
+        action="store_true",
+        default=True,
+        help="Check CI/CD status on PR (default: True)",
+    )
+    parser.add_argument(
+        "--no-check-ci",
+        dest="check_ci",
+        action="store_false",
+        help="Skip CI/CD status checks",
+    )
+    parser.add_argument(
         "--base",
         default="main",
         help="Base branch for new PRs (default: main)",
@@ -98,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         resolve_copilot=args.resolve_copilot,
         update_summary=args.update_summary,
         check_qlty=args.check_qlty,
+        check_ci=args.check_ci,
         base_branch=args.base,
         title=args.title,
         body=args.body,

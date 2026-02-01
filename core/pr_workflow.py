@@ -46,6 +46,18 @@ class QltyIssue:
     rule: str
 
 
+@dataclass
+class CiCheck:
+    """CI/CD check status."""
+
+    name: str
+    status: str  # completed, in_progress, queued, etc.
+    conclusion: Optional[str]  # success, failure, cancelled, etc.
+    details_url: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+
+
 def _run_gh(args: list[str], check: bool = True) -> tuple[int, str, str]:
     """Run gh CLI command and return (exit_code, stdout, stderr)."""
     try:
@@ -207,6 +219,88 @@ def get_pr_changed_files(pr_number: int) -> list[str]:
         "--jq", ".files[].path"
     ])
     return [line.strip() for line in stdout.strip().split("\n") if line.strip()]
+
+
+def get_ci_checks(pr_number: int) -> list[CiCheck]:
+    """Get CI/CD check status for PR."""
+    _, stdout, _ = _run_gh([
+        "pr", "checks", str(pr_number),
+        "--json", "name,status,conclusion,detailsUrl,startedAt,completedAt"
+    ], check=False)
+
+    if not stdout:
+        return []
+
+    checks = []
+    try:
+        data = json.loads(stdout)
+        for check in data:
+            checks.append(CiCheck(
+                name=check.get("name", "Unknown"),
+                status=check.get("status", "unknown"),
+                conclusion=check.get("conclusion"),
+                details_url=check.get("detailsUrl"),
+                started_at=check.get("startedAt"),
+                completed_at=check.get("completedAt"),
+            ))
+    except json.JSONDecodeError:
+        pass  # nosec B112 - graceful failure on malformed check data
+
+    return checks
+
+
+def _format_check_section(title: str, checks: list[CiCheck], include_urls: bool = False, limit: int = 0) -> list[str]:
+    """Format a section of CI checks."""
+    if not checks:
+        return []
+
+    lines = [f"### {title} ({len(checks)})", ""]
+
+    display_checks = checks[:limit] if limit > 0 else checks
+    for check in display_checks:
+        if include_urls and check.details_url:
+            lines.append(f"- **{check.name}** - [Details]({check.details_url})")
+        else:
+            lines.append(f"- {check.name}")
+
+    if limit > 0 and len(checks) > limit:
+        lines.append(f"- ... and {len(checks) - limit} more")
+
+    lines.append("")
+    return lines
+
+
+def summarize_ci_checks(checks: list[CiCheck]) -> str:
+    """Generate a summary of CI/CD checks."""
+    if not checks:
+        return "No CI/CD checks found."
+
+    # Group by status
+    groups = {
+        "failed": [c for c in checks if c.conclusion == "failure"],
+        "in_progress": [c for c in checks if c.status == "in_progress"],
+        "pending": [c for c in checks if c.status in ("queued", "pending")],
+        "cancelled": [c for c in checks if c.conclusion == "cancelled"],
+        "skipped": [c for c in checks if c.conclusion == "skipped"],
+        "passed": [c for c in checks if c.conclusion == "success"],
+    }
+
+    summary_parts = [
+        "## CI/CD Checks",
+        "",
+        f"**Status:** {len(checks)} total check(s)",
+        "",
+    ]
+
+    # Add sections in priority order
+    summary_parts.extend(_format_check_section("❌ Failed", groups["failed"], include_urls=True))
+    summary_parts.extend(_format_check_section("🔄 In Progress", groups["in_progress"]))
+    summary_parts.extend(_format_check_section("⏳ Pending", groups["pending"]))
+    summary_parts.extend(_format_check_section("⚠️ Cancelled", groups["cancelled"]))
+    summary_parts.extend(_format_check_section("⏭️ Skipped", groups["skipped"]))
+    summary_parts.extend(_format_check_section("✅ Passed", groups["passed"], limit=5))
+
+    return "\n".join(summary_parts)
 
 
 def check_qlty_issues(files: list[str]) -> list[QltyIssue]:
@@ -405,6 +499,25 @@ def _handle_qlty_issues(pr: PrInfo, _dry_run: bool) -> str:
     return summary
 
 
+def _handle_ci_checks(pr: PrInfo, _dry_run: bool) -> str:
+    """Check CI/CD status for PR. Returns summary text.
+
+    Args:
+        pr: PR information
+        _dry_run: Reserved for future functionality (unused)
+    """
+    print("\nChecking CI/CD status...")
+
+    # Get CI checks
+    checks = get_ci_checks(pr.number)
+
+    # Display summary
+    summary = summarize_ci_checks(checks)
+    print("\n" + summary)
+
+    return summary
+
+
 def _update_pr_metadata(pr: PrInfo, title: Optional[str], body: Optional[str], dry_run: bool) -> bool:
     """Update PR title/body if provided."""
     if not (title or body):
@@ -428,6 +541,7 @@ def run_pr_workflow(
     resolve_copilot: bool = True,
     update_summary: bool = True,
     check_qlty: bool = True,
+    check_ci: bool = True,
     base_branch: str = "main",
     title: Optional[str] = None,
     body: Optional[str] = None,
@@ -441,6 +555,7 @@ def run_pr_workflow(
         resolve_copilot: Auto-resolve Copilot conversations
         update_summary: Add/update PR with summary
         check_qlty: Check for qlty linting issues
+        check_ci: Check CI/CD status
         base_branch: Base branch for new PRs
         title: Override PR title
         body: Override PR body
@@ -467,6 +582,12 @@ def run_pr_workflow(
         qlty_summary = _handle_qlty_issues(pr, dry_run)
         if qlty_summary:
             summaries.append(qlty_summary)
+
+    # Check CI/CD status
+    if check_ci:
+        ci_summary = _handle_ci_checks(pr, dry_run)
+        if ci_summary:
+            summaries.append(ci_summary)
 
     # Add combined summary to PR
     if update_summary and summaries:
