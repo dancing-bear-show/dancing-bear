@@ -150,13 +150,53 @@ def get_copilot_comments(pr_number: int) -> list[ReviewComment]:
     return [c for c in all_comments if "copilot" in c.author.lower()]
 
 
+def _get_repo_info() -> tuple[Optional[str], Optional[str]]:
+    """Get repository owner and name."""
+    code, stdout, _ = _run_gh(["repo", "view", "--json", "owner,name"], check=False)
+    if code != 0:
+        return None, None
+
+    try:
+        data = json.loads(stdout)
+        return data["owner"]["login"], data["name"]
+    except (json.JSONDecodeError, KeyError):
+        return None, None  # nosec B112 - graceful failure on malformed repo info
+
+
 def resolve_conversation(pr_number: int, comment_id: int) -> bool:
-    """Mark a review conversation as resolved."""
-    # Use GraphQL API to resolve conversation
-    # First get the conversation thread ID
+    """Mark a review conversation as resolved using GraphQL API."""
+    # Get repo owner and name
+    owner, repo = _get_repo_info()
+    if not owner or not repo:
+        return False
+
+    # Get the conversation thread ID for this comment
+    query = """
+    query($owner: String!, $repo: String!, $prNumber: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $prNumber) {
+          reviewThreads(first: 100) {
+            nodes {
+              id
+              isResolved
+              comments(first: 10) {
+                nodes {
+                  databaseId
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
     code, stdout, _ = _run_gh([
         "api", "graphql",
-        "-f", f"query=query {{ repository(owner: \"{{owner}}\", name: \"{{repo}}\") {{ pullRequest(number: {pr_number}) {{ reviewThreads(first: 100) {{ nodes {{ id isResolved comments(first: 1) {{ nodes {{ databaseId }} }} }} }} }} }} }}"
+        "-f", f"query={query}",
+        "-F", f"owner={owner}",
+        "-F", f"repo={repo}",
+        "-F", f"prNumber={pr_number}"
     ], check=False)
 
     if code != 0:
@@ -181,10 +221,22 @@ def resolve_conversation(pr_number: int, comment_id: int) -> bool:
         if not thread_id:
             return False
 
-        # Resolve the thread
+        # Resolve the thread using mutation
+        mutation = """
+        mutation($threadId: ID!) {
+          resolveReviewThread(input: {threadId: $threadId}) {
+            thread {
+              id
+              isResolved
+            }
+          }
+        }
+        """
+
         code, _, _ = _run_gh([
             "api", "graphql",
-            "-f", f"query=mutation {{ resolveReviewThread(input: {{threadId: \"{thread_id}\"}}) {{ thread {{ id }} }} }}"
+            "-f", f"query={mutation}",
+            "-F", f"threadId={thread_id}"
         ], check=False)
 
         return code == 0
