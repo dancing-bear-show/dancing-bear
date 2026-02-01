@@ -41,6 +41,12 @@ class TestStyleManagerColorUtils(unittest.TestCase):
         result = StyleManager.parse_hex_color("")
         self.assertIsNone(result)
 
+    def test_parse_hex_color_invalid_characters(self):
+        """Test parsing invalid hex characters returns None."""
+        from resume.docx_styles import StyleManager
+        result = StyleManager.parse_hex_color("GGGGGG")
+        self.assertIsNone(result)
+
     def test_hex_fill(self):
         """Test converting RGB to hex fill string."""
         from resume.docx_styles import StyleManager
@@ -92,6 +98,16 @@ class TestStyleManagerParagraphFormatting(unittest.TestCase):
         # Verify spacing was set
         self.assertIsNotNone(p.paragraph_format)
 
+    def test_tight_paragraph_exception_handling(self):
+        """Test tight_paragraph handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        p = MagicMock()
+        # Make paragraph_format itself raise an exception when accessed
+        type(p).paragraph_format = property(lambda self: (_ for _ in ()).throw(Exception("Test error")))
+
+        # Should not raise
+        StyleManager.tight_paragraph(p)
+
     def test_compact_bullet(self):
         """Test compact bullet formatting."""
         from resume.docx_styles import StyleManager
@@ -102,6 +118,16 @@ class TestStyleManagerParagraphFormatting(unittest.TestCase):
         # Should not raise
         self.assertIsNotNone(p.paragraph_format)
 
+    def test_compact_bullet_exception_handling(self):
+        """Test compact_bullet handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        p = MagicMock()
+        # Make paragraph_format itself raise an exception when accessed
+        type(p).paragraph_format = property(lambda self: (_ for _ in ()).throw(Exception("Test error")))
+
+        # Should not raise
+        StyleManager.compact_bullet(p)
+
     def test_flush_left(self):
         """Test flush left alignment."""
         from resume.docx_styles import StyleManager
@@ -111,6 +137,16 @@ class TestStyleManagerParagraphFormatting(unittest.TestCase):
 
         self.assertIsNotNone(p.paragraph_format)
 
+    def test_flush_left_exception_handling(self):
+        """Test flush_left handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        p = MagicMock()
+        # Make paragraph_format itself raise an exception when accessed
+        type(p).paragraph_format = property(lambda self: (_ for _ in ()).throw(Exception("Test error")))
+
+        # Should not raise
+        StyleManager.flush_left(p)
+
     def test_center_paragraph(self):
         """Test center paragraph alignment."""
         from resume.docx_styles import StyleManager
@@ -119,6 +155,65 @@ class TestStyleManagerParagraphFormatting(unittest.TestCase):
         StyleManager.center_paragraph(p)
 
         self.assertIsNotNone(p.paragraph_format)
+
+    def test_center_paragraph_exception_handling(self):
+        """Test center_paragraph handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        p = MagicMock()
+        # Make alignment setter raise an exception
+        type(p).alignment = property(
+            lambda self: None,
+            lambda self, val: (_ for _ in ()).throw(Exception("Test error"))
+        )
+
+        # Should not raise
+        StyleManager.center_paragraph(p)
+
+
+@mock_docx_modules
+class TestStyleManagerShadingAndColors(unittest.TestCase):
+    """Tests for StyleManager shading and color application."""
+
+    def test_apply_shading(self):
+        """Test applying background shading to paragraph."""
+        from resume.docx_styles import StyleManager
+        p = MagicMock()
+        p._p = MagicMock()
+        p_pr = MagicMock()
+        p._p.get_or_add_pPr = MagicMock(return_value=p_pr)
+        p_pr.__iter__ = MagicMock(return_value=iter([]))
+
+        StyleManager.apply_shading(p, (255, 128, 0))
+
+        # Should not raise
+
+    def test_apply_shading_removes_existing(self):
+        """Test apply_shading removes existing shading element."""
+        from resume.docx_styles import StyleManager
+        from docx.oxml.ns import qn
+
+        p = MagicMock()
+        p._p = MagicMock()
+        p_pr = MagicMock()
+        existing_shd = MagicMock()
+        existing_shd.tag = qn('w:shd')
+        p_pr.__iter__ = MagicMock(return_value=iter([existing_shd]))
+        p._p.get_or_add_pPr = MagicMock(return_value=p_pr)
+
+        StyleManager.apply_shading(p, (200, 200, 200))
+
+        # Verify existing shd was removed
+        p_pr.remove.assert_called_once_with(existing_shd)
+
+    def test_apply_shading_exception_handling(self):
+        """Test apply_shading handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        p = MagicMock()
+        p._p = MagicMock()
+        p._p.get_or_add_pPr = MagicMock(side_effect=Exception("Test error"))
+
+        # Should not raise
+        StyleManager.apply_shading(p, (100, 100, 100))
 
 
 @mock_docx_modules
@@ -150,6 +245,30 @@ class TestStyleManagerRunFormatting(unittest.TestCase):
 
         # Should not raise
 
+    def test_apply_run_color_invalid_hex(self):
+        """Test applying invalid hex color is no-op."""
+        from resume.docx_styles import StyleManager
+        run = self._get_fake_run()
+
+        StyleManager.apply_run_color(run, "invalid")
+
+        # Should not raise
+
+    def test_apply_run_color_exception_handling(self):
+        """Test apply_run_color handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        run = MagicMock()
+        run.font = MagicMock()
+        run.font.color = MagicMock()
+        # Make rgb setter raise an exception
+        type(run.font.color).rgb = property(
+            lambda self: None,
+            lambda self, val: (_ for _ in ()).throw(Exception("Test error"))
+        )
+
+        # Should not raise
+        StyleManager.apply_run_color(run, "#FF0000")
+
     def test_apply_run_size(self):
         """Test applying font size to run."""
         from resume.docx_styles import StyleManager
@@ -167,6 +286,20 @@ class TestStyleManagerRunFormatting(unittest.TestCase):
         StyleManager.apply_run_size(run, None)
 
         # Should not raise
+
+    def test_apply_run_size_exception_handling(self):
+        """Test apply_run_size handles exceptions gracefully."""
+        from resume.docx_styles import StyleManager
+        run = MagicMock()
+        run.font = MagicMock()
+        # Make size setter raise an exception
+        type(run.font).size = property(
+            lambda self: None,
+            lambda self, val: (_ for _ in ()).throw(Exception("Test error"))
+        )
+
+        # Should not raise
+        StyleManager.apply_run_size(run, 12.0)
 
 
 @mock_docx_modules
@@ -259,6 +392,18 @@ class TestTextFormatter(unittest.TestCase):
         from resume.docx_styles import TextFormatter
         result = TextFormatter.format_phone("+54 9 1167929561")
         self.assertEqual(result, "+54 9 1167929561")
+
+    def test_format_link_empty(self):
+        """Test format_link handles empty URL."""
+        from resume.docx_styles import TextFormatter
+        result = TextFormatter.format_link("")
+        self.assertEqual(result, "")
+
+    def test_format_link_none(self):
+        """Test format_link handles None URL."""
+        from resume.docx_styles import TextFormatter
+        result = TextFormatter.format_link(None)
+        self.assertEqual(result, "")
 
     def test_format_link_strips_scheme(self):
         """Test format_link strips http/https."""

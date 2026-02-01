@@ -70,6 +70,13 @@ def has_pyyaml() -> bool:
         return False
 
 
+def has_openpyxl() -> bool:
+    try:
+        return importlib.util.find_spec("openpyxl") is not None
+    except Exception:
+        return False
+
+
 # -----------------------------------------------------------------------------
 # Output capture helpers
 # -----------------------------------------------------------------------------

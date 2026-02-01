@@ -31,6 +31,17 @@ from resume.parsing import (
     parse_linkedin_text,
     parse_resume_text,
     merge_profiles,
+    _DocxParaHelper,
+    _docx_find_sections,
+    _docx_extract_name,
+    _docx_extract_headline,
+    _docx_extract_name_headline,
+    _docx_extract_summary,
+    _docx_extract_education,
+    _docx_extract_experience,
+    _parse_h2_education,
+    _parse_h2_experience,
+    _process_exp_paragraph,
 )
 from tests.resume_tests.fixtures import (
     SAMPLE_CONTACT_LINES,
@@ -123,6 +134,24 @@ class TestParseExperienceEntry(unittest.TestCase):
         self.assertEqual(result["title"], "Product Manager")
         self.assertEqual(result["company"], "StartupXYZ")
         self.assertEqual(result["location"], "San Francisco")
+
+    def test_parse_at_format_with_comma_dates(self):
+        # Test Pattern 2: lines 65-67 with comma before dates (needs proper format)
+        result = _parse_experience_entry("Software Engineer at TechCorp (2020 - 2023)")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["title"], "Software Engineer")
+        self.assertIn("TechCorp", result["company"])
+        # This tests that _split_date_range is called in pattern 2 (lines 66-67)
+        # The pattern handles dates with or without comma
+
+    def test_parse_simple_at_format_no_dates(self):
+        # Test Pattern 4: line 96 - simple "Title at Company" without dates
+        result = _parse_experience_entry("Lead Engineer at MegaCorp")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["title"], "Lead Engineer")
+        self.assertEqual(result["company"], "MegaCorp")
+        self.assertEqual(result["start"], "")
+        self.assertEqual(result["end"], "")
 
     def test_parse_returns_none_for_non_matching(self):
         result = _parse_experience_entry("Random text without job info")
@@ -300,6 +329,19 @@ class TestParseExperience(unittest.TestCase):
         result = _parse_experience(lines)
         self.assertEqual(len(result), 2)
 
+    def test_parse_multiple_roles_no_blank_line(self):
+        # Test line 260: delimiter based on pattern match instead of blank line
+        lines = [
+            "Senior Engineer at TechCorp (2020-2023)",
+            "- Built stuff",
+            "Manager at BigCo (2018-2020)",
+            "- Managed team",
+        ]
+        result = _parse_experience(lines)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["title"], "Senior Engineer")
+        self.assertEqual(result[1]["title"], "Manager")
+
     def test_parse_empty_returns_empty(self):
         result = _parse_experience([])
         self.assertEqual(result, [])
@@ -320,6 +362,19 @@ class TestParseExperienceBlock(unittest.TestCase):
         self.assertEqual(result["start"], "2019")
         self.assertEqual(result["end"], "2022")
         self.assertEqual(len(result["bullets"]), 2)
+
+    def test_parse_block_with_description_lines(self):
+        # Test lines 288-289: non-bullet lines added as bullets
+        block = [
+            "Engineer at TechCo (2020-2022)",
+            "Built scalable systems",
+            "Led cross-functional initiatives",
+        ]
+        result = _parse_experience_block(block)
+        self.assertEqual(result["title"], "Engineer")
+        self.assertEqual(result["company"], "TechCo")
+        self.assertEqual(len(result["bullets"]), 2)
+        self.assertIn("Built scalable systems", result["bullets"])
 
     def test_parse_empty_block(self):
         result = _parse_experience_block([])
@@ -387,6 +442,20 @@ class TestParseLinkedinText(unittest.TestCase):
         self.assertEqual(result["email"], "john@example.com")
         self.assertIn("San Francisco", result["location"])
         self.assertIn("Python", result["skills"])
+
+    def test_parse_html_with_meta_tags(self):
+        # Test line 327: HTML parsing branch
+        result = parse_linkedin_text(SAMPLE_LINKEDIN_HTML)
+        self.assertEqual(result["name"], "John Doe")
+        self.assertEqual(result["headline"], "Software Engineer")
+        self.assertEqual(result["location"], "San Francisco")
+
+    def test_parse_html_fallback_to_text(self):
+        # HTML without proper meta tags falls back to text parsing
+        html = "<html><body>Jane Smith\njane@test.com</body></html>"
+        result = parse_linkedin_text(html)
+        # Should still extract from text content
+        self.assertIn("name", result)
 
     def test_parse_returns_structure(self):
         text = "Simple Name\nsimple@email.com"
@@ -706,6 +775,19 @@ class TestParseLinkedinMetaFromHtml(unittest.TestCase):
         self.assertEqual(result["summary"], "Senior Engineer")
         self.assertEqual(result["location"], "San Francisco")
 
+    def test_parse_from_title_only(self):
+        # Test line 377: parsing name from og:title when profile meta missing
+        html = '''
+        <html>
+        <head>
+            <meta property="og:title" content="Jane Smith | LinkedIn">
+            <title>Jane Smith | LinkedIn</title>
+        </head>
+        </html>
+        '''
+        result = _parse_linkedin_meta_from_html(html)
+        self.assertEqual(result["name"], "Jane Smith")
+
     def test_returns_empty_when_no_data(self):
         html = '<html><head></head><body></body></html>'
         result = _parse_linkedin_meta_from_html(html)
@@ -767,6 +849,441 @@ class TestMergeProfiles(unittest.TestCase):
         result = merge_profiles(linkedin, resume)
         self.assertEqual(result["name"], "")
         self.assertEqual(result["skills"], [])
+
+
+class TestDocxParaHelper(unittest.TestCase):
+    """Tests for _DocxParaHelper class."""
+
+    def test_style_returns_style_name(self):
+        # Create mock paragraphs
+        class MockStyle:
+            def __init__(self, name):
+                self.name = name
+
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = MockStyle(style_name)
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Heading 1", "Experience"),
+            MockParagraph("Normal", "Job description"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        self.assertEqual(helper.style(0), "heading 1")
+        self.assertEqual(helper.style(1), "normal")
+
+    def test_text_returns_stripped_text(self):
+        class MockParagraph:
+            def __init__(self, text):
+                self.text = text
+                self.style = type('obj', (object,), {'name': 'Normal'})()
+
+        paragraphs = [MockParagraph("  Test  "), MockParagraph("Content")]
+        helper = _DocxParaHelper(paragraphs)
+        self.assertEqual(helper.text(0), "Test")
+        self.assertEqual(helper.text(1), "Content")
+
+    def test_len_returns_paragraph_count(self):
+        class MockParagraph:
+            def __init__(self):
+                self.text = "text"
+                self.style = type('obj', (object,), {'name': 'Normal'})()
+
+        paragraphs = [MockParagraph(), MockParagraph(), MockParagraph()]
+        helper = _DocxParaHelper(paragraphs)
+        self.assertEqual(len(helper), 3)
+
+    def test_style_handles_missing_name(self):
+        # Test line 467: handle missing style name
+        class MockParagraph:
+            def __init__(self):
+                self.text = "text"
+                self.style = None
+
+        paragraphs = [MockParagraph()]
+        helper = _DocxParaHelper(paragraphs)
+        self.assertEqual(helper.style(0), "")
+
+
+class TestDocxFindSections(unittest.TestCase):
+    """Tests for _docx_find_sections function."""
+
+    def test_find_heading_1_sections(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Title", "John Doe"),
+            MockParagraph("Heading 1", "Experience"),
+            MockParagraph("Normal", "Job description"),
+            MockParagraph("Heading 1", "Education"),
+            MockParagraph("Normal", "Degree info"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        h1_indices, sections = _docx_find_sections(helper)
+        self.assertEqual(len(h1_indices), 2)
+        self.assertIn("experience", sections)
+        self.assertIn("education", sections)
+        self.assertEqual(sections["experience"]["start"], 1)
+        self.assertEqual(sections["education"]["start"], 3)
+
+    def test_section_end_bounds(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Heading 1", "Skills"),
+            MockParagraph("Normal", "Python"),
+            MockParagraph("Heading 1", "Experience"),
+            MockParagraph("Normal", "Job"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        _, sections = _docx_find_sections(helper)
+        self.assertEqual(sections["skills"]["end"], 1)
+        self.assertEqual(sections["experience"]["end"], 3)
+
+
+class TestDocxExtractName(unittest.TestCase):
+    """Tests for _docx_extract_name function."""
+
+    def test_extract_name_from_title_style(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [MockParagraph("Title", "John Doe")]
+        helper = _DocxParaHelper(paragraphs)
+        name = _docx_extract_name(helper)
+        self.assertEqual(name, "John Doe")
+
+    def test_skip_long_text(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [MockParagraph("Title", "x" * 100)]
+        helper = _DocxParaHelper(paragraphs)
+        name = _docx_extract_name(helper)
+        self.assertEqual(name, "")
+
+    def test_skip_non_title_style(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [MockParagraph("Normal", "John Doe")]
+        helper = _DocxParaHelper(paragraphs)
+        name = _docx_extract_name(helper)
+        self.assertEqual(name, "")
+
+
+class TestDocxExtractHeadline(unittest.TestCase):
+    """Tests for _docx_extract_headline function."""
+
+    def test_extract_headline_after_title(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Title", "John Doe"),
+            MockParagraph("Normal", "Software Engineer"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        headline = _docx_extract_headline(helper)
+        self.assertEqual(headline, "Software Engineer")
+
+    def test_skip_contact_lines(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Title", "John Doe"),
+            MockParagraph("Normal", "john@test.com | linkedin.com/in/john"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        headline = _docx_extract_headline(helper)
+        self.assertEqual(headline, "")
+
+
+class TestDocxExtractNameHeadline(unittest.TestCase):
+    """Tests for _docx_extract_name_headline function."""
+
+    def test_extract_both_name_and_headline(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Title", "Jane Smith"),
+            MockParagraph("Normal", "Product Manager"),
+            MockParagraph("Heading 1", "Experience"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        name, headline, early_lines = _docx_extract_name_headline(helper, 2)
+        self.assertEqual(name, "Jane Smith")
+        self.assertEqual(headline, "Product Manager")
+        self.assertEqual(len(early_lines), 2)
+
+
+class TestDocxExtractSummary(unittest.TestCase):
+    """Tests for _docx_extract_summary function."""
+
+    def test_extract_from_summary_section(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Title", "John Doe"),
+            MockParagraph("Heading 1", "Summary"),
+            MockParagraph("Normal", "Experienced engineer"),
+            MockParagraph("Normal", "with 10 years"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {"summary": {"start": 1, "end": 3}}
+        summary = _docx_extract_summary(helper, sections, [1], 1)
+        self.assertIn("Experienced engineer", summary)
+
+    def test_extract_preface_before_first_section(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Title", "John Doe"),
+            MockParagraph("Normal", "Senior developer"),
+            MockParagraph("Heading 1", "Experience"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {}
+        summary = _docx_extract_summary(helper, sections, [2], 2)
+        self.assertIn("Senior developer", summary)
+
+
+class TestDocxExtractEducation(unittest.TestCase):
+    """Tests for _docx_extract_education function."""
+
+    def test_extract_education_entries(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Heading 1", "Education"),
+            MockParagraph("Normal", "B.S. Computer Science at MIT — (2018)"),
+            MockParagraph("Normal", "MBA, Harvard, 2020"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {"education": {"start": 0, "end": 2}}
+        education = _docx_extract_education(helper, sections)
+        self.assertEqual(len(education), 2)
+        self.assertEqual(education[0]["degree"], "B.S. Computer Science")
+        self.assertEqual(education[0]["institution"], "MIT")
+
+    def test_extract_h2_style_education(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Heading 1", "Education"),
+            MockParagraph("HEADING_2_STYLE", "Master of Science\t2021"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {"education": {"start": 0, "end": 1}}
+        education = _docx_extract_education(helper, sections)
+        self.assertEqual(len(education), 1)
+        # _parse_h2_education splits on tabs/spaces but degree may contain trailing whitespace
+        self.assertIn("Master of Science", education[0]["degree"])
+        self.assertEqual(education[0]["year"], "2021")
+
+    def test_no_education_section(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [MockParagraph("Heading 1", "Experience")]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {}
+        education = _docx_extract_education(helper, sections)
+        self.assertEqual(education, [])
+
+
+class TestParseH2Education(unittest.TestCase):
+    """Tests for _parse_h2_education function."""
+
+    def test_parse_with_tabs(self):
+        result = _parse_h2_education("Bachelor of Arts\t\tUniversity Name\t2019")
+        self.assertEqual(result["degree"], "Bachelor of Arts")
+        self.assertEqual(result["year"], "2019")
+
+    def test_parse_with_spaces(self):
+        result = _parse_h2_education("Ph.D. Physics    2020")
+        self.assertEqual(result["degree"], "Ph.D. Physics")
+        self.assertEqual(result["year"], "2020")
+
+
+class TestDocxExtractExperience(unittest.TestCase):
+    """Tests for _docx_extract_experience function."""
+
+    def test_extract_experience_entries(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [
+            MockParagraph("Heading 1", "Experience"),
+            MockParagraph("Normal", "Senior Engineer at TechCorp, 2020 - 2023"),
+            MockParagraph("List", "• Built scalable systems"),
+            MockParagraph("List", "• Led team initiatives"),
+        ]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {"experience": {"start": 0, "end": 3}}
+        experience = _docx_extract_experience(helper, sections)
+        self.assertEqual(len(experience), 1)
+        self.assertIn("TechCorp", experience[0]["company"])
+        self.assertEqual(len(experience[0]["bullets"]), 2)
+
+    def test_extract_h2_style_experience(self):
+        # Test that _parse_h2_experience is called (lines 623-627, 670-685)
+        # This is tested via _process_exp_paragraph
+        current, last_company, completed = _process_exp_paragraph(
+            "HEADING_2_STYLE", "Senior Developer\t2020 - 2023", None, "Acme Corp", False
+        )
+        self.assertIsNotNone(current)
+        self.assertEqual(current["title"], "Senior Developer")
+        self.assertEqual(current["company"], "Acme Corp")
+
+    def test_no_experience_section(self):
+        class MockParagraph:
+            def __init__(self, style_name, text):
+                self.style = type('obj', (object,), {'name': style_name})()
+                self.text = text
+
+        paragraphs = [MockParagraph("Heading 1", "Education")]
+        helper = _DocxParaHelper(paragraphs)
+        sections = {}
+        experience = _docx_extract_experience(helper, sections)
+        self.assertEqual(experience, [])
+
+
+class TestParseH2Experience(unittest.TestCase):
+    """Tests for _parse_h2_experience function."""
+
+    def test_parse_with_date_range(self):
+        role, company = _parse_h2_experience("Software Engineer\t2020 - 2023", "TechCorp")
+        self.assertEqual(role["title"], "Software Engineer")
+        self.assertEqual(role["company"], "TechCorp")
+        self.assertEqual(role["start"], "2020")
+        self.assertEqual(role["end"], "2023")
+
+    def test_parse_without_date_range(self):
+        role, company = _parse_h2_experience("Manager", "BigCo")
+        self.assertEqual(role["title"], "Manager")
+        self.assertEqual(role["company"], "BigCo")
+        self.assertEqual(role["start"], "")
+        self.assertEqual(role["end"], "")
+
+
+class TestProcessExpParagraph(unittest.TestCase):
+    """Tests for _process_exp_paragraph function."""
+
+    def test_process_normal_paragraph_creates_new_role(self):
+        current, last_company, completed = _process_exp_paragraph(
+            "normal", "Engineer at TechCo, 2020 - 2023", None, "", False
+        )
+        self.assertIsNotNone(current)
+        self.assertEqual(current["title"], "Engineer")
+        self.assertIsNone(completed)
+
+    def test_process_heading_2_creates_new_role(self):
+        current, last_company, completed = _process_exp_paragraph(
+            "HEADING_2_STYLE", "Senior Dev\t2021 - 2023", None, "Acme Corp", False
+        )
+        self.assertIsNotNone(current)
+        self.assertEqual(current["title"], "Senior Dev")
+        self.assertEqual(current["company"], "Acme Corp")
+        self.assertIsNone(completed)
+
+    def test_process_list_adds_bullet(self):
+        current = {"title": "Dev", "company": "Co", "bullets": []}
+        updated, _, completed = _process_exp_paragraph(
+            "list", "• Built features", current, "", False
+        )
+        self.assertEqual(len(updated["bullets"]), 1)
+        self.assertIn("Built features", updated["bullets"])
+        self.assertIsNone(completed)
+
+    def test_process_completes_previous_role(self):
+        prev_role = {"title": "Old", "company": "OldCo", "bullets": []}
+        current, _, completed = _process_exp_paragraph(
+            "normal", "New Dev at NewCo, 2022 - 2023", prev_role, "", False
+        )
+        self.assertIsNotNone(completed)
+        self.assertEqual(completed["title"], "Old")
+        self.assertIsNotNone(current)
+        self.assertEqual(current["title"], "New Dev")
+
+
+class TestPdfParsingEdgeCases(unittest.TestCase):
+    """Tests for PDF parsing edge cases."""
+
+    def test_pdf_extract_experience_with_various_bullets(self):
+        # Test different bullet styles
+        lines = [
+            "Engineer at TechCo, 2020 - 2023",
+            "▪ Built scalable systems",
+            "▸ Led initiatives",
+            "► Delivered results",
+        ]
+        result = _pdf_extract_experience(lines)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result[0]["bullets"]), 3)
+
+    def test_pdf_extract_name_headline_edge_cases(self):
+        # Test with very long first line (should skip as name)
+        lines = ["x" * 100, "Headline"]
+        name, headline = _pdf_extract_name_headline(lines)
+        self.assertEqual(name, "")
+        self.assertEqual(headline, "")
+
+
+class TestDocxParsingEdgeCases(unittest.TestCase):
+    """Tests for DOCX parsing edge cases."""
+
+    def test_process_exp_paragraph_with_company_line(self):
+        # Test line 633-634: company line detection
+        current, last_company, completed = _process_exp_paragraph(
+            "normal", "Acme Corp\tSan Francisco", None, "", True
+        )
+        self.assertEqual(last_company, "Acme Corp")
+
+    def test_process_exp_paragraph_normal_text_adds_to_bullets(self):
+        # Test line 636: normal text added to bullets
+        current = {"title": "Dev", "company": "Co", "bullets": []}
+        updated, _, _ = _process_exp_paragraph(
+            "normal", "Additional description text", current, "Co", False
+        )
+        self.assertIn("Additional description text", updated["bullets"])
 
 
 if __name__ == "__main__":

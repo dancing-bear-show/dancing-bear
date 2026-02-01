@@ -51,3 +51,10 @@ class FakeDocument:
         p = FakeParagraph(text, style)
         self.paragraphs.append(p)
         return p
+
+    def add_heading(self, text: str = "", level: int = 1) -> FakeParagraph:
+        """Add a heading paragraph."""
+        style = f"Heading {level}" if level > 0 else "Title"
+        p = FakeParagraph(text, style)
+        self.paragraphs.append(p)
+        return p

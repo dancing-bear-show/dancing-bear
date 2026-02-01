@@ -214,6 +214,11 @@ class TestIsProtected(unittest.TestCase):
         result = _is_protected("test@example.com", ["", None, "test@example.com"])
         self.assertTrue(result)
 
+    def test_malformed_from_header(self):
+        # Test edge case with malformed From header containing < and > but not properly formed
+        result = _is_protected("malformed<>test@example.com<", ["test@example.com"])
+        self.assertFalse(result)
+
 
 class TestAutoSummaryProcessor(unittest.TestCase):
     """Tests for AutoSummaryProcessor."""
@@ -255,6 +260,17 @@ class TestAutoSummaryProcessor(unittest.TestCase):
 
         self.assertTrue(envelope.ok())
         self.assertEqual(envelope.payload.message_count, 0)
+
+    def test_handles_malformed_proposal(self):
+        # Test error handling when proposal is not a dict
+        from unittest.mock import MagicMock
+        payload = MagicMock()
+        payload.proposal = None  # Will cause an error when calling .get()
+        processor = AutoSummaryProcessor()
+        envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertIsNone(envelope.payload)
 
 
 @dataclass
@@ -457,6 +473,17 @@ class TestAutoApplyProcessor(unittest.TestCase):
         self.assertTrue(envelope.ok())
         # Should have 2 groups: LabelA (2 msgs) and LabelB (1 msg)
         self.assertEqual(len(envelope.payload.groups), 2)
+
+    def test_handles_apply_error(self):
+        # Test error handling in AutoApplyProcessor
+        from unittest.mock import MagicMock
+        payload = MagicMock()
+        payload.proposal = None  # Will cause an error
+        processor = AutoApplyProcessor()
+        envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertIsNone(envelope.payload)
 
 
 if __name__ == "__main__":

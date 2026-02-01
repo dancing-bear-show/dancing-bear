@@ -84,6 +84,16 @@ class ComposeReplyTests(unittest.TestCase):
         )
         self.assertEqual(msg["Cc"], "cc1@example.com, cc2@example.com")
 
+    def test_with_bcc(self):
+        msg = _compose_reply(
+            from_email="me@example.com",
+            to_email="you@example.com",
+            subject="Subject",
+            body_text="Body",
+            bcc=["bcc1@example.com", "bcc2@example.com"],
+        )
+        self.assertEqual(msg["Bcc"], "bcc1@example.com, bcc2@example.com")
+
     def test_with_in_reply_to(self):
         msg = _compose_reply(
             from_email="me@example.com",
