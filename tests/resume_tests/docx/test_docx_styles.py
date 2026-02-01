@@ -197,7 +197,10 @@ class TestStyleManagerShadingAndColors(unittest.TestCase):
         p_pr = MagicMock()
         existing_shd = MagicMock()
         existing_shd.tag = qn('w:shd')
+        # Configure p_pr to return list of children when list() is called
         p_pr.__iter__ = MagicMock(return_value=iter([existing_shd]))
+        # Also configure for direct iteration
+        p_pr.__len__ = MagicMock(return_value=1)
         p._p.get_or_add_pPr = MagicMock(return_value=p_pr)
 
         StyleManager.apply_shading(p, (200, 200, 200))

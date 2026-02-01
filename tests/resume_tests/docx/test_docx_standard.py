@@ -72,10 +72,9 @@ class TestStandardResumeWriter(unittest.TestCase):
 
         # Mock the summary renderer
         mock_renderer = MagicMock()
-        original_renderer = docx_standard.SECTION_RENDERERS["summary"]
-        docx_standard.SECTION_RENDERERS["summary"] = MagicMock(return_value=mock_renderer)
+        mock_renderer_class = MagicMock(return_value=mock_renderer)
 
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {"summary": mock_renderer_class}, clear=False):
             writer._render_content(seed)
 
             # Verify renderer was called with keywords
@@ -83,8 +82,6 @@ class TestStandardResumeWriter(unittest.TestCase):
             call_args = mock_renderer.render.call_args[0]
             keywords_arg = call_args[2]  # Third argument should be keywords
             self.assertEqual(keywords_arg, ["Python", "AWS", "Docker"])
-        finally:
-            docx_standard.SECTION_RENDERERS["summary"] = original_renderer
 
     def test_render_content_with_no_seed(self):
         """Test _render_content with no seed passes empty keywords list."""
@@ -100,10 +97,9 @@ class TestStandardResumeWriter(unittest.TestCase):
         self._setup_mock_doc(writer)
 
         mock_renderer = MagicMock()
-        original_renderer = docx_standard.SECTION_RENDERERS["summary"]
-        docx_standard.SECTION_RENDERERS["summary"] = MagicMock(return_value=mock_renderer)
+        mock_renderer_class = MagicMock(return_value=mock_renderer)
 
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {"summary": mock_renderer_class}, clear=False):
             writer._render_content(None)
 
             # Verify renderer was called with empty keywords
@@ -111,8 +107,6 @@ class TestStandardResumeWriter(unittest.TestCase):
             call_args = mock_renderer.render.call_args[0]
             keywords_arg = call_args[2]
             self.assertEqual(keywords_arg, [])
-        finally:
-            docx_standard.SECTION_RENDERERS["summary"] = original_renderer
 
     def test_render_content_section_without_key(self):
         """Test _render_content skips sections without key (lines 67-69)."""
@@ -130,16 +124,12 @@ class TestStandardResumeWriter(unittest.TestCase):
 
         mock_renderer = MagicMock()
         mock_renderer_class = MagicMock(return_value=mock_renderer)
-        original_renderer = docx_standard.SECTION_RENDERERS["summary"]
-        docx_standard.SECTION_RENDERERS["summary"] = mock_renderer_class
 
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {"summary": mock_renderer_class}, clear=False):
             writer._render_content()
 
             # Should only render summary section, not the one without key
             self.assertEqual(mock_renderer_class.call_count, 1)
-        finally:
-            docx_standard.SECTION_RENDERERS["summary"] = original_renderer
 
     def test_render_content_generates_title_from_key(self):
         """Test _render_content generates title from key if not provided (line 70)."""
@@ -178,17 +168,13 @@ class TestStandardResumeWriter(unittest.TestCase):
 
         mock_renderer = MagicMock()
         mock_renderer_class = MagicMock(return_value=mock_renderer)
-        original_renderer = docx_standard.SECTION_RENDERERS["skills"]
-        docx_standard.SECTION_RENDERERS["skills"] = mock_renderer_class
 
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {"skills": mock_renderer_class}, clear=False):
             writer._render_content()
 
             # Verify renderer was instantiated and called
             mock_renderer_class.assert_called_once_with(mock_doc, {})
             mock_renderer.render.assert_called_once()
-        finally:
-            docx_standard.SECTION_RENDERERS["skills"] = original_renderer
 
     def test_render_content_experience_with_keywords(self):
         """Test _render_content passes keywords to experience section (lines 76-77)."""
@@ -212,10 +198,8 @@ class TestStandardResumeWriter(unittest.TestCase):
 
         mock_renderer = MagicMock()
         mock_renderer_class = MagicMock(return_value=mock_renderer)
-        original_renderer = docx_standard.SECTION_RENDERERS["experience"]
-        docx_standard.SECTION_RENDERERS["experience"] = mock_renderer_class
 
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {"experience": mock_renderer_class}, clear=False):
             writer._render_content(seed)
 
             # Verify keywords were passed to experience renderer
@@ -223,8 +207,6 @@ class TestStandardResumeWriter(unittest.TestCase):
             call_args = mock_renderer.render.call_args[0]
             keywords_arg = call_args[2]
             self.assertEqual(keywords_arg, ["Python", "API"])
-        finally:
-            docx_standard.SECTION_RENDERERS["experience"] = original_renderer
 
     def test_render_content_non_keyword_section(self):
         """Test _render_content calls renderer without keywords for non-keyword sections (line 79)."""
@@ -243,18 +225,14 @@ class TestStandardResumeWriter(unittest.TestCase):
 
         mock_renderer = MagicMock()
         mock_renderer_class = MagicMock(return_value=mock_renderer)
-        original_renderer = docx_standard.SECTION_RENDERERS["skills"]
-        docx_standard.SECTION_RENDERERS["skills"] = mock_renderer_class
 
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {"skills": mock_renderer_class}, clear=False):
             writer._render_content(seed)
 
             # Verify renderer was called with only data and section (no keywords)
             mock_renderer.render.assert_called_once()
             call_args = mock_renderer.render.call_args[0]
             self.assertEqual(len(call_args), 2)  # Only data and section
-        finally:
-            docx_standard.SECTION_RENDERERS["skills"] = original_renderer
 
     def test_render_document_header_with_name(self):
         """Test _render_document_header renders name as heading (lines 91-94)."""
@@ -497,25 +475,17 @@ class TestStandardResumeWriter(unittest.TestCase):
         mock_skills = MagicMock(return_value=MagicMock())
         mock_exp = MagicMock(return_value=MagicMock())
 
-        original_summary = docx_standard.SECTION_RENDERERS["summary"]
-        original_skills = docx_standard.SECTION_RENDERERS["skills"]
-        original_exp = docx_standard.SECTION_RENDERERS["experience"]
-
-        docx_standard.SECTION_RENDERERS["summary"] = mock_summary
-        docx_standard.SECTION_RENDERERS["skills"] = mock_skills
-        docx_standard.SECTION_RENDERERS["experience"] = mock_exp
-
-        try:
+        with patch.dict("resume.docx_standard.SECTION_RENDERERS", {
+            "summary": mock_summary,
+            "skills": mock_skills,
+            "experience": mock_exp,
+        }, clear=False):
             writer._render_content()
 
             # Verify all three renderers were instantiated
             mock_summary.assert_called_once()
             mock_skills.assert_called_once()
             mock_exp.assert_called_once()
-        finally:
-            docx_standard.SECTION_RENDERERS["summary"] = original_summary
-            docx_standard.SECTION_RENDERERS["skills"] = original_skills
-            docx_standard.SECTION_RENDERERS["experience"] = original_exp
 
     def test_render_content_unknown_section_key(self):
         """Test _render_content handles unknown section keys gracefully."""
