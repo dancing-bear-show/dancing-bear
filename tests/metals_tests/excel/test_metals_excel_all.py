@@ -106,7 +106,7 @@ class TestToRecords(unittest.TestCase):
             ["date", "order_id", "metal"],
             ["2024-01-15", "12345", ""],  # Empty metal
         ]
-        headers, records = _to_records(values, assumed_metal="gold")
+        _, records = _to_records(values, assumed_metal="gold")
         self.assertEqual(records[0]["metal"], "gold")
 
     def test_handles_empty_values(self):

@@ -88,6 +88,30 @@ _CATEGORY_MAP = {
 }
 
 
+def _process_single_category(action_spec: dict) -> Optional[str]:
+    """Process single-value category forms (categorizeAs, categorize as str)."""
+    val = action_spec.get("categorizeAs") or action_spec.get("categorize")
+    if isinstance(val, str):
+        key = val.strip().lower()
+        if key in _CATEGORY_MAP:
+            return _CATEGORY_MAP[key]
+    return None
+
+
+def _process_category_list(action_spec: dict) -> list[str]:
+    """Process sequence category forms (categories, categorize as list)."""
+    cats = []
+    for seq_key in ("categories", "categorize"):
+        v = action_spec.get(seq_key)
+        if isinstance(v, list):
+            for it in v:
+                if isinstance(it, str):
+                    key = it.strip().lower()
+                    if key in _CATEGORY_MAP:
+                        cats.append(_CATEGORY_MAP[key])
+    return cats
+
+
 def categories_to_system_labels(action_spec: dict) -> list[str]:
     """Expand friendly category keys to Gmail system label names.
 
@@ -99,21 +123,15 @@ def categories_to_system_labels(action_spec: dict) -> list[str]:
     cats: list[str] = []
     if not isinstance(action_spec, dict):
         return cats
+
     # Single value forms
-    val = action_spec.get("categorizeAs") or action_spec.get("categorize")
-    if isinstance(val, str):
-        key = val.strip().lower()
-        if key in _CATEGORY_MAP:
-            cats.append(_CATEGORY_MAP[key])
+    single_cat = _process_single_category(action_spec)
+    if single_cat:
+        cats.append(single_cat)
+
     # Sequence forms
-    for seq_key in ("categories", "categorize"):
-        v = action_spec.get(seq_key)
-        if isinstance(v, list):
-            for it in v:
-                if isinstance(it, str):
-                    key = it.strip().lower()
-                    if key in _CATEGORY_MAP:
-                        cats.append(_CATEGORY_MAP[key])
+    cats.extend(_process_category_list(action_spec))
+
     return cats
 
 

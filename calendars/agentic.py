@@ -34,9 +34,8 @@ def _cli_path_exists(path: List[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
-def _flow_map() -> str:
-    lines: List[str] = []
-    # Outlook flows: add/add-recurring/from-config/verify/update/apply/dedup/list/remove/share
+def _add_outlook_flows(lines: List[str]) -> None:
+    """Add Outlook-related flow examples to lines list."""
     if _cli_path_exists(["outlook", "add"]) or _cli_path_exists(["outlook", "add-recurring"]):
         lines.append("- Outlook add")
         if _cli_path_exists(["outlook", "add"]):
@@ -67,7 +66,9 @@ def _flow_map() -> str:
         lines.append("- Share")
         lines.append("  - Share calendar: ./bin/calendar outlook calendar-share --calendar 'Your Family' --user someone@example.com --role reviewer")
 
-    # Gmail scan flows
+
+def _add_gmail_flows(lines: List[str]) -> None:
+    """Add Gmail-related flow examples to lines list."""
     if _cli_path_exists(["gmail", "scan-classes"]) or _cli_path_exists(["gmail", "scan-receipts"]) or _cli_path_exists(["gmail", "scan-activerh"]):
         lines.append("- Gmail scan")
         if _cli_path_exists(["gmail", "scan-classes"]):
@@ -77,11 +78,18 @@ def _flow_map() -> str:
         if _cli_path_exists(["gmail", "scan-activerh"]):
             lines.append("  - ActiveRH: ./bin/calendar gmail scan-activerh --days 365 --out out/activerh.plan.yaml")
 
+
+def _flow_map() -> str:
+    lines: List[str] = []
+    _add_outlook_flows(lines)
+    _add_gmail_flows(lines)
     return "\n".join(lines)
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:  # noqa: ARG001 - fmt/compact reserved
+def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:
     """Emit a compact agentic capsule (best-effort format/compact params)."""
+    _ = fmt  # Reserved for future format support
+    _ = compact  # Reserved for future compact mode
     print(build_agentic_capsule())
     return 0
 

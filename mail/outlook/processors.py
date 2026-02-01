@@ -252,7 +252,7 @@ def _resolve_destination_folder(
     folder_paths: Dict[str, str],
     client: Any,
     dry_run: bool,
-) -> str:
+) -> str | None:
     """Resolve destination folder ID for sweep operation."""
     if action_spec.get("moveToFolder"):
         pth = str(action_spec.get("moveToFolder"))
@@ -308,36 +308,16 @@ class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnv
             folder_path_map = client.get_folder_path_map() or {}
             folder_rev = {fid: path for path, fid in folder_path_map.items()}
 
-            out_filters = []
-            for r in rules:
-                crit = r.get("criteria") or {}
-                act = r.get("action") or {}
-                entry = {"match": {}}
-                for k in ("from", "to", "subject"):
-                    if crit.get(k):
-                        entry["match"][k] = crit.get(k)
-                a = {}
-                add_ids = act.get("addLabelIds") or []
-                if add_ids:
-                    a["add"] = [id_to_name.get(i) or i for i in add_ids]
-                if act.get("forward"):
-                    a["forward"] = act.get("forward")
-                if act.get("moveToFolderId"):
-                    a["moveToFolder"] = folder_rev.get(act.get("moveToFolderId")) or act.get("moveToFolderId")
-                if a:
-                    entry["action"] = a
-                out_filters.append(entry)
+            out_filters = [
+                self._export_rule(rule, id_to_name, folder_rev)
+                for rule in rules
+            ]
 
-            data = {"filters": out_filters}
-            from ..config_resolver import expand_path
-            outp = Path(expand_path(payload.out_path))
-            outp.parent.mkdir(parents=True, exist_ok=True)
-            from ..yamlio import dump_config
-            dump_config(str(outp), data)
+            out_path = self._write_export_file(payload.out_path, out_filters)
 
             return ResultEnvelope(
                 status="success",
-                payload=OutlookRulesExportResult(count=len(out_filters), out_path=str(outp)),
+                payload=OutlookRulesExportResult(count=len(out_filters), out_path=out_path),
             )
         except Exception as exc:
             return ResultEnvelope(
@@ -345,6 +325,60 @@ class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnv
                 payload=None,
                 diagnostics={"error": str(exc), "code": 1},
             )
+
+    def _export_rule(
+        self, rule: Dict[str, Any], id_to_name: Dict[str, str], folder_rev: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Convert a rule to export format."""
+        crit = rule.get("criteria") or {}
+        act = rule.get("action") or {}
+
+        entry = {"match": self._extract_criteria(crit)}
+        action = self._extract_action(act, id_to_name, folder_rev)
+        if action:
+            entry["action"] = action
+
+        return entry
+
+    def _extract_criteria(self, criteria: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract match criteria from rule."""
+        match = {}
+        for k in ("from", "to", "subject"):
+            val = criteria.get(k)
+            if val:
+                match[k] = val
+        return match
+
+    def _extract_action(
+        self, action: Dict[str, Any], id_to_name: Dict[str, str], folder_rev: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Extract action from rule."""
+        result = {}
+
+        add_ids = action.get("addLabelIds") or []
+        if add_ids:
+            result["add"] = [id_to_name.get(i) or i for i in add_ids]
+
+        forward = action.get("forward")
+        if forward:
+            result["forward"] = forward
+
+        move_id = action.get("moveToFolderId")
+        if move_id:
+            result["moveToFolder"] = folder_rev.get(move_id) or move_id
+
+        return result
+
+    def _write_export_file(self, out_path: str, filters: List[Dict[str, Any]]) -> str:
+        """Write filters to YAML file."""
+        from ..config_resolver import expand_path
+        from ..yamlio import dump_config
+
+        data = {"filters": filters}
+        outp = Path(expand_path(out_path))
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        dump_config(str(outp), data)
+        return str(outp)
 
 
 class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelope[OutlookRulesSyncResult]]):
@@ -726,34 +760,15 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
             client = payload.client
             doc = load_config(payload.config_path)
             labels = doc.get("labels") or []
-            if not isinstance(labels, list):
-                return ResultEnvelope(
-                    status="error",
-                    payload=None,
-                    diagnostics={"error": "Labels YAML must contain a labels: [] list", "code": 2},
-                )
+
+            validation_error = self._validate_labels(labels)
+            if validation_error:
+                return validation_error
 
             desired = normalize_labels_for_outlook(labels)
             existing = {c.get("name"): c for c in client.list_labels()}
 
-            created = 0
-            skipped = 0
-            for entry in desired:
-                name = entry.get("name") if isinstance(entry, dict) else entry
-                if not name:
-                    continue
-                if name in existing:
-                    skipped += 1
-                    continue
-                if payload.dry_run:
-                    created += 1
-                else:
-                    try:
-                        color = entry.get("color") if isinstance(entry, dict) else None
-                        client.create_label(name, color=color)
-                        created += 1
-                    except Exception:  # nosec B110 - category creation failure
-                        pass
+            created, skipped = self._sync_categories(desired, existing, client, payload.dry_run)
 
             return ResultEnvelope(
                 status="success",
@@ -766,6 +781,61 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _validate_labels(self, labels: Any) -> ResultEnvelope[OutlookCategoriesSyncResult] | None:
+        """Validate labels structure."""
+        if not isinstance(labels, list):
+            return ResultEnvelope(
+                status="error",
+                payload=None,
+                diagnostics={"error": "Labels YAML must contain a labels: [] list", "code": 2},
+            )
+        return None
+
+    def _sync_categories(
+        self,
+        desired: List[Any],
+        existing: Dict[str, Any],
+        client: Any,
+        dry_run: bool,
+    ) -> Tuple[int, int]:
+        """Sync categories and return (created, skipped) counts."""
+        created = 0
+        skipped = 0
+
+        for entry in desired:
+            name = self._extract_category_name(entry)
+            if not name:
+                continue
+
+            if name in existing:
+                skipped += 1
+                continue
+
+            if self._create_category(entry, name, client, dry_run):
+                created += 1
+
+        return created, skipped
+
+    def _extract_category_name(self, entry: Any) -> str | None:
+        """Extract category name from entry."""
+        if isinstance(entry, dict):
+            return entry.get("name")
+        return entry
+
+    def _create_category(
+        self, entry: Any, name: str, client: Any, dry_run: bool
+    ) -> bool:
+        """Create a category if not dry run."""
+        if dry_run:
+            return True
+
+        try:
+            color = entry.get("color") if isinstance(entry, dict) else None
+            client.create_label(name, color=color)
+            return True
+        except Exception:  # nosec B110 - category creation failure
+            return False
+
 
 class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnvelope[OutlookFoldersSyncResult]]):
     """Sync Outlook folders from YAML config."""
@@ -777,35 +847,13 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
             client = payload.client
             doc = load_config(payload.config_path)
             labels = doc.get("labels") or []
-            if not isinstance(labels, list):
-                return ResultEnvelope(
-                    status="error",
-                    payload=None,
-                    diagnostics={"error": "Labels YAML must contain a labels: [] list", "code": 2},
-                )
+
+            validation_error = self._validate_labels(labels)
+            if validation_error:
+                return validation_error
 
             path_map = client.get_folder_path_map()
-            created = 0
-            skipped = 0
-
-            for entry in labels:
-                name = entry.get("name") if isinstance(entry, dict) else entry if isinstance(entry, str) else None
-                if not name:
-                    continue
-                if str(name).startswith("["):
-                    skipped += 1
-                    continue
-                if name in path_map:
-                    skipped += 1
-                    continue
-
-                if payload.dry_run:
-                    created += 1
-                else:
-                    fid = client.ensure_folder_path(name)
-                    if fid:
-                        path_map[name] = fid
-                        created += 1
+            created, skipped = self._sync_folders(labels, path_map, client, payload.dry_run)
 
             return ResultEnvelope(
                 status="success",
@@ -817,6 +865,70 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
                 payload=None,
                 diagnostics={"error": str(exc), "code": 1},
             )
+
+    def _validate_labels(self, labels: Any) -> ResultEnvelope[OutlookFoldersSyncResult] | None:
+        """Validate labels structure."""
+        if not isinstance(labels, list):
+            return ResultEnvelope(
+                status="error",
+                payload=None,
+                diagnostics={"error": "Labels YAML must contain a labels: [] list", "code": 2},
+            )
+        return None
+
+    def _sync_folders(
+        self,
+        labels: List[Any],
+        path_map: Dict[str, str],
+        client: Any,
+        dry_run: bool,
+    ) -> Tuple[int, int]:
+        """Sync folders and return (created, skipped) counts."""
+        created = 0
+        skipped = 0
+
+        for entry in labels:
+            name = self._extract_folder_name(entry)
+            if not name:
+                continue
+
+            if self._should_skip_folder(name, path_map):
+                skipped += 1
+                continue
+
+            if self._create_folder(name, path_map, client, dry_run):
+                created += 1
+
+        return created, skipped
+
+    def _extract_folder_name(self, entry: Any) -> str | None:
+        """Extract folder name from entry."""
+        if isinstance(entry, dict):
+            return entry.get("name")
+        if isinstance(entry, str):
+            return entry
+        return None
+
+    def _should_skip_folder(self, name: str, path_map: Dict[str, str]) -> bool:
+        """Check if folder should be skipped."""
+        if str(name).startswith("["):
+            return True
+        if name in path_map:
+            return True
+        return False
+
+    def _create_folder(
+        self, name: str, path_map: Dict[str, str], client: Any, dry_run: bool
+    ) -> bool:
+        """Create folder if not dry run."""
+        if dry_run:
+            return True
+
+        fid = client.ensure_folder_path(name)
+        if fid:
+            path_map[name] = fid
+            return True
+        return False
 
 
 class OutlookCalendarAddProcessor(Processor[OutlookCalendarAddPayload, ResultEnvelope[OutlookCalendarAddResult]]):

@@ -3,8 +3,6 @@
 Provides a configurable fake Gmail client that supports common provider methods
 without requiring network access or credentials.
 """
-# ruff: noqa: ARG002
-# Unused parameters are intentional - these fakes must match the real interface signatures.
 
 from __future__ import annotations
 
@@ -48,7 +46,7 @@ class FakeGmailClient:
     def get_label_id_map(self) -> Dict[str, str]:
         return {lab["name"]: lab["id"] for lab in self.labels}
 
-    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict]:
+    def list_filters(self, _use_cache: bool = False, _ttl: int = 300) -> List[Dict]:
         return list(self.filters)
 
     def list_message_ids(
@@ -61,10 +59,10 @@ class FakeGmailClient:
                 return ids
         return []
 
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:
+    def get_messages_metadata(self, ids: List[str], _use_cache: bool = True) -> List[Dict]:
         return [self.messages.get(mid, {"id": mid}) for mid in ids]
 
-    def get_message(self, msg_id: str, fmt: str = "full") -> Dict:
+    def get_message(self, msg_id: str, _fmt: str = "full") -> Dict:
         return self.messages.get(msg_id, {"id": msg_id, "payload": {"headers": []}})
 
     def get_message_text(self, msg_id: str) -> str:

@@ -45,7 +45,6 @@ from mail.filters.producers import (
     FiltersAddForwardProducer,
     FiltersAddTokenProducer,
     FiltersRemoveTokenProducer,
-    SweepProducerConfig,
 )
 
 from tests.mail_tests.fixtures import FakeGmailClient

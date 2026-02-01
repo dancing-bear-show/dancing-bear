@@ -5,6 +5,9 @@ shape exactly.
 """
 from __future__ import annotations
 
+# Help text constants
+_HELP_LABEL_PREFIX = "Label name/prefix to match (e.g., Kids)"
+
 
 def register(subparsers, **handlers):
     """Register filters subcommands.
@@ -143,7 +146,7 @@ def register(subparsers, **handlers):
         help="Add forward action to all filters that add a given label prefix (e.g., 'Kids' forwards includes 'Kids/*')",
     )
     p_filters_addf.add_argument(
-        "--label-prefix", required=True, help="Label name/prefix to match (e.g., Kids)"
+        "--label-prefix", required=True, help=_HELP_LABEL_PREFIX
     )
     p_filters_addf.add_argument(
         "--email", required=True, help="Forward destination email (must be verified)"
@@ -160,7 +163,7 @@ def register(subparsers, **handlers):
         help="Add a token to 'from' criteria of filters matching a label prefix and needle",
     )
     p_filters_addfrom.add_argument(
-        "--label-prefix", required=True, help="Label name/prefix to match (e.g., Kids)"
+        "--label-prefix", required=True, help=_HELP_LABEL_PREFIX
     )
     p_filters_addfrom.add_argument(
         "--needle", required=True, help="Substring to find in existing from criteria (case-insensitive)"
@@ -177,7 +180,7 @@ def register(subparsers, **handlers):
         help="Remove token(s) from 'from' criteria OR-list for filters matching a label prefix and needle",
     )
     p_filters_rmfrom.add_argument(
-        "--label-prefix", required=True, help="Label name/prefix to match (e.g., Kids)"
+        "--label-prefix", required=True, help=_HELP_LABEL_PREFIX
     )
     p_filters_rmfrom.add_argument(
         "--needle", required=True, help="Substring to find in existing from criteria (case-insensitive)"

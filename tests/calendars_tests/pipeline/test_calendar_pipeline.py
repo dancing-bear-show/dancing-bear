@@ -795,24 +795,24 @@ class RunPipelineTests(TestCase):
         """run_pipeline() returns 0 when processor returns success."""
         from core.pipeline import run_pipeline
 
-        Processor = make_mock_processor(ResultEnvelope(status="success", payload={"data": "test"}))
-        result = run_pipeline({"test": 123}, Processor, NoOpProducer)
+        processor = make_mock_processor(ResultEnvelope(status="success", payload={"data": "test"}))
+        result = run_pipeline({"test": 123}, processor, NoOpProducer)
         self.assertEqual(0, result)
 
     def test_run_pipeline_returns_error_code_on_failure(self):
         """run_pipeline() returns error code from diagnostics on failure."""
         from core.pipeline import run_pipeline
 
-        Processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
-        result = run_pipeline({}, Processor, NoOpProducer)
+        processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"code": 42, "message": "fail"}))
+        result = run_pipeline({}, processor, NoOpProducer)
         self.assertEqual(42, result)
 
     def test_run_pipeline_returns_default_code_on_failure_without_code(self):
         """run_pipeline() returns 2 when error has no code in diagnostics."""
         from core.pipeline import run_pipeline
 
-        Processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
-        result = run_pipeline({}, Processor, NoOpProducer)
+        processor = make_mock_processor(ResultEnvelope(status="error", diagnostics={"message": "fail"}))
+        result = run_pipeline({}, processor, NoOpProducer)
         self.assertEqual(2, result)
 
     def test_run_pipeline_calls_producer_with_envelope(self):

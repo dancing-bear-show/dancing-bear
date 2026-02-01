@@ -322,12 +322,12 @@ class TestPdfHelpers(unittest.TestCase):
 
     def test_pdf_extract_skips_section_heading(self):
         lines = ["EXPERIENCE", "Some text"]
-        name, headline = parsing._pdf_extract_name_headline(lines)
+        name, _ = parsing._pdf_extract_name_headline(lines)
         self.assertEqual(name, "")
 
     def test_pdf_find_sections(self):
         lines = ["John Doe", "EXPERIENCE", "Role 1", "EDUCATION", "Degree"]
-        indices, sorted_sections = parsing._pdf_find_sections(lines)
+        indices, _ = parsing._pdf_find_sections(lines)
         self.assertIn("experience", indices)
         self.assertIn("education", indices)
         self.assertEqual(indices["experience"], 1)

@@ -446,7 +446,6 @@ class TestRunOutlookAuthEnsure(TempDirMixin, unittest.TestCase):
             buf_out = io.StringIO()
             buf_err = io.StringIO()
             with redirect_stdout(buf_out):
-                import sys
                 from contextlib import redirect_stderr
                 with redirect_stderr(buf_err):
                     rc = run_outlook_auth_ensure(args)

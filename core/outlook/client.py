@@ -102,56 +102,57 @@ class OutlookClientBase(ConfigCacheMixin):
         self.GRAPH = GRAPH_API_URL
 
     # -------------------- Auth --------------------
-    def authenticate(self) -> None:
-        cache = _msal().SerializableTokenCache()
-        if self.token_path and os.path.exists(self.token_path):
+    def _try_load_cached_token(self, cache: "msal.SerializableTokenCache") -> bool:
+        """Try to load token from cache file. Returns True if successful."""
+        if not self.token_path or not os.path.exists(self.token_path):
+            return False
+        try:
+            with open(self.token_path, "r", encoding="utf-8") as f:
+                data = f.read()
             try:
-                with open(self.token_path, "r", encoding="utf-8") as f:
-                    data = f.read()
-                try:
-                    cache.deserialize(data)
-                except Exception:
-                    # Fallback: legacy simple token format
-                    tok = json.loads(data)
-                    if tok.get("access_token") and (tok.get("expires_at", 0) - 60) > time.time():
-                        self._token = tok
-                        self._cache = cache
-                        self._app = _msal().PublicClientApplication(
-                            self.client_id,
-                            authority=f"https://login.microsoftonline.com/{self.tenant}"
-                        )
-                        return
-            except Exception:  # nosec B110 - token read failed, proceed with fresh auth
-                pass
+                cache.deserialize(data)
+            except Exception:
+                # Fallback: legacy simple token format
+                tok = json.loads(data)
+                if tok.get("access_token") and (tok.get("expires_at", 0) - 60) > time.time():
+                    self._token = tok
+                    self._cache = cache
+                    self._app = _msal().PublicClientApplication(
+                        self.client_id,
+                        authority=f"https://login.microsoftonline.com/{self.tenant}"
+                    )
+                    return True
+        except Exception:  # nosec B110 - token read failed, proceed with fresh auth
+            pass
+        return False
 
-        app = _msal().PublicClientApplication(
-            self.client_id,
-            authority=f"https://login.microsoftonline.com/{self.tenant}",
-            token_cache=cache,
-        )
-        # Try silent first
+    def _try_silent_auth(self, app: "msal.PublicClientApplication", cache: "msal.SerializableTokenCache") -> bool:
+        """Try silent authentication. Returns True if successful."""
         acct = None
         try:
             accts = app.get_accounts()
             acct = accts[0] if accts else None
         except Exception:
             acct = None
-        if acct is not None:
-            result = app.acquire_token_silent(self._scopes, account=acct)
-            if result and "access_token" in result:
-                self._token = {
-                    "access_token": result["access_token"],
-                    "expires_at": time.time() + int(result.get("expires_in", 3600))
-                }
-                self._cache = cache
-                self._app = app
-                if self.token_path:
-                    os.makedirs(os.path.dirname(self.token_path), exist_ok=True)
-                    with open(self.token_path, "w", encoding="utf-8") as f:
-                        f.write(cache.serialize())
-                return
+        if acct is None:
+            return False
+        result = app.acquire_token_silent(self._scopes, account=acct)
+        if not result or "access_token" not in result:
+            return False
+        self._token = {
+            "access_token": result["access_token"],
+            "expires_at": time.time() + int(result.get("expires_in", 3600))
+        }
+        self._cache = cache
+        self._app = app
+        if self.token_path:
+            os.makedirs(os.path.dirname(self.token_path), exist_ok=True)
+            with open(self.token_path, "w", encoding="utf-8") as f:
+                f.write(cache.serialize())
+        return True
 
-        # Start device flow if silent failed
+    def _do_device_flow_auth(self, app: "msal.PublicClientApplication", cache: "msal.SerializableTokenCache") -> None:
+        """Perform device flow authentication."""
         flow = app.initiate_device_flow(scopes=self._scopes)
         if "user_code" not in flow:
             raise RuntimeError("Failed to start device flow for Microsoft Graph")
@@ -170,26 +171,47 @@ class OutlookClientBase(ConfigCacheMixin):
             with open(self.token_path, "w", encoding="utf-8") as f:
                 f.write(cache.serialize())
 
+    def authenticate(self) -> None:
+        cache = _msal().SerializableTokenCache()
+        if self._try_load_cached_token(cache):
+            return
+
+        app = _msal().PublicClientApplication(
+            self.client_id,
+            authority=f"https://login.microsoftonline.com/{self.tenant}",
+            token_cache=cache,
+        )
+        if self._try_silent_auth(app, cache):
+            return
+
+        self._do_device_flow_auth(app, cache)
+
+    def _try_refresh_token(self) -> None:
+        """Attempt silent token refresh to keep sessions alive."""
+        if self._app is None:
+            return
+        try:
+            accts = self._app.get_accounts()
+            acct = accts[0] if accts else None
+            if acct is None:
+                return
+            res = self._app.acquire_token_silent(self._scopes, account=acct)
+            if not res or "access_token" not in res:
+                return
+            self._token = {
+                "access_token": res["access_token"],
+                "expires_at": time.time() + int(res.get("expires_in", 3600))
+            }
+            if self._cache and self.token_path:
+                with open(self.token_path, "w", encoding="utf-8") as f:
+                    f.write(self._cache.serialize())
+        except Exception:  # nosec B110 - silent token refresh failure
+            pass
+
     def _headers(self) -> Dict[str, str]:
         if not self._token:
             raise RuntimeError("OutlookClient not authenticated")
-        # Attempt silent refresh to keep sessions alive
-        try:
-            if self._app is not None:
-                accts = self._app.get_accounts()
-                acct = accts[0] if accts else None
-                if acct is not None:
-                    res = self._app.acquire_token_silent(self._scopes, account=acct)
-                    if res and "access_token" in res:
-                        self._token = {
-                            "access_token": res["access_token"],
-                            "expires_at": time.time() + int(res.get("expires_in", 3600))
-                        }
-                        if self._cache and self.token_path:
-                            with open(self.token_path, "w", encoding="utf-8") as f:
-                                f.write(self._cache.serialize())
-        except Exception:  # nosec B110 - silent token refresh failure
-            pass
+        self._try_refresh_token()
         return {
             "Authorization": f"Bearer {self._token['access_token']}",
             "Content-Type": "application/json"

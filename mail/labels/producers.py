@@ -23,31 +23,46 @@ class LabelsPlanProducer(Producer[ResultEnvelope[LabelsPlanResult]]):
             print("Labels plan failed.")
             return
         payload = result.payload
+        self._print_summary(payload)
+        self._print_creates(payload.to_create)
+        self._print_updates(payload.to_update)
+        self._print_deletes(payload.to_delete)
+
+    def _print_summary(self, payload: LabelsPlanResult) -> None:
         delete_count = len(payload.to_delete) if payload.show_delete else None
         print_plan_summary(
             create=len(payload.to_create),
             update=len(payload.to_update),
             delete=delete_count,
         )
-        if payload.to_create:
-            print("\nWould create:")
-            for spec in payload.to_create[:20]:
-                print(f"  {spec.get('name')}")
-            if len(payload.to_create) > 20:
-                print(f"  … and {len(payload.to_create)-20} more")
-        if payload.to_update:
-            print("\nWould update:")
-            for change in payload.to_update[:20]:
-                parts = [f"{k}:{v['from']}→{v['to']}" for k, v in change.changes.items()]
-                print(f"  {change.name} ({', '.join(parts)})")
-            if len(payload.to_update) > 20:
-                print(f"  … and {len(payload.to_update)-20} more")
-        if payload.to_delete:
-            print("\nWould delete:")
-            for name in payload.to_delete[:20]:
-                print(f"  {name}")
-            if len(payload.to_delete) > 20:
-                print(f"  … and {len(payload.to_delete)-20} more")
+
+    def _print_creates(self, to_create: List[Dict]) -> None:
+        if not to_create:
+            return
+        print("\nWould create:")
+        for spec in to_create[:20]:
+            print(f"  {spec.get('name')}")
+        if len(to_create) > 20:
+            print(f"  … and {len(to_create)-20} more")
+
+    def _print_updates(self, to_update: List[LabelChange]) -> None:
+        if not to_update:
+            return
+        print("\nWould update:")
+        for change in to_update[:20]:
+            parts = [f"{k}:{v['from']}→{v['to']}" for k, v in change.changes.items()]
+            print(f"  {change.name} ({', '.join(parts)})")
+        if len(to_update) > 20:
+            print(f"  … and {len(to_update)-20} more")
+
+    def _print_deletes(self, to_delete: List[str]) -> None:
+        if not to_delete:
+            return
+        print("\nWould delete:")
+        for name in to_delete[:20]:
+            print(f"  {name}")
+        if len(to_delete) > 20:
+            print(f"  … and {len(to_delete)-20} more")
 
 
 class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
@@ -137,8 +152,8 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             from ..utils.batch import apply_in_chunks
 
             apply_in_chunks(
-                lambda chunk: self.client.batch_modify_messages(
-                    chunk, add_label_ids=[new_id], remove_label_ids=[old_id]
+                lambda chunk, nid=new_id, oid=old_id: self.client.batch_modify_messages(
+                    chunk, add_label_ids=[nid], remove_label_ids=[oid]
                 ),
                 ids,
                 500,

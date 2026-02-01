@@ -63,7 +63,8 @@ def make_outlook_event(
 class NoOpProducer:
     """A producer that does nothing - for testing pipelines."""
 
-    def produce(self, env):
+    def produce(self, _env):
+        """No-op implementation - intentionally does nothing for testing."""
         pass
 
 
@@ -77,6 +78,6 @@ def make_mock_processor(envelope):
         A class (not instance) that can be passed to run_pipeline
     """
     class MockProcessor:
-        def process(self, req):
+        def process(self, _req):
             return envelope
     return MockProcessor

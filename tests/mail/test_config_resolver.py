@@ -139,7 +139,7 @@ class ResolvePathsTests(unittest.TestCase):
 
     def test_arg_credentials_takes_precedence(self):
         _write_ini("/ini/creds.json", "/ini/token.json")
-        creds, token = resolve_paths(
+        creds, _ = resolve_paths(
             arg_credentials="/arg/creds.json",
             arg_token=None,
         )
@@ -147,7 +147,7 @@ class ResolvePathsTests(unittest.TestCase):
 
     def test_arg_token_takes_precedence(self):
         _write_ini("/ini/creds.json", "/ini/token.json")
-        creds, token = resolve_paths(
+        _, token = resolve_paths(
             arg_credentials=None,
             arg_token="/arg/token.json",  # nosec B106 - test fixture path
         )
@@ -182,7 +182,7 @@ class ResolvePathsProfileTests(unittest.TestCase):
 
     def test_with_profile(self):
         _write_ini("/personal/creds.json", "/personal/token.json", profile="personal")
-        creds, token = resolve_paths_profile(
+        creds, _ = resolve_paths_profile(
             arg_credentials=None,
             arg_token=None,
             profile="personal",
@@ -191,7 +191,7 @@ class ResolvePathsProfileTests(unittest.TestCase):
 
     def test_without_profile_uses_default_section(self):
         _write_ini("/default/creds.json", "/default/token.json")
-        creds, token = resolve_paths_profile(
+        creds, _ = resolve_paths_profile(
             arg_credentials=None,
             arg_token=None,
             profile=None,

@@ -21,6 +21,9 @@ from .processors import (
     OutlookCalendarAddFromConfigResult,
 )
 
+# Display text constants
+_DISPLAY_WOULD_SYNC = "Would sync"
+
 
 def _format_rule_criteria(criteria: Dict[str, Any]) -> str:
     """Format rule criteria for display.
@@ -124,7 +127,7 @@ class OutlookRulesSyncProducer(Producer[ResultEnvelope[OutlookRulesSyncResult]])
             return
 
         payload = result.payload
-        prefix = "Would sync" if self._dry_run else "Sync complete"
+        prefix = _DISPLAY_WOULD_SYNC if self._dry_run else "Sync complete"
         msg = f"{prefix}. Created: {payload.created}"
         if self._delete_missing:
             msg += f", Deleted: {payload.deleted}"
@@ -218,7 +221,7 @@ class OutlookCategoriesSyncProducer(Producer[ResultEnvelope[OutlookCategoriesSyn
             return
 
         payload = result.payload
-        prefix = "Would sync" if self._dry_run else "Categories sync complete"
+        prefix = _DISPLAY_WOULD_SYNC if self._dry_run else "Categories sync complete"
         print(f"{prefix}. Created: {payload.created}, Skipped: {payload.skipped}")
 
 
@@ -235,7 +238,7 @@ class OutlookFoldersSyncProducer(Producer[ResultEnvelope[OutlookFoldersSyncResul
             return
 
         payload = result.payload
-        prefix = "Would sync" if self._dry_run else "Folders sync complete"
+        prefix = _DISPLAY_WOULD_SYNC if self._dry_run else "Folders sync complete"
         print(f"{prefix}. Created: {payload.created}, Skipped: {payload.skipped}")
 
 

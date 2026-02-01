@@ -87,20 +87,24 @@ mock_docx_modules = patch.dict("sys.modules", {
 
 
 class KeywordMatcherTestMixin:
-    """Mixin to provide KeywordMatcher instance in setUp.
+    """Mixin to provide KeywordMatcher instance in tests.
 
-    Use this mixin to avoid duplicating KeywordMatcher() setUp across test classes.
+    Use this mixin to avoid duplicating KeywordMatcher() initialization.
+    Each test class using this mixin should call self._init_matcher() in their setUp.
 
     Example:
         class TestMyFeature(KeywordMatcherTestMixin, unittest.TestCase):
+            def setUp(self):
+                self._init_matcher()
+
             def test_something(self):
                 self.matcher.add_keyword("Python")
     """
 
-    def setUp(self):
+    def _init_matcher(self):
+        """Initialize the KeywordMatcher for use in tests."""
         from resume.keyword_matcher import KeywordMatcher
         self.matcher = KeywordMatcher()
-        super().setUp() if hasattr(super(), 'setUp') else None
 
 
 # =============================================================================

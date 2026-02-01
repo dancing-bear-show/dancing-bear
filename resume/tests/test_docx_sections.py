@@ -53,14 +53,14 @@ class TestBulletRenderer(unittest.TestCase):
         from resume.docx_sections import BulletRenderer
         renderer = BulletRenderer(self.doc)
         sec = {"plain_bullets": True}
-        plain, glyph = renderer.get_bullet_config(sec)
+        plain, _ = renderer.get_bullet_config(sec)
         self.assertTrue(plain)
 
     def test_get_bullet_config_custom_glyph(self):
         from resume.docx_sections import BulletRenderer
         renderer = BulletRenderer(self.doc)
         sec = {"bullets": {"glyph": "→"}}
-        plain, glyph = renderer.get_bullet_config(sec)
+        _, glyph = renderer.get_bullet_config(sec)
         self.assertEqual(glyph, "→")
 
     def test_get_bullet_config_from_page_cfg(self):

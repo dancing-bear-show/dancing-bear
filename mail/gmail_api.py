@@ -111,17 +111,17 @@ class GmailClient(ConfigCacheMixin):
         self,
         name: str,
         color: Optional[Dict[str, str]] = None,
-        labelListVisibility: Optional[str] = None,
-        messageListVisibility: Optional[str] = None,
+        label_list_visibility: Optional[str] = None,
+        message_list_visibility: Optional[str] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
         body: Dict[str, Any] = {"name": name}
         if color:
             body["color"] = color
-        if labelListVisibility:
-            body["labelListVisibility"] = labelListVisibility
-        if messageListVisibility:
-            body["messageListVisibility"] = messageListVisibility
+        if label_list_visibility:
+            body["labelListVisibility"] = label_list_visibility
+        if message_list_visibility:
+            body["messageListVisibility"] = message_list_visibility
         # Allow caller to pass a prebuilt body via kwargs
         for k, v in kwargs.items():
             if k not in body:

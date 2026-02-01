@@ -124,14 +124,14 @@ class SidebarResumeWriter(ResumeWriterBase):
 
     def _render_sidebar_content(self, cell) -> None:
         """Render sidebar content (profile + skills)."""
-        # Profile/Summary section
+        self._render_sidebar_summary(cell)
+        self._render_sidebar_skills(cell)
+
+    def _render_sidebar_summary(self, cell) -> None:
+        """Render profile/summary section in sidebar."""
         for sec in (self.template.get("sections") or []):
             if sec.get("key") == "summary":
-                summary_items = self.data.get("summary") or []
-                if isinstance(summary_items, str):
-                    summary_items = [summary_items]
-                elif isinstance(summary_items, list):
-                    summary_items = [s.get("text", s) if isinstance(s, dict) else s for s in summary_items]
+                summary_items = self._extract_summary_items()
                 if summary_items:
                     _render_sidebar_section(
                         cell,
@@ -142,18 +142,33 @@ class SidebarResumeWriter(ResumeWriterBase):
                     )
                 break
 
-        # Skills section
+    def _extract_summary_items(self) -> List[str]:
+        """Extract and normalize summary items from data."""
+        summary_items = self.data.get("summary") or []
+        if isinstance(summary_items, str):
+            return [summary_items]
+        elif isinstance(summary_items, list):
+            return [s.get("text", s) if isinstance(s, dict) else s for s in summary_items]
+        return []
+
+    def _render_sidebar_skills(self, cell) -> None:
+        """Render skills section in sidebar."""
         for sec in (self.template.get("sections") or []):
             if sec.get("key") == "skills":
-                skills_groups = self.data.get("skills_groups") or []
-                skill_items = []
-                for group in skills_groups:
-                    for item in (group.get("items") or []):
-                        name = item.get("name", item) if isinstance(item, dict) else item
-                        skill_items.append(name)
+                skill_items = self._extract_skill_items()
                 if skill_items:
                     _render_sidebar_section(cell, sec.get("title", "Habilidades claves"), skill_items[:8], self.page_cfg)
                 break
+
+    def _extract_skill_items(self) -> List[str]:
+        """Extract skill items from skills_groups."""
+        skills_groups = self.data.get("skills_groups") or []
+        skill_items = []
+        for group in skills_groups:
+            for item in (group.get("items") or []):
+                name = item.get("name", item) if isinstance(item, dict) else item
+                skill_items.append(name)
+        return skill_items
 
     def _render_main_content(self, cell) -> None:
         """Render main column content (education, experience, teaching, presentations)."""
@@ -187,22 +202,22 @@ def _set_cell_shading(cell, hex_color: str) -> None:
     if not rgb:
         return
     tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
+    tc_pr = tc.get_or_add_tcPr()
     shd = OxmlElement('w:shd')
     shd.set(qn('w:fill'), hex_color.lstrip('#'))
-    tcPr.append(shd)
+    tc_pr.append(shd)
 
 
 def _remove_cell_borders(cell) -> None:
     """Remove all borders from a table cell."""
     tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    tcBorders = OxmlElement('w:tcBorders')
+    tc_pr = tc.get_or_add_tcPr()
+    tc_borders = OxmlElement('w:tcBorders')
     for border_name in ['top', 'left', 'bottom', 'right']:
         border = OxmlElement(f'w:{border_name}')
         border.set(qn('w:val'), 'nil')
-        tcBorders.append(border)
-    tcPr.append(tcBorders)
+        tc_borders.append(border)
+    tc_pr.append(tc_borders)
 
 
 # -------------------------------------------------------------------------
@@ -258,42 +273,57 @@ def _render_main_section_heading(cell, title: str, page_cfg: Dict[str, Any]) -> 
     _tight_paragraph(p, before_pt=10, after_pt=6)
 
 
-def _render_main_education(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Dict[str, Any]) -> None:
+def _render_main_education(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], _sec: Dict[str, Any]) -> None:
     """Render education in main column."""
     education = data.get("education") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
 
     for edu in education:
-        degree = edu.get("degree", "")
-        institution = edu.get("institution", "")
-        year = edu.get("year", "")
+        _render_education_degree(cell, edu, page_cfg, bullet_color)
+        _render_education_details(cell, edu, page_cfg)
 
-        p = cell.add_paragraph()
-        bullet_run = p.add_run("• ")
-        bullet_rgb = _parse_hex_color(bullet_color)
-        if bullet_rgb:
-            bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
 
-        deg_run = p.add_run(degree)
-        deg_run.bold = True
-        deg_run.font.size = Pt(page_cfg.get("body_pt", 10))
-        _tight_paragraph(p, after_pt=0)
+def _render_education_degree(cell, edu: Dict[str, Any], page_cfg: Dict[str, Any], bullet_color: str) -> None:
+    """Render education degree line with bullet."""
+    degree = edu.get("degree", "")
+    p = cell.add_paragraph()
 
-        if institution or year:
-            p2 = cell.add_paragraph()
-            p2.paragraph_format.left_indent = Inches(0.25)
-            inst_run = p2.add_run(institution)
-            inst_run.italic = True
-            inst_run.font.size = Pt(page_cfg.get("meta_pt", 9))
-            inst_rgb = _parse_hex_color("#666666")
-            if inst_rgb:
-                inst_run.font.color.rgb = RGBColor(*inst_rgb)
-            if year:
-                year_run = p2.add_run(f"  {year}")
-                year_run.font.size = Pt(page_cfg.get("meta_pt", 9))
-                if inst_rgb:
-                    year_run.font.color.rgb = RGBColor(*inst_rgb)
-            _tight_paragraph(p2, after_pt=6)
+    bullet_run = p.add_run("• ")
+    bullet_rgb = _parse_hex_color(bullet_color)
+    if bullet_rgb:
+        bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
+
+    deg_run = p.add_run(degree)
+    deg_run.bold = True
+    deg_run.font.size = Pt(page_cfg.get("body_pt", 10))
+    _tight_paragraph(p, after_pt=0)
+
+
+def _render_education_details(cell, edu: Dict[str, Any], page_cfg: Dict[str, Any]) -> None:
+    """Render education institution and year details."""
+    institution = edu.get("institution", "")
+    year = edu.get("year", "")
+
+    if not (institution or year):
+        return
+
+    p2 = cell.add_paragraph()
+    p2.paragraph_format.left_indent = Inches(0.25)
+
+    inst_run = p2.add_run(institution)
+    inst_run.italic = True
+    inst_run.font.size = Pt(page_cfg.get("meta_pt", 9))
+    inst_rgb = _parse_hex_color("#666666")
+    if inst_rgb:
+        inst_run.font.color.rgb = RGBColor(*inst_rgb)
+
+    if year:
+        year_run = p2.add_run(f"  {year}")
+        year_run.font.size = Pt(page_cfg.get("meta_pt", 9))
+        if inst_rgb:
+            year_run.font.color.rgb = RGBColor(*inst_rgb)
+
+    _tight_paragraph(p2, after_pt=6)
 
 
 def _render_main_experience(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Dict[str, Any]) -> None:
@@ -302,52 +332,73 @@ def _render_main_experience(cell, data: Dict[str, Any], page_cfg: Dict[str, Any]
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
 
     for exp in experience:
-        title = exp.get("title", "")
-        company = exp.get("company", "")
-        start = exp.get("start", "")
-        end = exp.get("end", "")
-        span = f"{start} – {end}" if end else f"{start} – presente"
-        bullets = exp.get("bullets") or []
-
-        p = cell.add_paragraph()
-        bullet_run = p.add_run("• ")
-        bullet_rgb = _parse_hex_color(bullet_color)
-        if bullet_rgb:
-            bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
-
-        title_run = p.add_run(title)
-        title_run.bold = True
-        title_run.font.size = Pt(page_cfg.get("body_pt", 10))
-
-        if span:
-            span_run = p.add_run(f"  {span}")
-            span_run.font.size = Pt(page_cfg.get("meta_pt", 9))
-            span_rgb = _parse_hex_color("#666666")
-            if span_rgb:
-                span_run.font.color.rgb = RGBColor(*span_rgb)
-        _tight_paragraph(p, after_pt=0)
-
-        if company:
-            p2 = cell.add_paragraph()
-            p2.paragraph_format.left_indent = Inches(0.25)
-            comp_run = p2.add_run(company)
-            comp_run.italic = True
-            comp_run.font.size = Pt(page_cfg.get("meta_pt", 9))
-            comp_rgb = _parse_hex_color("#666666")
-            if comp_rgb:
-                comp_run.font.color.rgb = RGBColor(*comp_rgb)
-            _tight_paragraph(p2, after_pt=2)
-
-        for b in bullets[:sec.get("recent_max_bullets", 3)]:
-            text = b.get("text", b) if isinstance(b, dict) else b
-            p3 = cell.add_paragraph()
-            p3.paragraph_format.left_indent = Inches(0.25)
-            run = p3.add_run(text)
-            run.font.size = Pt(page_cfg.get("body_pt", 10) - 1)
-            _tight_paragraph(p3, after_pt=1)
+        _render_experience_header(cell, exp, page_cfg, bullet_color)
+        _render_experience_company(cell, exp, page_cfg)
+        _render_experience_bullets(cell, exp, page_cfg, sec)
 
 
-def _render_main_teaching(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Dict[str, Any]) -> None:
+def _render_experience_header(cell, exp: Dict[str, Any], page_cfg: Dict[str, Any], bullet_color: str) -> None:
+    """Render experience title and date span."""
+    title = exp.get("title", "")
+    start = exp.get("start", "")
+    end = exp.get("end", "")
+    span = f"{start} – {end}" if end else f"{start} – presente"
+
+    p = cell.add_paragraph()
+
+    bullet_run = p.add_run("• ")
+    bullet_rgb = _parse_hex_color(bullet_color)
+    if bullet_rgb:
+        bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
+
+    title_run = p.add_run(title)
+    title_run.bold = True
+    title_run.font.size = Pt(page_cfg.get("body_pt", 10))
+
+    if span:
+        span_run = p.add_run(f"  {span}")
+        span_run.font.size = Pt(page_cfg.get("meta_pt", 9))
+        span_rgb = _parse_hex_color("#666666")
+        if span_rgb:
+            span_run.font.color.rgb = RGBColor(*span_rgb)
+
+    _tight_paragraph(p, after_pt=0)
+
+
+def _render_experience_company(cell, exp: Dict[str, Any], page_cfg: Dict[str, Any]) -> None:
+    """Render experience company name."""
+    company = exp.get("company", "")
+    if not company:
+        return
+
+    p2 = cell.add_paragraph()
+    p2.paragraph_format.left_indent = Inches(0.25)
+
+    comp_run = p2.add_run(company)
+    comp_run.italic = True
+    comp_run.font.size = Pt(page_cfg.get("meta_pt", 9))
+    comp_rgb = _parse_hex_color("#666666")
+    if comp_rgb:
+        comp_run.font.color.rgb = RGBColor(*comp_rgb)
+
+    _tight_paragraph(p2, after_pt=2)
+
+
+def _render_experience_bullets(cell, exp: Dict[str, Any], page_cfg: Dict[str, Any], sec: Dict[str, Any]) -> None:
+    """Render experience bullet points."""
+    bullets = exp.get("bullets") or []
+    max_bullets = sec.get("recent_max_bullets", 3)
+
+    for b in bullets[:max_bullets]:
+        text = b.get("text", b) if isinstance(b, dict) else b
+        p3 = cell.add_paragraph()
+        p3.paragraph_format.left_indent = Inches(0.25)
+        run = p3.add_run(text)
+        run.font.size = Pt(page_cfg.get("body_pt", 10) - 1)
+        _tight_paragraph(p3, after_pt=1)
+
+
+def _render_main_teaching(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], _sec: Dict[str, Any]) -> None:
     """Render teaching in main column (uppercase titles with institution below)."""
     teaching = data.get("teaching") or []
 
@@ -378,61 +429,94 @@ def _render_main_teaching(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], 
             _tight_paragraph(p2, after_pt=6)
 
 
-def _render_main_presentations(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Dict[str, Any]) -> None:
+def _render_main_presentations(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], _sec: Dict[str, Any]) -> None:
     """Render presentations/publications in main column."""
     presentations = data.get("presentations") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
 
     for pres in presentations:
-        title = pres.get("title", "")
-        authors = pres.get("authors", "")
-        event = pres.get("event", "")
-        note = pres.get("note", "")
+        _render_presentation_title(cell, pres, page_cfg, bullet_color)
+        last_para = _render_presentation_details(cell, pres, page_cfg)
+        _adjust_presentation_spacing(last_para)
 
-        p = cell.add_paragraph()
-        bullet_run = p.add_run("• ")
-        bullet_rgb = _parse_hex_color(bullet_color)
-        if bullet_rgb:
-            bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
 
-        title_run = p.add_run(title)
-        title_run.bold = True
-        title_run.font.size = Pt(page_cfg.get("body_pt", 10))
-        _tight_paragraph(p, after_pt=0)
+def _render_presentation_title(cell, pres: Dict[str, Any], page_cfg: Dict[str, Any], bullet_color: str) -> None:
+    """Render presentation title with bullet."""
+    title = pres.get("title", "")
+    p = cell.add_paragraph()
 
-        if authors:
-            p2 = cell.add_paragraph()
-            p2.paragraph_format.left_indent = Inches(0.25)
-            auth_run = p2.add_run(authors)
-            auth_run.italic = True
-            auth_run.font.size = Pt(page_cfg.get("meta_pt", 9))
-            auth_rgb = _parse_hex_color("#666666")
-            if auth_rgb:
-                auth_run.font.color.rgb = RGBColor(*auth_rgb)
-            _tight_paragraph(p2, after_pt=0)
+    bullet_run = p.add_run("• ")
+    bullet_rgb = _parse_hex_color(bullet_color)
+    if bullet_rgb:
+        bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
 
-        if event:
-            p3 = cell.add_paragraph()
-            p3.paragraph_format.left_indent = Inches(0.25)
-            ev_run = p3.add_run(event)
-            ev_run.font.size = Pt(page_cfg.get("meta_pt", 9) - 1)
-            ev_rgb = _parse_hex_color("#888888")
-            if ev_rgb:
-                ev_run.font.color.rgb = RGBColor(*ev_rgb)
-            _tight_paragraph(p3, after_pt=0)
+    title_run = p.add_run(title)
+    title_run.bold = True
+    title_run.font.size = Pt(page_cfg.get("body_pt", 10))
+    _tight_paragraph(p, after_pt=0)
 
-        if note:
-            p4 = cell.add_paragraph()
-            p4.paragraph_format.left_indent = Inches(0.25)
-            note_run = p4.add_run(note)
-            note_run.italic = True
-            note_run.font.size = Pt(page_cfg.get("meta_pt", 9) - 1)
-            _tight_paragraph(p4, after_pt=4)
-        else:
-            if event:
-                p3.paragraph_format.space_after = Pt(4)
-            elif authors:
-                p2.paragraph_format.space_after = Pt(4)
+
+def _render_presentation_details(cell, pres: Dict[str, Any], page_cfg: Dict[str, Any]) -> Optional[Any]:
+    """Render presentation authors, event, and note. Returns last paragraph rendered."""
+    last_para = None
+
+    authors = pres.get("authors", "")
+    if authors:
+        last_para = _render_presentation_authors(cell, authors, page_cfg)
+
+    event = pres.get("event", "")
+    if event:
+        last_para = _render_presentation_event(cell, event, page_cfg)
+
+    note = pres.get("note", "")
+    if note:
+        last_para = _render_presentation_note(cell, note, page_cfg)
+
+    return last_para
+
+
+def _render_presentation_authors(cell, authors: str, page_cfg: Dict[str, Any]) -> Any:
+    """Render presentation authors line."""
+    p2 = cell.add_paragraph()
+    p2.paragraph_format.left_indent = Inches(0.25)
+    auth_run = p2.add_run(authors)
+    auth_run.italic = True
+    auth_run.font.size = Pt(page_cfg.get("meta_pt", 9))
+    auth_rgb = _parse_hex_color("#666666")
+    if auth_rgb:
+        auth_run.font.color.rgb = RGBColor(*auth_rgb)
+    _tight_paragraph(p2, after_pt=0)
+    return p2
+
+
+def _render_presentation_event(cell, event: str, page_cfg: Dict[str, Any]) -> Any:
+    """Render presentation event line."""
+    p3 = cell.add_paragraph()
+    p3.paragraph_format.left_indent = Inches(0.25)
+    ev_run = p3.add_run(event)
+    ev_run.font.size = Pt(page_cfg.get("meta_pt", 9) - 1)
+    ev_rgb = _parse_hex_color("#888888")
+    if ev_rgb:
+        ev_run.font.color.rgb = RGBColor(*ev_rgb)
+    _tight_paragraph(p3, after_pt=0)
+    return p3
+
+
+def _render_presentation_note(cell, note: str, page_cfg: Dict[str, Any]) -> Any:
+    """Render presentation note line."""
+    p4 = cell.add_paragraph()
+    p4.paragraph_format.left_indent = Inches(0.25)
+    note_run = p4.add_run(note)
+    note_run.italic = True
+    note_run.font.size = Pt(page_cfg.get("meta_pt", 9) - 1)
+    _tight_paragraph(p4, after_pt=4)
+    return p4
+
+
+def _adjust_presentation_spacing(last_para: Optional[Any]) -> None:
+    """Adjust spacing after last paragraph in presentation."""
+    if last_para is not None:
+        last_para.paragraph_format.space_after = Pt(4)
 
 
 # Backward-compatible function (delegates to class)
@@ -441,7 +525,7 @@ def write_resume_docx_sidebar(
     template: Dict[str, Any],
     out_path: str,
     seed: Optional[Dict[str, Any]] = None,
-    structure: Optional[Dict[str, Any]] = None,
+    _structure: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Write resume with two-column sidebar layout.
 

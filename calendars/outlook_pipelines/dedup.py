@@ -66,6 +66,20 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
+    def _delete_duplicates(self, duplicates: List[OutlookDedupDuplicate], svc: Any) -> Tuple[int, List[str]]:
+        """Delete duplicate series and return count and logs."""
+        logs: List[str] = []
+        deleted = 0
+        for group in duplicates:
+            for sid in group.delete:
+                try:
+                    if svc.delete_event_by_id(sid):
+                        deleted += 1
+                        logs.append(f"Deleted series master {sid}")
+                except Exception as exc:
+                    logs.append(f"Failed to delete {sid}: {exc}")
+        return deleted, logs
+
     def _process_safe(self, payload: OutlookDedupRequest) -> OutlookDedupResult:
         check_service_required(payload.service)
         svc = payload.service
@@ -82,20 +96,10 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         ))
 
         duplicates = self._find_duplicates(occ or [], payload)
-        logs: List[str] = []
         deleted = 0
+        logs: List[str] = []
         if payload.apply and duplicates:
-            for group in duplicates:
-                for sid in group.delete:
-                    ok = False
-                    try:
-                        ok = bool(svc.delete_event_by_id(sid))
-                    except Exception as exc:
-                        logs.append(f"Failed to delete {sid}: {exc}")
-                        continue
-                    if ok:
-                        deleted += 1
-                        logs.append(f"Deleted series master {sid}")
+            deleted, logs = self._delete_duplicates(duplicates, svc)
 
         result = OutlookDedupResult(duplicates=duplicates, apply=payload.apply, deleted=deleted, logs=logs)
         return result

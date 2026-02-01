@@ -26,18 +26,41 @@ class BulletRenderer:
         """
         glyph = "•"
         style = None
-        if sec:
-            bul = sec.get("bullets") if isinstance(sec.get("bullets"), dict) else {}
-            if bul:
-                style = bul.get("style") or style
-                glyph = bul.get("glyph") or glyph
-            if sec.get("plain_bullets") is True:
-                style = "plain"
-        if not style and isinstance(self.page_cfg.get("bullets"), dict):
+
+        # Extract section-level config
+        style, glyph = self._extract_section_bullet_config(sec, style, glyph)
+
+        # Fall back to page-level config if needed
+        if not style:
+            style, glyph = self._extract_page_bullet_config(style, glyph)
+
+        # Determine if plain style should be used
+        use_plain = style == "plain" or (sec and sec.get("plain_bullets") is True)
+        return (use_plain, glyph)
+
+    def _extract_section_bullet_config(self, sec: Optional[Dict[str, Any]],
+                                       style: Optional[str], glyph: str) -> tuple:
+        """Extract bullet config from section."""
+        if not sec:
+            return (style, glyph)
+
+        bul = sec.get("bullets") if isinstance(sec.get("bullets"), dict) else {}
+        if bul:
+            style = bul.get("style") or style
+            glyph = bul.get("glyph") or glyph
+
+        if sec.get("plain_bullets") is True:
+            style = "plain"
+
+        return (style, glyph)
+
+    def _extract_page_bullet_config(self, style: Optional[str], glyph: str) -> tuple:
+        """Extract bullet config from page config."""
+        if isinstance(self.page_cfg.get("bullets"), dict):
             bulp = self.page_cfg.get("bullets") or {}
             style = bulp.get("style") or style
             glyph = bulp.get("glyph") or glyph
-        return (style == "plain" or (sec and sec.get("plain_bullets") is True), glyph)
+        return (style, glyph)
 
     def add_bullet_line(
         self,
@@ -87,7 +110,6 @@ class BulletRenderer:
         self,
         items: List[str],
         *,
-        sec: Optional[Dict[str, Any]] = None,
         keywords: Optional[List[str]] = None,
         plain: bool = True,
         glyph: str = "•",
@@ -115,30 +137,45 @@ class BulletRenderer:
         found_any = False
 
         while idx < len(text):
-            match_pos = None
-            match_kw = None
-            for kw in keywords:
-                if not kw:
-                    continue
-                pos = lowered.find(kw.lower(), idx)
-                if pos != -1 and (match_pos is None or pos < match_pos):
-                    match_pos = pos
-                    match_kw = text[pos:pos + len(kw)]
+            match_pos, match_kw = self._find_next_keyword(lowered, text, keywords, idx)
 
             if match_pos is None:
                 paragraph.add_run(text[idx:])
                 break
 
+            # Add text before the match
             if match_pos > idx:
                 paragraph.add_run(text[idx:match_pos])
 
+            # Add bolded keyword
             br = paragraph.add_run(match_kw or "")
             br.bold = True
             found_any = True
             idx = match_pos + len(match_kw or "")
 
+        # Fallback if no keywords were found
         if not found_any and idx == 0:
             paragraph.add_run(text)
+
+    def _find_next_keyword(self, lowered: str, text: str,
+                          keywords: List[str], start_idx: int) -> tuple:
+        """Find the next keyword match starting from start_idx.
+
+        Returns:
+            Tuple of (match_pos, match_kw) or (None, None) if no match found.
+        """
+        match_pos = None
+        match_kw = None
+
+        for kw in keywords:
+            if not kw:
+                continue
+            pos = lowered.find(kw.lower(), start_idx)
+            if pos != -1 and (match_pos is None or pos < match_pos):
+                match_pos = pos
+                match_kw = text[pos:pos + len(kw)]
+
+        return (match_pos, match_kw)
 
 
 class HeaderRenderer:
@@ -298,7 +335,7 @@ class ListSectionRenderer:
         if lines:
             if cfg.get("bullets", True):
                 plain, glyph = self.bullets.get_bullet_config(sec)
-                self.bullets.add_bullets(lines, sec=sec, plain=plain, glyph=glyph)
+                self.bullets.add_bullets(lines, plain=plain, glyph=glyph)
             else:
                 from .docx_styles import StyleManager
                 sep = cfg.get("separator") or " • "

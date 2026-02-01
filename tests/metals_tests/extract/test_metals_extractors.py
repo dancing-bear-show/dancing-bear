@@ -155,6 +155,8 @@ class TestExtractAmounts(unittest.TestCase):
         text = "1/10 oz Gold Eagle"
         result = extract_amounts(text)
         self.assertAlmostEqual(result.gold_oz, 0.1, places=3)
+        # Verify it's not incorrectly parsed as 10 oz
+        self.assertNotEqual(result.gold_oz, 10.0)
 
 
 class TestExtractAmountsVendorPatterns(unittest.TestCase):

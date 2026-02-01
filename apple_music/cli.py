@@ -15,6 +15,21 @@ from core.cli_framework import CLIApp
 from .client import AppleMusicClient, AppleMusicError
 from .config import DEFAULT_PROFILE, load_profile
 
+# Artist name constants (to avoid duplicate literals)
+_ARTIST_GIPSY_KINGS = "Gipsy Kings"
+_ARTIST_JUAN_LUIS_GUERRA = "Juan Luis Guerra"
+_ARTIST_ALIZEE = "Alizée"
+_ARTIST_MYLENE_FARMER = "Mylène Farmer"
+_ARTIST_GREAT_BIG_SEA = "Great Big Sea"
+_ARTIST_STAN_ROGERS = "Stan Rogers"
+_ARTIST_THE_LONGEST_JOHNS = "The Longest Johns"
+_ARTIST_LIMP_BIZKIT = "Limp Bizkit"
+_ARTIST_LINKIN_PARK = "Linkin Park"
+_ARTIST_RAGE_AGAINST_THE_MACHINE = "Rage Against the Machine"
+_ARTIST_SYSTEM_OF_A_DOWN = "System Of A Down"
+_ARTIST_SMASHING_PUMPKINS = "Smashing Pumpkins"
+_ARTIST_KNIFE_PARTY = "Knife Party"
+
 # Create the CLI app
 app = CLIApp(
     "apple-music-assistant",
@@ -41,12 +56,12 @@ PRESETS = {
         "name": "Spanish Vibes",
         "description": None,
         "seeds": [
-            ("Bamboleo", "Gipsy Kings"),
-            ("Volare", "Gipsy Kings"),
-            ("Djobi Djoba", "Gipsy Kings"),
-            ("Baila Me", "Gipsy Kings"),
-            ("La Dona", "Gipsy Kings"),
-            ("Bem, Bem, Maria", "Gipsy Kings"),
+            ("Bamboleo", _ARTIST_GIPSY_KINGS),
+            ("Volare", _ARTIST_GIPSY_KINGS),
+            ("Djobi Djoba", _ARTIST_GIPSY_KINGS),
+            ("Baila Me", _ARTIST_GIPSY_KINGS),
+            ("La Dona", _ARTIST_GIPSY_KINGS),
+            ("Bem, Bem, Maria", _ARTIST_GIPSY_KINGS),
             ("Oye Como Va", "Santana"),
             ("Corazón Espinado", "Santana Maná"),
             ("Maria Maria", "Santana"),
@@ -66,13 +81,13 @@ PRESETS = {
             ("La Bicicleta", "Carlos Vives Shakira"),
             ("Propuesta Indecente", "Romeo Santos"),
             ("Gasolina", "Daddy Yankee"),
-            ("Bachata en Fukuoka", "Juan Luis Guerra"),
-            ("Burbujas de Amor", "Juan Luis Guerra"),
+            ("Bachata en Fukuoka", _ARTIST_JUAN_LUIS_GUERRA),
+            ("Burbujas de Amor", _ARTIST_JUAN_LUIS_GUERRA),
             ("Eres", "Café Tacvba"),
             ("La Flaca", "Jarabe de Palo"),
             ("Corazón Partío", "Alejandro Sanz"),
             ("La Vida Es un Carnaval", "Celia Cruz"),
-            ("Burbujas de Amor", "Juan Luis Guerra"),
+            ("Burbujas de Amor", _ARTIST_JUAN_LUIS_GUERRA),
             ("Me Gustas Tu", "Manu Chao"),
             ("La Cintura", "Alvaro Soler"),
             ("Sofia", "Alvaro Soler"),
@@ -92,7 +107,7 @@ PRESETS = {
             ("Where Evil Grows", "Poppy Family"),
             ("Green Hill Zone", "Sonic the Hedgehog"),
             ("Friends", "Hyper Potions"),
-            ("Bamboleo", "Gipsy Kings"),
+            ("Bamboleo", _ARTIST_GIPSY_KINGS),
             ("Uptown Funk", "Mark Ronson Bruno Mars"),
             ("Barracuda", "Heart"),
             ("Thunderstruck", "AC/DC"),
@@ -128,21 +143,21 @@ PRESETS = {
         "name": "French Pop Vibes",
         "description": "French pop hits and classics",
         "seeds": [
-            ("Moi... Lolita", "Alizée"),
-            ("J'en ai marre!", "Alizée"),
-            ("Gourmandises", "Alizée"),
-            ("Parler tout bas", "Alizée"),
-            ("A contre-courant", "Alizée"),
-            ("Mademoiselle Juliette", "Alizée"),
-            ("Les Collines (Never Leave You)", "Alizée"),
-            ("Désenchantée", "Mylène Farmer"),
-            ("Sans contrefaçon", "Mylène Farmer"),
-            ("Libertine", "Mylène Farmer"),
-            ("Pourvu qu'elles soient douces", "Mylène Farmer"),
-            ("Sans logique", "Mylène Farmer"),
-            ("California", "Mylène Farmer"),
-            ("L'Âme-Stram-Gram", "Mylène Farmer"),
-            ("Stolen Car", "Mylène Farmer Sting"),
+            ("Moi... Lolita", _ARTIST_ALIZEE),
+            ("J'en ai marre!", _ARTIST_ALIZEE),
+            ("Gourmandises", _ARTIST_ALIZEE),
+            ("Parler tout bas", _ARTIST_ALIZEE),
+            ("A contre-courant", _ARTIST_ALIZEE),
+            ("Mademoiselle Juliette", _ARTIST_ALIZEE),
+            ("Les Collines (Never Leave You)", _ARTIST_ALIZEE),
+            ("Désenchantée", _ARTIST_MYLENE_FARMER),
+            ("Sans contrefaçon", _ARTIST_MYLENE_FARMER),
+            ("Libertine", _ARTIST_MYLENE_FARMER),
+            ("Pourvu qu'elles soient douces", _ARTIST_MYLENE_FARMER),
+            ("Sans logique", _ARTIST_MYLENE_FARMER),
+            ("California", _ARTIST_MYLENE_FARMER),
+            ("L'Âme-Stram-Gram", _ARTIST_MYLENE_FARMER),
+            ("Stolen Car", _ARTIST_MYLENE_FARMER + " Sting"),
             ("Papaoutai", "Stromae"),
             ("Alors on danse", "Stromae"),
             ("Formidable", "Stromae"),
@@ -180,27 +195,27 @@ PRESETS = {
         "name": "Canadian Shanty Vibes",
         "description": "Sea shanty and folk-leaning Canadian anthems",
         "seeds": [
-            ("Ordinary Day", "Great Big Sea"),
-            ("Sea Of No Cares", "Great Big Sea"),
-            ("When I'm Up", "Great Big Sea"),
-            ("Consequence Free", "Great Big Sea"),
-            ("The Night Pat Murphy Died", "Great Big Sea"),
-            ("General Taylor", "Great Big Sea"),
-            ("Mari-Mac", "Great Big Sea"),
-            ("Lukey", "Great Big Sea"),
-            ("Captain Kidd", "Great Big Sea"),
-            ("Ferryland Sealer", "Great Big Sea"),
-            ("Barrett's Privateers", "Stan Rogers"),
-            ("Northwest Passage", "Stan Rogers"),
-            ("The Mary Ellen Carter", "Stan Rogers"),
-            ("Forty-Five Years", "Stan Rogers"),
+            ("Ordinary Day", _ARTIST_GREAT_BIG_SEA),
+            ("Sea Of No Cares", _ARTIST_GREAT_BIG_SEA),
+            ("When I'm Up", _ARTIST_GREAT_BIG_SEA),
+            ("Consequence Free", _ARTIST_GREAT_BIG_SEA),
+            ("The Night Pat Murphy Died", _ARTIST_GREAT_BIG_SEA),
+            ("General Taylor", _ARTIST_GREAT_BIG_SEA),
+            ("Mari-Mac", _ARTIST_GREAT_BIG_SEA),
+            ("Lukey", _ARTIST_GREAT_BIG_SEA),
+            ("Captain Kidd", _ARTIST_GREAT_BIG_SEA),
+            ("Ferryland Sealer", _ARTIST_GREAT_BIG_SEA),
+            ("Barrett's Privateers", _ARTIST_STAN_ROGERS),
+            ("Northwest Passage", _ARTIST_STAN_ROGERS),
+            ("The Mary Ellen Carter", _ARTIST_STAN_ROGERS),
+            ("Forty-Five Years", _ARTIST_STAN_ROGERS),
             ("The Log Driver's Waltz", "Kate and Anna McGarrigle"),
             ("The Islander", "Dave Gunning"),
             ("Lighthouse", "The Waifs"),
             ("The Last Saskatchewan Pirate", "The Arrogant Worms"),
-            ("Northwest Passage", "The Longest Johns"),
-            ("Leave Her Johnny", "The Longest Johns"),
-            ("Wellerman", "The Longest Johns"),
+            ("Northwest Passage", _ARTIST_THE_LONGEST_JOHNS),
+            ("Leave Her Johnny", _ARTIST_THE_LONGEST_JOHNS),
+            ("Wellerman", _ARTIST_THE_LONGEST_JOHNS),
             ("Home For A Rest", "Spirit of the West"),
             ("The Irish Rover", "The Irish Rovers"),
             ("Drunken Sailor", "The Irish Rovers"),
@@ -214,25 +229,25 @@ PRESETS = {
         "name": "Angry 90s Rock",
         "description": "Heavy alt/nu-metal anthems from the 90s/early 00s",
         "seeds": [
-            ("Break Stuff", "Limp Bizkit"),
-            ("Nookie", "Limp Bizkit"),
-            ("Rollin'", "Limp Bizkit"),
+            ("Break Stuff", _ARTIST_LIMP_BIZKIT),
+            ("Nookie", _ARTIST_LIMP_BIZKIT),
+            ("Rollin'", _ARTIST_LIMP_BIZKIT),
             ("Last Resort", "Papa Roach"),
             ("Between Angels and Insects", "Papa Roach"),
-            ("One Step Closer", "Linkin Park"),
-            ("Papercut", "Linkin Park"),
-            ("Crawling", "Linkin Park"),
+            ("One Step Closer", _ARTIST_LINKIN_PARK),
+            ("Papercut", _ARTIST_LINKIN_PARK),
+            ("Crawling", _ARTIST_LINKIN_PARK),
             ("Freak on a Leash", "Korn"),
             ("Got the Life", "Korn"),
             ("Falling Away from Me", "Korn"),
-            ("Killing in the Name", "Rage Against the Machine"),
-            ("Bulls on Parade", "Rage Against the Machine"),
-            ("Guerrilla Radio", "Rage Against the Machine"),
-            ("Testify", "Rage Against the Machine"),
-            ("Chop Suey!", "System Of A Down"),
-            ("B.Y.O.B.", "System Of A Down"),
-            ("Toxicity", "System Of A Down"),
-            ("Sugar", "System Of A Down"),
+            ("Killing in the Name", _ARTIST_RAGE_AGAINST_THE_MACHINE),
+            ("Bulls on Parade", _ARTIST_RAGE_AGAINST_THE_MACHINE),
+            ("Guerrilla Radio", _ARTIST_RAGE_AGAINST_THE_MACHINE),
+            ("Testify", _ARTIST_RAGE_AGAINST_THE_MACHINE),
+            ("Chop Suey!", _ARTIST_SYSTEM_OF_A_DOWN),
+            ("B.Y.O.B.", _ARTIST_SYSTEM_OF_A_DOWN),
+            ("Toxicity", _ARTIST_SYSTEM_OF_A_DOWN),
+            ("Sugar", _ARTIST_SYSTEM_OF_A_DOWN),
             ("Wait and Bleed", "Slipknot"),
             ("Duality", "Slipknot"),
             ("My Own Summer (Shove It)", "Deftones"),
@@ -257,9 +272,9 @@ PRESETS = {
             ("Click Click Boom", "Saliva"),
             ("Boom", "P.O.D."),
             ("Alive", "P.O.D."),
-            ("Bullet with Butterfly Wings", "Smashing Pumpkins"),
-            ("Zero", "Smashing Pumpkins"),
-            ("Bodies", "Smashing Pumpkins"),
+            ("Bullet with Butterfly Wings", _ARTIST_SMASHING_PUMPKINS),
+            ("Zero", _ARTIST_SMASHING_PUMPKINS),
+            ("Bodies", _ARTIST_SMASHING_PUMPKINS),
             ("Unsung", "Helmet"),
             ("Davidian", "Machine Head"),
             ("Edgecrusher", "Fear Factory"),
@@ -288,9 +303,9 @@ PRESETS = {
             ("Doomsday", "Nero"),
             ("Eyes on Fire (Zeds Dead Remix)", "Blue Foundation"),
             ("Adrenaline", "Zeds Dead"),
-            ("Centipede", "Knife Party"),
-            ("Internet Friends", "Knife Party"),
-            ("Bonfire", "Knife Party"),
+            ("Centipede", _ARTIST_KNIFE_PARTY),
+            ("Internet Friends", _ARTIST_KNIFE_PARTY),
+            ("Bonfire", _ARTIST_KNIFE_PARTY),
             ("Swagga", "Datsik Excision"),
             ("Woo Boost", "Rusko"),
             ("Night", "Benga Coki"),
@@ -357,7 +372,7 @@ def _create_from_seeds(
     if not store:
         store = client.ping().get("data", [{}])[0].get("id")
     seeds_copy = list(seeds)
-    rng = random.Random(config.shuffle_seed)  # noqa: S311 - used for playlist shuffling, not security
+    rng = random.Random(config.shuffle_seed)  # nosec B311 - used for playlist shuffling, not security
     rng.shuffle(seeds_copy)
     seeds_copy = seeds_copy[: min(config.count, len(seeds_copy))]
 
@@ -515,6 +530,49 @@ def cmd_create(args) -> int:
     return _output_json(args, payload)
 
 
+def _parse_date(val: str | None) -> datetime:
+    """Parse ISO date string, returning datetime.min on error."""
+    if not val:
+        return datetime.min
+    if val.endswith("Z"):
+        val = val.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(val)
+    except Exception:  # nosec B110 - return sentinel on any parse error
+        return datetime.min
+
+
+def _get_playlist_date(playlist: dict) -> datetime:
+    """Extract modification or creation date from playlist."""
+    attrs = playlist.get("attributes") or {}
+    date_str = attrs.get("lastModifiedDate") or attrs.get("dateAdded")
+    return _parse_date(date_str)
+
+
+def _group_playlists_by_name(playlists: list[dict]) -> dict[str, list[dict]]:
+    """Group playlists by name."""
+    by_name: dict[str, list[dict]] = {}
+    for pl in playlists:
+        name = (pl.get("attributes") or {}).get("name") or ""
+        by_name.setdefault(name, []).append(pl)
+    return by_name
+
+
+def _find_duplicates_to_remove(pls: list[dict], keep_latest: bool) -> tuple[dict, list[dict]]:
+    """Sort playlists by date and return (keep, remove) tuple."""
+    sorted_pls = sorted(pls, key=_get_playlist_date, reverse=keep_latest)
+    return sorted_pls[0], sorted_pls[1:]
+
+
+def _delete_playlists(client: AppleMusicClient, playlists: list[dict]) -> list[str]:
+    """Delete playlists and return their IDs."""
+    deleted = []
+    for p in playlists:
+        client.delete_playlist(p.get("id"))
+        deleted.append(p.get("id"))
+    return deleted
+
+
 @app.command("dedupe", help="Find (and optionally delete) duplicate playlists by name")
 @app.argument("--config", help="Path to credentials.ini (optional)")
 @app.argument("--developer-token", help="Developer token (overrides credentials.ini / env)")
@@ -528,44 +586,25 @@ def cmd_dedupe(args) -> int:
     """Find (and optionally delete) duplicate playlists by name."""
     client = _get_client(args)
     playlists = client.list_library_playlists(limit=getattr(args, "playlist_limit", None))
-    by_name: dict[str, list[dict]] = {}
-    for pl in playlists:
-        name = (pl.get("attributes") or {}).get("name") or ""
-        by_name.setdefault(name, []).append(pl)
-
-    def parse_date(val: str | None) -> datetime:
-        if not val:
-            return datetime.min
-        if val.endswith("Z"):
-            val = val.replace("Z", "+00:00")
-        try:
-            return datetime.fromisoformat(val)
-        except Exception:
-            return datetime.min
+    by_name = _group_playlists_by_name(playlists)
+    keep_latest = args.keep == "latest"
+    should_delete = getattr(args, "delete", False)
 
     plan = []
     deleted = []
     for name, pls in by_name.items():
         if len(pls) <= 1:
             continue
-        sorted_pls = sorted(
-            pls,
-            key=lambda p: parse_date((p.get("attributes") or {}).get("lastModifiedDate") or (p.get("attributes") or {}).get("dateAdded")),
-            reverse=args.keep == "latest",
-        )
-        keep = sorted_pls[0]
-        remove = sorted_pls[1:]
+        keep, remove = _find_duplicates_to_remove(pls, keep_latest)
         plan.append({
             "name": name,
             "keep": keep.get("id"),
             "remove": [p.get("id") for p in remove],
         })
-        if getattr(args, "delete", False):
-            for p in remove:
-                client.delete_playlist(p.get("id"))
-                deleted.append(p.get("id"))
+        if should_delete:
+            deleted.extend(_delete_playlists(client, remove))
 
-    payload = {"duplicates": plan, "deleted": deleted if getattr(args, "delete", False) else []}
+    payload = {"duplicates": plan, "deleted": deleted if should_delete else []}
     return _output_json(args, payload)
 
 

@@ -84,22 +84,22 @@ class TestBulletRendererGetBulletConfig(unittest.TestCase):
         self.renderer = BulletRenderer(self.doc)
 
     def test_default_glyph(self):
-        plain, glyph = self.renderer.get_bullet_config(None)
+        _, glyph = self.renderer.get_bullet_config(None)
         self.assertEqual(glyph, "•")
 
     def test_custom_glyph_from_section(self):
         sec = {"bullets": {"glyph": "→"}}
-        plain, glyph = self.renderer.get_bullet_config(sec)
+        _, glyph = self.renderer.get_bullet_config(sec)
         self.assertEqual(glyph, "→")
 
     def test_plain_bullets_flag(self):
         sec = {"plain_bullets": True}
-        plain, glyph = self.renderer.get_bullet_config(sec)
+        plain, _ = self.renderer.get_bullet_config(sec)
         self.assertTrue(plain)
 
     def test_plain_style_from_bullets(self):
         sec = {"bullets": {"style": "plain"}}
-        plain, glyph = self.renderer.get_bullet_config(sec)
+        plain, _ = self.renderer.get_bullet_config(sec)
         self.assertTrue(plain)
 
     def test_page_cfg_fallback(self):

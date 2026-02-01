@@ -16,8 +16,14 @@ RANGE_PAT = re.compile(
     re.I,
 )
 
+# Simplified class patterns - split into smaller alternatives
+_SWIMMER_PAT = r"swimmer\s?[\da-z]+"
+_SWIM_KIDS_PAT = r"swim\s?kids\s?\d+"
+_PRESCHOOL_PAT = r"preschool\s?[a-f]"
+_BRONZE_PAT = r"bronze\s?(?:star|medallion|cross)"
+_PRIVATE_PAT = r"private\s*lessons?"
 CLASS_PAT = re.compile(
-    r"\b((swimmer\s?[0-9a-z]+)|(swim\s?kids\s?\d+)|(preschool\s?[a-f])|(bronze\s?(star|medallion|cross))|(private\s*lesson[s]?))\b",
+    rf"\b({_SWIMMER_PAT}|{_SWIM_KIDS_PAT}|{_PRESCHOOL_PAT}|{_BRONZE_PAT}|{_PRIVATE_PAT})\b",
     re.I,
 )
 LOC_LABEL_PAT = re.compile(r"^\s*(Location|Venue)\s*:\s*(.+)$", re.I | re.M)
@@ -30,8 +36,13 @@ FACILITIES = [
     "Oak Ridges",
 ]
 
+# Simplified date range pattern - split components to reduce complexity
+_MONTH_PAT = r"\w{3,9}"
+_DAY_PAT = r"\d{1,2}"
+_YEAR_PAT = r"(?:,\s*(\d{4}))?"
+_SEP_PAT = r"[-–—to]+"
 DATE_RANGE_PAT = re.compile(
-    r"(?:(?:from)\s+)?([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?\s*(?:-|to|–|—)\s*([A-Za-z]{3,9})\s+(\d{1,2})(?:,\s*(\d{4}))?",
+    rf"(?:from\s+)?({_MONTH_PAT})\s+({_DAY_PAT}){_YEAR_PAT}\s*{_SEP_PAT}\s*({_MONTH_PAT})\s+({_DAY_PAT}){_YEAR_PAT}",
     re.I,
 )
 
@@ -63,6 +74,34 @@ def norm_time(hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
     return f"{hh:02d}:{mm:02d}"
 
 
+def _extract_location(text: str, cfg: MetaParserConfig) -> Optional[str]:
+    """Extract location from text."""
+    loc_match = cfg.loc_label_pat.search(text or "")
+    if loc_match:
+        return loc_match.group(2).strip()
+    for facility in cfg.facilities:
+        if facility.lower() in (text or "").lower():
+            return facility
+    return None
+
+
+def _extract_date_range(text: str, cfg: MetaParserConfig) -> Optional[Dict[str, str]]:
+    """Extract date range from text."""
+    date_match = cfg.date_range_pat.search(text or "")
+    if not date_match:
+        return None
+    try:
+        m1, d1, y1, m2, d2, y2 = date_match.groups()
+        cur_year = cfg.default_year or 0
+        y1f = int(y1 or y2 or cur_year)
+        y2f = int(y2 or y1 or cur_year)
+        start_date = f"{y1f:04d}-{MONTH_MAP[m1.lower()]:02d}-{int(d1):02d}"
+        end_date = f"{y2f:04d}-{MONTH_MAP[m2.lower()]:02d}-{int(d2):02d}"
+        return {"start_date": start_date, "until": end_date}
+    except Exception:  # nosec B110 - non-critical metadata extraction
+        return None
+
+
 def infer_meta_from_text(
     text: str,
     config: Optional[MetaParserConfig] = None,
@@ -79,27 +118,13 @@ def infer_meta_from_text(
     cfg = config or MetaParserConfig()
     meta: Dict[str, Any] = {}
 
-    loc_match = cfg.loc_label_pat.search(text or "")
-    if loc_match:
-        meta["location"] = loc_match.group(2).strip()
-    else:
-        for facility in cfg.facilities:
-            if facility.lower() in (text or "").lower():
-                meta["location"] = facility
-                break
+    location = _extract_location(text, cfg)
+    if location:
+        meta["location"] = location
 
-    date_match = cfg.date_range_pat.search(text or "")
-    if date_match:
-        m1, d1, y1, m2, d2, y2 = date_match.groups()
-        try:
-            cur_year = cfg.default_year or 0
-            y1f = int(y1 or y2 or cur_year)
-            y2f = int(y2 or y1 or cur_year)
-            start_date = f"{y1f:04d}-{MONTH_MAP[m1.lower()]:02d}-{int(d1):02d}"
-            end_date = f"{y2f:04d}-{MONTH_MAP[m2.lower()]:02d}-{int(d2):02d}"
-            meta["range"] = {"start_date": start_date, "until": end_date}
-        except Exception:  # nosec B110 - non-critical metadata extraction
-            pass
+    date_range = _extract_date_range(text, cfg)
+    if date_range:
+        meta["range"] = date_range
 
     class_match = cfg.class_pat.search(text or "")
     if class_match:

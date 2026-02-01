@@ -422,7 +422,10 @@ def run_labels_apply_suggestions(args) -> int:
             profile=getattr(args, "profile", None),
         )
         print(f"\nSweeping back {args.sweep_days} days for suggestions …")
-        run_filters_sweep(args2)
+        sweep_result = run_filters_sweep(args2)
+        if sweep_result != 0:
+            print(f"Warning: sweep returned non-zero exit code: {sweep_result}")
+            return sweep_result
 
     print(f"Suggestions applied: {created}")
     return 0
@@ -468,7 +471,7 @@ def run_labels_sweep_parents(args) -> int:
             print(f"[{parent}] Would add to {len(ids)} messages")
         else:
             apply_in_chunks(
-                lambda chunk: client.batch_modify_messages(chunk, add_label_ids=[parent_id]),
+                lambda chunk, pid=parent_id: client.batch_modify_messages(chunk, add_label_ids=[pid]),
                 ids,
                 int(args.batch_size),
             )

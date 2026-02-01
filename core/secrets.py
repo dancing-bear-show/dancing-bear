@@ -12,6 +12,9 @@ from typing import Any, Dict, Optional
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 
+# Redaction constant for sensitive data masking
+_REDACTED_PLACEHOLDER = r"\1***REDACTED***"
+
 SENSITIVE_PARAM_KEYS = {
     "token",
     "api_token",
@@ -35,7 +38,7 @@ SENSITIVE_PARAM_KEYS = {
 }
 
 
-def _mask_value(value: str) -> str:
+def _mask_value(value: Optional[str]) -> Optional[str]:
     if not value:
         return value
     s = value.strip().lower()
@@ -53,13 +56,13 @@ def mask_headers(headers: Dict[str, str]) -> Dict[str, str]:
     for k, v in (headers or {}).items():
         lk = (k or "").strip().lower()
         if lk in {"authorization", "proxy-authorization", "x-api-key", "x-auth-token"}:
-            masked[k] = _mask_value(v)
+            masked[k] = _mask_value(v) or ""
         else:
             masked[k] = v
     return masked
 
 
-def mask_url(url: str) -> str:
+def mask_url(url: Optional[str]) -> str:
     try:
         parts = urlsplit(url or "")
         qs = parse_qsl(parts.query, keep_blank_values=True)
@@ -73,18 +76,18 @@ def mask_url(url: str) -> str:
         query = "&".join(items)
         return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
     except Exception:
-        return url
+        return url or ""
 
 
-def mask_text(text: str) -> str:
+def mask_text(text: Optional[str]) -> str:
     s = text or ""
     # Authorization: Scheme token
     s = re.sub(r"(?i)(Authorization\s*:\s*)(Bearer|Basic|Token)\s+[^\s]+", r"\1\2 ***REDACTED***", s)
     # Common header variants
-    s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", r"\1***REDACTED***", s)
-    s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", _REDACTED_PLACEHOLDER, s)
+    s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", _REDACTED_PLACEHOLDER, s)
     # Token=... pairs
-    s = re.sub(r"(?i)(token\s*=\s*)([A-Za-z0-9\-\._~+/=]+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(token\s*=\s*)([A-Z0-9._~+/=\-]+)", _REDACTED_PLACEHOLDER, s)
     # JSON fields
     s = re.sub(r"(?i)(\"(?:api[_-]?token|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
     # GitHub tokens
@@ -92,13 +95,13 @@ def mask_text(text: str) -> str:
     # Atlassian tokens
     s = re.sub(r"AT[A-Za-z0-9]{20,}", "AT***REDACTED***", s)
     # AWS keys in text
-    s = re.sub(r"(?i)(aws_secret_access_key\s*[:=]\s*)(\S+)", r"\1***REDACTED***", s)
-    s = re.sub(r"(?i)(aws_session_token\s*[:=]\s*)(\S+)", r"\1***REDACTED***", s)
-    s = re.sub(r"(?i)(aws_access_key_id\s*[:=]\s*)(\S+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(aws_secret_access_key\s*[:=]\s*)(\S+)", _REDACTED_PLACEHOLDER, s)
+    s = re.sub(r"(?i)(aws_session_token\s*[:=]\s*)(\S+)", _REDACTED_PLACEHOLDER, s)
+    s = re.sub(r"(?i)(aws_access_key_id\s*[:=]\s*)(\S+)", _REDACTED_PLACEHOLDER, s)
     # URL query tokens
-    s = re.sub(r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + ")=)([^&\s]+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + ")=)([^&\s]+)", _REDACTED_PLACEHOLDER, s)
     # Basic base64 creds
-    s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[A-Za-z0-9+/=]+", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[A-Z0-9+/=]+", _REDACTED_PLACEHOLDER, s)
     return s
 
 
@@ -116,7 +119,12 @@ class MaskingWriter:
         written = 0
         lines = self._buffer.splitlines(keepends=True)
         complete = lines[:-1] if (lines and not lines[-1].endswith(("\n", "\r"))) else lines
-        remainder = "" if complete is lines else (lines[-1] if lines else "")
+        if complete is lines:
+            remainder = ""
+        elif lines:
+            remainder = lines[-1]
+        else:
+            remainder = ""
         masked_chunks = []
         for chunk in complete:
             masked_chunks.append(mask_text(chunk))

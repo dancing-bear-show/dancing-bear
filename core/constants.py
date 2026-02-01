@@ -13,6 +13,8 @@ from typing import Tuple
 # Credential paths
 # -----------------------------------------------------------------------------
 
+CREDENTIALS_INI_FILENAME = "credentials.ini"
+
 def _config_roots() -> list[str]:
     """Return ordered list of config root directories."""
     roots: list[str] = []
@@ -40,12 +42,12 @@ def credential_ini_paths() -> list[str]:
 
     # Standard and legacy paths under each config root
     for root in _config_roots():
-        paths.append(os.path.join(root, "credentials.ini"))
-        paths.append(os.path.join(root, "sre-utils", "credentials.ini"))
-        paths.append(os.path.join(root, "sreutils", "credentials.ini"))
+        paths.append(os.path.join(root, CREDENTIALS_INI_FILENAME))
+        paths.append(os.path.join(root, "sre-utils", CREDENTIALS_INI_FILENAME))
+        paths.append(os.path.join(root, "sreutils", CREDENTIALS_INI_FILENAME))
 
     # Legacy standalone path
-    paths.append(os.path.expanduser("~/.sre-utils/credentials.ini"))
+    paths.append(os.path.expanduser(f"~/.sre-utils/{CREDENTIALS_INI_FILENAME}"))
 
     # Dedupe while preserving order
     seen: set[str] = set()

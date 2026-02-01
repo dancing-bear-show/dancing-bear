@@ -4,7 +4,6 @@ from ._base import (
     dataclass,
     Any,
     Dict,
-    List,
     Optional,
     SafeProcessor,
     BaseProducer,

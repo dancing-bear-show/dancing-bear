@@ -48,21 +48,21 @@ class FakeOutlookClient:
         return None
 
     def list_events_in_range(
-        self, calendar_id: Optional[str] = None, start: Optional[str] = None,
-        end: Optional[str] = None, **kwargs
+        self, _calendar_id: Optional[str] = None, _start: Optional[str] = None,
+        _end: Optional[str] = None, **kwargs
     ) -> List[Dict]:
         return list(self.events)
 
-    def create_event(self, calendar_id: str, event: Dict) -> Dict:
+    def create_event(self, _calendar_id: str, event: Dict) -> Dict:
         event_copy = dict(event)
         event_copy["id"] = f"EVT_{len(self.created_events)}"
         self.created_events.append(event_copy)
         return event_copy
 
-    def delete_event(self, calendar_id: str, event_id: str) -> None:
+    def delete_event(self, _calendar_id: str, event_id: str) -> None:
         self.deleted_event_ids.append(event_id)
 
-    def update_event(self, calendar_id: str, event_id: str, updates: Dict) -> Dict:
+    def update_event(self, _calendar_id: str, event_id: str, updates: Dict) -> Dict:
         self.updated_events.append({"id": event_id, **updates})
         return {"id": event_id, **updates}
 
@@ -109,8 +109,8 @@ class FakeCalendarService:
         return self.get_calendar_id_by_name(name)
 
     def list_calendar_view(
-        self, *, calendar_id: str, start_iso: str, end_iso: str,
-        select: str = "", top: int = 200
+        self, *, _calendar_id: str, _start_iso: str, _end_iso: str,
+        _select: str = "", _top: int = 200
     ) -> List[Dict]:
         return list(self.events)
 
@@ -119,7 +119,7 @@ class FakeCalendarService:
         return True
 
     def list_events_in_range(
-        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,
+        self, *, _start_iso: str, _end_iso: str, _calendar_id: Optional[str] = None,
         **kwargs
     ) -> List[Dict]:
         return list(self.events)

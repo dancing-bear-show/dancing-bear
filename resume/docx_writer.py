@@ -52,6 +52,9 @@ SECTION_SYNONYMS = {
     "education": {"education", "academics"},
 }
 
+# Style name constants
+STYLE_HEADING_1 = "Heading 1"
+
 
 def _match_section_key(title: str) -> Optional[str]:
     t = title.strip().lower()
@@ -81,14 +84,14 @@ def _add_bullets(
     doc,
     items: List[str],
     *,
-    sec: Dict[str, Any] | None = None,
+    _sec: Dict[str, Any] | None = None,
     keywords: List[str] | None = None,
     plain: bool = True,
     glyph: str = "•",
     list_style: str = "List Bullet",
 ):
     renderer = BulletRenderer(doc)
-    renderer.add_bullets(items, sec=sec, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
+    renderer.add_bullets(items, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
 
 
 def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
@@ -147,11 +150,8 @@ def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | No
     return renderer.get_bullet_config(sec)
 
 
-def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
-    """Apply compact page styles (margins and fonts)."""
-    if not page_cfg.get("compact"):
-        return
-
+def _apply_margins(doc, page_cfg: Dict[str, Any]) -> None:
+    """Apply margin settings to document."""
     try:
         sec = doc.sections[0]
         m = float(page_cfg.get("margins_in", 0.5))
@@ -162,6 +162,41 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
     except Exception:  # nosec B110 - margin setting failure
         pass
 
+
+def _apply_heading1_style(doc, h1_pt: float, h1_color: str | None, h1_bg: str | None) -> None:
+    """Apply Heading 1 style settings."""
+    if STYLE_HEADING_1 not in doc.styles:
+        return
+    h1_style = doc.styles[STYLE_HEADING_1]
+    h1_style.font.size = Pt(h1_pt)
+    h1_style.font.bold = True
+    rgb = _parse_hex_color(h1_color)
+    bg = _parse_hex_color(h1_bg)
+    if (not rgb) and bg:
+        rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
+    if rgb:
+        h1_style.font.color.rgb = RGBColor(*rgb)
+
+
+def _apply_title_style(doc, title_pt: float, title_color: str | None) -> None:
+    """Apply Title style settings."""
+    if "Title" not in doc.styles:
+        return
+    title_style = doc.styles["Title"]
+    title_style.font.size = Pt(title_pt)
+    title_style.font.bold = True
+    rgbt = _parse_hex_color(title_color)
+    if rgbt:
+        title_style.font.color.rgb = RGBColor(*rgbt)
+
+
+def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
+    """Apply compact page styles (margins and fonts)."""
+    if not page_cfg.get("compact"):
+        return
+
+    _apply_margins(doc, page_cfg)
+
     try:
         body_pt = float(page_cfg.get("body_pt", 10.5))
         h1_pt = float(page_cfg.get("h1_pt", 12))
@@ -171,23 +206,8 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
         title_color = page_cfg.get("title_color")
 
         doc.styles["Normal"].font.size = Pt(body_pt)
-
-        if "Heading 1" in doc.styles:
-            doc.styles["Heading 1"].font.size = Pt(h1_pt)
-            doc.styles["Heading 1"].font.bold = True
-            rgb = _parse_hex_color(h1_color)
-            bg = _parse_hex_color(h1_bg)
-            if (not rgb) and bg:
-                rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
-            if rgb:
-                doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
-
-        if "Title" in doc.styles:
-            doc.styles["Title"].font.size = Pt(title_pt)
-            doc.styles["Title"].font.bold = True
-            rgbt = _parse_hex_color(title_color)
-            if rgbt:
-                doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
+        _apply_heading1_style(doc, h1_pt, h1_color, h1_bg)
+        _apply_title_style(doc, title_pt, title_color)
     except Exception:  # nosec B110 - style setting failure
         pass
 
@@ -342,6 +362,33 @@ SECTION_RENDERERS = {
 SECTIONS_WITH_KEYWORDS = {"summary", "experience"}
 
 
+def _extract_keywords(seed: Optional[Dict[str, Any]]) -> List[str]:
+    """Extract keywords from seed data."""
+    if seed and isinstance(seed.get("keywords"), list):
+        return [str(k) for k in seed.get("keywords", [])]
+    return []
+
+
+def _render_section(doc, sec: Dict[str, Any], template: Dict[str, Any], page_cfg: Dict[str, Any], data: Dict[str, Any], keywords: List[str]) -> None:
+    """Render a single section with its heading and content."""
+    key = sec.get("key")
+    if not key:
+        return
+
+    title = sec.get("title") or (key.title() if isinstance(key, str) else "")
+    _render_section_heading(doc, title, template)
+
+    renderer_class = SECTION_RENDERERS.get(key)
+    if not renderer_class:
+        return
+
+    renderer = renderer_class(doc, page_cfg)
+    if key in SECTIONS_WITH_KEYWORDS:
+        renderer.render(data, sec, keywords)
+    else:
+        renderer.render(data, sec)
+
+
 def write_resume_docx(
     data: Dict[str, Any],
     template: Dict[str, Any],
@@ -382,27 +429,12 @@ def write_resume_docx(
     _set_document_metadata(doc, data, template)
     _render_document_header(doc, data)
 
-    # Extract keywords from seed
-    keywords = []
-    if seed and isinstance(seed.get("keywords"), list):
-        keywords = [str(k) for k in seed.get("keywords", [])]
-
-    # Resolve and render sections
+    # Extract keywords and resolve sections
+    keywords = _extract_keywords(seed)
     sections = _resolve_sections(template, structure)
 
+    # Render all sections
     for sec in sections:
-        key = sec.get("key")
-        if not key:
-            continue
-        title = sec.get("title") or (key.title() if isinstance(key, str) else "")
-        _render_section_heading(doc, title, template)
-
-        renderer_class = SECTION_RENDERERS.get(key)
-        if renderer_class:
-            renderer = renderer_class(doc, page_cfg)
-            if key in SECTIONS_WITH_KEYWORDS:
-                renderer.render(data, sec, keywords)
-            else:
-                renderer.render(data, sec)
+        _render_section(doc, sec, template, page_cfg, data, keywords)
 
     doc.save(out_path)

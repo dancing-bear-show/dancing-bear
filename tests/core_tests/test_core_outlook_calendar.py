@@ -37,7 +37,13 @@ def make_mock_response(json_data=None, status_code=200, text=None):
     """Create a mock HTTP response object."""
     resp = MagicMock()
     resp.status_code = status_code
-    resp.text = text if text is not None else (str(json_data) if json_data else "")
+
+    # Determine response text
+    response_text = text
+    if response_text is None:
+        response_text = str(json_data) if json_data else ""
+
+    resp.text = response_text
     resp.json.return_value = json_data
     resp.raise_for_status = MagicMock()
     return resp

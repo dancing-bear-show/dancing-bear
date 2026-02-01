@@ -53,7 +53,7 @@ class TestResolveOutlookCredentials(unittest.TestCase):
         "MAIL_ASSISTANT_OUTLOOK_TENANT": "env-tenant",
     })
     def test_env_vars_used_when_no_args(self):
-        client_id, tenant, token = resolve_outlook_credentials(
+        client_id, tenant, _ = resolve_outlook_credentials(
             profile=None,
             client_id=None,
             tenant=None,

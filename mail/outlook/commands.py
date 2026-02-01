@@ -232,6 +232,39 @@ def run_outlook_categories_export(args) -> int:
     )
 
 
+def _create_category(client, spec, dry_run):
+    """Create a new category."""
+    name = spec.get("name")
+    if dry_run:
+        print(f"Would create category: {name}")
+    else:
+        client.create_label(**spec)
+        print(f"Created category: {name}")
+
+
+def _should_update_category(spec, existing_label):
+    """Check if category needs update and return update dict."""
+    name = spec.get("name")
+    upd = {"name": name}
+    need_update = False
+
+    if spec.get("color") and spec.get("color") != existing_label.get("color"):
+        upd["color"] = spec["color"]
+        need_update = True
+
+    return need_update, upd
+
+
+def _update_category(client, existing_label, update_dict, dry_run):
+    """Update an existing category."""
+    name = update_dict.get("name")
+    if dry_run:
+        print(f"Would update category: {name}")
+    else:
+        client.update_label(existing_label.get("id", ""), update_dict)
+        print(f"Updated category: {name}")
+
+
 def run_outlook_categories_sync(args) -> int:
     """Create/update Outlook categories from a labels YAML file."""
     client, err = get_outlook_client(args)
@@ -255,27 +288,15 @@ def run_outlook_categories_sync(args) -> int:
         name = spec.get("name")
         if not name:
             continue
+
         if name not in existing:
-            if dry_run:
-                print(f"Would create category: {name}")
-            else:
-                client.create_label(**spec)
-                print(f"Created category: {name}")
+            _create_category(client, spec, dry_run)
             created += 1
             continue
-        # Update color if different/specified
-        cur = existing[name]
-        need = False
-        upd = {"name": name}
-        if spec.get("color") and spec.get("color") != cur.get("color"):
-            upd["color"] = spec["color"]
-            need = True
-        if need:
-            if dry_run:
-                print(f"Would update category: {name}")
-            else:
-                client.update_label(cur.get("id", ""), upd)
-                print(f"Updated category: {name}")
+
+        need_update, update_dict = _should_update_category(spec, existing[name])
+        if need_update:
+            _update_category(client, existing[name], update_dict, dry_run)
             updated += 1
 
     print(f"Sync complete. Created: {created}, Updated: {updated}")

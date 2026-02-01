@@ -41,6 +41,19 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
+    def _is_one_off_event(self, ev: Dict[str, Any]) -> bool:
+        """Check if event is a one-off (single instance)."""
+        etype = (ev.get("type") or "").lower()
+        return (etype == "singleinstance") or not ev.get("seriesMasterId")
+
+    def _convert_to_row(self, ev: Dict[str, Any]) -> Dict[str, str]:
+        """Convert event to row dict."""
+        subj = ev.get("subject") or ""
+        st = ((ev.get("start") or {}).get("dateTime") or "") or ""
+        en = ((ev.get("end") or {}).get("dateTime") or "") or ""
+        loc = ((ev.get("location") or {}).get("displayName") or "") or ""
+        return {"subject": subj, "start": st, "end": en, "location": loc}
+
     def _process_safe(self, payload: OutlookListOneOffsRequest) -> OutlookListOneOffsResult:
         check_service_required(payload.service)
         svc = payload.service
@@ -53,18 +66,8 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
             end_iso=end_iso,
             calendar_name=payload.calendar,
         ))
-        one_offs = []
-        for ev in evs or []:
-            etype = (ev.get("type") or "").lower()
-            if (etype == "singleinstance") or not ev.get("seriesMasterId"):
-                one_offs.append(ev)
-        rows: List[Dict[str, str]] = []
-        for ev in one_offs[: max(0, payload.limit)]:
-            subj = ev.get("subject") or ""
-            st = ((ev.get("start") or {}).get("dateTime") or "") or ""
-            en = ((ev.get("end") or {}).get("dateTime") or "") or ""
-            loc = ((ev.get("location") or {}).get("displayName") or "") or ""
-            rows.append({"subject": subj, "start": st, "end": en, "location": loc})
+        one_offs = [ev for ev in (evs or []) if self._is_one_off_event(ev)]
+        rows = [self._convert_to_row(ev) for ev in one_offs[:max(0, payload.limit)]]
         result = OutlookListOneOffsResult(
             rows=rows,
             start=start_date,

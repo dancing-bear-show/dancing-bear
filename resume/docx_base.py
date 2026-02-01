@@ -19,6 +19,11 @@ from .docx_styles import (
     _format_link_display,
 )
 
+# Style constants
+STYLE_NORMAL = "Normal"
+STYLE_HEADING_1 = "Heading 1"
+STYLE_TITLE = "Title"
+
 
 class ResumeWriterBase(ABC):
     """Base class for DOCX resume writers."""
@@ -71,6 +76,11 @@ class ResumeWriterBase(ABC):
         if not self.page_cfg.get("compact"):
             return
 
+        self._apply_margins()
+        self._apply_font_styles()
+
+    def _apply_margins(self) -> None:
+        """Apply compact margins to document sections."""
         try:
             sec = self.doc.sections[0]
             m = float(self.page_cfg.get("margins_in", 0.5))
@@ -81,6 +91,8 @@ class ResumeWriterBase(ABC):
         except Exception:  # nosec B110 - non-critical margin setting failure
             pass
 
+    def _apply_font_styles(self) -> None:
+        """Apply font sizes and colors to document styles."""
         try:
             body_pt = float(self.page_cfg.get("body_pt", 10.5))
             h1_pt = float(self.page_cfg.get("h1_pt", 12))
@@ -89,26 +101,40 @@ class ResumeWriterBase(ABC):
             h1_bg = self.page_cfg.get("h1_bg") or self.page_cfg.get("heading_bg")
             title_color = self.page_cfg.get("title_color")
 
-            self.doc.styles["Normal"].font.size = Pt(body_pt)
-
-            if "Heading 1" in self.doc.styles:
-                self.doc.styles["Heading 1"].font.size = Pt(h1_pt)
-                self.doc.styles["Heading 1"].font.bold = True
-                rgb = _parse_hex_color(h1_color)
-                bg = _parse_hex_color(h1_bg)
-                if (not rgb) and bg:
-                    rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
-                if rgb:
-                    self.doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
-
-            if "Title" in self.doc.styles:
-                self.doc.styles["Title"].font.size = Pt(title_pt)
-                self.doc.styles["Title"].font.bold = True
-                rgbt = _parse_hex_color(title_color)
-                if rgbt:
-                    self.doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
+            self.doc.styles[STYLE_NORMAL].font.size = Pt(body_pt)
+            self._apply_heading_style(h1_pt, h1_color, h1_bg)
+            self._apply_title_style(title_pt, title_color)
         except Exception:  # nosec B110 - non-critical font/style setting failure
             pass
+
+    def _apply_heading_style(self, h1_pt: float, h1_color: Optional[str], h1_bg: Optional[str]) -> None:
+        """Apply Heading 1 style with size and colors."""
+        if STYLE_HEADING_1 not in self.doc.styles:
+            return
+
+        style = self.doc.styles[STYLE_HEADING_1]
+        style.font.size = Pt(h1_pt)
+        style.font.bold = True
+
+        rgb = _parse_hex_color(h1_color)
+        bg = _parse_hex_color(h1_bg)
+        if (not rgb) and bg:
+            rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
+        if rgb:
+            style.font.color.rgb = RGBColor(*rgb)
+
+    def _apply_title_style(self, title_pt: float, title_color: Optional[str]) -> None:
+        """Apply Title style with size and color."""
+        if STYLE_TITLE not in self.doc.styles:
+            return
+
+        style = self.doc.styles[STYLE_TITLE]
+        style.font.size = Pt(title_pt)
+        style.font.bold = True
+
+        rgb = _parse_hex_color(title_color)
+        if rgb:
+            style.font.color.rgb = RGBColor(*rgb)
 
     def _set_document_metadata(self) -> None:
         """Set document core properties (title, author, keywords)."""

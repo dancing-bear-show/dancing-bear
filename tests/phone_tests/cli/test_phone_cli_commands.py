@@ -444,7 +444,7 @@ class TestInlineCommandHelpers(unittest.TestCase):
         mock_read.return_value = {"dock": [], "pages": {}}
         manifest = make_mock_manifest(layout_export_path="export.yaml")
 
-        plan, layout, profile = _extract_manifest_profile_config(manifest)
+        _, layout, _ = _extract_manifest_profile_config(manifest)
 
         self.assertIsNotNone(layout)
         self.assertEqual(layout, {"dock": [], "pages": {}})

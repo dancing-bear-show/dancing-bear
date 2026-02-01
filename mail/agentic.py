@@ -91,14 +91,41 @@ def _build_cli_tree() -> str:
     return _core_build_cli_tree(_get_parser())
 
 
-def build_domain_map() -> str:
-    """Programmatically build a minimal domain map with CLI tree and key modules."""
-    root = Path(os.getcwd())
-    parts: List[str] = []
-    parts.append("Top-Level\n- bin/ — wrappers (mail-assistant, mail-assistant-auth, llm)\n- config/ — unified YAML inputs\n- out/ — derived artifacts\n- tests/ — unit tests\n- .llm/ — agent context")
-    parts.append(_section("CLI Tree", _build_cli_tree()))
-    parts.append(_section("Flows Index", _build_flows_index() + "\n\nUse './bin/llm flows --list' or '--id <flow_id>' for details."))
-    # Key modules (heuristic set)
+def _extract_module_docstring(py_path: Path, folder: str) -> Tuple[str, str]:
+    """Extract first line of docstring from a Python module.
+
+    Returns:
+        Tuple of (module_name, first_docstring_line)
+    """
+    name = f"{folder}/{py_path.name}"
+    doc = ""
+    try:
+        txt = py_path.read_text(encoding="utf-8")
+        mod = ast.parse(txt)
+        ds = ast.get_docstring(mod) or ""
+        doc = (ds.strip().splitlines() or [""])[0]
+    except Exception:  # nosec B110 - skip malformed files silently
+        doc = ""
+    return (name, doc)
+
+
+def _enumerate_folder_modules(root: Path, folder: str) -> List[Tuple[str, str]]:
+    """Enumerate Python modules in a folder with their first docstring line.
+
+    Returns:
+        List of (module_name, first_docstring_line) tuples
+    """
+    items: List[Tuple[str, str]] = []
+    folder_path = root / folder
+    if not folder_path.exists() or not folder_path.is_dir():
+        return items
+    for py in sorted(folder_path.glob("*.py")):
+        items.append(_extract_module_docstring(py, folder))
+    return items
+
+
+def _build_key_modules_section(root: Path) -> str:
+    """Build the Key Modules section for domain map."""
     key_files = [
         "__main__.py",
         "config_resolver.py",
@@ -118,42 +145,48 @@ def build_domain_map() -> str:
         if p.exists():
             lines.append(f"- {fn}")
     if lines:
-        parts.append(_section("Key Modules", "\n".join(lines)))
+        return _section("Key Modules", "\n".join(lines))
+    return ""
 
-    # Enumerate modules in common utility folders with first docstring line
-    def _mods(folder: str) -> List[Tuple[str, str]]:
-        items: List[Tuple[str, str]] = []
-        d = root / folder
-        if not d.exists() or not d.is_dir():
-            return items
-        for py in sorted(d.glob("*.py")):
-            name = f"{folder}/{py.name}"
-            doc = ""
-            try:
-                txt = py.read_text(encoding="utf-8")
-                mod = ast.parse(txt)
-                ds = ast.get_docstring(mod) or ""
-                doc = (ds.strip().splitlines() or [""])[0]
-            except Exception:
-                doc = ""
-            items.append((name, doc))
-        return items
 
+def _build_folder_sections(root: Path) -> List[str]:
+    """Build CLI/Provider/Utility module sections for domain map."""
+    sections: List[str] = []
     for title, folder in (
         ("CLI Modules", "cli"),
         ("Provider Modules", "providers"),
         ("Utility Modules", "utils"),
     ):
-        mods = _mods(folder)
+        mods = _enumerate_folder_modules(root, folder)
         if mods:
-            parts.append(_section(title, "\n".join(f"- {n}" + (f" — {d}" if d else "") for n, d in mods)))
+            content = "\n".join(f"- {n}" + (f" — {d}" if d else "") for n, d in mods)
+            sections.append(_section(title, content))
+    return sections
 
-    # Binaries
+
+def _build_binaries_section(root: Path) -> str:
+    """Build the Binaries section for domain map."""
     bin_dir = root / "bin"
     if bin_dir.exists():
         bins = sorted(p.name for p in bin_dir.iterdir() if p.is_file())
         if bins:
-            parts.append(_section("Binaries", "\n".join(f"- bin/{b}" for b in bins)))
+            return _section("Binaries", "\n".join(f"- bin/{b}" for b in bins))
+    return ""
+
+
+def build_domain_map() -> str:
+    """Programmatically build a minimal domain map with CLI tree and key modules."""
+    root = Path(os.getcwd())
+    parts: List[str] = []
+
+    parts.append("Top-Level\n- bin/ — wrappers (mail-assistant, mail-assistant-auth, llm)\n- config/ — unified YAML inputs\n- out/ — derived artifacts\n- tests/ — unit tests\n- .llm/ — agent context")
+    parts.append(_section("CLI Tree", _build_cli_tree()))
+    parts.append(_section("Flows Index", _build_flows_index() + "\n\nUse './bin/llm flows --list' or '--id <flow_id>' for details."))
+
+    parts.append(_build_key_modules_section(root))
+    parts.extend(_build_folder_sections(root))
+    parts.append(_build_binaries_section(root))
+
     return "\n".join([s for s in parts if s.strip()])
 
 
@@ -161,26 +194,20 @@ def _cli_path_exists(path: List[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
-def build_flows() -> List[Dict[str, Any]]:
-    """Return a list of composable flow specs (small, parameterized)."""
-    flows: List[Dict[str, Any]] = []
-    def add(flow: Dict[str, Any]):
-        # Only include flows if all referenced CLI paths exist
-        for p in flow.get('requires', []):
-            if not _cli_path_exists(p):
-                return
-        flows.append(flow)
+def _bin_exists(name: str) -> bool:
+    """Check if a binary exists in bin/ directory."""
+    try:
+        root = Path(os.getcwd())
+        p = root / 'bin' / name
+        return p.exists()
+    except Exception:  # nosec B110 - return False on any path resolution error
+        return False
 
-    def _bin_exists(name: str) -> bool:
-        try:
-            root = Path(os.getcwd())
-            p = root / 'bin' / name
-            return p.exists()
-        except Exception:
-            return False
 
+def _add_mail_flows(flows: List[Dict[str, Any]], add_func) -> None:
+    """Add mail-related flows (unified, filters, labels, signatures, forwarding, auto)."""
     # Unified → derive provider configs
-    add({
+    add_func({
         'id': 'unified.derive',
         'title': 'Derive provider configs from unified',
         'tags': ['unified','derive','gmail','outlook','safe'],
@@ -190,9 +217,10 @@ def build_flows() -> List[Dict[str, Any]]:
         ],
         'notes': 'Generates provider-specific YAMLs from the canonical unified config.'
     })
+
     # Optionally derive labels too
     if _cli_path_exists(["config","derive","filters"]) and _cli_path_exists(["config","derive","labels"]):
-        add({
+        add_func({
             'id': 'labels.derive',
             'title': 'Derive labels for providers',
             'tags': ['labels','derive','gmail','outlook','safe'],
@@ -204,7 +232,7 @@ def build_flows() -> List[Dict[str, Any]]:
 
     # Gmail filters plan/apply/verify
     if all(_cli_path_exists(p) for p in [["filters","plan"],["filters","sync"],["filters","export"]]):
-        add({
+        add_func({
             'id': 'gmail.filters.plan-apply-verify',
             'title': 'Gmail Filters — Plan → Apply → Verify',
             'tags': ['gmail','filters','plan','apply','verify','safe'],
@@ -219,7 +247,7 @@ def build_flows() -> List[Dict[str, Any]]:
 
     # Outlook rules plan/apply/verify
     if all(_cli_path_exists(p) for p in [["outlook","rules.plan"],["outlook","rules.sync"],["outlook","rules.list"]]):
-        add({
+        add_func({
             'id': 'outlook.rules.plan-apply-verify',
             'title': 'Outlook Rules — Plan → Apply → Verify',
             'tags': ['outlook','rules','plan','apply','verify','safe'],
@@ -232,9 +260,18 @@ def build_flows() -> List[Dict[str, Any]]:
             'notes': 'Use --categories-only on plan/sync when folder moves are restricted.'
         })
 
-    # Filters sweep (existing mail)
+    _add_filter_sweep_flows(add_func)
+    _add_labels_flows(add_func)
+    _add_signatures_flows(add_func)
+    _add_outlook_flows(add_func)
+    _add_forwarding_flows(add_func)
+    _add_auto_flows(add_func)
+
+
+def _add_filter_sweep_flows(add_func) -> None:
+    """Add filter sweep flows."""
     if _cli_path_exists(["filters","sweep"]):
-        add({
+        add_func({
             'id': 'gmail.filters.sweep-recent',
             'title': 'Filters Sweep — Recent window',
             'tags': ['gmail','filters','sweep','dry-run','safe'],
@@ -244,7 +281,7 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
     if _cli_path_exists(["filters","sweep-range"]):
-        add({
+        add_func({
             'id': 'gmail.filters.sweep-range',
             'title': 'Filters Sweep — Progressive windows',
             'tags': ['gmail','filters','sweep','range','dry-run','safe'],
@@ -254,9 +291,11 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
 
-    # Labels
+
+def _add_labels_flows(add_func) -> None:
+    """Add labels flows."""
     if all(_cli_path_exists(p) for p in [["labels","plan"],["labels","sync"],["labels","export"]]):
-        add({
+        add_func({
             'id': 'gmail.labels.plan-apply-verify',
             'title': 'Labels — Plan → Apply → Verify',
             'tags': ['gmail','labels','plan','apply','verify','safe'],
@@ -269,9 +308,11 @@ def build_flows() -> List[Dict[str, Any]]:
             'notes': "Add --sweep-redirects to relabel old→new per 'redirects' then delete old."
         })
 
-    # Signatures
+
+def _add_signatures_flows(add_func) -> None:
+    """Add signatures flows."""
     if all(_cli_path_exists(p) for p in [["signatures","export"],["signatures","normalize"],["signatures","sync"]]):
-        add({
+        add_func({
             'id': 'gmail.signatures.export-normalize-sync',
             'title': 'Signatures — Export → Normalize → Sync',
             'tags': ['gmail','signatures','export','normalize','sync','safe'],
@@ -283,9 +324,11 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
 
-    # Outlook categories and folders
+
+def _add_outlook_flows(add_func) -> None:
+    """Add Outlook categories and folders flows."""
     if all(_cli_path_exists(p) for p in [["outlook","categories.list"],["outlook","categories.export"],["outlook","categories.sync"]]):
-        add({
+        add_func({
             'id': 'outlook.categories.list-export-sync',
             'title': 'Outlook Categories — List → Export → Sync',
             'tags': ['outlook','categories','list','export','sync','safe'],
@@ -297,7 +340,7 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
     if _cli_path_exists(["outlook","folders.sync"]):
-        add({
+        add_func({
             'id': 'outlook.folders.sync',
             'title': 'Outlook Folders — Sync from labels',
             'tags': ['outlook','folders','sync','safe'],
@@ -307,9 +350,11 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
 
-    # Forwarding
+
+def _add_forwarding_flows(add_func) -> None:
+    """Add forwarding flows."""
     if all(_cli_path_exists(p) for p in [["forwarding","list"],["forwarding","add"],["forwarding","status"]]):
-        add({
+        add_func({
             'id': 'gmail.forwarding.list-add-status',
             'title': 'Forwarding — List/Add/Status',
             'tags': ['gmail','forwarding','safe'],
@@ -322,7 +367,7 @@ def build_flows() -> List[Dict[str, Any]]:
             'notes': 'Verified forwarding address required for filter-based forwarding.'
         })
     if all(_cli_path_exists(p) for p in [["filters","add-forward-by-label"],["filters","sync"]]):
-        add({
+        add_func({
             'id': 'gmail.forwarding.filters-combo',
             'title': 'Forwarding + Filters — Add/Enforce',
             'tags': ['gmail','forwarding','filters','safe'],
@@ -334,9 +379,11 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
 
-    # Auto categorize/archive
+
+def _add_auto_flows(add_func) -> None:
+    """Add auto categorize/archive flows."""
     if all(_cli_path_exists(p) for p in [["auto","propose"],["auto","summary"],["auto","apply"]]):
-        add({
+        add_func({
             'id': 'gmail.auto.propose-summary-apply',
             'title': 'Auto (categorize + archive) — Propose → Summary → Apply',
             'tags': ['gmail','auto','propose','apply','dry-run','safe'],
@@ -348,96 +395,115 @@ def build_flows() -> List[Dict[str, Any]]:
             ],
         })
 
+
+def _get_ios_flows() -> List[Dict[str, Any]]:
+    """Return iOS phone organization flows."""
+    return [
+        {
+            'id': 'ios_export_layout',
+            'title': 'iOS — Export current layout',
+            'tags': ['ios','phone','layout','safe'],
+            'commands': [
+                "./bin/phone export-device --out out/ios.IconState.yaml",
+                "./bin/phone iconmap --out out/ios.iconmap.json",
+            ],
+            'notes': 'Uses cfgutil to read device layout; no device writes.'
+        },
+        {
+            'id': 'ios_scaffold_plan',
+            'title': 'iOS — Scaffold plan (pins + folders)',
+            'tags': ['ios','phone','plan','safe'],
+            'commands': [
+                "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
+                "echo 'Edit out/ios.plan.yaml to arrange pins and folder contents.'",
+            ],
+            'notes': 'Edit-friendly YAML; categories pre-seeded (Work, Finance, Travel, etc.).'
+        },
+        {
+            'id': 'ios_manual_checklist',
+            'title': 'iOS — Generate manual move checklist',
+            'tags': ['ios','phone','checklist','safe'],
+            'commands': [
+                "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",
+            ],
+            'notes': 'Use this checklist to manually organize apps on device.'
+        },
+        {
+            'id': 'ios_profile_build',
+            'title': 'iOS — Build Home Screen Layout .mobileconfig',
+            'tags': ['ios','phone','profile','advanced'],
+            'commands': [
+                "./bin/phone profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig --identifier com.example.profile --hs-identifier com.example.hslayout --display-name 'Home Screen Layout' --organization 'Personal'",
+            ],
+            'notes': 'Applying Home Screen Layout profiles requires supervised devices (MDM/Configurator).'
+        },
+        {
+            'id': 'ios_unused_candidates',
+            'title': 'iOS — Unused app candidates (heuristic)',
+            'tags': ['ios','phone','unused','analysis','safe'],
+            'commands': [
+                "./bin/phone unused --layout out/ios.IconState.yaml --limit 50",
+            ],
+            'notes': 'Heuristic: page depth, folders, dock, and user-supplied recent/keep lists.'
+        },
+        {
+            'id': 'ios_unused_prune_offload',
+            'title': 'iOS — OFFLOAD unused app checklist',
+            'tags': ['ios','phone','unused','prune','offload','safe'],
+            'commands': [
+                "./bin/phone prune --layout out/ios.IconState.yaml --mode offload --limit 50",
+            ],
+            'notes': 'Generates a manual offload checklist; no device writes.'
+        },
+        {
+            'id': 'ios_unused_prune_delete',
+            'title': 'iOS — DELETE unused app checklist',
+            'tags': ['ios','phone','unused','prune','delete','safe'],
+            'commands': [
+                "./bin/phone prune --layout out/ios.IconState.yaml --mode delete --limit 50",
+            ],
+            'notes': 'Generates a manual delete checklist; no device writes.'
+        },
+        {
+            'id': 'ios_analyze_layout',
+            'title': 'iOS — Analyze layout balance and folders',
+            'tags': ['ios','phone','analyze','safe'],
+            'commands': [
+                "./bin/phone analyze --layout out/ios.IconState.yaml",
+            ],
+            'notes': 'Summarizes dock, page balance, folders, duplicates, and plan alignment when provided.'
+        },
+        {
+            'id': 'ios.organize-apps',
+            'title': 'iOS — Organize Apps (end-to-end)',
+            'tags': ['ios','phone','organize','safe'],
+            'commands': [
+                "./bin/phone export-device --out out/ios.IconState.yaml",
+                "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
+                "echo 'Edit out/ios.plan.yaml to finalize folders and pins.'",
+                "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",
+            ],
+            'notes': 'Checklist-driven by default; see ios_profile_build for supervised devices.'
+        },
+    ]
+
+
+def build_flows() -> List[Dict[str, Any]]:
+    """Return a list of composable flow specs (small, parameterized)."""
+    flows: List[Dict[str, Any]] = []
+
+    def add(flow: Dict[str, Any]):
+        # Only include flows if all referenced CLI paths exist
+        for p in flow.get('requires', []):
+            if not _cli_path_exists(p):
+                return
+        flows.append(flow)
+
+    _add_mail_flows(flows, add)
+
     # iOS Home Screen organization flows (detected via bin/phone)
     if _bin_exists('phone'):
-        flows.extend([
-            {
-                'id': 'ios_export_layout',
-                'title': 'iOS — Export current layout',
-                'tags': ['ios','phone','layout','safe'],
-                'commands': [
-                    "./bin/phone export-device --out out/ios.IconState.yaml",
-                    "./bin/phone iconmap --out out/ios.iconmap.json",
-                ],
-                'notes': 'Uses cfgutil to read device layout; no device writes.'
-            },
-            {
-                'id': 'ios_scaffold_plan',
-                'title': 'iOS — Scaffold plan (pins + folders)',
-                'tags': ['ios','phone','plan','safe'],
-                'commands': [
-                    "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
-                    "echo 'Edit out/ios.plan.yaml to arrange pins and folder contents.'",
-                ],
-                'notes': 'Edit-friendly YAML; categories pre-seeded (Work, Finance, Travel, etc.).'
-            },
-            {
-                'id': 'ios_manual_checklist',
-                'title': 'iOS — Generate manual move checklist',
-                'tags': ['ios','phone','checklist','safe'],
-                'commands': [
-                    "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",
-                ],
-                'notes': 'Use this checklist to manually organize apps on device.'
-            },
-            {
-                'id': 'ios_profile_build',
-                'title': 'iOS — Build Home Screen Layout .mobileconfig',
-                'tags': ['ios','phone','profile','advanced'],
-                'commands': [
-                    "./bin/phone profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig --identifier com.example.profile --hs-identifier com.example.hslayout --display-name 'Home Screen Layout' --organization 'Personal'",
-                ],
-                'notes': 'Applying Home Screen Layout profiles requires supervised devices (MDM/Configurator).'
-            },
-            {
-                'id': 'ios_unused_candidates',
-                'title': 'iOS — Unused app candidates (heuristic)',
-                'tags': ['ios','phone','unused','analysis','safe'],
-                'commands': [
-                    "./bin/phone unused --layout out/ios.IconState.yaml --limit 50",
-                ],
-                'notes': 'Heuristic: page depth, folders, dock, and user-supplied recent/keep lists.'
-            },
-            {
-                'id': 'ios_unused_prune_offload',
-                'title': 'iOS — OFFLOAD unused app checklist',
-                'tags': ['ios','phone','unused','prune','offload','safe'],
-                'commands': [
-                    "./bin/phone prune --layout out/ios.IconState.yaml --mode offload --limit 50",
-                ],
-                'notes': 'Generates a manual offload checklist; no device writes.'
-            },
-            {
-                'id': 'ios_unused_prune_delete',
-                'title': 'iOS — DELETE unused app checklist',
-                'tags': ['ios','phone','unused','prune','delete','safe'],
-                'commands': [
-                    "./bin/phone prune --layout out/ios.IconState.yaml --mode delete --limit 50",
-                ],
-                'notes': 'Generates a manual delete checklist; no device writes.'
-            },
-            {
-                'id': 'ios_analyze_layout',
-                'title': 'iOS — Analyze layout balance and folders',
-                'tags': ['ios','phone','analyze','safe'],
-                'commands': [
-                    "./bin/phone analyze --layout out/ios.IconState.yaml",
-                ],
-                'notes': 'Summarizes dock, page balance, folders, duplicates, and plan alignment when provided.'
-            },
-            {
-                'id': 'ios.organize-apps',
-                'title': 'iOS — Organize Apps (end-to-end)',
-                'tags': ['ios','phone','organize','safe'],
-                'commands': [
-                    "./bin/phone export-device --out out/ios.IconState.yaml",
-                    "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
-                    "echo 'Edit out/ios.plan.yaml to finalize folders and pins.'",
-                    "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",
-                ],
-                'notes': 'Checklist-driven by default; see ios_profile_build for supervised devices.'
-            },
-        ])
+        flows.extend(_get_ios_flows())
 
     return flows
 

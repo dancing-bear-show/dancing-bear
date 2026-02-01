@@ -272,7 +272,7 @@ class TestGmailClientWithMockedService(unittest.TestCase):
         result = self.client.list_signatures()
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["sendAsEmail"], "user@example.com")
-        self.assertEqual(result[0]["isPrimary"], True)
+        self.assertTrue(result[0]["isPrimary"])
         self.assertIn("signature", result[0])
 
     def test_update_signature(self):

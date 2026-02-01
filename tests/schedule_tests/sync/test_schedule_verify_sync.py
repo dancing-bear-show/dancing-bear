@@ -41,6 +41,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
+                    # Test stub: no initialization needed
                     pass
                 def authenticate(self):
                     return None
@@ -78,6 +79,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
+                    # Test stub: no initialization needed
                     pass
                 def authenticate(self):
                     return None
@@ -120,6 +122,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
+                    # Test stub: no initialization needed
                     pass
                 def authenticate(self):
                     return None
@@ -150,6 +153,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
+                    # Test stub: no initialization needed
                     pass
                 def authenticate(self):
                     return None

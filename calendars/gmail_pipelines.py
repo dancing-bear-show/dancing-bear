@@ -29,7 +29,6 @@ from .pipeline_base import (
     RequestConsumer,
     dedupe_events,
     parse_month,
-    DAY_MAP,
 )
 
 

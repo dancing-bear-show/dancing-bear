@@ -48,7 +48,8 @@ class TestNormLabelNameOutlook(unittest.TestCase):
 
     def test_none_input(self):
         # None is coerced to "" by the function
-        self.assertEqual(norm_label_name_outlook(None), "")
+        # Type: ignore needed for intentional None test  # noqa: ERA001
+        self.assertEqual(norm_label_name_outlook(None), "")  # type: ignore[arg-type]
 
     def test_no_slash(self):
         self.assertEqual(norm_label_name_outlook("SinglePart"), "SinglePart")
@@ -150,7 +151,7 @@ class TestResolveOutlookArgs(unittest.TestCase):
 
         with patch("mail.outlook.helpers.resolve_outlook_credentials") as mock_resolve:
             mock_resolve.return_value = ("client-123", "tenant-abc", "/path/token.json")
-            client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
+            client_id, tenant, token_path, _ = resolve_outlook_args(args)
 
         self.assertEqual(client_id, "client-123")
         self.assertEqual(tenant, "tenant-abc")
@@ -236,7 +237,7 @@ accounts:
 
             with patch("mail.outlook.helpers.resolve_outlook_credentials") as mock_resolve:
                 mock_resolve.return_value = (None, None, None)
-                client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
+                client_id, tenant, _, cache_dir = resolve_outlook_args(args)
 
             self.assertEqual(client_id, "cfg-client-123")
             self.assertEqual(tenant, "consumers")

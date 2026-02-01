@@ -56,13 +56,43 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         self._regex = regex_module
         self._window = DateWindowResolver(today_factory)
 
-    def _process_safe(self, payload: OutlookSettingsRequest) -> OutlookSettingsResult:
-        doc = self._config_loader(str(payload.config_path)) or {}
+    def _load_config(self, config_path: str) -> Tuple[Dict[str, Any], List[Any]]:
+        """Load and parse config file, return defaults and rules."""
+        doc = self._config_loader(config_path) or {}
         root = doc.get("settings") if isinstance(doc, dict) and "settings" in doc else doc
         defaults = (root.get("defaults") if isinstance(root, dict) else {}) or {}
         rules = (root.get("rules") if isinstance(root, dict) else None) or []
         if not isinstance(rules, list):
             raise ValueError("Config must contain settings.rules: [] or top-level rules: []")
+        return defaults, rules
+
+    def _process_event(
+        self,
+        event: Dict[str, Any],
+        defaults: Dict[str, Any],
+        rules: List[Any],
+        svc: Any,
+        calendar: Optional[str],
+        dry_run: bool,
+    ) -> Tuple[bool, bool, Optional[str]]:
+        """Process single event. Returns (selected, changed, log_msg)."""
+        eid = event.get("id")
+        if not eid:
+            return False, False, None
+        cfg = self._evaluate_config(defaults, rules, event)
+        if cfg is None:
+            return False, False, None
+        patch = self._build_patch(cfg)
+        if not patch:
+            return True, False, None
+        if dry_run:
+            subject = (event.get("subject") or "").strip()
+            return True, False, self._format_patch_log(eid, subject, patch)
+        ok, err = self._apply_event_patch(svc, eid, calendar, patch)
+        return True, ok, err
+
+    def _process_safe(self, payload: OutlookSettingsRequest) -> OutlookSettingsResult:
+        defaults, rules = self._load_config(str(payload.config_path))
 
         check_service_required(payload.service)
         svc = payload.service
@@ -80,25 +110,13 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         changed = 0
 
         for event in events or []:
-            eid = event.get("id")
-            if not eid:
-                continue
-            cfg = self._evaluate_config(defaults, rules, event)
-            if cfg is None:
-                continue
-            selected += 1
-            patch = self._build_patch(cfg)
-            if not patch:
-                continue
-            if payload.dry_run:
-                subject = (event.get("subject") or "").strip()
-                logs.append(self._format_patch_log(eid, subject, patch))
-                continue
-            ok, err = self._apply_event_patch(svc, eid, payload.calendar, patch)
-            if ok:
+            sel, chg, log_msg = self._process_event(event, defaults, rules, svc, payload.calendar, payload.dry_run)
+            if sel:
+                selected += 1
+            if chg:
                 changed += 1
-            elif err:
-                logs.append(err)
+            if log_msg:
+                logs.append(log_msg)
 
         result = OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
         return result

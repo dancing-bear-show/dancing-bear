@@ -24,7 +24,7 @@ class ParseAddrTests(unittest.TestCase):
         self.assertEqual(email, "")
 
     def test_email_only(self):
-        name, email = _parse_addr("user@example.com")
+        _, email = _parse_addr("user@example.com")
         self.assertEqual(email, "user@example.com")
 
     def test_name_and_email(self):

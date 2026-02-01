@@ -336,9 +336,80 @@ def run_outlook_remove_from_config(args: argparse.Namespace) -> int:
     return run_pipeline(request, OutlookRemoveProcessor, OutlookRemoveProducer)
 
 
-def run_outlook_scan_classes(args: argparse.Namespace) -> int:
-    from ..yamlio import dump_config
+def _extract_events_from_message(msg: dict, mid: str, calendar: str) -> list:
+    """Extract event candidates from a single message."""
+    subj = msg.get("subject") or ""
+    recvd = msg.get("receivedDateTime") or ""
+    frm = ((msg.get("from") or {}).get("emailAddress") or {}).get("address") or ""
+    body = (msg.get("body") or {}).get("content") or msg.get("bodyPreview") or ""
+    text = html_to_text(body)
+    matches = list(RANGE_PAT.finditer(text))
+    extracted = []
+    for m in matches:
+        day_raw = (m.group("day") or "").lower()
+        byday = [DAY_MAP.get(day_raw, day_raw[:2].upper())]
+        t1 = norm_time(m.group("h1"), m.group("m1"), m.group("ampm1"))
+        t2 = norm_time(m.group("h2"), m.group("m2"), m.group("ampm2"))
+        extracted.append({
+            "source": {"id": mid, "from": frm, "received": recvd, "subject": subj, "text": text},
+            "event": {
+                "calendar": calendar,
+                "subject": subj or "Class",
+                "repeat": "weekly",
+                "byday": byday,
+                "start_time": t1,
+                "end_time": t2,
+            },
+        })
+    return extracted
 
+
+def _enrich_event_with_meta(item: dict) -> None:
+    """Enrich event with metadata from source text."""
+    from ..scan_common import MetaParserConfig
+    src = item["source"]
+    recvd = src.get("received") or ""
+    config = MetaParserConfig(default_year=int((recvd or "")[:4] or 0))
+    meta = infer_meta_from_text(f"{src.get('subject') or ''}\n{src.get('text') or ''}", config=config)
+    if meta.get("subject"):
+        meta["subject"] = meta["subject"].replace("Swim Kids", "Swim Kids").replace("Swimmer ", "Swimmer ")
+    ev = item["event"]
+    if meta.get("subject"):
+        ev["subject"] = meta["subject"]
+    if meta.get("location"):
+        ev["location"] = meta["location"]
+    if meta.get("range"):
+        ev.setdefault("range", {}).update(meta["range"])  # type: ignore[call-arg]
+
+
+def _dedup_events(extracted: list) -> list:
+    """Deduplicate events based on key fields."""
+    seen = set()
+    events = []
+    for item in extracted:
+        ev = item["event"]
+        key = (ev.get("subject"), tuple(ev.get("byday") or []), ev.get("start_time"), ev.get("end_time"))
+        if key not in seen:
+            seen.add(key)
+            events.append(ev)
+    return events
+
+
+def _output_scan_results(events: list, extracted: list, ids: list, args: argparse.Namespace) -> None:
+    """Output scan results to file or console."""
+    from ..yamlio import dump_config
+    print(f"Found {len(events)} candidate recurring class entries from {len(ids)} messages.")
+    if args.out:
+        data = {"events": events, "_sources": extracted[:10]}
+        dump_config(args.out, data)
+        print(f"Wrote plan to {args.out}")
+    else:
+        for ev in events:
+            print(f"- {ev.get('subject')} {','.join(ev.get('byday') or [])} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}")
+        print("Use --out plan.yaml to write YAML.")
+
+
+def run_outlook_scan_classes(args: argparse.Namespace) -> int:
     svc = _build_outlook_service(args)
     if not svc:
         return 1
@@ -349,15 +420,6 @@ def run_outlook_scan_classes(args: argparse.Namespace) -> int:
         print("No matching messages found.")
         return 0
 
-    def infer_meta(subj: str, text: str, recvd: str) -> dict:
-        from ..scan_common import MetaParserConfig
-
-        config = MetaParserConfig(default_year=int((recvd or "")[:4] or 0))
-        meta = infer_meta_from_text(f"{subj or ''}\n{text}", config=config)
-        if meta.get("subject"):
-            meta["subject"] = meta["subject"].replace("Swim Kids", "Swim Kids").replace("Swimmer ", "Swimmer ")
-        return meta
-
     extracted = []
     for mid in ids:
         try:
@@ -365,70 +427,15 @@ def run_outlook_scan_classes(args: argparse.Namespace) -> int:
         except Exception as e:
             print(f"Warning: failed to fetch message {mid}: {e}")
             continue
-        subj = msg.get("subject") or ""
-        recvd = msg.get("receivedDateTime") or ""
-        frm = ((msg.get("from") or {}).get("emailAddress") or {}).get("address") or ""
-        body = (msg.get("body") or {}).get("content") or msg.get("bodyPreview") or ""
-        text = html_to_text(body)
-        # Look for day + time ranges
-        matches = list(RANGE_PAT.finditer(text))
-        for m in matches:
-            day_raw = (m.group("day") or "").lower()
-            byday = [DAY_MAP.get(day_raw, day_raw[:2].upper())]
-            t1 = norm_time(m.group("h1"), m.group("m1"), m.group("ampm1"))
-            t2 = norm_time(m.group("h2"), m.group("m2"), m.group("ampm2"))
-            extracted.append({
-                "source": {"id": mid, "from": frm, "received": recvd, "subject": subj, "text": text},
-                "event": {
-                    "calendar": getattr(args, "calendar", None),
-                    "subject": subj or "Class",
-                    "repeat": "weekly",
-                    "byday": byday,
-                    "start_time": t1,
-                    "end_time": t2,
-                },
-            })
+        extracted.extend(_extract_events_from_message(msg, mid, getattr(args, "calendar", None)))
 
     if not extracted:
         print("No schedule-like lines found in matching emails.")
         return 0
 
-    # Enrich from subject/body
     for item in extracted:
-        src = item["source"]
-        meta = infer_meta(
-            src.get("subject"),
-            src.get("text") or "",
-            src.get("received"),
-        )
-        ev = item["event"]
-        if meta.get("subject"):
-            ev["subject"] = meta["subject"]
-        if meta.get("location"):
-            ev["location"] = meta["location"]
-        if meta.get("range"):
-            ev.setdefault("range", {}).update(meta["range"])  # type: ignore[call-arg]
+        _enrich_event_with_meta(item)
 
-    # Collapse into plan (events: []) with dedup on (subject, byday, start_time, end_time)
-    seen = set()
-    events = []
-    for item in extracted:
-        ev = item["event"]
-        key = (ev.get("subject"), tuple(ev.get("byday") or []), ev.get("start_time"), ev.get("end_time"))
-        if key in seen:
-            continue
-        seen.add(key)
-        events.append(ev)
-
-    print(f"Found {len(events)} candidate recurring class entries from {len(ids)} messages.")
-    if args.out:
-        outp = args.out
-        data = {"events": events, "_sources": extracted[:10]}
-        dump_config(outp, data)
-        print(f"Wrote plan to {outp}")
-    else:
-        # Preview
-        for ev in events:
-            print(f"- {ev.get('subject')} {','.join(ev.get('byday') or [])} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}")
-        print("Use --out plan.yaml to write YAML.")
+    events = _dedup_events(extracted)
+    _output_scan_results(events, extracted, ids, args)
     return 0

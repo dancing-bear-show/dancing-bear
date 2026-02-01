@@ -187,11 +187,11 @@ class TempDirMixin:
 
     tmpdir: str
 
-    def setUp(self):
+    def setUp(self):  # noqa: N802 - unittest method name  # NOSONAR: S100 - unittest framework method
         super().setUp()
         self.tmpdir = tempfile.mkdtemp()
 
-    def tearDown(self):
+    def tearDown(self):  # noqa: N802 - unittest method name  # NOSONAR: S100 - unittest framework method
         import shutil
 
         shutil.rmtree(self.tmpdir, ignore_errors=True)

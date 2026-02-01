@@ -242,20 +242,123 @@ def run_env_setup(args: argparse.Namespace) -> int:
     return 0 if envelope.ok() else 2
 
 
+def _parse_requested_providers(args: argparse.Namespace) -> set[str] | None:
+    """Parse comma-separated provider list from args or return None for all."""
+    if getattr(args, 'providers', None):
+        return {p.strip().lower() for p in str(args.providers).split(',') if p.strip()}
+    return None
+
+
+def _should_run_gmail(requested: set[str] | None, args: argparse.Namespace) -> bool:
+    """Check if Gmail credentials exist and provider is requested."""
+    import os
+    if requested is not None and 'gmail' not in requested:
+        return False
+    try:
+        from ..config_resolver import resolve_paths_profile
+        cpath, tpath = resolve_paths_profile(
+            arg_credentials=None,
+            arg_token=None,
+            profile=getattr(args, 'profile', None)
+        )
+        cpath = os.path.expanduser(cpath or '')
+        tpath = os.path.expanduser(tpath or '')
+        return os.path.exists(cpath) or os.path.exists(tpath)
+    except Exception:  # nosec B112 - missing credentials is expected
+        return False
+
+
+def _should_run_outlook(requested: set[str] | None, args: argparse.Namespace) -> bool:
+    """Check if Outlook credentials exist and provider is requested."""
+    from ..outlook.helpers import resolve_outlook_args as _resolve_outlook_args
+    if requested is not None and 'outlook' not in requested:
+        return False
+    try:
+        oargs = argparse.Namespace(
+            client_id=None,
+            tenant=None,
+            token=None,
+            accounts_config=getattr(args, 'accounts_config', None),
+            account=getattr(args, 'account', None),
+            profile=getattr(args, 'profile', None),
+        )
+        cid, _ten, _tok, _cache = _resolve_outlook_args(oargs)
+        return bool(cid)
+    except Exception:  # nosec B112 - missing credentials is expected
+        return False
+
+
+def _run_gmail_workflow(out_gmail: str, args: argparse.Namespace) -> None:
+    """Execute Gmail plan and optionally apply."""
+    from ..filters.commands import run_filters_plan, run_filters_sync
+    print("\n[Gmail] Plan:")
+    ns_plan = argparse.Namespace(
+        config=str(out_gmail),
+        delete_missing=bool(getattr(args, 'delete_missing', False)),
+        credentials=None,
+        token=None,
+        cache=None,
+        profile=getattr(args, 'profile', None),
+    )
+    run_filters_plan(ns_plan)
+    if getattr(args, 'apply', False):
+        print("\n[Gmail] Apply:")
+        ns_sync = argparse.Namespace(
+            config=str(out_gmail),
+            dry_run=False,
+            delete_missing=bool(getattr(args, 'delete_missing', False)),
+            require_forward_verified=False,
+            credentials=None,
+            token=None,
+            cache=None,
+            profile=getattr(args, 'profile', None),
+        )
+        run_filters_sync(ns_sync)
+
+
+def _run_outlook_workflow(out_outlook: str, args: argparse.Namespace) -> None:
+    """Execute Outlook plan and optionally apply."""
+    from ..outlook.commands import run_outlook_rules_plan, run_outlook_rules_sync
+    print("\n[Outlook] Plan:")
+    ns_pl = argparse.Namespace(
+        config=str(out_outlook),
+        client_id=None,
+        tenant=None,
+        token=None,
+        accounts_config=getattr(args, 'accounts_config', None),
+        account=getattr(args, 'account', None),
+        profile=getattr(args, 'profile', None),
+        use_cache=False,
+        cache_ttl=600,
+    )
+    run_outlook_rules_plan(ns_pl)
+    if getattr(args, 'apply', False):
+        print("\n[Outlook] Apply:")
+        ns_sync = argparse.Namespace(
+            config=str(out_outlook),
+            client_id=None,
+            tenant=None,
+            token=None,
+            accounts_config=getattr(args, 'accounts_config', None),
+            account=getattr(args, 'account', None),
+            profile=getattr(args, 'profile', None),
+            dry_run=False,
+            delete_missing=bool(getattr(args, 'delete_missing', False)),
+            move_to_folders=bool(getattr(args, 'outlook_move_to_folders', True)),
+        )
+        run_outlook_rules_sync(ns_sync)
+
+
 def run_workflows_from_unified(args: argparse.Namespace) -> int:
     """Workflow: derive provider configs from unified and plan/apply per provider."""
-    import os
     from pathlib import Path
-    from ..filters.commands import run_filters_plan, run_filters_sync
-    from ..outlook.commands import run_outlook_rules_plan, run_outlook_rules_sync
-    from ..outlook.helpers import resolve_outlook_args as _resolve_outlook_args
 
     out_dir = Path(getattr(args, 'out_dir', 'out'))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_gmail = out_dir / "filters.gmail.from_unified.yaml"
     out_outlook = out_dir / "filters.outlook.from_unified.yaml"
 
-    # 0) Derive both provider configs from unified
+    # Derive both provider configs from unified
     request = DeriveFiltersRequest(
         in_path=args.config,
         out_gmail=str(out_gmail),
@@ -267,105 +370,22 @@ def run_workflows_from_unified(args: argparse.Namespace) -> int:
     if not envelope.ok():
         return 2
 
-    # 1) Decide providers
-    requested = None
-    if getattr(args, 'providers', None):
-        requested = {p.strip().lower() for p in str(args.providers).split(',') if p.strip()}
+    # Decide which providers to run
+    requested = _parse_requested_providers(args)
+    run_gmail = _should_run_gmail(requested, args)
+    run_outlook = _should_run_outlook(requested, args)
 
-    run_gmail = run_outlook = False
-    if requested is None or 'gmail' in requested:
-        try:
-            from ..config_resolver import resolve_paths_profile
-            cpath, tpath = resolve_paths_profile(arg_credentials=None, arg_token=None, profile=getattr(args, 'profile', None))
-            cpath = os.path.expanduser(cpath or '')
-            tpath = os.path.expanduser(tpath or '')
-            if os.path.exists(cpath) or os.path.exists(tpath):
-                run_gmail = True
-        except Exception:
-            run_gmail = False
-        if requested and 'gmail' in requested:
-            run_gmail = True
-
-    if requested is None or 'outlook' in requested:
-        try:
-            oargs = argparse.Namespace(
-                client_id=None,
-                tenant=None,
-                token=None,
-                accounts_config=getattr(args, 'accounts_config', None),
-                account=getattr(args, 'account', None),
-                profile=getattr(args, 'profile', None),
-            )
-            cid, _ten, _tok, _cache = _resolve_outlook_args(oargs)
-            if cid:
-                run_outlook = True
-        except Exception:
-            run_outlook = False
-        if requested and 'outlook' in requested:
-            run_outlook = True
-
-    # 2) Gmail plan/apply
+    # Execute Gmail workflow
     if run_gmail:
-        print("\n[Gmail] Plan:")
-        ns_plan = argparse.Namespace(
-            config=str(out_gmail),
-            delete_missing=bool(getattr(args, 'delete_missing', False)),
-            credentials=None,
-            token=None,
-            cache=None,
-            profile=getattr(args, 'profile', None),
-        )
-        run_filters_plan(ns_plan)
-        if getattr(args, 'apply', False):
-            print("\n[Gmail] Apply:")
-            ns_sync = argparse.Namespace(
-                config=str(out_gmail),
-                dry_run=False,
-                delete_missing=bool(getattr(args, 'delete_missing', False)),
-                require_forward_verified=False,
-                credentials=None,
-                token=None,
-                cache=None,
-                profile=getattr(args, 'profile', None),
-            )
-            run_filters_sync(ns_sync)
-    else:
-        if requested is None or 'gmail' in (requested or set(['gmail'])):
-            print("\n[Gmail] Skipping (no credentials/token detected). Use --profile or env setup.")
+        _run_gmail_workflow(str(out_gmail), args)
+    elif requested is None or 'gmail' in (requested or set()):
+        print("\n[Gmail] Skipping (no credentials/token detected). Use --profile or env setup.")
 
-    # 3) Outlook plan/apply
+    # Execute Outlook workflow
     if run_outlook:
-        print("\n[Outlook] Plan:")
-        ns_pl = argparse.Namespace(
-            config=str(out_outlook),
-            client_id=None,
-            tenant=None,
-            token=None,
-            accounts_config=getattr(args, 'accounts_config', None),
-            account=getattr(args, 'account', None),
-            profile=getattr(args, 'profile', None),
-            use_cache=False,
-            cache_ttl=600,
-        )
-        run_outlook_rules_plan(ns_pl)
-        if getattr(args, 'apply', False):
-            print("\n[Outlook] Apply:")
-            ns_sync = argparse.Namespace(
-                config=str(out_outlook),
-                client_id=None,
-                tenant=None,
-                token=None,
-                accounts_config=getattr(args, 'accounts_config', None),
-                account=getattr(args, 'account', None),
-                profile=getattr(args, 'profile', None),
-                dry_run=False,
-                delete_missing=bool(getattr(args, 'delete_missing', False)),
-                move_to_folders=bool(getattr(args, 'outlook_move_to_folders', True)),
-            )
-            run_outlook_rules_sync(ns_sync)
-    else:
-        if requested is None or 'outlook' in (requested or set(['outlook'])):
-            print("\n[Outlook] Skipping (no client_id/token detected). Use env setup or accounts.yaml.")
+        _run_outlook_workflow(str(out_outlook), args)
+    elif requested is None or 'outlook' in (requested or set()):
+        print("\n[Outlook] Skipping (no client_id/token detected). Use env setup or accounts.yaml.")
 
     if not (run_gmail or run_outlook):
         print("No configured providers detected; nothing to do.")

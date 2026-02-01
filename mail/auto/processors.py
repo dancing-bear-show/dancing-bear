@@ -12,18 +12,8 @@ from core.pipeline import Processor, ResultEnvelope
 from .consumers import AutoProposePayload, AutoSummaryPayload, AutoApplyPayload
 
 
-def classify_low_interest(msg: dict) -> Optional[dict]:
-    """Return action suggestion if message is likely low-interest.
-
-    Heuristics: List-Unsubscribe/List-Id headers, Precedence: bulk, Auto-Submitted,
-    Gmail categories (CATEGORY_PROMOTIONS/FORUMS), promo keywords in subject.
-    """
-    from ..gmail_api import GmailClient
-
-    hdrs = GmailClient.headers_to_dict(msg)
-    label_ids = set(msg.get("labelIds", []) or [])
-    subject = (hdrs.get("subject") or "").lower()
-    from_addr = hdrs.get("from") or ""
+def _collect_low_interest_reasons(hdrs: dict, label_ids: set, subject: str) -> List[str]:
+    """Collect reasons a message is likely low-interest."""
     reasons = []
 
     if hdrs.get("list-unsubscribe") or hdrs.get("list-id"):
@@ -41,18 +31,36 @@ def classify_low_interest(msg: dict) -> Optional[dict]:
     if any(k in subject for k in promo_kw):
         reasons.append("promo-subject")
 
+    return reasons
+
+
+def _choose_target_label(reasons: List[str]) -> str:
+    """Choose target label based on classification reasons."""
+    if "category:promotions" in reasons or "promo-subject" in reasons:
+        return "Lists/Commercial"
+    return "Lists/Newsletters"
+
+
+def classify_low_interest(msg: dict) -> Optional[dict]:
+    """Return action suggestion if message is likely low-interest.
+
+    Heuristics: List-Unsubscribe/List-Id headers, Precedence: bulk, Auto-Submitted,
+    Gmail categories (CATEGORY_PROMOTIONS/FORUMS), promo keywords in subject.
+    """
+    from ..gmail_api import GmailClient
+
+    hdrs = GmailClient.headers_to_dict(msg)
+    label_ids = set(msg.get("labelIds", []) or [])
+    subject = (hdrs.get("subject") or "").lower()
+    from_addr = hdrs.get("from") or ""
+
+    reasons = _collect_low_interest_reasons(hdrs, label_ids, subject)
+
     if not reasons:
         return None
 
-    # Choose target label
-    add = []
-    if "category:promotions" in reasons or "promo-subject" in reasons:
-        add.append("Lists/Commercial")
-    else:
-        add.append("Lists/Newsletters")
-
     return {
-        "add": add,
+        "add": [_choose_target_label(reasons)],
         "remove": ["INBOX"],
         "reasons": reasons,
         "from": from_addr,
@@ -61,27 +69,33 @@ def classify_low_interest(msg: dict) -> Optional[dict]:
     }
 
 
-def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
-    """Check if sender matches any protected pattern."""
+def _extract_email_address(from_val: str) -> str:
+    """Extract email address from From header (handles 'Name <email>' format)."""
     f = (from_val or "").lower()
-    # Extract bare email if in Name <email>
     if "<" in f and ">" in f:
         try:
             f = f.split("<")[-1].split(">")[0]
         except Exception:  # nosec B110 - malformed From header, fall back to original
             pass
-    f = f.strip()
-    dom = f.split("@")[-1] if "@" in f else f
+    return f.strip()
 
-    for p in protected_patterns:
-        if not p:
-            continue
-        if p.startswith("@"):
-            if f.endswith(p) or dom == p.lstrip("@"):
-                return True
-        elif p in (f,):
-            return True
-    return False
+
+def _matches_protected_pattern(email: str, pattern: str) -> bool:
+    """Check if email matches a single protected pattern."""
+    if not pattern:
+        return False
+
+    if pattern.startswith("@"):
+        domain = email.split("@")[-1] if "@" in email else email
+        return email.endswith(pattern) or domain == pattern.lstrip("@")
+
+    return pattern == email
+
+
+def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
+    """Check if sender matches any protected pattern."""
+    email = _extract_email_address(from_val)
+    return any(_matches_protected_pattern(email, p) for p in protected_patterns)
 
 
 @dataclass
@@ -130,7 +144,7 @@ class AutoProposeProcessor(Processor[AutoProposePayload, ResultEnvelope[AutoProp
 
                 # Build query for inbox messages within days
                 q = f"in:inbox newer_than:{payload.days}d"
-                ids, msgs = fetch_messages_with_metadata(
+                _, msgs = fetch_messages_with_metadata(
                     client,
                     query=q,
                     pages=payload.pages,
@@ -220,6 +234,47 @@ class AutoSummaryProcessor(Processor[AutoSummaryPayload, ResultEnvelope[AutoSumm
             )
 
 
+def _group_messages_by_modifications(
+    msgs: List[dict],
+    name_to_id: dict,
+    cutoff_ts: Optional[int],
+) -> Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]]:
+    """Group messages by their add/remove label modifications."""
+    groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = defaultdict(list)
+
+    for m in msgs:
+        if cutoff_ts and int(m.get("ts", 0)) > cutoff_ts:
+            continue
+        add_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("add") or [])))
+        rem_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("remove") or [])))
+        sig = (add_ids, rem_ids)
+        groups[sig].append(m.get("id"))
+
+    return groups
+
+
+def _apply_modification_groups(
+    groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]],
+    client,
+    batch_size: int,
+    dry_run: bool,
+) -> Tuple[int, List[Tuple[int, List[str], List[str]]]]:
+    """Apply modifications to message groups in batches."""
+    total = 0
+    result_groups = []
+
+    for (add_ids, rem_ids), id_list in groups.items():
+        result_groups.append((len(id_list), list(add_ids), list(rem_ids)))
+        if dry_run:
+            total += len(id_list)
+            continue
+        for i in range(0, len(id_list), batch_size):
+            client.batch_modify_messages(id_list[i : i + batch_size], list(add_ids), list(rem_ids))
+        total += len(id_list)
+
+    return total, result_groups
+
+
 class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyResult]]):
     """Apply a proposal to modify messages."""
 
@@ -236,31 +291,14 @@ class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyRes
                 client.authenticate()
                 name_to_id = client.get_label_id_map()
 
-                groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = defaultdict(list)
                 cutoff_ts = None
                 if payload.cutoff_days:
                     cutoff_ts = int(time.time()) - payload.cutoff_days * 86400
 
-                for m in msgs:
-                    if cutoff_ts and int(m.get("ts", 0)) > cutoff_ts:
-                        continue
-                    add_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("add") or [])))
-                    rem_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("remove") or [])))
-                    sig = (add_ids, rem_ids)
-                    groups[sig].append(m.get("id"))
-
-                total = 0
-                result_groups = []
-                B = payload.batch_size
-
-                for (add_ids, rem_ids), id_list in groups.items():
-                    result_groups.append((len(id_list), list(add_ids), list(rem_ids)))
-                    if payload.dry_run:
-                        total += len(id_list)
-                        continue
-                    for i in range(0, len(id_list), B):
-                        client.batch_modify_messages(id_list[i : i + B], list(add_ids), list(rem_ids))
-                    total += len(id_list)
+                groups = _group_messages_by_modifications(msgs, name_to_id, cutoff_ts)
+                total, result_groups = _apply_modification_groups(
+                    groups, client, payload.batch_size, payload.dry_run
+                )
 
                 logger.end(sid, status="ok")
                 return ResultEnvelope(

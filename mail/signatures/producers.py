@@ -47,8 +47,7 @@ class SignaturesSyncProducer(Producer[ResultEnvelope[SignaturesSyncResult]]):
 
         payload = result.payload
         for update in payload.gmail_updates:
-            prefix = "" if not payload.dry_run else ""
-            print(f"{prefix}{update}")
+            print(f"{update}")
 
         if payload.ios_asset_written:
             print(f"Wrote iOS signature asset to {payload.ios_asset_written}")

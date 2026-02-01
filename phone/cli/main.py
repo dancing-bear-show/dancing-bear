@@ -67,6 +67,12 @@ from ..layout import (
 from ..profile import build_mobileconfig
 
 
+# Default profile constants
+DEFAULT_PROFILE_IDENTIFIER = "com.example.profile"
+DEFAULT_HS_IDENTIFIER = "com.example.hslayout"
+DEFAULT_DISPLAY_NAME = "Home Screen Layout"
+
+
 # Create the CLI app
 app = CLIApp(
     "phone-assistant",
@@ -369,9 +375,9 @@ def _write_mobileconfig(profile_dict: dict, out_path: Path) -> None:
 @profile_group.argument("--plan", required=True, help="Plan YAML path (pins + folders)")
 @profile_group.argument("--layout", help="Optional layout export YAML; uses 'dock' if present")
 @profile_group.argument("--out", required=True, help="Output .mobileconfig path")
-@profile_group.argument("--identifier", default="com.example.profile", help="Top-level PayloadIdentifier")
-@profile_group.argument("--hs-identifier", default="com.example.hslayout", help="Home Screen PayloadIdentifier")
-@profile_group.argument("--display-name", default="Home Screen Layout", help="Payload display name")
+@profile_group.argument("--identifier", default=DEFAULT_PROFILE_IDENTIFIER, help="Top-level PayloadIdentifier")
+@profile_group.argument("--hs-identifier", default=DEFAULT_HS_IDENTIFIER, help="Home Screen PayloadIdentifier")
+@profile_group.argument("--display-name", default=DEFAULT_DISPLAY_NAME, help="Payload display name")
 @profile_group.argument("--organization", help="Optional PayloadOrganization")
 @profile_group.argument("--dock-count", type=int, default=4, help="Dock count from pins when --layout missing (default 4)")
 @profile_group.argument("--all-apps-folder-name", help="Optional folder name for all remaining apps (requires --layout)")
@@ -389,9 +395,9 @@ def cmd_profile_build(args) -> int:
         profile_dict = build_mobileconfig(
             plan=plan,
             layout_export=layout_export,
-            top_identifier=getattr(args, "identifier", "com.example.profile"),
-            hs_identifier=getattr(args, "hs_identifier", "com.example.hslayout"),
-            display_name=getattr(args, "display_name", "Home Screen Layout"),
+            top_identifier=getattr(args, "identifier", DEFAULT_PROFILE_IDENTIFIER),
+            hs_identifier=getattr(args, "hs_identifier", DEFAULT_HS_IDENTIFIER),
+            display_name=getattr(args, "display_name", DEFAULT_DISPLAY_NAME),
             organization=getattr(args, "organization", None),
             dock_count=max(0, int(getattr(args, "dock_count", 4))),
             all_apps_folder=all_apps_folder,
@@ -430,9 +436,9 @@ def _build_manifest_dict(plan: dict, args) -> dict:
             "creds_profile": getattr(args, "creds_profile", None) or os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"),
         },
         "profile": {
-            "identifier": getattr(args, "identifier", "com.example.profile"),
-            "hs_identifier": getattr(args, "hs_identifier", "com.example.hslayout"),
-            "display_name": getattr(args, "display_name", "Home Screen Layout"),
+            "identifier": getattr(args, "identifier", DEFAULT_PROFILE_IDENTIFIER),
+            "hs_identifier": getattr(args, "hs_identifier", DEFAULT_HS_IDENTIFIER),
+            "display_name": getattr(args, "display_name", DEFAULT_DISPLAY_NAME),
             "organization": getattr(args, "organization", "Personal"),
         },
         "plan": plan,
@@ -478,9 +484,9 @@ def _extract_manifest_profile_config(manifest: dict) -> tuple[dict, dict | None,
 @manifest_group.argument("--udid", help="Optional device UDID to include")
 @manifest_group.argument("--creds-profile", default=os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"), help="Credentials profile name")
 @manifest_group.argument("--layout", help="Optional layout export YAML path to include (for Dock inference)")
-@manifest_group.argument("--identifier", default="com.example.profile", help="Profile identifier")
-@manifest_group.argument("--hs-identifier", default="com.example.hslayout", help="Home Screen PayloadIdentifier")
-@manifest_group.argument("--display-name", default="Home Screen Layout", help="Profile display name")
+@manifest_group.argument("--identifier", default=DEFAULT_PROFILE_IDENTIFIER, help="Profile identifier")
+@manifest_group.argument("--hs-identifier", default=DEFAULT_HS_IDENTIFIER, help="Home Screen PayloadIdentifier")
+@manifest_group.argument("--display-name", default=DEFAULT_DISPLAY_NAME, help="Profile display name")
 @manifest_group.argument("--organization", default="Personal", help="Profile organization")
 def cmd_manifest_create(args) -> int:
     plan = read_yaml(Path(args.from_plan))
@@ -506,9 +512,9 @@ def cmd_manifest_build(args) -> int:
     profile_dict = build_mobileconfig(
         plan=plan,
         layout_export=layout_export,
-        top_identifier=prof.get("identifier", "com.example.profile"),
-        hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
-        display_name=prof.get("display_name", "Home Screen Layout"),
+        top_identifier=prof.get("identifier", DEFAULT_PROFILE_IDENTIFIER),
+        hs_identifier=prof.get("hs_identifier", DEFAULT_HS_IDENTIFIER),
+        display_name=prof.get("display_name", DEFAULT_DISPLAY_NAME),
         organization=prof.get("organization"),
         dock_count=4,
     )

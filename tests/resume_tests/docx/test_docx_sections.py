@@ -17,28 +17,28 @@ class TestBulletRenderer(unittest.TestCase):
     def test_get_bullet_config_defaults(self):
         """Test default bullet config."""
         renderer, _ = self._get_renderer()
-        plain, glyph = renderer.get_bullet_config(None)
+        _, glyph = renderer.get_bullet_config(None)
         self.assertEqual(glyph, "•")
 
     def test_get_bullet_config_custom_glyph(self):
         """Test custom glyph from section config."""
         renderer, _ = self._get_renderer()
         sec = {"bullets": {"glyph": "→"}}
-        plain, glyph = renderer.get_bullet_config(sec)
+        _, glyph = renderer.get_bullet_config(sec)
         self.assertEqual(glyph, "→")
 
     def test_get_bullet_config_plain_style(self):
         """Test plain bullet style."""
         renderer, _ = self._get_renderer()
         sec = {"bullets": {"style": "plain"}}
-        plain, glyph = renderer.get_bullet_config(sec)
+        plain, _ = renderer.get_bullet_config(sec)
         self.assertTrue(plain)
 
     def test_get_bullet_config_plain_bullets_flag(self):
         """Test plain_bullets flag."""
         renderer, _ = self._get_renderer()
         sec = {"plain_bullets": True}
-        plain, glyph = renderer.get_bullet_config(sec)
+        plain, _ = renderer.get_bullet_config(sec)
         self.assertTrue(plain)
 
     def test_add_bullet_line(self):

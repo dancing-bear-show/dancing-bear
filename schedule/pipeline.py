@@ -171,7 +171,7 @@ def _to_date(d: Any) -> _dt.date:
     return _dt.date.fromisoformat(str(d))
 
 
-def _to_datetime(d: _dt.date, t: str) -> _dt.datetime:
+def _to_datetime(d: _dt.date, t: Optional[str]) -> _dt.datetime:
     """Combine a date and time string into a datetime."""
     hh, mm = (t or "00:00").split(":", 1)
     return _dt.datetime(d.year, d.month, d.day, int(hh), int(mm))
@@ -327,83 +327,156 @@ def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str
     return _expand_weekly_occurrences(ev, start_date, end_date, start_time, end_time, ex_set)
 
 
+@dataclass
+class EventCreationContext:
+    """Context for creating calendar events."""
+
+    cal_id: Optional[str]
+    calendar_name: Optional[str]
+    service: Any
+
+
+def _get_calendar_id(calendar_name: Optional[str], service: Any) -> Optional[str]:
+    """Get or create calendar ID by name."""
+    if not calendar_name:
+        return None
+    try:
+        return service.ensure_calendar(calendar_name)
+    except Exception:
+        return service.get_calendar_id_by_name(calendar_name)
+
+
+def _extract_event_common_fields(ev: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract common fields from event dictionary."""
+    no_reminder = ev.get("is_reminder_on") is False
+    return {
+        "tz": ev.get("tz"),
+        "body_html": ev.get("body_html"),
+        "location": ev.get("location"),
+        "no_reminder": no_reminder,
+        "reminder_minutes": ev.get("reminder_minutes"),
+    }
+
+
+def _is_recurring_event(ev: Dict[str, Any]) -> bool:
+    """Check if event is a recurring event with required fields."""
+    return bool(
+        ev.get("repeat") and ev.get("start_time") and (ev.get("range") or {}).get("start_date")
+    )
+
+
+def _create_recurring_outlook_event(
+    ctx: EventCreationContext,
+    ev: Dict[str, Any],
+    subject: str,
+    common_fields: Dict[str, Any],
+) -> Any:
+    """Create a recurring event in Outlook."""
+    rep = str(ev.get("repeat") or "").lower()
+    byday = ev.get("byday") or []
+    interval = int(ev.get("interval") or 1)
+    return ctx.service.create_recurring_event(
+        calendar_id=ctx.cal_id,
+        calendar_name=ctx.calendar_name,
+        subject=subject,
+        start_time=ev.get("start_time"),
+        end_time=ev.get("end_time") or ev.get("start_time"),
+        repeat=rep,
+        interval=interval,
+        byday=byday,
+        range_start_date=(ev.get("range") or {}).get("start_date"),
+        range_until=(ev.get("range") or {}).get("until"),
+        count=ev.get("count"),
+        exdates=ev.get("exdates"),
+        **common_fields,
+    )
+
+
+def _create_oneoff_outlook_event(
+    ctx: EventCreationContext,
+    ev: Dict[str, Any],
+    subject: str,
+    common_fields: Dict[str, Any],
+) -> Any:
+    """Create a one-off event in Outlook."""
+    return ctx.service.create_event(
+        calendar_id=ctx.cal_id,
+        calendar_name=ctx.calendar_name,
+        subject=subject,
+        start_iso=_to_iso_str(ev.get("start")),
+        end_iso=_to_iso_str(ev.get("end")),
+        **common_fields,
+    )
+
+
+def _log_event_creation(subject: str, result: Any, logs: List[str]) -> None:
+    """Log successful event creation."""
+    eid = result.get("id") if isinstance(result, dict) else None
+    if eid:
+        logs.append(f"Created: {subject} (id={eid})")
+    else:
+        logs.append(f"Created: {subject}")
+
+
+def _process_single_event(
+    ev: Dict[str, Any],
+    ctx: EventCreationContext,
+    logs: List[str],
+) -> Tuple[bool, Optional[str]]:
+    """Process a single event and return (success, error_msg).
+
+    Returns (True, None) on success, (False, error_msg) on failure.
+    """
+    subject = (ev.get("subject") or "").strip()
+    if not subject:
+        logs.append("Skipping event without subject")
+        return True, None
+
+    common_fields = _extract_event_common_fields(ev)
+
+    try:
+        if _is_recurring_event(ev):
+            result = _create_recurring_outlook_event(ctx, ev, subject, common_fields)
+        elif ev.get("start") and ev.get("end"):
+            result = _create_oneoff_outlook_event(ctx, ev, subject, common_fields)
+        else:
+            logs.append(f"Skipping event (insufficient fields): {subject}")
+            return True, None
+
+        _log_event_creation(subject, result, logs)
+        return True, None
+    except Exception as exc:
+        error_msg = f"Failed to create event '{subject}': {exc}"
+        logs.append(error_msg)
+        return False, error_msg
+
+
 def _apply_outlook_events(
     events: List[Dict[str, Any]],
     *,
     calendar_name: Optional[str],
     service: Any,
 ) -> Tuple[int, List[str]]:
+    """Apply events to Outlook calendar."""
     logs: List[str] = []
-    cal_id = None
-    if calendar_name:
-        try:
-            cal_id = service.ensure_calendar(calendar_name)
-        except Exception:
-            cal_id = service.get_calendar_id_by_name(calendar_name)
+    cal_id = _get_calendar_id(calendar_name, service)
+
+    ctx = EventCreationContext(
+        cal_id=cal_id,
+        calendar_name=calendar_name,
+        service=service,
+    )
 
     created = 0
     for ev in events:
-        subject = (ev.get("subject") or "").strip()
-        if not subject:
-            logs.append("Skipping event without subject")
-            continue
-        tz = ev.get("tz")
-        body_html = ev.get("body_html")
-        location = ev.get("location")
-        no_reminder = False
-        if ev.get("is_reminder_on") is False:
-            no_reminder = True
-        reminder_minutes = ev.get("reminder_minutes")
-
-        try:
-            if ev.get("repeat") and ev.get("start_time") and (ev.get("range") or {}).get("start_date"):
-                rep = str(ev.get("repeat") or "").lower()
-                byday = ev.get("byday") or []
-                interval = int(ev.get("interval") or 1)
-                r = service.create_recurring_event(
-                    calendar_id=cal_id,
-                    calendar_name=calendar_name,
-                    subject=subject,
-                    start_time=ev.get("start_time"),
-                    end_time=ev.get("end_time") or ev.get("start_time"),
-                    tz=tz,
-                    repeat=rep,
-                    interval=interval,
-                    byday=byday,
-                    range_start_date=(ev.get("range") or {}).get("start_date"),
-                    range_until=(ev.get("range") or {}).get("until"),
-                    count=ev.get("count"),
-                    body_html=body_html,
-                    location=location,
-                    exdates=ev.get("exdates"),
-                    no_reminder=no_reminder,
-                    reminder_minutes=reminder_minutes,
-                )
-            elif ev.get("start") and ev.get("end"):
-                r = service.create_event(
-                    calendar_id=cal_id,
-                    calendar_name=calendar_name,
-                    subject=subject,
-                    start_iso=_to_iso_str(ev.get("start")),
-                    end_iso=_to_iso_str(ev.get("end")),
-                    tz=tz,
-                    body_html=body_html,
-                    location=location,
-                    no_reminder=no_reminder,
-                    reminder_minutes=reminder_minutes,
-                )
-            else:
-                logs.append(f"Skipping event (insufficient fields): {subject}")
-                continue
-            created += 1
-            eid = r.get("id") if isinstance(r, dict) else None
-            if eid:
-                logs.append(f"Created: {subject} (id={eid})")
-            else:
-                logs.append(f"Created: {subject}")
-        except Exception as exc:
-            logs.append(f"Failed to create event '{subject}': {exc}")
+        success, error = _process_single_event(ev, ctx, logs)
+        if not success:
             return 2, logs
+        if success and error is None and (ev.get("subject") or "").strip():
+            # Count only if we had a subject and no error (successful creation)
+            if logs and logs[-1].startswith("Created:"):
+                created += 1
+
     logs.append(f"Applied {created} events.")
     return 0, logs
 

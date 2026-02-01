@@ -69,6 +69,9 @@ class TestMatchResult(unittest.TestCase):
 class TestKeywordMatcherSynonyms(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher synonym management."""
 
+    def setUp(self):
+        self._init_matcher()
+
     def test_add_synonym(self):
         self.matcher.add_synonym("Python", "python3")
         self.assertEqual(self.matcher.canonicalize("python3"), "Python")
@@ -125,6 +128,9 @@ class TestKeywordMatcherSynonyms(KeywordMatcherTestMixin, unittest.TestCase):
 class TestKeywordMatcherKeywordRegistration(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher keyword registration."""
 
+    def setUp(self):
+        self._init_matcher()
+
     def test_add_keyword(self):
         self.matcher.add_keyword("Python", tier="required", weight=2)
         self.assertIn("Python", self.matcher.keywords)
@@ -167,6 +173,9 @@ class TestKeywordMatcherKeywordRegistration(KeywordMatcherTestMixin, unittest.Te
 
 class TestKeywordMatcherTextMatching(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher text matching."""
+
+    def setUp(self):
+        self._init_matcher()
 
     def test_normalize(self):
         self.assertEqual(KeywordMatcher.normalize("  Hello  World  "), "hello world")
@@ -213,7 +222,7 @@ class TestKeywordMatcherFindMatches(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher find_matches."""
 
     def setUp(self):
-        super().setUp()
+        self._init_matcher()
         self.matcher.add_keyword("Python", tier="required", weight=2)
         self.matcher.add_keyword("Docker", tier="preferred", weight=1)
 
@@ -241,7 +250,7 @@ class TestKeywordMatcherScoring(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher scoring."""
 
     def setUp(self):
-        super().setUp()
+        self._init_matcher()
         self.matcher.add_keyword("Python", weight=3)
         self.matcher.add_keyword("Docker", weight=2)
         self.matcher.add_keyword("Git", weight=1)
@@ -278,7 +287,7 @@ class TestKeywordMatcherBulkOperations(KeywordMatcherTestMixin, unittest.TestCas
     """Tests for KeywordMatcher bulk operations."""
 
     def setUp(self):
-        super().setUp()
+        self._init_matcher()
         self.matcher.add_keyword("Python", tier="required", weight=2)
         self.matcher.add_keyword("API", tier="preferred", weight=1)
 

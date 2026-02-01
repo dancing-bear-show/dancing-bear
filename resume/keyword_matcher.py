@@ -471,6 +471,101 @@ class KeywordMatcher:
     # Bulk operations
     # -------------------------------------------------------------------------
 
+    def _scan_text_for_keywords(
+        self,
+        text: str,
+        scope: str,
+        results: Dict[str, MatchResult],
+    ) -> None:
+        """Scan text for keyword matches and record them.
+
+        Args:
+            text: Text to scan.
+            scope: Scope label for context.
+            results: Results dict to update.
+        """
+        for canon in self._keywords:
+            if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
+                self._record_match(canon, text, scope, results)
+
+    def _record_match(
+        self,
+        canon: str,
+        context: str,
+        scope: str,
+        results: Dict[str, MatchResult],
+    ) -> None:
+        """Record a keyword match in results.
+
+        Args:
+            canon: Canonical keyword.
+            context: Context text.
+            scope: Scope label.
+            results: Results dict to update.
+        """
+        if canon not in results:
+            info = self._keywords.get(canon, KeywordInfo(keyword=canon))
+            results[canon] = MatchResult(
+                keyword=canon,
+                tier=info.tier,
+                weight=info.weight,
+                category=info.category,
+                count=0,
+                contexts=[],
+            )
+        results[canon].count += 1
+        results[canon].contexts.append(f"[{scope}] {context[:50]}")
+
+    def _scan_summary(
+        self,
+        candidate: Dict[str, Any],
+        results: Dict[str, MatchResult],
+    ) -> None:
+        """Scan candidate summary for keyword matches.
+
+        Args:
+            candidate: Candidate data dict.
+            results: Results dict to update.
+        """
+        summary = str(candidate.get("summary") or "")
+        if summary:
+            self._scan_text_for_keywords(summary, "summary", results)
+
+    def _scan_skills(
+        self,
+        candidate: Dict[str, Any],
+        results: Dict[str, MatchResult],
+    ) -> None:
+        """Scan candidate skills for keyword matches.
+
+        Args:
+            candidate: Candidate data dict.
+            results: Results dict to update.
+        """
+        for skill in candidate.get("skills") or []:
+            text = str(skill)
+            self._scan_text_for_keywords(text, "skills", results)
+
+    def _scan_experience(
+        self,
+        candidate: Dict[str, Any],
+        results: Dict[str, MatchResult],
+    ) -> None:
+        """Scan candidate experience for keyword matches.
+
+        Args:
+            candidate: Candidate data dict.
+            results: Results dict to update.
+        """
+        for i, exp in enumerate(candidate.get("experience") or []):
+            title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
+            if title_text:
+                self._scan_text_for_keywords(title_text, f"exp[{i}].title", results)
+
+            for bullet in exp.get("bullets") or []:
+                text = str(bullet)
+                self._scan_text_for_keywords(text, f"exp[{i}].bullet", results)
+
     def collect_matches_from_candidate(
         self,
         candidate: Dict[str, Any],
@@ -486,52 +581,64 @@ class KeywordMatcher:
             Dict mapping canonical keyword to MatchResult with counts.
         """
         results: Dict[str, MatchResult] = {}
+        self._scan_summary(candidate, results)
+        self._scan_skills(candidate, results)
+        self._scan_experience(candidate, results)
+        return results
 
-        def record_match(canon: str, context: str, scope: str):
-            if canon not in results:
-                info = self._keywords.get(canon, KeywordInfo(keyword=canon))
-                results[canon] = MatchResult(
-                    keyword=canon,
-                    tier=info.tier,
-                    weight=info.weight,
-                    category=info.category,
-                    count=0,
-                    contexts=[],
-                )
-            results[canon].count += 1
-            results[canon].contexts.append(f"[{scope}] {context[:50]}")
+    def _score_title_text(self, title_text: str) -> int:
+        """Score title/company text by keyword matches.
 
-        # Summary
-        summary = str(candidate.get("summary") or "")
-        if summary:
-            for canon in self._keywords:
-                if any(self.match_keyword(summary, kw) for kw in self.expand(canon)):
-                    record_match(canon, summary, "summary")
+        Args:
+            title_text: Combined title and company text.
 
-        # Skills
-        for skill in candidate.get("skills") or []:
-            text = str(skill)
+        Returns:
+            Weighted score for matches.
+        """
+        score = 0
+        for canon, info in self._keywords.items():
+            if any(self.match_keyword(title_text, kw) for kw in self.expand(canon)):
+                score += info.weight
+        return score
+
+    def _score_bullets(self, bullets: List[Any]) -> int:
+        """Score bullets by keyword matches.
+
+        Each bullet counts as 1 point if any keyword matches.
+
+        Args:
+            bullets: List of bullet texts.
+
+        Returns:
+            Count of bullets with keyword matches.
+        """
+        score = 0
+        for bullet in bullets or []:
+            text = str(bullet)
             for canon in self._keywords:
                 if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
-                    record_match(canon, text, "skills")
+                    score += 1
+                    break  # Only count once per bullet
+        return score
 
-        # Experience
-        for i, exp in enumerate(candidate.get("experience") or []):
-            # Title + company
-            title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
-            if title_text:
-                for canon in self._keywords:
-                    if any(self.match_keyword(title_text, kw) for kw in self.expand(canon)):
-                        record_match(canon, title_text, f"exp[{i}].title")
+    def _score_single_role(self, exp: Dict[str, Any]) -> int:
+        """Score a single experience role.
 
-            # Bullets
-            for bullet in exp.get("bullets") or []:
-                text = str(bullet)
-                for canon in self._keywords:
-                    if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
-                        record_match(canon, text, f"exp[{i}].bullet")
+        Args:
+            exp: Experience entry dict.
 
-        return results
+        Returns:
+            Total score for the role.
+        """
+        role_score = 0
+
+        title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
+        if title_text:
+            role_score += self._score_title_text(title_text)
+
+        role_score += self._score_bullets(exp.get("bullets") or [])
+
+        return role_score
 
     def score_experience_roles(
         self,
@@ -545,28 +652,10 @@ class KeywordMatcher:
         Returns:
             List of (role_index, score) tuples, sorted by score descending.
         """
-        scores: List[Tuple[int, int]] = []
-
-        for i, exp in enumerate(candidate.get("experience") or []):
-            role_score = 0
-
-            # Title + company
-            title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
-            if title_text:
-                for canon, info in self._keywords.items():
-                    if any(self.match_keyword(title_text, kw) for kw in self.expand(canon)):
-                        role_score += info.weight
-
-            # Bullets (count as 1 each regardless of weight)
-            for bullet in exp.get("bullets") or []:
-                text = str(bullet)
-                for canon in self._keywords:
-                    if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
-                        role_score += 1
-                        break  # Only count once per bullet
-
-            scores.append((i, role_score))
-
+        scores = [
+            (i, self._score_single_role(exp))
+            for i, exp in enumerate(candidate.get("experience") or [])
+        ]
         scores.sort(key=lambda t: t[1], reverse=True)
         return scores
 

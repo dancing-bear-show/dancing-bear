@@ -10,18 +10,25 @@ def _score(v) -> float:
         return 1.0
 
 
+def _get_item_priority(item: Dict[str, Any]) -> float:
+    """Extract priority or usefulness from item dict, defaulting to 1.0."""
+    pr = item.get("priority") if item.get("priority") is not None else item.get("usefulness")
+    return _score(pr) if pr is not None else 1.0
+
+
+def _should_keep_item(item: Any, cutoff: float) -> bool:
+    """Check if an item meets the priority cutoff."""
+    if isinstance(item, dict):
+        return _get_item_priority(item) >= cutoff
+    # strings: keep when cutoff is <= default (1.0)
+    return cutoff <= 1.0
+
+
 def _filter_items(items: List[Any], cutoff: float) -> List[Any]:
     out = []
     for it in (items or []):
-        if isinstance(it, dict):
-            pr = it.get("priority") if it.get("priority") is not None else it.get("usefulness")
-            pr = _score(pr) if pr is not None else 1.0
-            if pr >= cutoff:
-                out.append(it)
-        else:
-            # strings: keep when cutoff is <= default (1.0)
-            if cutoff <= 1.0:
-                out.append(it)
+        if _should_keep_item(it, cutoff):
+            out.append(it)
     return out
 
 

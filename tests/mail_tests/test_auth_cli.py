@@ -26,6 +26,7 @@ class AuthCLITests(unittest.TestCase):
 
         class FakeRequest:
             def __init__(self, *args, **kwargs):
+                """Mock Request class that accepts any arguments and does nothing."""
                 pass
 
         google_auth_transport_requests.Request = FakeRequest
@@ -54,7 +55,8 @@ class AuthCLITests(unittest.TestCase):
         googleapiclient_discovery = types.ModuleType("googleapiclient.discovery")
 
         class _Users:
-            def getProfile(self, userId="me"):
+            def getProfile(self, userId="me"):  # noqa: N802,N803  # NOSONAR - Mock Gmail API naming convention
+                """Mock getProfile method matching Gmail API naming."""
                 class _Exec:
                     def execute(self):
                         return {"emailAddress": "me@example.com"}

@@ -150,7 +150,7 @@ class TestParseRule(unittest.TestCase):
     """Tests for _parse_rule function."""
 
     def test_empty_rule(self):
-        criteria, action, paths, rule_name = _parse_rule({})
+        criteria, action, _, rule_name = _parse_rule({})
         self.assertEqual(criteria.extensions, [])
         self.assertIsNone(criteria.size_threshold)
         self.assertIsNone(criteria.age_threshold)
@@ -168,7 +168,7 @@ class TestParseRule(unittest.TestCase):
             },
             "action": {"move_to": "/archive"},
         }
-        criteria, action, paths, rule_name = _parse_rule(rule)
+        criteria, action, _, rule_name = _parse_rule(rule)
 
         self.assertEqual(criteria.extensions, [".tmp", ".log"])  # lowercased
         self.assertEqual(criteria.size_threshold, 1024 * 1024)
