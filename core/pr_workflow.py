@@ -273,30 +273,51 @@ def get_pr_changed_files(pr_number: int) -> list[str]:
     return [line.strip() for line in stdout.strip().split("\n") if line.strip()]
 
 
+def _parse_check_status(status_str: str) -> tuple[str, Optional[str]]:
+    """Parse gh check status string to (status, conclusion)."""
+    status_map = {
+        "pass": ("completed", "success"),
+        "fail": ("completed", "failure"),
+        "pending": ("pending", None),
+        "in_progress": ("in_progress", None),
+        "skipped": ("completed", "skipped"),
+        "cancelled": ("completed", "cancelled"),
+    }
+    return status_map.get(status_str, ("completed", None))
+
+
 def get_ci_checks(pr_number: int) -> list[CiCheck]:
     """Get CI/CD check status for PR."""
-    _, stdout, _ = _run_gh([
-        "pr", "checks", str(pr_number),
-        "--json", "name,status,conclusion,detailsUrl,startedAt,completedAt"
-    ], check=False)
+    # Use plain output format and parse it
+    _, stdout, _ = _run_gh(["pr", "checks", str(pr_number)], check=False)
 
     if not stdout:
         return []
 
     checks = []
-    try:
-        data = json.loads(stdout)
-        for check in data:
-            checks.append(CiCheck(
-                name=check.get("name", "Unknown"),
-                status=check.get("status", "unknown"),
-                conclusion=check.get("conclusion"),
-                details_url=check.get("detailsUrl"),
-                started_at=check.get("startedAt"),
-                completed_at=check.get("completedAt"),
-            ))
-    except json.JSONDecodeError:
-        pass  # nosec B112 - graceful failure on malformed check data
+    # Parse output format: "name\tstatus\tduration\turl\tdetails"
+    for line in stdout.strip().split("\n"):
+        if not line or line.startswith("Some checks"):
+            continue
+
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+
+        name = parts[0].strip()
+        status_str = parts[1].strip()
+        details_url = parts[3].strip() if len(parts) > 3 else None
+
+        status, conclusion = _parse_check_status(status_str)
+
+        checks.append(CiCheck(
+            name=name,
+            status=status,
+            conclusion=conclusion,
+            details_url=details_url,
+            started_at=None,
+            completed_at=None,
+        ))
 
     return checks
 
