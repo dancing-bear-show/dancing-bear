@@ -1,14 +1,13 @@
 import argparse
-import io
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.fixtures import has_pyyaml, test_path
+from tests.mixins import OutputCaptureMixin
 
 
 class CorePipelineTests(unittest.TestCase):

@@ -15,6 +15,7 @@ from ._base import (
     RequestConsumer,
     load_events_config,
 )
+from core.pipeline import PipelineResult
 
 
 @dataclass
@@ -29,11 +30,10 @@ OutlookVerifyRequestConsumer = RequestConsumer[OutlookVerifyRequest]
 
 
 @dataclass
-class OutlookVerifyResult:
-    logs: List[str]
-    total: int
-    duplicates: int
-    missing: int
+class OutlookVerifyResult(PipelineResult):
+    total: int = 0
+    duplicates: int = 0
+    missing: int = 0
 
 
 @dataclass

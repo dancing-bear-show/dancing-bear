@@ -19,6 +19,7 @@ from ._base import (
     _load_yaml,
     LOG_DRY_RUN,
 )
+from core.pipeline import PipelineResult
 
 __all__ = [
     "OutlookSettingsRequest",
@@ -43,11 +44,10 @@ OutlookSettingsRequestConsumer = RequestConsumer[OutlookSettingsRequest]
 
 
 @dataclass
-class OutlookSettingsResult:
-    logs: List[str]
-    selected: int
-    changed: int
-    dry_run: bool
+class OutlookSettingsResult(PipelineResult):
+    selected: int = 0
+    changed: int = 0
+    dry_run: bool = False
 
 
 class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSettingsResult]):

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.pipeline import ResultEnvelope, SafeProcessor
+from core.yamlio import load_config_list
 
 from calendars.yamlio import load_config as _load_yaml
 from calendars.model import normalize_event
@@ -46,12 +47,8 @@ def load_events_config(
     loader=None,
 ) -> List[Dict[str, Any]]:
     """Load config and extract events list, raising on invalid config."""
-    load_fn = loader if loader is not None else _load_yaml
-    cfg = load_fn(str(config_path))
-    items = cfg.get("events") if isinstance(cfg, dict) else None
-    if not isinstance(items, list):
-        raise ValueError(ERR_CONFIG_MUST_CONTAIN_EVENTS)
-    return items
+    cfg = loader(str(config_path)) if loader else _load_yaml(str(config_path))
+    return load_config_list(cfg, "events", error_hint="events config")
 
 
 __all__ = [

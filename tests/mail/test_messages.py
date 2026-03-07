@@ -10,6 +10,7 @@ from mail.messages import (
     candidates_from_metadata,
     encode_email_message,
 )
+from tests.builders import MessageBuilder
 
 
 class ParseAddrTests(unittest.TestCase):
@@ -183,17 +184,12 @@ class CandidatesFromMetadataTests(unittest.TestCase):
 
     def test_single_message(self):
         msgs = [
-            {
-                "id": "msg1",
-                "threadId": "thread1",
-                "snippet": "  Preview text  ",
-                "payload": {
-                    "headers": [
-                        {"name": "From", "value": "sender@example.com"},
-                        {"name": "Subject", "value": "Test Subject"},
-                    ]
-                },
-            }
+            MessageBuilder("msg1")
+            .thread_id("thread1")
+            .snippet("  Preview text  ")
+            .from_("sender@example.com")
+            .subject("Test Subject")
+            .build()
         ]
         result = candidates_from_metadata(msgs)
         self.assertEqual(len(result), 1)
@@ -205,8 +201,8 @@ class CandidatesFromMetadataTests(unittest.TestCase):
 
     def test_multiple_messages(self):
         msgs = [
-            {"id": "msg1", "payload": {"headers": []}},
-            {"id": "msg2", "payload": {"headers": []}},
+            MessageBuilder("msg1").build(),
+            MessageBuilder("msg2").build(),
         ]
         result = candidates_from_metadata(msgs)
         self.assertEqual(len(result), 2)
@@ -230,24 +226,22 @@ class CandidatesFromMetadataTests(unittest.TestCase):
         self.assertEqual(result[0].id, "")
 
     def test_header_case_insensitive(self):
-        msgs = [
-            {
-                "id": "msg1",
-                "payload": {
-                    "headers": [
-                        {"name": "FROM", "value": "sender@example.com"},
-                        {"name": "SUBJECT", "value": "CAPS Subject"},
-                    ]
-                },
-            }
+        # Note: MessageBuilder normalizes headers, so we test with FROM/SUBJECT as custom headers
+        # to verify that the parsing logic handles case-insensitive lookups
+        msg = MessageBuilder("msg1").build()
+        # Override headers with uppercase names
+        msg["payload"]["headers"] = [
+            {"name": "FROM", "value": "sender@example.com"},
+            {"name": "SUBJECT", "value": "CAPS Subject"},
         ]
+        msgs = [msg]
         result = candidates_from_metadata(msgs)
         # Headers are normalized to lowercase keys
         self.assertEqual(result[0].from_header, "sender@example.com")
         self.assertEqual(result[0].subject, "CAPS Subject")
 
     def test_snippet_whitespace_stripped(self):
-        msgs = [{"id": "msg1", "snippet": "  \n  Text with spaces  \n  ", "payload": {}}]
+        msgs = [MessageBuilder("msg1").snippet("  \n  Text with spaces  \n  ").build()]
         result = candidates_from_metadata(msgs)
         self.assertEqual(result[0].snippet, "Text with spaces")
 

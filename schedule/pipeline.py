@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import datetime as _dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
+from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer, PipelineResult
 from core.auth import build_outlook_service
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
@@ -496,8 +496,8 @@ VerifyRequestConsumer = RequestConsumer[VerifyRequest]
 
 
 @dataclass
-class VerifyResult:
-    lines: List[str]
+class VerifyResult(PipelineResult):
+    lines: List[str] = field(default_factory=list)
 
 
 def _key_subject_time(subj: str, st: Optional[str], en: Optional[str]) -> str:
@@ -660,8 +660,8 @@ SyncRequestConsumer = RequestConsumer[SyncRequest]
 
 
 @dataclass
-class SyncResult:
-    lines: List[str]
+class ScheduleSyncResult(PipelineResult):
+    lines: List[str] = field(default_factory=list)
 
 
 def _build_plan_keys(
@@ -907,10 +907,10 @@ def _execute_sync_deletes(
     return deleted
 
 
-class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
+class SyncProcessor(SafeProcessor[SyncRequest, ScheduleSyncResult]):
     """Sync calendar events with a plan with automatic error handling."""
 
-    def _process_safe(self, payload: SyncRequest) -> SyncResult:
+    def _process_safe(self, payload: SyncRequest) -> ScheduleSyncResult:
         # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
         if err:
@@ -975,7 +975,7 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
                 match_mode=match_mode,
             )
             lines = _build_dry_run_lines(payload, dry_run_cfg)
-            return SyncResult(lines=lines)
+            return ScheduleSyncResult(lines=lines)
 
         # Execute creates
         lines, created = _execute_sync_creates(svc, payload, to_create_series, to_create_oneoffs)
@@ -990,13 +990,13 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         )
 
         lines.append(f"Sync complete. Created: {created}; Deleted: {deleted}")
-        return SyncResult(lines=lines)
+        return ScheduleSyncResult(lines=lines)
 
 
 class SyncProducer(BaseProducer):
     """Produce output for sync operations with automatic error handling."""
 
-    def _produce_success(self, payload: SyncResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: ScheduleSyncResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         for line in payload.lines:
             print(line)
 
@@ -1015,8 +1015,8 @@ ApplyRequestConsumer = RequestConsumer[ApplyRequest]
 
 
 @dataclass
-class ApplyResult:
-    lines: List[str]
+class ApplyResult(PipelineResult):
+    lines: List[str] = field(default_factory=list)
 
 
 class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):

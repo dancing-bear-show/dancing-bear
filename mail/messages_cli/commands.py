@@ -306,3 +306,46 @@ def run_messages_apply_scheduled(args) -> int:
                 print(f"Failed to send to {to}: {e}")
     print(f"Scheduled send complete. Sent: {sent}, Errors: {errors}")
     return 1 if errors else 0
+
+
+def run_messages_mark_old_read(args) -> int:
+    """Mark old unread messages as read and archive them."""
+    from ..utils.cli_helpers import gmail_provider_from_args
+    from datetime import datetime, timedelta
+
+    client = gmail_provider_from_args(args)
+    client.authenticate()
+
+    days = int(getattr(args, "days", 180) or 180)
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    # Calculate date threshold
+    threshold_date = datetime.now() - timedelta(days=days)
+    date_str = threshold_date.strftime('%Y/%m/%d')
+
+    # Search for old unread inbox messages
+    query = f'in:inbox is:unread before:{date_str}'
+    print(f'Searching for unread inbox messages before {date_str} ({days} days ago)...')
+
+    message_ids = client.list_message_ids(query=query)
+
+    if not message_ids:
+        print('No old unread messages found.')
+        return 0
+
+    print(f'Found {len(message_ids)} unread inbox messages older than {days} days')
+
+    if dry_run:
+        print('DRY RUN - no changes made')
+        print(f'Would mark {len(message_ids)} messages as read and archive them')
+        return 0
+
+    print(f'Marking {len(message_ids)} messages as read and archiving...')
+    client.batch_modify_messages(
+        ids=message_ids,
+        add_label_ids=[],
+        remove_label_ids=['UNREAD', 'INBOX']
+    )
+
+    print(f'✓ Done! Marked {len(message_ids)} messages as read and archived')
+    return 0

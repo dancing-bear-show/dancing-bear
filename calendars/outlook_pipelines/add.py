@@ -20,6 +20,7 @@ from ._base import (
 )
 from ._context import EventProcessingContext
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
+from core.pipeline import PipelineResult
 
 
 @dataclass
@@ -34,10 +35,9 @@ OutlookAddRequestConsumer = RequestConsumer[OutlookAddRequest]
 
 
 @dataclass
-class OutlookAddResult:
-    logs: List[str]
-    created: int
-    dry_run: bool
+class OutlookAddResult(PipelineResult):
+    created: int = 0
+    dry_run: bool = False
 
 
 class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):

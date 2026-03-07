@@ -16,7 +16,7 @@ from schedule.pipeline import (
     PlanRequestConsumer,
     PlanResult,
     SyncProducer,
-    SyncResult,
+    ScheduleSyncResult,
     VerifyProducer,
     VerifyResult,
     _build_have_st_keys,
@@ -595,7 +595,7 @@ class SyncProducerTests(TestCase):
     """Tests for SyncProducer."""
 
     def test_produce_success(self):
-        payload = SyncResult(lines=["Created: 5", "Deleted: 2"])
+        payload = ScheduleSyncResult(lines=["Created: 5", "Deleted: 2"])
         env = ResultEnvelope(status="success", payload=payload)
         buf = io.StringIO()
         with redirect_stdout(buf):

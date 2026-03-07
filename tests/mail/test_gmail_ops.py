@@ -1,39 +1,13 @@
 """Tests for mail/utils/gmail_ops.py Gmail helper functions."""
 
 import unittest
-from typing import List, Optional
 
 from mail.utils.gmail_ops import (
     list_message_ids,
     fetch_messages_with_metadata,
     _clip_ids,
 )
-
-
-class FakeGmailClient:
-    """Fake Gmail client for testing."""
-
-    def __init__(self, message_ids: List[str], messages: List[dict]):
-        self.message_ids = message_ids
-        self.messages = messages
-        self.list_calls = []
-        self.metadata_calls = []
-
-    def list_message_ids(
-        self,
-        query: Optional[str] = None,
-        label_ids: Optional[List[str]] = None,
-        max_pages: int = 1,
-        page_size: int = 500,
-    ) -> List[str]:
-        self.list_calls.append(
-            {"query": query, "label_ids": label_ids, "max_pages": max_pages, "page_size": page_size}
-        )
-        return self.message_ids
-
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[dict]:
-        self.metadata_calls.append({"ids": ids, "use_cache": use_cache})
-        return [m for m in self.messages if m["id"] in ids]
+from tests.fakes.gmail import FakeGmailClient
 
 
 class TestClipIds(unittest.TestCase):
@@ -64,8 +38,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_lists_message_ids(self):
         client = FakeGmailClient(
-            message_ids=["m1", "m2", "m3"],
-            messages=[],
+            message_ids_by_query={"inbox": ["m1", "m2", "m3"]},
         )
         result = list_message_ids(client, query="in:inbox", pages=1)
         self.assertEqual(result, ["m1", "m2", "m3"])
@@ -75,16 +48,14 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_respects_max_msgs(self):
         client = FakeGmailClient(
-            message_ids=["m1", "m2", "m3", "m4", "m5"],
-            messages=[],
+            message_ids_by_query={"inbox": ["m1", "m2", "m3", "m4", "m5"]},
         )
         result = list_message_ids(client, query="in:inbox", pages=1, max_msgs=3)
         self.assertEqual(result, ["m1", "m2", "m3"])
 
     def test_uses_custom_page_size(self):
         client = FakeGmailClient(
-            message_ids=["m1"],
-            messages=[],
+            message_ids_by_query={"test": ["m1"]},
         )
         list_message_ids(client, query="test", pages=2, page_size=100)
         self.assertEqual(client.list_calls[0]["page_size"], 100)
@@ -92,8 +63,7 @@ class TestListMessageIds(unittest.TestCase):
 
     def test_uses_default_page_size(self):
         client = FakeGmailClient(
-            message_ids=["m1"],
-            messages=[],
+            message_ids_by_query={"test": ["m1"]},
         )
         list_message_ids(client, query="test", pages=1)
         self.assertEqual(client.list_calls[0]["page_size"], 500)
@@ -103,30 +73,30 @@ class TestFetchMessagesWithMetadata(unittest.TestCase):
     """Tests for fetch_messages_with_metadata function."""
 
     def test_fetches_ids_and_metadata(self):
-        messages = [
-            {"id": "m1", "subject": "Test 1"},
-            {"id": "m2", "subject": "Test 2"},
-        ]
+        messages = {
+            "m1": {"id": "m1", "subject": "Test 1"},
+            "m2": {"id": "m2", "subject": "Test 2"},
+        }
         client = FakeGmailClient(
-            message_ids=["m1", "m2"],
+            message_ids_by_query={"inbox": ["m1", "m2"]},
             messages=messages,
         )
         ids, msgs = fetch_messages_with_metadata(client, query="in:inbox", pages=1)
 
         self.assertEqual(ids, ["m1", "m2"])
-        self.assertEqual(msgs, messages)
+        self.assertEqual(msgs, [messages["m1"], messages["m2"]])
         self.assertEqual(len(client.list_calls), 1)
         self.assertEqual(len(client.metadata_calls), 1)
         self.assertTrue(client.metadata_calls[0]["use_cache"])
 
     def test_respects_max_msgs_parameter(self):
-        messages = [
-            {"id": "m1", "subject": "Test 1"},
-            {"id": "m2", "subject": "Test 2"},
-            {"id": "m3", "subject": "Test 3"},
-        ]
+        messages = {
+            "m1": {"id": "m1", "subject": "Test 1"},
+            "m2": {"id": "m2", "subject": "Test 2"},
+            "m3": {"id": "m3", "subject": "Test 3"},
+        }
         client = FakeGmailClient(
-            message_ids=["m1", "m2", "m3"],
+            message_ids_by_query={"test": ["m1", "m2", "m3"]},
             messages=messages,
         )
         ids, msgs = fetch_messages_with_metadata(client, query="test", pages=1, max_msgs=2)
@@ -136,18 +106,15 @@ class TestFetchMessagesWithMetadata(unittest.TestCase):
 
     def test_passes_page_size(self):
         client = FakeGmailClient(
-            message_ids=["m1"],
-            messages=[{"id": "m1"}],
+            message_ids_by_query={"test": ["m1"]},
+            messages={"m1": {"id": "m1"}},
         )
         fetch_messages_with_metadata(client, query="test", pages=3, page_size=250)
 
         self.assertEqual(client.list_calls[0]["page_size"], 250)
 
     def test_handles_empty_results(self):
-        client = FakeGmailClient(
-            message_ids=[],
-            messages=[],
-        )
+        client = FakeGmailClient()
         ids, msgs = fetch_messages_with_metadata(client, query="nonexistent", pages=1)
 
         self.assertEqual(ids, [])

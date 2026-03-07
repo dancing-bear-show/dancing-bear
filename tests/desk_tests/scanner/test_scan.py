@@ -1,19 +1,14 @@
 """Tests for desk/scan.py file scanning utilities."""
 
 import os
-import tempfile
 import unittest
 
 from desk.scan import run_scan, find_duplicates, _sha256_of
+from tests.fixtures import TempDirMixin
 
 
-class Sha256OfTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class Sha256OfTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_hash_file(self):
         path = os.path.join(self.tmpdir, "test.txt")
@@ -48,13 +43,8 @@ class Sha256OfTests(unittest.TestCase):
         self.assertNotEqual(_sha256_of(path1), _sha256_of(path2))
 
 
-class FindDuplicatesTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class FindDuplicatesTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_empty_list(self):
         result = find_duplicates([])
@@ -109,13 +99,8 @@ class FindDuplicatesTests(unittest.TestCase):
         self.assertEqual(result, [])
 
 
-class RunScanTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class RunScanTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_scan_empty_dir(self):
         result = run_scan([self.tmpdir], min_size="1MB")

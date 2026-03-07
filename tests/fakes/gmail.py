@@ -29,6 +29,7 @@ class FakeGmailClient:
     messages: Dict[str, Dict] = field(default_factory=dict)
     message_ids_by_query: Dict[str, List[str]] = field(default_factory=dict)
     verified_forward_addresses: set = field(default_factory=set)
+    signatures: List[Dict] = field(default_factory=list)
 
     # Track mutations
     created_filters: List[Dict] = field(default_factory=list)
@@ -36,6 +37,11 @@ class FakeGmailClient:
     modified_batches: List[tuple] = field(default_factory=list)
     sent_messages: List[bytes] = field(default_factory=list)
     created_drafts: List[bytes] = field(default_factory=list)
+    updated_signatures: Dict[str, str] = field(default_factory=dict)
+
+    # Track method calls for test verification
+    list_calls: List[Dict] = field(default_factory=list)
+    metadata_calls: List[Dict] = field(default_factory=list)
 
     def authenticate(self) -> None:
         """No-op for fake client - authentication not needed in tests."""
@@ -53,6 +59,13 @@ class FakeGmailClient:
         self, query: Optional[str] = None, label_ids: Optional[List[str]] = None,
         max_pages: int = 1, page_size: int = 500
     ) -> List[str]:
+        # Track call for test verification
+        self.list_calls.append({
+            "query": query,
+            "label_ids": label_ids,
+            "max_pages": max_pages,
+            "page_size": page_size,
+        })
         q = (query or "").lower()
         for pattern, ids in self.message_ids_by_query.items():
             if pattern.lower() in q:
@@ -60,6 +73,8 @@ class FakeGmailClient:
         return []
 
     def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:  # noqa: ARG002
+        # Track call for test verification
+        self.metadata_calls.append({"ids": ids, "use_cache": use_cache})
         return [self.messages.get(mid, {"id": mid}) for mid in ids]
 
     def get_message(self, msg_id: str, fmt: str = "full") -> Dict:  # noqa: ARG002
@@ -131,6 +146,15 @@ class FakeGmailClient:
 
     def get_verified_forwarding_addresses(self) -> set:
         return set(self.verified_forward_addresses)
+
+    def list_signatures(self) -> List[Dict]:
+        """Return the list of configured signatures."""
+        return list(self.signatures)
+
+    def update_signature(self, email: str, html: str) -> Dict:
+        """Update a signature for a given email address."""
+        self.updated_signatures[email] = html
+        return {"sendAsEmail": email, "signature": html}
 
 
 def make_gmail_client(

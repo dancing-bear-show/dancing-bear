@@ -2,7 +2,6 @@
 
 import json
 import os
-import tempfile
 import unittest
 
 from desk.utils import (
@@ -12,6 +11,7 @@ from desk.utils import (
     human_size,
     dump_output,
 )
+from tests.fixtures import TempDirMixin
 
 
 class ExpandPathsTests(unittest.TestCase):
@@ -153,13 +153,8 @@ class HumanSizeTests(unittest.TestCase):
         self.assertIn("MB", result)
 
 
-class DumpOutputTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class DumpOutputTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_json_file_output(self):
         out_path = os.path.join(self.tmpdir, "output.json")

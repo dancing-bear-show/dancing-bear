@@ -182,51 +182,8 @@ def temp_csv(headers: List[str], rows: List[List], suffix: str = ".csv"):
 # -----------------------------------------------------------------------------
 
 
-class TempDirMixin:
-    """Mixin providing a temporary directory that's cleaned up after each test.
-
-    Usage:
-        class MyTest(TempDirMixin, unittest.TestCase):
-            def test_something(self):
-                path = os.path.join(self.tmpdir, "file.txt")
-                ...
-    """
-
-    tmpdir: str
-
-    def setUp(self):  # noqa: N802 - unittest method name  # NOSONAR: S100 - unittest framework method
-        super().setUp()
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):  # noqa: N802 - unittest method name  # NOSONAR: S100 - unittest framework method
-        import shutil
-
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-        super().tearDown()
-
-    def in_tmpdir(self):
-        """Context manager to temporarily change to tmpdir.
-
-        Usage:
-            with self.in_tmpdir():
-                # code runs in tmpdir
-                ...
-            # back to original directory
-        """
-        from contextlib import contextmanager
-
-        @contextmanager
-        def _chdir():
-            import os
-
-            old_cwd = os.getcwd()
-            try:
-                os.chdir(self.tmpdir)
-                yield
-            finally:
-                os.chdir(old_cwd)
-
-        return _chdir()
+# Re-export TempDirMixin from mixins module for backwards compatibility
+from tests.mixins import TempDirMixin  # noqa: F401
 
 
 # -----------------------------------------------------------------------------

@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict
 
+from .utils.label_mapping import build_label_mapping
+
 
 @dataclass
 class LabelMapping:
@@ -15,6 +17,5 @@ class LabelMapping:
     @classmethod
     def from_labels(cls, labels: list) -> LabelMapping:
         """Create mapping from Gmail labels list."""
-        id_to_name = {label["id"]: label["name"] for label in labels}
-        name_to_id = {label["name"]: label["id"] for label in labels}
+        id_to_name, name_to_id = build_label_mapping(labels)
         return cls(id_to_name=id_to_name, name_to_id=name_to_id)

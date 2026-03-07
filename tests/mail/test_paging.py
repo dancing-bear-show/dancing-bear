@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from mail.paging import paginate_gmail_messages, gather_pages
+from tests.builders import MessageBuilder
 
 
 class GatherPagesTests(unittest.TestCase):
@@ -94,43 +95,53 @@ class PaginateGmailMessagesTests(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_single_page(self):
-        svc = self._make_mock_svc([[{"id": "msg1"}, {"id": "msg2"}]])
+        msg1 = MessageBuilder("msg1").build()
+        msg2 = MessageBuilder("msg2").build()
+        svc = self._make_mock_svc([[msg1, msg2]])
         result = list(paginate_gmail_messages(svc))
         self.assertEqual(result, [["msg1", "msg2"]])
 
     def test_multiple_pages(self):
-        svc = self._make_mock_svc([
-            [{"id": "msg1"}, {"id": "msg2"}],
-            [{"id": "msg3"}],
-        ])
+        msg1 = MessageBuilder("msg1").build()
+        msg2 = MessageBuilder("msg2").build()
+        msg3 = MessageBuilder("msg3").build()
+        svc = self._make_mock_svc([[msg1, msg2], [msg3]])
         result = list(paginate_gmail_messages(svc))
         self.assertEqual(result, [["msg1", "msg2"], ["msg3"]])
 
     def test_passes_query(self):
-        svc = self._make_mock_svc([[{"id": "msg1"}]])
+        msg1 = MessageBuilder("msg1").build()
+        svc = self._make_mock_svc([[msg1]])
         list(paginate_gmail_messages(svc, query="from:test@example.com"))
         call_args = svc.list.call_args
         self.assertEqual(call_args.kwargs.get("q"), "from:test@example.com")
 
     def test_passes_label_ids(self):
-        svc = self._make_mock_svc([[{"id": "msg1"}]])
+        msg1 = MessageBuilder("msg1").build()
+        svc = self._make_mock_svc([[msg1]])
         list(paginate_gmail_messages(svc, label_ids=["INBOX", "UNREAD"]))
         call_args = svc.list.call_args
         self.assertEqual(call_args.kwargs.get("labelIds"), ["INBOX", "UNREAD"])
 
     def test_passes_page_size(self):
-        svc = self._make_mock_svc([[{"id": "msg1"}]])
+        msg1 = MessageBuilder("msg1").build()
+        svc = self._make_mock_svc([[msg1]])
         list(paginate_gmail_messages(svc, page_size=100))
         call_args = svc.list.call_args
         self.assertEqual(call_args.kwargs.get("maxResults"), 100)
 
     def test_skips_messages_without_id(self):
-        svc = self._make_mock_svc([[{"id": "msg1"}, {"threadId": "no-id"}, {"id": "msg2"}]])
+        msg1 = MessageBuilder("msg1").build()
+        msg_no_id = {"threadId": "no-id"}  # Missing id field
+        msg2 = MessageBuilder("msg2").build()
+        svc = self._make_mock_svc([[msg1, msg_no_id, msg2]])
         result = list(paginate_gmail_messages(svc))
         self.assertEqual(result, [["msg1", "msg2"]])
 
     def test_yields_lists(self):
-        svc = self._make_mock_svc([[{"id": "msg1"}], [{"id": "msg2"}]])
+        msg1 = MessageBuilder("msg1").build()
+        msg2 = MessageBuilder("msg2").build()
+        svc = self._make_mock_svc([[msg1], [msg2]])
         for page in paginate_gmail_messages(svc):
             self.assertIsInstance(page, list)
 

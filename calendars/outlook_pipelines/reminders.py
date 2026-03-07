@@ -16,6 +16,7 @@ from ._base import (
     MSG_PREVIEW_COMPLETE,
     LOG_DRY_RUN,
 )
+from core.pipeline import PipelineResult
 from ._context import EventClassification, ReminderUpdateContext
 
 __all__ = [
@@ -43,11 +44,10 @@ OutlookRemindersRequestConsumer = RequestConsumer[OutlookRemindersRequest]
 
 
 @dataclass
-class OutlookRemindersResult:
-    logs: List[str]
-    updated: int
-    dry_run: bool
-    set_off: bool
+class OutlookRemindersResult(PipelineResult):
+    updated: int = 0
+    dry_run: bool = False
+    set_off: bool = False
 
 
 class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRemindersResult]):

@@ -9,6 +9,7 @@ from calendars.selection import (
     _local_time_hhmm,
     _event_matches_criteria,
 )
+from tests.builders import EventBuilder
 
 
 class TestComputeWindow(unittest.TestCase):
@@ -111,46 +112,56 @@ class TestEventMatchesCriteria(unittest.TestCase):
 
     def test_event_matches_criteria_day_match(self):
         """_event_matches_criteria should match events by weekday."""
-        event = {
-            "start": {"dateTime": "2025-01-06T17:00:00"},  # Monday
-            "end": {"dateTime": "2025-01-06T17:30:00"},
-        }
+        event = (
+            EventBuilder()
+            .start("2025-01-06T17:00:00")  # Monday
+            .end("2025-01-06T17:30:00")
+            .build()
+        )
         result = _event_matches_criteria(event, {"mo"}, None, None)
         self.assertTrue(result)
 
     def test_event_matches_criteria_day_mismatch(self):
         """_event_matches_criteria should reject events on wrong weekday."""
-        event = {
-            "start": {"dateTime": "2025-01-06T17:00:00"},  # Monday
-            "end": {"dateTime": "2025-01-06T17:30:00"},
-        }
+        event = (
+            EventBuilder()
+            .start("2025-01-06T17:00:00")  # Monday
+            .end("2025-01-06T17:30:00")
+            .build()
+        )
         result = _event_matches_criteria(event, {"tu"}, None, None)
         self.assertFalse(result)
 
     def test_event_matches_criteria_start_time_match(self):
         """_event_matches_criteria should match events by start time."""
-        event = {
-            "start": {"dateTime": "2025-01-06T17:00:00"},
-            "end": {"dateTime": "2025-01-06T17:30:00"},
-        }
+        event = (
+            EventBuilder()
+            .start("2025-01-06T17:00:00")
+            .end("2025-01-06T17:30:00")
+            .build()
+        )
         result = _event_matches_criteria(event, set(), "17:00", None)
         self.assertTrue(result)
 
     def test_event_matches_criteria_start_time_mismatch(self):
         """_event_matches_criteria should reject events with wrong start time."""
-        event = {
-            "start": {"dateTime": "2025-01-06T17:00:00"},
-            "end": {"dateTime": "2025-01-06T17:30:00"},
-        }
+        event = (
+            EventBuilder()
+            .start("2025-01-06T17:00:00")
+            .end("2025-01-06T17:30:00")
+            .build()
+        )
         result = _event_matches_criteria(event, set(), "18:00", None)
         self.assertFalse(result)
 
     def test_event_matches_criteria_end_time_match(self):
         """_event_matches_criteria should match events by end time."""
-        event = {
-            "start": {"dateTime": "2025-01-06T17:00:00"},
-            "end": {"dateTime": "2025-01-06T17:30:00"},
-        }
+        event = (
+            EventBuilder()
+            .start("2025-01-06T17:00:00")
+            .end("2025-01-06T17:30:00")
+            .build()
+        )
         result = _event_matches_criteria(event, set(), None, "17:30")
         self.assertTrue(result)
 
@@ -167,9 +178,9 @@ class TestFilterEventsByDayTime(unittest.TestCase):
     def test_filter_events_by_day(self):
         """filter_events_by_day_time should filter by weekday."""
         events = [
-            {"start": {"dateTime": "2025-01-06T17:00:00"}, "end": {"dateTime": "2025-01-06T17:30:00"}},  # Monday
-            {"start": {"dateTime": "2025-01-07T17:00:00"}, "end": {"dateTime": "2025-01-07T17:30:00"}},  # Tuesday
-            {"start": {"dateTime": "2025-01-08T17:00:00"}, "end": {"dateTime": "2025-01-08T17:30:00"}},  # Wednesday
+            EventBuilder().start("2025-01-06T17:00:00").end("2025-01-06T17:30:00").build(),  # Monday
+            EventBuilder().start("2025-01-07T17:00:00").end("2025-01-07T17:30:00").build(),  # Tuesday
+            EventBuilder().start("2025-01-08T17:00:00").end("2025-01-08T17:30:00").build(),  # Wednesday
         ]
         result = filter_events_by_day_time(events, byday=["MO", "WE"])
         self.assertEqual(len(result), 2)
@@ -177,8 +188,8 @@ class TestFilterEventsByDayTime(unittest.TestCase):
     def test_filter_events_by_start_time(self):
         """filter_events_by_day_time should filter by start time."""
         events = [
-            {"start": {"dateTime": "2025-01-06T17:00:00"}, "end": {"dateTime": "2025-01-06T17:30:00"}},
-            {"start": {"dateTime": "2025-01-06T18:00:00"}, "end": {"dateTime": "2025-01-06T18:30:00"}},
+            EventBuilder().start("2025-01-06T17:00:00").end("2025-01-06T17:30:00").build(),
+            EventBuilder().start("2025-01-06T18:00:00").end("2025-01-06T18:30:00").build(),
         ]
         result = filter_events_by_day_time(events, start_time="17:00")
         self.assertEqual(len(result), 1)
@@ -187,8 +198,8 @@ class TestFilterEventsByDayTime(unittest.TestCase):
     def test_filter_events_by_end_time(self):
         """filter_events_by_day_time should filter by end time."""
         events = [
-            {"start": {"dateTime": "2025-01-06T17:00:00"}, "end": {"dateTime": "2025-01-06T17:30:00"}},
-            {"start": {"dateTime": "2025-01-06T17:00:00"}, "end": {"dateTime": "2025-01-06T18:00:00"}},
+            EventBuilder().start("2025-01-06T17:00:00").end("2025-01-06T17:30:00").build(),
+            EventBuilder().start("2025-01-06T17:00:00").end("2025-01-06T18:00:00").build(),
         ]
         result = filter_events_by_day_time(events, end_time="17:30")
         self.assertEqual(len(result), 1)
@@ -196,8 +207,8 @@ class TestFilterEventsByDayTime(unittest.TestCase):
     def test_filter_events_returns_all_when_no_criteria(self):
         """filter_events_by_day_time should return all events when no criteria."""
         events = [
-            {"start": {"dateTime": "2025-01-06T17:00:00"}, "end": {"dateTime": "2025-01-06T17:30:00"}},
-            {"start": {"dateTime": "2025-01-07T18:00:00"}, "end": {"dateTime": "2025-01-07T18:30:00"}},
+            EventBuilder().start("2025-01-06T17:00:00").end("2025-01-06T17:30:00").build(),
+            EventBuilder().start("2025-01-07T18:00:00").end("2025-01-07T18:30:00").build(),
         ]
         result = filter_events_by_day_time(events)
         self.assertEqual(len(result), 2)
@@ -205,9 +216,9 @@ class TestFilterEventsByDayTime(unittest.TestCase):
     def test_filter_events_combines_day_and_time_criteria(self):
         """filter_events_by_day_time should combine day and time filters."""
         events = [
-            {"start": {"dateTime": "2025-01-06T17:00:00"}, "end": {"dateTime": "2025-01-06T17:30:00"}},  # Monday 17:00
-            {"start": {"dateTime": "2025-01-06T18:00:00"}, "end": {"dateTime": "2025-01-06T18:30:00"}},  # Monday 18:00
-            {"start": {"dateTime": "2025-01-07T17:00:00"}, "end": {"dateTime": "2025-01-07T17:30:00"}},  # Tuesday 17:00
+            EventBuilder().start("2025-01-06T17:00:00").end("2025-01-06T17:30:00").build(),  # Monday 17:00
+            EventBuilder().start("2025-01-06T18:00:00").end("2025-01-06T18:30:00").build(),  # Monday 18:00
+            EventBuilder().start("2025-01-07T17:00:00").end("2025-01-07T17:30:00").build(),  # Tuesday 17:00
         ]
         result = filter_events_by_day_time(events, byday=["MO"], start_time="17:00")
         self.assertEqual(len(result), 1)

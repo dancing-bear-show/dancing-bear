@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Dict, List, TYPE_CHECKING
 
 from core.pipeline import Consumer
+from core.yamlio import load_config_list
 
 from ..context import MailContext
+from ..utils.label_mapping import build_label_mapping
 from ..yamlio import load_config
 
 # Error message constants
@@ -189,11 +191,7 @@ class FiltersExportConsumer(Consumer[FiltersExportPayload]):
             raise ValueError("Missing --out for filters export.")
         client = self.context.get_gmail_client()
         labels = client.list_labels()
-        id_to_name = {
-            str(label.get("id", "")): str(label.get("name", "") or "")
-            for label in labels
-            if label.get("id")
-        }
+        id_to_name, _ = build_label_mapping(labels)
         filters = client.list_filters()
         return FiltersExportPayload(filters=filters, id_to_name=id_to_name, out_path=Path(out_path))
 
@@ -320,11 +318,7 @@ class FiltersAddForwardConsumer(Consumer[FiltersAddForwardPayload]):
 
         client = self.context.get_gmail_client()
         labels = client.list_labels()
-        id_to_name = {
-            str(label.get("id", "")): str(label.get("name", "") or "")
-            for label in labels
-            if label.get("id")
-        }
+        id_to_name, _ = build_label_mapping(labels)
         filters = client.list_filters()
         require_verified = bool(getattr(args, "require_forward_verified", False))
         verified = set(client.get_verified_forwarding_addresses())
@@ -357,11 +351,7 @@ class FiltersAddTokenConsumer(Consumer[FiltersAddTokenPayload]):
             raise ValueError("Missing --needle or --add")
         client = self.context.get_gmail_client()
         labels = client.list_labels()
-        id_to_name = {
-            str(label.get("id", "")): str(label.get("name", "") or "")
-            for label in labels
-            if label.get("id")
-        }
+        id_to_name, _ = build_label_mapping(labels)
         filters = client.list_filters()
         return FiltersAddTokenPayload(
             filters=filters,
@@ -391,11 +381,7 @@ class FiltersRemoveTokenConsumer(Consumer[FiltersRemoveTokenPayload]):
             raise ValueError("Missing --needle or --remove")
         client = self.context.get_gmail_client()
         labels = client.list_labels()
-        id_to_name = {
-            str(label.get("id", "")): str(label.get("name", "") or "")
-            for label in labels
-            if label.get("id")
-        }
+        id_to_name, _ = build_label_mapping(labels)
         filters = client.list_filters()
         return FiltersRemoveTokenPayload(
             filters=filters,
@@ -416,12 +402,7 @@ def _load_filters_payload(context: MailContext, *, error_hint: str, allow_missin
 
     client = context.get_gmail_client()
     labels = client.list_labels()
-    id_to_name = {
-        str(label.get("id", "")): str(label.get("name", "") or "")
-        for label in labels
-        if label.get("id")
-    }
-    name_to_id = {name: lid for lid, name in id_to_name.items() if name}
+    id_to_name, name_to_id = build_label_mapping(labels)
     existing = client.list_filters()
     delete_missing = bool(getattr(args, "delete_missing", False))
     return {
@@ -434,15 +415,4 @@ def _load_filters_payload(context: MailContext, *, error_hint: str, allow_missin
 
 
 def _load_desired_filters(doc: dict, *, error_hint: str, allow_missing: bool) -> List[dict]:
-    raw = doc.get("filters")
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        if allow_missing:
-            return []
-        raise ValueError(error_hint)
-    desired: List[dict] = []
-    for entry in raw:
-        if isinstance(entry, dict):
-            desired.append(entry)
-    return desired
+    return load_config_list(doc, "filters", allow_missing=allow_missing, error_hint=error_hint)

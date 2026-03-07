@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,6 +19,7 @@ from mail.filters.commands import (
 )
 
 from tests.mail_tests.fixtures import FakeGmailClient, make_args
+from tests.mixins import OutputCaptureMixin
 
 
 def _make_context_with_client(client: FakeGmailClient, **extra_args) -> SimpleNamespace:
@@ -30,7 +29,7 @@ def _make_context_with_client(client: FakeGmailClient, **extra_args) -> SimpleNa
     return args
 
 
-class TestRunFiltersList(unittest.TestCase):
+class TestRunFiltersList(OutputCaptureMixin, unittest.TestCase):
     """Tests for run_filters_list function."""
 
     def test_lists_filters_with_labels(self):
@@ -54,8 +53,7 @@ class TestRunFiltersList(unittest.TestCase):
         )
         args = _make_context_with_client(client)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             result = run_filters_list(args)
 
         self.assertEqual(result, 0)
@@ -80,8 +78,7 @@ class TestRunFiltersList(unittest.TestCase):
         )
         args = _make_context_with_client(client)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             result = run_filters_list(args)
 
         self.assertEqual(result, 0)
@@ -92,8 +89,7 @@ class TestRunFiltersList(unittest.TestCase):
         client = FakeGmailClient(labels=[], filters=[])
         args = _make_context_with_client(client)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             result = run_filters_list(args)
 
         self.assertEqual(result, 0)
@@ -111,15 +107,14 @@ class TestRunFiltersList(unittest.TestCase):
         )
         args = _make_context_with_client(client)
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             run_filters_list(args)
 
         output = buf.getvalue()
         self.assertIn("is:starred", output)
 
 
-class TestRunFiltersDelete(unittest.TestCase):
+class TestRunFiltersDelete(OutputCaptureMixin, unittest.TestCase):
     """Tests for run_filters_delete function."""
 
     def test_deletes_filter_by_id(self):
@@ -134,8 +129,7 @@ class TestRunFiltersDelete(unittest.TestCase):
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
             args = SimpleNamespace(id="F1")
 
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with self.capture_output() as buf:
                 result = run_filters_delete(args)
 
         self.assertEqual(result, 0)
@@ -145,7 +139,7 @@ class TestRunFiltersDelete(unittest.TestCase):
         self.assertIn("F1", output)
 
 
-class TestRunFiltersPlan(unittest.TestCase):
+class TestRunFiltersPlan(OutputCaptureMixin, unittest.TestCase):
     """Tests for run_filters_plan function."""
 
     def test_plan_shows_diff(self):
@@ -180,8 +174,7 @@ class TestRunFiltersPlan(unittest.TestCase):
 
             # Patch MailContext.from_args to return our context
             with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-                buf = io.StringIO()
-                with redirect_stdout(buf):
+                with self.capture_output() as buf:
                     result = run_filters_plan(args)
 
             self.assertEqual(result, 0)
@@ -189,7 +182,7 @@ class TestRunFiltersPlan(unittest.TestCase):
             self.assertIn("Plan:", output)
 
 
-class TestRunFiltersExport(unittest.TestCase):
+class TestRunFiltersExport(OutputCaptureMixin, unittest.TestCase):
     """Tests for run_filters_export function."""
 
     def test_exports_filters_to_yaml(self):
@@ -213,8 +206,7 @@ class TestRunFiltersExport(unittest.TestCase):
             ctx.gmail_client = client
 
             with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-                buf = io.StringIO()
-                with redirect_stdout(buf):
+                with self.capture_output() as buf:
                     result = run_filters_export(args)
 
             self.assertEqual(result, 0)
@@ -223,7 +215,7 @@ class TestRunFiltersExport(unittest.TestCase):
             self.assertIn("filters:", content)
 
 
-class TestRunFiltersSync(unittest.TestCase):
+class TestRunFiltersSync(OutputCaptureMixin, unittest.TestCase):
     """Tests for run_filters_sync with dry_run."""
 
     def test_sync_dry_run_shows_changes(self):
@@ -250,8 +242,7 @@ class TestRunFiltersSync(unittest.TestCase):
             ctx.gmail_client = client
 
             with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-                buf = io.StringIO()
-                with redirect_stdout(buf):
+                with self.capture_output() as buf:
                     result = run_filters_sync(args)
 
             self.assertEqual(result, 0)
@@ -282,8 +273,7 @@ class TestRunFiltersSync(unittest.TestCase):
             ctx.gmail_client = client
 
             with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-                buf = io.StringIO()
-                with redirect_stdout(buf):
+                with self.capture_output() as buf:
                     result = run_filters_sync(args)
 
             self.assertEqual(result, 0)
@@ -291,7 +281,7 @@ class TestRunFiltersSync(unittest.TestCase):
             self.assertEqual(len(client.created_filters), 1)
 
 
-class TestRunFilterPipeline(unittest.TestCase):
+class TestRunFilterPipeline(OutputCaptureMixin, unittest.TestCase):
     """Tests for _run_filter_pipeline helper function."""
 
     def test_successful_pipeline_returns_zero(self):
@@ -354,8 +344,7 @@ class TestRunFilterPipeline(unittest.TestCase):
         ctx = MailContext.from_args(args)
 
         with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with self.capture_output() as buf:
                 result = _run_filter_pipeline(
                     args,
                     MockConsumer,
@@ -389,8 +378,7 @@ class TestRunFilterPipeline(unittest.TestCase):
         ctx = MailContext.from_args(args)
 
         with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with self.capture_output() as buf:
                 result = _run_filter_pipeline(
                     args,
                     MockConsumer,
@@ -427,8 +415,7 @@ class TestRunFilterPipeline(unittest.TestCase):
         ctx = MailContext.from_args(args)
 
         with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with self.capture_output() as buf:
                 result = _run_filter_pipeline(
                     args,
                     MockConsumer,
@@ -462,8 +449,7 @@ class TestRunFilterPipeline(unittest.TestCase):
         ctx = MailContext.from_args(args)
 
         with patch("mail.filters.commands.MailContext.from_args", return_value=ctx):
-            buf = io.StringIO()
-            with redirect_stdout(buf):
+            with self.capture_output() as buf:
                 result = _run_filter_pipeline(
                     args,
                     MockConsumer,

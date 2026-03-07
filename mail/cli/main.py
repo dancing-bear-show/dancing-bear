@@ -101,6 +101,7 @@ from ..messages_cli.commands import (
     run_messages_summarize,
     run_messages_reply,
     run_messages_apply_scheduled,
+    run_messages_mark_old_read,
 )
 from ..config_cli.commands import (
     run_auth,
@@ -425,6 +426,15 @@ def cmd_messages_reply(args) -> int:
 @messages_group.argument("--profile", help="Only send for specific profile")
 def cmd_messages_apply_scheduled(args) -> int:
     return run_messages_apply_scheduled(args)
+
+
+@messages_group.command("mark-old-read", help="Mark old unread messages as read and archive")
+@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
+@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--days", type=int, default=180, help="Mark messages older than N days (default: 180)")
+@messages_group.argument("--dry-run", action="store_true", help="Preview changes without applying")
+def cmd_messages_mark_old_read(args) -> int:
+    return run_messages_mark_old_read(args)
 
 
 # --- cache group ---

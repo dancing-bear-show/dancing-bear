@@ -1,7 +1,7 @@
 """Shared consumer/processor/producer scaffolding."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar
 
 
@@ -27,6 +27,21 @@ class ResultEnvelope(Generic[ResultT]):
             msg = (self.diagnostics or {}).get("message", "No payload")
             raise ValueError(msg)
         return self.payload
+
+
+@dataclass
+class PipelineResult:
+    """Base result with logs field for pipeline operations."""
+    logs: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SyncResult(PipelineResult):
+    """Base result for sync operations with counters."""
+    created: int = 0
+    deleted: int = 0
+    skipped: int = 0
+    moved: int = 0
 
 
 class Consumer(Protocol[PayloadT]):

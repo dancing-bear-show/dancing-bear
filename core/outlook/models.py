@@ -29,8 +29,36 @@ class ReminderSettings:
     reminder_minutes: Optional[int] = None
 
 
+class LegacyCalendarRefMixin:
+    """Mixin to auto-convert legacy calendar_id/calendar_name to calendar_ref."""
+
+    def _migrate_calendar_ref(self) -> None:
+        """Convert legacy fields to calendar_ref if needed."""
+        calendar_id = getattr(self, 'calendar_id', None)
+        calendar_name = getattr(self, 'calendar_name', None)
+        if self.calendar_ref is None and (calendar_id or calendar_name):
+            self.calendar_ref = CalendarRef(
+                calendar_id=calendar_id,
+                calendar_name=calendar_name
+            )
+
+
+class LegacyDateRangeMixin:
+    """Mixin to auto-convert legacy start_iso/end_iso to date_range."""
+
+    def _migrate_date_range(self) -> None:
+        """Convert legacy fields to date_range if needed."""
+        start_iso = getattr(self, 'start_iso', None)
+        end_iso = getattr(self, 'end_iso', None)
+        if self.date_range is None and (start_iso or end_iso):
+            self.date_range = DateRange(
+                start_iso=start_iso,
+                end_iso=end_iso
+            )
+
+
 @dataclass
-class EventCreationParams:
+class EventCreationParams(LegacyCalendarRefMixin):
     """Parameters for creating a one-time Outlook event.
 
     Supports both new (calendar_ref, reminder) and legacy (calendar_id, calendar_name, no_reminder, reminder_minutes) initialization.
@@ -55,8 +83,7 @@ class EventCreationParams:
     def __post_init__(self):
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
-        if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+        self._migrate_calendar_ref()
 
         # Convert legacy reminder fields to new structure if needed
         if self.reminder is None and (self.no_reminder or self.reminder_minutes):
@@ -82,7 +109,7 @@ class RecurrenceRange:
 
 
 @dataclass
-class RecurringEventCreationParams:
+class RecurringEventCreationParams(LegacyCalendarRefMixin):
     """Parameters for creating a recurring Outlook event.
 
     Supports both new (calendar_ref, reminder) and legacy (calendar_id, calendar_name, no_reminder, reminder_minutes) initialization.
@@ -113,8 +140,7 @@ class RecurringEventCreationParams:
     def __post_init__(self):
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
-        if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+        self._migrate_calendar_ref()
 
         # Convert legacy reminder fields to new structure if needed
         if self.reminder is None and (self.no_reminder or self.reminder_minutes):
@@ -122,7 +148,7 @@ class RecurringEventCreationParams:
 
 
 @dataclass
-class EventSettingsPatch:
+class EventSettingsPatch(LegacyCalendarRefMixin):
     """Settings to patch on an existing event.
 
     Supports both new (calendar_ref) and legacy (calendar_id, calendar_name) initialization.
@@ -143,12 +169,11 @@ class EventSettingsPatch:
     def __post_init__(self):
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
-        if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+        self._migrate_calendar_ref()
 
 
 @dataclass
-class ListEventsRequest:
+class ListEventsRequest(LegacyDateRangeMixin, LegacyCalendarRefMixin):
     """Parameters for listing events in a date range.
 
     Uses lower default page size (50) for targeted queries with filters.
@@ -171,15 +196,12 @@ class ListEventsRequest:
     def __post_init__(self):
         """Handle legacy field initialization."""
         # Convert legacy fields to new structure if needed
-        if self.date_range is None and self.start_iso and self.end_iso:
-            self.date_range = DateRange(start_iso=self.start_iso, end_iso=self.end_iso)
-
-        if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+        self._migrate_date_range()
+        self._migrate_calendar_ref()
 
 
 @dataclass
-class UpdateEventReminderRequest:
+class UpdateEventReminderRequest(LegacyCalendarRefMixin):
     """Parameters for updating event reminder settings.
 
     Supports both new (calendar_ref) and legacy (calendar_id, calendar_name) initialization.
@@ -197,12 +219,11 @@ class UpdateEventReminderRequest:
     def __post_init__(self):
         """Handle legacy field initialization."""
         # Convert legacy calendar fields to new structure if needed
-        if self.calendar_ref is None and (self.calendar_id or self.calendar_name):
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id, calendar_name=self.calendar_name)
+        self._migrate_calendar_ref()
 
 
 @dataclass
-class ListCalendarViewRequest:
+class ListCalendarViewRequest(LegacyDateRangeMixin, LegacyCalendarRefMixin):
     """Parameters for listing calendar view (low-level pagination).
 
     Uses higher default page size (200) for bulk operations like deduplication
@@ -224,11 +245,8 @@ class ListCalendarViewRequest:
     def __post_init__(self):
         """Handle legacy field initialization."""
         # Convert legacy fields to new structure if needed
-        if self.date_range is None and self.start_iso and self.end_iso:
-            self.date_range = DateRange(start_iso=self.start_iso, end_iso=self.end_iso)
-
-        if self.calendar_ref is None and self.calendar_id:
-            self.calendar_ref = CalendarRef(calendar_id=self.calendar_id)
+        self._migrate_date_range()
+        self._migrate_calendar_ref()
 
 
 @dataclass

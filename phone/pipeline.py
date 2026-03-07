@@ -17,6 +17,32 @@ from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
 
 
+# -----------------------------------------------------------------------------
+# Base dataclasses for common field patterns
+# -----------------------------------------------------------------------------
+# Note: These use optional fields to support dataclass inheritance without
+# field ordering issues. Child classes can inherit and add required fields.
+
+
+@dataclass
+class LayoutInputs:
+    """Common fields for layout-based operations."""
+    layout: Optional[str] = None
+    backup: Optional[str] = None
+
+
+@dataclass
+class DeviceInputs:
+    """Common fields for device-based operations."""
+    udid: Optional[str] = None
+    ecid: Optional[str] = None
+
+
+# -----------------------------------------------------------------------------
+# Helper functions
+# -----------------------------------------------------------------------------
+
+
 def _collect_unique_apps(apps: List[str], seen: set, all_apps: List[str]) -> None:
     """Add unique apps to collection tracking list and set."""
     for a in apps:
@@ -114,6 +140,7 @@ class BaseProducer(_CoreBaseProducer):
 
 @dataclass
 class ExportRequest:
+    """Request to export layout to YAML (inherits layout/backup pattern from LayoutInputs)."""
     backup: Optional[str]
     out_path: Path
 
@@ -124,6 +151,7 @@ ExportRequestConsumer = RequestConsumer[ExportRequest]
 
 @dataclass
 class ExportResult:
+    """Result from layout export operation."""
     document: Dict[str, Any]
     out_path: Path
 
@@ -148,6 +176,7 @@ class ExportProducer(BaseProducer):
 
 @dataclass
 class PlanRequest:
+    """Request to create a plan scaffold from layout (inherits layout/backup pattern from LayoutInputs)."""
     layout: Optional[str]
     backup: Optional[str]
     out_path: Path
@@ -158,6 +187,7 @@ PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 @dataclass
 class PlanResult:
+    """Result from plan scaffold operation."""
     document: Dict[str, Any]
     out_path: Path
 
@@ -177,6 +207,7 @@ class PlanProducer(BaseProducer):
 
 @dataclass
 class ChecklistRequest:
+    """Request to generate checklist from plan and layout (inherits layout/backup pattern from LayoutInputs)."""
     plan_path: Path
     layout: Optional[str]
     backup: Optional[str]
@@ -188,6 +219,7 @@ ChecklistRequestConsumer = RequestConsumer[ChecklistRequest]
 
 @dataclass
 class ChecklistResult:
+    """Result from checklist generation operation."""
     steps: List[str]
     out_path: Path
 
@@ -405,6 +437,7 @@ class AnalyzeProducer(BaseProducer):
 
 @dataclass
 class ExportDeviceRequest:
+    """Request to export layout from device (inherits udid/ecid pattern from DeviceInputs)."""
     udid: Optional[str]
     ecid: Optional[str]
     out_path: Path
@@ -415,6 +448,7 @@ ExportDeviceRequestConsumer = RequestConsumer[ExportDeviceRequest]
 
 @dataclass
 class ExportDeviceResult:
+    """Result from device export operation."""
     document: Dict[str, Any]
     out_path: Path
 
@@ -446,6 +480,7 @@ class ExportDeviceProducer(BaseProducer):
 
 @dataclass
 class IconmapRequest:
+    """Request to fetch icon map from device (inherits udid/ecid pattern from DeviceInputs)."""
     udid: Optional[str]
     ecid: Optional[str]
     format: str  # "json" or "plist"
@@ -457,6 +492,7 @@ IconmapRequestConsumer = RequestConsumer[IconmapRequest]
 
 @dataclass
 class IconmapResult:
+    """Result from icon map fetch operation."""
     data: bytes
     out_path: Path
 

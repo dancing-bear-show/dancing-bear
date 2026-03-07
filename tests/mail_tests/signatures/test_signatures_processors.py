@@ -6,7 +6,6 @@ from tests.fixtures import test_path
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 from mail.signatures.processors import (
@@ -25,24 +24,7 @@ from mail.signatures.consumers import (
     SignaturesNormalizePayload,
 )
 from tests.mail_tests.fixtures import FakeMailContext
-
-
-class FakeGmailClient:
-    """Fake Gmail client for testing signatures."""
-
-    def __init__(self, signatures: Optional[List[Dict[str, Any]]] = None):
-        self._signatures = signatures or []
-        self._updated: Dict[str, str] = {}
-
-    def authenticate(self):
-        """No-op for fake client."""
-
-    def list_signatures(self) -> List[Dict[str, Any]]:
-        return self._signatures
-
-    def update_signature(self, email: str, html: str) -> Dict[str, Any]:
-        self._updated[email] = html
-        return {"sendAsEmail": email, "signature": html}
+from tests.fakes.gmail import FakeGmailClient
 
 
 class TestSafeDict(unittest.TestCase):
@@ -240,7 +222,7 @@ class TestSignaturesSyncProcessor(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(len(result.payload.gmail_updates), 1)
         self.assertIn("Updated", result.payload.gmail_updates[0])
-        self.assertIn("user@example.com", client._updated)
+        self.assertIn("user@example.com", client.updated_signatures)
 
     def test_sync_with_specific_gmail_entries(self):
         client = FakeGmailClient(signatures=[

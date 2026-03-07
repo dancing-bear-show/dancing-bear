@@ -1,11 +1,10 @@
-import io
 import unittest
-from contextlib import redirect_stdout
 
 from tests.fixtures import bin_path, repo_root
+from tests.mixins import OutputCaptureMixin
 
 
-class TestLlmCli(unittest.TestCase):
+class TestLlmCli(OutputCaptureMixin, unittest.TestCase):
     def test_help(self):
         import subprocess  # nosec B404
         import sys
@@ -16,8 +15,7 @@ class TestLlmCli(unittest.TestCase):
 
     def test_inventory_stdout(self):
         from mail import llm_cli
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             rc = llm_cli.main(['inventory', '--stdout'])
         self.assertEqual(rc, 0)
         out = buf.getvalue()
@@ -25,8 +23,7 @@ class TestLlmCli(unittest.TestCase):
 
     def test_familiar_stdout(self):
         from mail import llm_cli
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             rc = llm_cli.main(['familiar', '--stdout'])
         self.assertEqual(rc, 0)
         out = buf.getvalue()
@@ -34,8 +31,7 @@ class TestLlmCli(unittest.TestCase):
 
     def test_inventory_json(self):
         from mail import llm_cli
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             rc = llm_cli.main(['inventory', '--format', 'json', '--stdout'])
         self.assertEqual(rc, 0)
         import json
@@ -57,8 +53,7 @@ class TestLlmCli(unittest.TestCase):
 
     def test_repo_llm_app_phone(self):
         from core import llm_cli as repo_llm
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             rc = repo_llm.main(['--app', 'phone', 'agentic', '--stdout'])
         self.assertEqual(rc, 0)
         out = buf.getvalue()

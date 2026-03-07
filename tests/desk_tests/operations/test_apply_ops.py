@@ -2,21 +2,16 @@
 
 import json
 import os
-import tempfile
 import unittest
 from io import StringIO
 from unittest.mock import patch
 
 from desk.apply_ops import apply_plan_file, _load_data, _do_move, _do_trash
+from tests.fixtures import TempDirMixin
 
 
-class LoadDataTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class LoadDataTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_load_json(self):
         path = os.path.join(self.tmpdir, "plan.json")
@@ -44,13 +39,8 @@ class LoadDataTests(unittest.TestCase):
         self.assertEqual(result["operations"][0]["action"], "trash")
 
 
-class DoMoveTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class DoMoveTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_move_file(self):
         src = os.path.join(self.tmpdir, "source.txt")
@@ -94,13 +84,8 @@ class DoMoveTests(unittest.TestCase):
         self.assertIn("DRY-RUN", output)
 
 
-class DoTrashTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class DoTrashTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_trash_dry_run(self):
         src = os.path.join(self.tmpdir, "to_delete.txt")
@@ -116,13 +101,8 @@ class DoTrashTests(unittest.TestCase):
         self.assertIn("trash", output.lower())
 
 
-class ApplyPlanFileTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class ApplyPlanFileTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_apply_move_operation(self):
         src = os.path.join(self.tmpdir, "source.txt")

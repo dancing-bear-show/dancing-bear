@@ -1,7 +1,6 @@
 """Tests for desk/pipeline.py processor components."""
 
 import os
-import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from io import StringIO
@@ -20,6 +19,7 @@ from desk.pipeline import (
     ApplyResultProducer,
 )
 from core.pipeline import ResultEnvelope
+from tests.fixtures import TempDirMixin
 
 
 class ScanRequestTests(unittest.TestCase):
@@ -136,13 +136,8 @@ class ApplyProcessorTests(unittest.TestCase):
         mock_applier.assert_called_once_with("/test/plan.json", dry_run=True)
 
 
-class ReportProducerTests(unittest.TestCase):
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+class ReportProducerTests(TempDirMixin, unittest.TestCase):
+    pass
 
     def test_produce_to_stdout(self):
         producer = ReportProducer(out_path=None)

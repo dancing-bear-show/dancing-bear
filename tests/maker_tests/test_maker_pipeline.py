@@ -1,5 +1,3 @@
-import io
-from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -20,9 +18,10 @@ from maker.pipeline import (
     ToolSpec,
 )
 from tests.fixtures import repo_root
+from tests.mixins import OutputCaptureMixin
 
 
-class MakerPipelineTests(TestCase):
+class MakerPipelineTests(OutputCaptureMixin, TestCase):
     def setUp(self):
         self.tools_root = repo_root() / "maker"
 
@@ -62,10 +61,9 @@ class MakerPipelineTests(TestCase):
         self.assertIn("No such module", envelope.diagnostics["message"])
 
     def test_tool_result_producer_reports_failure(self):
-        buf = io.StringIO()
         # With BaseProducer pattern, error messages go in diagnostics
         envelope = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong"})
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolResultProducer().produce(envelope)
         self.assertIn("Something went wrong", buf.getvalue())
 
@@ -144,33 +142,30 @@ class MakerPipelineTests(TestCase):
 
     # ToolResultProducer tests
     def test_tool_result_producer_success_silent(self):
-        buf = io.StringIO()
         result = ToolResult(module="test.module", return_code=0)
         envelope = ResultEnvelope(status="success", payload=result)
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolResultProducer().produce(envelope)
         self.assertEqual("", buf.getvalue())
 
     def test_tool_result_producer_non_zero_exit_code(self):
-        buf = io.StringIO()
         # With BaseProducer pattern, error messages go in diagnostics
         envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module exited with code 2"})
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolResultProducer().produce(envelope)
         self.assertIn("test.module", buf.getvalue())
         self.assertIn("exited with code 2", buf.getvalue())
 
     def test_tool_result_producer_error_with_message(self):
-        buf = io.StringIO()
         # With BaseProducer pattern, error messages go in diagnostics
         envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module: Import failed"})
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolResultProducer().produce(envelope)
         self.assertIn("Import failed", buf.getvalue())
         self.assertIn("test.module", buf.getvalue())
 
 
-class ToolCatalogProcessorTests(TestCase):
+class ToolCatalogProcessorTests(OutputCaptureMixin, TestCase):
     """Tests for the new SafeProcessor-based ToolCatalogProcessor."""
 
     def setUp(self):
@@ -210,7 +205,7 @@ class ToolCatalogProcessorTests(TestCase):
         self.assertIs(result, request)
 
 
-class ToolCatalogProducerTests(TestCase):
+class ToolCatalogProducerTests(OutputCaptureMixin, TestCase):
     """Tests for the new BaseProducer-based ToolCatalogProducer."""
 
     def test_producer_prints_text(self):
@@ -218,8 +213,7 @@ class ToolCatalogProducerTests(TestCase):
         specs = [ToolSpec(relative_path=Path("card/gen.py"), module="maker.card.gen")]
         result = ToolCatalogResult(specs=specs, text="Available maker tools:\n- maker/card/gen.py")
         env = ResultEnvelope(status="success", payload=result)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolCatalogProducer().produce(env)
         self.assertIn("Available maker tools:", buf.getvalue())
         self.assertIn("maker/card/gen.py", buf.getvalue())
@@ -227,8 +221,7 @@ class ToolCatalogProducerTests(TestCase):
     def test_producer_handles_error(self):
         """ToolCatalogProducer prints error message on failure."""
         env = ResultEnvelope(status="error", diagnostics={"message": "Failed to scan"})
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolCatalogProducer().produce(env)
         self.assertIn("Failed to scan", buf.getvalue())
 
@@ -236,8 +229,7 @@ class ToolCatalogProducerTests(TestCase):
         """ToolCatalogProducer handles empty catalog."""
         result = ToolCatalogResult(specs=[], text="No maker tools found.")
         env = ResultEnvelope(status="success", payload=result)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        with self.capture_output() as buf:
             ToolCatalogProducer().produce(env)
         self.assertIn("No maker tools found.", buf.getvalue())
 

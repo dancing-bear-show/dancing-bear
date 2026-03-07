@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List
 
 from core.pipeline import Consumer
+from core.yamlio import load_config_list
 
 from ..context import MailContext
 from ..yamlio import load_config
@@ -94,15 +95,4 @@ def _load_labels_payload(context: MailContext, *, error_hint: str, allow_missing
 
 
 def _load_desired(cfg: dict, *, key: str, error_hint: str, allow_missing: bool) -> List[dict]:
-    data = cfg.get(key)
-    if data is None:
-        return []
-    if not isinstance(data, list):
-        if allow_missing:
-            return []
-        raise ValueError(error_hint or f"Config missing '{key}' list.")
-    result: List[dict] = []
-    for entry in data:
-        if isinstance(entry, dict):
-            result.append(entry)
-    return result
+    return load_config_list(cfg, key, allow_missing=allow_missing, error_hint=error_hint)
