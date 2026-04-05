@@ -371,6 +371,32 @@ def run_outlook_calendar_add_recurring(args) -> int:
     )
 
 
+def run_outlook_messages_search(args) -> int:
+    client, err = get_outlook_client(args)
+    if err:
+        return err
+
+    query = getattr(args, "query", "") or ""
+    top = getattr(args, "top", 50) or 50
+    pages = getattr(args, "pages", 3) or 3
+    after = getattr(args, "after", None)
+    sender = getattr(args, "sender", None)
+    as_json = getattr(args, "json", False)
+
+    msgs = client.search_messages(query=query, top=top, pages=pages, after=after, sender=sender)
+
+    if as_json:
+        import json
+        print(json.dumps(msgs, indent=2))
+    else:
+        for m in msgs:
+            att = " 📎" if m.get("has_attachments") else ""
+            print(f"[{m['received'][:10]}]{att} {m['subject']!r}  —  {m['from']}")
+            if m.get("snippet"):
+                print(f"   {m['snippet'][:120]}")
+    return 0
+
+
 def run_outlook_calendar_add_from_config(args) -> int:
     client, err = get_outlook_client(args)
     if err:

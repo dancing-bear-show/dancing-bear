@@ -41,6 +41,7 @@ from ..forwarding.commands import (
     run_forwarding_disable,
 )
 from ..outlook.commands import (
+    run_outlook_messages_search,
     run_outlook_rules_list,
     run_outlook_rules_export,
     run_outlook_rules_sync,
@@ -965,6 +966,22 @@ def cmd_outlook_categories_sync(args) -> int:
 @outlook_group.argument("--account", help="Account name for defaults")
 def cmd_outlook_folders_sync(args) -> int:
     return run_outlook_folders_sync(args)
+
+
+@outlook_group.command("messages.search", help="Search Outlook messages across all folders")
+@outlook_group.argument("--client-id", help="Azure app (client) ID")
+@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
+@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--query", default="", help="KQL search query")
+@outlook_group.argument("--top", type=int, default=50, help="Page size")
+@outlook_group.argument("--pages", type=int, default=3, help="Max pages to fetch")
+@outlook_group.argument("--after", help="Only messages received after ISO date (e.g. 2025-01-01)")
+@outlook_group.argument("--sender", help="Filter by sender address substring (e.g. brightchamps.com)")
+@outlook_group.argument("--json", action="store_true", help="Output JSON")
+@outlook_group.argument("--accounts-config", default="config/accounts.yaml")
+@outlook_group.argument("--account", help="Account name for defaults")
+def cmd_outlook_messages_search(args) -> int:
+    return run_outlook_messages_search(args)
 
 
 def _install_output_masking() -> None:
