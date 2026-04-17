@@ -112,6 +112,45 @@ if [ ! -f "$CONFIG_DIR/google_credentials.json" ]; then
   warn "Copy your OAuth client JSON there, or run: ./bin/mail-assistant-auth"
 fi
 
+# ── tmux ────────────────────────────────────────────────────────────
+info "Checking tmux..."
+if command -v tmux >/dev/null 2>&1; then
+  ok "tmux installed ($(tmux -V))"
+else
+  info "Installing tmux via Homebrew..."
+  brew install tmux
+  ok "tmux installed"
+fi
+
+# Minimal tmux config if none exists
+TMUX_CONF="$HOME/.tmux.conf"
+if [ ! -f "$TMUX_CONF" ]; then
+  cat > "$TMUX_CONF" <<'TMUX'
+set -g mouse on
+set -g history-limit 50000
+set -g default-terminal "screen-256color"
+TMUX
+  ok "Created $TMUX_CONF"
+else
+  ok "tmux.conf exists ($TMUX_CONF)"
+fi
+
+# ── Claude Code shell aliases ──────────────────────────────────────
+info "Checking Claude Code aliases..."
+ZSHRC="$HOME/.zshrc"
+if grep -q "alias claude=" "$ZSHRC" 2>/dev/null; then
+  ok "Claude alias already configured"
+else
+  cat >> "$ZSHRC" <<'ALIASES'
+
+# Claude Code — worktree isolation by default
+alias claude='claude -w'
+alias wt-list='git worktree list'
+alias wt-prune='git worktree prune && git worktree list'
+ALIASES
+  ok "Added claude/worktree aliases to ~/.zshrc"
+fi
+
 # ── direnv (optional) ───────────────────────────────────────────────
 info "Checking direnv..."
 if command -v direnv >/dev/null 2>&1; then

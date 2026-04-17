@@ -157,6 +157,10 @@ outlook_token = /path/to/outlook_token.json
 - Never `git reset --hard`, `git clean -f`, `git checkout .` without explicit approval
 - Before opening a PR, rename the ephemeral worktree branch to a conventional name: `feat/`, `fix/`, `chore/`, `docs/`
 
+**Parallel sessions** (tmux): Use `claude --tmux` to open a new pane with its own worktree, or split manually (`Ctrl-b %` / `Ctrl-b "`) and run `claude` in each pane. Each session is fully isolated — separate directory, branch, and context.
+
+**Agent Teams** (coordinated parallel work): For 5+ tasks that need status tracking or mid-flight steering, use `TeamCreate` + `TaskCreate` instead of plain `Agent()` calls. Partition tasks by file/module to avoid conflicts — subagents in a team share the same worktree.
+
 **Cleanup**:
 - `git worktree list` — see active worktrees
 - `git worktree remove .claude/worktrees/<name>` — remove one
