@@ -88,7 +88,8 @@ def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
             cost = _session_cost(s, compute_cost)
             start = s.start_time.strftime("%Y-%m-%d") if s.start_time else date_key
             dur = max(1, int(s.duration_seconds / 60))
-            tasks.append(f"{sid} ({tier} ${cost:.0f}) :t{sid[:8]}, {start}, {dur}m")
+            safe_id = "".join(c for c in sid if c.isalnum() or c == "_")[:8]
+            tasks.append(f"{sid} ({tier} ${cost:.0f}) :t{safe_id}, {start}, {dur}m")
         gantt.section(date_key, tasks)
     return gantt.render()
 

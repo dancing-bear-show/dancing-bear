@@ -75,7 +75,11 @@ class SequenceDiagramBuilder:
 
     def note(self, text: str,
              over: Optional[list[str]] = None) -> SequenceDiagramBuilder:
-        loc = f"over {','.join(over)}" if over else "right of"
+        if not over:
+            raise ValueError(
+                "SequenceDiagramBuilder.note() requires at least one participant in 'over'."
+            )
+        loc = f"over {','.join(over)}"
         self._steps.append(f"    Note {loc}: {text}")
         return self
 
