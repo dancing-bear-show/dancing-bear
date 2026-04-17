@@ -371,6 +371,123 @@ def run_outlook_calendar_add_recurring(args) -> int:
     )
 
 
+def run_outlook_messages_search(args) -> int:
+    client, err = get_outlook_client(args)
+    if err:
+        return err
+
+    query = getattr(args, "query", "") or ""
+    top = getattr(args, "top", 50) or 50
+    pages = getattr(args, "pages", 3) or 3
+    after = getattr(args, "after", None)
+    sender = getattr(args, "sender", None)
+    as_json = getattr(args, "json", False)
+    only_inbox = getattr(args, "only_inbox", False)
+
+    if not query and not sender:
+        print("Provide --query or --sender to filter messages")
+        return 1
+
+    days = getattr(args, "days", None)
+    if days and not after:
+        import datetime
+        after = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
+
+    msgs = client.search_messages(query=query, top=top, pages=pages, after=after, sender=sender, only_inbox=only_inbox)
+
+    if as_json:
+        import json
+        print(json.dumps(msgs, indent=2))
+    else:
+        for m in msgs:
+            att = " 📎" if m.get("has_attachments") else ""
+            print(f"[{m['received'][:10]}]{att} {m['subject']!r}  —  {m['from']}")
+            if m.get("snippet"):
+                print(f"   {m['snippet'][:120]}")
+    return 0
+
+
+def run_outlook_rules_prune_empty(args) -> int:
+    """Delete Outlook inbox rules that have no conditions and no actions."""
+    client, err = get_outlook_client(args)
+    if err:
+        return err
+
+    dry_run = getattr(args, "dry_run", False)
+    rules = client.list_filters()
+
+    empty = [r for r in rules if not r.get("criteria") and not r.get("action")]
+    if not empty:
+        print("No empty rules found.")
+        return 0
+
+    deleted = 0
+    for r in empty:
+        rid = r.get("id")
+        if not rid:
+            continue
+        if dry_run:
+            print(f"Would delete empty rule: {rid}")
+        else:
+            client.delete_filter(rid)
+            print(f"Deleted empty rule: {rid}")
+        deleted += 1
+
+    action = "Would delete" if dry_run else "Deleted"
+    print(f"{action} {deleted} empty rule(s).")
+    return 0
+
+
+def run_outlook_messages_summarize(args) -> int:
+    """Summarize an Outlook message identified by --id or --query."""
+    import re
+    from pathlib import Path
+
+    client, err = get_outlook_client(args)
+    if err:
+        return err
+
+    msg_id = getattr(args, "id", None)
+    query = (getattr(args, "query", None) or "").strip()
+    top = getattr(args, "top", 5) or 5
+    pages = getattr(args, "pages", 1) or 1
+    max_words = int(getattr(args, "max_words", 120) or 120)
+    out_path = getattr(args, "out", None)
+
+    if not msg_id:
+        if not query:
+            print("Provide --id or --query to identify a message")
+            return 1
+        results = client.search_messages(query=query, top=int(top), pages=int(pages))
+        if not results:
+            print("No message found matching query")
+            return 1
+        msg_id = results[0]["id"]
+
+    msg = client.get_message(msg_id, select_body=True)
+    body_content = (msg.get("body") or {}).get("content") or msg.get("bodyPreview") or ""
+    text = re.sub(r"<[^>]+>", " ", body_content)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    from ..llm_adapter import summarize_text
+    summary = summarize_text(text, max_words=max_words)
+
+    subject = msg.get("subject", "")
+    received = (msg.get("receivedDateTime") or "")[:10]
+    addr = (msg.get("from") or {}).get("emailAddress", {})
+    from_str = f"{addr.get('name', '')} <{addr.get('address', '')}>"
+
+    output = f"[{received}] {subject!r} from {from_str}\n{summary}"
+    print(output)
+
+    if out_path:
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_text(output + "\n", encoding="utf-8")
+        print(f"Summary written to {out_path}")
+
+    return 0
+
+
 def run_outlook_calendar_add_from_config(args) -> int:
     client, err = get_outlook_client(args)
     if err:
