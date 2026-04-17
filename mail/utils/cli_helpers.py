@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 from ..providers.gmail import GmailProvider
-from ..config_resolver import resolve_paths_profile, persist_if_provided, get_outlook_client_id
+from ..config_resolver import resolve_paths_profile, persist_if_provided, get_outlook_client_id_for_profile
 
 
 def gmail_provider_from_args(args):
@@ -25,11 +25,12 @@ def gmail_provider_from_args(args):
 def is_outlook_profile(profile: Optional[str]) -> bool:
     """Return True only for an explicit profile with Outlook credentials configured.
 
-    Returns False when profile is None/empty so default usage stays Gmail.
+    Returns False when profile is None/empty or the profile section does not
+    exist in credentials.ini (never falls back to the default [mail] section).
     """
     if not profile:
         return False
-    return bool(get_outlook_client_id(profile))
+    return bool(get_outlook_client_id_for_profile(profile))
 
 
 def outlook_client_from_args(args):

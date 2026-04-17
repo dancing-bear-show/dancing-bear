@@ -1,10 +1,10 @@
 """Tests for diagrams CLI renderers."""
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 
 from diagrams.cli import _render_cost_pie, _render_token_pie, _render_timeline
-from diagrams.mermaid import GanttBuilder, PieBuilder, SequenceDiagramBuilder
+from diagrams.mermaid import SequenceDiagramBuilder
 from telemetry.parser import SessionStats
 from telemetry.pricing import compute_cost, model_tier
 

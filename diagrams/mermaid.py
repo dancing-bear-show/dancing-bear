@@ -62,8 +62,9 @@ class SequenceDiagramBuilder:
         self._steps: list[str] = []
 
     def participant(self, name: str, alias: str = "") -> SequenceDiagramBuilder:
+        """Add a participant. alias is the display label; name is the ID used in messages."""
         if alias:
-            self._participants.append(f"    participant {alias} as {name}")
+            self._participants.append(f"    participant {name} as {alias}")
         else:
             self._participants.append(f"    participant {name}")
         return self

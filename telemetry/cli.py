@@ -163,7 +163,8 @@ def cmd_cost(args) -> int:
             daily[date_key] = {"opus": 0, "sonnet": 0, "haiku": 0}
             daily_cost[date_key] = 0.0
 
-        daily[date_key][tier] += s.total_tokens
+        if tier in daily[date_key]:
+            daily[date_key][tier] += s.total_tokens
         daily_cost[date_key] += cost
 
     if not daily:
