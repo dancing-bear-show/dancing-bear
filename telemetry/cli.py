@@ -85,8 +85,8 @@ def _print_session_detail(session: SessionStats) -> None:
     print()
 
     print(f"── Cost: ${cost:.2f} ──")
-    if session.model:
-        r = PRICING[tier]
+    r = PRICING.get(tier)
+    if session.model and r:
         print(f"  Input:        ${session.input_tokens * r['input'] / 1_000_000:>8.2f}")
         print(f"  Output:       ${session.output_tokens * r['output'] / 1_000_000:>8.2f}")
         print(f"  Cache read:   ${session.cache_read_tokens * r['cache_read'] / 1_000_000:>8.2f}")
