@@ -33,17 +33,16 @@ def select_message_id(args: argparse.Namespace, client) -> tuple[Optional[str], 
 
 def run_messages_search(args) -> int:
     """Search for messages and list candidates."""
-    from ..utils.cli_helpers import gmail_provider_from_args
+    from ..utils.cli_helpers import gmail_provider_from_args, is_outlook_profile, outlook_client_from_args
     from .pipeline import (
         MessagesSearchRequest,
         MessagesSearchRequestConsumer,
         MessagesSearchProcessor,
         MessagesSearchProducer,
+        OutlookMessagesSearchProcessor,
     )
 
-    client = gmail_provider_from_args(args)
-    client.authenticate()
-
+    profile = getattr(args, "profile", None)
     request = MessagesSearchRequest(
         query=getattr(args, "query", "") or "",
         days=getattr(args, "days", None),
@@ -51,7 +50,16 @@ def run_messages_search(args) -> int:
         max_results=int(getattr(args, "max_results", 5) or 5),
         output_json=getattr(args, "json", False),
     )
-    envelope = MessagesSearchProcessor(client).process(
+
+    if is_outlook_profile(profile):
+        client = outlook_client_from_args(args)
+        processor = OutlookMessagesSearchProcessor(client)
+    else:
+        client = gmail_provider_from_args(args)
+        client.authenticate()
+        processor = MessagesSearchProcessor(client)
+
+    envelope = processor.process(
         MessagesSearchRequestConsumer(request).consume()
     )
     MessagesSearchProducer(output_json=request.output_json).produce(envelope)

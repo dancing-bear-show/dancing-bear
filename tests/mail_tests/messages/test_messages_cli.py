@@ -40,7 +40,8 @@ def _make_messages_client():
 class MessagesCLITests(unittest.TestCase):
     def test_messages_search_lists_candidates(self):
         client = _make_messages_client()
-        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client), \
+             patch("mail.utils.cli_helpers.is_outlook_profile", return_value=False):
 
             args = make_args(
                 query="from:sender@example.com",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 from ..providers.gmail import GmailProvider
-from ..config_resolver import resolve_paths_profile, persist_if_provided
+from ..config_resolver import resolve_paths_profile, persist_if_provided, get_outlook_client_id
 
 
 def gmail_provider_from_args(args):
@@ -20,6 +20,23 @@ def gmail_provider_from_args(args):
         token_path=tok_path,
         cache_dir=getattr(args, "cache", None),
     )
+
+
+def is_outlook_profile(profile: Optional[str]) -> bool:
+    """Return True if the profile has Outlook credentials configured."""
+    return bool(get_outlook_client_id(profile))
+
+
+def outlook_client_from_args(args):
+    """Construct an authenticated OutlookClient from argparse-like args.
+
+    Returns the raw OutlookClient (not OutlookProvider) for message operations.
+    """
+    from ..outlook.helpers import get_outlook_client
+    client, err = get_outlook_client(args)
+    if err or client is None:
+        raise RuntimeError("Could not initialize Outlook client")
+    return client
 
 
 def with_gmail_client(func):
