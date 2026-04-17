@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from .parser import SessionStats, iter_session_files, parse_session
-from .pricing import compute_cost, model_tier
+from .pricing import PRICING, compute_cost, model_tier
+
+NO_SESSIONS = "No sessions found."
 
 
 def _session_cost(s: SessionStats) -> float:
@@ -46,55 +48,20 @@ def _load_sessions(days: int) -> list[SessionStats]:
     return sessions
 
 
-# ── Commands ──────────────────────────────────────────────────────────
+def _find_current_session() -> Optional[SessionStats]:
+    """Return the most recently modified session, or None."""
+    latest = None
+    for path in iter_session_files(days=90):
+        if latest is None or path.stat().st_mtime > latest.stat().st_mtime:
+            latest = path
+    if not latest:
+        return None
+    session = parse_session(latest)
+    return session if session.events > 0 else None
 
 
-def cmd_history(args) -> int:
-    sessions = _load_sessions(args.days)
-    if not sessions:
-        print("No sessions found.")
-        return 0
-
-    # Header
-    print(f"{'SESSION':<44} {'MODEL':<10} {'START':<14} {'EVENTS':>7} {'COST':>9}")
-    print("─" * 88)
-
-    for s in sessions:
-        sid = s.session_id[:40] + "…" if len(s.session_id) > 40 else s.session_id
-        tier = model_tier(s.model) if s.model else "?"
-        start = s.start_time.strftime("%m-%d %H:%M") if s.start_time else "?"
-        cost = _session_cost(s)
-        print(f"{sid:<44} {tier:<10} {start:<14} {s.events:>7,} ${cost:>8.2f}")
-
-    total = sum(_session_cost(s) for s in sessions)
-    print("─" * 88)
-    print(f"{'TOTAL':<44} {'':<10} {'':<14} {sum(s.events for s in sessions):>7,} ${total:>8.2f}")
-    return 0
-
-
-def cmd_summary(args) -> int:
-    if args.session:
-        # Find by session ID prefix
-        sessions = _load_sessions(days=90)
-        matches = [s for s in sessions if s.session_id.startswith(args.session)]
-        if not matches:
-            print(f"No session matching '{args.session}'")
-            return 1
-        session = matches[0]
-    else:
-        # Most recently modified
-        latest = None
-        for path in iter_session_files(days=90):
-            if latest is None or path.stat().st_mtime > latest.stat().st_mtime:
-                latest = path
-        if not latest:
-            print("No sessions found.")
-            return 1
-        session = parse_session(latest)
-        if session.events == 0:
-            print("Current session has no events.")
-            return 1
-
+def _print_session_detail(session: SessionStats) -> None:
+    """Print token breakdown, cost, and top tools for a session."""
     cost = _session_cost(session)
     tier = model_tier(session.model) if session.model else "?"
     dur = _format_duration(session.duration_seconds)
@@ -117,7 +84,6 @@ def cmd_summary(args) -> int:
 
     print(f"── Cost: ${cost:.2f} ──")
     if session.model:
-        from .pricing import PRICING
         r = PRICING[tier]
         print(f"  Input:        ${session.input_tokens * r['input'] / 1_000_000:>8.2f}")
         print(f"  Output:       ${session.output_tokens * r['output'] / 1_000_000:>8.2f}")
@@ -131,17 +97,57 @@ def cmd_summary(args) -> int:
         for name, count in sorted_tools[:10]:
             print(f"  {name:<30} {count:>6,}")
 
+
+# ── Commands ──────────────────────────────────────────────────────────
+
+
+def cmd_history(args) -> int:
+    sessions = _load_sessions(args.days)
+    if not sessions:
+        print(NO_SESSIONS)
+        return 1
+
+    print(f"{'SESSION':<44} {'MODEL':<10} {'START':<14} {'EVENTS':>7} {'COST':>9}")
+    print("─" * 88)
+
+    for s in sessions:
+        sid = s.session_id[:40] + "…" if len(s.session_id) > 40 else s.session_id
+        tier = model_tier(s.model) if s.model else "?"
+        start = s.start_time.strftime("%m-%d %H:%M") if s.start_time else "?"
+        cost = _session_cost(s)
+        print(f"{sid:<44} {tier:<10} {start:<14} {s.events:>7,} ${cost:>8.2f}")
+
+    total = sum(_session_cost(s) for s in sessions)
+    print("─" * 88)
+    print(f"{'TOTAL':<44} {'':<10} {'':<14} {sum(s.events for s in sessions):>7,} ${total:>8.2f}")
+    return 0
+
+
+def cmd_summary(args) -> int:
+    if args.session:
+        sessions = _load_sessions(days=90)
+        matches = [s for s in sessions if s.session_id.startswith(args.session)]
+        if not matches:
+            print(f"No session matching '{args.session}'")
+            return 1
+        session = matches[0]
+    else:
+        session = _find_current_session()
+        if not session:
+            print(NO_SESSIONS)
+            return 1
+
+    _print_session_detail(session)
     return 0
 
 
 def cmd_cost(args) -> int:
     sessions = _load_sessions(args.days)
     if not sessions:
-        print("No sessions found.")
-        return 0
+        print(NO_SESSIONS)
+        return 1
 
-    # Aggregate by date and tier
-    daily: dict[str, dict[str, int]] = {}  # date -> tier -> total tokens
+    daily: dict[str, dict[str, int]] = {}
     daily_cost: dict[str, float] = {}
 
     for s in sessions:
@@ -160,7 +166,7 @@ def cmd_cost(args) -> int:
 
     if not daily:
         print("No sessions with model data found.")
-        return 0
+        return 1
 
     print(f"{'Date':<12} {'Opus':>10} {'Sonnet':>10} {'Haiku':>10} {'Cost':>10}")
     print("─" * 56)
@@ -202,12 +208,13 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.command == "history":
-        return cmd_history(args)
-    elif args.command == "summary":
-        return cmd_summary(args)
-    elif args.command == "cost":
-        return cmd_cost(args)
-    else:
-        parser.print_help()
-        return 0
+    commands = {
+        "history": cmd_history,
+        "summary": cmd_summary,
+        "cost": cmd_cost,
+    }
+    handler = commands.get(args.command)
+    if handler:
+        return handler(args)
+    parser.print_help()
+    return 0
