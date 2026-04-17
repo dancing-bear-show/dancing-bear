@@ -58,8 +58,11 @@ def run_messages_search(args) -> int:
             return 1
         try:
             client = outlook_client_from_args(args)
-        except RuntimeError:
-            return 1  # get_outlook_client already printed the error
+        except RuntimeError as exc:
+            message = str(exc).strip()
+            if message:
+                print(message)
+            return 1
         processor = OutlookMessagesSearchProcessor(client)
     else:
         client = gmail_provider_from_args(args)
