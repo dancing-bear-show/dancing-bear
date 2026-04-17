@@ -142,6 +142,51 @@ outlook_token = /path/to/outlook_token.json
 - Restrict scopes to labels/settings/readonly/modify where required
 - If sensitive data appears in logs, redact and rotate immediately
 
+## Worktree Isolation
+
+**Session-level**: Always launch with `claude -w` to auto-create a worktree. Each session gets its own branch and working directory under `.claude/worktrees/`, preventing sessions from clobbering each other.
+
+**Subagent-level**: When spawning an Agent that writes code, use `isolation: "worktree"` so the subagent works in its own isolated copy of the repo. This prevents the subagent's edits from colliding with the parent session's working directory. Read-only agents (research, search, exploration) do not need isolation.
+
+**If launched without `-w`**: Call `EnterWorktree` before your first file edit. Skip only for read-only requests (explain, search, explore).
+
+**Git safety**:
+- Never push directly to `main` — always use a PR from a worktree/feature branch
+- Never force-push to `main`
+- Never `git add -A` or `git add .` — stage specific files by name
+- Never `git reset --hard`, `git clean -f`, `git checkout .` without explicit approval
+- Before opening a PR, rename the ephemeral worktree branch to a conventional name: `feat/`, `fix/`, `chore/`, `docs/`
+
+**Cleanup**:
+- `git worktree list` — see active worktrees
+- `git worktree remove .claude/worktrees/<name>` — remove one
+- `git worktree prune` — prune stale references
+
+## Agent Definitions
+
+| Agent | Model | Use For |
+|-------|-------|---------|
+| `code-writer` | inherit | Feature development, bug fixes, refactoring |
+| `doc-writer` | Sonnet | PR descriptions, changelogs, postmortems, READMEs |
+| `reviewer` | Sonnet | Code review, dead code analysis, pattern finding |
+| `tester` | Sonnet | Test writing, coverage expansion, test refactoring |
+| `researcher` | Haiku | Fast codebase exploration, context gathering |
+| `Explore` | Haiku | File pattern search, keyword search, "how does X work" |
+| `Plan` | Sonnet | Implementation planning, architecture design |
+| `fact-checker` | Haiku | Validate reports/docs after doc-writer completes |
+| `unit-validator` | Haiku | Per-artifact validation, structured JSON findings |
+| `cross-unit-validator` | Sonnet | Multi-artifact consistency checking |
+| `ci-fixer` | Sonnet | CI failure diagnosis and fix |
+
+**Spawn teammates** for multi-file changes, test writing, code review, research. Use `isolation: "worktree"` for agents that write code (`code-writer`, `tester`, `ci-fixer`). Read-only agents (`reviewer`, `researcher`, `Explore`, `Plan`, `fact-checker`, validators) do not need isolation.
+
+Do inline for single-line fixes, quick reads, git operations.
+
+**Backstop agents** (spawn after primary work completes):
+- `fact-checker` — always spawn after composing reports, postmortems, cost analyses, PR descriptions, or any deliverable that aggregates data from multiple sources.
+
+**Model selection**: Haiku for lookup + comparison. Sonnet for synthesis, judgment, multi-step reasoning. Inherit Opus only when generating code that will ship.
+
 ## PR Reviews
 
 When reviewing PRs, follow `.github/CLAUDE_REVIEW.md` for detailed guidelines. Key points:
