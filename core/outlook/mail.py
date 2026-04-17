@@ -280,26 +280,29 @@ class OutlookMailMixin:
         pages: int = 3,
         after: Optional[str] = None,
         sender: Optional[str] = None,
+        only_inbox: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Search all mail folders for messages matching query.
+        """Search mail messages matching query.
 
         Args:
-            query: KQL search string (e.g. 'Jing Zhang receipt'); ignored when sender is set
+            query: KQL search string (e.g. 'Jing Zhang receipt'); combined with sender when both provided
             top: page size
             pages: max pages to fetch
             after: ISO date YYYY-MM-DD — results are filtered client-side (Graph
                    does not allow combining $search with $filter)
-            sender: filter by sender address substring (uses $filter, not $search)
+            sender: sender constraint added as a KQL ``from:<sender>`` term via ``$search``
+            only_inbox: restrict search to Inbox folder only
         """
         import urllib.parse
         sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
+        folder_path = "mailFolders/inbox/messages" if only_inbox else "messages"
+        kql_terms: List[str] = []
         if sender:
-            kql = f'"from:{sender}"'
-            encoded_query = urllib.parse.quote(kql)
-            url = f"{GRAPH_API_URL}/me/messages?$search={encoded_query}&$top={int(top)}&{sel}"
-        else:
-            encoded_query = urllib.parse.quote(f'"{query}"')
-            url = f"{GRAPH_API_URL}/me/messages?$search={encoded_query}&$top={int(top)}&{sel}"
+            kql_terms.append(f"from:{sender}")
+        if query.strip():
+            kql_terms.append(query.strip())
+        encoded_query = urllib.parse.quote(f'"{" ".join(kql_terms)}"')
+        url = f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(top)}&{sel}"
         msgs: List[Dict[str, Any]] = []
         nxt: Optional[str] = url
         for _ in range(max(1, int(pages))):
