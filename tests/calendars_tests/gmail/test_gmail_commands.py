@@ -23,7 +23,7 @@ class TestRunGmailMailList(unittest.TestCase):
         args = argparse.Namespace(
             profile='test',
             credentials='/creds',
-            token='/token',
+            token='/token',  # nosec B106 - test stub, not a real credential
             cache='/cache',
             query='test query',
             from_text='sender@example.com',
@@ -69,7 +69,7 @@ class TestRunGmailSweepTop(unittest.TestCase):
         args = argparse.Namespace(
             profile='test',
             credentials='/creds',
-            token='/token',
+            token='/token',  # nosec B106 - test stub, not a real credential
             cache='/cache',
             query='test',
             from_text='sender',
@@ -78,7 +78,7 @@ class TestRunGmailSweepTop(unittest.TestCase):
             page_size=50,
             inbox_only=False,
             top=15,
-            out='/tmp/out.yaml',
+            out='/tmp/out.yaml',  # nosec B108 - test stub path
         )
 
         result = run_gmail_sweep_top(args)
@@ -88,7 +88,7 @@ class TestRunGmailSweepTop(unittest.TestCase):
         request = call_args[0][0]
         self.assertEqual(request.days, 20)
         self.assertEqual(request.top, 15)
-        self.assertEqual(request.out_path, Path('/tmp/out.yaml'))
+        self.assertEqual(request.out_path, Path('/tmp/out.yaml'))  # nosec B108
 
     @patch('calendars.gmail.commands.run_pipeline')
     def test_run_gmail_sweep_top_without_out_path(self, mock_run_pipeline):
@@ -114,7 +114,7 @@ class TestRunGmailScanClasses(unittest.TestCase):
         args = argparse.Namespace(
             profile='test',
             credentials='/creds',
-            token='/token',
+            token='/token',  # nosec B106 - test stub, not a real credential
             cache='/cache',
             query='classes',
             from_text='active',
@@ -123,7 +123,7 @@ class TestRunGmailScanClasses(unittest.TestCase):
             page_size=200,
             inbox_only=True,
             calendar='Activities',
-            out='/tmp/plan.yaml',
+            out='/tmp/plan.yaml',  # nosec B108 - test stub path
         )
 
         result = run_gmail_scan_classes(args)
@@ -133,7 +133,7 @@ class TestRunGmailScanClasses(unittest.TestCase):
         request = call_args[0][0]
         self.assertEqual(request.days, 90)
         self.assertEqual(request.calendar, 'Activities')
-        self.assertEqual(request.out_path, Path('/tmp/plan.yaml'))
+        self.assertEqual(request.out_path, Path('/tmp/plan.yaml'))  # nosec B108
 
     @patch('calendars.gmail.commands.run_pipeline')
     def test_run_gmail_scan_classes_with_defaults(self, mock_run_pipeline):
@@ -160,7 +160,7 @@ class TestRunGmailScanReceipts(unittest.TestCase):
         args = argparse.Namespace(
             profile='test',
             credentials='/creds',
-            token='/token',
+            token='/token',  # nosec B106 - test stub, not a real credential
             cache='/cache',
             query='receipts',
             from_text='rh.ca',
@@ -168,7 +168,7 @@ class TestRunGmailScanReceipts(unittest.TestCase):
             pages=5,
             page_size=50,
             calendar='Family',
-            out='/tmp/receipts.yaml',
+            out='/tmp/receipts.yaml',  # nosec B108 - test stub path
         )
 
         result = run_gmail_scan_receipts(args)
@@ -178,7 +178,7 @@ class TestRunGmailScanReceipts(unittest.TestCase):
         request = call_args[0][0]
         self.assertEqual(request.days, 180)
         self.assertEqual(request.calendar, 'Family')
-        self.assertEqual(request.out_path, Path('/tmp/receipts.yaml'))
+        self.assertEqual(request.out_path, Path('/tmp/receipts.yaml'))  # nosec B108
 
 
 class TestRunGmailScanActiveRH(unittest.TestCase):

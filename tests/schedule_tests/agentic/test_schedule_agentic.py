@@ -37,8 +37,8 @@ class TestGetParser(unittest.TestCase):
                 result = agentic._get_parser()
                 # If we get here, the cached version returned successfully
                 self.assertTrue(result is None or hasattr(result, "parse_args"))
-            except Exception:
-                pass  # Expected if the mock actually affects the real call
+            except Exception:  # nosec B110 - test setup, safe to skip cache errors
+                pass
 
 
 class TestCliTree(unittest.TestCase):
@@ -207,7 +207,7 @@ class TestBuildAgenticCapsule(unittest.TestCase):
             result = agentic.build_agentic_capsule()
             # Should not contain CLI Tree section marker if tree is empty
             lines = result.split("\n")
-            cli_tree_lines = [l for l in lines if "CLI Tree" in l]
+            cli_tree_lines = [line for line in lines if "CLI Tree" in line]
             # If there are any CLI Tree mentions, they should be from the actual tree content
             # not from an empty section being added
             self.assertTrue(len(cli_tree_lines) == 0 or "==" not in "".join(cli_tree_lines))
@@ -217,7 +217,7 @@ class TestBuildAgenticCapsule(unittest.TestCase):
         with patch("schedule.agentic._flow_map", return_value=""):
             result = agentic.build_agentic_capsule()
             lines = result.split("\n")
-            flow_map_lines = [l for l in lines if "Flow Map" in l]
+            flow_map_lines = [line for line in lines if "Flow Map" in line]
             self.assertTrue(len(flow_map_lines) == 0 or "==" not in "".join(flow_map_lines))
 
     def test_both_sections_added_when_available(self):
