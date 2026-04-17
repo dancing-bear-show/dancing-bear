@@ -46,7 +46,7 @@ MessagesSearchRequestConsumer = RequestConsumer[MessagesSearchRequest]
 
 
 class MessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearchResult]):
-    """Process message search requests with automatic error handling."""
+    """Process Gmail message search requests with automatic error handling."""
 
     def __init__(self, client: Any) -> None:
         self._client = client
@@ -71,6 +71,49 @@ class MessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearc
                 for c in cands
             ]
         )
+
+
+class OutlookMessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearchResult]):
+    """Process Outlook message search requests with automatic error handling."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def _process_safe(self, payload: MessagesSearchRequest) -> MessagesSearchResult:
+        from core.outlook.models import SearchParams
+        from urllib.parse import quote
+
+        # URL-encode the query to prevent injection via special chars
+        safe_query = quote(payload.query, safe="")
+        params = SearchParams(
+            search_query=safe_query,
+            days=payload.days,
+            top=payload.max_results,
+            pages=1,
+            use_cache=True,
+        )
+        # N+1 fetch: core client discards message fields from search response;
+        # returning full dicts would eliminate per-message get_message calls
+        ids = self._client.search_inbox_messages(params)
+        candidates = []
+        for mid in ids[:payload.max_results]:
+            msg = self._client.get_message(mid, select_body=False)
+            candidates.append(_outlook_msg_to_candidate(mid, msg))
+        return MessagesSearchResult(candidates=candidates)
+
+
+def _outlook_msg_to_candidate(mid: str, msg: dict) -> MessageCandidate:
+    """Convert an Outlook message dict to a MessageCandidate."""
+    from_obj = msg.get("from", {}).get("emailAddress", {})
+    from_name = from_obj.get("name", "")
+    from_addr = from_obj.get("address", "")
+    from_header = f"{from_name} <{from_addr}>" if from_name else from_addr
+    return MessageCandidate(
+        id=mid,
+        subject=msg.get("subject", ""),
+        from_header=from_header,
+        snippet=msg.get("bodyPreview", "").strip(),
+    )
 
 
 class MessagesSearchProducer(BaseProducer):

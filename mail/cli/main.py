@@ -367,13 +367,13 @@ def cmd_filters_rm_from_token(args) -> int:
 
 
 # --- messages group ---
-messages_group = app.group("messages", help="Search, summarize, and reply to messages (Gmail)")
+messages_group = app.group("messages", help="Search (Gmail+Outlook), summarize and reply (Gmail)")
 
 
 @messages_group.command("search", help="Search for messages and list candidates")
 @messages_group.argument("--credentials", help="Path to OAuth credentials.json")
 @messages_group.argument("--token", help="Path to token.json")
-@messages_group.argument("--query", default="", help="Gmail search query")
+@messages_group.argument("--query", default="", help="Search query (Gmail syntax or Outlook $search)")
 @messages_group.argument("--days", type=int, help="Restrict to last N days")
 @messages_group.argument("--only-inbox", action="store_true", help="Restrict to inbox")
 @messages_group.argument("--max-results", type=int, default=5, help="Max results")

@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# ── Colors ──────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { printf "${BOLD}▸${NC} %s\n" "$*"; }
+ok()    { printf "${GREEN}✓${NC} %s\n" "$*"; }
+warn()  { printf "${YELLOW}⚠${NC} %s\n" "$*"; }
+fail()  { printf "${RED}✗${NC} %s\n" "$*"; }
+
+# ── Homebrew ────────────────────────────────────────────────────────
+info "Checking Homebrew..."
+if command -v brew >/dev/null 2>&1; then
+  ok "Homebrew installed ($(brew --prefix))"
+else
+  info "Installing Homebrew..."
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  # Add brew to PATH for the rest of this script
+  if [ -f /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [ -f /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+  ok "Homebrew installed"
+fi
+
+# ── Python 3.11 ─────────────────────────────────────────────────────
+info "Checking Python 3.11..."
+if command -v python3.11 >/dev/null 2>&1; then
+  ok "Python 3.11 found ($(python3.11 --version))"
+  PYTHON_BIN=python3.11
+elif python3 --version 2>/dev/null | grep -q "3.11"; then
+  ok "python3 is 3.11 ($(python3 --version))"
+  PYTHON_BIN=python3
+else
+  info "Installing Python 3.11 via Homebrew..."
+  brew install python@3.11
+  PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
+  ok "Python 3.11 installed"
+fi
+
+# ── Virtual environment ─────────────────────────────────────────────
+info "Setting up virtual environment..."
+if [ -d .venv ]; then
+  warn ".venv already exists — reinstalling deps"
+else
+  "$PYTHON_BIN" -m venv .venv
+fi
+.venv/bin/python -m pip install -U pip -q
+.venv/bin/python -m pip install -e . -q
+chmod +x bin/* 2>/dev/null || true
+ok "Virtual environment ready (.venv)"
+
+# ── SSH key ──────────────────────────────────────────────────────────
+info "Checking SSH key..."
+if [ -f "$HOME/.ssh/id_ed25519" ]; then
+  ok "SSH key exists (~/.ssh/id_ed25519)"
+else
+  info "Generating ed25519 SSH key..."
+  mkdir -p "$HOME/.ssh"
+  chmod 700 "$HOME/.ssh"
+  ssh-keygen -t ed25519 -C "$(whoami)" -f "$HOME/.ssh/id_ed25519" -N ""
+  ok "SSH key generated"
+  echo ""
+  warn "Add this public key to GitHub (Settings > SSH and GPG keys):"
+  echo ""
+  cat "$HOME/.ssh/id_ed25519.pub"
+  echo ""
+fi
+
+# Ensure GitHub host key is trusted
+if ! grep -q "github.com" "$HOME/.ssh/known_hosts" 2>/dev/null; then
+  info "Adding GitHub to known_hosts..."
+  ssh-keyscan github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+  ok "GitHub host key added"
+fi
+
+# ── Credentials scaffold ────────────────────────────────────────────
+CONFIG_DIR="$HOME/.config"
+CREDS_INI="$CONFIG_DIR/credentials.ini"
+
+info "Checking credentials scaffold..."
+mkdir -p "$CONFIG_DIR"
+
+if [ -f "$CREDS_INI" ]; then
+  ok "credentials.ini exists ($CREDS_INI)"
+else
+  cat > "$CREDS_INI" <<'CREDS'
+# Dancing Bear credentials — fill in your values
+# See: credentials.example.json for Google OAuth format
+
+[mail.gmail_personal]
+# credentials = /Users/you/.config/google_credentials.gmail_personal.json
+# token = /Users/you/.config/token.gmail_personal.json
+
+[mail.outlook_personal]
+# outlook_client_id = YOUR_APP_ID
+# tenant = consumers
+# outlook_token = /Users/you/.config/outlook_token.json
+CREDS
+  ok "Created $CREDS_INI (edit to add your credentials)"
+fi
+
+if [ ! -f "$CONFIG_DIR/google_credentials.json" ]; then
+  warn "No Google credentials found at $CONFIG_DIR/google_credentials.json"
+  warn "Copy your OAuth client JSON there, or run: ./bin/mail-assistant-auth"
+fi
+
+# ── tmux ────────────────────────────────────────────────────────────
+info "Checking tmux..."
+if command -v tmux >/dev/null 2>&1; then
+  ok "tmux installed ($(tmux -V))"
+else
+  info "Installing tmux via Homebrew..."
+  brew install tmux
+  ok "tmux installed"
+fi
+
+# Minimal tmux config if none exists
+TMUX_CONF="$HOME/.tmux.conf"
+if [ ! -f "$TMUX_CONF" ]; then
+  cat > "$TMUX_CONF" <<'TMUX'
+set -g mouse on
+set -g history-limit 50000
+set -g default-terminal "screen-256color"
+TMUX
+  ok "Created $TMUX_CONF"
+else
+  ok "tmux.conf exists ($TMUX_CONF)"
+fi
+
+# ── Claude Code shell aliases ──────────────────────────────────────
+info "Checking Claude Code aliases..."
+ZSHRC="$HOME/.zshrc"
+if grep -q "alias claude=" "$ZSHRC" 2>/dev/null; then
+  ok "Claude alias already configured"
+else
+  cat >> "$ZSHRC" <<'ALIASES'
+
+# Claude Code — worktree isolation by default
+alias claude='claude -w'
+alias wt-list='git worktree list'
+alias wt-prune='git worktree prune && git worktree list'
+ALIASES
+  ok "Added claude/worktree aliases to ~/.zshrc"
+fi
+
+# ── direnv (optional) ───────────────────────────────────────────────
+info "Checking direnv..."
+if command -v direnv >/dev/null 2>&1; then
+  ok "direnv installed"
+  if direnv status 2>/dev/null | grep -q "Found RC allowed false" 2>/dev/null; then
+    warn "Run 'direnv allow' to auto-activate the venv in this directory"
+  fi
+else
+  warn "direnv not installed (optional — install with: brew install direnv)"
+fi
+
+# ── Verify ───────────────────────────────────────────────────────────
+info "Verifying installation..."
+echo ""
+
+if .venv/bin/python -c "import mail; import calendars; import resume; import core" 2>/dev/null; then
+  ok "Core modules import successfully"
+else
+  warn "Some modules failed to import (may need credentials for full functionality)"
+fi
+
+if [ -x bin/assistant ]; then
+  ok "bin/assistant is executable"
+else
+  fail "bin/assistant not found or not executable"
+fi
+
+# ── Summary ──────────────────────────────────────────────────────────
+echo ""
+printf "${BOLD}── Bootstrap complete ──${NC}\n"
+echo ""
+echo "Next steps:"
+echo "  1. source .venv/bin/activate"
+echo "  2. Edit ~/.config/credentials.ini with your API credentials"
+echo "  3. ./bin/assistant --help"
+echo ""
+echo "Run tests:  make test"
+echo "Gmail auth: ./bin/mail-assistant-auth"

@@ -40,6 +40,15 @@ Forwarding (Gmail):
 - List/add/status: `./bin/mail-assistant forwarding list|add|status`
 - Enforce verified forwarders on sync: `./bin/mail-assistant filters sync --config out/filters.gmail.from_unified.yaml --require-forward-verified --dry-run`
 
+Messages (Gmail + Outlook):
+- Search (auto-detects provider from profile):
+  - Gmail: `./bin/mail-assistant messages search --query "from:sender@example.com" --days 7 --max-results 10 --json`
+  - Outlook: `./bin/mail-assistant --profile outlook_vanesa messages search --query "richmond hill" --max-results 10 --json`
+- Summarize: `./bin/mail-assistant messages summarize --query "from:sender@example.com" --latest`
+- Reply (plan first): `./bin/mail-assistant messages reply --query "from:sender@example.com" --latest --points "yes, confirmed" --plan`
+- Reply (send): `./bin/mail-assistant messages reply --query "from:sender@example.com" --latest --points "yes, confirmed" --apply`
+- Send scheduled: `./bin/mail-assistant messages apply-scheduled`
+
 Auto (categorize + archive) (Gmail):
 - Propose: `./bin/mail-assistant auto propose --out out/auto.proposal.json --days 7 --only-inbox --dry-run`
 - Summary: `./bin/mail-assistant auto summary --proposal out/auto.proposal.json`
