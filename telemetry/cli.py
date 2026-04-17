@@ -10,6 +10,7 @@ from .parser import SessionStats, iter_session_files, parse_session
 from .pricing import PRICING, compute_cost, model_tier
 
 NO_SESSIONS = "No sessions found."
+DAYS_HELP = "Lookback days (default: 7)"
 
 
 def _session_cost(s: SessionStats) -> float:
@@ -187,6 +188,72 @@ def cmd_cost(args) -> int:
     return 0
 
 
+def _diagram_cost_pie(sessions: list[SessionStats], days: int) -> str:
+    from .mermaid import PieBuilder
+    tier_cost = {"opus": 0.0, "sonnet": 0.0, "haiku": 0.0}
+    for s in sessions:
+        if s.model:
+            tier_cost[model_tier(s.model)] += _session_cost(s)
+    pie = PieBuilder(f"Cost by Model (last {days}d)")
+    for tier, cost in tier_cost.items():
+        if cost > 0:
+            pie.slice(f"{tier.title()} ${cost:.2f}", round(cost, 2))
+    return pie.render()
+
+
+def _diagram_token_pie(sessions: list[SessionStats], days: int) -> str:
+    from .mermaid import PieBuilder
+    tier_tokens = {"opus": 0, "sonnet": 0, "haiku": 0}
+    for s in sessions:
+        if s.model:
+            tier_tokens[model_tier(s.model)] += s.total_tokens
+    pie = PieBuilder(f"Tokens by Model (last {days}d)")
+    for tier, tok in tier_tokens.items():
+        if tok > 0:
+            pie.slice(f"{tier.title()} {_format_tokens(tok)}", tok)
+    return pie.render()
+
+
+def _diagram_timeline(sessions: list[SessionStats], days: int) -> str:
+    from .mermaid import GanttBuilder
+    gantt = GanttBuilder(f"Sessions (last {days}d)", date_format="YYYY-MM-DD")
+    by_date: dict[str, list[SessionStats]] = {}
+    for s in sessions:
+        if s.start_time:
+            key = s.start_time.strftime("%Y-%m-%d")
+            by_date.setdefault(key, []).append(s)
+    for date_key in sorted(by_date.keys()):
+        tasks = []
+        for s in by_date[date_key]:
+            sid = s.session_id[:12]
+            tier = model_tier(s.model) if s.model else "?"
+            cost = _session_cost(s)
+            start = s.start_time.strftime("%Y-%m-%d") if s.start_time else date_key
+            dur = max(1, int(s.duration_seconds / 60))
+            tasks.append(f"{sid} ({tier} ${cost:.0f}) :t{sid[:8]}, {start}, {dur}m")
+        gantt.section(date_key, tasks)
+    return gantt.render()
+
+
+def cmd_diagram(args) -> int:
+    sessions = _load_sessions(args.days)
+    if not sessions:
+        print(NO_SESSIONS)
+        return 1
+
+    renderers = {
+        "cost-pie": _diagram_cost_pie,
+        "token-pie": _diagram_token_pie,
+        "timeline": _diagram_timeline,
+    }
+    renderer = renderers.get(args.type)
+    if not renderer:
+        print(f"Unknown diagram type: {args.type}")
+        return 1
+    print(renderer(sessions, args.days))
+    return 0
+
+
 # ── Entry point ───────────────────────────────────────────────────────
 
 
@@ -198,13 +265,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub = parser.add_subparsers(dest="command")
 
     p_hist = sub.add_parser("history", help="List recent sessions")
-    p_hist.add_argument("-d", "--days", type=int, default=7, help="Lookback days (default: 7)")
+    p_hist.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
 
     p_sum = sub.add_parser("summary", help="Session detail summary")
     p_sum.add_argument("--session", help="Session ID (prefix match); default: current")
 
     p_cost = sub.add_parser("cost", help="Daily cost breakdown")
-    p_cost.add_argument("-d", "--days", type=int, default=7, help="Lookback days (default: 7)")
+    p_cost.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
+
+    p_diag = sub.add_parser("diagram", help="Generate Mermaid diagram")
+    p_diag.add_argument("type", choices=["cost-pie", "token-pie", "timeline"],
+                        help="Diagram type")
+    p_diag.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
 
     args = parser.parse_args(argv)
 
@@ -212,6 +284,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "history": cmd_history,
         "summary": cmd_summary,
         "cost": cmd_cost,
+        "diagram": cmd_diagram,
     }
     handler = commands.get(args.command)
     if handler:
