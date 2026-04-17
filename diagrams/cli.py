@@ -50,10 +50,11 @@ def _session_cost(s, compute_cost) -> float:
 
 
 def _render_cost_pie(sessions, days, compute_cost, model_tier) -> str:
-    tier_cost = {"opus": 0.0, "sonnet": 0.0, "haiku": 0.0}
+    tier_cost: dict[str, float] = {"opus": 0.0, "sonnet": 0.0, "haiku": 0.0}
     for s in sessions:
         if s.model:
-            tier_cost[model_tier(s.model)] += _session_cost(s, compute_cost)
+            tier = model_tier(s.model)
+            tier_cost[tier] = tier_cost.get(tier, 0.0) + _session_cost(s, compute_cost)
     pie = PieBuilder(f"Cost by Model (last {days}d)")
     for tier, cost in tier_cost.items():
         if cost > 0:
@@ -62,10 +63,11 @@ def _render_cost_pie(sessions, days, compute_cost, model_tier) -> str:
 
 
 def _render_token_pie(sessions, days, model_tier) -> str:
-    tier_tokens = {"opus": 0, "sonnet": 0, "haiku": 0}
+    tier_tokens: dict[str, int] = {"opus": 0, "sonnet": 0, "haiku": 0}
     for s in sessions:
         if s.model:
-            tier_tokens[model_tier(s.model)] += s.total_tokens
+            tier = model_tier(s.model)
+            tier_tokens[tier] = tier_tokens.get(tier, 0) + s.total_tokens
     pie = PieBuilder(f"Tokens by Model (last {days}d)")
     for tier, tok in tier_tokens.items():
         if tok > 0:
@@ -74,6 +76,7 @@ def _render_token_pie(sessions, days, model_tier) -> str:
 
 
 def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
+    # Use dateFormat YYYY-MM-DD; durations expressed in days (min 1d)
     gantt = GanttBuilder(f"Sessions (last {days}d)", date_format="YYYY-MM-DD")
     by_date: dict[str, list] = {}
     for s in sessions:
@@ -87,9 +90,9 @@ def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
             tier = model_tier(s.model) if s.model else "?"
             cost = _session_cost(s, compute_cost)
             start = s.start_time.strftime("%Y-%m-%d") if s.start_time else date_key
-            dur = max(1, int(s.duration_seconds / 60))
+            dur_days = max(1, round(s.duration_seconds / 86400))
             safe_id = "".join(c for c in sid if c.isalnum() or c == "_")[:8]
-            tasks.append(f"{sid} ({tier} ${cost:.0f}) :t{safe_id}, {start}, {dur}m")
+            tasks.append(f"{sid} ({tier} ${cost:.0f}) :t{safe_id}, {start}, {dur_days}d")
         gantt.section(date_key, tasks)
     return gantt.render()
 

@@ -90,11 +90,12 @@ class SequenceDiagramBuilder:
         return self
 
     def alt(self, condition: str, then_body: list[str],
-            else_body: Optional[list[str]] = None) -> SequenceDiagramBuilder:
+            else_body: Optional[list[str]] = None,
+            else_label: str = "else") -> SequenceDiagramBuilder:
         self._steps.append(f"    alt {condition}")
         self._steps.extend(f"        {s}" for s in then_body)
         if else_body:
-            self._steps.append("    else failure")
+            self._steps.append(f"    else {else_label}")
             self._steps.extend(f"        {s}" for s in else_body)
         self._steps.append("    end")
         return self

@@ -16,10 +16,11 @@ class TestParseTs(unittest.TestCase):
         self.assertEqual(dt.hour, 14)
         self.assertIsNotNone(dt.tzinfo)
 
-    def test_offset(self):
+    def test_offset_normalized_to_utc(self):
         dt = _parse_ts("2026-04-16T14:23:01+05:00")
         self.assertIsNotNone(dt)
-        self.assertIsNotNone(dt.tzinfo)
+        self.assertEqual(dt.utcoffset().total_seconds(), 0)  # converted to UTC
+        self.assertEqual(dt.hour, 9)  # 14:23 +05:00 = 09:23 UTC
 
     def test_naive_gets_utc(self):
         dt = _parse_ts("2026-04-16T14:23:01")
@@ -33,8 +34,9 @@ class TestParseTs(unittest.TestCase):
 
 class TestParseSession(unittest.TestCase):
     def _write_jsonl(self, records):
-        td = tempfile.mkdtemp()
-        path = Path(td) / "test-session.jsonl"
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        path = Path(td.name) / "test-session.jsonl"
         with open(path, "w", encoding="utf-8") as f:
             for rec in records:
                 f.write(json.dumps(rec) + "\n")
@@ -96,8 +98,9 @@ class TestParseSession(unittest.TestCase):
         self.assertEqual(stats.output_tokens, 130)
 
     def test_corrupt_line_skipped(self):
-        td = tempfile.mkdtemp()
-        path = Path(td) / "corrupt.jsonl"
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        path = Path(td.name) / "corrupt.jsonl"
         with open(path, "w", encoding="utf-8") as f:
             f.write('{"type":"assistant","timestamp":"2026-04-16T10:00:00Z",'
                     '"message":{"model":"claude-opus-4-6","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}\n')
@@ -124,8 +127,9 @@ class TestParseSession(unittest.TestCase):
         self.assertEqual(stats.events, 1)
 
     def test_empty_session(self):
-        td = tempfile.mkdtemp()
-        path = Path(td) / "empty.jsonl"
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        path = Path(td.name) / "empty.jsonl"
         path.write_text("", encoding="utf-8")
         stats = parse_session(path)
         self.assertEqual(stats.events, 0)
@@ -146,7 +150,7 @@ class TestPricing(unittest.TestCase):
         self.assertEqual(model_tier("claude-opus-4-6"), "opus")
         self.assertEqual(model_tier("claude-sonnet-4-6"), "sonnet")
         self.assertEqual(model_tier("claude-haiku-4-5-20251001"), "haiku")
-        self.assertEqual(model_tier("unknown-model"), "haiku")
+        self.assertEqual(model_tier("unknown-model"), "unknown")
 
     def test_compute_cost(self):
         cost = compute_cost(1_000_000, 0, 0, 0, "claude-opus-4-6")
@@ -157,6 +161,10 @@ class TestPricing(unittest.TestCase):
 
     def test_zero_tokens(self):
         cost = compute_cost(0, 0, 0, 0, "claude-opus-4-6")
+        self.assertEqual(cost, 0.0)
+
+    def test_unknown_model_returns_zero_cost(self):
+        cost = compute_cost(1_000_000, 1_000_000, 0, 0, "unknown-model-xyz")
         self.assertEqual(cost, 0.0)
 
 

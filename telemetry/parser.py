@@ -69,7 +69,8 @@ def iter_session_files(days: int = 7) -> Iterator[Path]:
 def _parse_ts(raw: str) -> Optional[datetime]:
     """Parse ISO 8601 timestamp and normalize to UTC.
 
-    Handles trailing Z and ensures the result is always timezone-aware.
+    Handles trailing Z and converts all results to UTC so timestamps are
+    always comparable regardless of the original offset.
     """
     try:
         if raw.endswith("Z"):
@@ -77,6 +78,8 @@ def _parse_ts(raw: str) -> Optional[datetime]:
         dt = datetime.fromisoformat(raw)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
         return dt
     except (ValueError, AttributeError):
         return None

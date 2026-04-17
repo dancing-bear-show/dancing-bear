@@ -10,18 +10,26 @@ PRICING = {
 
 
 def model_tier(model_id: str) -> str:
-    """Map a model ID string to a pricing tier."""
+    """Map a model ID string to a pricing tier.
+
+    Returns 'unknown' for unrecognized models to avoid silently mispricing.
+    """
     lower = model_id.lower()
     for tier in ("opus", "sonnet", "haiku"):
         if tier in lower:
             return tier
-    return "haiku"
+    return "unknown"
 
 
 def compute_cost(input_tok: int, output_tok: int,
                  cache_read: int, cache_create: int,
                  model: str) -> float:
-    """Compute dollar cost from token counts and model ID."""
-    r = PRICING[model_tier(model)]
+    """Compute dollar cost from token counts and model ID.
+
+    Returns 0.0 for unrecognized models.
+    """
+    r = PRICING.get(model_tier(model))
+    if r is None:
+        return 0.0
     return (input_tok * r["input"] + output_tok * r["output"] +
             cache_read * r["cache_read"] + cache_create * r["cache_create"]) / 1_000_000
