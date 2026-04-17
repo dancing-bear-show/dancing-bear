@@ -384,6 +384,10 @@ def run_outlook_messages_search(args) -> int:
     as_json = getattr(args, "json", False)
     only_inbox = getattr(args, "only_inbox", False)
 
+    if not query and not sender:
+        print("Provide --query or --sender to filter messages")
+        return 1
+
     days = getattr(args, "days", None)
     if days and not after:
         import datetime
@@ -417,16 +421,20 @@ def run_outlook_rules_prune_empty(args) -> int:
         print("No empty rules found.")
         return 0
 
+    deleted = 0
     for r in empty:
         rid = r.get("id")
+        if not rid:
+            continue
         if dry_run:
             print(f"Would delete empty rule: {rid}")
         else:
             client.delete_filter(rid)
             print(f"Deleted empty rule: {rid}")
+        deleted += 1
 
     action = "Would delete" if dry_run else "Deleted"
-    print(f"{action} {len(empty)} empty rule(s).")
+    print(f"{action} {deleted} empty rule(s).")
     return 0
 
 
@@ -474,7 +482,7 @@ def run_outlook_messages_summarize(args) -> int:
 
     if out_path:
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_text(output + "\n")
+        Path(out_path).write_text(output + "\n", encoding="utf-8")
         print(f"Summary written to {out_path}")
 
     return 0

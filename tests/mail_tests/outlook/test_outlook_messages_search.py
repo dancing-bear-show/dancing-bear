@@ -117,17 +117,18 @@ class TestSearchMessages(unittest.TestCase):
         self.assertIn("new", ids)
 
     @patch("core.outlook.mail._requests")
-    def test_after_filter_not_applied_when_sender_set(self, mock_requests):
-        """When sender is set, after filtering is not applied client-side."""
+    def test_after_filter_applied_when_sender_set(self, mock_requests):
+        """after filter applies client-side even when sender is set."""
         client = self._make_client()
         old_msg = _make_graph_message(id="old", received="2025-12-31T20:00:00Z")
-        mock_requests.return_value.get.return_value = _make_response([old_msg])
+        new_msg = _make_graph_message(id="new", received="2026-01-15T20:00:00Z")
+        mock_requests.return_value.get.return_value = _make_response([old_msg, new_msg])
 
         results = client.search_messages(query="", sender="example.com", top=10, pages=1, after="2026-01-01")
 
-        # old message NOT filtered client-side when sender is used
         ids = [r["id"] for r in results]
-        self.assertIn("old", ids)
+        self.assertNotIn("old", ids)
+        self.assertIn("new", ids)
 
     @patch("core.outlook.mail._requests")
     def test_pagination_follows_next_link(self, mock_requests):
@@ -159,6 +160,14 @@ class TestSearchMessages(unittest.TestCase):
         client.search_messages(query="test", top=10, pages=1)
 
         self.assertEqual(mock_get.call_count, 1)
+
+    def test_empty_query_and_sender_returns_empty_list(self):
+        """When both query and sender are empty, return [] without calling the API."""
+        client = self._make_client()
+
+        results = client.search_messages(query="", sender=None, top=10, pages=1)
+
+        self.assertEqual(results, [])
 
     @patch("core.outlook.mail._requests")
     def test_empty_results_returned(self, mock_requests):
@@ -295,6 +304,16 @@ class TestRunOutlookMessagesSearch(unittest.TestCase):
         result = run_outlook_messages_search(self._make_args())
 
         self.assertEqual(result, 0)
+
+    @patch("mail.outlook.commands.get_outlook_client")
+    def test_returns_one_when_no_query_or_sender(self, mock_get_client):
+        """Both --query and --sender absent should return exit code 1."""
+        from mail.outlook.commands import run_outlook_messages_search
+        mock_get_client.return_value = (self._mock_client(), 0)
+
+        result = run_outlook_messages_search(self._make_args(query="", sender=None))
+
+        self.assertEqual(result, 1)
 
 
 # ---------------------------------------------------------------------------

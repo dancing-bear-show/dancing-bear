@@ -288,8 +288,7 @@ class OutlookMailMixin:
             query: KQL search string (e.g. 'Jing Zhang receipt'); combined with sender when both provided
             top: page size
             pages: max pages to fetch
-            after: ISO date YYYY-MM-DD — results are filtered client-side (Graph
-                   does not allow combining $search with $filter)
+            after: ISO date YYYY-MM-DD — results are filtered client-side
             sender: sender constraint added as a KQL ``from:<sender>`` term via ``$search``
             only_inbox: restrict search to Inbox folder only
         """
@@ -301,6 +300,8 @@ class OutlookMailMixin:
             kql_terms.append(f"from:{sender}")
         if query.strip():
             kql_terms.append(query.strip())
+        if not kql_terms:
+            return []
         encoded_query = urllib.parse.quote(f'"{" ".join(kql_terms)}"')
         url = f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(top)}&{sel}"
         msgs: List[Dict[str, Any]] = []
@@ -310,8 +311,8 @@ class OutlookMailMixin:
             r.raise_for_status()
             data = r.json()
             for m in data.get("value", []):
-                received = m.get("receivedDateTime", "")
-                if not sender and after and received and received[:10] < after[:10]:
+                received = m.get("receivedDateTime") or ""
+                if after and received and received[:10] < after[:10]:
                     continue
                 addr = (m.get("from") or {}).get("emailAddress", {})
                 msgs.append({
