@@ -194,6 +194,19 @@ def get_outlook_client_id(profile: Optional[str] = None) -> Optional[str]:
     return sec.get("outlook_client_id") or sec.get("client_id")
 
 
+def get_outlook_client_id_for_profile(profile: str) -> Optional[str]:
+    """Return Outlook client_id only if [mail.<profile>] section exists.
+
+    Unlike get_outlook_client_id, never falls back to the default [mail]
+    section, so a mistyped or unknown profile name returns None.
+    """
+    ini = _read_ini()
+    sec = ini.get(f"{_SECTION}.{profile}")
+    if not sec:
+        return None
+    return sec.get("outlook_client_id") or sec.get("client_id")
+
+
 def get_outlook_tenant(profile: Optional[str] = None) -> Optional[str]:
     sec = _get_ini_section(profile)
     return sec.get("tenant")

@@ -105,6 +105,13 @@ Flows (Curated Workflows)
 - Show one: `./bin/llm flows --id <flow_id> --format md|yaml|json`
 - Examples: `gmail.filters.plan-apply-verify`, `outlook.rules.plan-apply-verify`, `unified.derive`
 
+Messages (Provider-Agnostic)
+- `messages search` auto-detects Gmail vs Outlook from `--profile`:
+  - Outlook profiles (with `outlook_client_id`) use Graph API `$search`
+  - Gmail profiles use standard Gmail query syntax
+  - No profile or Gmail profile: `./bin/mail-assistant messages search --query "subject:invoice" --json`
+  - Outlook profile: `./bin/mail-assistant --profile outlook_vanesa messages search --query "invoice" --json`
+
 Operational Checks (Mail filters/rules)
 - Unified is the source of truth: treat `config/filters_unified.yaml` as canonical for both Gmail and Outlook.
 - Always run a plan first, then apply:

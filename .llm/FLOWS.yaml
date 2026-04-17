@@ -79,6 +79,41 @@ curated:
         - ./bin/mail-assistant auto summary --proposal out/auto.proposal.json
         - ./bin/mail-assistant auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run
 
+  messages:
+    - id: messages_search_gmail
+      desc: Search Gmail messages
+      cmd: ./bin/mail-assistant messages search --query "from:sender@example.com" --days 7 --max-results 10 --json
+
+    - id: messages_search_outlook
+      desc: Search Outlook messages (profile-based)
+      cmd: ./bin/mail-assistant --profile outlook_vanesa messages search --query "swim class" --max-results 10 --json
+
+    - id: messages_summarize
+      desc: Summarize a message by query
+      cmd: ./bin/mail-assistant messages summarize --query "from:sender@example.com" --latest
+
+  calendar:
+    - id: email_to_calendar_recurring
+      desc: Email/WhatsApp → recurring calendar event (search → extract → verify → add)
+      steps:
+        - "# 1. Find the activity in email or WhatsApp"
+        - ./bin/mail-assistant --profile outlook_vanesa messages search --query "swim class" --max-results 5 --json
+        - ./bin/whatsapp search --contains "swim class" --since-days 30
+        - "# 2. Write YAML plan to /tmp/activity.yaml with events: [] (see TOOLS.md for format)"
+        - "# 3. Verify no duplicates"
+        - ./bin/calendar-assistant --profile outlook_bcs outlook verify-from-config --config /tmp/activity.yaml
+        - "# 4. Dry-run then apply"
+        - ./bin/calendar-assistant --profile outlook_bcs outlook add-from-config --config /tmp/activity.yaml --dry-run
+        - ./bin/calendar-assistant --profile outlook_bcs outlook add-from-config --config /tmp/activity.yaml
+
+    - id: schedule_import_from_url
+      desc: Import schedule from URL/PDF/CSV into calendar
+      cmd: ./bin/calendar-assistant --profile outlook_bcs outlook schedule-import --source "https://example.com/schedule.pdf" --calendar "Activities" --dry-run
+
+    - id: scan_email_for_classes
+      desc: Scan Outlook emails for class schedules and generate plan
+      cmd: ./bin/calendar-assistant --profile outlook_bcs outlook scan-classes --from-text "swim" --days 30 --out /tmp/classes.yaml
+
   testing:
     - id: tests_all
       desc: Run all tests (verbose)
