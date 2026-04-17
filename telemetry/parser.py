@@ -67,10 +67,17 @@ def iter_session_files(days: int = 7) -> Iterator[Path]:
 
 
 def _parse_ts(raw: str) -> Optional[datetime]:
-    """Parse ISO 8601 timestamp (handles trailing Z)."""
+    """Parse ISO 8601 timestamp and normalize to UTC.
+
+    Handles trailing Z and ensures the result is always timezone-aware.
+    """
     try:
-        raw = raw.replace("Z", "+00:00")
-        return datetime.fromisoformat(raw)
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except (ValueError, AttributeError):
         return None
 
@@ -102,7 +109,7 @@ def parse_session(path: Path) -> SessionStats:
     """Parse a single JSONL session file into stats."""
     stats = SessionStats(session_id=path.stem, path=path)
 
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:

@@ -364,7 +364,7 @@ def cmd_filters_rm_from_token(args) -> int:
 
 
 # --- messages group ---
-messages_group = app.group("messages", help="Search, summarize, and reply to messages")
+messages_group = app.group("messages", help="Search (Gmail+Outlook), summarize and reply (Gmail)")
 
 
 @messages_group.command("search", help="Search for messages and list candidates")

@@ -43,8 +43,9 @@ def run_messages_search(args) -> int:
     )
 
     profile = getattr(args, "profile", None)
+    query = getattr(args, "query", "") or ""
     request = MessagesSearchRequest(
-        query=getattr(args, "query", "") or "",
+        query=query,
         days=getattr(args, "days", None),
         only_inbox=getattr(args, "only_inbox", False),
         max_results=int(getattr(args, "max_results", 5) or 5),
@@ -52,7 +53,14 @@ def run_messages_search(args) -> int:
     )
 
     if is_outlook_profile(profile):
-        client = outlook_client_from_args(args)
+        if not query.strip():
+            print("Outlook search requires a non-empty --query")
+            return 1
+        try:
+            client = outlook_client_from_args(args)
+        except RuntimeError as e:
+            print(str(e))
+            return 1
         processor = OutlookMessagesSearchProcessor(client)
     else:
         client = gmail_provider_from_args(args)

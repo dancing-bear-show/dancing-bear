@@ -23,7 +23,12 @@ def gmail_provider_from_args(args):
 
 
 def is_outlook_profile(profile: Optional[str]) -> bool:
-    """Return True if the profile has Outlook credentials configured."""
+    """Return True only for an explicit profile with Outlook credentials configured.
+
+    Returns False when profile is None/empty so default usage stays Gmail.
+    """
+    if not profile:
+        return False
     return bool(get_outlook_client_id(profile))
 
 
@@ -31,11 +36,12 @@ def outlook_client_from_args(args):
     """Construct an authenticated OutlookClient from argparse-like args.
 
     Returns the raw OutlookClient (not OutlookProvider) for message operations.
+    Raises RuntimeError with detail on failure.
     """
     from ..outlook.helpers import get_outlook_client
     client, err = get_outlook_client(args)
     if err or client is None:
-        raise RuntimeError("Could not initialize Outlook client")
+        raise RuntimeError(f"Could not initialize Outlook client (error code: {err})")
     return client
 
 

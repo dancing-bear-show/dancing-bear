@@ -180,5 +180,54 @@ class MessagesCLITests(unittest.TestCase):
         self.assertIn("Created Gmail draft", out)
 
 
+class OutlookMessagesCLITests(unittest.TestCase):
+    def test_outlook_search_lists_candidates(self):
+        """Test Outlook message search via is_outlook_profile=True path."""
+        fake_client = type("FakeOutlookClient", (), {
+            "search_inbox_messages": lambda self, params: ["OLK1"],
+            "get_message": lambda self, mid, select_body=False: {
+                "subject": "Outlook Subject",
+                "from": {"emailAddress": {"name": "Alice", "address": "alice@outlook.com"}},
+                "bodyPreview": "Preview text",
+            },
+        })()
+
+        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \
+             patch("mail.utils.cli_helpers.outlook_client_from_args", return_value=fake_client):
+            args = make_args(
+                query="swim class",
+                days=None,
+                only_inbox=False,
+                max_results=5,
+                json=False,
+                profile="outlook_vanesa",
+            )
+            with capture_stdout() as buf:
+                rc = run_messages_search(args)
+            out = buf.getvalue()
+
+        self.assertEqual(rc, 0)
+        self.assertIn("Outlook Subject", out)
+        self.assertIn("alice@outlook.com", out)
+
+    def test_outlook_search_empty_query_returns_error(self):
+        """Outlook search with empty query should fail cleanly."""
+        with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True):
+            args = make_args(
+                query="",
+                days=None,
+                only_inbox=False,
+                max_results=5,
+                json=False,
+                profile="outlook_vanesa",
+            )
+            with capture_stdout() as buf:
+                rc = run_messages_search(args)
+            out = buf.getvalue()
+
+        self.assertEqual(rc, 1)
+        self.assertIn("non-empty", out)
+
+
 if __name__ == "__main__":
     unittest.main()
