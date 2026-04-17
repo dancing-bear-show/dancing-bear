@@ -273,6 +273,71 @@ class OutlookMailMixin:
         r.raise_for_status()
         return r.json()
 
+    def search_messages(
+        self: OutlookClientBase,
+        query: str,
+        top: int = 50,
+        pages: int = 3,
+        after: Optional[str] = None,
+        sender: Optional[str] = None,
+        only_inbox: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Search mail messages matching query.
+
+        Args:
+            query: KQL search string (e.g. 'Jing Zhang receipt'); combined with sender when both provided
+            top: page size
+            pages: max pages to fetch
+            after: ISO date YYYY-MM-DD — results are filtered client-side
+            sender: sender constraint added as a KQL ``from:<sender>`` term via ``$search``
+            only_inbox: restrict search to Inbox folder only
+        """
+        import urllib.parse
+        sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
+        folder_path = "mailFolders/inbox/messages" if only_inbox else "messages"
+        kql_terms: List[str] = []
+        if sender:
+            kql_terms.append(f"from:{sender}")
+        if query.strip():
+            kql_terms.append(query.strip())
+        if not kql_terms:
+            return []
+        encoded_query = urllib.parse.quote(f'"{" ".join(kql_terms)}"')
+        url = f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(top)}&{sel}"
+        msgs: List[Dict[str, Any]] = []
+        nxt: Optional[str] = url
+        for _ in range(max(1, int(pages))):
+            r = _requests().get(nxt, headers=self._headers_search())
+            r.raise_for_status()
+            data = r.json()
+            for m in data.get("value", []):
+                received = m.get("receivedDateTime") or ""
+                if after and received and received[:10] < after[:10]:
+                    continue
+                addr = (m.get("from") or {}).get("emailAddress", {})
+                msgs.append({
+                    "id": m.get("id"),
+                    "subject": m.get("subject", ""),
+                    "from": f"{addr.get('name', '')} <{addr.get('address', '')}>",
+                    "received": received,
+                    "snippet": m.get("bodyPreview", ""),
+                    "has_attachments": m.get("hasAttachments", False),
+                })
+            nxt = data.get("@odata.nextLink")
+            if not nxt:
+                break
+        return msgs
+
+    def get_attachments(
+        self: OutlookClientBase,
+        msg_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Return list of attachments for a message (includes contentBytes base64)."""
+        url = f"{GRAPH_API_URL}/me/messages/{msg_id}/attachments"
+        r = _requests().get(url, headers=self._headers())
+        r.raise_for_status()
+        return r.json().get("value", [])
+
     # -------------------- Folders --------------------
     def list_folders(self: OutlookClientBase) -> List[Dict[str, Any]]:
         url = f"{GRAPH_API_URL}/me/mailFolders"

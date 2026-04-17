@@ -41,12 +41,15 @@ from ..forwarding.commands import (
     run_forwarding_disable,
 )
 from ..outlook.commands import (
+    run_outlook_messages_search,
+    run_outlook_messages_summarize,
     run_outlook_rules_list,
     run_outlook_rules_export,
     run_outlook_rules_sync,
     run_outlook_rules_plan,
     run_outlook_rules_delete,
     run_outlook_rules_sweep,
+    run_outlook_rules_prune_empty,
     run_outlook_categories_list,
     run_outlook_categories_export,
     run_outlook_categories_sync,
@@ -839,6 +842,17 @@ def cmd_outlook_rules_delete(args) -> int:
     return run_outlook_rules_delete(args)
 
 
+@outlook_group.command("rules.prune-empty", help="Delete Outlook rules with no conditions or actions")
+@outlook_group.argument("--client-id", help="Azure app (client) ID")
+@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
+@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--dry-run", action="store_true", help="Preview changes")
+@outlook_group.argument("--accounts-config", default="config/accounts.yaml")
+@outlook_group.argument("--account", help="Account name for defaults")
+def cmd_outlook_rules_prune_empty(args) -> int:
+    return run_outlook_rules_prune_empty(args)
+
+
 @outlook_group.command("rules.sweep", help="Apply folder moves to existing messages")
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
@@ -965,6 +979,40 @@ def cmd_outlook_categories_sync(args) -> int:
 @outlook_group.argument("--account", help="Account name for defaults")
 def cmd_outlook_folders_sync(args) -> int:
     return run_outlook_folders_sync(args)
+
+
+@outlook_group.command("messages.search", help="Search Outlook messages across all folders")
+@outlook_group.argument("--client-id", help="Azure app (client) ID")
+@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
+@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--query", default="", help="KQL search query")
+@outlook_group.argument("--top", type=int, default=50, help="Page size")
+@outlook_group.argument("--pages", type=int, default=3, help="Max pages to fetch")
+@outlook_group.argument("--after", help="Only messages received after ISO date (e.g. 2025-01-01)")
+@outlook_group.argument("--days", type=int, help="Only messages from last N days (converted to --after)")
+@outlook_group.argument("--sender", help="Filter by sender using KQL from: term (email or domain, e.g. brightchamps.com)")
+@outlook_group.argument("--only-inbox", action="store_true", help="Restrict to Inbox folder")
+@outlook_group.argument("--json", action="store_true", help="Output JSON")
+@outlook_group.argument("--accounts-config", default="config/accounts.yaml")
+@outlook_group.argument("--account", help="Account name for defaults")
+def cmd_outlook_messages_search(args) -> int:
+    return run_outlook_messages_search(args)
+
+
+@outlook_group.command("messages.summarize", help="Summarize an Outlook message")
+@outlook_group.argument("--client-id", help="Azure app (client) ID")
+@outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
+@outlook_group.argument("--token", help="Path to token cache JSON")
+@outlook_group.argument("--id", help="Message ID to summarize")
+@outlook_group.argument("--query", help="KQL query to find message (fallback if --id not given)")
+@outlook_group.argument("--top", type=int, default=5, help="Max results when searching by query")
+@outlook_group.argument("--pages", type=int, default=1, help="Pages to fetch when searching by query")
+@outlook_group.argument("--max-words", type=int, default=120, dest="max_words", help="Max words in summary")
+@outlook_group.argument("--out", help="Write summary to file")
+@outlook_group.argument("--accounts-config", default="config/accounts.yaml")
+@outlook_group.argument("--account", help="Account name for defaults")
+def cmd_outlook_messages_summarize(args) -> int:
+    return run_outlook_messages_summarize(args)
 
 
 def _install_output_masking() -> None:

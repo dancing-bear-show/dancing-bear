@@ -39,7 +39,7 @@ def resolve_outlook_args(args) -> Tuple[Optional[str], Optional[str], Optional[s
 
     Returns: (client_id, tenant, token_path, cache_dir)
     """
-    profile = getattr(args, "profile", None)
+    profile = getattr(args, "profile", None) or getattr(args, "account", None)
     client_id, tenant, token_path = resolve_outlook_credentials(
         profile,
         getattr(args, "client_id", None),
