@@ -41,7 +41,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def list_events_in_range(self, params):
@@ -78,7 +78,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def list_events_in_range(self, params):
@@ -120,7 +120,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def ensure_calendar(self, name: str) -> str:
@@ -150,7 +150,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def list_events_in_range(self, params):

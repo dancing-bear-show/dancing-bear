@@ -180,7 +180,7 @@ class TestBuildSummary(unittest.TestCase):
         # Should extract available data - each generates "title at company" format
         highlights = result["experience_highlights"]
         # "at" is added for formatting even if title or company empty
-        self.assertTrue(len(highlights) > 0)
+        self.assertGreater(len(highlights), 0)
 
     def test_none_seed_defaults_to_empty(self):
         data = {"name": "Test", "skills": ["Python"]}

@@ -13,7 +13,7 @@ from core.secrets import (
 class MaskValueTests(unittest.TestCase):
     def test_empty_value(self):
         self.assertEqual(_mask_value(""), "")
-        self.assertEqual(_mask_value(None), None)
+        self.assertIsNone(_mask_value(None))
 
     def test_bearer_token(self):
         self.assertEqual(_mask_value("Bearer abc123"), "Bearer ***REDACTED***")

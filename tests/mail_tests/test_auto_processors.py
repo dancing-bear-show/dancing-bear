@@ -350,7 +350,7 @@ class TestAutoApplyProcessor(unittest.TestCase):
         self.assertEqual(envelope.payload.total_modified, 3)
         self.assertFalse(envelope.payload.dry_run)
         # Should have batched by label combo
-        self.assertTrue(len(client.modified_batches) >= 1)
+        self.assertGreaterEqual(len(client.modified_batches), 1)
 
     def test_dry_run_does_not_modify(self):
         client = FakeAutoClient(

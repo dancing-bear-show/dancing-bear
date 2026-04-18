@@ -92,7 +92,7 @@ class AppLoggerTests(TempDirMixin, unittest.TestCase):
 
         records = self._read_records()
         error_rec = records[1]
-        self.assertEqual(error_rec["extra"], None)
+        self.assertIsNone(error_rec["extra"])
 
     def test_multiple_sessions(self):
         sid1 = self.logger.start("cmd1")
