@@ -88,6 +88,22 @@ _CATEGORY_MAP = {
 }
 
 
+def _map_category(name: str) -> Optional[str]:
+    """Map a friendly category name to a Gmail system label, or None."""
+    return _CATEGORY_MAP.get(name.strip().lower())
+
+
+def _append_mapped_categories(cats: list, seq) -> None:
+    """Append mapped category labels from a sequence into cats."""
+    if not isinstance(seq, list):
+        return
+    for it in seq:
+        if isinstance(it, str):
+            mapped = _map_category(it)
+            if mapped:
+                cats.append(mapped)
+
+
 def categories_to_system_labels(action_spec: dict) -> list[str]:
     """Expand friendly category keys to Gmail system label names.
 
@@ -96,24 +112,16 @@ def categories_to_system_labels(action_spec: dict) -> list[str]:
     - action.categorize: str | list[str]
     - action.categories: list[str]
     """
-    cats: list[str] = []
     if not isinstance(action_spec, dict):
-        return cats
-    # Single value forms
+        return []
+    cats: list[str] = []
     val = action_spec.get("categorizeAs") or action_spec.get("categorize")
     if isinstance(val, str):
-        key = val.strip().lower()
-        if key in _CATEGORY_MAP:
-            cats.append(_CATEGORY_MAP[key])
-    # Sequence forms
-    for seq_key in ("categories", "categorize"):
-        v = action_spec.get(seq_key)
-        if isinstance(v, list):
-            for it in v:
-                if isinstance(it, str):
-                    key = it.strip().lower()
-                    if key in _CATEGORY_MAP:
-                        cats.append(_CATEGORY_MAP[key])
+        mapped = _map_category(val)
+        if mapped:
+            cats.append(mapped)
+    _append_mapped_categories(cats, action_spec.get("categories"))
+    _append_mapped_categories(cats, action_spec.get("categorize"))
     return cats
 
 

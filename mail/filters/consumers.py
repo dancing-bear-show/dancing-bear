@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from .processors import SweepConfig
     from .producers import SweepProducerConfig
 
+_ERR_LABEL_PREFIX = "Invalid --label-prefix"
+
 
 @dataclass
 class FiltersBasePayload:
@@ -313,7 +315,7 @@ class FiltersAddForwardConsumer(Consumer[FiltersAddForwardPayload]):
             raise ValueError("Missing --email for add-forward-by-label.")
         label_prefix = str(getattr(args, "label_prefix", "")).strip()
         if not label_prefix:
-            raise ValueError("Invalid --label-prefix")
+            raise ValueError(_ERR_LABEL_PREFIX)
 
         client = self.context.get_gmail_client()
         labels = client.list_labels()
@@ -347,7 +349,7 @@ class FiltersAddTokenConsumer(Consumer[FiltersAddTokenPayload]):
         args = self.context.args
         label_prefix = str(getattr(args, "label_prefix", "")).strip()
         if not label_prefix:
-            raise ValueError("Invalid --label-prefix")
+            raise ValueError(_ERR_LABEL_PREFIX)
         needle = str(getattr(args, "needle", "")).strip().lower()
         tokens = [str(x).strip() for x in (getattr(args, "add", []) or []) if str(x).strip()]
         if not needle or not tokens:
@@ -381,7 +383,7 @@ class FiltersRemoveTokenConsumer(Consumer[FiltersRemoveTokenPayload]):
         args = self.context.args
         label_prefix = str(getattr(args, "label_prefix", "")).strip()
         if not label_prefix:
-            raise ValueError("Invalid --label-prefix")
+            raise ValueError(_ERR_LABEL_PREFIX)
         needle = str(getattr(args, "needle", "")).strip().lower()
         tokens = [str(x).strip().lower() for x in (getattr(args, "remove", []) or []) if str(x).strip()]
         if not needle or not tokens:

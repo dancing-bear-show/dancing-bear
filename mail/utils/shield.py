@@ -25,15 +25,15 @@ SECRET_KEYS = (
 # Borrowed/adapted from cars-sre-utils secret shielding conventions
 SECRET_VALUE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),  # GitHub personal access token
-    re.compile(r"\bglsa_[A-Za-z0-9]{20,}\b", re.I),  # Grafana service account token
-    re.compile(r"\bxox[abpisr]-[A-Za-z0-9-]{10,}\b", re.I),  # Slack tokens
-    re.compile(r"\bapi-[A-Za-z0-9]{16,}\b", re.I),  # API tokens like LaunchDarkly
-    re.compile(r"\brootly_[A-Za-z0-9]{16,}\b", re.I),  # Rootly
-    re.compile(r"\bsk-(?:live|test|proj)-[A-Za-z0-9_-]{16,}\b", re.I),  # OpenAI tokens
+    re.compile(r"\bglsa_[A-Z0-9]{20,}\b", re.I),  # Grafana service account token
+    re.compile(r"\bxox[abpisr]-[A-Z0-9-]{10,}\b", re.I),  # Slack tokens
+    re.compile(r"\bapi-[A-Z0-9]{16,}\b", re.I),  # API tokens like LaunchDarkly
+    re.compile(r"\brootly_[A-Z0-9]{16,}\b", re.I),  # Rootly
+    re.compile(r"\bsk-(?:live|test|proj)-[A-Z0-9_-]{16,}\b", re.I),  # OpenAI tokens
     re.compile(r"\bya29\.[A-Za-z0-9._-]{20,}\b"),  # Google OAuth access token
-    re.compile(r"\bAIza[0-9A-Za-z-_]{20,}\b"),  # Google API key
+    re.compile(r"\bAIza[A-Z0-9_-]{20,}\b", re.I),  # Google API key
     # JWT-like three-part tokens
-    re.compile(r"eyJ[a-zA-Z0-9_=-]{10,}\.[a-zA-Z0-9_=-]{10,}\.[a-zA-Z0-9_=-]{8,}"),
+    re.compile(r"eyJ[A-Za-z0-9_=-]{10,}\.[A-Za-z0-9_=-]{10,}\.[A-Za-z0-9_=-]{8,}"),
     # MSAL/Graph opaque tokens often start with 'M.' and are long
     re.compile(r"\bM\.[A-Za-z0-9._!*$-]{20,}\b"),
 ]

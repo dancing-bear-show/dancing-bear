@@ -382,7 +382,7 @@ def run_labels_apply_suggestions(args) -> int:
     sugg = doc.get('suggestions') or []
     if not sugg:
         print('No suggestions found.')
-        return 0
+        return 1
 
     creds_path, tok_path = resolve_paths_profile(
         arg_credentials=args.credentials,
@@ -468,7 +468,7 @@ def run_labels_sweep_parents(args) -> int:
             print(f"[{parent}] Would add to {len(ids)} messages")
         else:
             apply_in_chunks(
-                lambda chunk: client.batch_modify_messages(chunk, add_label_ids=[parent_id]),
+                lambda chunk, _pid=parent_id: client.batch_modify_messages(chunk, add_label_ids=[_pid]),
                 ids,
                 int(args.batch_size),
             )
