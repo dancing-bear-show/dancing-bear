@@ -15,7 +15,6 @@ Commands:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -37,6 +36,10 @@ from ..pipeline import FilterPipeline
 
 # Default profile used when --profile is not provided
 DEFAULT_PROFILE = "sample"
+
+# Common extension constants
+EXT_JSON = ".json"
+EXT_YAML = ".yaml"
 
 assistant = BaseAssistant(
     "resume",
@@ -124,7 +127,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
         else:
             rs = parse_resume_text(resume_text) if resume_text else {}
     data = merge_profiles(li, rs)
-    out_path = _resolve_out(args, ".json", kind="data")
+    out_path = _resolve_out(args, EXT_JSON, kind="data")
     write_yaml_or_json(data, out_path)
     return 0
 
@@ -163,7 +166,7 @@ def cmd_summarize(args: argparse.Namespace) -> int:
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
     summary = build_summary(data, seed)
     out = _resolve_out(args, ".md", kind="summary")
-    if out.suffix.lower() in {".yaml", ".yml", ".json"}:
+    if out.suffix.lower() in {EXT_YAML, ".yml", EXT_JSON}:
         write_yaml_or_json(summary, out)
     else:
         # Default to markdown/text
@@ -195,7 +198,7 @@ def _try_load_structure(path: Path) -> Optional[dict]:
 
 
 def _find_structure_in_dirs(
-    profile: str, out_dirs: List[Path], extensions: tuple = (".json", ".yaml", ".yml")
+    profile: str, out_dirs: List[Path], extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
 ) -> Optional[dict]:
     """Search for structure file in output directories (nested and legacy flat)."""
     # Try nested location first: out_dir/profile/structure.ext
@@ -212,7 +215,7 @@ def _find_structure_in_dirs(
 
 
 def _find_structure_in_config(
-    profile: str, extensions: tuple = (".json", ".yaml", ".yml")
+    profile: str, extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
 ) -> Optional[dict]:
     """Search for structure file in config folder."""
     for ext in extensions:
@@ -225,7 +228,7 @@ def _load_structure(args: argparse.Namespace) -> Optional[dict]:
     """Load structure from explicit path or auto-discover for profile."""
     if args.structure_from:
         sf = str(args.structure_from)
-        if sf.lower().endswith((".json", ".yaml", ".yml")):
+        if sf.lower().endswith((EXT_JSON, EXT_YAML, ".yml")):
             return _try_load_structure(Path(sf))
         return infer_structure_from_docx(sf)
 
@@ -310,7 +313,7 @@ def cmd_render(args: argparse.Namespace) -> int:
 @app.argument("--out-dir", default="out", help="Output directory (default: out)")
 def cmd_structure(args: argparse.Namespace) -> int:
     struct = infer_structure_from_docx(args.source)
-    out = _resolve_out(args, ".json", kind="structure")
+    out = _resolve_out(args, EXT_JSON, kind="structure")
     write_yaml_or_json(struct, out)
     return 0
 
@@ -333,7 +336,7 @@ def cmd_align(args: argparse.Namespace) -> int:
     job_cfg = load_job_config(args.job)
     kw_spec, synonyms = build_keyword_spec(job_cfg)
     al = align_candidate_to_job(candidate, kw_spec, synonyms)
-    out = _resolve_out(args, ".json", kind="alignment")
+    out = _resolve_out(args, EXT_JSON, kind="alignment")
     write_yaml_or_json(al, out)
     if args.tailored:
         tailored = build_tailored_candidate(
@@ -357,7 +360,7 @@ def cmd_candidate_init(args: argparse.Namespace) -> int:
     prof = getattr(args, "profile", None)
     if prof:
         data = _apply_profile_overlays(data, prof)
-    out = _resolve_out(args, ".yaml", kind="candidate")
+    out = _resolve_out(args, EXT_YAML, kind="candidate")
     # Build skeleton candidate skills YAML
     skills = [str(s) for s in (data.get("skills") or [])]
     candidate = {
@@ -403,7 +406,7 @@ style_group = app.group("style", help="Build or manage style profiles from a pro
 def cmd_style_build(args: argparse.Namespace) -> int:
     from ..style import build_style_profile
     prof = build_style_profile(args.corpus_dir)
-    out = _resolve_out(args, ".json", kind="style")
+    out = _resolve_out(args, EXT_JSON, kind="style")
     write_yaml_or_json(prof, out)
     return 0
 
@@ -471,7 +474,7 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
         else:
             data = parse_resume_text(resume_text)
     summary = build_experience_summary(data, max_bullets=args.max_bullets)
-    out = _resolve_out(args, ".yaml", kind="experience")
+    out = _resolve_out(args, EXT_YAML, kind="experience")
     write_yaml_or_json(summary, out)
     return 0
 

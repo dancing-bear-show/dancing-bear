@@ -327,6 +327,58 @@ def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str
     return _expand_weekly_occurrences(ev, start_date, end_date, start_time, end_time, ex_set)
 
 
+def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
+    """Resolve calendar ID, falling back to name lookup on error."""
+    if not calendar_name:
+        return None
+    try:
+        return service.ensure_calendar(calendar_name)
+    except Exception:
+        return service.get_calendar_id_by_name(calendar_name)
+
+
+def _create_recurring_or_single(
+    service: Any, cal_id: Any, calendar_name: Optional[str], ev: Dict[str, Any],
+    subject: str, tz: Any, body_html: Any, location: Any, no_reminder: bool, reminder_minutes: Any,
+) -> Optional[Any]:
+    """Create recurring or single event. Returns result dict or None if skipped."""
+    ev_range = ev.get("range") or {}
+    if ev.get("repeat") and ev.get("start_time") and ev_range.get("start_date"):
+        return service.create_recurring_event(
+            calendar_id=cal_id,
+            calendar_name=calendar_name,
+            subject=subject,
+            start_time=ev.get("start_time"),
+            end_time=ev.get("end_time") or ev.get("start_time"),
+            tz=tz,
+            repeat=str(ev.get("repeat") or "").lower(),
+            interval=int(ev.get("interval") or 1),
+            byday=ev.get("byday") or [],
+            range_start_date=ev_range.get("start_date"),
+            range_until=ev_range.get("until"),
+            count=ev.get("count"),
+            body_html=body_html,
+            location=location,
+            exdates=ev.get("exdates"),
+            no_reminder=no_reminder,
+            reminder_minutes=reminder_minutes,
+        )
+    if ev.get("start") and ev.get("end"):
+        return service.create_event(
+            calendar_id=cal_id,
+            calendar_name=calendar_name,
+            subject=subject,
+            start_iso=_to_iso_str(ev.get("start")),
+            end_iso=_to_iso_str(ev.get("end")),
+            tz=tz,
+            body_html=body_html,
+            location=location,
+            no_reminder=no_reminder,
+            reminder_minutes=reminder_minutes,
+        )
+    return None
+
+
 def _apply_outlook_events(
     events: List[Dict[str, Any]],
     *,
@@ -334,73 +386,26 @@ def _apply_outlook_events(
     service: Any,
 ) -> Tuple[int, List[str]]:
     logs: List[str] = []
-    cal_id = None
-    if calendar_name:
-        try:
-            cal_id = service.ensure_calendar(calendar_name)
-        except Exception:
-            cal_id = service.get_calendar_id_by_name(calendar_name)
-
+    cal_id = _ensure_calendar_id(service, calendar_name)
     created = 0
     for ev in events:
         subject = (ev.get("subject") or "").strip()
         if not subject:
             logs.append("Skipping event without subject")
             continue
-        tz = ev.get("tz")
-        body_html = ev.get("body_html")
-        location = ev.get("location")
-        no_reminder = False
-        if ev.get("is_reminder_on") is False:
-            no_reminder = True
-        reminder_minutes = ev.get("reminder_minutes")
-
+        no_reminder = ev.get("is_reminder_on") is False
         try:
-            if ev.get("repeat") and ev.get("start_time") and (ev.get("range") or {}).get("start_date"):
-                rep = str(ev.get("repeat") or "").lower()
-                byday = ev.get("byday") or []
-                interval = int(ev.get("interval") or 1)
-                r = service.create_recurring_event(
-                    calendar_id=cal_id,
-                    calendar_name=calendar_name,
-                    subject=subject,
-                    start_time=ev.get("start_time"),
-                    end_time=ev.get("end_time") or ev.get("start_time"),
-                    tz=tz,
-                    repeat=rep,
-                    interval=interval,
-                    byday=byday,
-                    range_start_date=(ev.get("range") or {}).get("start_date"),
-                    range_until=(ev.get("range") or {}).get("until"),
-                    count=ev.get("count"),
-                    body_html=body_html,
-                    location=location,
-                    exdates=ev.get("exdates"),
-                    no_reminder=no_reminder,
-                    reminder_minutes=reminder_minutes,
-                )
-            elif ev.get("start") and ev.get("end"):
-                r = service.create_event(
-                    calendar_id=cal_id,
-                    calendar_name=calendar_name,
-                    subject=subject,
-                    start_iso=_to_iso_str(ev.get("start")),
-                    end_iso=_to_iso_str(ev.get("end")),
-                    tz=tz,
-                    body_html=body_html,
-                    location=location,
-                    no_reminder=no_reminder,
-                    reminder_minutes=reminder_minutes,
-                )
-            else:
+            r = _create_recurring_or_single(
+                service, cal_id, calendar_name, ev, subject,
+                ev.get("tz"), ev.get("body_html"), ev.get("location"),
+                no_reminder, ev.get("reminder_minutes"),
+            )
+            if r is None:
                 logs.append(f"Skipping event (insufficient fields): {subject}")
                 continue
             created += 1
             eid = r.get("id") if isinstance(r, dict) else None
-            if eid:
-                logs.append(f"Created: {subject} (id={eid})")
-            else:
-                logs.append(f"Created: {subject}")
+            logs.append(f"Created: {subject} (id={eid})" if eid else f"Created: {subject}")
         except Exception as exc:
             logs.append(f"Failed to create event '{subject}': {exc}")
             return 2, logs

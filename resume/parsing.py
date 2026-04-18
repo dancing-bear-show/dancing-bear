@@ -13,6 +13,15 @@ SECTION_PATTERNS = {
     "contact": re.compile(r"^\s*(contact|contact info|info)\s*$", re.I),
 }
 
+# Style name constants used in DOCX parsing
+_STYLE_TITLE_STYLES = {"title", "heading 0"}
+_STYLE_HEADING_2 = "heading 2"
+
+# Date range pattern fragment used in experience parsing
+# Matches: "2020", "Jan 2020", combined with "-" or "–" separator
+_DATE_PART = r"(?:\d{4}|\w+\s+\d{4})"
+_DATE_RANGE_PAT = rf"({_DATE_PART}\s*[-–]\s*(?:\d{{4}}|Present|Current|{_DATE_PART}))"
+
 
 # =============================================================================
 # Shared extraction utilities (used by both DOCX and PDF parsers)
@@ -57,7 +66,7 @@ def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
 
     # Pattern 2: "Title at Company, dates" or "Title at Company (dates)"
     m = re.match(
-        r"(.+?)\s+at\s+(.+?)(?:[,\s]+|\s*\()((?:\d{4}|\w+\s+\d{4})\s*[-–]\s*(?:\d{4}|Present|Current|\w+\s+\d{4}))\)?",
+        rf"(.+?)\s+at\s+(.+?)(?:[,\s]+|\s*\(){_DATE_RANGE_PAT}\)?",
         text, re.I
     )
     if m:
@@ -89,7 +98,7 @@ def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
             }
 
     # Pattern 4: Simple "Title at Company"
-    m = re.match(r"(.+?)\s+at\s+(.+?)$", text)
+    m = re.match(r"(.+?)\s+at\s+(.+)$", text)
     if m:
         return {
             "title": m.group(1).strip(),
@@ -159,50 +168,42 @@ def _split_lines(text: str) -> List[str]:
     return [ln.strip() for ln in text.splitlines()]
 
 
+_PAT_EMAIL = re.compile(r"[\w.\-+]+@[\w.\-]+\.[a-zA-Z]{2,}")
+_PAT_PHONE = re.compile(r"\+?1?\s*\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}")
+_PAT_LOCATION = re.compile(r"([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*),\s*[A-Z]{2}")
+_PAT_LINKEDIN = re.compile(r"linkedin\.com/in/[\w\-]+", re.I)
+_PAT_GITHUB = re.compile(r"github\.com/[\w\-]+", re.I)
+_PAT_WEBSITE = re.compile(r"(?:https?://|www\.)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:/[\w\-/]*)?)")
+
+
+def _match_first(pat: re.Pattern, ln: str) -> str:
+    m = pat.search(ln)
+    return m.group(0) if m else ""
+
+
+def _match_website(ln: str) -> str:
+    m = _PAT_WEBSITE.search(ln)
+    if m and "linkedin" not in m.group(0).lower() and "github" not in m.group(0).lower():
+        return m.group(0)
+    return ""
+
+
 def _extract_contact(lines: List[str]) -> Dict[str, str]:
-    email = ""
-    phone = ""
-    location = ""
-    linkedin = ""
-    github = ""
-    website = ""
+    fields: Dict[str, str] = {k: "" for k in ("email", "phone", "location", "linkedin", "github", "website")}
     for ln in lines[:10]:  # top lines commonly have contact
-        if not email:
-            m = re.search(r"[\w.\-+]+@[\w.\-]+\.[a-zA-Z]{2,}", ln)
-            if m:
-                email = m.group(0)
-        if not phone:
-            # Match phone formats: (555) 123-4567, +1 (555) 123-4567, 555-123-4567
-            m = re.search(r"\+?1?\s*\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}", ln)
-            if m:
-                phone = m.group(0)
-        if not location:
-            # naive location: look for City, ST pattern
-            m = re.search(r"([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*),\s*[A-Z]{2}", ln)
-            if m:
-                location = m.group(0)
-        if not linkedin:
-            m = re.search(r"linkedin\.com/in/[\w\-]+", ln, re.I)
-            if m:
-                linkedin = m.group(0)
-        if not github:
-            m = re.search(r"github\.com/[\w\-]+", ln, re.I)
-            if m:
-                github = m.group(0)
-        if not website:
-            # Generic URL that's not linkedin/github/email domain
-            # Must have scheme or www prefix, or be a standalone domain (not part of email)
-            m = re.search(r"(?:https?://|www\.)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,}(?:/[\w\-/]*)?)", ln)
-            if m and "linkedin" not in m.group(0).lower() and "github" not in m.group(0).lower():
-                website = m.group(0)
-    return {
-        "email": email.strip(),
-        "phone": phone.strip(),
-        "location": location.strip(),
-        "linkedin": linkedin.strip(),
-        "github": github.strip(),
-        "website": website.strip(),
-    }
+        if not fields["email"]:
+            fields["email"] = _match_first(_PAT_EMAIL, ln)
+        if not fields["phone"]:
+            fields["phone"] = _match_first(_PAT_PHONE, ln)
+        if not fields["location"]:
+            fields["location"] = _match_first(_PAT_LOCATION, ln)
+        if not fields["linkedin"]:
+            fields["linkedin"] = _match_first(_PAT_LINKEDIN, ln)
+        if not fields["github"]:
+            fields["github"] = _match_first(_PAT_GITHUB, ln)
+        if not fields["website"]:
+            fields["website"] = _match_website(ln)
+    return {k: v.strip() for k, v in fields.items()}
 
 
 def _extract_sections(lines: List[str]) -> Dict[str, List[str]]:
@@ -324,52 +325,61 @@ def parse_linkedin_text(text: str) -> Dict[str, Any]:
     }
 
 
-def _parse_linkedin_meta_from_html(html_text: str) -> Dict[str, Any]:
-    # Extract name/headline/location/summary from meta tags in public profile HTML
-    def mprop(prop: str) -> str:
-        m = re.search(rf"<meta[^>]+property=\"{re.escape(prop)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I)
-        return (m.group(1).strip() if m else "")
+def _meta_prop(html_text: str, prop: str) -> str:
+    m = re.search(rf"<meta[^>]+property=\"{re.escape(prop)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I)
+    return m.group(1).strip() if m else ""
 
-    def mname(name: str) -> str:
-        m = re.search(rf"<meta[^>]+name=\"{re.escape(name)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I)
-        return (m.group(1).strip() if m else "")
 
-    title_tag = ""
-    m = re.search(r"<title>([^<]+)</title>", html_text, re.I)
-    if m:
-        title_tag = m.group(1).strip()
+def _meta_name(html_text: str, name: str) -> str:
+    m = re.search(rf"<meta[^>]+name=\"{re.escape(name)}\"[^>]+content=\"([^\"]+)\"", html_text, re.I)
+    return m.group(1).strip() if m else ""
 
-    first = mprop("profile:first_name")
-    last = mprop("profile:last_name")
-    og_title = mprop("og:title") or title_tag
-    desc = mname("og:description") or mname("description")
 
+def _parse_linkedin_name_headline(first: str, last: str, og_title: str) -> tuple[str, str]:
+    """Extract name and headline from LinkedIn meta fields."""
     name = (first + " " + last).strip()
     headline = ""
-    # title form: "Name - Headline | LinkedIn"
     if not name and og_title:
-        # extract text before ' - '
         if " - " in og_title:
             name = og_title.split(" - ", 1)[0].strip()
             headline = og_title.split(" - ", 1)[1].split("|")[0].strip()
         else:
             name = og_title.split("|")[0].strip()
-
     if name and og_title and not headline and " - " in og_title:
         headline = og_title.split(" - ", 1)[1].split("|")[0].strip()
+    return name, headline
 
-    # Parse description: "<summary> · Experience: <company> · Location: <loc> · ..."
-    summary = ""
+
+def _parse_linkedin_desc(desc: str) -> tuple[str, str]:
+    """Parse description into (summary, location)."""
+    if not desc:
+        return "", ""
+    parts = [p.strip() for p in desc.split("·")]
+    summary = parts[0].strip() if parts else ""
     location = ""
-    if desc:
-        parts = [p.strip() for p in desc.split("·")]
-        if parts:
-            summary = parts[0].strip()
-        for p in parts[1:]:
-            if p.lower().startswith("location:"):
-                location = p.split(":", 1)[1].strip()
+    for p in parts[1:]:
+        if p.lower().startswith("location:"):
+            location = p.split(":", 1)[1].strip()
+    return summary, location
 
-    out = {
+
+def _parse_linkedin_meta_from_html(html_text: str) -> Dict[str, Any]:
+    # Extract name/headline/location/summary from meta tags in public profile HTML
+    title_tag = ""
+    m = re.search(r"<title>([^<]+)</title>", html_text, re.I)
+    if m:
+        title_tag = m.group(1).strip()
+
+    og_title = _meta_prop(html_text, "og:title") or title_tag
+    desc = _meta_name(html_text, "og:description") or _meta_name(html_text, "description")
+    name, headline = _parse_linkedin_name_headline(
+        _meta_prop(html_text, "profile:first_name"),
+        _meta_prop(html_text, "profile:last_name"),
+        og_title,
+    )
+    summary, location = _parse_linkedin_desc(desc)
+
+    out: Dict[str, Any] = {
         "name": name,
         "headline": headline,
         "email": "",
@@ -380,7 +390,6 @@ def _parse_linkedin_meta_from_html(html_text: str) -> Dict[str, Any]:
         "experience": [],
         "education": [],
     }
-    # If we got at least a name or summary, consider success
     if any(out.get(k) for k in ("name", "summary", "headline")):
         return out
     return {}
@@ -445,23 +454,34 @@ def _docx_find_sections(helper: _DocxParaHelper) -> tuple[List[int], Dict[str, D
     return h1_indices, sections
 
 
-def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple[str, str, List[str]]:
-    """Extract name, headline, and early lines from docx."""
-    name = ""
-    headline = ""
-    if len(helper) and helper.style(0) in {"title", "heading 0"}:
+def _docx_try_extract_name(helper: _DocxParaHelper) -> str:
+    """Try to extract candidate name from first paragraph."""
+    if len(helper) and helper.style(0) in _STYLE_TITLE_STYLES:
         nm = helper.text(0)
         if any(c.isalpha() for c in nm) and len(nm) < 80:
-            name = nm
+            return nm
+    return ""
 
+
+def _docx_try_extract_headline(helper: _DocxParaHelper, i: int, txt: str) -> str:
+    """Try to extract headline from second paragraph (index 1)."""
+    if i == 1 and helper.style(0) in _STYLE_TITLE_STYLES and helper.style(1) == "normal":
+        if not re.search(r"[@|]", txt) and len(txt) < 100:
+            return txt
+    return ""
+
+
+def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple[str, str, List[str]]:
+    """Extract name, headline, and early lines from docx."""
+    name = _docx_try_extract_name(helper)
+    headline = ""
     early_lines: List[str] = []
     for i in range(min(first_h1, 10)):
         txt = helper.text(i)
         if txt:
             early_lines.append(txt)
-            if i == 1 and helper.style(0) in {"title", "heading 0"} and helper.style(1) == "normal":
-                if not re.search(r"[@|]", txt) and len(txt) < 100:
-                    headline = txt
+            if not headline:
+                headline = _docx_try_extract_headline(helper, i, txt)
     return name, headline, early_lines
 
 
@@ -480,7 +500,7 @@ def _docx_extract_summary(
     if not h1_indices:
         return ""
 
-    start_idx = 1 if helper.style(0) in {"title", "heading 0"} else 0
+    start_idx = 1 if helper.style(0) in _STYLE_TITLE_STYLES else 0
     if first_h1 <= start_idx:
         return ""
 
@@ -523,7 +543,7 @@ def _docx_extract_education(
         if edu_entry:
             education.append(edu_entry)
             continue
-        if helper.style(i).startswith("heading 2"):
+        if helper.style(i).startswith(_STYLE_HEADING_2):
             education.append(_parse_h2_education(line))
     return education
 
@@ -554,7 +574,7 @@ def _process_exp_paragraph(
             completed = current
         return {**exp_entry, "bullets": []}, last_company, completed
 
-    if style.startswith("heading 2"):
+    if style.startswith(_STYLE_HEADING_2):
         if current:
             completed = current
         new_current, last_company = _parse_h2_experience(text, last_company)
@@ -589,7 +609,7 @@ def _docx_extract_experience(
         text = helper.text(i)
         if not text:
             continue
-        is_next_h2 = (i + 1) <= s["end"] and helper.style(i + 1).startswith("heading 2")
+        is_next_h2 = (i + 1) <= s["end"] and helper.style(i + 1).startswith(_STYLE_HEADING_2)
         current, last_company, completed = _process_exp_paragraph(
             helper.style(i), text, current, last_company, is_next_h2
         )
@@ -729,25 +749,22 @@ def _pdf_empty_result() -> Dict[str, Any]:
     }
 
 
+def _pdf_looks_like_name(line: str) -> bool:
+    return bool(line and len(line) < 60 and not _looks_like_section_heading(line) and not re.search(r"[@()\d]{3,}", line))
+
+
+def _pdf_looks_like_headline(line: str) -> bool:
+    return bool(len(line) < 80 and not _looks_like_section_heading(line) and not re.search(r"[@|]", line))
+
+
 def _pdf_extract_name_headline(lines: List[str]) -> tuple[str, str]:
     """Extract name and headline from first lines of PDF."""
-    name = ""
-    headline = ""
     if not lines:
-        return name, headline
-
-    first_line = lines[0]
-    if first_line and len(first_line) < 60:
-        if not _looks_like_section_heading(first_line):
-            if not re.search(r"[@()\d]{3,}", first_line):
-                name = first_line
-
-    if len(lines) > 1 and name:
-        second = lines[1]
-        if len(second) < 80 and not _looks_like_section_heading(second):
-            if not re.search(r"[@|]", second):
-                headline = second
-
+        return "", ""
+    name = lines[0] if _pdf_looks_like_name(lines[0]) else ""
+    headline = ""
+    if len(lines) > 1 and name and _pdf_looks_like_headline(lines[1]):
+        headline = lines[1]
     return name, headline
 
 

@@ -16,8 +16,6 @@ from typing import Any, Dict, List, Optional
 from .io_utils import safe_import
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
-
-# Import from new abstraction modules
 from .docx_styles import (
     _parse_hex_color,
     _is_dark,
@@ -42,6 +40,8 @@ from .docx_sections import (
     EducationSectionRenderer,
     TeachingSectionRenderer,
 )
+
+STYLE_HEADING_1 = "Heading 1"
 
 
 SECTION_SYNONYMS = {
@@ -81,14 +81,13 @@ def _add_bullets(
     doc,
     items: List[str],
     *,
-    sec: Dict[str, Any] | None = None,
     keywords: List[str] | None = None,
     plain: bool = True,
     glyph: str = "•",
     list_style: str = "List Bullet",
 ):
     renderer = BulletRenderer(doc)
-    renderer.add_bullets(items, sec=sec, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
+    renderer.add_bullets(items, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
 
 
 def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
@@ -147,6 +146,20 @@ def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | No
     return renderer.get_bullet_config(sec)
 
 
+def _apply_h1_style_to_doc(doc, h1_pt: float, h1_color, h1_bg) -> None:
+    """Apply heading 1 font styles to a document."""
+    if STYLE_HEADING_1 not in doc.styles:
+        return
+    doc.styles[STYLE_HEADING_1].font.size = Pt(h1_pt)
+    doc.styles[STYLE_HEADING_1].font.bold = True
+    rgb = _parse_hex_color(h1_color)
+    bg = _parse_hex_color(h1_bg)
+    if (not rgb) and bg:
+        rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
+    if rgb:
+        doc.styles[STYLE_HEADING_1].font.color.rgb = RGBColor(*rgb)
+
+
 def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
     """Apply compact page styles (margins and fonts)."""
     if not page_cfg.get("compact"):
@@ -171,16 +184,7 @@ def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
         title_color = page_cfg.get("title_color")
 
         doc.styles["Normal"].font.size = Pt(body_pt)
-
-        if "Heading 1" in doc.styles:
-            doc.styles["Heading 1"].font.size = Pt(h1_pt)
-            doc.styles["Heading 1"].font.bold = True
-            rgb = _parse_hex_color(h1_color)
-            bg = _parse_hex_color(h1_bg)
-            if (not rgb) and bg:
-                rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
-            if rgb:
-                doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
+        _apply_h1_style_to_doc(doc, h1_pt, h1_color, h1_bg)
 
         if "Title" in doc.styles:
             doc.styles["Title"].font.size = Pt(title_pt)
@@ -365,7 +369,7 @@ def write_resume_docx(
     layout_cfg = template.get("layout") or {}
     if layout_cfg.get("type") == "sidebar":
         from .docx_sidebar import write_resume_docx_sidebar
-        return write_resume_docx_sidebar(data, template, out_path, seed, structure)
+        return write_resume_docx_sidebar(data, template, out_path, seed)
 
     # Standard single-column layout
     docx = safe_import("docx")
@@ -387,16 +391,19 @@ def write_resume_docx(
     if seed and isinstance(seed.get("keywords"), list):
         keywords = [str(k) for k in seed.get("keywords", [])]
 
-    # Resolve and render sections
     sections = _resolve_sections(template, structure)
+    _render_sections(doc, page_cfg, template, data, sections, keywords)
+    doc.save(out_path)
 
+
+def _render_sections(doc, page_cfg, template, data, sections, keywords) -> None:
+    """Render all sections into the document."""
     for sec in sections:
         key = sec.get("key")
         if not key:
             continue
         title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         _render_section_heading(doc, title, template)
-
         renderer_class = SECTION_RENDERERS.get(key)
         if renderer_class:
             renderer = renderer_class(doc, page_cfg)
@@ -404,5 +411,3 @@ def write_resume_docx(
                 renderer.render(data, sec, keywords)
             else:
                 renderer.render(data, sec)
-
-    doc.save(out_path)

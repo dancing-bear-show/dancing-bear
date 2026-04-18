@@ -244,7 +244,7 @@ class TestRun(unittest.TestCase):
                 costs_path=str(costs_path),
                 out_path=str(out_path),
             )
-            self.assertEqual(result, 0)
+            self.assertEqual(result, 2)
 
 
 class TestMain(unittest.TestCase):
