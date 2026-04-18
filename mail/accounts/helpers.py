@@ -39,10 +39,10 @@ def build_client_for_account(acc: dict):
     """Build a raw client for an account (GmailClient or OutlookClient)."""
     provider = str(acc.get("provider") or "").lower()
     if provider == "gmail":
-        GmailClient = _lazy_gmail_client()
+        gmail_client_cls = _lazy_gmail_client()
         creds = expand_path(acc.get("credentials") or default_gmail_credentials_path())
         token = expand_path(acc.get("token") or default_gmail_token_path())
-        return GmailClient(
+        return gmail_client_cls(
             credentials_path=creds,
             token_path=token,
             cache_dir=acc.get("cache"),

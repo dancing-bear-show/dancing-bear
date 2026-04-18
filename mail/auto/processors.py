@@ -12,6 +12,27 @@ from core.pipeline import Processor, ResultEnvelope
 from .consumers import AutoProposePayload, AutoSummaryPayload, AutoApplyPayload
 
 
+_PROMO_KEYWORDS = ["sale", "% off", "percent off", "deal", "promo", "clearance", "free shipping", "coupon"]
+
+
+def _detect_low_interest_reasons(hdrs: dict, label_ids: set, subject: str) -> List[str]:
+    """Return list of low-interest reason tags for a message."""
+    reasons = []
+    if hdrs.get("list-unsubscribe") or hdrs.get("list-id"):
+        reasons.append("list")
+    if (hdrs.get("precedence") or "").lower() in {"bulk", "list"}:
+        reasons.append("bulk")
+    if (hdrs.get("auto-submitted") or "").lower() not in {"", "no"}:
+        reasons.append("auto-submitted")
+    if "category_promotions" in label_ids or "CATEGORY_PROMOTIONS" in label_ids:
+        reasons.append("category:promotions")
+    if "CATEGORY_FORUMS" in label_ids:
+        reasons.append("category:forums")
+    if any(k in subject for k in _PROMO_KEYWORDS):
+        reasons.append("promo-subject")
+    return reasons
+
+
 def classify_low_interest(msg: dict) -> Optional[dict]:
     """Return action suggestion if message is likely low-interest.
 
@@ -24,32 +45,16 @@ def classify_low_interest(msg: dict) -> Optional[dict]:
     label_ids = set(msg.get("labelIds", []) or [])
     subject = (hdrs.get("subject") or "").lower()
     from_addr = hdrs.get("from") or ""
-    reasons = []
 
-    if hdrs.get("list-unsubscribe") or hdrs.get("list-id"):
-        reasons.append("list")
-    if (hdrs.get("precedence") or "").lower() in {"bulk", "list"}:
-        reasons.append("bulk")
-    if (hdrs.get("auto-submitted") or "").lower() not in {"", "no"}:
-        reasons.append("auto-submitted")
-    if "category_promotions" in label_ids or "CATEGORY_PROMOTIONS" in label_ids:
-        reasons.append("category:promotions")
-    if "CATEGORY_FORUMS" in label_ids:
-        reasons.append("category:forums")
-
-    promo_kw = ["sale", "% off", "percent off", "deal", "promo", "clearance", "free shipping", "coupon"]
-    if any(k in subject for k in promo_kw):
-        reasons.append("promo-subject")
-
+    reasons = _detect_low_interest_reasons(hdrs, label_ids, subject)
     if not reasons:
         return None
 
     # Choose target label
-    add = []
     if "category:promotions" in reasons or "promo-subject" in reasons:
-        add.append("Lists/Commercial")
+        add = ["Lists/Commercial"]
     else:
-        add.append("Lists/Newsletters")
+        add = ["Lists/Newsletters"]
 
     return {
         "add": add,
@@ -61,27 +66,33 @@ def classify_low_interest(msg: dict) -> Optional[dict]:
     }
 
 
-def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
-    """Check if sender matches any protected pattern."""
+def _extract_bare_email(from_val: str) -> str:
+    """Extract bare email address from 'Name <email>' format."""
     f = (from_val or "").lower()
-    # Extract bare email if in Name <email>
     if "<" in f and ">" in f:
         try:
             f = f.split("<")[-1].split(">")[0]
         except Exception:  # nosec B110 - malformed From header, fall back to original
             pass
-    f = f.strip()
-    dom = f.split("@")[-1] if "@" in f else f
+    return f.strip()
 
-    for p in protected_patterns:
-        if not p:
-            continue
-        if p.startswith("@"):
-            if f.endswith(p) or dom == p.lstrip("@"):
-                return True
-        elif p in (f,):
-            return True
-    return False
+
+def _matches_pattern(email: str, domain: str, pattern: str) -> bool:
+    """Check if email/domain matches a single protected pattern."""
+    if pattern.startswith("@"):
+        return email.endswith(pattern) or domain == pattern.lstrip("@")
+    return pattern == email
+
+
+def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
+    """Check if sender matches any protected pattern."""
+    email = _extract_bare_email(from_val)
+    domain = email.split("@")[-1] if "@" in email else email
+    return any(
+        _matches_pattern(email, domain, p)
+        for p in protected_patterns
+        if p
+    )
 
 
 @dataclass
@@ -130,7 +141,7 @@ class AutoProposeProcessor(Processor[AutoProposePayload, ResultEnvelope[AutoProp
 
                 # Build query for inbox messages within days
                 q = f"in:inbox newer_than:{payload.days}d"
-                ids, msgs = fetch_messages_with_metadata(
+                _, msgs = fetch_messages_with_metadata(
                     client,
                     query=q,
                     pages=payload.pages,
@@ -220,6 +231,20 @@ class AutoSummaryProcessor(Processor[AutoSummaryPayload, ResultEnvelope[AutoSumm
             )
 
 
+def _group_messages_by_labels(
+    msgs: list, name_to_id: dict, cutoff_ts: Optional[int]
+) -> Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]]:
+    """Group message IDs by their (add_ids, remove_ids) label signature."""
+    groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = defaultdict(list)
+    for m in msgs:
+        if cutoff_ts and int(m.get("ts", 0)) > cutoff_ts:
+            continue
+        add_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("add") or [])))
+        rem_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("remove") or [])))
+        groups[(add_ids, rem_ids)].append(m.get("id"))
+    return groups
+
+
 class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyResult]]):
     """Apply a proposal to modify messages."""
 
@@ -236,31 +261,12 @@ class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyRes
                 client.authenticate()
                 name_to_id = client.get_label_id_map()
 
-                groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = defaultdict(list)
                 cutoff_ts = None
                 if payload.cutoff_days:
                     cutoff_ts = int(time.time()) - payload.cutoff_days * 86400
 
-                for m in msgs:
-                    if cutoff_ts and int(m.get("ts", 0)) > cutoff_ts:
-                        continue
-                    add_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("add") or [])))
-                    rem_ids = tuple(sorted(name_to_id.get(x) or x for x in (m.get("remove") or [])))
-                    sig = (add_ids, rem_ids)
-                    groups[sig].append(m.get("id"))
-
-                total = 0
-                result_groups = []
-                B = payload.batch_size
-
-                for (add_ids, rem_ids), id_list in groups.items():
-                    result_groups.append((len(id_list), list(add_ids), list(rem_ids)))
-                    if payload.dry_run:
-                        total += len(id_list)
-                        continue
-                    for i in range(0, len(id_list), B):
-                        client.batch_modify_messages(id_list[i : i + B], list(add_ids), list(rem_ids))
-                    total += len(id_list)
+                groups = _group_messages_by_labels(msgs, name_to_id, cutoff_ts)
+                total, result_groups = self._apply_groups(client, groups, payload)
 
                 logger.end(sid, status="ok")
                 return ResultEnvelope(
@@ -281,3 +287,18 @@ class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyRes
                 payload=None,
                 diagnostics={"error": str(exc), "code": 1},
             )
+
+    def _apply_groups(self, client, groups, payload) -> Tuple[int, list]:
+        """Apply label changes per group; return (total, result_groups)."""
+        total = 0
+        result_groups = []
+        B = payload.batch_size
+        for (add_ids, rem_ids), id_list in groups.items():
+            result_groups.append((len(id_list), list(add_ids), list(rem_ids)))
+            if payload.dry_run:
+                total += len(id_list)
+                continue
+            for i in range(0, len(id_list), B):
+                client.batch_modify_messages(id_list[i : i + B], list(add_ids), list(rem_ids))
+            total += len(id_list)
+        return total, result_groups

@@ -38,11 +38,12 @@ def credential_ini_paths() -> list[str]:
     if env_creds:
         paths.append(os.path.expanduser(env_creds))
 
+    _cred_ini = "credentials.ini"
     # Standard and legacy paths under each config root
     for root in _config_roots():
-        paths.append(os.path.join(root, "credentials.ini"))
-        paths.append(os.path.join(root, "sre-utils", "credentials.ini"))
-        paths.append(os.path.join(root, "sreutils", "credentials.ini"))
+        paths.append(os.path.join(root, _cred_ini))
+        paths.append(os.path.join(root, "sre-utils", _cred_ini))
+        paths.append(os.path.join(root, "sreutils", _cred_ini))
 
     # Legacy standalone path
     paths.append(os.path.expanduser("~/.sre-utils/credentials.ini"))
