@@ -75,14 +75,29 @@ def _get_used_range_values(client: OutlookClient, drive_id: str, item_id: str, s
     return data.get("values") or []
 
 
+def _poll_copy_monitor(client: OutlookClient, loc: str, drive_id: str) -> Tuple[str, str]:
+    """Poll a copy monitor URL until completion. Returns (drive_id, item_id)."""
+    import requests  # type: ignore
+    for _ in range(60):
+        st = requests.get(loc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+        if st.get("status") in ("succeeded", "completed"):
+            rid = st.get("resourceId")
+            if rid:
+                return drive_id, rid
+            rloc = st.get("resourceLocation")
+            if rloc:
+                item = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+                return drive_id, item.get("id")
+        time.sleep(1.5)
+    raise RuntimeError("Timed out waiting for copy to complete")
+
+
 def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str) -> Tuple[str, str]:
     """Copy the source drive item to the same parent with a new name.
     Returns (new_drive_id, new_item_id)."""
     import requests  # type: ignore
-    # Discover parent
     meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
-    parent = ((meta or {}).get("parentReference") or {})
-    parent_id = parent.get("id")
+    parent_id = ((meta or {}).get("parentReference") or {}).get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
@@ -90,29 +105,14 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
     resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
     if resp.status_code not in (202, 200):
         raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
-    # Poll the monitor URL until finished
     loc = resp.headers.get("Location") or resp.headers.get("Operation-Location")
     if not loc:
-        # Some tenants may return the item straight away
         try:
             item = resp.json()
             return drive_id, item.get("id")
         except Exception:
             raise RuntimeError("Copy returned no monitor location and no body")
-    for _ in range(60):
-        st = requests.get(loc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
-        # When complete, final resource location is in 'resourceId' or 'resourceLocation'
-        if st.get("status") in ("succeeded", "completed"):
-            rid = st.get("resourceId")
-            if rid:
-                return drive_id, rid
-            rloc = st.get("resourceLocation")
-            if rloc:
-                # GET the item to fetch id
-                item = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
-                return drive_id, item.get("id")
-        time.sleep(1.5)
-    raise RuntimeError("Timed out waiting for copy to complete")
+    return _poll_copy_monitor(client, loc, drive_id)
 
 
 def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> None:
@@ -180,36 +180,38 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     )
 
 
+def _merge_norm(d: Dict[str, str]) -> Dict[str, str]:
+    return {str(k).strip(): str(v) for k, v in d.items()}
+
+
+def _merge_key(r: Dict[str, str]) -> Tuple[str, str]:
+    return (r.get("order_id", ""), r.get("vendor", ""))
+
+
+_MERGE_CORE_FIELDS = ("date", "order_id", "vendor", "total_oz", "cost_per_oz")
+
+
+def _merge_update(base: Dict[str, str], r: Dict[str, str]) -> None:
+    for fld in _MERGE_CORE_FIELDS:
+        if r.get(fld):
+            base[fld] = r[fld]
+    for fld, val in r.items():
+        if fld not in base or not base[fld]:
+            base[fld] = val
+
+
 def _merge(existing: List[Dict[str, str]], new: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    # Normalize keys
-    def norm(d: Dict[str, str]) -> Dict[str, str]:
-        return {str(k).strip(): str(v) for k, v in d.items()}
-
-    ex = [norm(r) for r in existing]
-    nw = [norm(r) for r in new]
-    # Union headers implied by keys; we'll reconcile later in _records_to_values
-    # Map by composite key (order_id + vendor) when available; fallback to order_id
-    def key_of(r: Dict[str, str]) -> Tuple[str, str]:
-        return (r.get("order_id", ""), r.get("vendor", ""))
-
+    ex = [_merge_norm(r) for r in existing]
+    nw = [_merge_norm(r) for r in new]
     merged: Dict[Tuple[str, str], Dict[str, str]] = {}
     for r in ex:
-        merged[key_of(r)] = dict(r)
+        merged[_merge_key(r)] = dict(r)
     for r in nw:
-        k = key_of(r)
+        k = _merge_key(r)
         if k in merged:
-            base = merged[k]
-            # Prefer new data for core fields; preserve any extra columns from existing
-            for fld in ("date", "order_id", "vendor", "total_oz", "cost_per_oz"):
-                if r.get(fld):
-                    base[fld] = r[fld]
-            # Keep any additional fields from new
-            for fld, val in r.items():
-                if fld not in base or not base[fld]:
-                    base[fld] = val
+            _merge_update(merged[k], r)
         else:
             merged[k] = dict(r)
-    # Sort by date, then order_id
     out = list(merged.values())
     out.sort(key=lambda d: (d.get("date", ""), d.get("order_id", "")))
     return out
@@ -246,14 +248,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Read existing workbook sheets
     vals_s_existing = _get_used_range_values(client, drive_id, item_id, getattr(args, "silver_sheet"))
     vals_g_existing = _get_used_range_values(client, drive_id, item_id, getattr(args, "gold_sheet"))
-    hs, rs = _to_records(vals_s_existing)
-    hg, rg = _to_records(vals_g_existing)
+    _, rs = _to_records(vals_s_existing)
+    _, rg = _to_records(vals_g_existing)
 
     # Read local CSVs
     vs_new = _read_csv(getattr(args, "silver_csv"))
     vg_new = _read_csv(getattr(args, "gold_csv"))
-    hsn, rsn = _to_records(vs_new)
-    hgn, rgn = _to_records(vg_new)
+    _, rsn = _to_records(vs_new)
+    _, rgn = _to_records(vg_new)
 
     # Merge
     s_merged = _merge(rs, rsn)

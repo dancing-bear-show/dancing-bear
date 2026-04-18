@@ -82,27 +82,36 @@ def _to_records(values: List[List[str]], assumed_metal: Optional[str] = None) ->
     return headers, recs
 
 
+def _norm_row(d: Dict[str, str]) -> Dict[str, str]:
+    return {str(k).strip(): str(v) for k, v in d.items()}
+
+
+def _merge_all_key(r: Dict[str, str]) -> Tuple[str, str, str]:
+    return (r.get("order_id", ""), r.get("vendor", ""), (r.get("metal") or "").lower())
+
+
+_CORE_FIELDS = ("date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz")
+
+
+def _merge_all_update(base: Dict[str, str], r: Dict[str, str]) -> None:
+    for fld in _CORE_FIELDS:
+        if r.get(fld):
+            base[fld] = r[fld]
+    for fld, val in r.items():
+        if fld not in base or not base[fld]:
+            base[fld] = val
+
+
 def _merge_all(existing: List[Dict[str, str]], new: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    def norm(d: Dict[str, str]) -> Dict[str, str]:
-        return {str(k).strip(): str(v) for k, v in d.items()}
-    ex = [norm(r) for r in existing]
-    nw = [norm(r) for r in new]
-    def key_of(r: Dict[str, str]) -> Tuple[str, str, str]:
-        return (r.get("order_id", ""), r.get("vendor", ""), (r.get("metal") or "").lower())
+    ex = [_norm_row(r) for r in existing]
+    nw = [_norm_row(r) for r in new]
     merged: Dict[Tuple[str, str, str], Dict[str, str]] = {}
     for r in ex:
-        merged[key_of(r)] = dict(r)
+        merged[_merge_all_key(r)] = dict(r)
     for r in nw:
-        k = key_of(r)
+        k = _merge_all_key(r)
         if k in merged:
-            base = merged[k]
-            for fld in ("date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"):
-                if r.get(fld):
-                    base[fld] = r[fld]
-            # Retain any extra fields
-            for fld, val in r.items():
-                if fld not in base or not base[fld]:
-                    base[fld] = val
+            _merge_all_update(merged[k], r)
         else:
             merged[k] = dict(r)
     out = list(merged.values())
@@ -312,77 +321,113 @@ def _summary_row(sheet: str, label: str, match_col: str, oz_col: str = "E", cpo_
     return [label, _sumif_formula(sheet, match_col, label, oz_col), _avgcost_formula(sheet, match_col, label, oz_col, cpo_col)]
 
 
-def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str]], Dict[str, str]]:
-    # Aggregations
+_SUMMARY_TITLES = [
+    "Totals by Metal",
+    "Totals by Vendor",
+    "Monthly Avg Cost by Metal",
+    "Monthly Ounces by Metal",
+]
+
+AVG_COST_HDR = "Avg Cost/Oz"
+TOTAL_OZ_HDR = "Total Ounces"
+
+
+def _agg_rec_update(
+    r: Dict[str, str],
+    by_metal: dict, by_vendor: dict, by_month_metal: dict,
+) -> None:
+    """Update aggregation dicts with a single record."""
+    try:
+        oz = float(r.get("total_oz", 0) or 0)
+        cpo = float(r.get("cost_per_oz", 0) or 0)
+    except Exception:  # nosec B110 - skip malformed numeric fields
+        return
+    if oz <= 0 or cpo <= 0:
+        return
+    metal = (r.get("metal") or "").lower()
+    vendor = r.get("vendor") or ""
+    date_val = r.get("date") or ""
+    month = date_val[:7] if len(date_val) >= 7 else ""
+    total = oz * cpo
+    by_metal[metal]["oz"] += oz
+    by_metal[metal]["cost"] += total
+    by_vendor[vendor]["oz"] += oz
+    by_vendor[vendor]["cost"] += total
+    if month:
+        by_month_metal[month][metal]["oz"] += oz
+        by_month_metal[month][metal]["cost"] += total
+
+
+def _aggregate_summary_recs(all_recs: List[Dict[str, str]]) -> Tuple[dict, dict, dict]:
+    """Aggregate records into by_metal, by_vendor, by_month_metal dicts."""
     by_metal = defaultdict(lambda: {"oz": 0.0, "cost": 0.0})
     by_vendor = defaultdict(lambda: {"oz": 0.0, "cost": 0.0})
     by_month_metal = defaultdict(lambda: {"gold": {"oz": 0.0, "cost": 0.0}, "silver": {"oz": 0.0, "cost": 0.0}})
     for r in all_recs:
-        try:
-            oz = float(r.get("total_oz", 0) or 0)
-            cpo = float(r.get("cost_per_oz", 0) or 0)
-        except Exception:
-            oz = 0.0
-            cpo = 0.0
-        metal = (r.get("metal") or "").lower()
-        vendor = r.get("vendor") or ""
-        date = r.get("date") or ""
-        month = date[:7] if len(date) >= 7 else ""
-        if oz > 0 and cpo > 0:
-            by_metal[metal]["oz"] += oz
-            by_metal[metal]["cost"] += oz * cpo
-            by_vendor[vendor]["oz"] += oz
-            by_vendor[vendor]["cost"] += oz * cpo
-            if month:
-                by_month_metal[month][metal]["oz"] += oz
-                by_month_metal[month][metal]["cost"] += oz * cpo
+        _agg_rec_update(r, by_metal, by_vendor, by_month_metal)
+    return by_metal, by_vendor, by_month_metal
 
-    # Build blocks
-    blocks: List[List[List[str]]] = []
-    # 1) Totals by Metal
-    bm_rows = [["Metal", "Total Ounces", "Avg Cost/Oz"]]
+
+def _build_metal_rows(by_metal: dict) -> List[List[str]]:
+    """Build totals-by-metal rows."""
+    rows: List[List[str]] = [["Metal", TOTAL_OZ_HDR, AVG_COST_HDR]]
     for metal in ("gold", "silver"):
         if metal in by_metal:
             oz = by_metal[metal]["oz"]
             avg = (by_metal[metal]["cost"] / oz) if oz else 0.0
-            bm_rows.append([metal, f"{oz:.2f}", f"{avg:.2f}"])
-    blocks.append(bm_rows)
-    # 2) Totals by Vendor
-    bv_rows = [["Vendor", "Total Ounces", "Avg Cost/Oz"]]
+            rows.append([metal, f"{oz:.2f}", f"{avg:.2f}"])
+    return rows
+
+
+def _build_vendor_rows(by_vendor: dict) -> List[List[str]]:
+    """Build totals-by-vendor rows."""
+    rows: List[List[str]] = [["Vendor", TOTAL_OZ_HDR, AVG_COST_HDR]]
     for vendor, d in by_vendor.items():
         oz = d["oz"]
         avg = (d["cost"] / oz) if oz else 0.0
-        bv_rows.append([vendor, f"{oz:.2f}", f"{avg:.2f}"])
-    blocks.append(bv_rows)
-    # 3) Monthly Avg Cost by Metal
-    mm_rows = [["Month", "Gold Avg", "Silver Avg"]]
+        rows.append([vendor, f"{oz:.2f}", f"{avg:.2f}"])
+    return rows
+
+
+def _build_monthly_avg_rows(by_month_metal: dict) -> List[List[str]]:
+    """Build monthly avg cost by metal rows."""
+    rows: List[List[str]] = [["Month", "Gold Avg", "Silver Avg"]]
     for month in sorted(by_month_metal.keys()):
         g = by_month_metal[month]["gold"]
         s = by_month_metal[month]["silver"]
         gavg = (g["cost"] / g["oz"]) if g["oz"] else 0.0
         savg = (s["cost"] / s["oz"]) if s["oz"] else 0.0
-        mm_rows.append([month, f"{gavg:.2f}", f"{savg:.2f}"])
-    blocks.append(mm_rows)
-    # 4) Monthly Ounces by Metal
-    mo_rows = [["Month", "Gold Ounces", "Silver Ounces"]]
+        rows.append([month, f"{gavg:.2f}", f"{savg:.2f}"])
+    return rows
+
+
+def _build_monthly_oz_rows(by_month_metal: dict) -> List[List[str]]:
+    """Build monthly ounces by metal rows."""
+    rows: List[List[str]] = [["Month", "Gold Ounces", "Silver Ounces"]]
     for month in sorted(by_month_metal.keys()):
         g = by_month_metal[month]["gold"]
         s = by_month_metal[month]["silver"]
-        mo_rows.append([month, f"{g['oz']:.2f}", f"{s['oz']:.2f}"])
-    blocks.append(mo_rows)
+        rows.append([month, f"{g['oz']:.2f}", f"{s['oz']:.2f}"])
+    return rows
 
-    # Stitch into a single 2-column separated layout on Summary
+
+def _build_summary_blocks(by_metal: dict, by_vendor: dict, by_month_metal: dict) -> List[List[List[str]]]:
+    """Build summary table blocks from aggregated data."""
+    return [
+        _build_metal_rows(by_metal),
+        _build_vendor_rows(by_vendor),
+        _build_monthly_avg_rows(by_month_metal),
+        _build_monthly_oz_rows(by_month_metal),
+    ]
+
+
+def _stitch_summary_blocks(blocks: List[List[List[str]]]) -> Tuple[List[List[str]], Dict[str, str]]:
+    """Stitch blocks into single layout with anchors for charts."""
     values: List[List[str]] = []
     anchors: Dict[str, str] = {}
     row_cursor = 1
     for idx, block in enumerate(blocks):
-        # Leave a title row
-        title = [
-            "Totals by Metal",
-            "Totals by Vendor",
-            "Monthly Avg Cost by Metal",
-            "Monthly Ounces by Metal",
-        ][idx]
+        title = _SUMMARY_TITLES[idx]
         values.append([title])
         row_cursor += 1
         start_row = row_cursor
@@ -390,13 +435,16 @@ def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str
             values.append(r)
             row_cursor += 1
         end_row = row_cursor - 1
-        # Reserve a blank row between sections
         values.append([""])
         row_cursor += 1
-        # Record range anchors for charts (skip the header row inside block)
-        start = f"A{start_row}:" + f"{_col_letter(len(block[0]))}{end_row}"
-        anchors[title] = start
+        anchors[title] = f"A{start_row}:{_col_letter(len(block[0]))}{end_row}"
     return values, anchors
+
+
+def _build_summary_values(all_recs: List[Dict[str, str]]) -> Tuple[List[List[str]], Dict[str, str]]:
+    by_metal, by_vendor, by_month_metal = _aggregate_summary_recs(all_recs)
+    blocks = _build_summary_blocks(by_metal, by_vendor, by_month_metal)
+    return _stitch_summary_blocks(blocks)
 
 
 def _fill_date_gaps(
@@ -471,6 +519,19 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     return _fill_date_gaps(out, start_date, end_date)
 
 
+def _usd_to_cad_series(usd: Dict[str, float], usdcad: Dict[str, float]) -> Dict[str, float]:
+    """Multiply USD and USDCAD series element-wise to produce CAD values."""
+    out: Dict[str, float] = {}
+    if not usd or not usdcad:
+        return out
+    for k in set(usd.keys()) & set(usdcad.keys()):
+        try:
+            out[k] = float(usd[k]) * float(usdcad[k])
+        except Exception:  # nosec B112 - skip on error
+            continue
+    return out
+
+
 def _spot_cad_series(metal: str, start_date: str, end_date: str) -> Dict[str, float]:
     """Return a CAD-denominated spot series for metal in {gold, silver}.
 
@@ -482,20 +543,10 @@ def _spot_cad_series(metal: str, start_date: str, end_date: str) -> Dict[str, fl
         return {}
     sym_primary = 'XAUCAD=X' if metal == 'gold' else 'XAGCAD=X'
     primary = _fetch_yahoo_series(sym_primary, start_date, end_date)
-    # Fallback path: USD * USDCAD
     sym_usd = 'XAUUSD=X' if metal == 'gold' else 'XAGUSD=X'
     usd = _fetch_yahoo_series(sym_usd, start_date, end_date)
     usdcad = _fetch_yahoo_series('USDCAD=X', start_date, end_date)
-    cad_from_usd: Dict[str, float] = {}
-    if usd and usdcad:
-        # Element-wise product where both exist
-        keys = set(usd.keys()) & set(usdcad.keys())
-        for k in keys:
-            try:
-                cad_from_usd[k] = float(usd[k]) * float(usdcad[k])
-            except Exception:  # nosec B112 - skip on error
-                continue
-    # Compose: prefer primary when available; otherwise use converted
+    cad_from_usd = _usd_to_cad_series(usd, usdcad)
     if not primary and cad_from_usd:
         return cad_from_usd
     out = dict(primary)
@@ -505,80 +556,129 @@ def _spot_cad_series(metal: str, start_date: str, end_date: str) -> Dict[str, fl
     return out
 
 
-def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
-    """Return values for a Profit sheet with columns:
-    Date, Gold_Oz, Gold_AvgCost, Gold_Spot, Gold_PnL, Silver_Oz, Silver_AvgCost, Silver_Spot, Silver_PnL, Portfolio_PnL
-    """
-    from datetime import date
+def _parse_profit_rec(r: Dict[str, str]) -> Optional[Tuple[str, str, float, float]]:
+    """Parse a record into (date, metal, oz, cpo) or None if invalid."""
+    try:
+        d = (r.get("date") or "").strip()
+        m = (r.get("metal") or "").lower()
+        oz = float(r.get("total_oz") or 0)
+        cpo = float(r.get("cost_per_oz") or 0)
+    except Exception:  # nosec B110 - skip malformed records
+        return None
+    if not d or m not in ("gold", "silver") or oz <= 0 or cpo <= 0:
+        return None
+    return d, m, oz, cpo
 
-    # Collect purchases by date
+
+def _collect_profit_by_date(all_recs: List[Dict[str, str]]) -> Tuple[dict, Optional[str], Optional[str]]:
+    """Collect purchase totals by date from records. Returns (by_date, min_date, max_date)."""
     by_date = defaultdict(lambda: {"gold": {"oz": 0.0, "cost": 0.0}, "silver": {"oz": 0.0, "cost": 0.0}})
     min_date: Optional[str] = None
     max_date: Optional[str] = None
     for r in all_recs:
-        try:
-            d = (r.get("date") or "").strip()
-            m = (r.get("metal") or "").lower()
-            oz = float(r.get("total_oz") or 0)
-            cpo = float(r.get("cost_per_oz") or 0)
-        except Exception:  # nosec B112 - skip on error
+        parsed = _parse_profit_rec(r)
+        if parsed is None:
             continue
-        if not d or m not in ("gold", "silver") or oz <= 0 or cpo <= 0:
-            continue
+        d, m, oz, cpo = parsed
         if (min_date is None) or d < min_date:
             min_date = d
         if (max_date is None) or d > max_date:
             max_date = d
         by_date[d][m]["oz"] += oz
         by_date[d][m]["cost"] += oz * cpo
+    return by_date, min_date, max_date
 
-    if not min_date or not max_date:
-        return []
 
-    # Fetch spot in CAD for date range with USD fallback
-    spot_gold = _spot_cad_series('gold', min_date, max_date)
-    spot_silver = _spot_cad_series('silver', min_date, max_date)
+def _pnl_row(
+    ds: str,
+    g_oz: float, g_avg: float, g_spot: Optional[float],
+    s_oz: float, s_avg: float, s_spot: Optional[float],
+) -> List[str]:
+    """Build a single profit/loss row for a date."""
+    g_pnl = (g_spot - g_avg) * g_oz if (g_spot and g_avg and g_oz) else 0.0
+    s_pnl = (s_spot - s_avg) * s_oz if (s_spot and s_avg and s_oz) else 0.0
+    return [
+        ds,
+        f"{g_oz:.4f}", f"{g_avg:.2f}", f"{(g_spot or 0):.2f}", f"{g_pnl:.2f}",
+        f"{s_oz:.4f}", f"{s_avg:.2f}", f"{(s_spot or 0):.2f}", f"{s_pnl:.2f}",
+        f"{g_pnl + s_pnl:.2f}",
+    ]
 
-    # Walk days, compute cumulative ounces and avg cost, then PnL
+
+def _accumulate_day(
+    add: Optional[dict],
+    g_oz: float, g_cost: float,
+    s_oz: float, s_cost: float,
+) -> Tuple[float, float, float, float]:
+    """Accumulate gold/silver oz and cost from a day's purchases."""
+    if add:
+        g_oz += add["gold"]["oz"]
+        g_cost += add["gold"]["cost"]
+        s_oz += add["silver"]["oz"]
+        s_cost += add["silver"]["cost"]
+    return g_oz, g_cost, s_oz, s_cost
+
+
+def _profit_walk_days(
+    by_date: dict,
+    min_date: str,
+    max_date: str,
+    spot_gold: Dict[str, float],
+    spot_silver: Dict[str, float],
+) -> List[List[str]]:
+    """Walk date range producing per-day PnL rows."""
+    from datetime import date
+
     values: List[List[str]] = [[
         "date",
         "gold_oz", "gold_avg_cost", "gold_spot", "gold_pnl",
         "silver_oz", "silver_avg_cost", "silver_spot", "silver_pnl",
         "portfolio_pnl",
     ]]
-
-    # Running inventory
-    g_oz = 0.0
-    g_cost = 0.0
-    s_oz = 0.0
-    s_cost = 0.0
-
+    g_oz = g_cost = s_oz = s_cost = 0.0
     cur = date.fromisoformat(min_date)
     end = date.fromisoformat(max_date)
     while cur <= end:
         ds = cur.isoformat()
-        # Apply any purchases on this day
-        add = by_date.get(ds)
-        if add:
-            g_oz += add["gold"]["oz"]
-            g_cost += add["gold"]["cost"]
-            s_oz += add["silver"]["oz"]
-            s_cost += add["silver"]["cost"]
+        g_oz, g_cost, s_oz, s_cost = _accumulate_day(by_date.get(ds), g_oz, g_cost, s_oz, s_cost)
         g_avg = (g_cost / g_oz) if g_oz > 0 else 0.0
         s_avg = (s_cost / s_oz) if s_oz > 0 else 0.0
-        g_spot = spot_gold.get(ds)
-        s_spot = spot_silver.get(ds)
-        g_pnl = (g_spot - g_avg) * g_oz if (g_spot and g_avg and g_oz) else 0.0
-        s_pnl = (s_spot - s_avg) * s_oz if (s_spot and s_avg and s_oz) else 0.0
-        port = g_pnl + s_pnl
-        values.append([
-            ds,
-            f"{g_oz:.4f}", f"{g_avg:.2f}", f"{(g_spot or 0):.2f}", f"{g_pnl:.2f}",
-            f"{s_oz:.4f}", f"{s_avg:.2f}", f"{(s_spot or 0):.2f}", f"{s_pnl:.2f}",
-            f"{port:.2f}",
-        ])
+        values.append(_pnl_row(ds, g_oz, g_avg, spot_gold.get(ds), s_oz, s_avg, spot_silver.get(ds)))
         cur = cur.fromordinal(cur.toordinal() + 1)
     return values
+
+
+def _build_profit_series(all_recs: List[Dict[str, str]]) -> List[List[str]]:
+    """Return values for a Profit sheet with columns:
+    Date, Gold_Oz, Gold_AvgCost, Gold_Spot, Gold_PnL, Silver_Oz, Silver_AvgCost, Silver_Spot, Silver_PnL, Portfolio_PnL
+    """
+    by_date, min_date, max_date = _collect_profit_by_date(all_recs)
+    if not min_date or not max_date:
+        return []
+    spot_gold = _spot_cad_series('gold', min_date, max_date)
+    spot_silver = _spot_cad_series('silver', min_date, max_date)
+    return _profit_walk_days(by_date, min_date, max_date, spot_gold, spot_silver)
+
+
+def _read_existing_workbook_recs(wb: WorkbookContext) -> List[Dict[str, str]]:
+    """Read all sheets from workbook and consolidate records that match our schema."""
+    sheet_names = _list_worksheets(wb)
+    existing_all: List[Dict[str, str]] = []
+    for name in sheet_names:
+        vals = _get_used_range_values(wb, name)
+        if not vals:
+            continue
+        low = name.lower()
+        if "silver" in low:
+            assumed_metal = "silver"
+        elif "gold" in low:
+            assumed_metal = "gold"
+        else:
+            assumed_metal = None
+        _hdrs, recs = _to_records(vals, assumed_metal=assumed_metal)
+        if any(r.get("order_id") or r.get("total_oz") for r in recs):
+            existing_all.extend(recs)
+    return existing_all
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -609,23 +709,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     wb = WorkbookContext(client, getattr(args, "drive_id"), getattr(args, "item_id"))
 
-    # Read existing workbook sheets and consolidate to All
-    sheet_names = _list_worksheets(wb)
-    existing_all: List[Dict[str, str]] = []
-    for name in sheet_names:
-        vals = _get_used_range_values(wb, name)
-        if not vals:
-            continue
-        assumed_metal = None
-        low = name.lower()
-        if "silver" in low:
-            assumed_metal = "silver"
-        elif "gold" in low:
-            assumed_metal = "gold"
-        hdrs, recs = _to_records(vals, assumed_metal=assumed_metal)
-        # Only accept if it looks like our schema (has order_id or total_oz)
-        if any(r.get("order_id") or r.get("total_oz") for r in recs):
-            existing_all.extend(recs)
+    existing_all = _read_existing_workbook_recs(wb)
 
     # Read local summaries and tag metal
     local_silver = _read_csv(getattr(args, "silver_csv"), metal="silver")
@@ -638,8 +722,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Compose 'All' values
     all_values = _to_values_all(all_merged)
 
-    # Build summary (we will write formula-driven summary referencing All; keep computed values for future use if needed)
-    summary_values, anchors = _build_summary_values(all_merged)
+    # Build summary (computed values kept for future use if needed)
+    _build_summary_values(all_merged)
 
     # Copy workbook to new item
     new_wb = _copy_item(wb, getattr(args, "out_name"))
@@ -660,12 +744,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Formula-driven Summary referencing All (D=metal, C=vendor, E=oz, F=cost_per_oz)
     sum_formulas = [
         ["Totals by Metal"],
-        ["Metal", "Total Ounces", "Avg Cost/Oz"],
+        ["Metal", TOTAL_OZ_HDR, AVG_COST_HDR],
         _summary_row(all_name, "gold", "D"),
         _summary_row(all_name, "silver", "D"),
         [""],
         ["Totals by Vendor"],
-        ["Vendor", "Total Ounces", "Avg Cost/Oz"],
+        ["Vendor", TOTAL_OZ_HDR, AVG_COST_HDR],
         _summary_row(all_name, "TD", "C"),
         _summary_row(all_name, "Costco", "C"),
     ]

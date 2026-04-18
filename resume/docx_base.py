@@ -20,6 +20,9 @@ from .docx_styles import (
 )
 
 
+STYLE_HEADING_1 = "Heading 1"
+
+
 class ResumeWriterBase(ABC):
     """Base class for DOCX resume writers."""
 
@@ -66,6 +69,19 @@ class ResumeWriterBase(ABC):
     # Page setup and metadata
     # -------------------------------------------------------------------------
 
+    def _apply_h1_style(self, h1_pt: float, h1_color, h1_bg) -> None:
+        """Apply heading 1 font styles."""
+        if STYLE_HEADING_1 not in self.doc.styles:
+            return
+        self.doc.styles[STYLE_HEADING_1].font.size = Pt(h1_pt)
+        self.doc.styles[STYLE_HEADING_1].font.bold = True
+        rgb = _parse_hex_color(h1_color)
+        bg = _parse_hex_color(h1_bg)
+        if (not rgb) and bg:
+            rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
+        if rgb:
+            self.doc.styles[STYLE_HEADING_1].font.color.rgb = RGBColor(*rgb)
+
     def _apply_page_styles(self) -> None:
         """Apply compact page styles (margins and fonts)."""
         if not self.page_cfg.get("compact"):
@@ -90,16 +106,7 @@ class ResumeWriterBase(ABC):
             title_color = self.page_cfg.get("title_color")
 
             self.doc.styles["Normal"].font.size = Pt(body_pt)
-
-            if "Heading 1" in self.doc.styles:
-                self.doc.styles["Heading 1"].font.size = Pt(h1_pt)
-                self.doc.styles["Heading 1"].font.bold = True
-                rgb = _parse_hex_color(h1_color)
-                bg = _parse_hex_color(h1_bg)
-                if (not rgb) and bg:
-                    rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
-                if rgb:
-                    self.doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
+            self._apply_h1_style(h1_pt, h1_color, h1_bg)
 
             if "Title" in self.doc.styles:
                 self.doc.styles["Title"].font.size = Pt(title_pt)

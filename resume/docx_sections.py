@@ -93,21 +93,26 @@ class CertificationsSectionRenderer(ListSectionRenderer):
 class PresentationsSectionRenderer(ListSectionRenderer):
     """Renders presentations/talks section."""
 
+    @staticmethod
+    def _format_presentation_dict(it: Dict[str, Any]) -> str:
+        """Format a presentation dict to a display line."""
+        title = str(it.get("title") or it.get("name") or "").strip()
+        event = str(it.get("event") or "").strip()
+        year = str(it.get("year") or "").strip()
+        link = str(it.get("link") or "").strip()
+        parts = [p for p in [title or event, event if title else "", year] if p]
+        line = " — ".join(parts)
+        if link:
+            line = f"{line} ({link})" if line else link
+        return line
+
     def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
         items_raw = data.get("presentations") or []
         lines: List[str] = []
 
         for it in items_raw:
             if isinstance(it, dict):
-                title = str(it.get("title") or it.get("name") or "").strip()
-                event = str(it.get("event") or "").strip()
-                year = str(it.get("year") or "").strip()
-                link = str(it.get("link") or "").strip()
-
-                parts = [p for p in [title or event, event if title else "", year] if p]
-                line = " — ".join(parts)
-                if link:
-                    line = f"{line} ({link})" if line else link
+                line = self._format_presentation_dict(it)
                 if line:
                     lines.append(self.text.clean_inline(line))
             else:
@@ -117,7 +122,7 @@ class PresentationsSectionRenderer(ListSectionRenderer):
 
         if lines:
             plain, glyph = self.bullets.get_bullet_config(sec)
-            self.bullets.add_bullets(lines, sec=sec, plain=plain, glyph=glyph)
+            self.bullets.add_bullets(lines, plain=plain, glyph=glyph)
 
         return lines
 
@@ -144,7 +149,7 @@ class SummarySectionRenderer(ListSectionRenderer):
                 norm_items = [self.text.normalize_bullet(it) for it in items]
                 plain, glyph = self.bullets.get_bullet_config(sec)
                 self.bullets.add_bullets(
-                    norm_items, sec=sec, keywords=keywords, plain=plain, glyph=glyph
+                    norm_items, keywords=keywords, plain=plain, glyph=glyph
                 )
         elif isinstance(summary, str) and summary.strip():
             self._render_string_summary(summary, cfg, keywords)
@@ -180,7 +185,7 @@ class SummarySectionRenderer(ListSectionRenderer):
             norm_items = [self.text.normalize_bullet(it) for it in items]
             plain, glyph = self.bullets.get_bullet_config(cfg)
             self.bullets.add_bullets(
-                norm_items, sec=cfg, keywords=keywords, plain=plain, glyph=glyph
+                norm_items, keywords=keywords, plain=plain, glyph=glyph
             )
         else:
             p = self.doc.add_paragraph()
@@ -450,7 +455,7 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         if bullets:
             plain, glyph = self.bullets.get_bullet_config(cfg)
             self.bullets.add_bullets(
-                bullets, sec=cfg, keywords=keywords, plain=plain, glyph=glyph, list_style=bullet_style
+                bullets, keywords=keywords, plain=plain, glyph=glyph, list_style=bullet_style
             )
 
     def _format_date_span(self, e: Dict[str, Any]) -> str:

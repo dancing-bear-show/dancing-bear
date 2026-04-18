@@ -10,18 +10,21 @@ def _score(v) -> float:
         return 1.0
 
 
+def _item_priority(it: Any) -> float:
+    """Return priority score for a dict item (falls back to 1.0)."""
+    pr = it.get("priority") if it.get("priority") is not None else it.get("usefulness")
+    return _score(pr) if pr is not None else 1.0
+
+
 def _filter_items(items: List[Any], cutoff: float) -> List[Any]:
     out = []
     for it in (items or []):
         if isinstance(it, dict):
-            pr = it.get("priority") if it.get("priority") is not None else it.get("usefulness")
-            pr = _score(pr) if pr is not None else 1.0
-            if pr >= cutoff:
+            if _item_priority(it) >= cutoff:
                 out.append(it)
-        else:
+        elif cutoff <= 1.0:
             # strings: keep when cutoff is <= default (1.0)
-            if cutoff <= 1.0:
-                out.append(it)
+            out.append(it)
     return out
 
 
