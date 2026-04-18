@@ -66,14 +66,28 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
+    def _delete_duplicates(self, svc, duplicates: List["OutlookDedupDuplicate"]) -> Tuple[int, List[str]]:
+        """Delete all flagged duplicate series IDs. Returns (deleted_count, logs)."""
+        logs: List[str] = []
+        deleted = 0
+        for group in duplicates:
+            for sid in group.delete:
+                try:
+                    ok = bool(svc.delete_event_by_id(sid))
+                except Exception as exc:
+                    logs.append(f"Failed to delete {sid}: {exc}")
+                    continue
+                if ok:
+                    deleted += 1
+                    logs.append(f"Deleted series master {sid}")
+        return deleted, logs
+
     def _process_safe(self, payload: OutlookDedupRequest) -> OutlookDedupResult:
         check_service_required(payload.service)
         svc = payload.service
 
         start_iso, end_iso = self._window.resolve(payload.from_date, payload.to_date)
-        cal_id = None
-        if payload.calendar:
-            cal_id = svc.find_calendar_id(payload.calendar)
+        cal_id = svc.find_calendar_id(payload.calendar) if payload.calendar else None
         from calendars.outlook_service import ListCalendarViewRequest
         occ = svc.list_calendar_view(ListCalendarViewRequest(
             start_iso=start_iso,
@@ -82,23 +96,11 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         ))
 
         duplicates = self._find_duplicates(occ or [], payload)
-        logs: List[str] = []
-        deleted = 0
+        deleted, logs = 0, []
         if payload.apply and duplicates:
-            for group in duplicates:
-                for sid in group.delete:
-                    ok = False
-                    try:
-                        ok = bool(svc.delete_event_by_id(sid))
-                    except Exception as exc:
-                        logs.append(f"Failed to delete {sid}: {exc}")
-                        continue
-                    if ok:
-                        deleted += 1
-                        logs.append(f"Deleted series master {sid}")
+            deleted, logs = self._delete_duplicates(svc, duplicates)
 
-        result = OutlookDedupResult(duplicates=duplicates, apply=payload.apply, deleted=deleted, logs=logs)
-        return result
+        return OutlookDedupResult(duplicates=duplicates, apply=payload.apply, deleted=deleted, logs=logs)
 
     def _find_duplicates(
         self,

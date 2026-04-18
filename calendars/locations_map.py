@@ -44,6 +44,21 @@ def _default_locations_yaml_paths() -> list[Path]:
     return paths
 
 
+def _try_load_yaml_locations(p: "Path") -> Optional[Dict[str, str]]:
+    """Attempt to load a locations YAML file. Returns dict or None."""
+    try:
+        from calendars.yamlio import load_config  # lazy import
+        data = load_config(str(p))
+        if not isinstance(data, dict):
+            return None
+        locs = data.get('locations') if 'locations' in data else data
+        if isinstance(locs, dict) and all(isinstance(k, (str, int)) and isinstance(v, str) for k, v in locs.items()):
+            return {str(k): str(v) for k, v in locs.items()}
+    except Exception:  # nosec B110 - continue to fallback
+        pass
+    return None
+
+
 def get_locations_map() -> Dict[str, str]:
     """Return a mapping of short names to standardized location strings.
 
@@ -53,21 +68,12 @@ def get_locations_map() -> Dict[str, str]:
     global _CACHED_MAP
     if _CACHED_MAP is not None:
         return _CACHED_MAP
-    # Try to load YAML lazily; fallback to ADDRESS_MAP
     for p in _default_locations_yaml_paths():
         if p.exists():
-            try:
-                from calendars.yamlio import load_config  # lazy import
-                data = load_config(str(p))
-                # Expect a flat mapping: { 'Name': 'Name (addr, city, ...)' }
-                if isinstance(data, dict):
-                    # If loaded as {locations: {...}}, unwrap; otherwise require flat str->str map
-                    locs = data.get('locations') if 'locations' in data else data
-                    if isinstance(locs, dict) and all(isinstance(k, (str, int)) and isinstance(v, str) for k, v in locs.items()):
-                        _CACHED_MAP = {str(k): str(v) for k, v in locs.items()}
-                        return _CACHED_MAP
-            except Exception:  # nosec B110 - continue to fallback
-                pass
+            result = _try_load_yaml_locations(p)
+            if result is not None:
+                _CACHED_MAP = result
+                return _CACHED_MAP
     _CACHED_MAP = dict(ADDRESS_MAP)
     return _CACHED_MAP
 
