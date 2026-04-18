@@ -563,12 +563,12 @@ class TestPdfExtractNameHeadline(unittest.TestCase):
 
     def test_skip_section_heading(self):
         lines = ["Experience", "Senior Dev at Company"]
-        name, headline = _pdf_extract_name_headline(lines)
+        name, _headline = _pdf_extract_name_headline(lines)
         self.assertEqual(name, "")
 
     def test_skip_contact_line(self):
         lines = ["john@example.com (555) 123-4567"]
-        name, headline = _pdf_extract_name_headline(lines)
+        name, _headline = _pdf_extract_name_headline(lines)
         self.assertEqual(name, "")
 
     def test_empty_lines(self):

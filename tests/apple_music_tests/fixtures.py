@@ -25,7 +25,7 @@ class FakeSession:
         self.responses = list(responses)
         self.calls: List[Dict[str, Any]] = []
 
-    def get(self, url: str, headers=None, params=None, json=None) -> FakeResponse:
+    def get(self, url: str, headers=None, params=None, json=None) -> FakeResponse:  # NOSONAR - fake interface must match real signature
         self.calls.append({"url": url, "params": params})
         if not self.responses:
             raise AssertionError("No response queued")
@@ -62,10 +62,10 @@ class FakeAppleMusicClient:
     def ping(self) -> dict:
         return {"data": [{"id": self.storefront}]}
 
-    def list_library_playlists(self, limit: Optional[int] = None) -> List[dict]:
+    def list_library_playlists(self, limit: Optional[int] = None) -> List[dict]:  # NOSONAR - fake interface must match real signature
         return self.playlists
 
-    def list_playlist_tracks(self, playlist_id: str, limit: Optional[int] = None) -> List[dict]:
+    def list_playlist_tracks(self, playlist_id: str, limit: Optional[int] = None) -> List[dict]:  # NOSONAR - fake interface must match real signature
         if self.tracks_by_playlist:
             return self.tracks_by_playlist.get(playlist_id, [])
         return self.tracks

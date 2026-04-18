@@ -78,7 +78,7 @@ class TestToRecords(unittest.TestCase):
             ["date", "order_id", "vendor"],
             ["2024-01-15"],  # Short row
         ]
-        headers, records = _to_records(values)
+        _headers, records = _to_records(values)
         self.assertEqual(records[0]["date"], "2024-01-15")
         self.assertEqual(records[0]["order_id"], "")
         self.assertEqual(records[0]["vendor"], "")

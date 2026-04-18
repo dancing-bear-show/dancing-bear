@@ -150,7 +150,7 @@ class TestResolveOutlookArgs(unittest.TestCase):
 
         with patch("mail.outlook.helpers.resolve_outlook_credentials") as mock_resolve:
             mock_resolve.return_value = ("client-123", "tenant-abc", "/path/token.json")
-            client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
+            client_id, tenant, token_path, _cache_dir = resolve_outlook_args(args)
 
         self.assertEqual(client_id, "client-123")
         self.assertEqual(tenant, "tenant-abc")
@@ -236,7 +236,7 @@ accounts:
 
             with patch("mail.outlook.helpers.resolve_outlook_credentials") as mock_resolve:
                 mock_resolve.return_value = (None, None, None)
-                client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
+                client_id, tenant, _token_path, cache_dir = resolve_outlook_args(args)
 
             self.assertEqual(client_id, "cfg-client-123")
             self.assertEqual(tenant, "consumers")

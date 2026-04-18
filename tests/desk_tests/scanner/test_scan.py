@@ -169,7 +169,7 @@ class RunScanTests(unittest.TestCase):
         result = run_scan([self.tmpdir], min_size="1", top_dirs=5)
 
         self.assertIn("top_dirs", result)
-        self.assertTrue(len(result["top_dirs"]) > 0)
+        self.assertGreater(len(result["top_dirs"]), 0)
 
     def test_sorts_large_files_by_size(self):
         path1 = os.path.join(self.tmpdir, "smaller.bin")
@@ -212,7 +212,7 @@ class RunScanTests(unittest.TestCase):
         result = run_scan([self.tmpdir], min_size="1", include_duplicates=True)
 
         self.assertIn("duplicates", result)
-        self.assertTrue(len(result["duplicates"]) > 0)
+        self.assertGreater(len(result["duplicates"]), 0)
 
     def test_generated_at_timestamp(self):
         result = run_scan([self.tmpdir], min_size="1MB")

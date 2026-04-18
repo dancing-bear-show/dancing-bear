@@ -48,21 +48,21 @@ class FakeOutlookClient:
         return None
 
     def list_events_in_range(
-        self, calendar_id: Optional[str] = None, start: Optional[str] = None,
-        end: Optional[str] = None, **kwargs
+        self, calendar_id: Optional[str] = None, start: Optional[str] = None,  # NOSONAR
+        end: Optional[str] = None, **kwargs  # NOSONAR
     ) -> List[Dict]:
         return list(self.events)
 
-    def create_event(self, calendar_id: str, event: Dict) -> Dict:
+    def create_event(self, calendar_id: str, event: Dict) -> Dict:  # NOSONAR - fake interface must match real signature
         event_copy = dict(event)
         event_copy["id"] = f"EVT_{len(self.created_events)}"
         self.created_events.append(event_copy)
         return event_copy
 
-    def delete_event(self, calendar_id: str, event_id: str) -> None:
+    def delete_event(self, calendar_id: str, event_id: str) -> None:  # NOSONAR - fake interface must match real signature
         self.deleted_event_ids.append(event_id)
 
-    def update_event(self, calendar_id: str, event_id: str, updates: Dict) -> Dict:
+    def update_event(self, calendar_id: str, event_id: str, updates: Dict) -> Dict:  # NOSONAR - fake interface must match real signature
         self.updated_events.append({"id": event_id, **updates})
         return {"id": event_id, **updates}
 
@@ -109,8 +109,8 @@ class FakeCalendarService:
         return self.get_calendar_id_by_name(name)
 
     def list_calendar_view(
-        self, *, calendar_id: str, start_iso: str, end_iso: str,
-        select: str = "", top: int = 200
+        self, *, calendar_id: str, start_iso: str, end_iso: str,  # NOSONAR
+        select: str = "", top: int = 200  # NOSONAR
     ) -> List[Dict]:
         return list(self.events)
 
@@ -119,14 +119,14 @@ class FakeCalendarService:
         return True
 
     def list_events_in_range(
-        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,
-        **kwargs
+        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,  # NOSONAR
+        **kwargs  # NOSONAR
     ) -> List[Dict]:
         return list(self.events)
 
     def update_event_reminder(
-        self, *, event_id: str, calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None, is_on: bool,
+        self, *, event_id: str, calendar_id: Optional[str] = None,  # NOSONAR
+        calendar_name: Optional[str] = None, is_on: bool,  # NOSONAR
         minutes_before_start: Optional[int] = None
     ) -> None:
         self.updated_reminders.append((event_id, is_on, minutes_before_start))
@@ -142,7 +142,7 @@ class FakeCalendarService:
         return evt
 
     def update_event_location(
-        self, *, event_id: str, calendar_name: Optional[str] = None,
-        calendar_id: Optional[str] = None, location_str: str
+        self, *, event_id: str, calendar_name: Optional[str] = None,  # NOSONAR
+        calendar_id: Optional[str] = None, location_str: str  # NOSONAR
     ) -> None:
         self.updated_locations.append((event_id, location_str))
