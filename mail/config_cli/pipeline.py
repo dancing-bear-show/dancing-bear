@@ -117,6 +117,10 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         from datetime import datetime
         from ..utils.cli_helpers import gmail_provider_from_args
         from ..yamlio import dump_config
+        from ..accounts.pipeline import (
+            _build_label_id_to_name_map,
+            _build_filter_dsl_entry,
+        )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
@@ -143,27 +147,9 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         dump_config(str(out_dir / "labels.yaml"), labels_doc)
 
         # Filters
-        id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in labels}
-
-        def ids_to_names(ids):
-            return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
-
+        id_to_name = _build_label_id_to_name_map(labels)
         filters = client.list_filters()
-        dsl_filters = []
-        for f in filters:
-            crit = f.get("criteria", {}) or {}
-            act = f.get("action", {}) or {}
-            entry = {
-                "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
-                "action": {},
-            }
-            if act.get("forward"):
-                entry["action"]["forward"] = act["forward"]
-            if act.get("addLabelIds"):
-                entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
-            if act.get("removeLabelIds"):
-                entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
-            dsl_filters.append(entry)
+        dsl_filters = [_build_filter_dsl_entry(f, id_to_name) for f in filters]
         dump_config(str(out_dir / "filters.yaml"), {"filters": dsl_filters})
 
         return BackupResult(
@@ -477,23 +463,19 @@ DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
 def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
-    """Mutate out_specs: replace add with moveToFolder=Archive for rules that remove INBOX."""
+    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
     for i, spec in enumerate(out_specs):
-        a = spec.get("action") or {}
-        try:
-            orig = filters[i]
-        except Exception:  # nosec B110 - index out of range, skip
-            orig = {}
-        orig_action = (orig or {}).get("action") or {}
-        remove_list = orig_action.get("remove") or []
+        orig = filters[i] if i < len(filters) else {}
+        remove_list = ((orig or {}).get("action") or {}).get("remove") or []
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
+            a = spec.get("action") or {}
             a["moveToFolder"] = "Archive"
             a.pop("add", None)
             spec["action"] = a
 
 
 def _apply_move_to_folders(out_specs: list) -> None:
-    """Mutate out_specs: add moveToFolder from first add label when not already set."""
+    """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set."""
     for spec in out_specs:
         a = spec.get("action") or {}
         adds = a.get("add") or []
@@ -578,8 +560,8 @@ class OptimizeFiltersResult:
 OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 
 
-def _group_rules_by_dest(rules: list) -> tuple:
-    """Partition rules into (groups_by_dest, passthrough) for optimization."""
+def _partition_rules_by_dest(rules: list) -> tuple:
+    """Split filter rules into (groups_by_dest, passthrough) for merging."""
     from collections import defaultdict
     groups: Dict[str, list] = defaultdict(list)
     passthrough = []
@@ -598,7 +580,7 @@ def _group_rules_by_dest(rules: list) -> tuple:
 
 
 def _merge_group(dest: str, items: list) -> tuple:
-    """Merge a group of same-destination rules into one. Returns (merged_rule, unique_count)."""
+    """Build a merged rule for a dest group. Returns (merged_rule, MergedGroup) or (None, None)."""
     terms = []
     removes: set = set()
     for it in items:
@@ -609,14 +591,16 @@ def _merge_group(dest: str, items: list) -> tuple:
             removes.add(x)
     atoms = [p.strip() for t in terms for p in t.split("OR") if p.strip()]
     uniq = sorted(set(atoms))
-    merged_rule: Dict[str, Any] = {
+    if not uniq:
+        return None, None
+    rule: Dict[str, Any] = {
         "name": f"merged_{dest.replace('/', '_')}",
         "match": {"from": " OR ".join(uniq)},
         "action": {"add": [dest]},
     }
     if removes:
-        merged_rule["action"]["remove"] = sorted(removes)
-    return merged_rule, len(uniq)
+        rule["action"]["remove"] = sorted(removes)
+    return rule, MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq))
 
 
 class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFiltersResult]):
@@ -628,7 +612,7 @@ class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFil
         if not isinstance(rules, list):
             raise ValueError("Input missing filters: []")
 
-        groups, passthrough = _group_rules_by_dest(rules)
+        groups, passthrough = _partition_rules_by_dest(rules)
         merged = []
         preview_info = []
         threshold = max(2, payload.merge_threshold)
@@ -637,12 +621,12 @@ class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFil
             if len(items) < threshold:
                 passthrough.extend(items)
                 continue
-            merged_rule, uniq_count = _merge_group(dest, items)
-            if uniq_count == 0:
+            merged_rule, info = _merge_group(dest, items)
+            if merged_rule is None:
                 passthrough.extend(items)
                 continue
             merged.append(merged_rule)
-            preview_info.append(MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=uniq_count))
+            preview_info.append(info)
 
         optimized = {"filters": merged + passthrough}
         outp = Path(payload.out_path)
@@ -699,40 +683,23 @@ AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
 def _build_dest_token_map(unified: list) -> Dict[str, set]:
-    """Build dest -> set-of-from-tokens mapping from unified filters."""
-    dest_to_from_tokens: Dict[str, set] = {}
+    """Build mapping from destination label to set of from-tokens in the unified config."""
+    dest_to_tokens: Dict[str, set] = {}
     for f in unified:
         if not isinstance(f, dict):
             continue
-        a = f.get("action") or {}
-        adds = a.get("add") or []
+        adds = (f.get("action") or {}).get("add") or []
         if not adds:
             continue
-        dest = str(adds[0])
         frm = str((f.get("match") or {}).get("from") or "")
         toks = {t.strip().lower() for t in frm.split("OR") if t.strip()}
         if toks:
-            dest_to_from_tokens.setdefault(dest, set()).update(toks)
-    return dest_to_from_tokens
+            dest_to_tokens.setdefault(str(adds[0]), set()).update(toks)
+    return dest_to_tokens
 
 
-def _is_simple_exported_rule(c: dict, a: dict) -> tuple:
-    """Check if exported rule is a simple from-based rule. Returns (is_simple, frm, adds)."""
-    if any(k in c for k in ("query", "negatedQuery", "size", "sizeComparison")):
-        return False, "", []
-    if c.get("to") or c.get("subject"):
-        return False, "", []
-    frm = str(c.get("from") or "").strip().lower()
-    adds = a.get("addLabels") or a.get("add") or []
-    if not adds and a.get("moveToFolder"):
-        adds = [str(a.get("moveToFolder"))]
-    if not frm or not adds:
-        return False, "", []
-    return True, frm, adds
-
-
-def _audit_coverage(exported: list, dest_to_from_tokens: dict) -> tuple:
-    """Count simple exported rules and how many are covered by unified config."""
+def _score_exported_filters(exported: list, dest_to_tokens: Dict[str, set]) -> tuple:
+    """Return (simple_total, covered, missing_samples) for exported filters vs unified token map."""
     simple_total = 0
     covered = 0
     missing_samples: List[tuple] = []
@@ -741,14 +708,20 @@ def _audit_coverage(exported: list, dest_to_from_tokens: dict) -> tuple:
             continue
         c = f.get("criteria") or f.get("match") or {}
         a = f.get("action") or {}
-        is_simple, frm, adds = _is_simple_exported_rule(c, a)
-        if not is_simple:
+        if any(k in c for k in ("query", "negatedQuery", "size", "sizeComparison")):
+            continue
+        if c.get("to") or c.get("subject"):
+            continue
+        frm = str(c.get("from") or "").strip().lower()
+        adds = a.get("addLabels") or a.get("add") or []
+        if not adds and a.get("moveToFolder"):
+            adds = [str(a.get("moveToFolder"))]
+        if not frm or not adds:
             continue
         simple_total += 1
         dest = str(adds[0])
-        toks = dest_to_from_tokens.get(dest) or set()
-        cov = any((tok and (tok in frm or frm in tok)) for tok in toks)
-        if cov:
+        toks = dest_to_tokens.get(dest) or set()
+        if any(tok and (tok in frm or frm in tok) for tok in toks):
             covered += 1
         elif len(missing_samples) < 10:
             missing_samples.append((dest, frm))
@@ -759,13 +732,11 @@ class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResul
     def _process_safe(self, payload: AuditFiltersRequest) -> AuditFiltersResult:
         from ..yamlio import load_config
 
-        uni = load_config(payload.in_path) if payload.in_path else {}
-        exp = load_config(payload.export_path) if payload.export_path else {}
-        unified = uni.get("filters") or []
-        exported = exp.get("filters") or []
+        unified = (load_config(payload.in_path) if payload.in_path else {}).get("filters") or []
+        exported = (load_config(payload.export_path) if payload.export_path else {}).get("filters") or []
 
-        dest_to_from_tokens = _build_dest_token_map(unified)
-        simple_total, covered, missing_samples = _audit_coverage(exported, dest_to_from_tokens)
+        dest_to_tokens = _build_dest_token_map(unified)
+        simple_total, covered, missing_samples = _score_exported_filters(exported, dest_to_tokens)
 
         not_cov = simple_total - covered
         pct = (not_cov / simple_total * 100.0) if simple_total else 0.0
@@ -853,20 +824,24 @@ def _setup_venv(venv_dir: Path, skip_install: bool) -> bool:
     return venv_created
 
 
-def _copy_gmail_example(expand_path, default_path: str) -> Optional[str]:
-    """Copy credentials.example.json to default credentials path. Returns new path or None."""
-    ex = Path("credentials.example.json")
-    dest = Path(expand_path(default_path))
-    if not ex.exists() or dest.exists():
-        return None
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(ex.read_text(encoding="utf-8"), encoding="utf-8")
-        return str(dest)
-    except OSError:  # nosec B110 - non-critical setup step (PermissionError/IOError are subclasses)
-        import sys
-        print(f"Warning: Could not copy example credentials to {dest}", file=sys.stderr)
-        return None
+def _resolve_gmail_cred_paths(payload: Any, expand_path, default_cred_fn, default_tok_fn) -> tuple:
+    """Resolve credential/token paths, optionally copying the example credentials file."""
+    import sys
+    cred_path = payload.credentials
+    tok_path = payload.token
+    if payload.copy_gmail_example and not cred_path:
+        ex = Path("credentials.example.json")
+        dest = Path(expand_path(default_cred_fn()))
+        if ex.exists() and not dest.exists():
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(ex.read_text(encoding="utf-8"), encoding="utf-8")
+                cred_path = str(dest)
+            except OSError:  # nosec B110 - non-critical setup step (PermissionError/IOError are subclasses)
+                print(f"Warning: Could not copy example credentials to {dest}", file=sys.stderr)
+    if cred_path and not tok_path:
+        tok_path = default_tok_fn()
+    return cred_path, tok_path
 
 
 class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
@@ -882,15 +857,9 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
         if not payload.no_venv:
             venv_created = _setup_venv(Path(payload.venv_dir), payload.skip_install)
 
-        cred_path = payload.credentials
-        tok_path = payload.token
-
-        if payload.copy_gmail_example and not cred_path:
-            copied = _copy_gmail_example(expand_path, default_gmail_credentials_path())
-            if copied:
-                cred_path = copied
-        if cred_path and not tok_path:
-            tok_path = default_gmail_token_path()
+        cred_path, tok_path = _resolve_gmail_cred_paths(
+            payload, expand_path, default_gmail_credentials_path, default_gmail_token_path
+        )
 
         for pth in (cred_path, tok_path, payload.outlook_token):
             if pth:
@@ -902,15 +871,14 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
         profile_saved = False
         if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
             from mail.config_resolver import ProfileSettings
-            settings = ProfileSettings(
+            persist_profile_settings(ProfileSettings(
                 profile=payload.profile,
                 credentials=cred_path,
                 token=tok_path,
                 outlook_client_id=payload.outlook_client_id,
                 tenant=payload.tenant,
                 outlook_token=payload.outlook_token,
-            )
-            persist_profile_settings(settings)
+            ))
             profile_saved = True
 
         return EnvSetupResult(

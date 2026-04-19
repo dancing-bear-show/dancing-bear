@@ -82,7 +82,7 @@ def _get_parser():
     try:
         from .cli import main as main_mod
         return main_mod.app.build_parser()
-    except Exception:
+    except Exception:  # nosec B110 - return None if CLI parser unavailable (e.g., import error)
         return None
 
 
