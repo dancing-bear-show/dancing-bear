@@ -333,7 +333,7 @@ def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
         return None
     try:
         return service.ensure_calendar(calendar_name)
-    except Exception:
+    except Exception:  # nosec B110 - fallback across heterogeneous service implementations
         return service.get_calendar_id_by_name(calendar_name)
 
 

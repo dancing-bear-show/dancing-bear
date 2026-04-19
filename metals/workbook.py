@@ -67,7 +67,8 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
     if r.status_code >= 400:
         raise RuntimeError(f"Failed writing sheet {sheet}: {r.status_code} {r.text}")
 
-    # Add table (best-effort)
+    # Add table (best-effort): POST to workbook-level tables/add with sheet-qualified
+    # address (e.g. "Sheet1!A1:D5") as required by the Graph API /workbook/tables/add endpoint.
     tadd = requests.post(
         f"{wb.base_url}/tables/add",
         headers=wb.headers(),
@@ -87,7 +88,7 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
 
     # Autofit columns and freeze header row
     requests.post(
-        f"{sheet_url}/range(address='{sheet}!A:{end_col}')/format/autofitColumns",
+        f"{sheet_url}/range(address='A:{end_col}')/format/autofitColumns",
         headers=wb.headers(),
         timeout=DEFAULT_REQUEST_TIMEOUT,
     )

@@ -106,7 +106,9 @@ class OutlookClientBase(ConfigCacheMixin):
         """Write serialized MSAL token cache to disk."""
         if not self.token_path:
             return
-        os.makedirs(os.path.dirname(self.token_path), exist_ok=True)
+        token_dir = os.path.dirname(self.token_path)
+        if token_dir:
+            os.makedirs(token_dir, exist_ok=True)
         with open(self.token_path, "w", encoding="utf-8") as f:
             f.write(cache.serialize())
 

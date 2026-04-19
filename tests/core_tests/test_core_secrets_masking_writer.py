@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import sys
 import unittest
+import unittest.mock as mock
 from io import StringIO
-from unittest import mock
 
 from core.secrets import MaskingWriter, install_output_masking_from_env
 

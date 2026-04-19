@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import unittest
+import unittest.mock as mock
 from io import StringIO
-from unittest import mock
 
 from apple_music import user_token_cli
 

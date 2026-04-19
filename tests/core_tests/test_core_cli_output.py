@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import unittest
+import unittest.mock as mock
 from dataclasses import dataclass
 from enum import Enum
 from io import StringIO
-from unittest import mock
 
 from core.cli_output import (
     OutputFormat,
