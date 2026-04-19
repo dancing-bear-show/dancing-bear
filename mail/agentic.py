@@ -82,7 +82,7 @@ def _get_parser():
     try:
         from .cli import main as main_mod
         return main_mod.app.build_parser()
-    except Exception:
+    except Exception:  # nosec B110 - return None if CLI parser unavailable (e.g., import error)
         return None
 
 
@@ -134,7 +134,7 @@ def build_domain_map() -> str:
                 mod = ast.parse(txt)
                 ds = ast.get_docstring(mod) or ""
                 doc = (ds.strip().splitlines() or [""])[0]
-            except Exception:
+            except Exception:  # nosec B110 - skip unreadable/unparseable module files
                 doc = ""
             items.append((name, doc))
         return items
@@ -176,7 +176,7 @@ def build_flows() -> List[Dict[str, Any]]:
             root = Path(os.getcwd())
             p = root / 'bin' / name
             return p.exists()
-        except Exception:
+        except Exception:  # nosec B110 - return False if path check fails (e.g., permission error)
             return False
 
     # Unified → derive provider configs

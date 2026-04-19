@@ -48,21 +48,25 @@ def _analyze_labels(labels: list) -> dict:
     }
 
 
-def run_labels_plan(args) -> int:
-    context = MailContext.from_args(args)
-    consumer = LabelsPlanConsumer(context)
+def _run_labels_pipeline(consumer, processor, producer) -> int:
+    """Run a consumer → processor → producer pipeline; return 0 on success."""
     try:
         payload = consumer.consume()
     except ValueError as exc:
         print(exc)
         return 1
-
-    processor = LabelsPlanProcessor()
-    producer = LabelsPlanProducer()
-
     envelope = processor.process(payload)
     producer.produce(envelope)
     return 0 if envelope.ok() else 1
+
+
+def run_labels_plan(args) -> int:
+    context = MailContext.from_args(args)
+    return _run_labels_pipeline(
+        LabelsPlanConsumer(context),
+        LabelsPlanProcessor(),
+        LabelsPlanProducer(),
+    )
 
 
 def run_labels_sync(args) -> int:
@@ -73,31 +77,22 @@ def run_labels_sync(args) -> int:
     except ValueError as exc:
         print(exc)
         return 1
-
     processor = LabelsSyncProcessor()
     envelope = processor.process(payload)
-    producer = LabelsSyncProducer(
+    LabelsSyncProducer(
         context.get_gmail_client(),
         dry_run=bool(getattr(args, "dry_run", False)),
-    )
-    producer.produce(envelope)
+    ).produce(envelope)
     return 0 if envelope.ok() else 1
 
 
 def run_labels_export(args) -> int:
     context = MailContext.from_args(args)
-    consumer = LabelsExportConsumer(context)
-    try:
-        payload = consumer.consume()
-    except ValueError as exc:
-        print(exc)
-        return 1
-
-    processor = LabelsExportProcessor()
-    envelope = processor.process(payload)
-    producer = LabelsExportProducer()
-    producer.produce(envelope)
-    return 0 if envelope.ok() else 1
+    return _run_labels_pipeline(
+        LabelsExportConsumer(context),
+        LabelsExportProcessor(),
+        LabelsExportProducer(),
+    )
 
 
 def run_labels_list(args) -> int:
@@ -468,7 +463,7 @@ def run_labels_sweep_parents(args) -> int:
             print(f"[{parent}] Would add to {len(ids)} messages")
         else:
             apply_in_chunks(
-                lambda chunk: client.batch_modify_messages(chunk, add_label_ids=[parent_id]),
+                lambda chunk, _pid=parent_id: client.batch_modify_messages(chunk, add_label_ids=[_pid]),
                 ids,
                 int(args.batch_size),
             )
