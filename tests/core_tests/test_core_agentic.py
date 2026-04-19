@@ -49,7 +49,7 @@ class TestSection(unittest.TestCase):
         self.assertEqual(result, "")
 
     def test_none_body_returns_empty(self):
-        result = section("Title", None)
+        result = section("Title", None)  # NOSONAR - intentional None test for defensive handling
         self.assertEqual(result, "")
 
     def test_non_empty_body_renders_section(self):
