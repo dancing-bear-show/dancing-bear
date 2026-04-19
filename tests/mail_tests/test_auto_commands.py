@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from mail.auto.commands import run_auto_propose, run_auto_summary, run_auto_apply
+from tests.mail_tests.fixtures import make_args as _make_base_args, make_success_envelope, make_error_envelope
 
 
 def _make_args(**kwargs):
     defaults = {
-        "credentials": None,
-        "token": None,
-        "cache": None,
-        "profile": None,
         "out": "/tmp/proposal.json",
         "days": "7",
         "pages": "5",
@@ -26,21 +22,15 @@ def _make_args(**kwargs):
         "batch_size": 500,
     }
     defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
+    return _make_base_args(**defaults)
 
 
 def _make_ok_envelope():
-    env = MagicMock()
-    env.ok.return_value = True
-    env.diagnostics = {}
-    return env
+    return make_success_envelope()
 
 
 def _make_error_envelope(code=1):
-    env = MagicMock()
-    env.ok.return_value = False
-    env.diagnostics = {"code": code}
-    return env
+    return make_error_envelope(diagnostics={"code": code})
 
 
 class TestRunAutoPropose(unittest.TestCase):

@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+from tests.mail_tests.fixtures import make_args as _make_base_args, make_success_envelope, make_error_envelope
 
 
 def _make_args(**kwargs):
     defaults = {
-        "credentials": None,
-        "token": None,
-        "cache": None,
-        "profile": None,
         "out": "/tmp/signatures.yaml",
         "assets_dir": "/tmp/assets",
         "config": "/tmp/sig_config.yaml",
@@ -24,21 +21,15 @@ def _make_args(**kwargs):
         "var": [],
     }
     defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
+    return _make_base_args(**defaults)
 
 
 def _make_ok_envelope():
-    env = MagicMock()
-    env.ok.return_value = True
-    env.diagnostics = {}
-    return env
+    return make_success_envelope()
 
 
 def _make_error_envelope(code=1):
-    env = MagicMock()
-    env.ok.return_value = False
-    env.diagnostics = {"code": code}
-    return env
+    return make_error_envelope(diagnostics={"code": code})
 
 
 class TestRunSignaturesExport(unittest.TestCase):
@@ -174,10 +165,7 @@ class TestRunSignaturesSync(unittest.TestCase):
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
         mock_ctx_cls.from_args.return_value = MagicMock()
 
-        args = SimpleNamespace(
-            credentials=None, token=None, cache=None, profile=None,
-            config="/tmp/sig.yaml"
-        )
+        args = _make_args(config="/tmp/sig.yaml")
         run_signatures_sync(args)
 
         call_kwargs = mock_consumer_cls.call_args.kwargs
@@ -241,10 +229,7 @@ class TestRunSignaturesNormalize(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
 
-        args = SimpleNamespace(
-            config="/tmp/sig.yaml",
-            out_html="/tmp/sig.html",
-        )
+        args = _make_args(config="/tmp/sig.yaml", out_html="/tmp/sig.html")
         run_signatures_normalize(args)
 
         call_kwargs = mock_consumer_cls.call_args.kwargs

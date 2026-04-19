@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import unittest
 from contextlib import redirect_stdout
-from types import SimpleNamespace
 
 from mail.context import MailContext
 from mail.forwarding.consumers import (
@@ -29,13 +28,12 @@ from mail.forwarding.producers import (
     ForwardingEnableProducer,
     ForwardingDisableProducer,
 )
-from tests.mail_tests.fixtures import FakeForwardingClient
+from tests.mail_tests.fixtures import FakeForwardingClient, make_args
 
 
 def _make_context_with_client(client: FakeForwardingClient) -> MailContext:
     """Create a MailContext with a fake client injected."""
-    args = SimpleNamespace(credentials=None, token=None, profile=None)
-    ctx = MailContext.from_args(args)
+    ctx = MailContext.from_args(make_args())
     ctx.gmail_client = client
     return ctx
 

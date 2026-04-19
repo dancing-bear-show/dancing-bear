@@ -6,21 +6,15 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from tests.mail_tests.fixtures import make_args, make_success_envelope, make_error_envelope
+
 
 def _make_ok_envelope(payload=None):
-    env = MagicMock()
-    env.ok.return_value = True
-    env.diagnostics = {}
-    env.payload = payload
-    return env
+    return make_success_envelope(payload=payload)
 
 
 def _make_error_envelope(message="error", code=1):
-    env = MagicMock()
-    env.ok.return_value = False
-    env.diagnostics = {"message": message, "code": code}
-    env.payload = None
-    return env
+    return make_error_envelope(diagnostics={"message": message, "code": code})
 
 
 class TestRunAuth(unittest.TestCase):
@@ -36,7 +30,7 @@ class TestRunAuth(unittest.TestCase):
         envelope = _make_ok_envelope(payload=payload)
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(credentials=None, token=None, profile=None, validate=False)
+        args = make_args(validate=False)
         result = run_auth(args)
         self.assertEqual(result, 0)
 
@@ -51,7 +45,7 @@ class TestRunAuth(unittest.TestCase):
         envelope = _make_ok_envelope(payload=payload)
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(credentials=None, token=None, profile=None, validate=False)
+        args = make_args(validate=False)
         result = run_auth(args)
         self.assertEqual(result, 1)
 
@@ -66,7 +60,7 @@ class TestRunAuth(unittest.TestCase):
         envelope = _make_ok_envelope(payload=payload)
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(credentials=None, token=None, profile=None, validate=True)
+        args = make_args(validate=True)
         result = run_auth(args)
         self.assertEqual(result, 2)
 
@@ -81,7 +75,7 @@ class TestRunAuth(unittest.TestCase):
         envelope = _make_ok_envelope(payload=payload)
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(credentials=None, token=None, profile=None, validate=True)
+        args = make_args(validate=True)
         result = run_auth(args)
         self.assertEqual(result, 3)
 
@@ -93,7 +87,7 @@ class TestRunAuth(unittest.TestCase):
         envelope = _make_ok_envelope(payload=None)
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(credentials=None, token=None, profile=None, validate=False)
+        args = make_args(validate=False)
         result = run_auth(args)
         self.assertEqual(result, 0)
 
@@ -109,7 +103,7 @@ class TestRunBackup(unittest.TestCase):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(out_dir=None, credentials=None, token=None, cache=None, profile=None)
+        args = make_args(out_dir=None)
         result = run_backup(args)
         self.assertEqual(result, 0)
 
@@ -121,7 +115,7 @@ class TestRunBackup(unittest.TestCase):
         envelope = _make_error_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(out_dir=None, credentials=None, token=None, cache=None, profile=None)
+        args = make_args(out_dir=None)
         result = run_backup(args)
         self.assertEqual(result, 1)
 

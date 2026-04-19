@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
 
 from mail.context import MailContext
 from mail.labels.consumers import (
@@ -25,6 +24,7 @@ from mail.labels.producers import (
 )
 from tests.mail_tests.fixtures import (
     FakeGmailClient,
+    make_args,
     make_user_label,
     make_system_label,
 )
@@ -45,7 +45,7 @@ class LabelsPipelineTests(unittest.TestCase):
         self.addCleanup(tmpdir.cleanup)
         cfg_path = Path(tmpdir.name) / "labels.yaml"
         cfg_path.write_text(data)
-        args = SimpleNamespace(config=str(cfg_path), **flags)
+        args = make_args(config=str(cfg_path), **flags)
         ctx = MailContext.from_args(args)
         ctx.gmail_client = _make_labels_client()
         return ctx

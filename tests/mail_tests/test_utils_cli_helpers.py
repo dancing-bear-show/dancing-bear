@@ -3,19 +3,9 @@
 from __future__ import annotations
 
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-
-def _make_args(**kwargs):
-    defaults = {
-        "credentials": None,
-        "token": None,
-        "cache": None,
-        "profile": None,
-    }
-    defaults.update(kwargs)
-    return SimpleNamespace(**defaults)
+from tests.mail_tests.fixtures import make_args as _make_args
 
 
 class TestPreviewCriteria(unittest.TestCase):
