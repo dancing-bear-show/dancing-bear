@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from tests.resume_tests.fixtures import mock_docx_modules
 
@@ -42,7 +42,7 @@ class TestApplyPageStylesCompact(unittest.TestCase):
         writer._apply_page_styles()
         section = writer.doc.sections[0]
         # margins should be set
-        self.assertTrue(section.top_margin is not None or section.top_margin == section.top_margin)
+        self.assertIsNotNone(section.top_margin)
 
     def test_compact_sets_normal_font_size(self):
         writer = self._get_writer({"compact": True, "body_pt": 10.5})
@@ -82,7 +82,6 @@ class TestApplyPageStylesCompact(unittest.TestCase):
 
     def test_non_compact_does_not_apply_styles(self):
         writer = self._get_writer({"compact": False})
-        original_sections = writer.doc.sections
         writer._apply_page_styles()
         # sections should not have been touched (no margin assignments attempted)
         writer.doc.sections[0].top_margin  # accessing is fine, but shouldn't raise

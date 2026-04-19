@@ -9,20 +9,14 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.pipeline import ResultEnvelope
 from schedule.pipeline import (
     ApplyProcessor,
     ApplyRequest,
     ApplyRequestConsumer,
-    ApplyResult,
     DryRunConfig,
     OutlookAuth,
     SyncMatchContext,
-    SyncProcessor,
     SyncRequest,
-    SyncResult,
-    VerifyProcessor,
-    VerifyRequest,
     _apply_outlook_events,
     _build_dry_run_lines,
     _build_have_map,
@@ -159,7 +153,7 @@ class TestApplyOutlookEvents(unittest.TestCase):
             "end_time": "09:30",
             "range": {"start_date": "2025-01-15", "until": "2025-01-31"},
         }]
-        rc, logs = _apply_outlook_events(events, calendar_name="Work", service=svc)
+        rc, _logs = _apply_outlook_events(events, calendar_name="Work", service=svc)
         self.assertEqual(rc, 0)
 
     def test_skips_event_without_subject(self):
@@ -180,7 +174,7 @@ class TestApplyOutlookEvents(unittest.TestCase):
         svc = self._make_svc()
         svc.create_event.side_effect = Exception("API error")
         events = [{"subject": "Fail Event", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
-        rc, logs = _apply_outlook_events(events, calendar_name=None, service=svc)
+        rc, _logs = _apply_outlook_events(events, calendar_name=None, service=svc)
         self.assertEqual(rc, 2)
 
     def test_ensure_calendar_failure_fallback(self):
@@ -189,20 +183,20 @@ class TestApplyOutlookEvents(unittest.TestCase):
         svc.get_calendar_id_by_name.return_value = "cal-id-from-name"
         svc.create_event.return_value = {"id": "eid"}
         events = [{"subject": "Test", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
-        rc, logs = _apply_outlook_events(events, calendar_name="Work", service=svc)
+        rc, _logs = _apply_outlook_events(events, calendar_name="Work", service=svc)
         self.assertEqual(rc, 0)
 
     def test_no_calendar_name(self):
         svc = self._make_svc()
         events = [{"subject": "Test", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
-        rc, logs = _apply_outlook_events(events, calendar_name=None, service=svc)
+        rc, _logs = _apply_outlook_events(events, calendar_name=None, service=svc)
         self.assertEqual(rc, 0)
 
     def test_event_id_in_log_when_available(self):
         svc = self._make_svc()
         svc.create_event.return_value = {"id": "my-event-id"}
         events = [{"subject": "With ID", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
-        rc, logs = _apply_outlook_events(events, calendar_name=None, service=svc)
+        _rc, logs = _apply_outlook_events(events, calendar_name=None, service=svc)
         self.assertTrue(any("my-event-id" in log for log in logs))
 
     def test_event_without_id_in_response(self):
@@ -219,7 +213,7 @@ class TestBuildPlanKeys(unittest.TestCase):
         events = [
             {"subject": "Meeting", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"},
         ]
-        plan_st_keys, series_by_subject, planned_subjects = _build_plan_keys(
+        plan_st_keys, _series_by_subject, planned_subjects = _build_plan_keys(
             events, "2025-01-15", "2025-01-15"
         )
         self.assertEqual(len(plan_st_keys), 1)
@@ -235,7 +229,7 @@ class TestBuildPlanKeys(unittest.TestCase):
                 "range": {"start_date": "2025-01-15", "until": "2025-01-17"},
             }
         ]
-        plan_st_keys, series_by_subject, planned_subjects = _build_plan_keys(
+        plan_st_keys, series_by_subject, _planned_subjects = _build_plan_keys(
             events, "2025-01-15", "2025-01-17"
         )
         self.assertEqual(len(plan_st_keys), 3)
@@ -243,7 +237,7 @@ class TestBuildPlanKeys(unittest.TestCase):
 
     def test_skips_events_without_subject(self):
         events = [{"start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
-        plan_st_keys, series, planned = _build_plan_keys(events, "2025-01-15", "2025-01-15")
+        plan_st_keys, _series, planned = _build_plan_keys(events, "2025-01-15", "2025-01-15")
         self.assertEqual(len(plan_st_keys), 0)
         self.assertEqual(len(planned), 0)
 
@@ -258,7 +252,7 @@ class TestBuildHaveMap(unittest.TestCase):
                 "end": {"dateTime": "2025-01-15T11:00:00"},
             }
         ]
-        have_map, have_keys = _build_have_map(occ)
+        _have_map, have_keys = _build_have_map(occ)
         self.assertEqual(len(have_keys), 1)
         key = list(have_keys)[0]
         self.assertIn("meeting", key)
@@ -272,7 +266,7 @@ class TestBuildHaveMap(unittest.TestCase):
                 "end": "2025-01-16",
             }
         ]
-        have_map, have_keys = _build_have_map(occ)
+        _have_map, have_keys = _build_have_map(occ)
         self.assertEqual(len(have_keys), 1)
 
 
@@ -335,7 +329,7 @@ class TestDetermineCreates(unittest.TestCase):
             have_map={},
             match_mode="subject-time",
         )
-        to_create_series, to_create_oneoffs = _determine_creates(
+        to_create_series, _to_create_oneoffs = _determine_creates(
             events, series_by_subject, set(), ctx
         )
         self.assertEqual(len(to_create_series), 1)
@@ -491,7 +485,7 @@ class TestDetermineDeletes(unittest.TestCase):
             have_map=have_map,
             match_mode="subject",
         )
-        occ_ids, series_ids = _determine_deletes(payload, ctx)
+        occ_ids, _series_ids = _determine_deletes(payload, ctx)
         self.assertIn("del-id", occ_ids)
 
 
@@ -576,7 +570,7 @@ class TestExecuteSyncCreates(unittest.TestCase):
         }]
         oneoffs = [{"subject": "Meeting", "start": "2025-01-15T10:00", "end": "2025-01-15T11:00"}]
 
-        lines, created = _execute_sync_creates(svc, payload, series, oneoffs)
+        _lines, created = _execute_sync_creates(svc, payload, series, oneoffs)
         self.assertGreaterEqual(created, 0)
 
 

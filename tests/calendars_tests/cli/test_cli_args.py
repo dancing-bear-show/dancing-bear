@@ -44,7 +44,7 @@ class TestHelpConstants(unittest.TestCase):
 class TestAddCommonOutlookArgs(unittest.TestCase):
     def test_adds_args_to_parser(self):
         sp = argparse.ArgumentParser()
-        result = add_common_outlook_args(sp)
+        add_common_outlook_args(sp)
         # Should return the parser (or None) without raising
         # The important thing is the parser has been configured
         action_dests = {a.dest for a in sp._actions}

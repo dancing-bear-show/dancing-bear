@@ -1,7 +1,7 @@
 """Tests for desk/agentic.py capsule builders."""
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from tests.fixtures import capture_stdout
 

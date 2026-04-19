@@ -1,6 +1,6 @@
 """Tests for calendars/pipeline.py — re-export completeness and _load_schedule_sources."""
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestPipelineReExports(unittest.TestCase):
@@ -9,13 +9,8 @@ class TestPipelineReExports(unittest.TestCase):
     def test_base_utilities_importable(self):
         from calendars.pipeline import (
             GmailAuth,
-            GmailServiceBuilder,
             DateWindowResolver,
-            BaseProducer,
-            RequestConsumer,
-            to_iso_str,
             dedupe_events,
-            parse_month,
             MONTH_MAP,
             DAY_MAP,
         )

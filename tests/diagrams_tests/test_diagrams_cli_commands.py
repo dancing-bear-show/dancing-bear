@@ -1,7 +1,7 @@
 """Tests for diagrams/cli.py command dispatch and helper functions."""
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch

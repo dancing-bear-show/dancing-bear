@@ -1,9 +1,8 @@
 """Tests for telemetry CLI commands."""
 
-import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch

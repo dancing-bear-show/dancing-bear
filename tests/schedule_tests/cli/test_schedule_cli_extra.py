@@ -7,7 +7,6 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 
 class TestIsoToDate(unittest.TestCase):
@@ -86,7 +85,7 @@ class TestGroupOneOffs(unittest.TestCase):
             {"subject": "Yoga", "start": "2025-01-20T18:00:00", "end": "2025-01-20T19:00:00"},
             {"subject": "Meeting", "start": "2025-01-14T10:00:00", "end": "2025-01-14T11:00:00"},
         ]
-        groups, meta = _group_one_offs(events)
+        groups, _meta = _group_one_offs(events)
         self.assertEqual(len(groups), 2)
 
     def test_skips_events_without_subject(self):
@@ -95,7 +94,7 @@ class TestGroupOneOffs(unittest.TestCase):
         events = [
             {"start": "2025-01-13T10:00:00", "end": "2025-01-13T11:00:00"},
         ]
-        groups, meta = _group_one_offs(events)
+        groups, _meta = _group_one_offs(events)
         self.assertEqual(len(groups), 0)
 
     def test_groups_include_location(self):
@@ -105,7 +104,7 @@ class TestGroupOneOffs(unittest.TestCase):
             {"subject": "Yoga", "start": "2025-01-13T18:00:00", "end": "2025-01-13T19:00:00", "location": "Studio"},
             {"subject": "Yoga", "start": "2025-01-20T18:00:00", "end": "2025-01-20T19:00:00", "location": "Studio"},
         ]
-        groups, meta = _group_one_offs(events)
+        groups, _meta = _group_one_offs(events)
         key = list(groups.keys())[0]
         self.assertEqual(key[4], "Studio")  # location in tuple
 
@@ -251,7 +250,7 @@ class TestCmdCompress(unittest.TestCase):
         from schedule.cli.main import cmd_compress
         import argparse
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             in_path = Path(tmp) / "input.yaml"
             out_path = Path(tmp) / "output.yaml"
             in_path.write_text(
@@ -282,7 +281,7 @@ class TestCmdCompress(unittest.TestCase):
 
         args = argparse.Namespace(
             in_path="/nonexistent/plan.yaml",
-            out="/tmp/out.yaml",
+            out="/tmp/out.yaml",  # nosec B108 - test-only temp file, not a security concern
             calendar=None,
             min_occur=2,
         )
@@ -293,7 +292,7 @@ class TestCmdCompress(unittest.TestCase):
         from schedule.cli.main import cmd_compress
         import argparse
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             in_path = Path(tmp) / "input.yaml"
             out_path = Path(tmp) / "output.yaml"
             in_path.write_text(
@@ -342,7 +341,7 @@ class TestReadYamlAndWriteYaml(unittest.TestCase):
     def test_read_write_roundtrip(self):
         from schedule.cli.main import _read_yaml, _write_yaml
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             path = Path(tmp) / "data.yaml"
             data = {"events": [{"subject": "Test"}]}
             _write_yaml(path, data)

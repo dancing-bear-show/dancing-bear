@@ -105,12 +105,12 @@ class TestGmailProviderFromArgs(unittest.TestCase):
         from mail.utils.cli_helpers import gmail_provider_from_args
         mock_provider_cls.return_value = MagicMock()
 
-        gmail_provider_from_args(_make_args(cache="/tmp/cache"))
+        gmail_provider_from_args(_make_args(cache="/tmp/cache"))  # nosec B108 - test-only temp file, not a security concern
 
         mock_provider_cls.assert_called_once_with(
             credentials_path="/c.json",
-            token_path="/t.json",
-            cache_dir="/tmp/cache",
+            token_path="/t.json",  # nosec B106 - test fixture path, not a real credential
+            cache_dir="/tmp/cache",  # nosec B108 - test-only temp file, not a security concern
         )
 
     @patch("mail.utils.cli_helpers.persist_if_provided")

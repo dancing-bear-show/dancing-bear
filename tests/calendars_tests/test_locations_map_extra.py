@@ -1,6 +1,5 @@
 """Additional tests for calendars/locations_map.py."""
 import os
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -132,7 +131,6 @@ class TestGetLocationsMap(unittest.TestCase):
 
     def test_invalid_yaml_falls_back_to_address_map(self):
         """When YAML loading raises, falls back to ADDRESS_MAP."""
-        import yaml
         from pathlib import Path
 
         tmp = tempfile.NamedTemporaryFile(

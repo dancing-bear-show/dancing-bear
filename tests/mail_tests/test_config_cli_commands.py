@@ -131,7 +131,7 @@ class TestRunCacheStats(unittest.TestCase):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache")
+        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
         result = run_cache_stats(args)
         self.assertEqual(result, 0)
 
@@ -143,7 +143,7 @@ class TestRunCacheStats(unittest.TestCase):
         envelope = _make_error_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache")
+        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
         result = run_cache_stats(args)
         self.assertEqual(result, 1)
 
@@ -159,7 +159,7 @@ class TestRunCacheClear(unittest.TestCase):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache")
+        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
         result = run_cache_clear(args)
         self.assertEqual(result, 0)
 
@@ -171,7 +171,7 @@ class TestRunCacheClear(unittest.TestCase):
         envelope = _make_error_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache")
+        args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
         result = run_cache_clear(args)
         self.assertEqual(result, 1)
 
@@ -187,7 +187,7 @@ class TestRunCachePrune(unittest.TestCase):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache", days="7")
+        args = SimpleNamespace(cache="/tmp/cache", days="7")  # nosec B108 - test-only temp file, not a security concern
         result = run_cache_prune(args)
         self.assertEqual(result, 0)
 
@@ -199,7 +199,7 @@ class TestRunCachePrune(unittest.TestCase):
         envelope = _make_error_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(cache="/tmp/cache", days="7")
+        args = SimpleNamespace(cache="/tmp/cache", days="7")  # nosec B108 - test-only temp file, not a security concern
         result = run_cache_prune(args)
         self.assertEqual(result, 1)
 
@@ -208,11 +208,9 @@ class TestRunCachePrune(unittest.TestCase):
     @patch("mail.config_cli.commands.RequestConsumer")
     def test_passes_days_as_int(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
         from mail.config_cli.commands import run_cache_prune
-        from mail.config_cli.pipeline import CachePruneRequest
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
         captured = []
-        original_consumer = mock_req_consumer.side_effect
 
         def capture_request(req):
             captured.append(req)
@@ -220,7 +218,7 @@ class TestRunCachePrune(unittest.TestCase):
 
         mock_req_consumer.side_effect = capture_request
 
-        args = SimpleNamespace(cache="/tmp/cache", days="14")
+        args = SimpleNamespace(cache="/tmp/cache", days="14")  # nosec B108 - test-only temp file, not a security concern
         run_cache_prune(args)
 
         # Days was passed as int(args.days)
@@ -238,7 +236,7 @@ class TestRunConfigInspect(unittest.TestCase):
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
-        args = SimpleNamespace(path="/tmp/creds.ini", section=None, only_mail=False)
+        args = SimpleNamespace(path="/tmp/creds.ini", section=None, only_mail=False)  # nosec B108 - test-only temp file, not a security concern
         result = run_config_inspect(args)
         self.assertEqual(result, 0)
 
@@ -325,7 +323,6 @@ class TestRunConfigDeriveLabels(unittest.TestCase):
     @patch("mail.config_cli.commands.RequestConsumer")
     def test_none_in_path_uses_empty_string(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
         from mail.config_cli.commands import run_config_derive_labels
-        from mail.config_cli.pipeline import DeriveLabelsRequest
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 
@@ -471,7 +468,6 @@ class TestRunEnvSetup(unittest.TestCase):
     @patch("mail.config_cli.commands.RequestConsumer")
     def test_venv_dir_defaults_to_dot_venv(self, mock_req_consumer, mock_processor_cls, mock_producer_cls):
         from mail.config_cli.commands import run_env_setup
-        from mail.config_cli.pipeline import EnvSetupRequest
         envelope = _make_ok_envelope()
         mock_processor_cls.return_value.process.return_value = envelope
 

@@ -15,8 +15,6 @@ from resume.parsing import (
     _parse_h2_education,
     _parse_h2_experience,
     _process_exp_paragraph,
-    _filter_summary_lines,
-    _looks_like_company_line,
 )
 
 
@@ -87,7 +85,7 @@ class TestDocxFindSections(unittest.TestCase):
             ("Experience", "Heading 1"),
             ("Job 1", "Normal"),
         ])
-        h1_indices, sections = _docx_find_sections(helper)
+        _h1_indices, sections = _docx_find_sections(helper)
         # Summary ends before Experience
         self.assertEqual(sections["summary"]["end"], 1)
         # Experience ends at last paragraph
@@ -121,7 +119,7 @@ class TestDocxExtractNameHeadline(unittest.TestCase):
             ("Software Engineer", "Normal"),
             ("Experience", "Heading 1"),
         ])
-        name, headline, early_lines = _docx_extract_name_headline(helper, first_h1=2)
+        name, _headline, _early_lines = _docx_extract_name_headline(helper, first_h1=2)
         self.assertEqual(name, "John Doe")
 
     def test_extracts_headline_from_second_normal_line(self):
@@ -130,7 +128,7 @@ class TestDocxExtractNameHeadline(unittest.TestCase):
             ("Software Engineer", "Normal"),
             ("Experience", "Heading 1"),
         ])
-        name, headline, early_lines = _docx_extract_name_headline(helper, first_h1=2)
+        _name, headline, _early_lines = _docx_extract_name_headline(helper, first_h1=2)
         self.assertEqual(headline, "Software Engineer")
 
     def test_skips_headline_with_at_sign(self):
@@ -139,7 +137,7 @@ class TestDocxExtractNameHeadline(unittest.TestCase):
             ("john@example.com | 555-1234", "Normal"),
             ("Experience", "Heading 1"),
         ])
-        name, headline, early_lines = _docx_extract_name_headline(helper, first_h1=2)
+        _name, headline, _early_lines = _docx_extract_name_headline(helper, first_h1=2)
         self.assertEqual(headline, "")
 
     def test_handles_no_title_style(self):
@@ -147,12 +145,12 @@ class TestDocxExtractNameHeadline(unittest.TestCase):
             ("Some text", "Normal"),
             ("Experience", "Heading 1"),
         ])
-        name, headline, early_lines = _docx_extract_name_headline(helper, first_h1=1)
+        name, _headline, _early_lines = _docx_extract_name_headline(helper, first_h1=1)
         self.assertEqual(name, "")
 
     def test_empty_helper(self):
         helper = _make_helper([])
-        name, headline, early_lines = _docx_extract_name_headline(helper, first_h1=0)
+        name, headline, _early_lines = _docx_extract_name_headline(helper, first_h1=0)
         self.assertEqual(name, "")
         self.assertEqual(headline, "")
 
@@ -324,20 +322,20 @@ class TestParseH2Experience(unittest.TestCase):
     """Tests for _parse_h2_experience."""
 
     def test_parse_title_only(self):
-        role, company = _parse_h2_experience("Senior Engineer", "")
+        role, _company = _parse_h2_experience("Senior Engineer", "")
         self.assertEqual(role["title"], "Senior Engineer")
         self.assertEqual(role["company"], "")
         self.assertEqual(role["bullets"], [])
 
     def test_parse_title_with_date(self):
-        role, company = _parse_h2_experience("Senior Engineer\t2020-2023", "TechCorp")
+        role, _company = _parse_h2_experience("Senior Engineer\t2020-2023", "TechCorp")
         self.assertEqual(role["title"], "Senior Engineer")
         self.assertEqual(role["company"], "TechCorp")
         self.assertEqual(role["start"], "2020")
         self.assertEqual(role["end"], "2023")
 
     def test_returns_last_company_unchanged(self):
-        role, returned_company = _parse_h2_experience("Dev", "BigCo")
+        _role, returned_company = _parse_h2_experience("Dev", "BigCo")
         self.assertEqual(returned_company, "BigCo")
 
 
@@ -345,7 +343,7 @@ class TestProcessExpParagraph(unittest.TestCase):
     """Tests for _process_exp_paragraph."""
 
     def test_normal_style_with_exp_entry(self):
-        current, last_company, completed = _process_exp_paragraph(
+        current, _last_company, completed = _process_exp_paragraph(
             style="normal",
             text="Engineer at TechCorp (2020 - 2022)",
             current=None,
@@ -381,7 +379,7 @@ class TestProcessExpParagraph(unittest.TestCase):
         self.assertIn("Built scalable APIs", new_current["bullets"])
 
     def test_h2_style_starts_new_role(self):
-        current, last_company, completed = _process_exp_paragraph(
+        current, _last_company, _completed = _process_exp_paragraph(
             style="heading 2",
             text="Senior Dev\t2020-2022",
             current=None,
@@ -392,7 +390,7 @@ class TestProcessExpParagraph(unittest.TestCase):
         self.assertEqual(current["company"], "TechCorp")
 
     def test_company_line_updates_last_company(self):
-        current, last_company, completed = _process_exp_paragraph(
+        _current, last_company, _completed = _process_exp_paragraph(
             style="normal",
             text="Acme Inc.",
             current=None,

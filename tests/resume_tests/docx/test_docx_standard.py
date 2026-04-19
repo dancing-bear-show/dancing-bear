@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tests.resume_tests.fixtures import mock_docx_modules, make_candidate
+from tests.resume_tests.fixtures import mock_docx_modules
 
 
 def _make_mock_doc():

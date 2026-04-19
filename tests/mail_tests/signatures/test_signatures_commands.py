@@ -11,13 +11,13 @@ from tests.mail_tests.fixtures import make_args as _make_base_args, make_success
 
 def _make_args(**kwargs):
     defaults = {
-        "out": "/tmp/signatures.yaml",
-        "assets_dir": "/tmp/assets",
-        "config": "/tmp/sig_config.yaml",
+        "out": "/tmp/signatures.yaml",  # nosec B108 - test-only temp file, not a security concern
+        "assets_dir": "/tmp/assets",  # nosec B108 - test-only temp file, not a security concern
+        "config": "/tmp/sig_config.yaml",  # nosec B108 - test-only temp file, not a security concern
         "dry_run": False,
         "send_as": None,
         "account_display_name": None,
-        "out_html": "/tmp/sig.html",
+        "out_html": "/tmp/sig.html",  # nosec B108 - test-only temp file, not a security concern
         "var": [],
     }
     defaults.update(kwargs)
@@ -75,13 +75,13 @@ class TestRunSignaturesExport(unittest.TestCase):
         fake_ctx = MagicMock()
         mock_ctx_cls.from_args.return_value = fake_ctx
 
-        args = _make_args(out="/tmp/sigs.yaml", assets_dir="/tmp/my_assets")
+        args = _make_args(out="/tmp/sigs.yaml", assets_dir="/tmp/my_assets")  # nosec B108 - test-only temp file, not a security concern
         run_signatures_export(args)
 
         mock_consumer_cls.assert_called_once_with(
             context=fake_ctx,
-            out_path=Path("/tmp/sigs.yaml"),
-            assets_dir=Path("/tmp/my_assets"),
+            out_path=Path("/tmp/sigs.yaml"),  # nosec B108 - test-only temp file, not a security concern
+            assets_dir=Path("/tmp/my_assets"),  # nosec B108 - test-only temp file, not a security concern
         )
 
     @patch("mail.signatures.commands.SignaturesExportProducer")
@@ -165,7 +165,7 @@ class TestRunSignaturesSync(unittest.TestCase):
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
         mock_ctx_cls.from_args.return_value = MagicMock()
 
-        args = _make_args(config="/tmp/sig.yaml")
+        args = _make_args(config="/tmp/sig.yaml")  # nosec B108 - test-only temp file, not a security concern
         run_signatures_sync(args)
 
         call_kwargs = mock_consumer_cls.call_args.kwargs
@@ -210,12 +210,12 @@ class TestRunSignaturesNormalize(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
 
-        args = _make_args(config="/tmp/sig.yaml", out_html="/tmp/sig.html", var=["name=John"])
+        args = _make_args(config="/tmp/sig.yaml", out_html="/tmp/sig.html", var=["name=John"])  # nosec B108 - test-only temp file, not a security concern
         run_signatures_normalize(args)
 
         mock_consumer_cls.assert_called_once_with(
-            config_path="/tmp/sig.yaml",
-            out_html=Path("/tmp/sig.html"),
+            config_path="/tmp/sig.yaml",  # nosec B108 - test-only temp file, not a security concern
+            out_html=Path("/tmp/sig.html"),  # nosec B108 - test-only temp file, not a security concern
             variables=["name=John"],
         )
 
@@ -229,7 +229,7 @@ class TestRunSignaturesNormalize(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
 
-        args = _make_args(config="/tmp/sig.yaml", out_html="/tmp/sig.html")
+        args = _make_args(config="/tmp/sig.yaml", out_html="/tmp/sig.html")  # nosec B108 - test-only temp file, not a security concern
         run_signatures_normalize(args)
 
         call_kwargs = mock_consumer_cls.call_args.kwargs
@@ -244,14 +244,14 @@ class TestSignaturesExportConsumer(unittest.TestCase):
         ctx = MagicMock()
         consumer = SignaturesExportConsumer(
             context=ctx,
-            out_path=Path("/tmp/out.yaml"),
-            assets_dir=Path("/tmp/assets"),
+            out_path=Path("/tmp/out.yaml"),  # nosec B108 - test-only temp file, not a security concern
+            assets_dir=Path("/tmp/assets"),  # nosec B108 - test-only temp file, not a security concern
         )
         payload = consumer.consume()
         self.assertIsInstance(payload, SignaturesExportPayload)
         self.assertEqual(payload.context, ctx)
-        self.assertEqual(payload.out_path, Path("/tmp/out.yaml"))
-        self.assertEqual(payload.assets_dir, Path("/tmp/assets"))
+        self.assertEqual(payload.out_path, Path("/tmp/out.yaml"))  # nosec B108 - test-only temp file, not a security concern
+        self.assertEqual(payload.assets_dir, Path("/tmp/assets"))  # nosec B108 - test-only temp file, not a security concern
 
 
 class TestSignaturesSyncConsumer(unittest.TestCase):
@@ -264,13 +264,13 @@ class TestSignaturesSyncConsumer(unittest.TestCase):
         with patch("mail.signatures.consumers.load_config", return_value={"signatures": {}}) as mock_load:
             consumer = SignaturesSyncConsumer(
                 context=ctx,
-                config_path="/tmp/config.yaml",
+                config_path="/tmp/config.yaml",  # nosec B108 - test-only temp file, not a security concern
                 dry_run=True,
                 send_as="user@example.com",
             )
             payload = consumer.consume()
 
-        mock_load.assert_called_once_with("/tmp/config.yaml")
+        mock_load.assert_called_once_with("/tmp/config.yaml")  # nosec B108 - test-only temp file, not a security concern
         self.assertIsInstance(payload, SignaturesSyncPayload)
         self.assertTrue(payload.dry_run)
         self.assertEqual(payload.send_as, "user@example.com")
@@ -281,7 +281,7 @@ class TestSignaturesSyncConsumer(unittest.TestCase):
         ctx = MagicMock()
 
         with patch("mail.signatures.consumers.load_config", return_value={}):
-            consumer = SignaturesSyncConsumer(context=ctx, config_path="/tmp/c.yaml")
+            consumer = SignaturesSyncConsumer(context=ctx, config_path="/tmp/c.yaml")  # nosec B108 - test-only temp file, not a security concern
             payload = consumer.consume()
 
         self.assertFalse(payload.dry_run)
@@ -297,23 +297,23 @@ class TestSignaturesNormalizeConsumer(unittest.TestCase):
 
         with patch("mail.signatures.consumers.load_config", return_value={"signatures": {}}):
             consumer = SignaturesNormalizeConsumer(
-                config_path="/tmp/config.yaml",
-                out_html=Path("/tmp/sig.html"),
+                config_path="/tmp/config.yaml",  # nosec B108 - test-only temp file, not a security concern
+                out_html=Path("/tmp/sig.html"),  # nosec B108 - test-only temp file, not a security concern
                 variables=["name=John", "company=Acme"],
             )
             payload = consumer.consume()
 
         self.assertIsInstance(payload, SignaturesNormalizePayload)
         self.assertEqual(payload.variables, {"name": "John", "company": "Acme"})
-        self.assertEqual(payload.out_html, Path("/tmp/sig.html"))
+        self.assertEqual(payload.out_html, Path("/tmp/sig.html"))  # nosec B108 - test-only temp file, not a security concern
 
     def test_consume_ignores_entries_without_equals(self):
         from mail.signatures.consumers import SignaturesNormalizeConsumer
 
         with patch("mail.signatures.consumers.load_config", return_value={}):
             consumer = SignaturesNormalizeConsumer(
-                config_path="/tmp/config.yaml",
-                out_html=Path("/tmp/sig.html"),
+                config_path="/tmp/config.yaml",  # nosec B108 - test-only temp file, not a security concern
+                out_html=Path("/tmp/sig.html"),  # nosec B108 - test-only temp file, not a security concern
                 variables=["no_equals_here", "valid=value"],
             )
             payload = consumer.consume()
@@ -325,8 +325,8 @@ class TestSignaturesNormalizeConsumer(unittest.TestCase):
 
         with patch("mail.signatures.consumers.load_config", return_value={}):
             consumer = SignaturesNormalizeConsumer(
-                config_path="/tmp/config.yaml",
-                out_html=Path("/tmp/sig.html"),
+                config_path="/tmp/config.yaml",  # nosec B108 - test-only temp file, not a security concern
+                out_html=Path("/tmp/sig.html"),  # nosec B108 - test-only temp file, not a security concern
                 variables=[],
             )
             payload = consumer.consume()
@@ -338,8 +338,8 @@ class TestSignaturesNormalizeConsumer(unittest.TestCase):
 
         with patch("mail.signatures.consumers.load_config", return_value={}):
             consumer = SignaturesNormalizeConsumer(
-                config_path="/tmp/config.yaml",
-                out_html=Path("/tmp/sig.html"),
+                config_path="/tmp/config.yaml",  # nosec B108 - test-only temp file, not a security concern
+                out_html=Path("/tmp/sig.html"),  # nosec B108 - test-only temp file, not a security concern
                 variables=["key=val=with=equals"],
             )
             payload = consumer.consume()

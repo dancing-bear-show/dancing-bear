@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import io
-import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from core.pipeline import ResultEnvelope
 
@@ -18,8 +17,8 @@ class TestBaseProducer(unittest.TestCase):
     def test_produce_error_with_message(self):
         from phone.pipeline import ExportProducer
         env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "something went wrong"})
-        buf = io.StringIO()
-        with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+        io.StringIO()
+        with patch("sys.stderr", new_callable=io.StringIO):
             ExportProducer().produce(env)
         # message should go to stderr - we can't easily capture it but ensure no exception
 
@@ -55,7 +54,7 @@ class TestProcessPage(unittest.TestCase):
     def test_folder_with_none_name_defaults_to_folder(self):
         from phone.pipeline import _process_page
         p = {"apps": [], "folders": [{"name": None, "apps": ["app1"]}]}
-        page_out, folder_count = _process_page(p, set(), [])
+        page_out, _folder_count = _process_page(p, set(), [])
         self.assertEqual(page_out["folders"][0]["name"], "Folder")
 
     def test_collect_unique_skips_empty_strings(self):
@@ -117,7 +116,7 @@ class TestAnalyzeProducerBranches(unittest.TestCase):
 class TestManifestFromDeviceProducer(unittest.TestCase):
     def test_produce_success_with_export_document_and_out(self):
         from phone.pipeline import ManifestFromDeviceProducer, ManifestFromDeviceResult
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             export_path = Path(tmp) / "export.yaml"
             manifest_path = Path(tmp) / "manifest.yaml"
             payload = ManifestFromDeviceResult(
@@ -136,7 +135,7 @@ class TestManifestFromDeviceProducer(unittest.TestCase):
 
     def test_produce_success_no_export_document(self):
         from phone.pipeline import ManifestFromDeviceProducer, ManifestFromDeviceResult
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             manifest_path = Path(tmp) / "manifest.yaml"
             payload = ManifestFromDeviceResult(
                 manifest={"meta": {"name": "test"}},
@@ -164,7 +163,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config=None,
         )
         man = {"device": {}}
-        out_path = Path("/tmp/test.mobileconfig")
+        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
         cmd = _build_install_cmd(payload, man, out_path)
         self.assertIn("--udid", cmd)
         self.assertIn("test-udid", cmd)
@@ -181,7 +180,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config=None,
         )
         man = {"device": {}}
-        out_path = Path("/tmp/test.mobileconfig")
+        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
         cmd = _build_install_cmd(payload, man, out_path)
         self.assertIn("--device-label", cmd)
         self.assertIn("my-device", cmd)
@@ -198,7 +197,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config="/etc/config.yaml",
         )
         man = {"device": {}}
-        out_path = Path("/tmp/test.mobileconfig")
+        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
         cmd = _build_install_cmd(payload, man, out_path)
         self.assertIn("--creds-profile", cmd)
         self.assertIn("ios_layout", cmd)
@@ -217,7 +216,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config=None,
         )
         man = {"device": {"udid": "from-manifest-udid"}}
-        out_path = Path("/tmp/test.mobileconfig")
+        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
         cmd = _build_install_cmd(payload, man, out_path)
         self.assertIn("--udid", cmd)
         self.assertIn("from-manifest-udid", cmd)
@@ -248,7 +247,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
 
     def test_invalid_manifest_not_dict(self):
         from phone.pipeline import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             p = Path(tmp) / "manifest.yaml"
             p.write_text("- item1\n- item2\n")
             req = ManifestInstallRequest(
@@ -265,7 +264,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
 
     def test_manifest_missing_plan_section(self):
         from phone.pipeline import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             p = self._make_manifest_yaml(tmp, {"meta": {"name": "test"}})
             req = ManifestInstallRequest(
                 manifest_path=p,
@@ -281,7 +280,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
 
     def test_manifest_with_layout_section(self):
         from phone.pipeline import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             manifest = {
                 "layout": {"dock": ["app1"], "pages": []},
                 "device": {"label": "mydevice"},
@@ -306,7 +305,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
     def test_manifest_with_plan_auto_path(self):
         """Test that auto path is generated from device label when out_path is None."""
         from phone.pipeline import ManifestInstallProcessor, ManifestInstallRequest, ManifestInstallRequestConsumer
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             manifest = {
                 "plan": {"dock": ["app1"], "pages": {}},
                 "device": {"label": "mydevice"},
@@ -332,7 +331,7 @@ class TestManifestInstallProcessor(unittest.TestCase):
 class TestManifestInstallProducer(unittest.TestCase):
     def test_dry_run_skips_install(self):
         from phone.pipeline import ManifestInstallProducer, ManifestInstallResult
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             profile_path = Path(tmp) / "test.mobileconfig"
             payload = ManifestInstallResult(
                 profile_path=profile_path,
@@ -349,7 +348,7 @@ class TestManifestInstallProducer(unittest.TestCase):
 
     def test_install_with_cmd(self):
         from phone.pipeline import ManifestInstallProducer, ManifestInstallResult
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             profile_path = Path(tmp) / "test.mobileconfig"
             payload = ManifestInstallResult(
                 profile_path=profile_path,
@@ -367,7 +366,7 @@ class TestManifestInstallProducer(unittest.TestCase):
 
     def test_install_cmd_not_found(self):
         from phone.pipeline import ManifestInstallProducer, ManifestInstallResult
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             profile_path = Path(tmp) / "test.mobileconfig"
             payload = ManifestInstallResult(
                 profile_path=profile_path,
@@ -377,12 +376,12 @@ class TestManifestInstallProducer(unittest.TestCase):
             )
             env = ResultEnvelope(status="success", payload=payload)
             with patch("subprocess.call", side_effect=FileNotFoundError("not found")):
-                with patch("sys.stderr", new_callable=io.StringIO) as mock_err:
+                with patch("sys.stderr", new_callable=io.StringIO):
                     ManifestInstallProducer().produce(env)
 
     def test_no_install_cmd(self):
         from phone.pipeline import ManifestInstallProducer, ManifestInstallResult
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             profile_path = Path(tmp) / "test.mobileconfig"
             payload = ManifestInstallResult(
                 profile_path=profile_path,
@@ -439,7 +438,7 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
         from phone.device import CertInfo
         mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
         with (
-            patch("phone.device.read_credentials_ini", return_value=(Path("/tmp/creds.ini"), {})),
+            patch("phone.device.read_credentials_ini", return_value=(Path("/tmp/creds.ini"), {})),  # nosec B108 - test-only temp file, not a security concern
             patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # nosec B106
             patch("phone.device.extract_p12_cert_info", return_value=mock_cert),
             patch("phone.device.get_device_supervision_status", return_value="true"),
@@ -520,7 +519,7 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
 class TestReadLinesFile(unittest.TestCase):
     def test_reads_non_empty_non_comment_lines(self):
         from phone.pipeline import _read_lines_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # nosec B108 - test-only temp file, not a security concern
             f.write("# comment\n")
             f.write("app1\n")
             f.write("\n")
@@ -540,7 +539,7 @@ class TestReadLinesFile(unittest.TestCase):
 
     def test_empty_file_returns_empty(self):
         from phone.pipeline import _read_lines_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # nosec B108 - test-only temp file, not a security concern
             path = f.name
         result = _read_lines_file(path)
         self.assertEqual(result, [])
@@ -579,7 +578,7 @@ class TestIconmapProcessorEcidResolution(unittest.TestCase):
 class TestManifestFromExportValidation(unittest.TestCase):
     def test_invalid_export_missing_required_keys(self):
         from phone.pipeline import ManifestFromExportProcessor, ManifestFromExportRequest, ManifestFromExportRequestConsumer
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:  # nosec B108 - test-only temp file, not a security concern
             p = Path(tmp) / "bad_export.yaml"
             import yaml
             with open(p, "w") as f:
@@ -671,7 +670,7 @@ class TestIdentityVerifyNoLabelNoUdid(unittest.TestCase):
 class TestReadLinesFileError(unittest.TestCase):
     def test_read_error_returns_empty(self):
         from phone.pipeline import _read_lines_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # nosec B108 - test-only temp file, not a security concern
             path = f.name
         with patch("pathlib.Path.read_text", side_effect=PermissionError("denied")):
             result = _read_lines_file(path)
@@ -682,7 +681,7 @@ class TestParsePingRttLine(unittest.TestCase):
     def test_parses_rtt_stats(self):
         from wifi.diagnostics import _parse_ping
         text = "5 packets transmitted, 5 packets received, 0.0% packet loss\nround-trip min/avg/max/stddev = 1.2/2.3/3.4/0.5 ms"
-        tx, rx, loss, mn, avg, mx = _parse_ping(text)
+        _tx, _rx, _loss, mn, avg, mx = _parse_ping(text)
         self.assertAlmostEqual(mn, 1.2)
         self.assertAlmostEqual(avg, 2.3)
         self.assertAlmostEqual(mx, 3.4)

@@ -698,6 +698,30 @@ def _build_dest_token_map(unified: list) -> Dict[str, set]:
     return dest_to_tokens
 
 
+def _extract_filter_from_addr(f: dict) -> Optional[str]:
+    """Extract the normalized from-address from a filter entry, or None if not applicable."""
+    c = f.get("criteria") or f.get("match") or {}
+    if any(k in c for k in ("query", "negatedQuery", "size", "sizeComparison")):
+        return None
+    if c.get("to") or c.get("subject"):
+        return None
+    return str(c.get("from") or "").strip().lower() or None
+
+
+def _extract_filter_adds(f: dict) -> List[str]:
+    """Extract the add-labels/folder destinations from a filter action."""
+    a = f.get("action") or {}
+    adds = a.get("addLabels") or a.get("add") or []
+    if not adds and a.get("moveToFolder"):
+        adds = [str(a.get("moveToFolder"))]
+    return adds
+
+
+def _token_matches(frm: str, toks: set) -> bool:
+    """Return True if any token in toks overlaps with frm."""
+    return any(tok and (tok in frm or frm in tok) for tok in toks)
+
+
 def _score_exported_filters(exported: list, dest_to_tokens: Dict[str, set]) -> tuple:
     """Return (simple_total, covered, missing_samples) for exported filters vs unified token map."""
     simple_total = 0
@@ -706,22 +730,16 @@ def _score_exported_filters(exported: list, dest_to_tokens: Dict[str, set]) -> t
     for f in exported:
         if not isinstance(f, dict):
             continue
-        c = f.get("criteria") or f.get("match") or {}
-        a = f.get("action") or {}
-        if any(k in c for k in ("query", "negatedQuery", "size", "sizeComparison")):
+        frm = _extract_filter_from_addr(f)
+        if frm is None:
             continue
-        if c.get("to") or c.get("subject"):
-            continue
-        frm = str(c.get("from") or "").strip().lower()
-        adds = a.get("addLabels") or a.get("add") or []
-        if not adds and a.get("moveToFolder"):
-            adds = [str(a.get("moveToFolder"))]
-        if not frm or not adds:
+        adds = _extract_filter_adds(f)
+        if not adds:
             continue
         simple_total += 1
         dest = str(adds[0])
         toks = dest_to_tokens.get(dest) or set()
-        if any(tok and (tok in frm or frm in tok) for tok in toks):
+        if _token_matches(frm, toks):
             covered += 1
         elif len(missing_samples) < 10:
             missing_samples.append((dest, frm))

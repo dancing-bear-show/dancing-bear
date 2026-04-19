@@ -1,9 +1,7 @@
 """Tests for phone/llm_cli.py — LLM utilities CLI."""
 from __future__ import annotations
 
-import io
 import unittest
-from contextlib import redirect_stdout
 
 
 class TestPhoneLlmCliConfig(unittest.TestCase):

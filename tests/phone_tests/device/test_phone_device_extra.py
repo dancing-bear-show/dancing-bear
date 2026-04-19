@@ -1,7 +1,6 @@
 """Additional tests for phone/device.py — covering previously uncovered lines."""
 from __future__ import annotations
 
-import configparser
 import os
 import tempfile
 import unittest
@@ -140,7 +139,7 @@ class TestReadCredentialsIni(unittest.TestCase):
 
     def test_skips_nonexistent_candidates(self):
         with patch("phone.device.credential_ini_paths", return_value=["/nonexistent/path.ini"]):
-            path, data = read_credentials_ini()
+            path, _data = read_credentials_ini()
             self.assertIsNone(path)
 
 

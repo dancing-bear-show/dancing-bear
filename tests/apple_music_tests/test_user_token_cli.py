@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import sys
-import tempfile
 import unittest
 from io import StringIO
-from pathlib import Path
 from unittest import mock
 
 from apple_music import user_token_cli

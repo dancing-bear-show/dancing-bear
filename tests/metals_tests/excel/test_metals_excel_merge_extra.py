@@ -1,20 +1,13 @@
 """Additional tests for metals/excel_merge.py covering uncovered lines."""
 from __future__ import annotations
 
-import csv
-import json
-import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 from metals.excel_merge import (
-    _col_letter,
     _ensure_sheet,
     _get_used_range_values,
     _merge,
-    _read_csv,
-    _records_to_values,
-    _to_records,
     _write_sheet,
 )
 
@@ -129,7 +122,7 @@ class TestWriteSheetMerge(unittest.TestCase):
         _write_sheet(client, "drive-id", "item-id", "Gold", [["h1", "h2"], ["v1", "v2"]])
 
         # After creating table, should patch the table style
-        patch_calls = [str(c) for c in mock_patch.call_args_list]
+        [str(c) for c in mock_patch.call_args_list]
         self.assertTrue(any("tables" in str(c) for c in mock_patch.call_args_list))
 
 

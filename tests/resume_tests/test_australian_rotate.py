@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import os
 import unittest
@@ -25,7 +24,7 @@ class TestConvertDocxToPdf(unittest.TestCase):
         args = mock_run.call_args[0][0]
         self.assertIn("soffice", args)
         self.assertIn("--headless", args)
-        self.assertIn("/tmp/test.docx", args)
+        self.assertIn("/tmp/test.docx", args)  # nosec B108 - test-only temp file, not a security concern
 
     def test_returns_false_on_nonzero_returncode(self):
         from resume.australian_rotate import convert_docx_to_pdf
@@ -82,7 +81,7 @@ class TestRotatePdf180(unittest.TestCase):
     def test_returns_true_on_success(self):
         from resume.australian_rotate import rotate_pdf_180
 
-        mock_pypdf, mock_reader, mock_writer, mock_page = self._make_mock_pypdf()
+        mock_pypdf, _mock_reader, mock_writer, mock_page = self._make_mock_pypdf()
         with patch.dict("sys.modules", {"pypdf": mock_pypdf}):
             m = mock_open()
             with patch("builtins.open", m):
@@ -145,7 +144,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_returns_none_when_conversion_fails(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:  # nosec B108 - test-only temp file, not a security concern
             docx_path = tf.name
         try:
             with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=False):
@@ -157,7 +156,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_returns_none_when_temp_pdf_missing(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:  # nosec B108 - test-only temp file, not a security concern
             docx_path = tf.name
         try:
             with patch("resume.australian_rotate.convert_docx_to_pdf", return_value=True):
@@ -170,7 +169,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_returns_output_path_on_success(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")
@@ -186,7 +185,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_cleans_up_temp_file_by_default(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")
@@ -202,7 +201,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_keeps_temp_file_when_requested(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")
@@ -218,7 +217,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_default_output_pdf_path(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")
@@ -234,7 +233,7 @@ class TestCreateAustralianResume(unittest.TestCase):
     def test_returns_none_when_rotation_fails(self):
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")
@@ -251,7 +250,7 @@ class TestCreateAustralianResume(unittest.TestCase):
         """LibreOffice outputs to same dir with .pdf ext — tests rename logic."""
         from resume.australian_rotate import create_australian_resume
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             # LibreOffice creates resume.pdf (not resume.temp.pdf)
@@ -279,7 +278,7 @@ class TestMain(unittest.TestCase):
     def test_main_returns_0_on_success(self):
         from resume.australian_rotate import main
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:  # nosec B108 - test-only temp file, not a security concern
             docx_path = os.path.join(tmpdir, "resume.docx")
             Path(docx_path).write_text("fake docx")
             temp_pdf = os.path.join(tmpdir, "resume.temp.pdf")

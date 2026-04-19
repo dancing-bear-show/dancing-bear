@@ -11,13 +11,13 @@ from tests.mail_tests.fixtures import make_args as _make_base_args, make_success
 
 def _make_args(**kwargs):
     defaults = {
-        "out": "/tmp/proposal.json",
+        "out": "/tmp/proposal.json",  # nosec B108 - test-only temp file, not a security concern
         "days": "7",
         "pages": "5",
         "protect": [],
         "dry_run": False,
         "log": "logs/auto_runs.jsonl",
-        "proposal": "/tmp/proposal.json",
+        "proposal": "/tmp/proposal.json",  # nosec B108 - test-only temp file, not a security concern
         "cutoff_days": None,
         "batch_size": 500,
     }
@@ -148,11 +148,11 @@ class TestRunAutoSummary(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
         mock_consumer_cls.return_value.consume.return_value = MagicMock()
 
-        args = _make_args(proposal="/tmp/my_proposal.json")
+        args = _make_args(proposal="/tmp/my_proposal.json")  # nosec B108 - test-only temp file, not a security concern
         run_auto_summary(args)
 
         from pathlib import Path
-        mock_consumer_cls.assert_called_once_with(proposal_path=Path("/tmp/my_proposal.json"))
+        mock_consumer_cls.assert_called_once_with(proposal_path=Path("/tmp/my_proposal.json"))  # nosec B108 - test-only temp file, not a security concern
 
     @patch("mail.auto.commands.AutoSummaryProducer")
     @patch("mail.auto.commands.AutoSummaryProcessor")

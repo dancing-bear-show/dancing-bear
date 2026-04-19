@@ -3,7 +3,6 @@
 import os
 import tempfile
 import unittest
-from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -32,7 +31,7 @@ class TestCmdScan(unittest.TestCase):
         from desk.cli import cmd_scan
 
         args = MagicMock()
-        args.paths = ["/tmp/fake"]
+        args.paths = ["/tmp/fake"]  # nosec B108 - test-only temp path, not a security concern
         args.min_size = "50MB"
         args.older_than = None
         args.duplicates = False
@@ -56,7 +55,7 @@ class TestCmdScan(unittest.TestCase):
         from desk.cli import cmd_scan
 
         args = MagicMock()
-        args.paths = ["/tmp/fake"]
+        args.paths = ["/tmp/fake"]  # nosec B108 - test-only temp path, not a security concern
         args.min_size = "50MB"
         args.older_than = None
         args.duplicates = False

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import subprocess
 import unittest
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 from wifi.diagnostics import (
@@ -24,7 +23,6 @@ from wifi.diagnostics import (
     _check_upstream_health,
     _detect_icmp_filtered,
     _extract_gateway_line,
-    _extract_iwconfig_field,
     _loss_bar,
     _parse_airport,
     _parse_gateway_from_line,
@@ -39,7 +37,6 @@ from wifi.diagnostics import (
     compute_condition,
     derive_findings,
     detect_gateway,
-    dns_lookup,
     format_dns,
     format_http,
     format_ping,
@@ -262,19 +259,19 @@ class TestParsePing(unittest.TestCase):
 
     def test_parses_with_packet_loss(self):
         text = "10 packets transmitted, 7 received, 30.0% packet loss\nrtt min/avg/max/mdev = 10.0/20.0/30.0/5.0 ms"
-        tx, rx, loss, mn, avg, mx = _parse_ping(text)
+        tx, rx, loss, _mn, _avg, _mx = _parse_ping(text)
         self.assertEqual(tx, 10)
         self.assertEqual(rx, 7)
         self.assertAlmostEqual(loss, 30.0)
 
     def test_parses_bytes_input(self):
         text = b"5 packets transmitted, 5 packets received, 0.0% packet loss"
-        tx, rx, loss, mn, avg, mx = _parse_ping(text)
+        tx, rx, _loss, _mn, _avg, _mx = _parse_ping(text)
         self.assertEqual(tx, 5)
         self.assertEqual(rx, 5)
 
     def test_empty_returns_zeros(self):
-        tx, rx, loss, mn, avg, mx = _parse_ping("")
+        tx, rx, loss, _mn, _avg, _mx = _parse_ping("")
         self.assertEqual(tx, 0)
         self.assertEqual(rx, 0)
         self.assertIsNone(loss)
