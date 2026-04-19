@@ -13,7 +13,6 @@ Usage example:
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import time
 from typing import Dict, List, Optional, Tuple
@@ -21,24 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
-
-
-def _col_letter(idx: int) -> str:
-    s = ""
-    n = idx
-    while n > 0:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
-    return s
-
-
-def _read_csv(path: str) -> List[List[str]]:
-    out: List[List[str]] = []
-    with open(path, newline="", encoding="utf-8") as f:
-        r = csv.reader(f)
-        for row in r:
-            out.append(list(row))
-    return out
+from .workbook import WorkbookContext, col_letter as _col_letter, read_csv_rows as _read_csv, write_range_to_sheet as _write_range_wb  # noqa: F401
 
 
 def _to_records(values: List[List[str]]) -> Tuple[List[str], List[Dict[str, str]]]:
@@ -124,60 +106,9 @@ def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str
 
 
 def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
-    import requests  # type: ignore
-    base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
-    # Clear a generous range
-    requests.post(
-        f"{base}/worksheets('{sheet}')/range(address='A1:Z10000')/clear",
-        headers=client._headers(),
-        data=json.dumps({"applyTo": "contents"}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    if not values:
-        return
-    rows = len(values)
-    cols = max(len(r) for r in values)
-    end_col = _col_letter(cols)
-    addr = f"A1:{end_col}{rows}"
-    url = f"{base}/worksheets('{sheet}')/range(address='{addr}')"
-    r = requests.patch(url, headers=client._headers(), data=json.dumps({"values": values}), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code >= 400:
-        raise RuntimeError(f"Failed writing sheet {sheet}: {r.status_code} {r.text}")
-
-    # Spiff it up: convert to table, format, autofit, freeze header
-    # Add table
-    tadd = requests.post(
-        f"{base}/tables/add",
-        headers=client._headers(),
-        data=json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    tid = None
-    try:
-        tid = (tadd.json() or {}).get("id")
-    except Exception:
-        tid = None
-    if tid:
-        # Apply a table style
-        requests.patch(
-            f"{base}/tables/{tid}",
-            headers=client._headers(),
-            data=json.dumps({"style": "TableStyleMedium2"}),
-            timeout=DEFAULT_REQUEST_TIMEOUT,
-        )
-    # Autofit columns
-    requests.post(
-        f"{base}/worksheets('{sheet}')/range(address='{sheet}!A:{end_col}')/format/autofitColumns",
-        headers=client._headers(),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    # Freeze header row
-    requests.post(
-        f"{base}/worksheets('{sheet}')/freezePanes/freeze",
-        headers=client._headers(),
-        data=json.dumps({"top": 1, "left": 0}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
+    """Write values to a workbook sheet with table styling, autofit, and frozen header."""
+    wb = WorkbookContext(client, drive_id, item_id)
+    _write_range_wb(wb, sheet, values)
 
 
 def _merge_norm(d: Dict[str, str]) -> Dict[str, str]:

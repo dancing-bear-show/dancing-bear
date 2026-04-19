@@ -23,16 +23,7 @@ from typing import Dict, List, Optional, Tuple
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
-from .workbook import WorkbookContext, ChartPlacement
-
-
-def _col_letter(idx: int) -> str:
-    s = ""
-    n = idx
-    while n > 0:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
-    return s
+from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter, pad_rows as _pad_rows, write_range_to_sheet as _write_range  # noqa: F401
 
 
 def _read_csv(path: str, metal: Optional[str] = None) -> List[Dict[str, str]]:
@@ -185,58 +176,6 @@ def _ensure_sheet(wb: WorkbookContext, sheet: str) -> Dict[str, str]:
     return {}
 
 
-def _pad_rows(values: List[List[str]], cols: int) -> List[List[str]]:
-    """Pad ragged rows to make rectangular for Graph API."""
-    return [r + [""] * (cols - len(r)) if len(r) < cols else r for r in values]
-
-
-def _write_range(wb: WorkbookContext, sheet: str, values: List[List[str]]) -> None:
-    import requests  # type: ignore
-
-    sheet_url = wb.sheet_url(sheet)
-    requests.post(
-        f"{sheet_url}/range(address='A1:Z100000')/clear",
-        headers=wb.headers(),
-        data=json.dumps({"applyTo": "contents"}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    if not values:
-        return
-
-    rows, cols = len(values), max(len(r) for r in values)
-    padded = _pad_rows(values, cols)
-    end_col = _col_letter(cols)
-    addr = f"A1:{end_col}{rows}"
-
-    r = requests.patch(
-        f"{sheet_url}/range(address='{addr}')",
-        headers=wb.headers(),
-        data=json.dumps({"values": padded}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    r.raise_for_status()
-
-    # Make a table (best-effort)
-    tadd = requests.post(
-        f"{wb.base_url}/tables/add",
-        headers=wb.headers(),
-        data=json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    try:
-        if tid := (tadd.json() or {}).get("id"):
-            requests.patch(
-                f"{wb.base_url}/tables/{tid}",
-                headers=wb.headers(),
-                data=json.dumps({"style": "TableStyleMedium2"}),
-                timeout=DEFAULT_REQUEST_TIMEOUT,
-            )
-    except Exception:
-        pass  # nosec B110 - table styling is optional
-
-    # Autofit columns and freeze header
-    requests.post(f"{sheet_url}/range(address='{sheet}!A:{end_col}')/format/autofitColumns", headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    requests.post(f"{sheet_url}/freezePanes/freeze", headers=wb.headers(), data=json.dumps({"top": 1, "left": 0}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
 def _add_chart(

@@ -1,10 +1,102 @@
 """Workbook context and helpers for Excel Graph API operations."""
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 
 from mail.outlook_api import OutlookClient
+
+
+def col_letter(idx: int) -> str:
+    """Convert 1-based column index to Excel column letters (e.g. 1->'A', 27->'AA')."""
+    s = ""
+    n = idx
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def read_csv_rows(path: str) -> List[List[str]]:
+    """Read a CSV file and return rows as lists of strings."""
+    rows: List[List[str]] = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for row in csv.reader(f):
+            rows.append(list(row))
+    return rows
+
+
+def pad_rows(values: List[List[str]], cols: int) -> List[List[str]]:
+    """Pad ragged rows to a rectangular shape for the Graph API."""
+    return [r + [""] * (cols - len(r)) if len(r) < cols else r for r in values]
+
+
+def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[str]]) -> None:
+    """Write values to a worksheet with table styling, autofit, and frozen header.
+
+    Clears A1:Z100000, writes the range, applies TableStyleMedium2, autofits
+    columns, and freezes the first row.  Table creation and formatting are
+    best-effort (errors silently ignored).
+    """
+    import json as _json
+    import requests  # type: ignore
+    from core.constants import DEFAULT_REQUEST_TIMEOUT
+
+    sheet_url = wb.sheet_url(sheet)
+    requests.post(
+        f"{sheet_url}/range(address='A1:Z100000')/clear",
+        headers=wb.headers(),
+        data=_json.dumps({"applyTo": "contents"}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    if not values:
+        return
+
+    rows, cols = len(values), max(len(r) for r in values)
+    padded = pad_rows(values, cols)
+    end_col = col_letter(cols)
+    addr = f"A1:{end_col}{rows}"
+
+    r = requests.patch(
+        f"{sheet_url}/range(address='{addr}')",
+        headers=wb.headers(),
+        data=_json.dumps({"values": padded}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Failed writing sheet {sheet}: {r.status_code} {r.text}")
+
+    # Add table (best-effort)
+    tadd = requests.post(
+        f"{wb.base_url}/tables/add",
+        headers=wb.headers(),
+        data=_json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    try:
+        if tid := (tadd.json() or {}).get("id"):
+            requests.patch(
+                f"{wb.base_url}/tables/{tid}",
+                headers=wb.headers(),
+                data=_json.dumps({"style": "TableStyleMedium2"}),
+                timeout=DEFAULT_REQUEST_TIMEOUT,
+            )
+    except Exception:
+        pass  # nosec B110 - table styling is optional
+
+    # Autofit columns and freeze header row
+    requests.post(
+        f"{sheet_url}/range(address='{sheet}!A:{end_col}')/format/autofitColumns",
+        headers=wb.headers(),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
+    requests.post(
+        f"{sheet_url}/freezePanes/freeze",
+        headers=wb.headers(),
+        data=_json.dumps({"top": 1, "left": 0}),
+        timeout=DEFAULT_REQUEST_TIMEOUT,
+    )
 
 
 @dataclass

@@ -15,31 +15,12 @@ This overwrites the respective sheets starting at A1 with CSV contents.
 from __future__ import annotations
 
 import argparse
-import csv
 from typing import List, Optional
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
-
-
-def _col_letter(idx: int) -> str:
-    # 1-based column index to Excel column letters
-    s = ""
-    n = idx
-    while n > 0:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
-    return s
-
-
-def _read_csv(path: str) -> List[List[str]]:
-    rows: List[List[str]] = []
-    with open(path, newline="", encoding="utf-8") as f:
-        r = csv.reader(f)
-        for row in r:
-            rows.append(list(row))
-    return rows
+from .workbook import col_letter as _col_letter, read_csv_rows as _read_csv
 
 
 def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
