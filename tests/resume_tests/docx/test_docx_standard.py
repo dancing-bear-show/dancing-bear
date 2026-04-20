@@ -57,7 +57,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_with_keywords_from_seed(self):
         """Test _render_content extracts keywords from seed (line 61)."""
-        from resume import docx_standard
 
         data = {"name": "John Doe", "summary": "Software engineer"}
         template = {
@@ -85,7 +84,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_with_no_seed(self):
         """Test _render_content with no seed passes empty keywords list."""
-        from resume import docx_standard
 
         data = {"name": "John Doe", "summary": "Software engineer"}
         template = {
@@ -110,7 +108,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_section_without_key(self):
         """Test _render_content skips sections without key (lines 67-69)."""
-        from resume import docx_standard
 
         data = {"name": "John Doe", "summary": "Engineer"}
         template = {
@@ -155,7 +152,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_calls_renderer_for_known_section(self):
         """Test _render_content calls appropriate renderer (lines 73-79)."""
-        from resume import docx_standard
 
         data = {"name": "John Doe", "skills": ["Python", "Java"]}
         template = {
@@ -178,7 +174,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_experience_with_keywords(self):
         """Test _render_content passes keywords to experience section (lines 76-77)."""
-        from resume import docx_standard
 
         data = {
             "name": "John Doe",
@@ -210,7 +205,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_non_keyword_section(self):
         """Test _render_content calls renderer without keywords for non-keyword sections (line 79)."""
-        from resume import docx_standard
 
         data = {"name": "John Doe", "skills": ["Python"]}
         template = {
@@ -453,7 +447,6 @@ class TestStandardResumeWriter(unittest.TestCase):
 
     def test_render_content_with_multiple_sections(self):
         """Test _render_content renders multiple sections in order."""
-        from resume import docx_standard
 
         data = {
             "name": "John Doe",

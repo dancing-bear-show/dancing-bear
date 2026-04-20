@@ -659,9 +659,8 @@ class EventsFromSourceTests(TestCase):
         self.assertTrue(callable(_events_from_source))
 
     def test_events_from_source_with_range(self):
-        from schedule.pipeline import _events_from_source
-        # Test that events with range get range field, those without don't
-        # This is covered by the range logic on lines 38-40
+        # Range logic on lines 38-40 is covered by test_events_from_source_basic
+        pass
 
 
 class BuildOutlookServiceTests(TestCase):
