@@ -150,7 +150,7 @@ class TestExtractLineItems(unittest.TestCase):
     def test_extracts_fractional_oz(self):
         """Test extracts 1/10 oz gold."""
         text = "1/10 oz Gold Maple Leaf"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
         # At least one item should have unit_oz around 0.1
         oz_values = [it.unit_oz for it in items]
@@ -159,13 +159,13 @@ class TestExtractLineItems(unittest.TestCase):
     def test_extracts_decimal_oz(self):
         """Test extracts decimal ounce."""
         text = "1 oz Gold Bar"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
 
     def test_extracts_grams(self):
         """Test extracts grams."""
         text = "31.1035 gram Gold Bar"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
         # Should be approximately 1 oz
         oz_values = [it.unit_oz for it in items]
@@ -173,21 +173,21 @@ class TestExtractLineItems(unittest.TestCase):
 
     def test_handles_empty_text(self):
         """Test handles empty text."""
-        items, lines = self.parser.extract_line_items("")
+        items, _lines = self.parser.extract_line_items("")
         self.assertEqual(items, [])
 
     def test_normalizes_unicode_dashes(self):
         """Test normalizes unicode dashes."""
         # 1/10-oz with en-dash
         text = "1/10\u2013oz Gold Maple"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         # Should still find the item
         self.assertGreater(len(items), 0)
 
     def test_finds_quantity_on_same_line(self):
         """Test finds quantity on same line."""
         text = "1/10 oz Gold Maple Leaf Qty: 5"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         self.assertGreater(len(items), 0)
         # Should find qty of 5
         qty_values = [it.qty for it in items]
@@ -202,7 +202,7 @@ class TestExtractOrderAmount(unittest.TestCase):
         text = "Total: C$520.00"
         result = extract_order_amount(text)
         self.assertIsNotNone(result)
-        cur, amt = result
+        _cur, amt = result
         self.assertEqual(amt, 520.00)
 
     def test_extracts_cad_currency(self):
@@ -210,7 +210,7 @@ class TestExtractOrderAmount(unittest.TestCase):
         text = "Total: CAD$1,234.56"
         result = extract_order_amount(text)
         self.assertIsNotNone(result)
-        cur, amt = result
+        _cur, amt = result
         self.assertEqual(amt, 1234.56)
 
     def test_handles_empty_text(self):
@@ -536,7 +536,7 @@ class TestSummarizeOunces(unittest.TestCase):
     def test_uses_metal_guess_when_empty(self):
         """Test uses metal_guess when item metal is empty."""
         items = [{'metal': '', 'unit_oz': 0.5, 'qty': 1}]
-        oz, units = _summarize_ounces(items, 'gold')
+        oz, _units = _summarize_ounces(items, 'gold')
         self.assertAlmostEqual(oz['gold'], 0.5)
 
     def test_handles_multiple_unit_sizes(self):
@@ -551,7 +551,7 @@ class TestSummarizeOunces(unittest.TestCase):
 
     def test_handles_empty_items(self):
         """Test handles empty items list."""
-        oz, units = _summarize_ounces([], '')
+        oz, _units = _summarize_ounces([], '')
         self.assertEqual(oz, {'gold': 0.0, 'silver': 0.0})
 
 

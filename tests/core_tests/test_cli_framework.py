@@ -420,7 +420,7 @@ class TestOutputWriterHelperFunctions(unittest.TestCase):
         # Check that separator line uses dashes
         self.assertTrue(all(c in "-" for c in lines[1]))
         # Check that data lines contain the expected values
-        data_lines = [l for l in lines if "Alice" in l or "Bo" in l]
+        data_lines = [line for line in lines if "Alice" in line or "Bo" in line]
         self.assertEqual(len(data_lines), 2)
 
     def test_print_table_with_headers_empty_values(self):

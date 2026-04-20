@@ -34,9 +34,7 @@ def _cli_path_exists(path: List[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
-def _flow_map() -> str:
-    lines: List[str] = []
-    # Outlook flows: add/add-recurring/from-config/verify/update/apply/dedup/list/remove/share
+def _outlook_add_flows(lines: List[str]) -> None:
     if _cli_path_exists(["outlook", "add"]) or _cli_path_exists(["outlook", "add-recurring"]):
         lines.append("- Outlook add")
         if _cli_path_exists(["outlook", "add"]):
@@ -47,6 +45,9 @@ def _flow_map() -> str:
         lines.append("- Outlook from YAML")
         lines.append("  - Add from config: ./bin/calendar outlook add-from-config --config schedules/plan.yaml")
         lines.append("  - Verify plan: ./bin/calendar outlook verify-from-config --config schedules/plan.yaml")
+
+
+def _outlook_manage_flows(lines: List[str]) -> None:
     if _cli_path_exists(["outlook", "update-locations"]) and _cli_path_exists(["outlook", "apply-locations"]):
         lines.append("- Locations")
         lines.append("  - Update from Outlook: ./bin/calendar outlook update-locations --config schedules/plan.yaml")
@@ -67,7 +68,8 @@ def _flow_map() -> str:
         lines.append("- Share")
         lines.append("  - Share calendar: ./bin/calendar outlook calendar-share --calendar 'Your Family' --user someone@example.com --role reviewer")
 
-    # Gmail scan flows
+
+def _gmail_scan_flows(lines: List[str]) -> None:
     if _cli_path_exists(["gmail", "scan-classes"]) or _cli_path_exists(["gmail", "scan-receipts"]) or _cli_path_exists(["gmail", "scan-activerh"]):
         lines.append("- Gmail scan")
         if _cli_path_exists(["gmail", "scan-classes"]):
@@ -77,10 +79,16 @@ def _flow_map() -> str:
         if _cli_path_exists(["gmail", "scan-activerh"]):
             lines.append("  - ActiveRH: ./bin/calendar gmail scan-activerh --days 365 --out out/activerh.plan.yaml")
 
+
+def _flow_map() -> str:
+    lines: List[str] = []
+    _outlook_add_flows(lines)
+    _outlook_manage_flows(lines)
+    _gmail_scan_flows(lines)
     return "\n".join(lines)
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:  # noqa: ARG001 - fmt/compact reserved
+def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:  # noqa: ARG001
     """Emit a compact agentic capsule (best-effort format/compact params)."""
     print(build_agentic_capsule())
     return 0

@@ -74,6 +74,20 @@ def load_config() -> dict:
     return yaml.safe_load(CONFIG_FILE.read_text())
 
 
+def _parse_kv_section_line(line: str, section_data: dict) -> None:
+    """Parse a 'name: {key: val, ...}' line into section_data."""
+    import re
+
+    m = re.match(r"\s+(\S+):\s+\{(.+)\}", line)
+    if m:
+        name = m.group(1)
+        fields = {}
+        for kv in m.group(2).split(", "):
+            k, v = kv.split(": ", 1)
+            fields[k] = v.strip('"')
+        section_data[name] = fields
+
+
 def _parse_simple_yaml(text: str) -> dict:
     """Minimal YAML parser for our config format."""
     import re
@@ -84,25 +98,15 @@ def _parse_simple_yaml(text: str) -> dict:
         line = line.rstrip()
         if not line or line.startswith("#"):
             continue
-        # Section headers
         if line in ("python:", "bash:", "manual:"):
             current_section = line[:-1]
             continue
         if current_section == "manual":
-            # List item
             m = re.match(r"\s+-\s+(\S+)", line)
             if m:
                 result["manual"].append(m.group(1))
         elif current_section in ("python", "bash"):
-            # Key: {field: value, ...}
-            m = re.match(r"\s+(\S+):\s+\{(.+)\}", line)
-            if m:
-                name = m.group(1)
-                fields = {}
-                for kv in m.group(2).split(", "):
-                    k, v = kv.split(": ", 1)
-                    fields[k] = v.strip('"')
-                result[current_section][name] = fields
+            _parse_kv_section_line(line, result[current_section])
     return result
 
 
@@ -121,6 +125,27 @@ def generate_python(_name: str, spec: dict) -> str:
     return PYTHON_TEMPLATE.format(module=module, doc=doc)
 
 
+def _process_wrapper_section(specs: dict, generate_fn, check: bool, verbose: bool) -> tuple:
+    """Process one section of wrappers; returns (changed_count, unchanged_count)."""
+    changed = 0
+    unchanged = 0
+    for name, spec in specs.items():
+        path = BIN_DIR / name
+        content = generate_fn(name, spec)
+        status = _update_file(path, content, check)
+        if status == "changed":
+            changed += 1
+            print(f"{'Would update' if check else 'Updated'}: {name}")
+        elif status == "created":
+            changed += 1
+            print(f"{'Would create' if check else 'Created'}: {name}")
+        else:
+            unchanged += 1
+            if verbose:
+                print(f"Unchanged: {name}")
+    return changed, unchanged
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Dry-run mode")
@@ -128,40 +153,10 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config()
-    changed = 0
-    unchanged = 0
-
-    # Process Python wrappers
-    for name, spec in config.get("python", {}).items():
-        path = BIN_DIR / name
-        content = generate_python(name, spec)
-        status = _update_file(path, content, args.check)
-        if status == "changed":
-            changed += 1
-            print(f"{'Would update' if args.check else 'Updated'}: {name}")
-        elif status == "created":
-            changed += 1
-            print(f"{'Would create' if args.check else 'Created'}: {name}")
-        else:
-            unchanged += 1
-            if args.verbose:
-                print(f"Unchanged: {name}")
-
-    # Process Bash wrappers
-    for name, spec in config.get("bash", {}).items():
-        path = BIN_DIR / name
-        content = generate_bash(name, spec)
-        status = _update_file(path, content, args.check)
-        if status == "changed":
-            changed += 1
-            print(f"{'Would update' if args.check else 'Updated'}: {name}")
-        elif status == "created":
-            changed += 1
-            print(f"{'Would create' if args.check else 'Created'}: {name}")
-        else:
-            unchanged += 1
-            if args.verbose:
-                print(f"Unchanged: {name}")
+    c1, u1 = _process_wrapper_section(config.get("python", {}), generate_python, args.check, args.verbose)
+    c2, u2 = _process_wrapper_section(config.get("bash", {}), generate_bash, args.check, args.verbose)
+    changed = c1 + c2
+    unchanged = u1 + u2
 
     print(f"\nTotal: {changed} changed, {unchanged} unchanged")
     return 1 if args.check and changed > 0 else 0

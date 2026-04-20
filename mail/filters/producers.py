@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
-
 import time
 
 from core.pipeline import Producer, ResultEnvelope
@@ -29,6 +28,8 @@ from .processors import (
     FiltersRemoveTokenResult,
     FilterTokenUpdate,
 )
+
+_EMPTY_QUERY = "(empty)"
 
 
 @dataclass
@@ -164,7 +165,7 @@ class FiltersImpactProducer(Producer[ResultEnvelope[FiltersImpactResult]]):
             return
         payload = result.payload
         for record in payload.records:
-            query = record.query or "(empty)"
+            query = record.query or _EMPTY_QUERY
             print(f"{record.count:6d}  {query}")
         print(f"Total impacted: {payload.total}")
 
@@ -188,7 +189,7 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
                 pages=self.config.pages,
                 max_msgs=self.config.max_msgs,
             )
-            query_display = instruction.query if instruction.query else "(empty)"
+            query_display = instruction.query if instruction.query else _EMPTY_QUERY
             if self.config.dry_run:
                 print(
                     f"Query: {query_display} => {len(ids)} messages; "
@@ -196,10 +197,10 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
                 )
             else:
                 apply_in_chunks(
-                    lambda chunk: self.client.batch_modify_messages(
+                    lambda chunk, _inst=instruction: self.client.batch_modify_messages(
                         chunk,
-                        add_label_ids=instruction.add_label_ids,
-                        remove_label_ids=instruction.remove_label_ids,
+                        add_label_ids=_inst.add_label_ids,
+                        remove_label_ids=_inst.remove_label_ids,
                     ),
                     ids,
                     self.config.batch_size,
@@ -232,17 +233,17 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
                     max_msgs=self.config.max_msgs,
                 )
                 if self.config.dry_run:
-                    query_display = instruction.query if instruction.query else "(empty)"
+                    query_display = instruction.query if instruction.query else _EMPTY_QUERY
                     print(
                         f"  {len(ids)} msgs; +{instruction.add_label_ids} "
                         f"-{instruction.remove_label_ids} | {query_display}"
                     )
                 else:
                     apply_in_chunks(
-                        lambda chunk: self.client.batch_modify_messages(
+                        lambda chunk, _inst=instruction: self.client.batch_modify_messages(
                             chunk,
-                            add_label_ids=instruction.add_label_ids,
-                            remove_label_ids=instruction.remove_label_ids,
+                            add_label_ids=_inst.add_label_ids,
+                            remove_label_ids=_inst.remove_label_ids,
                         ),
                         ids,
                         self.config.batch_size,
@@ -271,7 +272,7 @@ class FiltersPruneProducer(Producer[ResultEnvelope[FiltersPruneResult]]):
             if not cand.is_empty:
                 continue
             fid = cand.filter_obj.get("id")
-            query_display = cand.query if cand.query else "(empty)"
+            query_display = cand.query if cand.query else _EMPTY_QUERY
             if self.dry_run:
                 print(f"Would delete filter id={fid} | {query_display}")
             else:
@@ -305,42 +306,44 @@ class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]
     def produce(self, result: ResultEnvelope[FiltersAddForwardResult]) -> None:
         if not result.ok() or not result.payload:
             diagnostics = (result.diagnostics or {}).get("message")
-            if diagnostics:
-                print(diagnostics)
-            else:
-                print("Filters add-forward failed.")
+            print(diagnostics if diagnostics else "Filters add-forward failed.")
             return
         payload = result.payload
         from ..utils.cli_helpers import preview_criteria as preview_crit
 
-        changed = 0
-        for update in payload.updates:
-            fid = update.filter_obj.get("id")
-            criteria = update.criteria
-            action = dict(update.action)
-            action["forward"] = payload.destination
-            add_names = update.action.get("addLabelIds") or []
-            rem_names = update.action.get("removeLabelIds") or []
-            if self.dry_run:
-                print(
-                    f"Would update filter id={fid}: "
-                    f"{preview_crit(criteria)} -> add={add_names} "
-                    f"remove={rem_names} forward={payload.destination}"
-                )
-                changed += 1
-                continue
-            try:
-                self.client.create_filter(criteria, action)
-                if fid:
-                    self.client.delete_filter(fid)
-                print(f"Updated filter id={fid} (added forward={payload.destination})")
-                changed += 1
-            except Exception as exc:  # pragma: no cover - network
-                print(f"Failed to update filter id={fid}: {exc}")
+        changed = sum(
+            self._apply_forward_update(update, payload.destination, preview_crit)
+            for update in payload.updates
+        )
         if not payload.updates:
             print("No matching filters found for given label prefix.")
         else:
             print(f"Updated {changed} filters.")
+
+    def _apply_forward_update(self, update, destination: str, preview_crit) -> int:
+        """Apply or preview a single forward update. Returns 1 on success/preview, 0 on error."""
+        fid = update.filter_obj.get("id")
+        criteria = update.criteria
+        action = dict(update.action)
+        action["forward"] = destination
+        if self.dry_run:
+            add_names = update.action.get("addLabelIds") or []
+            rem_names = update.action.get("removeLabelIds") or []
+            print(
+                f"Would update filter id={fid}: "
+                f"{preview_crit(criteria)} -> add={add_names} "
+                f"remove={rem_names} forward={destination}"
+            )
+            return 1
+        try:
+            self.client.create_filter(criteria, action)
+            if fid:
+                self.client.delete_filter(fid)
+            print(f"Updated filter id={fid} (added forward={destination})")
+            return 1
+        except Exception as exc:  # pragma: no cover - network
+            print(f"Failed to update filter id={fid}: {exc}")
+            return 0
 
 
 class FiltersAddTokenProducer(Producer[ResultEnvelope[FiltersAddTokenResult]]):

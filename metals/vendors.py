@@ -115,17 +115,25 @@ def iter_nearby_lines(
     return result
 
 
+def _qty_from_line(ln: str) -> Optional[float]:
+    """Extract quantity from a single line using QTY_PATTERNS. Returns None if not found."""
+    for pat in QTY_PATTERNS:
+        m = pat.search(ln)
+        if m:
+            raw = m.group(1)
+            if raw and raw.isdigit():
+                n = int(raw)
+                if 1 <= n <= 200:
+                    return float(n)
+    return None
+
+
 def find_qty_near(lines: List[str], idx: int, window: int = 4) -> Optional[float]:
     """Find explicit quantity near a line index."""
     for _, ln in iter_nearby_lines(lines, idx, window):
-        for pat in QTY_PATTERNS:
-            m = pat.search(ln)
-            if m:
-                raw = m.group(1)
-                if raw and raw.isdigit():
-                    n = int(raw)
-                    if 1 <= n <= 200:
-                        return float(n)
+        qty = _qty_from_line(ln)
+        if qty is not None:
+            return qty
     return None
 
 
@@ -503,31 +511,31 @@ class RCMParser(VendorParser):
         lb, ub = get_price_band(metal, unit_oz)
         return lb <= amt <= ub
 
+    def _update_best_candidate(
+        self, best: Dict[str, Tuple[float, int]], ln: str, d: int, idx: int, metal: str, unit_oz: float
+    ) -> None:
+        """Update best price candidates dict from a single line."""
+        for m in MONEY_PATTERN.finditer(ln):
+            try:
+                amt = float(m.group(2).replace(",", ""))
+            except (ValueError, IndexError):
+                continue
+            if not self._is_price_in_range(amt, metal, unit_oz):
+                continue
+            dist = abs(d - idx)
+            kind = 'total' if _PAT_TOTAL.search(ln) else 'unit'
+            if kind not in best or dist < best[kind][1]:
+                best[kind] = (amt, dist)
+
     def _extract_price_candidates(
         self, lines: List[str], idx: int, metal: str, unit_oz: float
     ) -> Dict[str, Tuple[float, int]]:
         """Extract all price candidates near idx, ranked by distance."""
-        best: Dict[str, Tuple[float, int]] = {}  # kind -> (amount, distance)
-
+        best: Dict[str, Tuple[float, int]] = {}
         for d, ln in iter_nearby_lines(lines, idx, window=21, forward_only=True):
             if self._PRICE_BAN.search(ln.lower()):
                 continue
-
-            for m in MONEY_PATTERN.finditer(ln):
-                try:
-                    amt = float(m.group(2).replace(",", ""))
-                except (ValueError, IndexError):
-                    continue
-
-                if not self._is_price_in_range(amt, metal, unit_oz):
-                    continue
-
-                dist = abs(d - idx)
-                kind = 'total' if _PAT_TOTAL.search(ln) else 'unit'
-
-                if kind not in best or dist < best[kind][1]:
-                    best[kind] = (amt, dist)
-
+            self._update_best_candidate(best, ln, d, idx, metal, unit_oz)
         return best
 
     def extract_price_near_item(

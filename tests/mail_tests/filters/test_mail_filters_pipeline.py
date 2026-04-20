@@ -47,7 +47,7 @@ from mail.filters.producers import (
     FiltersRemoveTokenProducer,
 )
 
-from tests.mail_tests.fixtures import FakeGmailClient
+from tests.mail_tests.fixtures import FakeGmailClient, make_args
 
 
 def _make_pipeline_client():
@@ -84,7 +84,7 @@ class FiltersPlanConsumerTests(unittest.TestCase):
                 "      add:\n"
                 "        - VIP\n"
             )
-            args = SimpleNamespace(config=str(cfg_path), credentials=None, token=None, profile=None)
+            args = make_args(config=str(cfg_path))
             ctx = MailContext.from_args(args)
             ctx.gmail_client = _make_pipeline_client()
 

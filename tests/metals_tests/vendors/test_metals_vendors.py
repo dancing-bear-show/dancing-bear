@@ -101,7 +101,7 @@ class TestTDParser(unittest.TestCase):
     def test_extract_line_items_gold(self):
         """Test extracts gold line items."""
         text = "1 oz Gold Maple Leaf\nPrice: $2500"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].metal, "gold")
         self.assertAlmostEqual(items[0].unit_oz, 1.0, places=2)
@@ -109,7 +109,7 @@ class TestTDParser(unittest.TestCase):
     def test_extract_line_items_silver(self):
         """Test extracts silver line items."""
         text = "10 oz Silver Bar\nPrice: $350"
-        items, lines = self.parser.extract_line_items(text)
+        items, _lines = self.parser.extract_line_items(text)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].metal, "silver")
         self.assertAlmostEqual(items[0].unit_oz, 10.0, places=2)
@@ -253,7 +253,7 @@ class TestExtractBasicLineItems(unittest.TestCase):
     def test_extracts_fractional_oz(self):
         """Test extracts fractional ounce items."""
         text = "1/10 oz Gold Eagle"
-        items, lines = extract_basic_line_items(text)
+        items, _lines = extract_basic_line_items(text)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].metal, "gold")
         self.assertAlmostEqual(items[0].unit_oz, 0.1, places=2)
@@ -261,7 +261,7 @@ class TestExtractBasicLineItems(unittest.TestCase):
     def test_extracts_decimal_oz(self):
         """Test extracts decimal ounce items."""
         text = "1.5 oz Silver Round"
-        items, lines = extract_basic_line_items(text)
+        items, _lines = extract_basic_line_items(text)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].metal, "silver")
         self.assertAlmostEqual(items[0].unit_oz, 1.5, places=2)
@@ -269,7 +269,7 @@ class TestExtractBasicLineItems(unittest.TestCase):
     def test_extracts_grams(self):
         """Test extracts gram items."""
         text = "31.1 grams Gold"
-        items, lines = extract_basic_line_items(text)
+        items, _lines = extract_basic_line_items(text)
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].metal, "gold")
         self.assertAlmostEqual(items[0].unit_oz, 1.0, places=1)
@@ -481,7 +481,7 @@ class TestParseWeightMatch(unittest.TestCase):
         m = pat.search("31.1 grams gold")
         result = _parse_weight_match(m, 'grams')
         self.assertIsNotNone(result)
-        unit_oz, metal, qty = result
+        unit_oz, metal, _qty = result
         self.assertAlmostEqual(unit_oz, 1.0, places=1)
         self.assertEqual(metal, "gold")
 
@@ -636,7 +636,7 @@ class TestRCMParserClassifyEmailLookup(unittest.TestCase):
 
     def test_case_insensitive(self):
         """Test classification is case insensitive."""
-        cat, rank = self.parser.classify_email("CONFIRMATION FOR ORDER NUMBER")
+        cat, _rank = self.parser.classify_email("CONFIRMATION FOR ORDER NUMBER")
         self.assertEqual(cat, "confirmation")
 
 
@@ -679,13 +679,13 @@ class TestExtractBasicLineItemsConsolidated(unittest.TestCase):
         1.5 oz Silver Round
         31 grams Gold Bar
         """
-        items, lines = extract_basic_line_items(text)
+        items, _lines = extract_basic_line_items(text)
         self.assertGreaterEqual(len(items), 3)
 
     def test_multiple_items_same_line(self):
         """Test handles multiple patterns on same line."""
         text = "Buy 1 oz gold or 10 oz silver"
-        items, lines = extract_basic_line_items(text)
+        items, _lines = extract_basic_line_items(text)
         self.assertEqual(len(items), 2)
 
     def test_handles_mixed_case(self):

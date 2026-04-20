@@ -7,7 +7,6 @@ from ._base import (
     Dict,
     List,
     Optional,
-    Sequence,
     dataclass,
     BaseProducer,
     DateWindowResolver,

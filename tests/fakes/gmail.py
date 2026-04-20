@@ -48,12 +48,12 @@ class FakeGmailClient:
     def get_label_id_map(self) -> Dict[str, str]:
         return {lab["name"]: lab["id"] for lab in self.labels}
 
-    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict]:
+    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict]:  # NOSONAR - fake interface must match real signature
         return list(self.filters)
 
     def list_message_ids(
-        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None,
-        max_pages: int = 1, page_size: int = 500
+        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None,  # NOSONAR
+        max_pages: int = 1, page_size: int = 500  # NOSONAR
     ) -> List[str]:
         q = (query or "").lower()
         for pattern, ids in self.message_ids_by_query.items():
@@ -61,10 +61,10 @@ class FakeGmailClient:
                 return ids
         return []
 
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:
+    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict]:  # NOSONAR - fake interface must match real signature
         return [self.messages.get(mid, {"id": mid}) for mid in ids]
 
-    def get_message(self, msg_id: str, fmt: str = "full") -> Dict:
+    def get_message(self, msg_id: str, fmt: str = "full") -> Dict:  # NOSONAR - fake interface must match real signature
         return self.messages.get(msg_id, {"id": msg_id, "payload": {"headers": []}})
 
     def get_message_text(self, msg_id: str) -> str:
@@ -88,7 +88,7 @@ class FakeGmailClient:
         """Alias for deleted_filter_ids for backward compatibility."""
         return self.deleted_filter_ids
 
-    def ensure_label(self, name: str, **kwargs) -> str:
+    def ensure_label(self, name: str, **kwargs) -> str:  # NOSONAR - fake interface must match real signature
         mapping = self.get_label_id_map()
         if name in mapping:
             return mapping[name]
@@ -119,11 +119,11 @@ class FakeGmailClient:
     ) -> None:
         self.modified_batches.append((list(ids), list(add_label_ids or []), list(remove_label_ids or [])))
 
-    def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:
+    def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:  # NOSONAR - fake interface must match real signature
         self.sent_messages.append(raw_bytes)
         return {"id": f"SENT_{len(self.sent_messages)}"}
 
-    def create_draft_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:
+    def create_draft_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict:  # NOSONAR - fake interface must match real signature
         self.created_drafts.append(raw_bytes)
         return {"id": f"DRAFT_{len(self.created_drafts)}"}
 

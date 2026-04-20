@@ -64,7 +64,7 @@ class NoOpProducer:
     """A producer that does nothing - for testing pipelines."""
 
     def produce(self, env):
-        pass
+        pass  # intentionally empty stub - no-op for pipeline testing
 
 
 def make_mock_processor(envelope):
@@ -77,6 +77,6 @@ def make_mock_processor(envelope):
         A class (not instance) that can be passed to run_pipeline
     """
     class MockProcessor:
-        def process(self, req):
+        def process(self, _req):  # NOSONAR - fake interface must match real signature
             return envelope
     return MockProcessor

@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 import unittest
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Dict, List, Optional
 from unittest.mock import patch, MagicMock
 
@@ -19,7 +18,7 @@ from mail.auto.consumers import (
     AutoSummaryPayload,
     AutoApplyPayload,
 )
-from tests.mail_tests.fixtures import make_message_with_headers as _make_message
+from tests.mail_tests.fixtures import make_args, make_message_with_headers as _make_message
 
 
 class TestClassifyLowInterest(unittest.TestCase):
@@ -304,7 +303,7 @@ def _make_auto_context(client: FakeAutoClient):
     """Create a MailContext with auto client."""
     from mail.context import MailContext
 
-    args = SimpleNamespace(credentials=None, token=None, profile=None)
+    args = make_args()
     ctx = MailContext.from_args(args)
     ctx.gmail_client = client
     return ctx
@@ -350,7 +349,7 @@ class TestAutoApplyProcessor(unittest.TestCase):
         self.assertEqual(envelope.payload.total_modified, 3)
         self.assertFalse(envelope.payload.dry_run)
         # Should have batched by label combo
-        self.assertTrue(len(client.modified_batches) >= 1)
+        self.assertGreaterEqual(len(client.modified_batches), 1)
 
     def test_dry_run_does_not_modify(self):
         client = FakeAutoClient(

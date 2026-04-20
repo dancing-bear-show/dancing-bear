@@ -19,64 +19,100 @@ from mail.gmail_api import GmailClient
 from .constants import G_PER_OZ
 
 
+# Compiled patterns for amount extraction
+# [^\n]{0,60}? matches up to 60 non-newline chars (simplified from negative lookahead)
+_PAT_FRAC_GE = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")
+_PAT_OZ_GE = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")
+_PAT_G_GE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")  # nosec
+
+
+def _ge_accumulate(
+    gold_oz: float, silver_oz: float,
+    metal: str, oz_unit: float, qty: float,
+    key: Tuple[str, float, float], seen: set,
+) -> Tuple[float, float]:
+    if key in seen:
+        return gold_oz, silver_oz
+    seen.add(key)
+    if metal.startswith('gold'):
+        gold_oz += oz_unit * qty
+    elif metal.startswith('silver'):
+        silver_oz += oz_unit * qty
+    return gold_oz, silver_oz
+
+
+def _extract_frac_amounts(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+    for m in _PAT_FRAC_GE.finditer(ln):
+        num = float(m.group(1))
+        den = float(m.group(2) or 1)
+        metal = (m.group(3) or '').lower()
+        qty = float(m.group(4) or 1)
+        oz_unit = num / max(den, 1.0)
+        gold_oz, silver_oz = _ge_accumulate(gold_oz, silver_oz, metal, oz_unit, qty, (metal, round(oz_unit, 6), qty), seen)
+    return gold_oz, silver_oz
+
+
+def _extract_oz_amounts(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+    for m in _PAT_OZ_GE.finditer(ln):
+        wt = float(m.group(1))
+        metal = (m.group(2) or '').lower()
+        qty = float(m.group(3) or 1)
+        gold_oz, silver_oz = _ge_accumulate(gold_oz, silver_oz, metal, wt, qty, (metal, round(wt, 6), qty), seen)
+    return gold_oz, silver_oz
+
+
+def _extract_gram_amounts(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+    for m in _PAT_G_GE.finditer(ln):
+        wt_g = float(m.group(1))
+        metal = (m.group(3) or '').lower()
+        qty = float(m.group(4) or 1)
+        oz_unit = wt_g / G_PER_OZ
+        gold_oz, silver_oz = _ge_accumulate(gold_oz, silver_oz, metal, oz_unit, qty, (metal, round(oz_unit, 6), qty), seen)
+    return gold_oz, silver_oz
+
+
 def _extract_amounts(text: str) -> Tuple[float, float]:
     gold_oz = 0.0
     silver_oz = 0.0
     t = (text or "").replace("\u2013", "-").replace("\u2014", "-")
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-
-    # Track unique line items to avoid double counting repeated summaries
-    seen_items: set[Tuple[str, float, float]] = set()  # (metal, oz_per_unit, qty)
-
-    # Pattern A: fractional ounce with optional trailing quantity (e.g., "1/10 oz Gold ... x 2")
-    pat_frac = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b(?:(?!\n).){0,60}?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-    # Pattern B: decimal ounce with optional trailing quantity (e.g., "1 oz Silver ... x 5")
-    # Ensure we don't misread the '10' in '1/10 oz' as '10 oz' by requiring no slash immediately before the number
-    pat_oz = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b(?:(?!\n).){0,60}?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
-    # Pattern C: grams with optional trailing quantity
-    pat_g = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b(?:(?!\n).){0,60}?\b(gold|silver)\b(?:(?:(?!\n).)*?\bx\s*(\d+))?")
+    seen: set[Tuple[str, float, float]] = set()
 
     for ln in lines:
-        for m in pat_frac.finditer(ln):
-            num = float(m.group(1))
-            den = float(m.group(2) or 1)
-            metal = (m.group(3) or '').lower()
-            qty = float(m.group(4) or 1)
-            oz_unit = num / max(den, 1.0)
-            key = (metal, round(oz_unit, 6), qty)
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            if metal.startswith('gold'):
-                gold_oz += oz_unit * qty
-            elif metal.startswith('silver'):
-                silver_oz += oz_unit * qty
-        for m in pat_oz.finditer(ln):
-            wt = float(m.group(1))
-            metal = (m.group(2) or '').lower()
-            qty = float(m.group(3) or 1)
-            key = (metal, round(wt, 6), qty)
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            if metal.startswith('gold'):
-                gold_oz += wt * qty
-            elif metal.startswith('silver'):
-                silver_oz += wt * qty
-        for m in pat_g.finditer(ln):
-            wt_g = float(m.group(1))
-            metal = (m.group(3) or '').lower()
-            qty = float(m.group(4) or 1)
-            oz_unit = wt_g / G_PER_OZ
-            key = (metal, round(oz_unit, 6), qty)
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            if metal.startswith('gold'):
-                gold_oz += oz_unit * qty
-            elif metal.startswith('silver'):
-                silver_oz += oz_unit * qty
+        gold_oz, silver_oz = _extract_frac_amounts(ln, gold_oz, silver_oz, seen)
+        gold_oz, silver_oz = _extract_oz_amounts(ln, gold_oz, silver_oz, seen)
+        gold_oz, silver_oz = _extract_gram_amounts(ln, gold_oz, silver_oz, seen)
     return gold_oz, silver_oz
+
+
+_GE_ORDER_PAT = re.compile(r"(?i)order\s*#?\s*(\d{6,})")
+_GE_QUERIES = [
+    'from:noreply@td.com subject:"TD Precious Metals"',
+    'from:TDPreciousMetals@tdsecurities.com "Your order has arrived"',
+    'from:orderstatus@costco.ca subject:"Your Costco.ca Order Number"',
+    '(from:email.mint.ca OR from:mint.ca OR from:royalcanadianmint.ca) (order OR confirmation OR receipt OR shipped OR invoice)',
+]
+
+
+def _ge_get_order_id(subject: str, text: str) -> str | None:
+    m = _GE_ORDER_PAT.search(subject or '') or _GE_ORDER_PAT.search(text or '')
+    return m.group(1) if m else None
+
+
+def _ge_build_order_map(client: GmailClient, cand_ids: list) -> dict:
+    """Build order_id -> (mid, recv_ms) map choosing latest message per order."""
+    order_map: dict[str, tuple[str, int]] = {}
+    for mid in cand_ids:
+        msg = client.get_message(mid, fmt='full')
+        hdrs = GmailClient.headers_to_dict(msg)
+        sub = hdrs.get('subject', '')
+        text = client.get_message_text(mid)
+        oid = _ge_get_order_id(sub, text) or mid
+        recv_ms = int(msg.get('internalDate') or 0)
+        cur = order_map.get(oid)
+        if not cur or recv_ms > cur[1]:
+            order_map[oid] = (mid, recv_ms)
+    return order_map
 
 
 def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa: ARG001 - days reserved for future use
@@ -84,44 +120,12 @@ def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa
     client = GmailClient(credentials_path=cred, token_path=tok, cache_dir=".cache")
     client.authenticate()
 
-    queries = [
-        'from:noreply@td.com subject:"TD Precious Metals"',
-        'from:TDPreciousMetals@tdsecurities.com "Your order has arrived"',
-        'from:orderstatus@costco.ca subject:"Your Costco.ca Order Number"',
-        # Royal Canadian Mint (RCM) confirmations / receipts / shipping
-        '(from:email.mint.ca OR from:mint.ca OR from:royalcanadianmint.ca) (order OR confirmation OR receipt OR shipped OR invoice)'
-    ]
-
-    # Gather candidates per order id to avoid double-counting (TD/Costco patterns)
-    def get_order_id(subject: str, text: str) -> str | None:
-        s = subject or ''
-        t = text or ''
-        m = re.search(r"(?i)order\s*#?\s*(\d{6,})", s) or re.search(r"(?i)order\s*#?\s*(\d{6,})", t)
-        return m.group(1) if m else None
-
-    # Fetch ids and build map: order_id -> list[(mid, recv_ms, subject)]
     cand_ids: list[str] = []
-    for q in queries:
+    for q in _GE_QUERIES:
         cand_ids.extend(client.list_message_ids(query=q, max_pages=20, page_size=100))
     cand_ids = list(dict.fromkeys(cand_ids))
 
-    order_map: dict[str, tuple[str, int]] = {}  # order_id -> (mid, internalDate_ms)
-    meta_needed: list[str] = []
-    for mid in cand_ids:
-        meta_needed.append(mid)
-
-    # Resolve metadata and choose the latest message per order
-    for mid in meta_needed:
-        msg = client.get_message(mid, fmt='full')
-        hdrs = GmailClient.headers_to_dict(msg)
-        sub = hdrs.get('subject','')
-        text = client.get_message_text(mid)
-        oid = get_order_id(sub, text) or mid  # fallback to msg id
-        recv_ms = int(msg.get('internalDate') or 0)
-        cur = order_map.get(oid)
-        if not cur or recv_ms > cur[1]:
-            order_map[oid] = (mid, recv_ms)
-
+    order_map = _ge_build_order_map(client, cand_ids)
     uniq_ids = [mid for (mid, _) in order_map.values()]
 
     total_gold = 0.0

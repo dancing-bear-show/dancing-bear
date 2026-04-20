@@ -24,60 +24,43 @@ QUERIES: List[Tuple[str, str]] = [
 ]
 
 
-def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
-    client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
-    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
-    if not client_id:
-        raise SystemExit("No Outlook client_id configured; set it under [mail.<profile>] in credentials.ini")
-    cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
-    cli.authenticate()
+def _search_all_folders(cli: OutlookClient, q: str, days: int, top: int, pages: int) -> List[str]:
+    """Search all folders via Graph $search."""
+    import requests  # lazy import
+    base = f"{cli.GRAPH}/me/messages"
+    params = [f"$search=\"{q}\"", f"$top={int(top)}"]
+    if days and int(days) > 0:
+        import datetime as _dt
+        start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(days))
+        params.append(f"$filter=receivedDateTime ge {start.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    nxt: str | None = base + "?" + "&".join(params)
+    ids: List[str] = []
+    for _ in range(max(1, int(pages))):
+        r = requests.get(nxt, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+        for m in data.get("value", []):
+            mid = m.get("id")
+            if mid:
+                ids.append(mid)
+        nxt = data.get("@odata.nextLink")
+        if not nxt:
+            break
+    return ids
 
-    summary: Dict[str, List[str]] = {name: [] for (name, _q) in QUERIES}
-    def _search_all(q: str) -> List[str]:
-        import requests  # lazy import
-        base = f"{cli.GRAPH}/me/messages"
-        params = [f"$search=\"{q}\"", f"$top={int(top)}"]
-        if days and int(days) > 0:
-            import datetime as _dt
-            start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(days))
-            start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
-            params.append(f"$filter=receivedDateTime ge {start_iso}")
-        url = base + "?" + "&".join(params)
-        nxt = url
-        ids: List[str] = []
-        for _ in range(max(1, int(pages))):
-            r = requests.get(nxt, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
-            r.raise_for_status()
-            data = r.json()
-            vals = data.get("value", [])
-            for m in vals:
-                mid = m.get("id")
-                if mid:
-                    ids.append(mid)
-            nxt = data.get("@odata.nextLink")
-            if not nxt:
-                break
-        return ids
 
+def _scan_query(cli: OutlookClient, q: str, days: int, top: int, pages: int, folder: str) -> List[str]:
+    """Run a single search query for the given folder scope."""
     from core.outlook.mail import SearchParams
-    for name, q in QUERIES:
-        try:
-            if (folder or 'inbox').lower() == 'all':
-                ids = _search_all(q)
-            else:
-                ids = cli.search_inbox_messages(
-                    SearchParams(search_query=q, days=days, top=top, pages=pages, use_cache=False)
-                )
-        except Exception:
-            ids = []
-        summary[name] = ids
+    if (folder or 'inbox').lower() == 'all':
+        return _search_all_folders(cli, q, days, top, pages)
+    return cli.search_inbox_messages(
+        SearchParams(search_query=q, days=days, top=top, pages=pages, use_cache=False)
+    )
 
-    # Print summary counts
-    print("Matches in Outlook Inbox (last", days, "days):")
-    for name, ids in summary.items():
-        print(f"- {name}: {len(ids)}")
 
-    # List up to 10 most recent per source
+def _print_recent_matches(cli: OutlookClient, summary: Dict[str, List[str]]) -> None:
+    """Print up to 10 recent matches per source."""
     for name, ids in summary.items():
         if not ids:
             continue
@@ -91,6 +74,28 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
             recv = (msg.get("receivedDateTime") or "")
             frm = (((msg.get("from") or {}).get("emailAddress") or {}).get("address") or "")
             print(f"- {recv[:19]} | {frm} | {sub[:100]}")
+
+
+def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
+    client_id, tenant, token = resolve_outlook_credentials(profile, None, None, None)
+    token = token or DEFAULT_OUTLOOK_TOKEN_CACHE
+    if not client_id:
+        raise SystemExit("No Outlook client_id configured; set it under [mail.<profile>] in credentials.ini")
+    cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
+    cli.authenticate()
+
+    summary: Dict[str, List[str]] = {}
+    for name, q in QUERIES:
+        try:
+            summary[name] = _scan_query(cli, q, days, top, pages, folder)
+        except Exception:
+            summary[name] = []
+
+    print("Matches in Outlook Inbox (last", days, "days):")
+    for name, ids in summary.items():
+        print(f"- {name}: {len(ids)}")
+
+    _print_recent_matches(cli, summary)
     return 0
 
 

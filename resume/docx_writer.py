@@ -14,34 +14,16 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .io_utils import safe_import
-from docx.shared import Pt, Inches, RGBColor  # type: ignore
-from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
-
-# Import from new abstraction modules
 from .docx_styles import (
     _parse_hex_color,
-    _is_dark,
     _tight_paragraph,
     _flush_left,
     _apply_paragraph_shading,
     _format_phone_display,
     _format_link_display,
 )
-from .docx_sections import (
-    BulletRenderer,
-    HeaderRenderer,
-    InterestsSectionRenderer,
-    LanguagesSectionRenderer,
-    CourseworkSectionRenderer,
-    CertificationsSectionRenderer,
-    PresentationsSectionRenderer,
-    SummarySectionRenderer,
-    SkillsSectionRenderer,
-    TechnologiesSectionRenderer,
-    ExperienceSectionRenderer,
-    EducationSectionRenderer,
-    TeachingSectionRenderer,
-)
+from .docx_sections import BulletRenderer, HeaderRenderer
+from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS  # re-export
 
 
 SECTION_SYNONYMS = {
@@ -81,14 +63,13 @@ def _add_bullets(
     doc,
     items: List[str],
     *,
-    sec: Dict[str, Any] | None = None,
     keywords: List[str] | None = None,
     plain: bool = True,
     glyph: str = "•",
     list_style: str = "List Bullet",
 ):
     renderer = BulletRenderer(doc)
-    renderer.add_bullets(items, sec=sec, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
+    renderer.add_bullets(items, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
 
 
 def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
@@ -147,99 +128,10 @@ def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | No
     return renderer.get_bullet_config(sec)
 
 
-def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
-    """Apply compact page styles (margins and fonts)."""
-    if not page_cfg.get("compact"):
-        return
-
-    try:
-        sec = doc.sections[0]
-        m = float(page_cfg.get("margins_in", 0.5))
-        sec.top_margin = Inches(m)
-        sec.bottom_margin = Inches(m)
-        sec.left_margin = Inches(m)
-        sec.right_margin = Inches(m)
-    except Exception:  # nosec B110 - margin setting failure
-        pass
-
-    try:
-        body_pt = float(page_cfg.get("body_pt", 10.5))
-        h1_pt = float(page_cfg.get("h1_pt", 12))
-        title_pt = float(page_cfg.get("title_pt", 14))
-        h1_color = page_cfg.get("h1_color") or page_cfg.get("heading_color")
-        h1_bg = page_cfg.get("h1_bg") or page_cfg.get("heading_bg")
-        title_color = page_cfg.get("title_color")
-
-        doc.styles["Normal"].font.size = Pt(body_pt)
-
-        if "Heading 1" in doc.styles:
-            doc.styles["Heading 1"].font.size = Pt(h1_pt)
-            doc.styles["Heading 1"].font.bold = True
-            rgb = _parse_hex_color(h1_color)
-            bg = _parse_hex_color(h1_bg)
-            if (not rgb) and bg:
-                rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
-            if rgb:
-                doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
-
-        if "Title" in doc.styles:
-            doc.styles["Title"].font.size = Pt(title_pt)
-            doc.styles["Title"].font.bold = True
-            rgbt = _parse_hex_color(title_color)
-            if rgbt:
-                doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
-    except Exception:  # nosec B110 - style setting failure
-        pass
-
-
 def _extract_experience_locations(data: Dict[str, Any]) -> List[str]:
     """Extract unique location strings from experience entries."""
     locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
     return list(dict.fromkeys([loc for loc in locs if loc]))
-
-
-def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) -> None:
-    """Set document core properties (title, author, keywords)."""
-    try:
-        name = data.get("name") or ""
-        contact = data.get("contact") or {}
-        email = data.get("email") or contact.get("email") or ""
-        phone = data.get("phone") or contact.get("phone") or ""
-        location = data.get("location") or contact.get("location") or ""
-
-        cp = doc.core_properties
-        contact_line = " | ".join([p for p in [email, phone, location] if p])
-        cp.title = " - ".join([p for p in [name, contact_line] if p]) or "Resume"
-        cp.subject = "Resume"
-        if name:
-            cp.author = name
-
-        kw = [k for k in [name, email, phone, location] if k]
-        include_exp_locs = bool((template.get("page") or {}).get("metadata_include_locations", True))
-
-        if include_exp_locs:
-            uniq_locs = _extract_experience_locations(data)
-            kw.extend(uniq_locs)
-            if uniq_locs:
-                try:
-                    cp.category = "; ".join(uniq_locs)
-                except Exception:  # nosec B110 - category set failure
-                    pass
-
-        cp.keywords = "; ".join(kw)
-    except Exception:  # nosec B110 - metadata set failure
-        pass
-
-
-def _center_paragraph(para) -> None:
-    """Center a paragraph and remove indents."""
-    try:
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        pf = para.paragraph_format
-        pf.left_indent = Pt(0)
-        pf.first_line_indent = Pt(0)
-    except Exception:  # nosec B110 - alignment failure
-        pass
 
 
 def _get_contact_field(data: Dict[str, Any], field: str) -> str:
@@ -262,6 +154,25 @@ def _collect_link_extras(data: Dict[str, Any]) -> List[str]:
     return extras
 
 
+def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
+    """Apply compact page styles (margins and fonts)."""
+    from .docx_base import apply_page_styles_to_doc
+    apply_page_styles_to_doc(doc, page_cfg)
+
+
+def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) -> None:
+    """Set document core properties (title, author, keywords)."""
+    from .docx_base import set_document_metadata_on_doc
+    page_cfg = template.get("page") or {}
+    set_document_metadata_on_doc(doc, data, page_cfg)
+
+
+def _center_paragraph(para) -> None:
+    """Center a paragraph and remove indents."""
+    from .docx_styles import StyleManager
+    StyleManager.center_paragraph(para)
+
+
 def _render_document_header(doc, data: Dict[str, Any]) -> None:
     """Render the name, headline, and contact line at the top of the resume."""
     name = _get_contact_field(data, "name")
@@ -271,19 +182,16 @@ def _render_document_header(doc, data: Dict[str, Any]) -> None:
     display_phone = _format_phone_display(phone) if phone else ""
     location = _get_contact_field(data, "location")
 
-    # Name heading
     if name:
         doc.add_heading(name, level=0)
         _tight_paragraph(doc.paragraphs[-1], after_pt=2)
         _center_paragraph(doc.paragraphs[-1])
 
-    # Headline
     if headline:
         p_head = doc.add_paragraph(str(headline))
         _tight_paragraph(p_head, after_pt=2)
         _center_paragraph(p_head)
 
-    # Contact line with links
     subtitle_parts = [p for p in [email, display_phone, location] if p]
     subtitle_parts.extend(_collect_link_extras(data))
 
@@ -323,25 +231,6 @@ def _render_section_heading(doc, title: str, template: Dict[str, Any]) -> None:
         _apply_paragraph_shading(doc.paragraphs[-1], bg_rgb)
 
 
-# Section renderer registry - maps section keys to renderer classes
-SECTION_RENDERERS = {
-    "summary": SummarySectionRenderer,
-    "skills": SkillsSectionRenderer,
-    "technologies": TechnologiesSectionRenderer,
-    "interests": InterestsSectionRenderer,
-    "presentations": PresentationsSectionRenderer,
-    "languages": LanguagesSectionRenderer,
-    "coursework": CourseworkSectionRenderer,
-    "certifications": CertificationsSectionRenderer,
-    "experience": ExperienceSectionRenderer,
-    "education": EducationSectionRenderer,
-    "teaching": TeachingSectionRenderer,
-}
-
-# Sections that need keywords passed to render()
-SECTIONS_WITH_KEYWORDS = {"summary", "experience"}
-
-
 def write_resume_docx(
     data: Dict[str, Any],
     template: Dict[str, Any],
@@ -365,7 +254,7 @@ def write_resume_docx(
     layout_cfg = template.get("layout") or {}
     if layout_cfg.get("type") == "sidebar":
         from .docx_sidebar import write_resume_docx_sidebar
-        return write_resume_docx_sidebar(data, template, out_path, seed, structure)
+        return write_resume_docx_sidebar(data, template, out_path, seed)
 
     # Standard single-column layout
     docx = safe_import("docx")
@@ -387,16 +276,19 @@ def write_resume_docx(
     if seed and isinstance(seed.get("keywords"), list):
         keywords = [str(k) for k in seed.get("keywords", [])]
 
-    # Resolve and render sections
     sections = _resolve_sections(template, structure)
+    _render_sections(doc, page_cfg, template, data, sections, keywords)
+    doc.save(out_path)
 
+
+def _render_sections(doc, page_cfg, template, data, sections, keywords) -> None:
+    """Render all sections into the document."""
     for sec in sections:
         key = sec.get("key")
         if not key:
             continue
         title = sec.get("title") or (key.title() if isinstance(key, str) else "")
         _render_section_heading(doc, title, template)
-
         renderer_class = SECTION_RENDERERS.get(key)
         if renderer_class:
             renderer = renderer_class(doc, page_cfg)
@@ -404,5 +296,3 @@ def write_resume_docx(
                 renderer.render(data, sec, keywords)
             else:
                 renderer.render(data, sec)
-
-    doc.save(out_path)

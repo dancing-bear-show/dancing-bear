@@ -13,7 +13,7 @@ from core.secrets import (
 class MaskValueTests(unittest.TestCase):
     def test_empty_value(self):
         self.assertEqual(_mask_value(""), "")
-        self.assertEqual(_mask_value(None), None)
+        self.assertIsNone(_mask_value(None))  # NOSONAR - intentional None test for defensive handling
 
     def test_bearer_token(self):
         self.assertEqual(_mask_value("Bearer abc123"), "Bearer ***REDACTED***")
@@ -76,7 +76,7 @@ class MaskHeadersTests(unittest.TestCase):
 class MaskUrlTests(unittest.TestCase):
     def test_empty_url(self):
         self.assertEqual(mask_url(""), "")
-        self.assertEqual(mask_url(None), "")
+        self.assertEqual(mask_url(None), "")  # NOSONAR - intentional None test for defensive handling
 
     def test_url_without_query(self):
         url = "https://api.example.com/v1/users"
@@ -115,7 +115,7 @@ class MaskUrlTests(unittest.TestCase):
 class MaskTextTests(unittest.TestCase):
     def test_empty_text(self):
         self.assertEqual(mask_text(""), "")
-        self.assertEqual(mask_text(None), "")
+        self.assertEqual(mask_text(None), "")  # NOSONAR - intentional None test for defensive handling
 
     def test_authorization_bearer(self):
         text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"

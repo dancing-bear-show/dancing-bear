@@ -79,7 +79,7 @@ class BuildCriteriaFromMatchTests(unittest.TestCase):
         result = build_criteria_from_match(match)
         self.assertEqual(result["from"], "sender@example.com")
         self.assertEqual(result["subject"], "Test")
-        self.assertEqual(result["hasAttachment"], True)
+        self.assertTrue(result["hasAttachment"])
 
     def test_filters_empty_values(self):
         match = {"from": "sender@example.com", "to": None, "subject": ""}
@@ -188,22 +188,22 @@ class ActionToLabelChangesTests(unittest.TestCase):
 
     def test_add_system_label(self):
         client = self._make_mock_client()
-        add_ids, rem_ids = action_to_label_changes(client, {"add": ["INBOX"]})
+        add_ids, _rem_ids = action_to_label_changes(client, {"add": ["INBOX"]})
         self.assertEqual(add_ids, ["INBOX"])
 
     def test_remove_known_label(self):
         client = self._make_mock_client()
-        add_ids, rem_ids = action_to_label_changes(client, {"remove": ["Personal"]})
+        _add_ids, rem_ids = action_to_label_changes(client, {"remove": ["Personal"]})
         self.assertEqual(rem_ids, ["Label_2"])
 
     def test_remove_system_label(self):
         client = self._make_mock_client()
-        add_ids, rem_ids = action_to_label_changes(client, {"remove": ["UNREAD"]})
+        _add_ids, rem_ids = action_to_label_changes(client, {"remove": ["UNREAD"]})
         self.assertEqual(rem_ids, ["UNREAD"])
 
     def test_add_unknown_label_creates_it(self):
         client = self._make_mock_client()
-        add_ids, rem_ids = action_to_label_changes(client, {"add": ["NewLabel"]})
+        add_ids, _rem_ids = action_to_label_changes(client, {"add": ["NewLabel"]})
         client.ensure_label.assert_called_with("NewLabel")
         self.assertEqual(add_ids, ["Label_New"])
 

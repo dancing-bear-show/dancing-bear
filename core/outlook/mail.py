@@ -12,6 +12,8 @@ from .client import OutlookClientBase, _requests
 from .models import SearchParams
 from core.constants import GRAPH_API_URL
 
+_NEXT_LINK = "@odata.nextLink"
+
 
 class OutlookMailMixin:
     """Mixin providing mail operations (categories, rules, messages, folders).
@@ -101,6 +103,37 @@ class OutlookMailMixin:
         return created.get("id", "")
 
     # -------------------- Rules (filters) --------------------
+    def _fetch_inbox_rules_raw(self: OutlookClientBase) -> List[Dict[str, Any]]:
+        """Fetch raw inbox rules from Graph API."""
+        r = _requests().get(
+            f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
+            headers=self._headers()
+        )
+        r.raise_for_status()
+        return r.json().get("value", [])
+
+    def _map_rule(self: OutlookClientBase, ru: Dict[str, Any]) -> Dict[str, Any]:
+        """Map a raw Graph rule to the internal filter format."""
+        cond = ru.get("conditions", {}) or {}
+        act = ru.get("actions", {}) or {}
+        crit: Dict[str, Any] = {}
+        if cond.get("senderContains"):
+            crit["from"] = " OR ".join(cond["senderContains"])
+        if cond.get("recipientContains"):
+            crit["to"] = " OR ".join(cond["recipientContains"])
+        if cond.get("subjectContains"):
+            crit["subject"] = " OR ".join(cond["subjectContains"])
+        action: Dict[str, Any] = {}
+        if act.get("assignCategories"):
+            action["addLabelIds"] = act["assignCategories"]
+        if act.get("forwardTo"):
+            action["forward"] = ",".join(
+                a.get("emailAddress", {}).get("address", "") for a in act["forwardTo"]
+            )
+        if act.get("moveToFolder"):
+            action["moveToFolderId"] = act.get("moveToFolder")
+        return {"id": ru.get("id"), "criteria": crit, "action": action}
+
     def list_filters(
         self: OutlookClientBase,
         use_cache: bool = False,
@@ -108,52 +141,15 @@ class OutlookMailMixin:
     ) -> List[Dict[str, Any]]:
         if use_cache:
             cached = self.cfg_get_json("rules_inbox", ttl)
-            if isinstance(cached, list):
-                rules = cached
-            else:
-                r = _requests().get(
-                    f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
-                    headers=self._headers()
-                )
-                r.raise_for_status()
-                rules = r.json().get("value", [])
+            rules = cached if isinstance(cached, list) else self._fetch_inbox_rules_raw()
+            if not isinstance(cached, list):
                 self.cfg_put_json("rules_inbox", rules)
         else:
-            r = _requests().get(
-                f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
-                headers=self._headers()
-            )
-            r.raise_for_status()
-            rules = r.json().get("value", [])
-        mapped: List[Dict[str, Any]] = []
-        for ru in rules:
-            cond = ru.get("conditions", {}) or {}
-            act = ru.get("actions", {}) or {}
-            crit: Dict[str, Any] = {}
-            if cond.get("senderContains"):
-                crit["from"] = " OR ".join(cond["senderContains"])
-            if cond.get("recipientContains"):
-                crit["to"] = " OR ".join(cond["recipientContains"])
-            if cond.get("subjectContains"):
-                crit["subject"] = " OR ".join(cond["subjectContains"])
-            action: Dict[str, Any] = {}
-            if act.get("assignCategories"):
-                action["addLabelIds"] = act["assignCategories"]
-            if act.get("forwardTo"):
-                action["forward"] = ",".join([
-                    a.get("emailAddress", {}).get("address", "")
-                    for a in act["forwardTo"]
-                ])
-            if act.get("moveToFolder"):
-                action["moveToFolderId"] = act.get("moveToFolder")
-            mapped.append({"id": ru.get("id"), "criteria": crit, "action": action})
-        return mapped
+            rules = self._fetch_inbox_rules_raw()
+        return [self._map_rule(ru) for ru in rules]
 
-    def create_filter(
-        self: OutlookClientBase,
-        criteria: Dict[str, Any],
-        action: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _build_rule_conditions(self: OutlookClientBase, criteria: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert filter criteria dict to Graph API conditions format."""
         cond: Dict[str, Any] = {}
         if criteria.get("from"):
             cond["senderContains"] = [s.strip() for s in str(criteria["from"]).split("OR")]
@@ -161,6 +157,10 @@ class OutlookMailMixin:
             cond["recipientContains"] = [s.strip() for s in str(criteria["to"]).split("OR")]
         if criteria.get("subject"):
             cond["subjectContains"] = [s.strip() for s in str(criteria["subject"]).split("OR")]
+        return cond
+
+    def _build_rule_actions(self: OutlookClientBase, action: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert filter action dict to Graph API actions format."""
         act: Dict[str, Any] = {}
         if action.get("addLabelIds"):
             act["assignCategories"] = action["addLabelIds"]
@@ -169,12 +169,19 @@ class OutlookMailMixin:
             act["forwardTo"] = [{"emailAddress": {"address": e}} for e in emails]
         if action.get("moveToFolderId"):
             act["moveToFolder"] = action["moveToFolderId"]
+        return act
+
+    def create_filter(
+        self: OutlookClientBase,
+        criteria: Dict[str, Any],
+        action: Dict[str, Any]
+    ) -> Dict[str, Any]:
         payload = {
             "displayName": f"Rule {int(time.time())}",
             "sequence": 1,
             "isEnabled": True,
-            "conditions": cond,
-            "actions": act,
+            "conditions": self._build_rule_conditions(criteria),
+            "actions": self._build_rule_actions(action),
             "stopProcessingRules": True,
         }
         r = _requests().post(
@@ -193,18 +200,8 @@ class OutlookMailMixin:
         r.raise_for_status()
 
     # -------------------- Messages --------------------
-    def search_inbox_messages(
-        self: OutlookClientBase,
-        params: SearchParams,
-    ) -> List[str]:
-        """Return message IDs in Inbox matching $search query, optional days filter."""
-        if self.cache_dir and params.use_cache:
-            import hashlib
-            key = f"search_{hashlib.sha256(f'{params.search_query}|{params.top}|{params.pages}|{params.days}'.encode()).hexdigest()}"
-            cached = self.cfg_get_json(key, params.ttl)
-            if isinstance(cached, list):
-                return [str(x) for x in cached]
-        ids: List[str] = []
+    def _build_search_url(self, params: "SearchParams") -> str:
+        """Build the initial search URL from params."""
         base = f"{GRAPH_API_URL}/me/mailFolders/inbox/messages"
         query_params = [f"$search=\"{params.search_query}\"", f"$top={int(params.top)}"]
         if params.days and int(params.days) > 0:
@@ -212,21 +209,37 @@ class OutlookMailMixin:
             start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(params.days))
             start_iso = start.strftime("%Y-%m-%dT%H:%M:%SZ")
             query_params.append(f"$filter=receivedDateTime ge {start_iso}")
-        url = base + "?" + "&".join(query_params)
-        nxt = url
+        return base + "?" + "&".join(query_params)
+
+    def _fetch_search_ids(self, params: "SearchParams") -> List[str]:
+        """Paginate through search results and collect message IDs."""
+        ids: List[str] = []
+        nxt: Optional[str] = self._build_search_url(params)
         for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
             data = r.json()
-            vals = data.get("value", [])
-            for m in vals:
-                mid = m.get("id")
-                if mid:
-                    ids.append(mid)
-            nxt = data.get("@odata.nextLink")
+            ids.extend(m.get("id") for m in data.get("value", []) if m.get("id"))
+            nxt = data.get(_NEXT_LINK)
             if not nxt:
                 break
+        return ids
+
+    def search_inbox_messages(
+        self: OutlookClientBase,
+        params: SearchParams,
+    ) -> List[str]:
+        """Return message IDs in Inbox matching $search query, optional days filter."""
+        import hashlib
+
+        key = None
         if self.cache_dir and params.use_cache:
+            key = f"search_{hashlib.sha256(f'{params.search_query}|{params.top}|{params.pages}|{params.days}'.encode()).hexdigest()}"
+            cached = self.cfg_get_json(key, params.ttl)
+            if isinstance(cached, list):
+                return [str(x) for x in cached]
+        ids = self._fetch_search_ids(params)
+        if key and self.cache_dir and params.use_cache:
             try:
                 self.cfg_put_json(key, ids)
             except Exception:  # nosec B110 - non-fatal cache write
@@ -248,7 +261,7 @@ class OutlookMailMixin:
             r.raise_for_status()
             data = r.json()
             msgs.extend(data.get("value", []))
-            url = data.get("@odata.nextLink")
+            url = data.get(_NEXT_LINK)
             if not url:
                 break
         return msgs
@@ -323,7 +336,7 @@ class OutlookMailMixin:
                     "snippet": m.get("bodyPreview", ""),
                     "has_attachments": m.get("hasAttachments", False),
                 })
-            nxt = data.get("@odata.nextLink")
+            nxt = data.get(_NEXT_LINK)
             if not nxt:
                 break
         return msgs
@@ -347,7 +360,7 @@ class OutlookMailMixin:
             r.raise_for_status()
             data = r.json()
             out.extend(data.get("value", []))
-            url = data.get("@odata.nextLink")
+            url = data.get(_NEXT_LINK)
         return out
 
     def get_folder_id_map(self: OutlookClientBase) -> Dict[str, str]:
@@ -442,59 +455,49 @@ class OutlookMailMixin:
         self.cfg_put_json("folders_path_map", path_map)
         return path_map
 
+    def _ensure_child_folder(self: OutlookClientBase, parent_id: str, seg: str) -> str:
+        """Ensure a child folder with name `seg` exists under `parent_id`. Returns child folder id."""
+        r = _requests().get(
+            f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
+            headers=self._headers()
+        )
+        r.raise_for_status()
+        kids = r.json().get("value", [])
+        kid_id = next((k.get("id") for k in kids if (k.get("displayName") or "").lower() == seg.lower()), None)
+        if kid_id:
+            return kid_id
+        r2 = _requests().post(
+            f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
+            headers=self._headers(),
+            json={"displayName": seg},
+        )
+        if r2.status_code == 409:
+            r3 = _requests().get(
+                f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
+                headers=self._headers()
+            )
+            r3.raise_for_status()
+            kids2 = r3.json().get("value", [])
+            kid_id = next((k.get("id") for k in kids2 if (k.get("displayName") or "").lower() == seg.lower()), None)
+            if not kid_id:
+                kid_id = next((k.get("id") for k in kids2 if seg.lower() in (k.get("displayName") or "").lower()), None)
+            return kid_id or ""
+        r2.raise_for_status()
+        return r2.json().get("id") or ""
+
     def ensure_folder_path(self: OutlookClientBase, path: str) -> str:
         """Ensure a nested folder path exists and return the leaf folder id."""
         parts = [p for p in (path or "").split("/") if p]
         if not parts:
             raise ValueError("Folder path is empty")
 
-        parent_id: Optional[str] = None
         top_map = self.get_folder_id_map()
-        if parts[0] in top_map and top_map[parts[0]]:
-            parent_id = top_map[parts[0]]
-        else:
-            parent_id = self.ensure_folder(parts[0])
+        parent_id = top_map.get(parts[0]) or self.ensure_folder(parts[0])
 
         for seg in parts[1:]:
-            r = _requests().get(
-                f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
-                headers=self._headers()
-            )
-            r.raise_for_status()
-            kids = r.json().get("value", [])
-            kid_id = next((k.get("id") for k in kids if (k.get("displayName") or "").lower() == seg.lower()), None)
-            if kid_id:
-                parent_id = kid_id
-                continue
-            body = {"displayName": seg}
-            r2 = _requests().post(
-                f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
-                headers=self._headers(),
-                json=body
-            )
-            if r2.status_code == 409:
-                # Folder already exists - re-fetch and find it
-                # noqa: S113 - timeout handled by _requests() wrapper
-                r3 = _requests().get(
-                    f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
-                    headers=self._headers()
-                )
-                r3.raise_for_status()
-                kids2 = r3.json().get("value", [])
-                kid_id = next((k.get("id") for k in kids2 if (k.get("displayName") or "").lower() == seg.lower()), None)
-                if kid_id:
-                    parent_id = kid_id
-                    continue
-                # Still not found - try substring match as fallback
-                kid_id = next((k.get("id") for k in kids2 if seg.lower() in (k.get("displayName") or "").lower()), None)
-                if kid_id:
-                    parent_id = kid_id
-                    continue
-                # Last resort: return empty string to signal failure gracefully
+            parent_id = self._ensure_child_folder(parent_id, seg)
+            if not parent_id:
                 return ""
-            r2.raise_for_status()
-            created = r2.json()
-            parent_id = created.get("id")
         return parent_id or ""
 
     # -------------------- Signatures --------------------
