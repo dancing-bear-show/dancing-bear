@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-import unittest.mock as mock
 
 from apple_music.client import AppleMusicClient, AppleMusicError
 from tests.apple_music_tests.fixtures import FakeResponse, FakeSession
@@ -45,8 +44,8 @@ class TestRequestMethod(unittest.TestCase):
         self.assertIn("api.music.apple.com", call["url"])
 
     def test_post_request(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": [{"id": "new-pl"}]}
         fake_session.post.return_value = fake_resp
@@ -57,8 +56,8 @@ class TestRequestMethod(unittest.TestCase):
         fake_session.post.assert_called_once()
 
     def test_delete_request(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 204
         fake_resp.json.return_value = {}
         fake_session.delete.return_value = fake_resp
@@ -69,8 +68,8 @@ class TestRequestMethod(unittest.TestCase):
         fake_session.delete.assert_called_once()
 
     def test_error_status_raises_apple_music_error(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 401
         fake_resp.text = "Unauthorized"
         fake_session.get.return_value = fake_resp
@@ -81,8 +80,8 @@ class TestRequestMethod(unittest.TestCase):
         self.assertIn("401", str(ctx.exception))
 
     def test_400_error_raises_apple_music_error(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 403
         fake_resp.text = "Forbidden"
         fake_session.get.return_value = fake_resp
@@ -124,8 +123,8 @@ class TestPaginate(unittest.TestCase):
 
 class TestHighLevelMethods(unittest.TestCase):
     def test_list_library_playlists_with_limit(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": [{"id": "pl1"}, {"id": "pl2"}]}
         fake_session.get.return_value = fake_resp
@@ -138,8 +137,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertIn({"limit": 5}, [call_kwargs[1].get("params")])
 
     def test_list_library_playlists_no_limit(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": [{"id": "pl1"}]}
         fake_session.get.return_value = fake_resp
@@ -153,8 +152,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertNotIn("limit", params)
 
     def test_list_playlist_tracks_with_limit(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": [{"id": "t1"}]}
         fake_session.get.return_value = fake_resp
@@ -164,8 +163,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertEqual(len(result), 1)
 
     def test_ping(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": [{"id": "us"}]}
         fake_session.get.return_value = fake_resp
@@ -175,8 +174,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertEqual(result["data"][0]["id"], "us")
 
     def test_search_songs(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {
             "results": {"songs": {"data": [{"id": "song1", "attributes": {"name": "Test Song"}}]}}
@@ -189,8 +188,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertEqual(result[0]["id"], "song1")
 
     def test_create_playlist_with_description(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": [{"id": "new-pl"}]}
         fake_session.post.return_value = fake_resp
@@ -205,8 +204,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertEqual(body["attributes"]["description"], "A great mix")
 
     def test_create_playlist_without_description(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 200
         fake_resp.json.return_value = {"data": []}
         fake_session.post.return_value = fake_resp
@@ -220,8 +219,8 @@ class TestHighLevelMethods(unittest.TestCase):
         self.assertNotIn("description", body["attributes"])
 
     def test_delete_playlist(self):
-        fake_session = mock.MagicMock()
-        fake_resp = mock.MagicMock()
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
         fake_resp.status_code = 204
         fake_resp.json.return_value = {}
         fake_session.delete.return_value = fake_resp

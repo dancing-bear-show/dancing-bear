@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
-from .workbook import WorkbookContext, col_letter as _col_letter, read_csv_rows as _read_csv, write_range_to_sheet as _write_range_wb  # noqa: F401
+from .workbook import WorkbookContext, read_csv_rows as _read_csv, write_range_to_sheet as _write_range_wb, col_letter as _col_letter  # noqa: F401
 
 
 def _to_records(values: List[List[str]]) -> Tuple[List[str], List[Dict[str, str]]]:

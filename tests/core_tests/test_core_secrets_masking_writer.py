@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 import unittest
-import unittest.mock as mock
 from io import StringIO
 
 from core.secrets import MaskingWriter, install_output_masking_from_env
@@ -82,7 +81,7 @@ class TestMaskingWriterFlush(unittest.TestCase):
         writer.flush()  # Should not raise
 
     def test_flush_handles_broken_pipe(self):
-        buf = mock.MagicMock()
+        buf = unittest.mock.MagicMock()
         buf.write.side_effect = BrokenPipeError()
         writer = MaskingWriter(buf)
         writer._buffer = "some text"
@@ -90,7 +89,7 @@ class TestMaskingWriterFlush(unittest.TestCase):
         writer.flush()
 
     def test_flush_handles_stream_flush_broken_pipe(self):
-        buf = mock.MagicMock()
+        buf = unittest.mock.MagicMock()
         buf.write.return_value = 5
         buf.flush.side_effect = BrokenPipeError()
         writer = MaskingWriter(buf)
@@ -100,13 +99,13 @@ class TestMaskingWriterFlush(unittest.TestCase):
 
 class TestMaskingWriterIsatty(unittest.TestCase):
     def test_isatty_delegates_to_stream(self):
-        buf = mock.MagicMock()
+        buf = unittest.mock.MagicMock()
         buf.isatty.return_value = True
         writer = MaskingWriter(buf)
         self.assertTrue(writer.isatty())
 
     def test_isatty_returns_false_on_exception(self):
-        buf = mock.MagicMock()
+        buf = unittest.mock.MagicMock()
         buf.isatty.side_effect = AttributeError("no isatty")
         writer = MaskingWriter(buf)
         self.assertFalse(writer.isatty())
@@ -114,20 +113,20 @@ class TestMaskingWriterIsatty(unittest.TestCase):
 
 class TestMaskingWriterEncoding(unittest.TestCase):
     def test_encoding_delegates_to_stream(self):
-        buf = mock.MagicMock()
+        buf = unittest.mock.MagicMock()
         buf.encoding = "utf-8"
         writer = MaskingWriter(buf)
         self.assertEqual(writer.encoding, "utf-8")
 
     def test_encoding_none_when_not_present(self):
-        buf = mock.MagicMock(spec=[])
+        buf = unittest.mock.MagicMock(spec=[])
         writer = MaskingWriter(buf)
         self.assertIsNone(writer.encoding)
 
 
 class TestMaskingWriterGetattr(unittest.TestCase):
     def test_getattr_delegates_to_stream(self):
-        buf = mock.MagicMock()
+        buf = unittest.mock.MagicMock()
         buf.name = "/dev/stdout"
         writer = MaskingWriter(buf)
         self.assertEqual(writer.name, "/dev/stdout")
@@ -140,7 +139,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}):
                 install_output_masking_from_env()
             self.assertIsInstance(sys.stdout, MaskingWriter)
             self.assertIsInstance(sys.stderr, MaskingWriter)
@@ -154,7 +153,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with mock.patch.dict("os.environ", {"SRE_MASK_BYPASS": "1"}):
+            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_BYPASS": "1"}):
                 install_output_masking_from_env()
             # Should not be wrapped
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
@@ -168,7 +167,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "0", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "0", "SRE_MASK_BYPASS": ""}):
                 install_output_masking_from_env()
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
         finally:
@@ -181,7 +180,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "false", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "false", "SRE_MASK_BYPASS": ""}):
                 install_output_masking_from_env()
             self.assertNotIsInstance(sys.stdout, MaskingWriter)
         finally:
@@ -195,7 +194,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}):
+            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_OUTPUTS": "1", "SRE_MASK_BYPASS": ""}):
                 install_output_masking_from_env()
                 install_output_masking_from_env()
             # The outer stream is MaskingWriter but not double-wrapped
@@ -212,7 +211,7 @@ class TestInstallOutputMasking(unittest.TestCase):
         try:
             sys.stdout = StringIO()
             sys.stderr = StringIO()
-            with mock.patch.dict("os.environ", {"SRE_MASK_BYPASS": "no"}):
+            with unittest.mock.patch.dict("os.environ", {"SRE_MASK_BYPASS": "no"}):
                 # "no" is in the bypass-disable set, so should install
                 install_output_masking_from_env()
         finally:
@@ -221,7 +220,7 @@ class TestInstallOutputMasking(unittest.TestCase):
 
     def test_handles_exception_gracefully(self):
         # Should not propagate any exceptions
-        with mock.patch("sys.stdout", side_effect=Exception("boom")):
+        with unittest.mock.patch("sys.stdout", side_effect=Exception("boom")):
             install_output_masking_from_env()  # Should not raise
 
 

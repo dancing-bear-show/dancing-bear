@@ -55,7 +55,7 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
 
     rows = len(values)
     cols = max((len(r) for r in values), default=0)
-    if cols == 0:
+    if cols <= 0:
         return
     padded = pad_rows(values, cols)
     end_col = col_letter(cols)
@@ -125,7 +125,8 @@ class WorkbookContext:
 
     def sheet_url(self, sheet: str) -> str:
         """Return URL for a specific worksheet."""
-        return f"{self.base_url}/worksheets('{sheet}')"
+        safe = sheet.replace("'", "''")
+        return f"{self.base_url}/worksheets('{safe}')"
 
     def chart_url(self, sheet: str, chart_id: str) -> str:
         """Return URL for a specific chart."""

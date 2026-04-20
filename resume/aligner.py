@@ -33,7 +33,7 @@ def _missing_from_items(
     """Find canonical keywords from items not present in matched_set."""
     missing = []
     for item in items or []:
-        kw = (item.get("skill") or item.get("name") or "") if isinstance(item, dict) else str(item)
+        kw = ((item.get("skill") or item.get("name") or "") if isinstance(item, dict) else str(item))
         if kw:
             canon = matcher.canonicalize(kw)
             if canon not in matched_set:

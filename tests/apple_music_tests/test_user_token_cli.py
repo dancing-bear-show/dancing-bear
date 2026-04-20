@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-import unittest.mock as mock
 from io import StringIO
 
 from apple_music import user_token_cli
@@ -32,62 +31,62 @@ class TestBuildParser(unittest.TestCase):
 
 class TestMainMissingToken(unittest.TestCase):
     def test_missing_token_returns_2(self):
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {}, clear=True):
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {}, clear=True):
                 rc = user_token_cli.main(["--profile", "musickit.personal"])
         self.assertEqual(rc, 2)
 
     def test_missing_token_prints_to_stderr(self):
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {}, clear=True):
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {}, clear=True):
                 buf = StringIO()
-                with mock.patch("sys.stderr", buf):
+                with unittest.mock.patch("sys.stderr", buf):
                     user_token_cli.main(["--profile", "musickit.personal"])
         self.assertIn("Missing developer token", buf.getvalue())
 
 
 class TestMainDataUrl(unittest.TestCase):
     def test_prints_url_without_open(self):
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
-                with mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,test") as m_build:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,test") as m_build:
                     buf = StringIO()
-                    with mock.patch("sys.stdout", buf):
+                    with unittest.mock.patch("sys.stdout", buf):
                         rc = user_token_cli.main([])
         self.assertEqual(rc, 0)
         m_build.assert_called_once_with("MYDEV")
         self.assertIn("data:text/html,test", buf.getvalue())
 
     def test_open_flag_opens_browser(self):
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
-                with mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,test"):
-                    with mock.patch("webbrowser.open") as m_open:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,test"):
+                    with unittest.mock.patch("webbrowser.open") as m_open:
                         rc = user_token_cli.main(["--open"])
         self.assertEqual(rc, 0)
         m_open.assert_called_once_with("data:text/html,test")
 
     def test_no_open_flag_suppresses_browser(self):
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
-                with mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,test"):
-                    with mock.patch("webbrowser.open") as m_open:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,test"):
+                    with unittest.mock.patch("webbrowser.open") as m_open:
                         rc = user_token_cli.main(["--open", "--no-open"])
         self.assertEqual(rc, 0)
         m_open.assert_not_called()
 
     def test_developer_token_from_arg_overrides_env(self):
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "ENV_TOKEN"}):
-                with mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,ok") as m_build:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "ENV_TOKEN"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,ok") as m_build:
                     user_token_cli.main(["--developer-token", "ARG_TOKEN"])
         m_build.assert_called_once_with("ARG_TOKEN")
 
     def test_developer_token_from_profile(self):
         profile_cfg = {"developer_token": "PROFILE_TOKEN"}
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, profile_cfg)):
-            with mock.patch.dict("os.environ", {}, clear=True):
-                with mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,ok") as m_build:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, profile_cfg)):
+            with unittest.mock.patch.dict("os.environ", {}, clear=True):
+                with unittest.mock.patch("apple_music.user_token_cli.build_data_url", return_value="data:text/html,ok") as m_build:
                     rc = user_token_cli.main([])
         self.assertEqual(rc, 0)
         m_build.assert_called_once_with("PROFILE_TOKEN")
@@ -95,17 +94,17 @@ class TestMainDataUrl(unittest.TestCase):
 
 class TestMainServe(unittest.TestCase):
     def test_serve_mode_serves_and_exits(self):
-        mock_server = mock.MagicMock()
+        mock_server = unittest.mock.MagicMock()
         mock_server.server_address = ("127.0.0.1", 9999)
-        mock_server.handle_request = mock.MagicMock()
+        mock_server.handle_request = unittest.mock.MagicMock()
 
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
-                with mock.patch("apple_music.user_token_cli.build_html", return_value="<html>test</html>"):
-                    with mock.patch("apple_music.user_token_cli._serve_once", return_value=(mock_server, "http://127.0.0.1:9999/")) as m_serve:
-                        with mock.patch("webbrowser.open") as m_open:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_html", return_value="<html>test</html>"):
+                    with unittest.mock.patch("apple_music.user_token_cli._serve_once", return_value=(mock_server, "http://127.0.0.1:9999/")) as m_serve:
+                        with unittest.mock.patch("webbrowser.open") as m_open:
                             buf = StringIO()
-                            with mock.patch("sys.stdout", buf):
+                            with unittest.mock.patch("sys.stdout", buf):
                                 rc = user_token_cli.main(["--serve"])
         self.assertEqual(rc, 0)
         m_serve.assert_called_once_with("<html>test</html>", 0)
@@ -114,26 +113,26 @@ class TestMainServe(unittest.TestCase):
         self.assertIn("http://127.0.0.1:9999/", buf.getvalue())
 
     def test_serve_no_open_skips_browser(self):
-        mock_server = mock.MagicMock()
+        mock_server = unittest.mock.MagicMock()
         mock_server.server_address = ("127.0.0.1", 9999)
 
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
-                with mock.patch("apple_music.user_token_cli.build_html", return_value="<html/>"):
-                    with mock.patch("apple_music.user_token_cli._serve_once", return_value=(mock_server, "http://127.0.0.1:9999/")):
-                        with mock.patch("webbrowser.open") as m_open:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_html", return_value="<html/>"):
+                    with unittest.mock.patch("apple_music.user_token_cli._serve_once", return_value=(mock_server, "http://127.0.0.1:9999/")):
+                        with unittest.mock.patch("webbrowser.open") as m_open:
                             rc = user_token_cli.main(["--serve", "--no-open"])
         self.assertEqual(rc, 0)
         m_open.assert_not_called()
 
     def test_serve_custom_port(self):
-        mock_server = mock.MagicMock()
+        mock_server = unittest.mock.MagicMock()
         mock_server.server_address = ("127.0.0.1", 8080)
 
-        with mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
-            with mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
-                with mock.patch("apple_music.user_token_cli.build_html", return_value="<html/>"):
-                    with mock.patch("apple_music.user_token_cli._serve_once", return_value=(mock_server, "http://127.0.0.1:8080/")) as m_serve:
+        with unittest.mock.patch("apple_music.user_token_cli.load_profile", return_value=(None, {})):
+            with unittest.mock.patch.dict("os.environ", {"APPLE_MUSIC_DEVELOPER_TOKEN": "MYDEV"}):
+                with unittest.mock.patch("apple_music.user_token_cli.build_html", return_value="<html/>"):
+                    with unittest.mock.patch("apple_music.user_token_cli._serve_once", return_value=(mock_server, "http://127.0.0.1:8080/")) as m_serve:
                         rc = user_token_cli.main(["--serve", "--no-open", "--port", "8080"])
         self.assertEqual(rc, 0)
         m_serve.assert_called_once_with("<html/>", 8080)

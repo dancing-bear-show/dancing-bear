@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
-from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter, pad_rows as _pad_rows, write_range_to_sheet as _write_range  # noqa: F401
+from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter, write_range_to_sheet as _write_range, pad_rows as _pad_rows  # noqa: F401
 
 
 def _read_csv(path: str, metal: Optional[str] = None) -> List[Dict[str, str]]:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import unittest
-import unittest.mock as mock
 from dataclasses import dataclass
 from enum import Enum
 from io import StringIO
@@ -61,14 +60,14 @@ class TestOutputWriterPrint(unittest.TestCase):
     def test_print_error_to_stderr(self):
         buf = StringIO()
         writer = OutputWriter()
-        with mock.patch("sys.stderr", buf):
+        with unittest.mock.patch("sys.stderr", buf):
             writer.print_error("something went wrong")
         self.assertIn("Error: something went wrong", buf.getvalue())
 
     def test_print_warning_to_stderr(self):
         buf = StringIO()
         writer = OutputWriter()
-        with mock.patch("sys.stderr", buf):
+        with unittest.mock.patch("sys.stderr", buf):
             writer.print_warning("be careful")
         self.assertIn("Warning: be careful", buf.getvalue())
 
@@ -160,7 +159,7 @@ class TestOutputWriterDataFormats(unittest.TestCase):
         buf = StringIO()
         config = OutputConfig(format=OutputFormat.YAML, file=buf)
         writer = OutputWriter(config)
-        with mock.patch.dict("sys.modules", {"yaml": None}):
+        with unittest.mock.patch.dict("sys.modules", {"yaml": None}):
             writer.print_data({"key": "value"})
         # If yaml not available, should fallback to JSON
         output = buf.getvalue()
@@ -325,34 +324,34 @@ class TestNormalizeForJson(unittest.TestCase):
 class TestConvenienceFunctions(unittest.TestCase):
     def test_output_json(self):
         buf = StringIO()
-        with mock.patch("sys.stdout", buf):
+        with unittest.mock.patch("sys.stdout", buf):
             output_json({"key": "val"})
         data = json.loads(buf.getvalue())
         self.assertEqual(data["key"], "val")
 
     def test_output_yaml(self):
         buf = StringIO()
-        with mock.patch("sys.stdout", buf):
+        with unittest.mock.patch("sys.stdout", buf):
             output_yaml({"key": "val"})
         # Should produce some output
         self.assertTrue(buf.getvalue().strip())
 
     def test_output_table(self):
         buf = StringIO()
-        with mock.patch("sys.stdout", buf):
+        with unittest.mock.patch("sys.stdout", buf):
             output_table([{"col": "row1"}, {"col": "row2"}])
         self.assertIn("col", buf.getvalue())
         self.assertIn("row1", buf.getvalue())
 
     def test_output_table_with_explicit_headers(self):
         buf = StringIO()
-        with mock.patch("sys.stdout", buf):
+        with unittest.mock.patch("sys.stdout", buf):
             output_table([{"col": "val"}], headers=["col"])
         self.assertIn("col", buf.getvalue())
 
     def test_output_text(self):
         buf = StringIO()
-        with mock.patch("sys.stdout", buf):
+        with unittest.mock.patch("sys.stdout", buf):
             output("plain text")
         self.assertIn("plain text", buf.getvalue())
 

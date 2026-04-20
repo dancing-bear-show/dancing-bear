@@ -203,9 +203,8 @@ class OutlookClientBase(ConfigCacheMixin):
                     "access_token": res["access_token"],
                     "expires_at": time.time() + int(res.get("expires_in", 3600))
                 }
-                if self._cache and self.token_path:
-                    with open(self.token_path, "w", encoding="utf-8") as f:
-                        f.write(self._cache.serialize())
+                if self._cache:
+                    self._save_token_cache(self._cache)
         except Exception:  # nosec B110 - silent token refresh failure
             pass
 

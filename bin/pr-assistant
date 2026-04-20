@@ -380,11 +380,10 @@ def main():
         return 0
 
     pr_number = pr["number"]
-    pr_url = pr["url"]
     head = pr.get("headRefName", "?")
     base = pr.get("baseRefName", args.base)
     print(f"\nPR #{pr_number}: {head} -> {base}")
-    print(pr_url)
+    print(pr["url"])
     print()
 
     # 2. Fetch Copilot threads
@@ -472,7 +471,7 @@ def main():
             print(f"[DRY RUN] Would set PR body: {args.body[:80]}...")
 
     # 9. Final URL
-    print(f"\n{pr_url}")
+    print(f"\n{pr['url']}")
     return 0
 
 
