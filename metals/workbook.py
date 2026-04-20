@@ -75,7 +75,7 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
     tadd = requests.post(
         f"{wb.base_url}/tables/add",
         headers=wb.headers(),
-        data=_json.dumps({"address": f"{sheet}!{addr}", "hasHeaders": True}),
+        data=_json.dumps({"address": f"'{sheet.replace(chr(39), chr(39)*2)}'!{addr}", "hasHeaders": True}),
         timeout=DEFAULT_REQUEST_TIMEOUT,
     )
     try:

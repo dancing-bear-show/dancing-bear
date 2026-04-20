@@ -377,7 +377,7 @@ def run_labels_apply_suggestions(args) -> int:
     sugg = doc.get('suggestions') or []
     if not sugg:
         print('No suggestions found.')
-        return 1
+        return 0
 
     creds_path, tok_path = resolve_paths_profile(
         arg_credentials=args.credentials,
