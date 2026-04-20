@@ -42,26 +42,27 @@ class TestBaseProducer(unittest.TestCase):
 
 
 class TestProcessPage(unittest.TestCase):
-    """Tests for _process_page helper function branches."""
+    """Tests for page/folder helper function branches."""
 
     def test_folder_without_name_defaults_to_folder(self):
-        from phone.pipeline import _process_page
+        from phone.pipeline import _process_pages
         p = {"apps": ["app1"], "folders": [{"apps": ["app2"]}]}  # no name key
-        page_out, folder_count = _process_page(p, set(), [])
-        self.assertEqual(folder_count, 1)
-        self.assertEqual(page_out["folders"][0]["name"], "Folder")
+        pages_out, folders_total = _process_pages([p], set(), [])
+        self.assertEqual(folders_total, 1)
+        self.assertEqual(pages_out[0]["folders"][0]["name"], "Folder")
 
     def test_folder_with_none_name_defaults_to_folder(self):
-        from phone.pipeline import _process_page
+        from phone.pipeline import _process_pages
         p = {"apps": [], "folders": [{"name": None, "apps": ["app1"]}]}
-        page_out, _folder_count = _process_page(p, set(), [])
-        self.assertEqual(page_out["folders"][0]["name"], "Folder")
+        pages_out, _folders_total = _process_pages([p], set(), [])
+        self.assertEqual(pages_out[0]["folders"][0]["name"], "Folder")
 
     def test_collect_unique_skips_empty_strings(self):
-        from phone.pipeline import _collect_unique
+        from phone.pipeline import _collect_unique_app
         seen = set()
         all_apps: list = []
-        _collect_unique(["app1", "", "app2", "app1"], seen, all_apps)
+        for app in ["app1", "", "app2", "app1"]:
+            _collect_unique_app(app, seen, all_apps)
         self.assertEqual(all_apps, ["app1", "app2"])
 
 
@@ -152,7 +153,7 @@ class TestManifestFromDeviceProducer(unittest.TestCase):
 
 class TestBuildInstallCmd(unittest.TestCase):
     def test_with_udid(self):
-        from phone.pipeline import _build_install_cmd, ManifestInstallRequest
+        from phone.pipeline import _build_install_command, ManifestInstallRequest
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -164,12 +165,12 @@ class TestBuildInstallCmd(unittest.TestCase):
         )
         man = {"device": {}}
         out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
-        cmd = _build_install_cmd(payload, man, out_path)
+        cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--udid", cmd)
         self.assertIn("test-udid", cmd)
 
     def test_with_label_only(self):
-        from phone.pipeline import _build_install_cmd, ManifestInstallRequest
+        from phone.pipeline import _build_install_command, ManifestInstallRequest
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -181,12 +182,12 @@ class TestBuildInstallCmd(unittest.TestCase):
         )
         man = {"device": {}}
         out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
-        cmd = _build_install_cmd(payload, man, out_path)
+        cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--device-label", cmd)
         self.assertIn("my-device", cmd)
 
     def test_with_creds_profile_and_config(self):
-        from phone.pipeline import _build_install_cmd, ManifestInstallRequest
+        from phone.pipeline import _build_install_command, ManifestInstallRequest
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -198,14 +199,14 @@ class TestBuildInstallCmd(unittest.TestCase):
         )
         man = {"device": {}}
         out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
-        cmd = _build_install_cmd(payload, man, out_path)
+        cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--creds-profile", cmd)
         self.assertIn("ios_layout", cmd)
         self.assertIn("--config", cmd)
         self.assertIn("/etc/config.yaml", cmd)
 
     def test_with_device_section_in_manifest(self):
-        from phone.pipeline import _build_install_cmd, ManifestInstallRequest
+        from phone.pipeline import _build_install_command, ManifestInstallRequest
         payload = ManifestInstallRequest(
             manifest_path=Path("manifest.yaml"),
             out_path=None,
@@ -217,7 +218,7 @@ class TestBuildInstallCmd(unittest.TestCase):
         )
         man = {"device": {"udid": "from-manifest-udid"}}
         out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
-        cmd = _build_install_cmd(payload, man, out_path)
+        cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--udid", cmd)
         self.assertIn("from-manifest-udid", cmd)
 

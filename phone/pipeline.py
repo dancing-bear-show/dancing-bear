@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
@@ -17,31 +17,45 @@ from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
 
 
-def _collect_unique(apps: List[str], seen: set, all_apps: List[str]) -> None:
-    """Add unique app ids from apps list into all_apps, tracking seen."""
-    for a in apps:
-        if a and a not in seen:
-            seen.add(a)
-            all_apps.append(a)
+def _collect_unique_app(app_id: str, seen: set, all_apps: List[str]) -> None:
+    """Add an app to the all_apps list if not already seen."""
+    if app_id and app_id not in seen:
+        seen.add(app_id)
+        all_apps.append(app_id)
 
 
-def _process_page(
-    p: Dict[str, Any],
-    seen: set,
-    all_apps: List[str],
-) -> Tuple[Dict[str, Any], int]:
-    """Process a single page dict. Returns (page_out, folders_on_page)."""
-    apps = list(p.get("apps") or [])
-    folders = []
-    for f in p.get("folders") or []:
+def _process_page_folders(folders_in: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+    """Process folders from a page and return normalized folders list and count."""
+    folders_out = []
+    for f in folders_in:
         name = f.get("name") or "Folder"
         fapps = list(f.get("apps") or [])
-        folders.append({"name": name, "apps": fapps})
-    page_out = {"apps": apps, "folders": folders}
-    _collect_unique(apps, seen, all_apps)
-    for f in folders:
-        _collect_unique(f["apps"], seen, all_apps)
-    return page_out, len(folders)
+        folders_out.append({"name": name, "apps": fapps})
+    return folders_out, len(folders_out)
+
+
+def _process_pages(
+    pages_in: List[Dict[str, Any]],
+    seen: set,
+    all_apps: List[str],
+) -> tuple[List[Dict[str, Any]], int]:
+    """Process pages and collect unique apps, returning normalized pages and folder count."""
+    pages_out: List[Dict[str, Any]] = []
+    folders_total = 0
+
+    for p in pages_in:
+        apps = list(p.get("apps") or [])
+        folders, folder_count = _process_page_folders(p.get("folders") or [])
+        folders_total += folder_count
+        pages_out.append({"apps": apps, "folders": folders})
+
+        for a in apps:
+            _collect_unique_app(a, seen, all_apps)
+        for f in folders:
+            for a in f["apps"]:
+                _collect_unique_app(a, seen, all_apps)
+
+    return pages_out, folders_total
 
 
 def _build_manifest_from_export(
@@ -60,18 +74,15 @@ def _build_manifest_from_export(
     import os
 
     dock = list(exp.get("dock") or [])
-    pages_in = exp.get("pages") or []
-    pages_out: List[Dict[str, Any]] = []
     all_apps: List[str] = []
     seen: set = set()
-    folders_total = 0
 
-    for p in pages_in:
-        page_out, page_folders = _process_page(p, seen, all_apps)
-        pages_out.append(page_out)
-        folders_total += page_folders
+    # Process pages and collect apps
+    pages_out, folders_total = _process_pages(exp.get("pages") or [], seen, all_apps)
 
-    _collect_unique(dock, seen, all_apps)
+    # Collect dock apps
+    for a in dock:
+        _collect_unique_app(a, seen, all_apps)
 
     return {
         "meta": {"name": "device_layout_manifest", "version": 1},
@@ -124,9 +135,9 @@ class ExportProcessor(SafeProcessor[ExportRequest, ExportResult]):
     def _process_safe(self, payload: ExportRequest) -> ExportResult:
         try:
             layout = load_layout(None, payload.backup)
-        except LayoutLoadError:
-            raise
         except Exception as exc:  # pragma: no cover - unexpected IO errors
+            if isinstance(exc, LayoutLoadError):
+                raise
             raise ValueError(f"Error: {exc}")
         export = to_yaml_export(layout)
         return ExportResult(document=export, out_path=payload.out_path)
@@ -233,7 +244,6 @@ class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
         from .layout import rank_unused_candidates
 
         layout = load_layout(payload.layout, payload.backup)
-
         recent = _read_lines_file(payload.recent_path)
         keep = _read_lines_file(payload.keep_path)
         rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
@@ -287,7 +297,6 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
         from .layout import rank_unused_candidates
 
         layout = load_layout(payload.layout, payload.backup)
-
         recent = _read_lines_file(payload.recent_path)
         keep = _read_lines_file(payload.keep_path)
         rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
@@ -547,8 +556,10 @@ class ManifestFromDeviceProcessor(SafeProcessor[ManifestFromDeviceRequest, Manif
         from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
 
         cfgutil = find_cfgutil_path()
+
         udid = payload.udid or os.environ.get("IOS_DEVICE_UDID")
         ecid = map_udid_to_ecid(cfgutil, udid) if udid else None
+
         exp = export_from_device(cfgutil, ecid)
 
         if not exp:
@@ -604,20 +615,55 @@ class ManifestInstallResult:
     install_cmd: Optional[List[str]]
 
 
-def _build_install_cmd(
-    payload: "ManifestInstallRequest",
-    man: Dict[str, Any],
-    out_path: Path,
+def _load_and_validate_manifest(manifest_path: Path) -> Dict[str, Any]:
+    """Load manifest from path and validate it's a dict."""
+    try:
+        man = read_yaml(manifest_path)
+    except FileNotFoundError:
+        raise ValueError(f"Manifest not found: {manifest_path}")
+
+    if not isinstance(man, dict):
+        raise ValueError("Invalid manifest")
+    return man
+
+
+def _extract_plan_from_manifest(man: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract or derive plan from manifest dict."""
+    plan = man.get("plan") or {}
+    if not plan and man.get("layout"):
+        plan = _plan_from_layout(man.get("layout") or {})
+    if not plan:
+        raise ValueError("Manifest missing 'plan' or 'layout' section")
+    return plan
+
+
+def _determine_profile_path(payload_path: Optional[Path], manifest: Dict[str, Any]) -> Path:
+    """Determine output path for profile."""
+    if payload_path:
+        return payload_path
+    dev = manifest.get("device") or {}
+    suffix = dev.get("label") or dev.get("udid") or "device"
+    return Path("out") / f"{suffix}.hslayout.from_manifest.mobileconfig"
+
+
+def _build_install_command(
+    payload: ManifestInstallRequest,
+    manifest: Dict[str, Any],
+    profile_path: Path,
 ) -> Optional[List[str]]:
-    """Build the install command list for ios-install-profile."""
+    """Build install command if not dry-run."""
+    if payload.dry_run:
+        return None
+
     import os
-    dev = man.get("device") or {}
+    dev = manifest.get("device") or {}
     udid = payload.udid or dev.get("udid") or os.environ.get("IOS_DEVICE_UDID")
     label = payload.device_label or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
     creds_profile = payload.creds_profile or dev.get("creds_profile") or os.environ.get("IOS_CREDS_PROFILE")
+
     repo_root = Path(__file__).resolve().parents[1]
     installer = str(repo_root / "bin" / "ios-install-profile")
-    cmd = [installer, "--profile", str(out_path)]
+    cmd = [installer, "--profile", str(profile_path)]
     if creds_profile:
         cmd.extend(["--creds-profile", creds_profile])
     if payload.config:
@@ -634,20 +680,8 @@ class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestIns
         import plistlib
         from .profile import build_mobileconfig
 
-        try:
-            man = read_yaml(payload.manifest_path)
-        except FileNotFoundError:
-            raise ValueError(f"Manifest not found: {payload.manifest_path}")
-
-        if not isinstance(man, dict):
-            raise ValueError("Invalid manifest")
-
-        # Build plan from manifest
-        plan = man.get("plan") or {}
-        if not plan and man.get("layout"):
-            plan = _plan_from_layout(man.get("layout") or {})
-        if not plan:
-            raise ValueError("Manifest missing 'plan' or 'layout' section")
+        man = _load_and_validate_manifest(payload.manifest_path)
+        plan = _extract_plan_from_manifest(man)
 
         prof = man.get("profile") or {}
         profile_dict = build_mobileconfig(
@@ -660,16 +694,9 @@ class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestIns
             dock_count=4,
         )
 
-        # Determine output profile path
-        if payload.out_path:
-            out_path = payload.out_path
-        else:
-            dev = man.get("device") or {}
-            suffix = dev.get("label") or dev.get("udid") or "device"
-            out_path = Path("out") / f"{suffix}.hslayout.from_manifest.mobileconfig"
-
+        out_path = _determine_profile_path(payload.out_path, man)
         profile_bytes = plistlib.dumps(profile_dict, fmt=plistlib.FMT_XML, sort_keys=False)
-        install_cmd = None if payload.dry_run else _build_install_cmd(payload, man, out_path)
+        install_cmd = _build_install_command(payload, man, out_path)
 
         return ManifestInstallResult(
                 profile_path=out_path,
