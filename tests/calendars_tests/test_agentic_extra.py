@@ -25,7 +25,7 @@ class TestAgenticEmitContext(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = emit_agentic_context(_fmt="yaml", compact=True)
+            rc = emit_agentic_context(fmt="yaml", compact=True)
         self.assertEqual(rc, 0)
 
 
