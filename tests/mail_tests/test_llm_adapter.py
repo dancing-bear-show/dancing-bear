@@ -16,12 +16,6 @@ class TestSummarizeTextEmpty(unittest.TestCase):
     def test_whitespace_only_returns_no_content(self):
         self.assertEqual(summarize_text("   \n\t  "), "(no content)")
 
-    def test_none_like_falsy_empty(self):
-        # The implementation does `(text or "").strip()`, so None is handled.
-        # Pass an empty string as the closest safe equivalent.
-        self.assertEqual(summarize_text(""), "(no content)")
-
-
 class TestSummarizeTextBasic(unittest.TestCase):
     """Covers the happy path through sentence splitting."""
 

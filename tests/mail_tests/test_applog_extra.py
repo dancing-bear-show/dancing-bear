@@ -35,10 +35,10 @@ class AppLoggerInitNoDirTests(unittest.TestCase):
 
     def test_init_no_directory_component(self):
         # os.path.dirname("app.log") == "" — the `if d:` branch must not call makedirs
-        logger = AppLogger("app.log")
+        with patch("mail.applog.os.makedirs") as mock_makedirs:
+            logger = AppLogger("app.log")
         self.assertEqual(logger.path, "app.log")
-        # Prove makedirs was NOT called for an empty dirname by checking no extra dirs exist
-        self.assertFalse(os.path.isdir(""))
+        mock_makedirs.assert_not_called()
 
 
 class AppLoggerWriteExceptionTests(unittest.TestCase):

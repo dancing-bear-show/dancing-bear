@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 def _make_provider(client_id="dummy-client-id", tenant="consumers", token_path=None, cache_dir=None):
@@ -41,7 +41,7 @@ class TestOutlookProviderInit(unittest.TestCase):
         with patch("mail.providers.outlook.OutlookClient") as mock_cls:
             mock_cls.return_value = MagicMock()
             from mail.providers.outlook import OutlookProvider
-            p = OutlookProvider(client_id="cid")
+            OutlookProvider(client_id="cid")
         call_kwargs = mock_cls.call_args.kwargs
         self.assertEqual(call_kwargs["tenant"], "consumers")
 

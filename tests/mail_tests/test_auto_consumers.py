@@ -6,7 +6,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from mail.auto.consumers import (
     AutoApplyConsumer,
@@ -107,7 +106,9 @@ class TestAutoSummaryConsumer(unittest.TestCase):
         )
         json.dump(data, tmp)
         tmp.close()
-        return Path(tmp.name)
+        path = Path(tmp.name)
+        self.addCleanup(path.unlink, missing_ok=True)
+        return path
 
     def test_consume_returns_auto_summary_payload(self):
         proposal = {"messages": [{"id": "m1", "reasons": ["list"]}]}
@@ -148,7 +149,9 @@ class TestAutoApplyConsumer(unittest.TestCase):
         )
         json.dump(data, tmp)
         tmp.close()
-        return Path(tmp.name)
+        path = Path(tmp.name)
+        self.addCleanup(path.unlink, missing_ok=True)
+        return path
 
     def test_consume_returns_auto_apply_payload(self):
         ctx = self._make_context()
