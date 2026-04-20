@@ -13,6 +13,7 @@ All processing is local and read-only. No device writes.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -65,6 +66,12 @@ from ..layout import (
     distribute_folders_across_pages,
 )
 from ..profile import build_mobileconfig
+
+
+# Default values for profile configuration
+_DEFAULT_PROFILE_IDENTIFIER = "com.example.profile"
+_DEFAULT_HS_IDENTIFIER = "com.example.hslayout"
+_DEFAULT_DISPLAY_NAME = "Home Screen Layout"
 
 
 # Create the CLI app
@@ -365,17 +372,64 @@ def _write_mobileconfig(profile_dict: dict, out_path: Path) -> None:
         plistlib.dump(profile_dict, f, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
+def _sign_mobileconfig(in_path: Path, out_path: Path, p12_path: Path, p12_pass: str) -> None:
+    """Sign a mobileconfig profile using openssl smime.
+
+    Args:
+        in_path: Path to unsigned .mobileconfig
+        out_path: Path for signed output
+        p12_path: Path to .p12 certificate file
+        p12_pass: Password for .p12 file
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cert_pem = Path(tmpdir) / "cert.pem"
+        key_pem = Path(tmpdir) / "key.pem"
+
+        # Check if openssl supports -legacy flag (OpenSSL 3.x)
+        result = subprocess.run(  # nosec B603 B607 - fixed openssl command
+            ["openssl", "pkcs12", "-help"],
+            capture_output=True, text=True
+        )
+        legacy_flag = ["-legacy"] if "-legacy" in result.stderr else []
+
+        # Extract certificate
+        subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
+            ["openssl", "pkcs12", *legacy_flag, "-in", str(p12_path),
+             "-clcerts", "-nokeys", "-out", str(cert_pem), "-passin", f"pass:{p12_pass}"],
+            check=True, capture_output=True
+        )
+
+        # Extract private key
+        subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
+            ["openssl", "pkcs12", *legacy_flag, "-in", str(p12_path),
+             "-nocerts", "-nodes", "-out", str(key_pem), "-passin", f"pass:{p12_pass}"],
+            check=True, capture_output=True
+        )
+
+        # Sign the profile
+        subprocess.run(  # nosec B603 B607 - openssl smime with controlled paths
+            ["openssl", "smime", "-sign", "-in", str(in_path), "-out", str(out_path),
+             "-signer", str(cert_pem), "-inkey", str(key_pem), "-outform", "der", "-nodetach"],
+            check=True, capture_output=True
+        )
+
+
 @profile_group.command("build", help="Build a .mobileconfig from a plan YAML")
 @profile_group.argument("--plan", required=True, help="Plan YAML path (pins + folders)")
 @profile_group.argument("--layout", help="Optional layout export YAML; uses 'dock' if present")
 @profile_group.argument("--out", required=True, help="Output .mobileconfig path")
-@profile_group.argument("--identifier", default="com.example.profile", help="Top-level PayloadIdentifier")
-@profile_group.argument("--hs-identifier", default="com.example.hslayout", help="Home Screen PayloadIdentifier")
-@profile_group.argument("--display-name", default="Home Screen Layout", help="Payload display name")
+@profile_group.argument("--identifier", default=_DEFAULT_PROFILE_IDENTIFIER, help="Top-level PayloadIdentifier")
+@profile_group.argument("--hs-identifier", default=_DEFAULT_HS_IDENTIFIER, help="Home Screen PayloadIdentifier")
+@profile_group.argument("--display-name", default=_DEFAULT_DISPLAY_NAME, help="Payload display name")
 @profile_group.argument("--organization", help="Optional PayloadOrganization")
 @profile_group.argument("--dock-count", type=int, default=4, help="Dock count from pins when --layout missing (default 4)")
 @profile_group.argument("--all-apps-folder-name", help="Optional folder name for all remaining apps (requires --layout)")
 @profile_group.argument("--all-apps-folder-page", type=int, help="Page number to place the all-apps folder (requires --layout)")
+@profile_group.argument("--sign-p12", help="Path to .p12 certificate for signing the profile")
+@profile_group.argument("--sign-pass", help="Password for .p12 certificate (or set IOS_SIGN_PASS env var)")
 def cmd_profile_build(args) -> int:
     try:
         plan = read_yaml(Path(args.plan))
@@ -389,22 +443,34 @@ def cmd_profile_build(args) -> int:
         profile_dict = build_mobileconfig(
             plan=plan,
             layout_export=layout_export,
-            top_identifier=getattr(args, "identifier", "com.example.profile"),
-            hs_identifier=getattr(args, "hs_identifier", "com.example.hslayout"),
-            display_name=getattr(args, "display_name", "Home Screen Layout"),
+            top_identifier=getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
+            hs_identifier=getattr(args, "hs_identifier", _DEFAULT_HS_IDENTIFIER),
+            display_name=getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
             organization=getattr(args, "organization", None),
             dock_count=max(0, int(getattr(args, "dock_count", 4))),
             all_apps_folder=all_apps_folder,
         )
 
-        _write_mobileconfig(profile_dict, Path(args.out))
-        print(f"Wrote Home Screen Layout profile to {Path(args.out)}")
+        out_path = Path(args.out)
+        _write_mobileconfig(profile_dict, out_path)
+        print(f"Wrote {_DEFAULT_DISPLAY_NAME} profile to {out_path}")
+
+        # Sign the profile if requested
+        sign_p12 = getattr(args, "sign_p12", None)
+        if sign_p12:
+            sign_pass = getattr(args, "sign_pass", None) or os.environ.get("IOS_SIGN_PASS", "")
+            _sign_mobileconfig(out_path, out_path, Path(sign_p12), sign_pass)
+            print(f"Signed profile with {sign_p12}")
+
         return 0
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 2
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
+        return 2
+    except subprocess.CalledProcessError as e:
+        print(f"Error signing profile: {e}", file=sys.stderr)
         return 2
 
 
@@ -430,9 +496,9 @@ def _build_manifest_dict(plan: dict, args) -> dict:
             "creds_profile": getattr(args, "creds_profile", None) or os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"),
         },
         "profile": {
-            "identifier": getattr(args, "identifier", "com.example.profile"),
-            "hs_identifier": getattr(args, "hs_identifier", "com.example.hslayout"),
-            "display_name": getattr(args, "display_name", "Home Screen Layout"),
+            "identifier": getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
+            "hs_identifier": getattr(args, "hs_identifier", _DEFAULT_HS_IDENTIFIER),
+            "display_name": getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
             "organization": getattr(args, "organization", "Personal"),
         },
         "plan": plan,
@@ -478,9 +544,9 @@ def _extract_manifest_profile_config(manifest: dict) -> tuple[dict, dict | None,
 @manifest_group.argument("--udid", help="Optional device UDID to include")
 @manifest_group.argument("--creds-profile", default=os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"), help="Credentials profile name")
 @manifest_group.argument("--layout", help="Optional layout export YAML path to include (for Dock inference)")
-@manifest_group.argument("--identifier", default="com.example.profile", help="Profile identifier")
-@manifest_group.argument("--hs-identifier", default="com.example.hslayout", help="Home Screen PayloadIdentifier")
-@manifest_group.argument("--display-name", default="Home Screen Layout", help="Profile display name")
+@manifest_group.argument("--identifier", default=_DEFAULT_PROFILE_IDENTIFIER, help="Profile identifier")
+@manifest_group.argument("--hs-identifier", default=_DEFAULT_HS_IDENTIFIER, help="Home Screen PayloadIdentifier")
+@manifest_group.argument("--display-name", default=_DEFAULT_DISPLAY_NAME, help="Profile display name")
 @manifest_group.argument("--organization", default="Personal", help="Profile organization")
 def cmd_manifest_create(args) -> int:
     plan = read_yaml(Path(args.from_plan))
@@ -506,9 +572,9 @@ def cmd_manifest_build(args) -> int:
     profile_dict = build_mobileconfig(
         plan=plan,
         layout_export=layout_export,
-        top_identifier=prof.get("identifier", "com.example.profile"),
-        hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
-        display_name=prof.get("display_name", "Home Screen Layout"),
+        top_identifier=prof.get("identifier", _DEFAULT_PROFILE_IDENTIFIER),
+        hs_identifier=prof.get("hs_identifier", _DEFAULT_HS_IDENTIFIER),
+        display_name=prof.get("display_name", _DEFAULT_DISPLAY_NAME),
         organization=prof.get("organization"),
         dock_count=4,
     )
@@ -517,7 +583,7 @@ def cmd_manifest_build(args) -> int:
     import plistlib
     with out.open("wb") as f:
         plistlib.dump(profile_dict, f, fmt=plistlib.FMT_XML, sort_keys=False)
-    print(f"Wrote Home Screen Layout profile to {out}")
+    print(f"Wrote {_DEFAULT_DISPLAY_NAME} profile to {out}")
     return 0
 
 
