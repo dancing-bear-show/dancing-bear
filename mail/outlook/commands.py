@@ -232,6 +232,31 @@ def run_outlook_categories_export(args) -> int:
     )
 
 
+def _sync_one_category(client, spec: dict, existing: dict, dry_run: bool) -> tuple:
+    """Sync a single category spec. Returns (created_delta, updated_delta)."""
+    name = spec.get("name")
+    if not name:
+        return 0, 0
+    if name not in existing:
+        if dry_run:
+            print(f"Would create category: {name}")
+        else:
+            client.create_label(**spec)
+            print(f"Created category: {name}")
+        return 1, 0
+    cur = existing[name]
+    upd = {"name": name}
+    if spec.get("color") and spec.get("color") != cur.get("color"):
+        upd["color"] = spec["color"]
+        if dry_run:
+            print(f"Would update category: {name}")
+        else:
+            client.update_label(cur.get("id", ""), upd)
+            print(f"Updated category: {name}")
+        return 0, 1
+    return 0, 0
+
+
 def run_outlook_categories_sync(args) -> int:
     """Create/update Outlook categories from a labels YAML file."""
     client, err = get_outlook_client(args)
@@ -244,39 +269,14 @@ def run_outlook_categories_sync(args) -> int:
     doc = load_config(args.config)
     base = doc.get("labels") or []
     desired = normalize_labels_for_outlook(base)
-
     existing = {lbl.get("name", ""): lbl for lbl in client.list_labels()}
+    dry_run = getattr(args, "dry_run", False)
 
-    created = 0
-    updated = 0
-    dry_run = getattr(args, 'dry_run', False)
-
+    created = updated = 0
     for spec in desired:
-        name = spec.get("name")
-        if not name:
-            continue
-        if name not in existing:
-            if dry_run:
-                print(f"Would create category: {name}")
-            else:
-                client.create_label(**spec)
-                print(f"Created category: {name}")
-            created += 1
-            continue
-        # Update color if different/specified
-        cur = existing[name]
-        need = False
-        upd = {"name": name}
-        if spec.get("color") and spec.get("color") != cur.get("color"):
-            upd["color"] = spec["color"]
-            need = True
-        if need:
-            if dry_run:
-                print(f"Would update category: {name}")
-            else:
-                client.update_label(cur.get("id", ""), upd)
-                print(f"Updated category: {name}")
-            updated += 1
+        c, u = _sync_one_category(client, spec, existing, dry_run)
+        created += c
+        updated += u
 
     print(f"Sync complete. Created: {created}, Updated: {updated}")
     return 0
@@ -371,6 +371,22 @@ def run_outlook_calendar_add_recurring(args) -> int:
     )
 
 
+def _print_message_result(m: dict) -> None:
+    """Print a single message search result."""
+    att = " 📎" if m.get("has_attachments") else ""
+    print(f"[{m['received'][:10]}]{att} {m['subject']!r}  —  {m['from']}")
+    if m.get("snippet"):
+        print(f"   {m['snippet'][:120]}")
+
+
+def _resolve_after_date(days, after) -> str:
+    """Compute 'after' ISO date from days offset if not already set."""
+    if days and not after:
+        import datetime
+        return (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
+    return after
+
+
 def run_outlook_messages_search(args) -> int:
     client, err = get_outlook_client(args)
     if err:
@@ -379,7 +395,7 @@ def run_outlook_messages_search(args) -> int:
     query = getattr(args, "query", "") or ""
     top = getattr(args, "top", 50) or 50
     pages = getattr(args, "pages", 3) or 3
-    after = getattr(args, "after", None)
+    after = _resolve_after_date(getattr(args, "days", None), getattr(args, "after", None))
     sender = getattr(args, "sender", None)
     as_json = getattr(args, "json", False)
     only_inbox = getattr(args, "only_inbox", False)
@@ -388,11 +404,6 @@ def run_outlook_messages_search(args) -> int:
         print("Provide --query or --sender to filter messages")
         return 1
 
-    days = getattr(args, "days", None)
-    if days and not after:
-        import datetime
-        after = (datetime.date.today() - datetime.timedelta(days=int(days))).isoformat()
-
     msgs = client.search_messages(query=query, top=top, pages=pages, after=after, sender=sender, only_inbox=only_inbox)
 
     if as_json:
@@ -400,10 +411,7 @@ def run_outlook_messages_search(args) -> int:
         print(json.dumps(msgs, indent=2))
     else:
         for m in msgs:
-            att = " 📎" if m.get("has_attachments") else ""
-            print(f"[{m['received'][:10]}]{att} {m['subject']!r}  —  {m['from']}")
-            if m.get("snippet"):
-                print(f"   {m['snippet'][:120]}")
+            _print_message_result(m)
     return 0
 
 

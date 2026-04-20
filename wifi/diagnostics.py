@@ -205,7 +205,7 @@ def run_diagnosis(
         ping_results=ping_results,
         icmp_filtered=icmp_filtered,
         dns=dns_result,
-        trace=trace_result,
+        _trace=trace_result,
         http=http_result,
     )
 
@@ -310,7 +310,7 @@ def _parse_nmcli(text: str) -> Optional[WifiInfo]:
         parts = line.split(":")
         if len(parts) < 5:
             continue
-        active, ssid, bssid, signal, rate = parts[:5]
+        active, ssid, bssid, _, rate = parts[:5]
         if active.lower() not in {"yes", "true", "*"}:
             continue
         return WifiInfo(
@@ -484,7 +484,7 @@ def derive_findings(
     ping_results: List[PingResult],
     icmp_filtered: bool,
     dns: DnsResult,
-    trace: Optional[TraceResult],
+    _trace: Optional[TraceResult],
     http: Optional[HttpResult],
 ) -> List[str]:
     gateway_ping = next((p for p in ping_results if p.label == "gateway"), None)

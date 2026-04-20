@@ -97,7 +97,7 @@ class KeywordMatcherTestMixin:
                 self.matcher.add_keyword("Python")
     """
 
-    def setUp(self):
+    def setUp(self):  # NOSONAR - required unittest lifecycle method name
         from resume.keyword_matcher import KeywordMatcher
         self.matcher = KeywordMatcher()
         super().setUp() if hasattr(super(), 'setUp') else None

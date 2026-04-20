@@ -216,24 +216,24 @@ class NormalizeEventTests(unittest.TestCase):
     def test_is_reminder_on_bool_true(self):
         ev = {"subject": "Meeting", "is_reminder_on": True}
         result = normalize_event(ev)
-        self.assertEqual(result["is_reminder_on"], True)
+        self.assertTrue(result["is_reminder_on"])
 
     def test_isReminderOn_alias(self):
         ev = {"subject": "Meeting", "isReminderOn": True}
         result = normalize_event(ev)
-        self.assertEqual(result["is_reminder_on"], True)
+        self.assertTrue(result["is_reminder_on"])
 
     def test_reminder_string_off(self):
         for val in ["off", "none", "no", "false", "0"]:
             ev = {"subject": "Meeting", "reminder": val}
             result = normalize_event(ev)
-            self.assertEqual(result["is_reminder_on"], False, f"Failed for: {val}")
+            self.assertFalse(result["is_reminder_on"], f"Failed for: {val}")
 
     def test_reminder_string_on(self):
         for val in ["on", "yes", "true", "1"]:
             ev = {"subject": "Meeting", "reminder": val}
             result = normalize_event(ev)
-            self.assertEqual(result["is_reminder_on"], True, f"Failed for: {val}")
+            self.assertTrue(result["is_reminder_on"], f"Failed for: {val}")
 
     def test_reminder_minutes(self):
         ev = {"subject": "Meeting", "reminder_minutes": 15}

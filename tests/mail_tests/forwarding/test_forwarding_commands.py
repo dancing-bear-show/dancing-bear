@@ -18,8 +18,6 @@ from tests.mail_tests.fixtures import (
     make_mock_mail_context,
 )
 
-# Alias for SimpleNamespace usage in one test
-from types import SimpleNamespace
 
 
 class TestRunForwardingList(unittest.TestCase):
@@ -235,12 +233,7 @@ class TestRunForwardingEnable(unittest.TestCase):
         mock_ctx_cls.from_args.return_value = make_mock_mail_context(client)
 
         # Args without disposition attribute
-        args = SimpleNamespace(
-            credentials=None,
-            token=None,
-            profile=None,
-            email="verified@example.com",
-        )
+        args = make_args(email="verified@example.com")
         result = run_forwarding_enable(args)
 
         self.assertEqual(result, 0)

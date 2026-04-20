@@ -6,6 +6,18 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
+def _make_outlook_args(**kwargs) -> SimpleNamespace:
+    """Build a SimpleNamespace with common Outlook test auth defaults."""
+    defaults = {
+        "profile": None,
+        "client_id": "dummy",
+        "tenant": "consumers",
+        "token": None,
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
 class TestScheduleVerifySync(unittest.TestCase):
 
     def _write_plan(self, tmpdir: Path, yaml_text: str) -> Path:
@@ -41,13 +53,13 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def list_events_in_range(self, params):
                     return occ
 
-            args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
+            args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa.cmd_verify(args)
@@ -78,13 +90,13 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def list_events_in_range(self, params):
                     return occ
 
-            args = SimpleNamespace(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", profile=None, client_id="dummy", tenant="consumers", token=None)
+            args = _make_outlook_args(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa.cmd_verify(args)
@@ -120,7 +132,7 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def ensure_calendar(self, name: str) -> str:
@@ -128,7 +140,7 @@ class TestScheduleVerifySync(unittest.TestCase):
                 def list_events_in_range(self, params):
                     return occ
 
-            args = SimpleNamespace(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False, profile=None, client_id="dummy", tenant="consumers", token=None)
+            args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False)
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa.cmd_sync(args)
@@ -150,13 +162,13 @@ class TestScheduleVerifySync(unittest.TestCase):
 
             class FakeOutlook:
                 def __init__(self, *a, **k):
-                    pass
+                    pass  # intentionally empty stub - no init logic needed for fake
                 def authenticate(self):
                     return None
                 def list_events_in_range(self, params):
                     return evs
 
-            args = SimpleNamespace(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out), profile=None, client_id="dummy", tenant="consumers", token=None)
+            args = _make_outlook_args(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out))
             buf = io.StringIO()
             with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
                 rc = sa.cmd_export(args)

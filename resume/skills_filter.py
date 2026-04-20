@@ -19,19 +19,30 @@ def _extract_item_name(item: Any) -> Optional[str]:
     return None
 
 
-def _flatten_keywords(spec: Dict[str, Any]) -> List[str]:
-    """Extract all keywords from a keyword spec."""
+def _flatten_tier_keywords(spec: Dict[str, Any]) -> List[str]:
+    """Extract keywords from required/preferred/nice tiers."""
     out: List[str] = []
     for tier in ("required", "preferred", "nice"):
         for item in spec.get(tier, []) or []:
             if (name := _extract_item_name(item)):
                 out.append(name)
+    return out
+
+
+def _flatten_category_keywords(spec: Dict[str, Any]) -> List[str]:
+    """Extract keywords from category sections."""
+    out: List[str] = []
     cats = spec.get("categories") or {}
     for _, lst in (cats.items() if isinstance(cats, dict) else []):
         for item in lst or []:
             if (name := _extract_item_name(item)):
                 out.append(name)
     return out
+
+
+def _flatten_keywords(spec: Dict[str, Any]) -> List[str]:
+    """Extract all keywords from a keyword spec."""
+    return _flatten_tier_keywords(spec) + _flatten_category_keywords(spec)
 
 
 def filter_skills_by_keywords(
@@ -63,26 +74,7 @@ def filter_skills_by_keywords(
     groups = data.get("skills_groups") or []
 
     if groups:
-        new_groups = []
-        for g in groups:
-            title = g.get("title")
-            items = g.get("items") or []
-            keep_items = []
-            for it in items:
-                if isinstance(it, dict):
-                    name = it.get("name") or it.get("title") or it.get("label") or ""
-                    desc = it.get("desc") or it.get("description") or ""
-                    text = f"{name} {desc}".strip()
-                else:
-                    text = str(it)
-
-                # Match using KeywordMatcher (substring match, normalized)
-                if matcher.matches_any(text, expanded, expand_synonyms=False):
-                    keep_items.append(it)
-
-            if keep_items:
-                new_groups.append({"title": title, "items": keep_items})
-        out["skills_groups"] = new_groups
+        out["skills_groups"] = _filter_skill_groups(groups, matcher, expanded)
     else:
         skills = [str(s) for s in (data.get("skills") or [])]
         out["skills"] = [
@@ -91,3 +83,27 @@ def filter_skills_by_keywords(
         ]
 
     return out
+
+
+def _item_text(it: Any) -> str:
+    """Extract searchable text from a skill item."""
+    if isinstance(it, dict):
+        name = it.get("name") or it.get("title") or it.get("label") or ""
+        desc = it.get("desc") or it.get("description") or ""
+        return f"{name} {desc}".strip()
+    return str(it)
+
+
+def _filter_skill_groups(groups: List[Any], matcher: "KeywordMatcher", expanded: List[str]) -> List[Dict[str, Any]]:
+    """Filter skill groups to only items matching expanded keywords."""
+    new_groups = []
+    for g in groups:
+        title = g.get("title")
+        items = g.get("items") or []
+        keep_items = [
+            it for it in items
+            if matcher.matches_any(_item_text(it), expanded, expand_synonyms=False)
+        ]
+        if keep_items:
+            new_groups.append({"title": title, "items": keep_items})
+    return new_groups

@@ -30,7 +30,7 @@ def _iter_texts(corpus_dir: str | os.PathLike[str]) -> Iterable[str]:
 
 
 def _tokenize(text: str) -> List[str]:
-    return re.findall(r"[A-Za-z][A-Za-z0-9+_.-]{1,}", text)
+    return re.findall(r"[A-Za-z][A-Za-z0-9+_.-]+", text)
 
 
 def _sentences(text: str) -> List[str]:

@@ -134,16 +134,16 @@ class StyleManager:
         """Apply background shading to a paragraph."""
         try:
             p = paragraph._p  # low-level OXML paragraph
-            pPr = p.get_or_add_pPr()
+            p_pr = p.get_or_add_pPr()
             shd = OxmlElement('w:shd')
             shd.set(qn('w:val'), 'clear')
             shd.set(qn('w:color'), 'auto')
             shd.set(qn('w:fill'), StyleManager.hex_fill(bg_rgb))
             # Remove existing shd if present to avoid duplicates
-            for child in list(pPr):
+            for child in list(p_pr):
                 if child.tag == qn('w:shd'):
-                    pPr.remove(child)
-            pPr.append(shd)
+                    p_pr.remove(child)
+            p_pr.append(shd)
         except Exception:  # nosec B110 - shading failure
             pass
 

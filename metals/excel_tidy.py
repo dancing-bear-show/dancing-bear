@@ -63,6 +63,38 @@ def _set_chart_data(wb: WorkbookContext, sheet: str, chart_id: str, addr: str) -
     requests.post(url, headers=wb.headers(), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=DEFAULT_REQUEST_TIMEOUT)
 
 
+def _tidy_default_sheets(wb: WorkbookContext, allowed: set) -> None:
+    """Remove default/untitled sheets not in the allowed set."""
+    for s in _list_sheets(wb):
+        name = s.get('name') or ''
+        low = name.lower()
+        if name not in allowed and (low.startswith('sheet') or name.strip() == ''):
+            _delete_sheet(wb, name)
+
+
+def _tidy_profit_charts(wb: WorkbookContext, profit: str) -> None:
+    """Set titles and data ranges for the profit sheet charts."""
+    charts = _list_charts(wb, profit)
+    if not charts:
+        return
+    rows = max(_used_rows(wb, profit), 2)
+    _configs = [
+        (0, 'Portfolio PnL (CAD)', 'Date', 'C$', f"J2:J{rows}"),
+        (1, 'Gold: Spot vs Avg (C$/oz)', 'Date', 'C$/oz', f"C2:D{rows}"),
+        (2, 'Silver: Spot vs Avg (C$/oz)', 'Date', 'C$/oz', f"G2:H{rows}"),
+    ]
+    for idx, title, cat, val, data_range in _configs:
+        if idx >= len(charts):
+            break
+        try:
+            ch = charts[idx]
+            _set_chart_title(wb, profit, ch['id'], title)
+            _set_axis_titles(wb, profit, ch['id'], category=cat, value=val)
+            _set_chart_data(wb, profit, ch['id'], data_range)
+        except Exception:  # nosec B110 - non-critical chart update
+            pass
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Tidy metals workbook: set chart titles, fix ranges, remove unnamed sheets")
     p.add_argument("--profile", default="outlook_personal")
@@ -89,51 +121,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     wb = WorkbookContext(client, getattr(args, 'drive_id'), getattr(args, 'item_id'))
 
-    # Remove untitled/default sheets (anything not in allowed set and with default-like names)
-    allowed = {getattr(args, 'summary_sheet'), getattr(args, 'gold_sheet'), getattr(args, 'silver_sheet'), getattr(args, 'all_sheet'), getattr(args, 'profit_sheet')}
-    sheets = _list_sheets(wb)
-    for s in sheets:
-        name = s.get('name') or ''
-        low = name.lower()
-        if name not in allowed and (low.startswith('sheet') or name.strip() == ''):
-            _delete_sheet(wb, name)
+    allowed = {
+        getattr(args, 'summary_sheet'), getattr(args, 'gold_sheet'),
+        getattr(args, 'silver_sheet'), getattr(args, 'all_sheet'),
+        getattr(args, 'profit_sheet'),
+    }
+    _tidy_default_sheets(wb, allowed)
 
-    # Tidy Summary chart titles
     sum_name = getattr(args, 'summary_sheet')
     charts = _list_charts(wb, sum_name)
     if charts:
-        # First chart is Totals by Metal
         _set_chart_title(wb, sum_name, charts[0]['id'], 'Totals by Metal')
         _set_axis_titles(wb, sum_name, charts[0]['id'], category=None, value=None)
 
-    # Tidy Profit charts (Portfolio PnL; Gold spot vs avg; Silver spot vs avg)
-    profit = getattr(args, 'profit_sheet')
-    charts = _list_charts(wb, profit)
-    if charts:
-        rows = max(_used_rows(wb, profit), 2)
-        try:
-            ch = charts[0]
-            _set_chart_title(wb, profit, ch['id'], 'Portfolio PnL (CAD)')
-            _set_axis_titles(wb, profit, ch['id'], category='Date', value='C$')
-            _set_chart_data(wb, profit, ch['id'], f"J2:J{rows}")
-        except Exception:  # nosec B110 - non-critical chart update
-            pass
-        if len(charts) > 1:
-            try:
-                ch = charts[1]
-                _set_chart_title(wb, profit, ch['id'], 'Gold: Spot vs Avg (C$/oz)')
-                _set_axis_titles(wb, profit, ch['id'], category='Date', value='C$/oz')
-                _set_chart_data(wb, profit, ch['id'], f"C2:D{rows}")
-            except Exception:  # nosec B110 - non-critical chart update
-                pass
-        if len(charts) > 2:
-            try:
-                ch = charts[2]
-                _set_chart_title(wb, profit, ch['id'], 'Silver: Spot vs Avg (C$/oz)')
-                _set_axis_titles(wb, profit, ch['id'], category='Date', value='C$/oz')
-                _set_chart_data(wb, profit, ch['id'], f"G2:H{rows}")
-            except Exception:  # nosec B110 - non-critical chart update
-                pass
+    _tidy_profit_charts(wb, getattr(args, 'profit_sheet'))
 
     print('tidied workbook charts and sheets')
     return 0

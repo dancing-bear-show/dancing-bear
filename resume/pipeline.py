@@ -69,7 +69,7 @@ class FilterPipeline:
         """
         if job_path:
             try:
-                spec, syn = build_keyword_spec(load_job_config(str(job_path)))
+                _, syn = build_keyword_spec(load_job_config(str(job_path)))
                 if syn:
                     self._synonyms.update(syn)
             except Exception:  # nosec B110 - job config load failure

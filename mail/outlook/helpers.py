@@ -34,6 +34,19 @@ def norm_label_color_outlook(color: Optional[dict]) -> Optional[dict]:
     return None
 
 
+def _find_outlook_account(cfg_path: Optional[str], acc_name: Optional[str]) -> Optional[dict]:
+    """Load accounts config and find the best matching Outlook account."""
+    if not cfg_path or not os.path.exists(cfg_path):
+        return None
+    from ..yamlio import load_config
+    accts = (load_config(cfg_path) or {}).get("accounts") or []
+    if acc_name:
+        chosen = next((a for a in accts if a.get("name") == acc_name), None)
+        if chosen:
+            return chosen
+    return next((a for a in accts if (a.get("provider") or "").lower() == "outlook"), None)
+
+
 def resolve_outlook_args(args) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """Resolve Outlook client credentials from args, env, and config files.
 
@@ -47,38 +60,22 @@ def resolve_outlook_args(args) -> Tuple[Optional[str], Optional[str], Optional[s
         getattr(args, "token", None),
     )
     cache_dir = getattr(args, "cache_dir", None) or getattr(args, "cache", None)
+    cfg_path = getattr(args, "accounts_config", None)
+    acc_name = getattr(args, "account", None)
 
     if not client_id:
-        cfg_path = getattr(args, "accounts_config", None)
-        acc_name = getattr(args, "account", None)
-        if cfg_path and os.path.exists(cfg_path):
-            from ..yamlio import load_config
-            accts = (load_config(cfg_path) or {}).get("accounts") or []
-            chosen = None
-            if acc_name:
-                chosen = next((a for a in accts if a.get("name") == acc_name), None)
-            if not chosen:
-                chosen = next((a for a in accts if (a.get("provider") or "").lower() == "outlook"), None)
-            if chosen:
-                client_id = chosen.get("client_id") or chosen.get("application_id") or chosen.get("credentials")
-                tenant = chosen.get("tenant") or tenant
-                token_path = token_path or chosen.get("token")
-                cache_dir = chosen.get("cache") or cache_dir
+        chosen = _find_outlook_account(cfg_path, acc_name)
+        if chosen:
+            client_id = chosen.get("client_id") or chosen.get("application_id") or chosen.get("credentials")
+            tenant = chosen.get("tenant") or tenant
+            token_path = token_path or chosen.get("token")
+            cache_dir = chosen.get("cache") or cache_dir
 
     # Try picking up cache from accounts config even if client_id was set via profile
     if not cache_dir:
-        cfg_path = getattr(args, "accounts_config", None)
-        acc_name = getattr(args, "account", None)
-        if cfg_path and os.path.exists(cfg_path):
-            from ..yamlio import load_config
-            accts = (load_config(cfg_path) or {}).get("accounts") or []
-            chosen = None
-            if acc_name:
-                chosen = next((a for a in accts if a.get("name") == acc_name), None)
-            if not chosen:
-                chosen = next((a for a in accts if (a.get("provider") or "").lower() == "outlook"), None)
-            if chosen:
-                cache_dir = chosen.get("cache") or cache_dir
+        chosen = _find_outlook_account(cfg_path, acc_name)
+        if chosen:
+            cache_dir = chosen.get("cache") or cache_dir
 
     return client_id, tenant, token_path, cache_dir
 

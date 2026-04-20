@@ -101,12 +101,12 @@ class TestEmitAgenticContext(unittest.TestCase):
 
     def test_accepts_fmt_parameter(self):
         with capture_stdout():
-            rc = emit_agentic_context(fmt="yaml")
+            rc = emit_agentic_context(_fmt="yaml")
         self.assertEqual(rc, 0)
 
     def test_accepts_compact_parameter(self):
         with capture_stdout():
-            rc = emit_agentic_context(compact=True)
+            rc = emit_agentic_context(_compact=True)
         self.assertEqual(rc, 0)
 
 

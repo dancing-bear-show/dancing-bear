@@ -108,14 +108,14 @@ class TestEmitAgenticContext(unittest.TestCase):
         """Test accepts format parameter (best-effort)."""
         captured = io.StringIO()
         with patch("sys.stdout", captured):
-            result = agentic.emit_agentic_context(fmt="yaml")
+            result = agentic.emit_agentic_context(_fmt="yaml")
         self.assertEqual(result, 0)
 
     def test_accepts_compact_param(self):
         """Test accepts compact parameter (best-effort)."""
         captured = io.StringIO()
         with patch("sys.stdout", captured):
-            result = agentic.emit_agentic_context(compact=True)
+            result = agentic.emit_agentic_context(_compact=True)
         self.assertEqual(result, 0)
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 from core.pipeline import Processor, ResultEnvelope
@@ -252,7 +252,7 @@ def _resolve_destination_folder(
     folder_paths: Dict[str, str],
     client: Any,
     dry_run: bool,
-) -> str:
+) -> Optional[str]:
     """Resolve destination folder ID for sweep operation."""
     if action_spec.get("moveToFolder"):
         pth = str(action_spec.get("moveToFolder"))
@@ -297,6 +297,27 @@ class OutlookRulesListProcessor(Processor[OutlookRulesListPayload, ResultEnvelop
             )
 
 
+def _export_rule_entry(r: dict, id_to_name: dict, folder_rev: dict) -> dict:
+    """Convert a raw rule to export format."""
+    crit = r.get("criteria") or {}
+    act = r.get("action") or {}
+    entry: dict = {"match": {}}
+    for k in ("from", "to", "subject"):
+        if crit.get(k):
+            entry["match"][k] = crit.get(k)
+    a: dict = {}
+    add_ids = act.get("addLabelIds") or []
+    if add_ids:
+        a["add"] = [id_to_name.get(i) or i for i in add_ids]
+    if act.get("forward"):
+        a["forward"] = act.get("forward")
+    if act.get("moveToFolderId"):
+        a["moveToFolder"] = folder_rev.get(act.get("moveToFolderId")) or act.get("moveToFolderId")
+    if a:
+        entry["action"] = a
+    return entry
+
+
 class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnvelope[OutlookRulesExportResult]]):
     """Export Outlook inbox rules to YAML."""
 
@@ -305,28 +326,9 @@ class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnv
             client = payload.client
             rules = client.list_filters(use_cache=payload.use_cache, ttl=payload.cache_ttl)
             id_to_name = {v: k for k, v in client.get_label_id_map().items() if v}
-            folder_path_map = client.get_folder_path_map() or {}
-            folder_rev = {fid: path for path, fid in folder_path_map.items()}
+            folder_rev = {fid: path for path, fid in (client.get_folder_path_map() or {}).items()}
 
-            out_filters = []
-            for r in rules:
-                crit = r.get("criteria") or {}
-                act = r.get("action") or {}
-                entry = {"match": {}}
-                for k in ("from", "to", "subject"):
-                    if crit.get(k):
-                        entry["match"][k] = crit.get(k)
-                a = {}
-                add_ids = act.get("addLabelIds") or []
-                if add_ids:
-                    a["add"] = [id_to_name.get(i) or i for i in add_ids]
-                if act.get("forward"):
-                    a["forward"] = act.get("forward")
-                if act.get("moveToFolderId"):
-                    a["moveToFolder"] = folder_rev.get(act.get("moveToFolderId")) or act.get("moveToFolderId")
-                if a:
-                    entry["action"] = a
-                out_filters.append(entry)
+            out_filters = [_export_rule_entry(r, id_to_name, folder_rev) for r in rules]
 
             data = {"filters": out_filters}
             from ..config_resolver import expand_path
@@ -735,26 +737,7 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
 
             desired = normalize_labels_for_outlook(labels)
             existing = {c.get("name"): c for c in client.list_labels()}
-
-            created = 0
-            skipped = 0
-            for entry in desired:
-                name = entry.get("name") if isinstance(entry, dict) else entry
-                if not name:
-                    continue
-                if name in existing:
-                    skipped += 1
-                    continue
-                if payload.dry_run:
-                    created += 1
-                else:
-                    try:
-                        color = entry.get("color") if isinstance(entry, dict) else None
-                        client.create_label(name, color=color)
-                        created += 1
-                    except Exception:  # nosec B110 - category creation failure
-                        pass
-
+            created, skipped = self._sync_categories(client, desired, existing, payload.dry_run)
             return ResultEnvelope(
                 status="success",
                 payload=OutlookCategoriesSyncResult(created=created, skipped=skipped),
@@ -765,6 +748,40 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
                 payload=None,
                 diagnostics={"error": str(exc), "code": 1},
             )
+
+    def _create_one_category(self, client, entry, dry_run: bool) -> bool:
+        """Create a single category; return True if created."""
+        if dry_run:
+            return True
+        try:
+            color = entry.get("color") if isinstance(entry, dict) else None
+            client.create_label(entry if isinstance(entry, str) else entry.get("name"), color=color)
+            return True
+        except Exception:  # nosec B110 - category creation failure
+            return False
+
+    def _sync_categories(self, client, desired: list, existing: dict, dry_run: bool):
+        """Sync category entries; return (created, skipped)."""
+        created = skipped = 0
+        for entry in desired:
+            name = entry.get("name") if isinstance(entry, dict) else entry
+            if not name:
+                continue
+            if name in existing:
+                skipped += 1
+                continue
+            if self._create_one_category(client, entry, dry_run):
+                created += 1
+        return created, skipped
+
+
+def _entry_name(entry) -> Optional[str]:
+    """Extract the name from a label entry (dict or str)."""
+    if isinstance(entry, dict):
+        return entry.get("name")
+    if isinstance(entry, str):
+        return entry
+    return None
 
 
 class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnvelope[OutlookFoldersSyncResult]]):
@@ -785,28 +802,7 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
                 )
 
             path_map = client.get_folder_path_map()
-            created = 0
-            skipped = 0
-
-            for entry in labels:
-                name = entry.get("name") if isinstance(entry, dict) else entry if isinstance(entry, str) else None
-                if not name:
-                    continue
-                if str(name).startswith("["):
-                    skipped += 1
-                    continue
-                if name in path_map:
-                    skipped += 1
-                    continue
-
-                if payload.dry_run:
-                    created += 1
-                else:
-                    fid = client.ensure_folder_path(name)
-                    if fid:
-                        path_map[name] = fid
-                        created += 1
-
+            created, skipped = self._sync_folders(client, labels, path_map, payload.dry_run)
             return ResultEnvelope(
                 status="success",
                 payload=OutlookFoldersSyncResult(created=created, skipped=skipped),
@@ -817,6 +813,26 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
                 payload=None,
                 diagnostics={"error": str(exc), "code": 1},
             )
+
+    def _sync_folders(self, client, labels: list, path_map: dict, dry_run: bool):
+        """Sync folder entries; return (created, skipped)."""
+        created = skipped = 0
+        for entry in labels:
+            name = _entry_name(entry)
+            if not name or str(name).startswith("["):
+                skipped += 1 if name else 0
+                continue
+            if name in path_map:
+                skipped += 1
+                continue
+            if dry_run:
+                created += 1
+            else:
+                fid = client.ensure_folder_path(name)
+                if fid:
+                    path_map[name] = fid
+                    created += 1
+        return created, skipped
 
 
 class OutlookCalendarAddProcessor(Processor[OutlookCalendarAddPayload, ResultEnvelope[OutlookCalendarAddResult]]):

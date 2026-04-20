@@ -151,10 +151,11 @@ class TestExtractAmounts(unittest.TestCase):
         self.assertEqual(result.gold_oz, 0.5)
 
     def test_does_not_match_10_from_1_10(self):
-        # Ensure "1/10 oz" doesn't also match as "10 oz"
+        # Ensure "1/10 oz" doesn't also match as "10 oz" (would give 10.0 instead of 0.1)
         text = "1/10 oz Gold Eagle"
         result = extract_amounts(text)
         self.assertAlmostEqual(result.gold_oz, 0.1, places=3)
+        self.assertNotAlmostEqual(result.gold_oz, 10.0, places=3)
 
 
 class TestExtractAmountsVendorPatterns(unittest.TestCase):

@@ -37,7 +37,7 @@ class TestDedupFlow(unittest.TestCase):
                                prefer_delete_nonstandard=False, keep_newest=False, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
         with capture_stdout() as buf:
-            rc = run_outlook_dedup(args)
+            rc = run_outlook_dedup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn('Found 1 duplicate groups', out)
@@ -49,7 +49,7 @@ class TestDedupFlow(unittest.TestCase):
                                prefer_delete_nonstandard=False, keep_newest=False, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
         with capture_stdout() as buf:
-            rc = run_outlook_dedup(args)
+            rc = run_outlook_dedup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         self.assertIn('Deleted', out)
@@ -74,7 +74,7 @@ class TestDedupFlow(unittest.TestCase):
                                prefer_delete_nonstandard=True, keep_newest=True, delete_standardized=False,
                                profile=None, client_id=None, tenant=None, token=None)
         with capture_stdout() as buf:
-            rc = run_outlook_dedup(args)
+            rc = run_outlook_dedup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         out = buf.getvalue()
         self.assertEqual(rc, 0, msg=out)
         # Should choose to delete the non-standard master (A)

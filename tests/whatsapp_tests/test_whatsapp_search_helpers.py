@@ -123,7 +123,7 @@ class TestBuildWhereWithSinceDays(unittest.TestCase):
 
     def test_since_days_zero_ignored(self):
         """Test since_days=0 is ignored."""
-        where, params = search._build_where(
+        where, _params = search._build_where(
             contains=[],
             match_all=False,
             contact=None,
@@ -134,7 +134,7 @@ class TestBuildWhereWithSinceDays(unittest.TestCase):
 
     def test_since_days_negative_ignored(self):
         """Test negative since_days is ignored."""
-        where, params = search._build_where(
+        where, _params = search._build_where(
             contains=[],
             match_all=False,
             contact=None,
@@ -145,7 +145,7 @@ class TestBuildWhereWithSinceDays(unittest.TestCase):
 
     def test_from_me_false_condition(self):
         """Test from_me=False adds ZISFROMME=0."""
-        where, params = search._build_where(
+        where, _params = search._build_where(
             contains=[],
             match_all=False,
             contact=None,
@@ -189,8 +189,8 @@ class TestWhatsAppSearchHelpers(unittest.TestCase):
         ]
         raw = search.format_rows_json(rows)
         data = json.loads(raw)
-        self.assertEqual(data[0]["from_me"], True)
-        self.assertEqual(data[1]["from_me"], False)
+        self.assertTrue(data[0]["from_me"])
+        self.assertFalse(data[1]["from_me"])
         self.assertEqual(data[0]["partner"], "Alice")
 
 

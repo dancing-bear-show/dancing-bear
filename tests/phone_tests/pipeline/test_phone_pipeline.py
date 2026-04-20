@@ -424,7 +424,7 @@ class PhonePipelineTests(TestCase):
             env = IdentityVerifyProcessor().process(IdentityVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.cert_subject, "CN=TestOrg")  # type: ignore[union-attr]
-        self.assertEqual(env.payload.org_match, True)  # type: ignore[union-attr]
+        self.assertTrue(env.payload.org_match)  # type: ignore[union-attr]
 
     def test_identity_verify_processor_no_p12(self):
         with patch("phone.device.read_credentials_ini", return_value=(None, {})), \

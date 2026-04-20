@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
-from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
 
 from .io_utils import safe_import
 from .docx_styles import (
@@ -18,6 +17,114 @@ from .docx_styles import (
     _is_dark,
     _format_link_display,
 )
+
+
+STYLE_HEADING_1 = "Heading 1"
+
+
+def _apply_h1_color(doc, h1_color, h1_bg) -> None:
+    """Apply color to Heading 1 style, auto-contrasting if needed."""
+    rgb = _parse_hex_color(h1_color)
+    bg = _parse_hex_color(h1_bg)
+    if (not rgb) and bg:
+        rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
+    if rgb:
+        doc.styles[STYLE_HEADING_1].font.color.rgb = RGBColor(*rgb)
+
+
+def _apply_font_styles(doc, page_cfg: Dict[str, Any]) -> None:
+    """Apply font sizes and colors to Normal, Heading 1, and Title styles."""
+    body_pt = float(page_cfg.get("body_pt", 10.5))
+    h1_pt = float(page_cfg.get("h1_pt", 12))
+    title_pt = float(page_cfg.get("title_pt", 14))
+    h1_color = page_cfg.get("h1_color") or page_cfg.get("heading_color")
+    h1_bg = page_cfg.get("h1_bg") or page_cfg.get("heading_bg")
+    title_color = page_cfg.get("title_color")
+
+    doc.styles["Normal"].font.size = Pt(body_pt)
+
+    if STYLE_HEADING_1 in doc.styles:
+        doc.styles[STYLE_HEADING_1].font.size = Pt(h1_pt)
+        doc.styles[STYLE_HEADING_1].font.bold = True
+        _apply_h1_color(doc, h1_color, h1_bg)
+
+    if "Title" in doc.styles:
+        doc.styles["Title"].font.size = Pt(title_pt)
+        doc.styles["Title"].font.bold = True
+        rgbt = _parse_hex_color(title_color)
+        if rgbt:
+            doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
+
+
+def apply_page_styles_to_doc(doc, page_cfg: Dict[str, Any]) -> None:
+    """Apply compact page styles (margins and fonts) to a document object.
+
+    Shared implementation used by both ResumeWriterBase and legacy module helpers.
+    """
+    if not page_cfg.get("compact"):
+        return
+
+    try:
+        sec = doc.sections[0]
+        m = float(page_cfg.get("margins_in", 0.5))
+        sec.top_margin = Inches(m)
+        sec.bottom_margin = Inches(m)
+        sec.left_margin = Inches(m)
+        sec.right_margin = Inches(m)
+    except Exception:  # nosec B110 - non-critical margin setting failure
+        pass
+
+    try:
+        _apply_font_styles(doc, page_cfg)
+    except Exception:  # nosec B110 - non-critical font/style setting failure
+        pass
+
+
+def _extract_locations(data: Dict[str, Any]) -> List[str]:
+    """Extract unique non-empty location strings from experience entries."""
+    locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
+    return list(dict.fromkeys([loc for loc in locs if loc]))
+
+
+def _set_category(cp, locs: List[str]) -> None:
+    """Set category on core properties, silently ignoring failures."""
+    try:
+        cp.category = "; ".join(locs)
+    except Exception:  # nosec B110 - non-critical category metadata setting
+        pass
+
+
+def set_document_metadata_on_doc(
+    doc, data: Dict[str, Any], page_cfg: Dict[str, Any]
+) -> None:
+    """Set document core properties (title, author, keywords).
+
+    Shared implementation used by both ResumeWriterBase and legacy module helpers.
+    """
+    try:
+        name = data.get("name") or ""
+        contact = data.get("contact") or {}
+        email = data.get("email") or contact.get("email") or ""
+        phone = data.get("phone") or contact.get("phone") or ""
+        location = data.get("location") or contact.get("location") or ""
+
+        cp = doc.core_properties
+        contact_line = " | ".join([p for p in [email, phone, location] if p])
+        cp.title = " - ".join([p for p in [name, contact_line] if p]) or "Resume"
+        cp.subject = "Resume"
+        if name:
+            cp.author = name
+
+        kw = [k for k in [name, email, phone, location] if k]
+        if bool(page_cfg.get("metadata_include_locations", True)):
+            uniq_locs = _extract_locations(data)
+            kw.extend(uniq_locs)
+            if uniq_locs:
+                _set_category(cp, uniq_locs)
+
+        cp.keywords = "; ".join(kw)
+    except Exception:  # nosec B110 - non-critical metadata setting failure
+        pass
 
 
 class ResumeWriterBase(ABC):
@@ -68,79 +175,11 @@ class ResumeWriterBase(ABC):
 
     def _apply_page_styles(self) -> None:
         """Apply compact page styles (margins and fonts)."""
-        if not self.page_cfg.get("compact"):
-            return
-
-        try:
-            sec = self.doc.sections[0]
-            m = float(self.page_cfg.get("margins_in", 0.5))
-            sec.top_margin = Inches(m)
-            sec.bottom_margin = Inches(m)
-            sec.left_margin = Inches(m)
-            sec.right_margin = Inches(m)
-        except Exception:  # nosec B110 - non-critical margin setting failure
-            pass
-
-        try:
-            body_pt = float(self.page_cfg.get("body_pt", 10.5))
-            h1_pt = float(self.page_cfg.get("h1_pt", 12))
-            title_pt = float(self.page_cfg.get("title_pt", 14))
-            h1_color = self.page_cfg.get("h1_color") or self.page_cfg.get("heading_color")
-            h1_bg = self.page_cfg.get("h1_bg") or self.page_cfg.get("heading_bg")
-            title_color = self.page_cfg.get("title_color")
-
-            self.doc.styles["Normal"].font.size = Pt(body_pt)
-
-            if "Heading 1" in self.doc.styles:
-                self.doc.styles["Heading 1"].font.size = Pt(h1_pt)
-                self.doc.styles["Heading 1"].font.bold = True
-                rgb = _parse_hex_color(h1_color)
-                bg = _parse_hex_color(h1_bg)
-                if (not rgb) and bg:
-                    rgb = (255, 255, 255) if _is_dark(bg) else (0, 0, 0)
-                if rgb:
-                    self.doc.styles["Heading 1"].font.color.rgb = RGBColor(*rgb)
-
-            if "Title" in self.doc.styles:
-                self.doc.styles["Title"].font.size = Pt(title_pt)
-                self.doc.styles["Title"].font.bold = True
-                rgbt = _parse_hex_color(title_color)
-                if rgbt:
-                    self.doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
-        except Exception:  # nosec B110 - non-critical font/style setting failure
-            pass
+        apply_page_styles_to_doc(self.doc, self.page_cfg)
 
     def _set_document_metadata(self) -> None:
         """Set document core properties (title, author, keywords)."""
-        try:
-            name = self.data.get("name") or ""
-            contact = self.data.get("contact") or {}
-            email = self.data.get("email") or contact.get("email") or ""
-            phone = self.data.get("phone") or contact.get("phone") or ""
-            location = self.data.get("location") or contact.get("location") or ""
-
-            cp = self.doc.core_properties
-            contact_line = " | ".join([p for p in [email, phone, location] if p])
-            cp.title = " - ".join([p for p in [name, contact_line] if p]) or "Resume"
-            cp.subject = "Resume"
-            if name:
-                cp.author = name
-
-            kw = [k for k in [name, email, phone, location] if k]
-            include_exp_locs = bool(self.page_cfg.get("metadata_include_locations", True))
-
-            if include_exp_locs:
-                uniq_locs = self._extract_experience_locations()
-                kw.extend(uniq_locs)
-                if uniq_locs:
-                    try:
-                        cp.category = "; ".join(uniq_locs)
-                    except Exception:  # nosec B110 - non-critical category metadata setting
-                        pass
-
-            cp.keywords = "; ".join(kw)
-        except Exception:  # nosec B110 - non-critical metadata setting failure
-            pass
+        set_document_metadata_on_doc(self.doc, self.data, self.page_cfg)
 
     def _extract_experience_locations(self) -> List[str]:
         """Extract unique location strings from experience entries."""
@@ -175,13 +214,7 @@ class ResumeWriterBase(ABC):
 
     def _center_paragraph(self, para) -> None:
         """Center a paragraph and remove indents."""
-        try:
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            pf = para.paragraph_format
-            pf.left_indent = Pt(0)
-            pf.first_line_indent = Pt(0)
-        except Exception:  # nosec B110 - non-critical paragraph alignment failure
-            pass
+        self.styles.center_paragraph(para)
 
     def _add_colored_run(self, paragraph, text: str, hex_color: Optional[str], **kwargs) -> Any:
         """Add a run with optional color and formatting."""

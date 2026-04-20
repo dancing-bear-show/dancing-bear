@@ -38,7 +38,7 @@ class TestGmailScanFlows(unittest.TestCase):
             args = SimpleNamespace(from_text='richmondhill.ca', days=365, pages=1, page_size=10, query=None, out=tf.name,
                                    profile=None, credentials=None, token=None, cache=None, calendar=None)
             with capture_stdout() as buf:
-                rc = run_gmail_scan_receipts(args)
+                rc = run_gmail_scan_receipts(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
             out = buf.getvalue().lower()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('wrote 1 events to', out)
@@ -67,7 +67,7 @@ class TestGmailScanFlows(unittest.TestCase):
             args = SimpleNamespace(from_text='active rh', days=60, pages=1, page_size=10, query=None, inbox_only=False, out=None,
                                    profile=None, credentials=None, token=None, cache=None, calendar=None)
             with capture_stdout() as buf:
-                rc = run_gmail_scan_classes(args)
+                rc = run_gmail_scan_classes(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
             out = buf.getvalue().lower()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('candidate recurring', out)
@@ -99,7 +99,7 @@ class TestGmailScanFlows(unittest.TestCase):
             args = SimpleNamespace(days=365, pages=1, page_size=10, query=None, out=tf.name,
                                    profile=None, credentials=None, token=None, cache=None, calendar=None, from_text=None)
             with capture_stdout() as buf:
-                rc = run_gmail_scan_activerh(args)
+                rc = run_gmail_scan_activerh(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
             out = buf.getvalue().lower()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('wrote 1 events to', out)

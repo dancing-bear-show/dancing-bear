@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -30,10 +30,25 @@ class LabelsPlanProcessor(Processor[LabelsPlanPayload, ResultEnvelope[LabelsPlan
 
     def process(self, payload: LabelsPlanPayload) -> ResultEnvelope[LabelsPlanResult]:
         existing_map = {lab.get("name", ""): lab for lab in payload.existing_labels}
+        to_create, to_update = self._compute_creates_updates(payload.desired_labels, existing_map)
+        to_delete = self._compute_deletes(payload) if payload.delete_missing else []
+        return ResultEnvelope(
+            status="success",
+            payload=LabelsPlanResult(
+                to_create=to_create,
+                to_update=to_update,
+                to_delete=to_delete,
+                show_delete=payload.delete_missing,
+            ),
+        )
+
+    def _compute_creates_updates(
+        self, desired_labels: List[Dict], existing_map: Dict
+    ) -> Tuple[List[Dict], List[LabelChange]]:
+        """Return (to_create, to_update) based on desired vs existing labels."""
         to_create: List[Dict] = []
         to_update: List[LabelChange] = []
-
-        for spec in payload.desired_labels:
+        for spec in desired_labels:
             name = spec.get("name")
             if not name:
                 continue
@@ -44,26 +59,16 @@ class LabelsPlanProcessor(Processor[LabelsPlanPayload, ResultEnvelope[LabelsPlan
             changes = _diff_label(current, spec)
             if changes:
                 to_update.append(LabelChange(name=name, changes=changes, spec=spec))
+        return to_create, to_update
 
-        to_delete: List[str] = []
-        if payload.delete_missing:
-            desired_names = {spec.get("name") for spec in payload.desired_labels if spec.get("name")}
-            for lab in payload.existing_labels:
-                if _is_system_label(lab):
-                    continue
-                name = lab.get("name")
-                if name and name not in desired_names:
-                    to_delete.append(name)
-
-        return ResultEnvelope(
-            status="success",
-            payload=LabelsPlanResult(
-                to_create=to_create,
-                to_update=to_update,
-                to_delete=to_delete,
-                show_delete=payload.delete_missing,
-            ),
-        )
+    def _compute_deletes(self, payload) -> List[str]:
+        """Return list of label names to delete (missing from desired)."""
+        desired_names = {spec.get("name") for spec in payload.desired_labels if spec.get("name")}
+        return [
+            lab.get("name")
+            for lab in payload.existing_labels
+            if not _is_system_label(lab) and lab.get("name") and lab.get("name") not in desired_names
+        ]
 
 
 @dataclass

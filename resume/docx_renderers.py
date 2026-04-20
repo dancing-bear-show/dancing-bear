@@ -18,6 +18,14 @@ class BulletRenderer:
         self.styles = StyleManager()
         self.text = TextFormatter()
 
+    def _apply_page_bullet_config(self, style, glyph):
+        """Apply page-level bullet config if style not already set."""
+        if not style and isinstance(self.page_cfg.get("bullets"), dict):
+            bulp = self.page_cfg.get("bullets") or {}
+            style = bulp.get("style") or style
+            glyph = bulp.get("glyph") or glyph
+        return style, glyph
+
     def get_bullet_config(self, sec: Optional[Dict[str, Any]]) -> tuple:
         """Determine bullet style and glyph from config.
 
@@ -33,10 +41,7 @@ class BulletRenderer:
                 glyph = bul.get("glyph") or glyph
             if sec.get("plain_bullets") is True:
                 style = "plain"
-        if not style and isinstance(self.page_cfg.get("bullets"), dict):
-            bulp = self.page_cfg.get("bullets") or {}
-            style = bulp.get("style") or style
-            glyph = bulp.get("glyph") or glyph
+        style, glyph = self._apply_page_bullet_config(style, glyph)
         return (style == "plain" or (sec and sec.get("plain_bullets") is True), glyph)
 
     def add_bullet_line(
@@ -87,7 +92,6 @@ class BulletRenderer:
         self,
         items: List[str],
         *,
-        sec: Optional[Dict[str, Any]] = None,
         keywords: Optional[List[str]] = None,
         plain: bool = True,
         glyph: str = "•",
@@ -108,6 +112,20 @@ class BulletRenderer:
             else:
                 p.add_run(it)
 
+    @staticmethod
+    def _find_earliest_keyword(lowered: str, text: str, keywords: List[str], from_idx: int):
+        """Find the earliest occurring keyword in text from from_idx. Returns (pos, matched_text) or (None, None)."""
+        match_pos = None
+        match_kw = None
+        for kw in keywords:
+            if not kw:
+                continue
+            pos = lowered.find(kw.lower(), from_idx)
+            if pos != -1 and (match_pos is None or pos < match_pos):
+                match_pos = pos
+                match_kw = text[pos:pos + len(kw)]
+        return match_pos, match_kw
+
     def _bold_keywords(self, paragraph, text: str, keywords: List[str]):
         """Add text with keywords bolded."""
         lowered = text.lower()
@@ -115,15 +133,7 @@ class BulletRenderer:
         found_any = False
 
         while idx < len(text):
-            match_pos = None
-            match_kw = None
-            for kw in keywords:
-                if not kw:
-                    continue
-                pos = lowered.find(kw.lower(), idx)
-                if pos != -1 and (match_pos is None or pos < match_pos):
-                    match_pos = pos
-                    match_kw = text[pos:pos + len(kw)]
+            match_pos, match_kw = self._find_earliest_keyword(lowered, text, keywords, idx)
 
             if match_pos is None:
                 paragraph.add_run(text[idx:])
@@ -298,7 +308,7 @@ class ListSectionRenderer:
         if lines:
             if cfg.get("bullets", True):
                 plain, glyph = self.bullets.get_bullet_config(sec)
-                self.bullets.add_bullets(lines, sec=sec, plain=plain, glyph=glyph)
+                self.bullets.add_bullets(lines, plain=plain, glyph=glyph)
             else:
                 from .docx_styles import StyleManager
                 sep = cfg.get("separator") or " • "

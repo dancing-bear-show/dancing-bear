@@ -15,6 +15,14 @@ def _coerce_str(v: Any) -> Optional[str]:
     return s if s else None
 
 
+def _tok_to_day_code(t: str, day_map: dict) -> str:
+    """Convert a day token (full name or 2-letter code) to a 2-letter code."""
+    if len(t) <= 2:
+        return t.upper()
+    code = day_map.get(t.lower())
+    return code or t[:2].upper()
+
+
 def _normalize_byday(v: Any) -> Optional[List[str]]:
     if not v:
         return None
@@ -30,13 +38,7 @@ def _normalize_byday(v: Any) -> Optional[List[str]]:
     out: List[str] = []
     seen = set()
     for t in toks:
-        tt = t.upper() if len(t) <= 2 else t.lower()
-        code = None
-        if len(t) <= 2:
-            code = tt
-        else:
-            code = DAY_MAP.get(tt, None)
-        code = code or (t[:2].upper() if len(t) > 2 else tt)
+        code = _tok_to_day_code(t, DAY_MAP)
         if code not in seen:
             out.append(code)
             seen.add(code)
@@ -60,6 +62,39 @@ def _normalize_range(ev: Dict[str, Any]) -> Optional[Dict[str, str]]:
     if until:
         out["until"] = until
     return out or None
+
+
+def _coerce_int(v: Any) -> Optional[int]:
+    """Coerce a value to int, returning None on failure."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except Exception:
+        return None
+
+
+def _normalize_exdates(raw: Any) -> Optional[List[str]]:
+    """Normalize exdates from list/tuple or comma-separated string."""
+    if isinstance(raw, (list, tuple)):
+        return [str(x).strip() for x in raw if str(x).strip()] or None
+    if isinstance(raw, str) and raw.strip():
+        return [s.strip() for s in raw.split(",") if s.strip()] or None
+    return None
+
+
+def _normalize_reminder_on(v: Any) -> Optional[bool]:
+    """Coerce reminder on/off value to bool or None."""
+    if isinstance(v, bool):
+        return v
+    if not isinstance(v, str):
+        return None
+    s = v.strip().lower()
+    if s in ("off", "none", "no", "false", "0"):
+        return False
+    if s in ("on", "yes", "true", "1"):
+        return True
+    return None
 
 
 def normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
@@ -90,50 +125,20 @@ def normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
     body_html = _coerce_str(ev.get("body_html") or ev.get("bodyHtml"))
 
     repeat = _coerce_str(ev.get("repeat"))
-    interval = ev.get("interval")
-    try:
-        interval = int(interval) if interval is not None else None
-    except Exception:
-        interval = None
+    interval = _coerce_int(ev.get("interval"))
     byday = _normalize_byday(ev.get("byday") or ev.get("byDay"))
 
     start_time = _coerce_str(ev.get("start_time") or ev.get("startTime") or ev.get("start-time"))
     end_time = _coerce_str(ev.get("end_time") or ev.get("endTime") or ev.get("end-time"))
-    exdates_raw = ev.get("exdates") or ev.get("exceptions")
-    exdates: Optional[List[str]] = None
-    if isinstance(exdates_raw, (list, tuple)):
-        exdates = [str(x).strip() for x in exdates_raw if str(x).strip()]
-    elif isinstance(exdates_raw, str) and exdates_raw.strip():
-        exdates = [s.strip() for s in exdates_raw.split(",") if s.strip()]
-
+    exdates = _normalize_exdates(ev.get("exdates") or ev.get("exceptions"))
     single_start = _coerce_str(ev.get("start"))
     single_end = _coerce_str(ev.get("end"))
-
-    count = ev.get("count")
-    try:
-        count = int(count) if count is not None else None
-    except Exception:
-        count = None
-
+    count = _coerce_int(ev.get("count"))
     rng = _normalize_range(ev)
 
-    # Reminder fields
     rem_on_val = ev.get("is_reminder_on") or ev.get("isReminderOn") or ev.get("reminder")
-    is_reminder_on: Optional[bool] = None
-    if isinstance(rem_on_val, bool):
-        is_reminder_on = rem_on_val
-    elif isinstance(rem_on_val, str):
-        v = rem_on_val.strip().lower()
-        if v in ("off", "none", "no", "false", "0"):
-            is_reminder_on = False
-        elif v in ("on", "yes", "true", "1"):
-            is_reminder_on = True
-    rem_min_raw = ev.get("reminder_minutes") or ev.get("reminderMinutes") or ev.get("reminder-minutes")
-    reminder_minutes: Optional[int] = None
-    try:
-        reminder_minutes = int(rem_min_raw) if rem_min_raw is not None else None
-    except Exception:
-        reminder_minutes = None
+    is_reminder_on = _normalize_reminder_on(rem_on_val)
+    reminder_minutes = _coerce_int(ev.get("reminder_minutes") or ev.get("reminderMinutes") or ev.get("reminder-minutes"))
 
     out: Dict[str, Any] = {
         "subject": subject,

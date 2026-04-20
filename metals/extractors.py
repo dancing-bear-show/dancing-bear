@@ -54,6 +54,56 @@ def extract_order_id(subject: str, text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _accumulate_oz(
+    gold_oz: float,
+    silver_oz: float,
+    metal: str,
+    oz_unit: float,
+    qty: float,
+    key: Tuple[str, float, float],
+    seen: set,
+) -> Tuple[float, float]:
+    """Accumulate oz totals if key not already seen."""
+    if key in seen:
+        return gold_oz, silver_oz
+    seen.add(key)
+    if metal.startswith("gold"):
+        gold_oz += oz_unit * qty
+    elif metal.startswith("silver"):
+        silver_oz += oz_unit * qty
+    return gold_oz, silver_oz
+
+
+def _parse_frac_matches(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+    for m in PAT_FRAC.finditer(ln):
+        num = float(m.group(1))
+        den = float(m.group(2) or 1)
+        metal = (m.group(3) or "").lower()
+        qty = float(m.group(4) or 1)
+        oz_unit = num / max(den, 1.0)
+        gold_oz, silver_oz = _accumulate_oz(gold_oz, silver_oz, metal, oz_unit, qty, (metal, round(oz_unit, 6), qty), seen)
+    return gold_oz, silver_oz
+
+
+def _parse_oz_matches(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+    for m in PAT_OZ.finditer(ln):
+        wt = float(m.group(1))
+        metal = (m.group(2) or "").lower()
+        qty = float(m.group(3) or 1)
+        gold_oz, silver_oz = _accumulate_oz(gold_oz, silver_oz, metal, wt, qty, (metal, round(wt, 6), qty), seen)
+    return gold_oz, silver_oz
+
+
+def _parse_gram_matches(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+    for m in PAT_GRAMS.finditer(ln):
+        wt_g = float(m.group(1))
+        metal = (m.group(3) or "").lower()
+        qty = float(m.group(4) or 1)
+        oz_unit = wt_g / G_PER_OZ
+        gold_oz, silver_oz = _accumulate_oz(gold_oz, silver_oz, metal, oz_unit, qty, (metal, round(oz_unit, 6), qty), seen)
+    return gold_oz, silver_oz
+
+
 def extract_amounts(text: str) -> MetalsAmount:
     """Extract gold and silver ounces from text.
 
@@ -67,54 +117,11 @@ def extract_amounts(text: str) -> MetalsAmount:
     silver_oz = 0.0
     t = normalize_text(text)
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-
-    # Track unique line items to avoid double counting
-    seen_items: set[Tuple[str, float, float]] = set()
+    seen: set[Tuple[str, float, float]] = set()
 
     for ln in lines:
-        # Fractional ounces (e.g., "1/10 oz Gold")
-        for m in PAT_FRAC.finditer(ln):
-            num = float(m.group(1))
-            den = float(m.group(2) or 1)
-            metal = (m.group(3) or "").lower()
-            qty = float(m.group(4) or 1)
-            oz_unit = num / max(den, 1.0)
-            key = (metal, round(oz_unit, 6), qty)
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            if metal.startswith("gold"):
-                gold_oz += oz_unit * qty
-            elif metal.startswith("silver"):
-                silver_oz += oz_unit * qty
-
-        # Decimal ounces (e.g., "1 oz Silver")
-        for m in PAT_OZ.finditer(ln):
-            wt = float(m.group(1))
-            metal = (m.group(2) or "").lower()
-            qty = float(m.group(3) or 1)
-            key = (metal, round(wt, 6), qty)
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            if metal.startswith("gold"):
-                gold_oz += wt * qty
-            elif metal.startswith("silver"):
-                silver_oz += wt * qty
-
-        # Grams (e.g., "31.1 g Gold")
-        for m in PAT_GRAMS.finditer(ln):
-            wt_g = float(m.group(1))
-            metal = (m.group(3) or "").lower()
-            qty = float(m.group(4) or 1)
-            oz_unit = wt_g / G_PER_OZ
-            key = (metal, round(oz_unit, 6), qty)
-            if key in seen_items:
-                continue
-            seen_items.add(key)
-            if metal.startswith("gold"):
-                gold_oz += oz_unit * qty
-            elif metal.startswith("silver"):
-                silver_oz += oz_unit * qty
+        gold_oz, silver_oz = _parse_frac_matches(ln, gold_oz, silver_oz, seen)
+        gold_oz, silver_oz = _parse_oz_matches(ln, gold_oz, silver_oz, seen)
+        gold_oz, silver_oz = _parse_gram_matches(ln, gold_oz, silver_oz, seen)
 
     return MetalsAmount(gold_oz=gold_oz, silver_oz=silver_oz)

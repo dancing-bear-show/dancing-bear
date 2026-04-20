@@ -53,6 +53,30 @@ def _local_time_hhmm(iso: str) -> str:
         return iso.split("T", 1)[1][:5]
 
 
+def _event_matches_filters(
+    st: str,
+    en: str,
+    want_days: set,
+    start_time: Optional[str],
+    end_time: Optional[str],
+) -> bool:
+    """Return True if an event's times/weekday match the given filters."""
+    tstart = _local_time_hhmm(st)
+    tend = _local_time_hhmm(en)
+    try:
+        dt = _dt.datetime.fromisoformat(st.replace("Z", "+00:00"))
+        wcode = _weekday_code(dt)
+    except Exception:
+        wcode = None
+    if want_days and (not wcode or wcode.lower() not in want_days):
+        return False
+    if start_time and tstart and start_time != tstart:
+        return False
+    if end_time and tend and end_time != tend:
+        return False
+    return True
+
+
 def filter_events_by_day_time(
     events: Iterable[Dict[str, Any]],
     *,
@@ -65,25 +89,13 @@ def filter_events_by_day_time(
     - byday: list like ["MO", "WE"]. If None/empty, weekday is ignored.
     - start_time/end_time: HH:MM strings. If missing, time is ignored.
     """
-    want_days = set([(d or "").lower() for d in (byday or [])])
+    want_days = {(d or "").lower() for d in (byday or [])}
     out: List[Dict[str, Any]] = []
     for ex in events:
         st = ((ex.get("start") or {}).get("dateTime") or "")
         en = ((ex.get("end") or {}).get("dateTime") or "")
         if not st:
             continue
-        tstart = _local_time_hhmm(st)
-        tend = _local_time_hhmm(en)
-        try:
-            dt = _dt.datetime.fromisoformat(st.replace("Z", "+00:00"))
-            wcode = _weekday_code(dt)
-        except Exception:
-            wcode = None
-        if want_days and (not wcode or wcode.lower() not in want_days):
-            continue
-        if start_time and tstart and start_time != tstart:
-            continue
-        if end_time and tend and end_time != tend:
-            continue
-        out.append(ex)
+        if _event_matches_filters(st, en, want_days, start_time, end_time):
+            out.append(ex)
     return out

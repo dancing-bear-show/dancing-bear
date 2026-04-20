@@ -230,7 +230,7 @@ class OutlookCostExtractor(CostExtractor):
         # Compute line costs
         is_confirmation = 'confirmation for order' in msg.subject.lower()
         line_cost, per_item_rows = self._compute_costs(
-            msg, gold_items, oz_by_metal, lines_use, is_confirmation, order.order_id
+            msg, gold_items, lines_use, is_confirmation, order.order_id
         )
 
         # Determine total cost
@@ -289,7 +289,6 @@ class OutlookCostExtractor(CostExtractor):
         self,
         msg: MessageInfo,
         gold_items: List[Dict],
-        oz_by_metal: Dict[str, float],
         lines_use: List[str],
         is_confirmation: bool,
         order_id: str
@@ -469,8 +468,10 @@ class OutlookCostExtractor(CostExtractor):
         return lines
 
 
+DEFAULT_COSTS_OUT = 'out/metals/costs.csv'
+
 # Test helper functions
-_TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', 'out/metals/costs.csv')
+_TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', DEFAULT_COSTS_OUT)
 
 
 def _fetch_rcm_message_ids(cli: OutlookClient) -> List[str]:
@@ -570,12 +571,12 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description='Extract RCM costs from Outlook and merge into costs.csv')
     p.add_argument('--profile', default='outlook_personal')
-    p.add_argument('--out', default='out/metals/costs.csv')
+    p.add_argument('--out', default=DEFAULT_COSTS_OUT)
     p.add_argument('--days', type=int, default=365)
     args = p.parse_args(argv)
     return run(
         profile=getattr(args, 'profile', 'outlook_personal'),
-        out_path=getattr(args, 'out', 'out/metals/costs.csv'),
+        out_path=getattr(args, 'out', DEFAULT_COSTS_OUT),
         days=int(getattr(args, 'days', 365))
     )
 

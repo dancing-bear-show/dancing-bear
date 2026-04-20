@@ -9,6 +9,43 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from .keyword_matcher import KeywordMatcher
 
 
+def _score_experience(e: Dict[str, Any], matcher: KeywordMatcher, expanded: List[str]) -> Tuple[int, Dict[str, Any]]:
+    """Score a single experience entry against expanded keywords."""
+    score = 0
+    title_company = f"{e.get('title', '')} {e.get('company', '')}".strip()
+    for kw in expanded:
+        if matcher.match_keyword(title_company, kw):
+            score += 1
+    bullets = e.get("bullets") or []
+    keep_bullets = [str(b) for b in bullets if matcher.matches_any(str(b), expanded, expand_synonyms=False)]
+    if not keep_bullets and bullets:
+        keep_bullets = [str(bullets[0])]
+    return score + len(keep_bullets), {**e, "bullets": keep_bullets}
+
+
+def _score_experiences(
+    experiences: List[Dict[str, Any]],
+    matcher: KeywordMatcher,
+    expanded: List[str],
+) -> List[Tuple[int, Dict[str, Any]]]:
+    """Score all experience entries against expanded keywords."""
+    return [_score_experience(e, matcher, expanded) for e in experiences]
+
+
+def _trim_roles(
+    filtered: List[Tuple[int, Dict[str, Any]]],
+    max_roles: Optional[int],
+    max_bullets_per_role: Optional[int],
+) -> List[Dict[str, Any]]:
+    """Apply max_roles and max_bullets_per_role limits."""
+    out_roles: List[Dict[str, Any]] = []
+    for _, e in filtered[: (max_roles or len(filtered))]:
+        if max_bullets_per_role is not None and e.get("bullets"):
+            e = {**e, "bullets": e["bullets"][:max_bullets_per_role]}
+        out_roles.append(e)
+    return out_roles
+
+
 def filter_experience_by_keywords(
     data: Dict[str, Any],
     matched_keywords: Iterable[str],
@@ -45,42 +82,13 @@ def filter_experience_by_keywords(
     if not experiences or not expanded:
         return dict(data)
 
-    scored: List[Tuple[int, Dict[str, Any]]] = []
-    for e in experiences:
-        score = 0
-
-        # Score title + company
-        title_company = f"{e.get('title', '')} {e.get('company', '')}".strip()
-        for kw in expanded:
-            if matcher.match_keyword(title_company, kw):
-                score += 1
-
-        # Filter and score bullets
-        bullets = e.get("bullets") or []
-        keep_bullets: List[str] = []
-        for b in bullets:
-            text = str(b)
-            if matcher.matches_any(text, expanded, expand_synonyms=False):
-                keep_bullets.append(text)
-
-        # Fallback: keep first bullet if none matched
-        if not keep_bullets and bullets:
-            keep_bullets = [str(bullets[0])]
-
-        scored.append((score + len(keep_bullets), {**e, "bullets": keep_bullets}))
-
-    # Filter by min_score
-    filtered = [(s, e) for s, e in scored if s >= min_score]
-
-    # Sort by score desc
-    filtered.sort(key=lambda t: t[0], reverse=True)
-
-    # Apply max_roles and max bullets per role
-    out_roles: List[Dict[str, Any]] = []
-    for _, e in filtered[: (max_roles or len(filtered))]:
-        if max_bullets_per_role is not None and e.get("bullets"):
-            e = {**e, "bullets": e["bullets"][:max_bullets_per_role]}
-        out_roles.append(e)
+    scored = _score_experiences(experiences, matcher, expanded)
+    filtered = sorted(
+        [(s, e) for s, e in scored if s >= min_score],
+        key=lambda t: t[0],
+        reverse=True,
+    )
+    out_roles = _trim_roles(filtered, max_roles, max_bullets_per_role)
 
     out = dict(data)
     out["experience"] = out_roles

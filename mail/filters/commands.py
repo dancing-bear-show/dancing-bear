@@ -39,7 +39,6 @@ from .producers import (
     FiltersAddForwardProducer,
     FiltersAddTokenProducer,
     FiltersRemoveTokenProducer,
-    SweepProducerConfig,
 )
 
 

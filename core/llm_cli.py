@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from core.textio import read_text as _read_text, write_text as _write_text
 
@@ -591,36 +591,36 @@ def _make_familiar_handler(config: LlmConfig) -> Callable:
     return _run_familiar
 
 
-def _make_derive_handler(config: LlmConfig) -> Callable:
-    """Create handler for derive-all command.
+def _collect_derive_outputs(config: "LlmConfig") -> List[Tuple[str, str]]:
+    """Collect (filename, content) pairs from config builders."""
+    outputs: List[Tuple[str, str]] = []
 
-    Args:
-        config: LlmConfig with all builders.
+    def _add(filename: Optional[str], builder: Optional[Callable[[], str]], fallback: str = "") -> None:
+        if not filename or not builder:
+            return
+        content = _safe_call(builder, fallback)
+        if content:
+            outputs.append((filename, content))
 
-    Returns:
-        Handler function for argparse.
-    """
+    _add(config.agentic_filename, config.agentic)
+    _add(config.domain_map_filename, config.domain_map)
+    _add(config.inventory_filename, config.inventory)
+    fam_builder = config.familiar_extended or config.familiar_compact
+    _add(config.familiar_filename, fam_builder)
+    _add(config.policies_filename, config.policies, _default_policies())
+
+    if hasattr(config, "extra_generators"):
+        extra: Sequence[Tuple[str, Callable[[], str]]] = getattr(config, "extra_generators")
+        for fname, builder in extra:
+            _add(fname, builder)
+
+    return outputs
+
+
+def _make_derive_handler(config: "LlmConfig") -> Callable:
+    """Create handler for derive-all command."""
     def _run_derive(args):
-        outputs: List[Tuple[str, str]] = []
-
-        def add(filename: Optional[str], builder: Optional[Callable[[], str]], fallback: str = "") -> None:
-            if not filename or not builder:
-                return
-            content = _safe_call(builder, fallback)
-            if content:
-                outputs.append((filename, content))
-
-        add(config.agentic_filename, config.agentic)
-        add(config.domain_map_filename, config.domain_map)
-        add(config.inventory_filename, config.inventory)
-        fam_builder = config.familiar_extended or config.familiar_compact
-        add(config.familiar_filename, fam_builder)
-        add(config.policies_filename, config.policies, _default_policies())
-
-        if hasattr(config, "extra_generators"):
-            extra: Sequence[Tuple[str, Callable[[], str]]] = getattr(config, "extra_generators")
-            for fname, builder in extra:
-                add(fname, builder)
+        outputs = _collect_derive_outputs(config)
 
         if getattr(args, "include_generated", False) and outputs:
             out_dir = Path(getattr(args, "out_dir", ".llm") or ".llm")
@@ -630,14 +630,9 @@ def _make_derive_handler(config: LlmConfig) -> Callable:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
 
-        summary_lines = ["Generated:"]
-        if outputs:
-            summary_lines.extend(f"- {fname}" for fname, _ in outputs)
-        else:
-            summary_lines.append("- (none)")
-        summary = "\n".join(summary_lines)
+        summary_lines = ["Generated:"] + ([f"- {f}" for f, _ in outputs] if outputs else ["- (none)"])
         if getattr(args, "stdout", False) or not getattr(args, "include_generated", False):
-            print(summary)
+            print("\n".join(summary_lines))
         return 0
     return _run_derive
 
@@ -716,6 +711,8 @@ def _handle_inventory(args, llm_dir: Path) -> int:
         print(json.dumps(data, indent=2))
         return 0
     content = _default_inventory()
+    if not content:
+        return 1
     target = Path(args.write or (llm_dir / DEFAULT_INVENTORY_FILENAME))
     if args.write:
         _write_text(target, content)
@@ -772,6 +769,21 @@ def _handle_domain_map(args, llm_dir: Path) -> int:
     return 0
 
 
+def _render_flow_content(flow: Dict[str, Any], fmt: str) -> str:
+    """Render a single flow dict to string in the requested format."""
+    if fmt == "json":
+        return json.dumps(flow, indent=2)
+    if fmt == "yaml":
+        import yaml  # type: ignore
+        return yaml.safe_dump(flow, sort_keys=False)
+    return (
+        f"id: {flow.get('id')}\n"
+        f"title: {flow.get('title')}\n"
+        f"tags: {', '.join(flow.get('tags') or [])}\n"
+        + "\n".join(flow.get("commands") or [])
+    )
+
+
 def _handle_flows(args, _llm_dir: Path) -> int:
     """Handle flows command."""
     flows = _mail_flows()
@@ -784,20 +796,7 @@ def _handle_flows(args, _llm_dir: Path) -> int:
         content = "\n".join(lines)
     elif args.id:
         flow = next((f for f in flows if f.get("id") == args.id), None)
-        if not flow:
-            content = "(flow not found)"
-        elif args.format == "json":
-            content = json.dumps(flow, indent=2)
-        elif args.format == "yaml":
-            import yaml  # type: ignore
-            content = yaml.safe_dump(flow, sort_keys=False)
-        else:
-            content = (
-                f"id: {flow.get('id')}\n"
-                f"title: {flow.get('title')}\n"
-                f"tags: {', '.join(flow.get('tags') or [])}\n"
-                + "\n".join(flow.get("commands") or [])
-            )
+        content = _render_flow_content(flow, args.format) if flow else "(flow not found)"
     else:
         content = "(no flows)"
 
@@ -848,37 +847,39 @@ def _handle_deps(args, _llm_dir: Path) -> int:
     return 0
 
 
+def _stale_text_line(entry: Dict, overrides: Dict, with_status: bool, with_priority: bool) -> str:
+    """Format a single stale entry as a text line."""
+    status = _status_for_area(entry["area"], entry["staleness_days"], overrides) if with_status else ""
+    priority = f"\tpriority={int(round(entry['staleness_days']))}" if with_priority else ""
+    line = f"{entry['area']}\t{entry['staleness_days']}d"
+    if status:
+        line += f"\t{status}"
+    return line + priority
+
+
+def _stale_md_row(entry: Dict, overrides: Dict, with_priority: bool) -> str:
+    """Format a single stale entry as a markdown table row."""
+    status = _status_for_area(entry["area"], entry["staleness_days"], overrides)
+    priority = int(round(entry["staleness_days"])) if with_priority else ""
+    return f"| {entry['area']} | {entry['staleness_days']} | {status} | {priority} |"
+
+
 def _handle_stale(args, _llm_dir: Path) -> int:
     """Handle stale command."""
     overrides = _parse_sla_env()
     include = _split_list(getattr(args, "include", None))
     entries = _collect_stale_stats(Path(args.root), include, args.limit)
+    with_status = getattr(args, "with_status", False)
+    with_priority = getattr(args, "with_priority", False)
 
     if args.format == "json":
         print(json.dumps(entries, indent=2))
     elif args.format == "text":
         for entry in entries:
-            status = (
-                _status_for_area(entry["area"], entry["staleness_days"], overrides)
-                if getattr(args, "with_status", False)
-                else ""
-            )
-            priority = ""
-            if getattr(args, "with_priority", False):
-                priority = f"\tpriority={int(round(entry['staleness_days']))}"
-            line = f"{entry['area']}\t{entry['staleness_days']}d"
-            if status:
-                line += f"\t{status}"
-            if priority:
-                line += priority
-            print(line)
+            print(_stale_text_line(entry, overrides, with_status, with_priority))
     else:
         header = ["| Area | Days | Status | Priority |", "| --- | --- | --- | --- |"]
-        rows = []
-        for entry in entries:
-            status = _status_for_area(entry["area"], entry["staleness_days"], overrides)
-            priority = int(round(entry["staleness_days"])) if getattr(args, "with_priority", False) else ""
-            rows.append(f"| {entry['area']} | {entry['staleness_days']} | {status} | {priority} |")
+        rows = [_stale_md_row(entry, overrides, with_priority) for entry in entries]
         print("\n".join(header + rows))
 
     if getattr(args, "fail_on_stale", False) and _fail_on_stale(entries, overrides):

@@ -111,8 +111,8 @@ class GmailClient(ConfigCacheMixin):
         self,
         name: str,
         color: Optional[Dict[str, str]] = None,
-        labelListVisibility: Optional[str] = None,
-        messageListVisibility: Optional[str] = None,
+        labelListVisibility: Optional[str] = None,  # NOSONAR - matches Gmail API field name
+        messageListVisibility: Optional[str] = None,  # NOSONAR - matches Gmail API field name
         **kwargs: Any,
     ) -> Dict[str, Any]:
         body: Dict[str, Any] = {"name": name}

@@ -73,24 +73,24 @@ class TestBuildKeywordSpec(unittest.TestCase):
 
     def test_build_with_required_keywords(self):
         cfg = {"keywords": {"required": ["Python", "AWS"]}}
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["required"]), 2)
         self.assertEqual(spec["required"][0]["skill"], "Python")
 
     def test_build_with_preferred_keywords(self):
         cfg = {"keywords": {"preferred": ["Docker", "Kubernetes"]}}
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["preferred"]), 2)
 
     def test_build_with_nice_to_have(self):
         cfg = {"keywords": {"nice_to_have": ["GraphQL"]}}
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["nice"]), 1)
         self.assertEqual(spec["nice"][0]["skill"], "GraphQL")
 
     def test_build_with_nice_shorthand(self):
         cfg = {"keywords": {"nice": ["Redis"]}}
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["nice"]), 1)
         self.assertEqual(spec["nice"][0]["skill"], "Redis")
 
@@ -102,19 +102,19 @@ class TestBuildKeywordSpec(unittest.TestCase):
                 "technologies": ["AWS", "GCP"],
             }
         }
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["categories"]["soft_skills"]), 2)
         self.assertEqual(len(spec["categories"]["tech_skills"]), 2)
         self.assertEqual(len(spec["categories"]["technologies"]), 2)
 
     def test_build_with_technical_skills_alias(self):
         cfg = {"keywords": {"technical_skills": ["React", "Vue"]}}
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["categories"]["tech_skills"]), 2)
 
     def test_build_with_technology_reference_aliases(self):
         cfg = {"keywords": {"individual_technology_reference": ["PostgreSQL"]}}
-        spec, synonyms = build_keyword_spec(cfg)
+        spec, _synonyms = build_keyword_spec(cfg)
         self.assertEqual(len(spec["categories"]["technologies"]), 1)
 
         cfg2 = {"keywords": {"individual_technology_references": ["MySQL"]}}
@@ -130,13 +130,13 @@ class TestBuildKeywordSpec(unittest.TestCase):
                 }
             }
         }
-        spec, synonyms = build_keyword_spec(cfg)
+        _spec, synonyms = build_keyword_spec(cfg)
         self.assertEqual(synonyms["JS"], ["JavaScript", "ECMAScript"])
         self.assertEqual(synonyms["K8s"], ["Kubernetes"])
 
     def test_build_with_synonyms_string_value(self):
         cfg = {"keywords": {"synonyms": {"DB": "Database"}}}
-        spec, synonyms = build_keyword_spec(cfg)
+        _spec, synonyms = build_keyword_spec(cfg)
         self.assertEqual(synonyms["DB"], ["Database"])
 
     def test_build_with_none_keywords(self):

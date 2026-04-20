@@ -42,33 +42,37 @@ class CostRow:
     units_breakdown: str
 
 
+def _try_parse_cost_row(row: dict, metal: str) -> Optional[CostRow]:
+    """Parse a single CSV row into CostRow. Returns None if invalid."""
+    m = (row.get("metal") or "").strip().lower()
+    if m != metal:
+        return None
+    try:
+        cpo = float(row.get("cost_per_oz") or 0)
+        toz = float(row.get("total_oz") or 0)
+    except Exception:  # nosec B112 - skip on error
+        return None
+    if cpo <= 0 or toz <= 0:
+        return None
+    return CostRow(
+        date=(row.get("date") or "").strip(),
+        vendor=(row.get("vendor") or "").strip(),
+        metal=m,
+        currency=(row.get("currency") or "").strip(),
+        cost_per_oz=cpo,
+        total_oz=toz,
+        order_id=(row.get("order_id") or "").strip(),
+        units_breakdown=(row.get("units_breakdown") or "").strip(),
+    )
+
+
 def _parse_costs(path: str, metal: str) -> List[CostRow]:
     rows: List[CostRow] = []
     with open(path, newline="", encoding="utf-8") as f:
-        r = csv.DictReader(f)
-        for row in r:
-            m = (row.get("metal") or "").strip().lower()
-            if m != metal:
-                continue
-            try:
-                cpo = float(row.get("cost_per_oz") or 0)
-                toz = float(row.get("total_oz") or 0)
-            except Exception:  # nosec B112 - skip on error
-                continue
-            if cpo <= 0 or toz <= 0:
-                continue
-            rows.append(
-                CostRow(
-                    date=(row.get("date") or "").strip(),
-                    vendor=(row.get("vendor") or "").strip(),
-                    metal=m,
-                    currency=(row.get("currency") or "").strip(),
-                    cost_per_oz=cpo,
-                    total_oz=toz,
-                    order_id=(row.get("order_id") or "").strip(),
-                    units_breakdown=(row.get("units_breakdown") or "").strip(),
-                )
-            )
+        for row in csv.DictReader(f):
+            cr = _try_parse_cost_row(row, metal)
+            if cr is not None:
+                rows.append(cr)
     return rows
 
 
@@ -152,35 +156,20 @@ def _spot_series_cad(metal: str, start_date: str, end_date: str) -> Dict[str, fl
     return out
 
 
-def run(metal: str, costs_path: str, out_path: str) -> int:
-    m = (metal or "").strip().lower()
-    if m not in ("silver", "gold"):
-        raise SystemExit("--metal must be 'silver' or 'gold'")
-    rows = _parse_costs(costs_path, m)
-    if not rows:
-        print("no matching rows in costs file")
-        return 0
-    start, end = _window(rows)
-    spot = _spot_series_cad(m, start, end)
+def _new_agg() -> dict:
+    return {"sum_oz": 0.0, "sum_prem_abs_x_oz": 0.0, "sum_prem_pct_x_oz": 0.0, "n": 0}
 
-    # Prepare output rows
+
+def _build_premium_rows(rows: List[CostRow], spot: Dict[str, float]) -> Tuple[List[List[str]], dict]:
+    """Build output rows and aggregation dict from cost rows and spot prices."""
     out_rows: List[List[str]] = [[
         "date", "vendor", "order_id", "metal", "unit_class", "units_breakdown",
         "cost_per_oz_cad", "spot_cad", "premium_abs", "premium_pct", "total_oz", "unit_count",
     ]]
-
-    # Aggregation by class
-    agg = {
-        "fractional": {"sum_oz": 0.0, "sum_prem_abs_x_oz": 0.0, "sum_prem_pct_x_oz": 0.0, "n": 0},
-        "one_oz": {"sum_oz": 0.0, "sum_prem_abs_x_oz": 0.0, "sum_prem_pct_x_oz": 0.0, "n": 0},
-        "bulk": {"sum_oz": 0.0, "sum_prem_abs_x_oz": 0.0, "sum_prem_pct_x_oz": 0.0, "n": 0},
-        "mixed": {"sum_oz": 0.0, "sum_prem_abs_x_oz": 0.0, "sum_prem_pct_x_oz": 0.0, "n": 0},
-        "unknown": {"sum_oz": 0.0, "sum_prem_abs_x_oz": 0.0, "sum_prem_pct_x_oz": 0.0, "n": 0},
-    }
+    agg = {cls: _new_agg() for cls in ("fractional", "one_oz", "bulk", "mixed", "unknown")}
 
     for r in rows:
-        ds = r.date
-        scad = spot.get(ds)
+        scad = spot.get(r.date)
         if scad is None or scad <= 0:
             continue
         units = _parse_units_breakdown(r.units_breakdown)
@@ -188,30 +177,44 @@ def run(metal: str, costs_path: str, out_path: str) -> int:
         unit_count = sum(q for (_u, q) in units) if units else 0.0
         prem_abs = r.cost_per_oz - scad
         prem_pct = (prem_abs / scad) if scad else 0.0
-
         out_rows.append([
-            ds,
-            r.vendor,
-            r.order_id,
-            r.metal,
-            cls,
-            r.units_breakdown,
-            f"{r.cost_per_oz:.2f}",
-            f"{scad:.2f}",
-            f"{prem_abs:.2f}",
-            f"{prem_pct:.4f}",
+            r.date, r.vendor, r.order_id, r.metal, cls, r.units_breakdown,
+            f"{r.cost_per_oz:.2f}", f"{scad:.2f}", f"{prem_abs:.2f}", f"{prem_pct:.4f}",
             f"{r.total_oz:.3f}",
             f"{int(unit_count) if abs(unit_count - int(unit_count)) < 1e-6 else unit_count}",
         ])
-
-        # Aggregate (ounce-weighted)
         a = agg.get(cls) or agg["unknown"]
         a["sum_oz"] += r.total_oz
         a["sum_prem_abs_x_oz"] += prem_abs * r.total_oz
         a["sum_prem_pct_x_oz"] += prem_pct * r.total_oz
         a["n"] += 1
+    return out_rows, agg
 
-    # Write detailed CSV
+
+def _print_premium_summary(agg: dict) -> None:
+    print("summary (ounce-weighted):")
+    for cls in ("fractional", "one_oz", "bulk", "mixed"):
+        a = agg[cls]
+        if a["sum_oz"] <= 0:
+            continue
+        w_abs = a["sum_prem_abs_x_oz"] / a["sum_oz"]
+        w_pct = a["sum_prem_pct_x_oz"] / a["sum_oz"]
+        print(f"- {cls}: n={a['n']} oz={a['sum_oz']:.2f} avg_prem={w_abs:.2f} CAD/oz ({w_pct*100:.2f}%)")
+
+
+def run(metal: str, costs_path: str, out_path: str) -> int:
+    m = (metal or "").strip().lower()
+    if m not in ("silver", "gold"):
+        raise SystemExit("--metal must be 'silver' or 'gold'")
+    rows = _parse_costs(costs_path, m)
+    if not rows:
+        print("no matching rows in costs file")
+        return 2
+    start, end = _window(rows)
+    spot = _spot_series_cad(m, start, end)
+
+    out_rows, agg = _build_premium_rows(rows, spot)
+
     op = Path(out_path)
     op.parent.mkdir(parents=True, exist_ok=True)
     with op.open("w", newline="", encoding="utf-8") as f:
@@ -219,19 +222,7 @@ def run(metal: str, costs_path: str, out_path: str) -> int:
         w.writerows(out_rows)
     print(f"wrote {op} rows={len(out_rows)-1}")
 
-    # Print summary
-    def fmt_pct(x: float) -> str:
-        return f"{x*100:.2f}%"
-
-    print("summary (ounce-weighted):")
-    for cls in ("fractional", "one_oz", "bulk", "mixed"):
-        a = agg[cls]
-        if a["sum_oz"] <= 0:
-            continue
-        w_avg_abs = a["sum_prem_abs_x_oz"] / a["sum_oz"]
-        w_avg_pct = a["sum_prem_pct_x_oz"] / a["sum_oz"]
-        print(f"- {cls}: n={a['n']} oz={a['sum_oz']:.2f} avg_prem={w_avg_abs:.2f} CAD/oz ({fmt_pct(w_avg_pct)})")
-
+    _print_premium_summary(agg)
     return 0
 
 

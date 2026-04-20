@@ -226,7 +226,7 @@ class LoadPlanEventsTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plan_path = Path(tmp) / "plan.yaml"
             plan_path.write_text("events: not-a-list\n")
-            events, err = _load_plan_events(plan_path)
+            _events, err = _load_plan_events(plan_path)
             self.assertIsNotNone(err)
             self.assertIn("must be a list", err)
 

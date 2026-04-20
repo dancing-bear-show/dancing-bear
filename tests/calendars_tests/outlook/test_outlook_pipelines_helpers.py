@@ -159,7 +159,7 @@ class TestAddHelpers(TestCase):
         proc = self._make_processor()
         from calendars.outlook_pipelines.add import OutlookAddRequest
         payload = OutlookAddRequest(config_path="", dry_run=False, force_no_reminder=False, service=MagicMock())
-        no_rem, rem_min = proc._resolve_reminder({"is_reminder_on": False}, payload)
+        no_rem, _rem_min = proc._resolve_reminder({"is_reminder_on": False}, payload)
         self.assertTrue(no_rem)
 
     def test_resolve_reminder_with_minutes_overrides(self):

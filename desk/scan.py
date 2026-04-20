@@ -6,6 +6,80 @@ from typing import Dict, List, Optional, Tuple
 from .utils import expand_paths, parse_size, parse_duration, human_size
 
 
+def _stat_file(fp: str):
+    """Return os.stat result or None if inaccessible."""
+    try:
+        return os.stat(fp)
+    except (PermissionError, FileNotFoundError):
+        return None
+
+
+def _collect_file(
+    fp: str,
+    st,
+    now: float,
+    min_bytes: int,
+    older_secs: Optional[float],
+    include_duplicates: bool,
+    large: List[Dict],
+    stale: List[Dict],
+    by_dir: Dict[str, int],
+    files_for_dupes: List[Tuple[str, int]],
+) -> None:
+    """Classify a single file into the appropriate result buckets."""
+    size = st.st_size
+    mtime = st.st_mtime
+    parent = os.path.dirname(fp)
+    by_dir[parent] = by_dir.get(parent, 0) + size
+
+    if size >= min_bytes:
+        large.append({
+            "path": fp,
+            "size": size,
+            "size_h": human_size(size),
+            "mtime": int(mtime),
+        })
+    if older_secs is not None and (now - mtime) >= older_secs:
+        stale.append({
+            "path": fp,
+            "age_days": round((now - mtime) / 86400, 1),
+            "size": size,
+            "size_h": human_size(size),
+        })
+    if include_duplicates and size >= 1024 * 1024:
+        files_for_dupes.append((fp, size))
+
+
+def _walk_roots(
+    roots: List[str],
+    now: float,
+    min_bytes: int,
+    older_secs: Optional[float],
+    include_duplicates: bool,
+) -> Tuple[List[Dict], List[Dict], Dict[str, int], List[Tuple[str, int]]]:
+    """Walk all root paths and collect file data."""
+    large: List[Dict] = []
+    stale: List[Dict] = []
+    by_dir: Dict[str, int] = {}
+    files_for_dupes: List[Tuple[str, int]] = []
+
+    for root in roots:
+        if not os.path.exists(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            for name in filenames:
+                fp = os.path.join(dirpath, name)
+                st = _stat_file(fp)
+                if st is None:
+                    continue
+                _collect_file(
+                    fp, st, now, min_bytes, older_secs, include_duplicates,
+                    large, stale, by_dir, files_for_dupes,
+                )
+
+    return large, stale, by_dir, files_for_dupes
+
+
 def run_scan(
     paths: List[str],
     min_size: str = "50MB",
@@ -18,42 +92,9 @@ def run_scan(
     older_secs = parse_duration(older_than) if older_than else None
     now = time.time()
 
-    large: List[Dict] = []
-    stale: List[Dict] = []
-    by_dir: Dict[str, int] = {}
-    files_for_dupes: List[Tuple[str, int]] = []
-
-    for root in roots:
-        if not os.path.exists(root):
-            continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            for name in filenames:
-                fp = os.path.join(dirpath, name)
-                try:
-                    st = os.stat(fp)
-                except (PermissionError, FileNotFoundError):
-                    continue
-                size = st.st_size
-                mtime = st.st_mtime
-                parent = os.path.dirname(fp)
-                by_dir[parent] = by_dir.get(parent, 0) + size
-
-                if size >= min_bytes:
-                    large.append({
-                        "path": fp,
-                        "size": size,
-                        "size_h": human_size(size),
-                        "mtime": int(mtime),
-                    })
-                if older_secs is not None and (now - mtime) >= older_secs:
-                    stale.append({
-                        "path": fp,
-                        "age_days": round((now - mtime) / 86400, 1),
-                        "size": size,
-                        "size_h": human_size(size),
-                    })
-                if include_duplicates and size >= 1024 * 1024:
-                    files_for_dupes.append((fp, size))
+    large, stale, by_dir, files_for_dupes = _walk_roots(
+        roots, now, min_bytes, older_secs, include_duplicates
+    )
 
     large.sort(key=lambda x: x["size"], reverse=True)
     stale.sort(key=lambda x: (x["age_days"], x["size"]), reverse=True)
@@ -112,4 +153,3 @@ def _sha256_of(path: str, chunk: int = 1024 * 1024) -> str:
                 break
             h.update(b)
     return h.hexdigest()
-

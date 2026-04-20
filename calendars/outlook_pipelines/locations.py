@@ -14,7 +14,6 @@ from ._base import (
     RequestConsumer,
     ResultEnvelope,
     SafeProcessor,
-    Tuple,
     check_service_required,
     dataclass,
     load_events_config,

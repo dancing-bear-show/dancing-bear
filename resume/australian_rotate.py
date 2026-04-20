@@ -12,7 +12,7 @@ def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> bool:
     """Convert DOCX to PDF using LibreOffice."""
     try:
         # Try LibreOffice command line conversion
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607 - invoking known system PDF tool with trusted arguments
             [
                 "soffice",
                 "--headless",
@@ -100,7 +100,7 @@ def create_australian_resume(
         print(f"Error: Expected PDF not created: {temp_pdf}", file=sys.stderr)
         return None
 
-    print(f"Rotating PDF 180° for Australian orientation...")
+    print("Rotating PDF 180° for Australian orientation...")
     if not rotate_pdf_180(temp_pdf, output_pdf):
         print("Error: PDF rotation failed", file=sys.stderr)
         if not keep_temp:

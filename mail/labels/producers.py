@@ -15,6 +15,22 @@ from .processors import (
 )
 
 
+def _print_list_section(title: str, items: list, fmt_fn) -> None:
+    """Print a plan section with up to 20 items and a 'more' trailer."""
+    if not items:
+        return
+    print(f"\n{title}:")
+    for item in items[:20]:
+        print(f"  {fmt_fn(item)}")
+    if len(items) > 20:
+        print(f"  … and {len(items)-20} more")
+
+
+def _fmt_label_change(change: "LabelChange") -> str:
+    parts = [f"{k}:{v['from']}→{v['to']}" for k, v in change.changes.items()]
+    return f"{change.name} ({', '.join(parts)})"
+
+
 class LabelsPlanProducer(Producer[ResultEnvelope[LabelsPlanResult]]):
     """Render labels plan output identically to the legacy command."""
 
@@ -29,25 +45,9 @@ class LabelsPlanProducer(Producer[ResultEnvelope[LabelsPlanResult]]):
             update=len(payload.to_update),
             delete=delete_count,
         )
-        if payload.to_create:
-            print("\nWould create:")
-            for spec in payload.to_create[:20]:
-                print(f"  {spec.get('name')}")
-            if len(payload.to_create) > 20:
-                print(f"  … and {len(payload.to_create)-20} more")
-        if payload.to_update:
-            print("\nWould update:")
-            for change in payload.to_update[:20]:
-                parts = [f"{k}:{v['from']}→{v['to']}" for k, v in change.changes.items()]
-                print(f"  {change.name} ({', '.join(parts)})")
-            if len(payload.to_update) > 20:
-                print(f"  … and {len(payload.to_update)-20} more")
-        if payload.to_delete:
-            print("\nWould delete:")
-            for name in payload.to_delete[:20]:
-                print(f"  {name}")
-            if len(payload.to_delete) > 20:
-                print(f"  … and {len(payload.to_delete)-20} more")
+        _print_list_section("Would create", payload.to_create, lambda s: s.get("name"))
+        _print_list_section("Would update", payload.to_update, _fmt_label_change)
+        _print_list_section("Would delete", payload.to_delete, lambda n: n)
 
 
 class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
@@ -137,8 +137,8 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             from ..utils.batch import apply_in_chunks
 
             apply_in_chunks(
-                lambda chunk: self.client.batch_modify_messages(
-                    chunk, add_label_ids=[new_id], remove_label_ids=[old_id]
+                lambda chunk, _new=new_id, _old=old_id: self.client.batch_modify_messages(
+                    chunk, add_label_ids=[_new], remove_label_ids=[_old]
                 ),
                 ids,
                 500,

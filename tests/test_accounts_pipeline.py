@@ -214,7 +214,7 @@ class TestSyncLabelsForAccount(unittest.TestCase):
         desired = [{"color": "#ff0000"}, {"name": "ValidLabel"}]
         existing = {}
 
-        created, updated = _sync_labels_for_account(client, desired, existing, "gmail", dry_run=False)
+        created, _updated = _sync_labels_for_account(client, desired, existing, "gmail", dry_run=False)
 
         self.assertEqual(created, 1)
         self.assertEqual(client.create_label.call_count, 1)

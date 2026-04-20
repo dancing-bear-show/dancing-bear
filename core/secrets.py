@@ -76,15 +76,18 @@ def mask_url(url: str) -> str:
         return url
 
 
+_REDACTED = r"\1***REDACTED***"
+
+
 def mask_text(text: str) -> str:
     s = text or ""
     # Authorization: Scheme token
     s = re.sub(r"(?i)(Authorization\s*:\s*)(Bearer|Basic|Token)\s+[^\s]+", r"\1\2 ***REDACTED***", s)
     # Common header variants
-    s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", r"\1***REDACTED***", s)
-    s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(X-API-KEY\s*:\s*)(\S+)", _REDACTED, s)
+    s = re.sub(r"(?i)(X-Auth-Token\s*:\s*)(\S+)", _REDACTED, s)
     # Token=... pairs
-    s = re.sub(r"(?i)(token\s*=\s*)([A-Za-z0-9\-\._~+/=]+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(token\s*=\s*)([\w.~+/=-]+)", _REDACTED, s)
     # JSON fields
     s = re.sub(r"(?i)(\"(?:api[_-]?token|token|access[_-]?token|secret|client_secret|password)\"\s*:\s*\")(.*?)(\")", r"\1***REDACTED***\3", s)
     # GitHub tokens
@@ -92,13 +95,13 @@ def mask_text(text: str) -> str:
     # Atlassian tokens
     s = re.sub(r"AT[A-Za-z0-9]{20,}", "AT***REDACTED***", s)
     # AWS keys in text
-    s = re.sub(r"(?i)(aws_secret_access_key\s*[:=]\s*)(\S+)", r"\1***REDACTED***", s)
-    s = re.sub(r"(?i)(aws_session_token\s*[:=]\s*)(\S+)", r"\1***REDACTED***", s)
-    s = re.sub(r"(?i)(aws_access_key_id\s*[:=]\s*)(\S+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(aws_secret_access_key\s*[:=]\s*)(\S+)", _REDACTED, s)
+    s = re.sub(r"(?i)(aws_session_token\s*[:=]\s*)(\S+)", _REDACTED, s)
+    s = re.sub(r"(?i)(aws_access_key_id\s*[:=]\s*)(\S+)", _REDACTED, s)
     # URL query tokens
-    s = re.sub(r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + ")=)([^&\s]+)", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)([?&](?:" + "|".join(map(re.escape, SENSITIVE_PARAM_KEYS)) + ")=)([^&\s]+)", _REDACTED, s)
     # Basic base64 creds
-    s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[A-Za-z0-9+/=]+", r"\1***REDACTED***", s)
+    s = re.sub(r"(?i)(Authorization\s*:\s*Basic\s+)[\w+/=]+", _REDACTED, s)
     return s
 
 
@@ -115,8 +118,12 @@ class MaskingWriter:
         self._buffer += text
         written = 0
         lines = self._buffer.splitlines(keepends=True)
-        complete = lines[:-1] if (lines and not lines[-1].endswith(("\n", "\r"))) else lines
-        remainder = "" if complete is lines else (lines[-1] if lines else "")
+        has_incomplete = lines and not lines[-1].endswith(("\n", "\r"))
+        complete = lines[:-1] if has_incomplete else lines
+        if complete is lines:
+            remainder = ""
+        else:
+            remainder = lines[-1] if lines else ""
         masked_chunks = []
         for chunk in complete:
             masked_chunks.append(mask_text(chunk))

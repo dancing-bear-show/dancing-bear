@@ -355,7 +355,6 @@ class AnalyzeProcessor(SafeProcessor[AnalyzeRequest, AnalyzeResult]):
         from .layout import analyze_layout
 
         layout = load_layout(payload.layout, payload.backup)
-
         plan = None
         if payload.plan_path:
             try:
@@ -425,7 +424,6 @@ class ExportDeviceProcessor(SafeProcessor[ExportDeviceRequest, ExportDeviceResul
         from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
 
         cfgutil = find_cfgutil_path()
-
         ecid = payload.ecid
         if not ecid and payload.udid:
             ecid = map_udid_to_ecid(cfgutil, payload.udid) or None
@@ -468,7 +466,6 @@ class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
         from .device import find_cfgutil_path, map_udid_to_ecid
 
         cfgutil = find_cfgutil_path()
-
         ecid = payload.ecid
         if not ecid and payload.udid:
             ecid = map_udid_to_ecid(cfgutil, payload.udid) or None

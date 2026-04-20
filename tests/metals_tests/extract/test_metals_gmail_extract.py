@@ -86,7 +86,7 @@ class TestExtractAmounts(unittest.TestCase):
         """Test handles unicode dashes in text."""
         # en-dash and em-dash should be normalized
         text = "1 oz Gold \u2013 Maple Leaf"  # en-dash
-        gold, silver = _extract_amounts(text)
+        gold, _silver = _extract_amounts(text)
         self.assertEqual(gold, 1.0)
 
     def test_deduplicates_same_item(self):
@@ -95,14 +95,14 @@ class TestExtractAmounts(unittest.TestCase):
         1 oz Gold Maple x 2
         1 oz Gold Maple x 2
         """
-        gold, silver = _extract_amounts(text)
+        gold, _silver = _extract_amounts(text)
         # Should only count once due to deduplication
         self.assertEqual(gold, 2.0)
 
     def test_case_insensitive(self):
         """Test case insensitive matching."""
         text = "1 OZ GOLD MAPLE LEAF"
-        gold, silver = _extract_amounts(text)
+        gold, _silver = _extract_amounts(text)
         self.assertEqual(gold, 1.0)
 
 

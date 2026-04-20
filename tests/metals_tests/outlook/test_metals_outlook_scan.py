@@ -24,8 +24,8 @@ class TestQueries(unittest.TestCase):
         for name, pattern in QUERIES:
             self.assertIsInstance(name, str)
             self.assertIsInstance(pattern, str)
-            self.assertTrue(len(name) > 0)
-            self.assertTrue(len(pattern) > 0)
+            self.assertGreater(len(name), 0)
+            self.assertGreater(len(pattern), 0)
 
     def test_td_query_exists(self):
         """Test TD query exists."""

@@ -117,6 +117,10 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         from datetime import datetime
         from ..utils.cli_helpers import gmail_provider_from_args
         from ..yamlio import dump_config
+        from ..accounts.pipeline import (
+            _build_label_id_to_name_map,
+            _build_filter_dsl_entry,
+        )
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_dir = Path(payload.out_dir) if payload.out_dir else Path("backups") / ts
@@ -143,27 +147,9 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         dump_config(str(out_dir / "labels.yaml"), labels_doc)
 
         # Filters
-        id_to_name = {lab.get("id", ""): lab.get("name", "") for lab in labels}
-
-        def ids_to_names(ids):
-            return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
-
+        id_to_name = _build_label_id_to_name_map(labels)
         filters = client.list_filters()
-        dsl_filters = []
-        for f in filters:
-            crit = f.get("criteria", {}) or {}
-            act = f.get("action", {}) or {}
-            entry = {
-                "match": {k: v for k, v in crit.items() if k in ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison") and v not in (None, "")},
-                "action": {},
-            }
-            if act.get("forward"):
-                entry["action"]["forward"] = act["forward"]
-            if act.get("addLabelIds"):
-                entry["action"]["add"] = ids_to_names(act.get("addLabelIds"))
-            if act.get("removeLabelIds"):
-                entry["action"]["remove"] = ids_to_names(act.get("removeLabelIds"))
-            dsl_filters.append(entry)
+        dsl_filters = [_build_filter_dsl_entry(f, id_to_name) for f in filters]
         dump_config(str(out_dir / "filters.yaml"), {"filters": dsl_filters})
 
         return BackupResult(
@@ -213,8 +199,7 @@ class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
                 files += 1
                 try:
                     total += p.stat().st_size
-                except (OSError, PermissionError):  # nosec B110 - skip inaccessible/deleted files
-                    # File may have been deleted or became inaccessible between rglob and stat
+                except OSError:  # nosec B110 - skip inaccessible/deleted files
                     pass
         return CacheStatsResult(path=str(root), files=files, size_bytes=total)
 
@@ -307,8 +292,7 @@ class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
                 if p.stat().st_mtime < cutoff:
                     p.unlink()
                     removed += 1
-            except (OSError, FileNotFoundError, PermissionError):  # nosec B110 - skip deletion failures
-                # File may be already deleted, in use, or inaccessible; continue pruning others
+            except OSError:  # nosec B110 - skip deletion failures (FileNotFoundError/PermissionError subclasses)
                 pass
         return CachePruneResult(path=str(root), removed=removed, days=payload.days)
 
@@ -478,6 +462,28 @@ class DeriveFiltersResult:
 DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
+def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
+    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
+    for i, spec in enumerate(out_specs):
+        orig = filters[i] if i < len(filters) else {}
+        remove_list = ((orig or {}).get("action") or {}).get("remove") or []
+        if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
+            a = spec.get("action") or {}
+            a["moveToFolder"] = "Archive"
+            a.pop("add", None)
+            spec["action"] = a
+
+
+def _apply_move_to_folders(out_specs: list) -> None:
+    """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set."""
+    for spec in out_specs:
+        a = spec.get("action") or {}
+        adds = a.get("add") or []
+        if adds and not a.get("moveToFolder"):
+            a["moveToFolder"] = str(adds[0])
+            spec["action"] = a
+
+
 class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
     def _process_safe(self, payload: DeriveFiltersRequest) -> DeriveFiltersResult:
         from ..yamlio import load_config, dump_config
@@ -496,25 +502,9 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
         # Outlook: normalized subset
         out_specs = normalize_filters_for_outlook(filters)
         if payload.outlook_archive_on_remove_inbox:
-            for i, spec in enumerate(out_specs):
-                a = spec.get("action") or {}
-                try:
-                    orig = filters[i]
-                except Exception:
-                    orig = {}
-                orig_action = (orig or {}).get("action") or {}
-                remove_list = orig_action.get("remove") or []
-                if isinstance(remove_list, list) and any(str(x).upper() == 'INBOX' for x in remove_list):
-                    a["moveToFolder"] = "Archive"
-                    a.pop("add", None)
-                    spec["action"] = a
+            _apply_archive_on_remove_inbox(out_specs, filters)
         elif payload.outlook_move_to_folders:
-            for spec in out_specs:
-                a = spec.get("action") or {}
-                adds = a.get("add") or []
-                if adds and not a.get("moveToFolder"):
-                    a["moveToFolder"] = str(adds[0])
-                    spec["action"] = a
+            _apply_move_to_folders(out_specs)
 
         out_o = Path(payload.out_outlook)
         out_o.parent.mkdir(parents=True, exist_ok=True)
@@ -570,9 +560,51 @@ class OptimizeFiltersResult:
 OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 
 
+def _partition_rules_by_dest(rules: list) -> tuple:
+    """Split filter rules into (groups_by_dest, passthrough) for merging."""
+    from collections import defaultdict
+    groups: Dict[str, list] = defaultdict(list)
+    passthrough = []
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        m = r.get("match") or {}
+        a = r.get("action") or {}
+        adds = a.get("add") or []
+        has_only_from = bool(m.get("from")) and not any(m.get(k) for k in ("to", "subject", "query", "negatedQuery"))
+        if adds and has_only_from:
+            groups[str(adds[0])].append(r)
+        else:
+            passthrough.append(r)
+    return groups, passthrough
+
+
+def _merge_group(dest: str, items: list) -> tuple:
+    """Build a merged rule for a dest group. Returns (merged_rule, MergedGroup) or (None, None)."""
+    terms = []
+    removes: set = set()
+    for it in items:
+        frm = str((it.get("match") or {}).get("from") or "").strip()
+        if frm:
+            terms.append(frm)
+        for x in (it.get("action") or {}).get("remove") or []:
+            removes.add(x)
+    atoms = [p.strip() for t in terms for p in t.split("OR") if p.strip()]
+    uniq = sorted(set(atoms))
+    if not uniq:
+        return None, None
+    rule: Dict[str, Any] = {
+        "name": f"merged_{dest.replace('/', '_')}",
+        "match": {"from": " OR ".join(uniq)},
+        "action": {"add": [dest]},
+    }
+    if removes:
+        rule["action"]["remove"] = sorted(removes)
+    return rule, MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq))
+
+
 class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFiltersResult]):
     def _process_safe(self, payload: OptimizeFiltersRequest) -> OptimizeFiltersResult:
-        from collections import defaultdict
         from ..yamlio import load_config, dump_config
 
         doc = load_config(payload.in_path) if payload.in_path else {}
@@ -580,57 +612,23 @@ class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFil
         if not isinstance(rules, list):
             raise ValueError("Input missing filters: []")
 
-        groups: Dict[str, list] = defaultdict(list)
-        passthrough = []
-        for r in rules:
-            if not isinstance(r, dict):
-                continue
-            m = r.get('match') or {}
-            a = r.get('action') or {}
-            adds = a.get('add') or []
-            has_only_from = bool(m.get('from')) and all(k in (None, '') for k in [m.get('to'), m.get('subject'), m.get('query'), m.get('negatedQuery')])
-            if adds and has_only_from:
-                dest = str(adds[0])
-                groups[dest].append(r)
-            else:
-                passthrough.append(r)
-
+        groups, passthrough = _partition_rules_by_dest(rules)
         merged = []
         preview_info = []
         threshold = max(2, payload.merge_threshold)
+
         for dest, items in groups.items():
             if len(items) < threshold:
                 passthrough.extend(items)
                 continue
-            terms = []
-            removes: set = set()
-            for it in items:
-                m = it.get('match') or {}
-                a = it.get('action') or {}
-                frm = str(m.get('from') or '').strip()
-                if frm:
-                    terms.append(frm)
-                for x in a.get('remove') or []:
-                    removes.add(x)
-            atoms = []
-            for t in terms:
-                parts = [p.strip() for p in t.split('OR') if p.strip()]
-                atoms.extend(parts)
-            uniq = sorted({a for a in atoms})
-            if not uniq:
+            merged_rule, info = _merge_group(dest, items)
+            if merged_rule is None:
                 passthrough.extend(items)
                 continue
-            merged_rule = {
-                'name': f'merged_{dest.replace("/", "_")}',
-                'match': {'from': ' OR '.join(uniq)},
-                'action': {'add': [dest]},
-            }
-            if removes:
-                merged_rule['action']['remove'] = sorted(removes)
             merged.append(merged_rule)
-            preview_info.append(MergedGroup(destination=dest, rules_merged=len(items), unique_from_terms=len(uniq)))
+            preview_info.append(info)
 
-        optimized = {'filters': merged + passthrough}
+        optimized = {"filters": merged + passthrough}
         outp = Path(payload.out_path)
         outp.parent.mkdir(parents=True, exist_ok=True)
         dump_config(str(outp), optimized)
@@ -638,7 +636,7 @@ class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFil
         return OptimizeFiltersResult(
             out_path=str(outp),
             original_count=len(rules),
-            optimized_count=len(optimized['filters']),
+            optimized_count=len(optimized["filters"]),
             merged_groups=preview_info,
         )
 
@@ -684,57 +682,79 @@ class AuditFiltersResult:
 AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
+def _build_dest_token_map(unified: list) -> Dict[str, set]:
+    """Build mapping from destination label to set of from-tokens in the unified config."""
+    dest_to_tokens: Dict[str, set] = {}
+    for f in unified:
+        if not isinstance(f, dict):
+            continue
+        adds = (f.get("action") or {}).get("add") or []
+        if not adds:
+            continue
+        frm = str((f.get("match") or {}).get("from") or "")
+        toks = {t.strip().lower() for t in frm.split("OR") if t.strip()}
+        if toks:
+            dest_to_tokens.setdefault(str(adds[0]), set()).update(toks)
+    return dest_to_tokens
+
+
+def _extract_filter_from_addr(f: dict) -> Optional[str]:
+    """Extract the normalized from-address from a filter entry, or None if not applicable."""
+    c = f.get("criteria") or f.get("match") or {}
+    if any(k in c for k in ("query", "negatedQuery", "size", "sizeComparison")):
+        return None
+    if c.get("to") or c.get("subject"):
+        return None
+    return str(c.get("from") or "").strip().lower() or None
+
+
+def _extract_filter_adds(f: dict) -> List[str]:
+    """Extract the add-labels/folder destinations from a filter action."""
+    a = f.get("action") or {}
+    adds = a.get("addLabels") or a.get("add") or []
+    if not adds and a.get("moveToFolder"):
+        adds = [str(a.get("moveToFolder"))]
+    return adds
+
+
+def _token_matches(frm: str, toks: set) -> bool:
+    """Return True if any token in toks overlaps with frm."""
+    return any(tok and (tok in frm or frm in tok) for tok in toks)
+
+
+def _score_exported_filters(exported: list, dest_to_tokens: Dict[str, set]) -> tuple:
+    """Return (simple_total, covered, missing_samples) for exported filters vs unified token map."""
+    simple_total = 0
+    covered = 0
+    missing_samples: List[tuple] = []
+    for f in exported:
+        if not isinstance(f, dict):
+            continue
+        frm = _extract_filter_from_addr(f)
+        if frm is None:
+            continue
+        adds = _extract_filter_adds(f)
+        if not adds:
+            continue
+        simple_total += 1
+        dest = str(adds[0])
+        toks = dest_to_tokens.get(dest) or set()
+        if _token_matches(frm, toks):
+            covered += 1
+        elif len(missing_samples) < 10:
+            missing_samples.append((dest, frm))
+    return simple_total, covered, missing_samples
+
+
 class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResult]):
     def _process_safe(self, payload: AuditFiltersRequest) -> AuditFiltersResult:
         from ..yamlio import load_config
 
-        uni = load_config(payload.in_path) if payload.in_path else {}
-        exp = load_config(payload.export_path) if payload.export_path else {}
-        unified = uni.get('filters') or []
-        exported = exp.get('filters') or []
+        unified = (load_config(payload.in_path) if payload.in_path else {}).get("filters") or []
+        exported = (load_config(payload.export_path) if payload.export_path else {}).get("filters") or []
 
-        dest_to_from_tokens: Dict[str, set] = {}
-        for f in unified:
-            if not isinstance(f, dict):
-                continue
-            a = f.get('action') or {}
-            adds = a.get('add') or []
-            if not adds:
-                continue
-            dest = str(adds[0])
-            m = f.get('match') or {}
-            frm = str(m.get('from') or '')
-            toks = {t.strip().lower() for t in frm.split('OR') if t.strip()}
-            if not toks:
-                continue
-            dest_to_from_tokens.setdefault(dest, set()).update(toks)
-
-        simple_total = 0
-        covered = 0
-        missing_samples: List[tuple] = []
-        for f in exported:
-            if not isinstance(f, dict):
-                continue
-            c = f.get('criteria') or f.get('match') or {}
-            a = f.get('action') or {}
-            if any(k in c for k in ('query', 'negatedQuery', 'size', 'sizeComparison')):
-                continue
-            if c.get('to') or c.get('subject'):
-                continue
-            frm = str(c.get('from') or '').strip().lower()
-            adds = a.get('addLabels') or a.get('add') or []
-            if not adds and a.get('moveToFolder'):
-                adds = [str(a.get('moveToFolder'))]
-            if not frm or not adds:
-                continue
-            simple_total += 1
-            dest = str(adds[0])
-            toks = dest_to_from_tokens.get(dest) or set()
-            cov = any((tok and (tok in frm or frm in tok)) for tok in toks)
-            if cov:
-                covered += 1
-            elif len(missing_samples) < 10:
-                missing_samples.append((dest, frm))
+        dest_to_tokens = _build_dest_token_map(unified)
+        simple_total, covered, missing_samples = _score_exported_filters(exported, dest_to_tokens)
 
         not_cov = simple_total - covered
         pct = (not_cov / simple_total * 100.0) if simple_total else 0.0
@@ -796,6 +816,52 @@ class EnvSetupResult:
 EnvSetupRequestConsumer = RequestConsumer[EnvSetupRequest]
 
 
+def _setup_venv(venv_dir: Path, skip_install: bool) -> bool:
+    """Create and optionally populate a venv. Returns True if created."""
+    venv_created = False
+    if not venv_dir.exists():
+        import venv as _venv
+        _venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+        venv_created = True
+    if not skip_install:
+        import subprocess  # nosec B404 - needed for pip install in venv setup
+        py = venv_dir / "bin" / "python"
+        if not py.exists():
+            raise FileNotFoundError(f"Python not found in venv: {py}")
+        if venv_dir.resolve() not in py.resolve().parents:
+            raise ValueError(f"Python path escapes venv directory: {py}")
+        subprocess.run([str(py), "-m", "pip", "install", "-U", "pip"], check=True, capture_output=True)  # nosec B603 - validated path within venv
+        subprocess.run([str(py), "-m", "pip", "install", "-e", "."], check=True, capture_output=True)  # nosec B603 - validated path within venv
+    for fname in ("bin/mail", "bin/mail-assistant"):
+        try:
+            p = Path(fname)
+            if p.exists():
+                os.chmod(p, (p.stat().st_mode | 0o111))
+        except OSError:  # nosec B110 - chmod failure is non-critical (PermissionError is subclass)
+            pass
+    return venv_created
+
+
+def _resolve_gmail_cred_paths(payload: Any, expand_path, default_cred_fn, default_tok_fn) -> tuple:
+    """Resolve credential/token paths, optionally copying the example credentials file."""
+    import sys
+    cred_path = payload.credentials
+    tok_path = payload.token
+    if payload.copy_gmail_example and not cred_path:
+        ex = Path("credentials.example.json")
+        dest = Path(expand_path(default_cred_fn()))
+        if ex.exists() and not dest.exists():
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(ex.read_text(encoding="utf-8"), encoding="utf-8")
+                cred_path = str(dest)
+            except OSError:  # nosec B110 - non-critical setup step (PermissionError/IOError are subclasses)
+                print(f"Warning: Could not copy example credentials to {dest}", file=sys.stderr)
+    if cred_path and not tok_path:
+        tok_path = default_tok_fn()
+    return cred_path, tok_path
+
+
 class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
     def _process_safe(self, payload: EnvSetupRequest) -> EnvSetupResult:
         from ..config_resolver import (
@@ -806,71 +872,31 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
         )
 
         venv_created = False
-        profile_saved = False
-
-        venv_dir = Path(payload.venv_dir)
         if not payload.no_venv:
-            if not venv_dir.exists():
-                import venv
-                venv.EnvBuilder(with_pip=True).create(str(venv_dir))
-                venv_created = True
-            if not payload.skip_install:
-                import subprocess  # nosec B404 - needed for pip install in venv setup
-                py = venv_dir / 'bin' / 'python'
-                if not py.exists():
-                    raise FileNotFoundError(f"Python not found in venv: {py}")
-                # Ensure python is within venv_dir (prevent path traversal)
-                if venv_dir.resolve() not in py.resolve().parents:
-                    raise ValueError(f"Python path escapes venv directory: {py}")
-                subprocess.run([str(py), '-m', 'pip', 'install', '-U', 'pip'], check=True, capture_output=True)  # nosec B603 - validated path within venv
-                subprocess.run([str(py), '-m', 'pip', 'install', '-e', '.'], check=True, capture_output=True)  # nosec B603 - validated path within venv
-            for fname in ('bin/mail', 'bin/mail-assistant'):
-                try:
-                    p = Path(fname)
-                    if p.exists():
-                        os.chmod(p, (p.stat().st_mode | 0o111))
-                except (OSError, PermissionError):  # nosec B110 - non-critical, safe to skip
-                    # chmod may fail on read-only filesystems or without permissions; not critical for setup
-                    pass
+            venv_created = _setup_venv(Path(payload.venv_dir), payload.skip_install)
 
-        cred_path = payload.credentials
-        tok_path = payload.token
-
-        if payload.copy_gmail_example and not cred_path:
-            ex = Path('credentials.example.json')
-            dest = Path(expand_path(default_gmail_credentials_path()))
-            if ex.exists() and not dest.exists():
-                try:
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_text(ex.read_text(encoding='utf-8'), encoding='utf-8')
-                    cred_path = str(dest)
-                except (OSError, PermissionError, IOError):  # nosec B110 - non-critical setup step
-                    # Example credential copy is optional; setup continues if it fails
-                    import sys
-                    print(f"Warning: Could not copy example credentials to {dest}", file=sys.stderr)
-        if cred_path and not tok_path:
-            tok_path = default_gmail_token_path()
+        cred_path, tok_path = _resolve_gmail_cred_paths(
+            payload, expand_path, default_gmail_credentials_path, default_gmail_token_path
+        )
 
         for pth in (cred_path, tok_path, payload.outlook_token):
             if pth:
                 try:
                     Path(os.path.expanduser(pth)).parent.mkdir(parents=True, exist_ok=True)
-                except (OSError, PermissionError):  # nosec B110 - non-critical directory creation
-                    # Parent directory creation is best-effort; file operations will fail later if needed
+                except OSError:  # nosec B110 - non-critical directory creation
                     pass
 
+        profile_saved = False
         if any([cred_path, tok_path, payload.outlook_client_id, payload.tenant, payload.outlook_token]):
             from mail.config_resolver import ProfileSettings
-
-            settings = ProfileSettings(
+            persist_profile_settings(ProfileSettings(
                 profile=payload.profile,
                 credentials=cred_path,
                 token=tok_path,
                 outlook_client_id=payload.outlook_client_id,
                 tenant=payload.tenant,
                 outlook_token=payload.outlook_token,
-            )
-            persist_profile_settings(settings)
+            ))
             profile_saved = True
 
         return EnvSetupResult(

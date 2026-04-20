@@ -26,7 +26,7 @@ class AuthCLITests(unittest.TestCase):
 
         class FakeRequest:
             def __init__(self, *args, **kwargs):
-                pass
+                pass  # intentionally empty stub - no init logic needed for fake
 
         google_auth_transport_requests.Request = FakeRequest
 
@@ -54,7 +54,7 @@ class AuthCLITests(unittest.TestCase):
         googleapiclient_discovery = types.ModuleType("googleapiclient.discovery")
 
         class _Users:
-            def getProfile(self, userId="me"):
+            def getProfile(self, userId="me"):  # NOSONAR - must match Google API camelCase interface
                 class _Exec:
                     def execute(self):
                         return {"emailAddress": "me@example.com"}

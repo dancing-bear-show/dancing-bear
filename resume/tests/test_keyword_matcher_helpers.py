@@ -185,7 +185,7 @@ class TestNormalize(unittest.TestCase):
         self.assertEqual(KeywordMatcher.normalize(""), "")
 
     def test_handles_none(self):
-        self.assertEqual(KeywordMatcher.normalize(None), "")
+        self.assertEqual(KeywordMatcher.normalize(None), "")  # NOSONAR - intentional None test for defensive handling
 
 
 class TestMatchKeyword(unittest.TestCase):

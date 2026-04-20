@@ -41,6 +41,20 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
+    def _is_one_off(self, ev: Dict[str, Any]) -> bool:
+        """Return True if the event is a single-instance (not part of a series)."""
+        etype = (ev.get("type") or "").lower()
+        return etype == "singleinstance" or not ev.get("seriesMasterId")
+
+    def _event_to_row(self, ev: Dict[str, Any]) -> Dict[str, str]:
+        """Convert an Outlook event dict to a flat row dict."""
+        return {
+            "subject": ev.get("subject") or "",
+            "start": ((ev.get("start") or {}).get("dateTime") or ""),
+            "end": ((ev.get("end") or {}).get("dateTime") or ""),
+            "location": ((ev.get("location") or {}).get("displayName") or ""),
+        }
+
     def _process_safe(self, payload: OutlookListOneOffsRequest) -> OutlookListOneOffsResult:
         check_service_required(payload.service)
         svc = payload.service
@@ -53,26 +67,15 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
             end_iso=end_iso,
             calendar_name=payload.calendar,
         ))
-        one_offs = []
-        for ev in evs or []:
-            etype = (ev.get("type") or "").lower()
-            if (etype == "singleinstance") or not ev.get("seriesMasterId"):
-                one_offs.append(ev)
-        rows: List[Dict[str, str]] = []
-        for ev in one_offs[: max(0, payload.limit)]:
-            subj = ev.get("subject") or ""
-            st = ((ev.get("start") or {}).get("dateTime") or "") or ""
-            en = ((ev.get("end") or {}).get("dateTime") or "") or ""
-            loc = ((ev.get("location") or {}).get("displayName") or "") or ""
-            rows.append({"subject": subj, "start": st, "end": en, "location": loc})
-        result = OutlookListOneOffsResult(
+        one_offs = [ev for ev in (evs or []) if self._is_one_off(ev)]
+        rows = [self._event_to_row(ev) for ev in one_offs[:max(0, payload.limit)]]
+        return OutlookListOneOffsResult(
             rows=rows,
             start=start_date,
             end=end_date,
             limit=payload.limit,
             out_path=payload.out_path,
         )
-        return result
 
 
 class OutlookListOneOffsProducer(BaseProducer):

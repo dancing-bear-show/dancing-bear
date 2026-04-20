@@ -56,7 +56,7 @@ class TestVerifyFromConfigFlow(unittest.TestCase):
                 profile=None, client_id=None, tenant=None, token=None
             )
             with capture_stdout() as buf:
-                rc = run_outlook_verify_from_config(args)
+                rc = run_outlook_verify_from_config(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
             out = buf.getvalue()
             self.assertEqual(rc, 0, msg=out)
             self.assertIn('Checked 2 recurring entries', out)
