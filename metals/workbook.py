@@ -53,7 +53,10 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
     if not values:
         return
 
-    rows, cols = len(values), max(len(r) for r in values)
+    rows = len(values)
+    cols = max((len(r) for r in values), default=0)
+    if cols == 0:
+        return
     padded = pad_rows(values, cols)
     end_col = col_letter(cols)
     addr = f"A1:{end_col}{rows}"

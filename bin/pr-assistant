@@ -111,7 +111,6 @@ def create_pr(base, title, body, dry_run):
     if rc != 0:
         print(f"Failed to create PR: {stderr.strip()}", file=sys.stderr)
         return None
-    pr_url = stdout.strip()
     # Re-fetch PR info
     return find_pr()
 

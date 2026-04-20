@@ -122,7 +122,8 @@ class GmailClient(ConfigCacheMixin):
             body["labelListVisibility"] = label_list_visibility
         if message_list_visibility:
             body["messageListVisibility"] = message_list_visibility
-        # Allow caller to pass a prebuilt body via kwargs
+        # Allow caller to pass a prebuilt body via kwargs (including legacy camelCase keys
+        # like labelListVisibility/messageListVisibility for backwards compatibility)
         for k, v in kwargs.items():
             if k not in body:
                 body[k] = v
