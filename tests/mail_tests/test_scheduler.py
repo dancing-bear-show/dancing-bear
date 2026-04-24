@@ -66,9 +66,9 @@ class QueuePathXdgFallbackTests(unittest.TestCase):
         self.assertEqual(path.name, "scheduled_sends.json")
 
     def test_falls_back_to_home_config_when_xdg_unset(self):
-        # Without XDG_CONFIG_HOME the path should still end in mail/scheduled_sends.json
-        # Patch Path.home so we don't create ~/.config/mail on the real machine
-        with patch("pathlib.Path.home", return_value=Path(self.tmpdir)):
+        # Without XDG_CONFIG_HOME the path falls back to expanduser("~/.config").
+        # Patch HOME so we don't create ~/.config/mail on the real machine.
+        with patch.dict(os.environ, {"HOME": self.tmpdir}, clear=False):
             path = _queue_path()
         self.assertEqual(path.name, "scheduled_sends.json")
         self.assertEqual(path.parent.name, "mail")
