@@ -15,6 +15,8 @@ import os
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from mail.scheduler import (
     ScheduledItem,
@@ -65,7 +67,9 @@ class QueuePathXdgFallbackTests(unittest.TestCase):
 
     def test_falls_back_to_home_config_when_xdg_unset(self):
         # Without XDG_CONFIG_HOME the path should still end in mail/scheduled_sends.json
-        path = _queue_path()
+        # Patch Path.home so we don't create ~/.config/mail on the real machine
+        with patch("pathlib.Path.home", return_value=Path(self.tmpdir)):
+            path = _queue_path()
         self.assertEqual(path.name, "scheduled_sends.json")
         self.assertEqual(path.parent.name, "mail")
 
