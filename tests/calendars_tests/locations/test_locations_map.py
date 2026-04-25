@@ -3,13 +3,6 @@ import unittest
 from pathlib import Path
 
 import calendars.locations_map as lm
-from calendars.locations_map import (
-    ADDRESS_MAP,
-    _default_locations_yaml_paths,
-    _load_yaml_locations,
-    enrich_location,
-    get_locations_map,
-)
 
 from tests.fixtures import has_pyyaml
 
@@ -25,19 +18,19 @@ class LocationsMapTests(unittest.TestCase):
             pass
 
         key = 'Ed Sackfield Arena'
-        expected = ADDRESS_MAP[key]
-        actual = enrich_location(key)
+        expected = lm.ADDRESS_MAP[key]
+        actual = lm.enrich_location(key)
         self.assertEqual(actual, expected)
         # Non-mapped names should return as-is
-        self.assertEqual(enrich_location('Unknown Facility'), 'Unknown Facility')
+        self.assertEqual(lm.enrich_location('Unknown Facility'), 'Unknown Facility')
 
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_enrich_location_handles_empty_string(self):
         """enrich_location should return empty string for empty input."""
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
-        self.assertEqual(enrich_location(''), '')
-        self.assertEqual(enrich_location('   '), '')
+        self.assertEqual(lm.enrich_location(''), '')
+        self.assertEqual(lm.enrich_location('   '), '')
 
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_get_locations_map_caches_result(self):
@@ -45,9 +38,9 @@ class LocationsMapTests(unittest.TestCase):
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
         # First call loads map
-        first = get_locations_map()
+        first = lm.get_locations_map()
         # Second call should return cached version
-        second = get_locations_map()
+        second = lm.get_locations_map()
         self.assertIs(first, second)
 
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
@@ -55,10 +48,10 @@ class LocationsMapTests(unittest.TestCase):
         """get_locations_map should return ADDRESS_MAP when no YAML exists."""
         lm._CACHED_MAP = None  # type: ignore[attr-defined]
 
-        result = get_locations_map()
+        result = lm.get_locations_map()
         # Should contain keys from ADDRESS_MAP
         self.assertIn('Bond Lake Arena', result)
-        self.assertEqual(result['Bond Lake Arena'], ADDRESS_MAP['Bond Lake Arena'])
+        self.assertEqual(result['Bond Lake Arena'], lm.ADDRESS_MAP['Bond Lake Arena'])
 
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_load_yaml_locations_from_file(self):
@@ -73,7 +66,7 @@ class LocationsMapTests(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
         try:
-            result = _load_yaml_locations(tmp_path)
+            result = lm._load_yaml_locations(tmp_path)
             self.assertIsNotNone(result)
             self.assertEqual(result['Test Arena'], 'Test Arena (123 Main St)')
             self.assertEqual(result['Test Pool'], 'Test Pool (456 Oak Ave)')
@@ -94,7 +87,7 @@ class LocationsMapTests(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
         try:
-            result = _load_yaml_locations(tmp_path)
+            result = lm._load_yaml_locations(tmp_path)
             self.assertIsNotNone(result)
             self.assertEqual(result['Arena'], 'Arena (123 St)')
         finally:
@@ -110,7 +103,7 @@ class LocationsMapTests(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
         try:
-            result = _load_yaml_locations(tmp_path)
+            result = lm._load_yaml_locations(tmp_path)
             self.assertIsNone(result)
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -120,14 +113,14 @@ class LocationsMapTests(unittest.TestCase):
         """_load_yaml_locations should return empty dict for missing file."""
         # load_config returns {} for missing files, which is a valid dict
         # but doesn't contain locations, so it returns empty dict after conversion
-        result = _load_yaml_locations(Path('/nonexistent/path.yaml'))
+        result = lm._load_yaml_locations(Path('/nonexistent/path.yaml'))
         # Empty dict is valid - it passes the isinstance check and has no items
         self.assertEqual(result, {})
 
     @unittest.skipUnless(has_pyyaml(), 'requires PyYAML')
     def test_default_locations_yaml_paths_returns_list(self):
         """_default_locations_yaml_paths should return list of Path objects."""
-        paths = _default_locations_yaml_paths()
+        paths = lm._default_locations_yaml_paths()
         self.assertIsInstance(paths, list)
         self.assertGreater(len(paths), 0)
         for p in paths:
