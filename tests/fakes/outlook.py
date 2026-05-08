@@ -11,7 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from core.outlook.models import EventCreationParams, RecurringEventCreationParams
+from core.outlook.models import (
+    EventCreationParams,
+    ListCalendarViewRequest,
+    ListEventsRequest,
+    RecurringEventCreationParams,
+    UpdateEventReminderRequest,
+)
 
 
 @dataclass
@@ -47,10 +53,7 @@ class FakeOutlookClient:
                 return cal
         return None
 
-    def list_events_in_range(
-        self, calendar_id: Optional[str] = None, start: Optional[str] = None,  # NOSONAR
-        end: Optional[str] = None, **kwargs  # NOSONAR
-    ) -> List[Dict]:
+    def list_events_in_range(self, params: Optional[ListEventsRequest] = None) -> List[Dict]:  # NOSONAR - fake interface must match real signature
         return list(self.events)
 
     def create_event(self, calendar_id: str, event: Dict) -> Dict:  # NOSONAR - fake interface must match real signature
@@ -108,28 +111,18 @@ class FakeCalendarService:
     def find_calendar_id(self, name: str) -> Optional[str]:
         return self.get_calendar_id_by_name(name)
 
-    def list_calendar_view(
-        self, *, calendar_id: str, start_iso: str, end_iso: str,  # NOSONAR
-        select: str = "", top: int = 200  # NOSONAR
-    ) -> List[Dict]:
+    def list_calendar_view(self, params: Optional[ListCalendarViewRequest] = None) -> List[Dict]:  # NOSONAR - fake interface must match real signature
         return list(self.events)
 
     def delete_event_by_id(self, event_id: str) -> bool:
         self.deleted_ids.append(event_id)
         return True
 
-    def list_events_in_range(
-        self, *, start_iso: str, end_iso: str, calendar_id: Optional[str] = None,  # NOSONAR
-        **kwargs  # NOSONAR
-    ) -> List[Dict]:
+    def list_events_in_range(self, params: Optional[ListEventsRequest] = None) -> List[Dict]:  # NOSONAR - fake interface must match real signature
         return list(self.events)
 
-    def update_event_reminder(
-        self, *, event_id: str, calendar_id: Optional[str] = None,  # NOSONAR
-        calendar_name: Optional[str] = None, is_on: bool,  # NOSONAR
-        minutes_before_start: Optional[int] = None
-    ) -> None:
-        self.updated_reminders.append((event_id, is_on, minutes_before_start))
+    def update_event_reminder(self, params: UpdateEventReminderRequest) -> None:  # NOSONAR - fake interface must match real signature
+        self.updated_reminders.append((params.event_id, params.is_on, params.minutes_before_start))
 
     def create_event(self, params: EventCreationParams) -> Dict[str, Any]:
         evt: Dict[str, Any] = {"id": f"evt_{len(self.created_events)}", "subject": params.subject}
@@ -141,8 +134,5 @@ class FakeCalendarService:
         self.created_events.append(("recurring", params))
         return evt
 
-    def update_event_location(
-        self, *, event_id: str, calendar_name: Optional[str] = None,  # NOSONAR
-        calendar_id: Optional[str] = None, location_str: str  # NOSONAR
-    ) -> None:
+    def update_event_location(self, *, event_id: str, location_str: str, **kwargs) -> None:  # NOSONAR - fake interface must match real signature
         self.updated_locations.append((event_id, location_str))

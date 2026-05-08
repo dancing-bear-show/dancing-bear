@@ -40,19 +40,17 @@ class FakeAppleMusicClient:
         *,
         playlists: Optional[List[dict]] = None,
         tracks: Optional[List[dict]] = None,
-        tracks_by_playlist: Optional[Dict[str, List[dict]]] = None,
         storefront: str = "us",
-        on_search: Optional[Callable[[str, str, int], List[dict]]] = None,
-        on_create: Optional[Callable[[str, List[dict], Optional[str]], dict]] = None,
-        on_delete: Optional[Callable[[str], dict]] = None,
+        **kwargs,
     ):
+        """Optional kwargs: tracks_by_playlist, on_search, on_create, on_delete."""
         self.playlists = playlists or []
         self.tracks = tracks or []
-        self.tracks_by_playlist = tracks_by_playlist or {}
+        self.tracks_by_playlist: Dict[str, List[dict]] = kwargs.get("tracks_by_playlist") or {}
         self.storefront = storefront
-        self._on_search = on_search
-        self._on_create = on_create
-        self._on_delete = on_delete
+        self._on_search: Optional[Callable] = kwargs.get("on_search")
+        self._on_create: Optional[Callable] = kwargs.get("on_create")
+        self._on_delete: Optional[Callable] = kwargs.get("on_delete")
 
         # Track calls for assertions
         self.search_calls: List[tuple] = []

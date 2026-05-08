@@ -12,9 +12,20 @@ from __future__ import annotations
 import argparse
 from typing import Dict, List, Tuple
 
+from dataclasses import dataclass
+
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
+
+
+@dataclass
+class ScanParams:
+    """Parameters for scanning Outlook messages."""
+    days: int = 365
+    top: int = 50
+    pages: int = 3
+    folder: str = "inbox"
 
 
 QUERIES: List[Tuple[str, str]] = [
@@ -24,18 +35,18 @@ QUERIES: List[Tuple[str, str]] = [
 ]
 
 
-def _search_all_folders(cli: OutlookClient, q: str, days: int, top: int, pages: int) -> List[str]:
+def _search_all_folders(cli: OutlookClient, q: str, params: ScanParams) -> List[str]:
     """Search all folders via Graph $search."""
     import requests  # lazy import
     base = f"{cli.GRAPH}/me/messages"
-    params = [f"$search=\"{q}\"", f"$top={int(top)}"]
-    if days and int(days) > 0:
+    url_params = [f"$search=\"{q}\"", f"$top={int(params.top)}"]
+    if params.days and int(params.days) > 0:
         import datetime as _dt
-        start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(days))
-        params.append(f"$filter=receivedDateTime ge {start.strftime('%Y-%m-%dT%H:%M:%SZ')}")
-    nxt: str | None = base + "?" + "&".join(params)
+        start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(params.days))
+        url_params.append(f"$filter=receivedDateTime ge {start.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    nxt: str | None = base + "?" + "&".join(url_params)
     ids: List[str] = []
-    for _ in range(max(1, int(pages))):
+    for _ in range(max(1, int(params.pages))):
         r = requests.get(nxt, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
         r.raise_for_status()
         data = r.json()
@@ -49,13 +60,13 @@ def _search_all_folders(cli: OutlookClient, q: str, days: int, top: int, pages: 
     return ids
 
 
-def _scan_query(cli: OutlookClient, q: str, days: int, top: int, pages: int, folder: str) -> List[str]:
+def _scan_query(cli: OutlookClient, q: str, params: ScanParams) -> List[str]:
     """Run a single search query for the given folder scope."""
-    from core.outlook.mail import SearchParams
-    if (folder or 'inbox').lower() == 'all':
-        return _search_all_folders(cli, q, days, top, pages)
+    from core.outlook.mail import SearchParams as _SearchParams
+    if (params.folder or 'inbox').lower() == 'all':
+        return _search_all_folders(cli, q, params)
     return cli.search_inbox_messages(
-        SearchParams(search_query=q, days=days, top=top, pages=pages, use_cache=False)
+        _SearchParams(search_query=q, days=params.days, top=params.top, pages=params.pages, use_cache=False)
     )
 
 
@@ -84,10 +95,11 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
     cli = OutlookClient(client_id=client_id, tenant=tenant, token_path=token, cache_dir=".cache")
     cli.authenticate()
 
+    scan = ScanParams(days=days, top=top, pages=pages, folder=folder)
     summary: Dict[str, List[str]] = {}
     for name, q in QUERIES:
         try:
-            summary[name] = _scan_query(cli, q, days, top, pages, folder)
+            summary[name] = _scan_query(cli, q, scan)
         except Exception:
             summary[name] = []
 

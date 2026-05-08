@@ -111,20 +111,15 @@ class GmailClient(ConfigCacheMixin):
         self,
         name: str,
         color: Optional[Dict[str, str]] = None,
-        labelListVisibility: Optional[str] = None,  # NOSONAR - matches Gmail API field name
-        messageListVisibility: Optional[str] = None,  # NOSONAR - matches Gmail API field name
         **kwargs: Any,
     ) -> Dict[str, Any]:
         body: Dict[str, Any] = {"name": name}
         if color:
             body["color"] = color
-        if labelListVisibility:
-            body["labelListVisibility"] = labelListVisibility
-        if messageListVisibility:
-            body["messageListVisibility"] = messageListVisibility
-        # Allow caller to pass a prebuilt body via kwargs
+        # Allow caller to pass additional fields (e.g. labelListVisibility,
+        # messageListVisibility) via kwargs
         for k, v in kwargs.items():
-            if k not in body:
+            if k not in body and v is not None:
                 body[k] = v
         return self.service.users().labels().create(userId="me", body=body).execute()
 

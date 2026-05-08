@@ -88,7 +88,7 @@ def _flow_map() -> str:
     return "\n".join(lines)
 
 
-def emit_agentic_context(fmt: str = "text", compact: bool = False) -> int:  # noqa: ARG001
+def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:
     """Emit a compact agentic capsule (best-effort format/compact params)."""
     print(build_agentic_capsule())
     return 0

@@ -5,7 +5,7 @@ Outlook client fakes, calendar service fakes, and event helpers.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict
 
 # Re-export fakes from centralized fakes module
 from tests.fakes.outlook import (
@@ -30,28 +30,28 @@ __all__ = [
 
 
 def make_outlook_event(
-    subject: str,
-    start_iso: str,
-    end_iso: str,
-    series_id: Optional[str] = None,
-    location: Optional[str] = None,
-    created: Optional[str] = None,
-    event_type: Optional[str] = None,
+    subject: str = "Test Event",
+    start_iso: str = "2025-01-01T10:00:00",
+    end_iso: str = "2025-01-01T11:00:00",
+    **kwargs,
 ) -> Dict:
-    """Create a fake Outlook event dict for testing."""
-    event = {
+    """Create a fake Outlook event dict for testing.
+
+    Optional kwargs: series_id, location, created, event_type.
+    """
+    event: Dict = {
         "subject": subject,
         "start": {"dateTime": start_iso},
         "end": {"dateTime": end_iso},
     }
-    if series_id:
-        event["seriesMasterId"] = series_id
-    if location:
-        event["location"] = {"displayName": location}
-    if created:
-        event["createdDateTime"] = created
-    if event_type:
-        event["type"] = event_type
+    if kwargs.get("series_id"):
+        event["seriesMasterId"] = kwargs["series_id"]
+    if kwargs.get("location"):
+        event["location"] = {"displayName": kwargs["location"]}
+    if kwargs.get("created"):
+        event["createdDateTime"] = kwargs["created"]
+    if kwargs.get("event_type"):
+        event["type"] = kwargs["event_type"]
     return event
 
 

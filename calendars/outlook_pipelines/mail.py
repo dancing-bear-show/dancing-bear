@@ -1,9 +1,8 @@
 """Outlook Mail List Pipeline - list mail messages.
 
-NOTE: This pipeline is misplaced in the calendars module. It handles mail
-operations, not calendar operations. It's kept here for backward compatibility
-with existing CLI commands and tests. New mail-related pipelines should go
-in mail/outlook_pipelines/.
+This pipeline lives in the calendars module for backward compatibility
+with existing CLI commands and tests, even though it handles mail
+operations. New mail-related pipelines should go in mail/outlook_pipelines/.
 """
 
 from ._base import (

@@ -55,40 +55,41 @@ def find_iconstate_file(backup_dir: Path) -> Optional[IconStateFile]:
     Prefer IconState.plist over DesiredIconState variants.
     """
     manifest_db = backup_dir / "Manifest.db"
-    if not manifest_db.exists():
-        return None
-    rows = _manifest_select(
-        manifest_db,
-        """
-        SELECT fileID, relativePath
-        FROM Files
-        WHERE domain='HomeDomain'
-          AND relativePath LIKE 'Library/SpringBoard/IconState%'
-        ORDER BY relativePath ASC
-        """,
-        tuple(),
-    )
-    if not rows:
-        return None
+    result: Optional[IconStateFile] = None
+    if manifest_db.exists():
+        rows = _manifest_select(
+            manifest_db,
+            """
+            SELECT fileID, relativePath
+            FROM Files
+            WHERE domain='HomeDomain'
+              AND relativePath LIKE 'Library/SpringBoard/IconState%'
+            ORDER BY relativePath ASC
+            """,
+            tuple(),
+        )
+        if rows:
+            # Choose best candidate: prefer IconState~ipad.plist or IconState.plist; otherwise first.
+            _suffix_scores = {
+                "iconstate~ipad.plist": 3,
+                "iconstate.plist": 2,
+                "desirediconstate.plist": 1,
+            }
 
-    # Choose best candidate: prefer IconState~ipad.plist or IconState.plist; otherwise first.
-    def score(path: str) -> int:
-        p = path.lower()
-        if p.endswith("iconstate~ipad.plist"):
-            return 3
-        if p.endswith("iconstate.plist"):
-            return 2
-        if p.endswith("desirediconstate.plist"):
-            return 1
-        return 0
+            def score(path: str) -> int:
+                p = path.lower()
+                return next(
+                    (v for suffix, v in _suffix_scores.items() if p.endswith(suffix)),
+                    0,
+                )
 
-    best = max(rows, key=lambda r: score(r["relativePath"]))
-    file_id = best["fileID"]
-    rel = best["relativePath"]
-    hashed = backup_dir / file_id[:2] / file_id
-    if not hashed.exists():
-        return None
-    return IconStateFile(path=hashed, desc=rel)
+            best = max(rows, key=lambda r: score(r["relativePath"]))
+            file_id = best["fileID"]
+            rel = best["relativePath"]
+            hashed = backup_dir / file_id[:2] / file_id
+            if hashed.exists():
+                result = IconStateFile(path=hashed, desc=rel)
+    return result
 
 
 def load_plist(path: Path) -> Dict[str, Any]:

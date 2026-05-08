@@ -25,9 +25,35 @@ from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from core.text_utils import html_to_text
 from mail.outlook_api import OutlookClient
 
+from dataclasses import dataclass as _dataclass
+
 from .cost_extractor import CostExtractor, MessageInfo, OrderData
 from .costs_common import extract_order_amount, format_breakdown, format_qty, get_price_band
 from .vendors import RCMParser
+
+
+@_dataclass
+class OutputRowsContext:
+    """Context for building output rows from processed data."""
+    per_item_rows: List[Dict]
+    total_cost: float
+    oz_by_metal: Dict[str, float]
+    units_by_metal: Dict[str, Dict[float, float]]
+    order_id: str
+    msg: MessageInfo
+    line_cost: float
+
+
+@_dataclass
+class GoldRowContext:
+    """Context for building a gold output row."""
+    order_id: str
+    subject: str
+    received_date: str
+    total_cost: float
+    oz: float
+    gold_units: Dict[float, float]
+    line_cost: float
 
 # Shared RCM parser instance
 _rcm_parser = RCMParser()
@@ -240,10 +266,12 @@ class OutlookCostExtractor(CostExtractor):
             return []
 
         # Build output rows
-        return self._build_output_rows(
-            per_item_rows, total_cost, oz_by_metal, units_by_metal,
-            order.order_id, msg, line_cost
+        orc = OutputRowsContext(
+            per_item_rows=per_item_rows, total_cost=total_cost,
+            oz_by_metal=oz_by_metal, units_by_metal=units_by_metal,
+            order_id=order.order_id, msg=msg, line_cost=line_cost,
         )
+        return self._build_output_rows(orc)
 
     def _extract_items_and_metals(
         self, body: str
@@ -327,28 +355,43 @@ class OutlookCostExtractor(CostExtractor):
             return line_cost
         return cur_amt[1] if cur_amt else 0.0
 
-    def _build_output_rows(
-        self,
-        per_item_rows: List[Dict],
-        total_cost: float,
-        oz_by_metal: Dict[str, float],
-        units_by_metal: Dict[str, Dict[float, float]],
-        order_id: str,
-        msg: MessageInfo,
-        line_cost: float
-    ) -> List[Dict[str, str | float]]:
+    def _build_output_rows(self, orc: OutputRowsContext) -> List[Dict[str, str | float]]:
         """Build output rows from processed data."""
-        if per_item_rows:
-            return per_item_rows
+        if orc.per_item_rows:
+            return orc.per_item_rows
 
-        oz = oz_by_metal.get('gold', 0.0)
+        oz = orc.oz_by_metal.get('gold', 0.0)
         if oz <= 0:
             return []
 
-        return [self._build_gold_row(
-            order_id, msg.subject, msg.received_date,
-            total_cost, oz, units_by_metal.get('gold', {}), line_cost
-        )]
+        ctx = GoldRowContext(
+            order_id=orc.order_id, subject=orc.msg.subject,
+            received_date=orc.msg.received_date, total_cost=orc.total_cost,
+            oz=oz, gold_units=orc.units_by_metal.get('gold', {}),
+            line_cost=orc.line_cost,
+        )
+        return [self._build_gold_row(ctx)]
+
+    def _build_gold_row(self, ctx: GoldRowContext) -> Dict[str, str | float]:
+        """Build a single aggregated gold row from context."""
+        cpo = (ctx.total_cost / ctx.oz) if ctx.oz > 0 else 0.0
+        unit_count = sum(ctx.gold_units.values()) if ctx.gold_units else 1.0
+        breakdown_str = format_breakdown(ctx.gold_units) if ctx.gold_units else f"{round(ctx.oz, 3)}ozx1"
+
+        return {
+            'vendor': 'RCM',
+            'date': (ctx.received_date or '').split('T', 1)[0],
+            'metal': 'gold',
+            'currency': 'C$',
+            'cost_total': round(ctx.total_cost, 2),
+            'cost_per_oz': round(cpo, 2),
+            'order_id': ctx.order_id,
+            'subject': ctx.subject,
+            'total_oz': round(ctx.oz, 3),
+            'unit_count': format_qty(unit_count),
+            'units_breakdown': breakdown_str,
+            'alloc': 'line-item' if ctx.line_cost > 0 else 'order-single-metal',
+        }
 
     def _summarize_ounces(
         self, items: List[Dict], metal_guess: str
@@ -427,36 +470,6 @@ class OutlookCostExtractor(CostExtractor):
                 line_cost += float(amt) * max(qty, 1.0) if kind == 'unit' else float(amt)
 
         return line_cost
-
-    def _build_gold_row(
-        self,
-        oid: str,
-        sub: str,
-        recv: str,
-        total_cost: float,
-        oz: float,
-        gold_units: Dict[float, float],
-        line_cost: float
-    ) -> Dict[str, str | float]:
-        """Build a single aggregated gold row."""
-        cpo = (total_cost / oz) if oz > 0 else 0.0
-        unit_count = sum(gold_units.values()) if gold_units else 1.0
-        breakdown_str = format_breakdown(gold_units) if gold_units else f"{round(oz, 3)}ozx1"
-
-        return {
-            'vendor': 'RCM',
-            'date': (recv or '').split('T', 1)[0],
-            'metal': 'gold',
-            'currency': 'C$',
-            'cost_total': round(total_cost, 2),
-            'cost_per_oz': round(cpo, 2),
-            'order_id': oid,
-            'subject': sub,
-            'total_oz': round(oz, 3),
-            'unit_count': format_qty(unit_count),
-            'units_breakdown': breakdown_str,
-            'alloc': 'line-item' if line_cost > 0 else 'order-single-metal',
-        }
 
     def _trim_disclaimer_lines(self, lines: List[str]) -> List[str]:
         """Trim disclaimer/footer sections from lines."""
@@ -554,12 +567,10 @@ def _compute_proximity_line_costs(gold_items: List[Dict], lines: List[str]) -> f
     return extractor._compute_proximity_line_costs(gold_items, lines)
 
 
-def _build_gold_row(
-    oid: str, sub: str, recv: str, total_cost: float, oz: float, gold_units: Dict[float, float], line_cost: float
-) -> Dict[str, str | float]:
+def _build_gold_row(ctx: GoldRowContext) -> Dict[str, str | float]:
     """Build a single aggregated gold row."""
     extractor = OutlookCostExtractor(*_TEST_EXTRACTOR_DEFAULTS)
-    return extractor._build_gold_row(oid, sub, recv, total_cost, oz, gold_units, line_cost)
+    return extractor._build_gold_row(ctx)
 
 
 def run(profile: str, out_path: str, days: int = 365) -> int:

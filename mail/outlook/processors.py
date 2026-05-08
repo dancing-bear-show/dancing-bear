@@ -375,8 +375,14 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             name_to_id = client.get_label_id_map()
             folder_path_map = client.get_folder_path_map() if payload.move_to_folders else {}
 
+            ctx = RuleContext(
+                client=client,
+                name_to_id=name_to_id,
+                folder_map=folder_path_map,
+                move_to_folders=payload.move_to_folders,
+            )
             created, desired_keys = self._create_desired_rules(
-                desired, existing, client, name_to_id, folder_path_map, payload
+                desired, existing, ctx, payload.dry_run
             )
             deleted = (
                 self._delete_missing_rules(existing, desired_keys, payload) if payload.delete_missing else 0
@@ -397,10 +403,8 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         self,
         desired: List[Dict[str, Any]],
         existing: Dict[str, Any],
-        client: Any,
-        name_to_id: Dict[str, str],
-        folder_path_map: Dict[str, str],
-        payload: OutlookRulesSyncPayload,
+        ctx: RuleContext,
+        dry_run: bool,
     ) -> Tuple[int, set]:
         """Create rules from desired specs that don't exist.
 
@@ -409,12 +413,6 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         """
         created = 0
         desired_keys: set = set()
-        ctx = RuleContext(
-            client=client,
-            name_to_id=name_to_id,
-            folder_map=folder_path_map,
-            move_to_folders=payload.move_to_folders,
-        )
 
         for spec in desired:
             m = spec.get("match") or {}
@@ -430,9 +428,9 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
             if key in existing:
                 continue
 
-            if not payload.dry_run:
+            if not dry_run:
                 try:
-                    client.create_filter(criteria, action)
+                    ctx.client.create_filter(criteria, action)
                 except Exception:  # nosec B110 - filter creation failure logged elsewhere
                     pass
             created += 1

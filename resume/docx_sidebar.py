@@ -17,6 +17,7 @@ from .docx_styles import (
     _tight_paragraph,
     _apply_paragraph_shading,
 )
+from .render_config import IndentedRunStyle
 
 
 class SidebarResumeWriter(ResumeWriterBase):
@@ -395,18 +396,19 @@ def _render_main_teaching(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], 
             _tight_paragraph(p2, after_pt=6)
 
 
-def _add_indented_run(cell, text: str, page_cfg: Dict[str, Any], *, italic: bool = False, size_offset: int = 0, color: str = "#666666", after_pt: int = 0):
+def _add_indented_run(cell, text: str, page_cfg: Dict[str, Any], style: Optional[IndentedRunStyle] = None):
     """Add an indented paragraph with styled run."""
+    s = style or IndentedRunStyle()
     p = cell.add_paragraph()
     p.paragraph_format.left_indent = Inches(0.25)
     run = p.add_run(text)
-    if italic:
+    if s.italic:
         run.italic = True
-    run.font.size = Pt(page_cfg.get("meta_pt", 9) + size_offset)
-    rgb = _parse_hex_color(color)
+    run.font.size = Pt(page_cfg.get("meta_pt", 9) + s.size_offset)
+    rgb = _parse_hex_color(s.color)
     if rgb:
         run.font.color.rgb = RGBColor(*rgb)
-    _tight_paragraph(p, after_pt=after_pt)
+    _tight_paragraph(p, after_pt=s.after_pt)
     return p
 
 
@@ -427,11 +429,11 @@ def _render_pres_entry(cell, pres: Dict[str, Any], page_cfg: Dict[str, Any], bul
     title_run.font.size = Pt(page_cfg.get("body_pt", 10))
     _tight_paragraph(p, after_pt=0)
 
-    p2 = _add_indented_run(cell, authors, page_cfg, italic=True) if authors else None
-    p3 = _add_indented_run(cell, event, page_cfg, size_offset=-1, color="#888888") if event else None
+    p2 = _add_indented_run(cell, authors, page_cfg, IndentedRunStyle(italic=True)) if authors else None
+    p3 = _add_indented_run(cell, event, page_cfg, IndentedRunStyle(size_offset=-1, color="#888888")) if event else None
 
     if note:
-        _add_indented_run(cell, note, page_cfg, italic=True, size_offset=-1, after_pt=4)
+        _add_indented_run(cell, note, page_cfg, IndentedRunStyle(italic=True, size_offset=-1, after_pt=4))
     else:
         if p3:
             p3.paragraph_format.space_after = Pt(4)

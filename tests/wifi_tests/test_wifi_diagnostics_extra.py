@@ -9,6 +9,7 @@ from wifi.diagnostics import (
     CommandResult,
     CommandRunner,
     DiagnoseConfig,
+    DiagnoseResults,
     DnsResult,
     HttpResult,
     PingResult,
@@ -431,14 +432,14 @@ class TestDeriveFindingsEdgeCases(unittest.TestCase):
                        loss_pct=0.0, min_ms=20.0, avg_ms=25.0, max_ms=30.0),
         ]
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
-        findings = derive_findings(gateway="192.168.1.1", ping_results=ping_results,
-                                   icmp_filtered=False, dns=dns, _trace=None, http=None)
+        findings = derive_findings(DiagnoseResults(gateway="192.168.1.1", ping_results=ping_results,
+                                   icmp_filtered=False, dns=dns, trace=None, http=None))
         self.assertTrue(any("healthy" in f.lower() for f in findings))
 
     def test_derive_findings_icmp_filtered_note(self):
         dns = DnsResult(host="google.com", success=True, addresses=["8.8.8.8"], elapsed_ms=10.0)
-        findings = derive_findings(gateway="192.168.1.1", ping_results=[],
-                                   icmp_filtered=True, dns=dns, _trace=None, http=None)
+        findings = derive_findings(DiagnoseResults(gateway="192.168.1.1", ping_results=[],
+                                   icmp_filtered=True, dns=dns, trace=None, http=None))
         self.assertTrue(any("icmp" in f.lower() for f in findings))
 
 

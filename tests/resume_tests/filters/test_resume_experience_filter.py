@@ -6,6 +6,7 @@ import copy
 import unittest
 
 from resume.experience_filter import filter_experience_by_keywords
+from resume.render_config import ExperienceFilterConfig
 from tests.resume_tests.fixtures import SAMPLE_CANDIDATE, SAMPLE_EXPERIENCE_ENTRIES
 
 
@@ -45,13 +46,15 @@ class TestFilterExperienceByKeywords(unittest.TestCase):
 
     def test_respects_max_roles(self):
         result = filter_experience_by_keywords(
-            self.candidate, ["Developer"], max_roles=2
+            self.candidate, ["Developer"],
+            filter_cfg=ExperienceFilterConfig(max_roles=2),
         )
         self.assertEqual(len(result["experience"]), 2)
 
     def test_respects_max_bullets_per_role(self):
         result = filter_experience_by_keywords(
-            self.candidate, ["Python", "API", "PostgreSQL"], max_bullets_per_role=1
+            self.candidate, ["Python", "API", "PostgreSQL"],
+            filter_cfg=ExperienceFilterConfig(max_bullets_per_role=1),
         )
         for exp in result["experience"]:
             self.assertLessEqual(len(exp["bullets"]), 1)
@@ -59,7 +62,8 @@ class TestFilterExperienceByKeywords(unittest.TestCase):
     def test_respects_min_score(self):
         # With min_score=3, only roles with 3+ keyword hits should remain
         result = filter_experience_by_keywords(
-            self.candidate, ["Python", "API", "FastAPI", "PostgreSQL"], min_score=3
+            self.candidate, ["Python", "API", "FastAPI", "PostgreSQL"],
+            filter_cfg=ExperienceFilterConfig(min_score=3),
         )
         # Python role has multiple matches in title and bullets
         self.assertGreater(len(result["experience"]), 0)
@@ -67,7 +71,8 @@ class TestFilterExperienceByKeywords(unittest.TestCase):
     def test_min_score_filters_low_scoring_roles(self):
         # Use high min_score to filter out everything
         result = filter_experience_by_keywords(
-            self.candidate, ["RandomKeyword"], min_score=10
+            self.candidate, ["RandomKeyword"],
+            filter_cfg=ExperienceFilterConfig(min_score=10),
         )
         self.assertEqual(len(result["experience"]), 0)
 

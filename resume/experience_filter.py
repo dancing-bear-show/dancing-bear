@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .keyword_matcher import KeywordMatcher
+from .render_config import ExperienceFilterConfig
 
 
 def _score_experience(e: Dict[str, Any], matcher: KeywordMatcher, expanded: List[str]) -> Tuple[int, Dict[str, Any]]:
@@ -50,9 +51,7 @@ def filter_experience_by_keywords(
     data: Dict[str, Any],
     matched_keywords: Iterable[str],
     synonyms: Optional[Dict[str, List[str]]] = None,
-    max_roles: Optional[int] = None,
-    max_bullets_per_role: Optional[int] = None,
-    min_score: int = 1,
+    filter_cfg: Optional[ExperienceFilterConfig] = None,
 ) -> Dict[str, Any]:
     """Filter and compress experience entries based on matched keywords.
 
@@ -65,13 +64,13 @@ def filter_experience_by_keywords(
         data: Candidate data dict.
         matched_keywords: Keywords to match against.
         synonyms: Optional synonym mapping.
-        max_roles: Maximum roles to keep.
-        max_bullets_per_role: Maximum bullets per role.
-        min_score: Minimum score to keep a role.
+        filter_cfg: Filtering limits (max_roles, max_bullets_per_role, min_score).
 
     Returns:
         Filtered data with scored and trimmed experience.
     """
+    cfg = filter_cfg or ExperienceFilterConfig()
+
     # Build matcher with expanded keywords
     matcher = KeywordMatcher()
     matcher.add_synonyms(synonyms or {})
@@ -84,11 +83,11 @@ def filter_experience_by_keywords(
 
     scored = _score_experiences(experiences, matcher, expanded)
     filtered = sorted(
-        [(s, e) for s, e in scored if s >= min_score],
+        [(s, e) for s, e in scored if s >= cfg.min_score],
         key=lambda t: t[0],
         reverse=True,
     )
-    out_roles = _trim_roles(filtered, max_roles, max_bullets_per_role)
+    out_roles = _trim_roles(filtered, cfg.max_roles, cfg.max_bullets_per_role)
 
     out = dict(data)
     out["experience"] = out_roles

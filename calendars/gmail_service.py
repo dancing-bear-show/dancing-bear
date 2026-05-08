@@ -72,47 +72,24 @@ class GmailService:
         return " ".join(parts).strip()
 
     @staticmethod
-    def build_query(
-        *,
-        explicit: Optional[str] = None,
-        from_text: Optional[str] = None,
-        days: Optional[int] = None,
-        inbox_only: bool = False,
-        include_terms: Optional[Union[str, Sequence[str]]] = None,
-        phrase: Optional[str] = None,
-    ) -> str:
-        """Generic Gmail query assembler (legacy signature).
-
-        Delegates to build_query_from_params for implementation.
-        """
-        params = QueryParams(
-            explicit=explicit,
-            from_text=from_text,
-            days=days,
-            inbox_only=inbox_only,
-            include_terms=include_terms,
-            phrase=phrase,
-        )
-        return GmailService.build_query_from_params(params)
-    @staticmethod
     def build_classes_query(*, from_text: Optional[str], days: int, inbox_only: bool, explicit: Optional[str]) -> str:
-        return GmailService.build_query(
+        return GmailService.build_query_from_params(QueryParams(
             explicit=explicit,
             from_text=from_text,
             days=days,
             inbox_only=inbox_only,
-        )
+        ))
 
     @staticmethod
     def build_receipts_query(*, from_text: Optional[str], days: int, explicit: Optional[str]) -> str:
         tokens = '(Swimmer OR "Swim Kids" OR Preschool OR Bronze)'
-        return GmailService.build_query(
+        return GmailService.build_query_from_params(QueryParams(
             explicit=explicit,
             from_text=from_text,
             days=days,
             include_terms=tokens,
             phrase='Enrollment in',
-        )
+        ))
 
     @staticmethod
     def build_activerh_query(*, days: int, explicit: Optional[str] = None, programs: Optional[List[str]] = None, from_text: Optional[str] = None) -> str:
@@ -120,10 +97,10 @@ class GmailService:
         progs = programs or [
             "Swimmer", "Swim Kids", "Chess", "Sportball", "Culinary", "Preschool", "Bronze",
         ]
-        return GmailService.build_query(
+        return GmailService.build_query_from_params(QueryParams(
             explicit=explicit,
             from_text=from_text,
             days=days,
             include_terms=list(progs),
             phrase='Enrollment in',
-        )
+        ))

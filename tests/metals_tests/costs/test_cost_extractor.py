@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 from metals.cost_extractor import CostExtractor, MessageInfo, OrderData
-from metals.outlook_costs import OutlookCostExtractor
+from metals.outlook_costs import OutlookCostExtractor, OutputRowsContext
 from tests.metals_tests.fixtures import make_message_info
 
 
@@ -393,10 +393,12 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
             {'vendor': 'RCM', 'cost_total': 350.0, 'order_id': 'PO123'}
         ]
 
-        rows = extractor._build_output_rows(
-            per_item_rows, 350.0, {'gold': 0.1}, {'gold': {0.1: 1.0}},
-            'PO123', msg, 350.0
+        orc = OutputRowsContext(
+            per_item_rows=per_item_rows, total_cost=350.0,
+            oz_by_metal={'gold': 0.1}, units_by_metal={'gold': {0.1: 1.0}},
+            order_id='PO123', msg=msg, line_cost=350.0,
         )
+        rows = extractor._build_output_rows(orc)
 
         self.assertEqual(rows, per_item_rows)
 
@@ -405,10 +407,12 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
         extractor = OutlookCostExtractor('test', 'out/test.csv')
         msg = make_message_info(msg_id='msg1', subject='Test', from_header='test@example.com', body_text='Body', received_date='2024-01-15')
 
-        rows = extractor._build_output_rows(
-            [], 350.0, {'gold': 0.1}, {'gold': {0.1: 1.0}},
-            'PO123', msg, 0.0
+        orc = OutputRowsContext(
+            per_item_rows=[], total_cost=350.0,
+            oz_by_metal={'gold': 0.1}, units_by_metal={'gold': {0.1: 1.0}},
+            order_id='PO123', msg=msg, line_cost=0.0,
         )
+        rows = extractor._build_output_rows(orc)
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['cost_total'], 350.0)
@@ -573,8 +577,8 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
         messages = [
-            make_message_info('msg1', 'Shipping Notice', 'noreply@td.com', 'Shipped', '', 100),
-            make_message_info('msg2', 'Order Confirmation', 'noreply@td.com', 'Confirmed', '', 200),
+            make_message_info(msg_id='msg1', subject='Shipping Notice', from_header='noreply@td.com', body_text='Shipped', received_date='', received_ms=100),
+            make_message_info(msg_id='msg2', subject='Order Confirmation', from_header='noreply@td.com', body_text='Confirmed', received_date='', received_ms=200),
         ]
 
         best = extractor._select_best_message(messages)
@@ -588,8 +592,8 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
 
         extractor = GmailCostExtractor('gmail_test', 'out/test.csv')
         messages = [
-            make_message_info('msg1', 'Shipping Notice', 'noreply@td.com', 'Shipped', '', 100),
-            make_message_info('msg2', 'Receipt', 'noreply@td.com', 'Receipt', '', 200),
+            make_message_info(msg_id='msg1', subject='Shipping Notice', from_header='noreply@td.com', body_text='Shipped', received_date='', received_ms=100),
+            make_message_info(msg_id='msg2', subject='Receipt', from_header='noreply@td.com', body_text='Receipt', received_date='', received_ms=200),
         ]
 
         best = extractor._select_best_message(messages)
@@ -647,7 +651,7 @@ class TestGmailCostExtractorIntegration(unittest.TestCase):
         extractor.client = Mock()
 
         messages = [
-            make_message_info('msg1', 'Subject', 'test@example.com', 'Body', '', 1000)
+            make_message_info(msg_id='msg1', subject='Subject', from_header='test@example.com', body_text='Body', received_date='', received_ms=1000)
         ]
         order = OrderData('ORD123', messages, 'TD')
 

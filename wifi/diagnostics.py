@@ -200,14 +200,14 @@ def run_diagnosis(
 
     icmp_filtered = _detect_icmp_filtered(survey_results, trace_result)
 
-    findings = derive_findings(
+    findings = derive_findings(DiagnoseResults(
         gateway=gateway,
         ping_results=ping_results,
         icmp_filtered=icmp_filtered,
         dns=dns_result,
-        _trace=trace_result,
+        trace=trace_result,
         http=http_result,
-    )
+    ))
 
     condition = compute_condition(
         ping_results=ping_results,
@@ -478,26 +478,31 @@ def _check_http_health(http: Optional[HttpResult]) -> List[str]:
     return []
 
 
-def derive_findings(
-    *,
-    gateway: Optional[str],
-    ping_results: List[PingResult],
-    icmp_filtered: bool,
-    dns: DnsResult,
-    _trace: Optional[TraceResult],
-    http: Optional[HttpResult],
-) -> List[str]:
-    gateway_ping = next((p for p in ping_results if p.label == "gateway"), None)
-    upstream = [p for p in ping_results if p.label != "gateway"]
+@dataclass
+class DiagnoseResults:
+    """Collected results from a diagnostic run for deriving findings."""
+
+    gateway: Optional[str]
+    ping_results: List[PingResult]
+    icmp_filtered: bool
+    dns: DnsResult
+    trace: Optional[TraceResult]
+    http: Optional[HttpResult]
+
+
+def derive_findings(results: DiagnoseResults) -> List[str]:
+    """Derive human-readable findings from diagnostic results."""
+    gateway_ping = next((p for p in results.ping_results if p.label == "gateway"), None)
+    upstream = [p for p in results.ping_results if p.label != "gateway"]
 
     findings: List[str] = []
-    if icmp_filtered:
+    if results.icmp_filtered:
         findings.append("Gateway ICMP likely filtered; judging health via trace/HTTP instead of ping loss.")
 
-    findings.extend(_check_gateway_health(gateway_ping, icmp_filtered))
+    findings.extend(_check_gateway_health(gateway_ping, results.icmp_filtered))
     findings.extend(_check_upstream_health(upstream, gateway_ping))
-    findings.extend(_check_dns_health(dns))
-    findings.extend(_check_http_health(http))
+    findings.extend(_check_dns_health(results.dns))
+    findings.extend(_check_http_health(results.http))
 
     if not findings:
         findings.append("Link looks healthy: low loss to gateway and upstream targets.")

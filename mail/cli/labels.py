@@ -6,20 +6,35 @@ existing flags and subcommands.
 from __future__ import annotations
 
 
-def register(
-    subparsers,
-    *,
-    f_list,
-    f_sync,
-    f_export,
-    f_plan,
-    f_doctor,
-    f_prune_empty,
-    f_learn,
-    f_apply_suggestions,
-    f_delete,
-    f_sweep_parents,
-):
+def register(subparsers, **handlers):
+    """Register labels subcommands.
+
+    Args:
+        subparsers: Argument subparsers to register commands with
+        **handlers: Command handler functions (f_list, f_sync, etc.)
+
+    Raises:
+        ValueError: If any required handler is missing
+    """
+    required_keys = [
+        "f_list", "f_sync", "f_export", "f_plan", "f_doctor",
+        "f_prune_empty", "f_learn", "f_apply_suggestions",
+        "f_delete", "f_sweep_parents",
+    ]
+    missing = [k for k in required_keys if k not in handlers]
+    if missing:
+        raise ValueError(f"Missing required handlers: {missing}")
+
+    f_list = handlers["f_list"]
+    f_sync = handlers["f_sync"]
+    f_export = handlers["f_export"]
+    f_plan = handlers["f_plan"]
+    f_doctor = handlers["f_doctor"]
+    f_prune_empty = handlers["f_prune_empty"]
+    f_learn = handlers["f_learn"]
+    f_apply_suggestions = handlers["f_apply_suggestions"]
+    f_delete = handlers["f_delete"]
+    f_sweep_parents = handlers["f_sweep_parents"]
     p_labels = subparsers.add_parser("labels", help="Label operations")
     # Group-level common Gmail args
     p_labels.add_argument("--credentials", type=str)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import unittest
 
-from mail.cli.forwarding import register
+from mail.cli.forwarding import register, ForwardingHandlers
 from tests.mail_tests.fixtures import CLIRegisterTestCase, make_noop_handlers
 
 
@@ -15,7 +15,7 @@ def make_forwarding_parser():
     """Create an argparse parser with forwarding subcommand registered."""
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
-    register(subparsers, **make_noop_handlers(*_FORWARDING_HANDLERS))
+    register(subparsers, handlers=ForwardingHandlers(**make_noop_handlers(*_FORWARDING_HANDLERS)))
     return parser
 
 

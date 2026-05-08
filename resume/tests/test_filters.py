@@ -29,13 +29,12 @@ class TestExperienceFilter(unittest.TestCase):
                 },
             ]
         }
+        from resume.render_config import ExperienceFilterConfig
         result = experience_filter.filter_experience_by_keywords(
             data,
             matched_keywords=["Python", "Kubernetes"],
             synonyms={"Kubernetes": ["k8s"]},
-            max_roles=2,
-            max_bullets_per_role=1,
-            min_score=2,
+            filter_cfg=ExperienceFilterConfig(max_roles=2, max_bullets_per_role=1, min_score=2),
         )
         exp = result["experience"]
         self.assertEqual(len(exp), 2)

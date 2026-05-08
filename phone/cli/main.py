@@ -65,7 +65,7 @@ from ..layout import (
     auto_folderize,
     distribute_folders_across_pages,
 )
-from ..profile import build_mobileconfig
+from ..profile import ProfileMetadata, build_mobileconfig
 
 
 # Default values for profile configuration
@@ -443,10 +443,12 @@ def cmd_profile_build(args) -> int:
         profile_dict = build_mobileconfig(
             plan=plan,
             layout_export=layout_export,
-            top_identifier=getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
-            hs_identifier=getattr(args, "hs_identifier", _DEFAULT_HS_IDENTIFIER),
-            display_name=getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
-            organization=getattr(args, "organization", None),
+            profile_meta=ProfileMetadata(
+                top_identifier=getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
+                hs_identifier=getattr(args, "hs_identifier", _DEFAULT_HS_IDENTIFIER),
+                display_name=getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
+                organization=getattr(args, "organization", None),
+            ),
             dock_count=max(0, int(getattr(args, "dock_count", 4))),
             all_apps_folder=all_apps_folder,
         )
@@ -572,10 +574,12 @@ def cmd_manifest_build(args) -> int:
     profile_dict = build_mobileconfig(
         plan=plan,
         layout_export=layout_export,
-        top_identifier=prof.get("identifier", _DEFAULT_PROFILE_IDENTIFIER),
-        hs_identifier=prof.get("hs_identifier", _DEFAULT_HS_IDENTIFIER),
-        display_name=prof.get("display_name", _DEFAULT_DISPLAY_NAME),
-        organization=prof.get("organization"),
+        profile_meta=ProfileMetadata(
+            top_identifier=prof.get("identifier", _DEFAULT_PROFILE_IDENTIFIER),
+            hs_identifier=prof.get("hs_identifier", _DEFAULT_HS_IDENTIFIER),
+            display_name=prof.get("display_name", _DEFAULT_DISPLAY_NAME),
+            organization=prof.get("organization"),
+        ),
         dock_count=4,
     )
     out = Path(args.out)

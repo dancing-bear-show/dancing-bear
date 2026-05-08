@@ -4,10 +4,12 @@ Provides section-specific renderers for different resume sections.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .docx_renderers import BulletRenderer, HeaderRenderer, ListSectionRenderer
 
+_DEFAULT_BULLET_STYLE = "List Bullet"
 
 # Re-export base renderers for backward compatibility
 __all__ = [
@@ -270,7 +272,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
             elif plain:
                 self.bullets.add_bullet_line(it, glyph=glyph)
             else:
-                p = self.doc.add_paragraph(style="List Bullet")
+                p = self.doc.add_paragraph(style=_DEFAULT_BULLET_STYLE)
                 self.bullets.styles.tight_paragraph(p, after_pt=0)
                 self.bullets.styles.compact_bullet(p)
                 p.add_run(it)
@@ -379,6 +381,31 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         return items
 
 
+@dataclass
+class _ExperienceRenderOpts:
+    """Bundled rendering options for experience entries."""
+
+    role_style: str = "Normal"
+    bullet_style: str = _DEFAULT_BULLET_STYLE
+    max_bullets: int = 999
+    recent_roles_count: int = 0
+    recent_max_bullets: int = 999
+    prior_max_bullets: int = 999
+
+    @classmethod
+    def from_cfg(cls, cfg: Dict[str, Any]) -> "_ExperienceRenderOpts":
+        """Build from a section config dict."""
+        max_bullets = int(cfg.get("max_bullets", 999))
+        return cls(
+            role_style=str(cfg.get("role_style", "Normal")),
+            bullet_style=str(cfg.get("bullet_style", _DEFAULT_BULLET_STYLE)),
+            max_bullets=max_bullets,
+            recent_roles_count=int(cfg.get("recent_roles_count", 0) or 0),
+            recent_max_bullets=int(cfg.get("recent_max_bullets", max_bullets)),
+            prior_max_bullets=int(cfg.get("prior_max_bullets", max_bullets)),
+        )
+
+
 class ExperienceSectionRenderer(ListSectionRenderer):
     """Renders experience/work history section."""
 
@@ -395,25 +422,10 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         items = data.get("experience") or []
         cfg = sec or {}
         max_items = int(cfg.get("max_items", 999))
-        max_bullets = int(cfg.get("max_bullets", 999))
-        role_style = str(cfg.get("role_style", "Normal"))
-        bullet_style = str(cfg.get("bullet_style", "List Bullet"))
-
-        # Per-recency bullet controls
-        recent_roles_count = int(cfg.get("recent_roles_count", 0) or 0)
-        recent_max_bullets = int(cfg.get("recent_max_bullets", max_bullets))
-        prior_max_bullets = int(cfg.get("prior_max_bullets", max_bullets))
+        opts = _ExperienceRenderOpts.from_cfg(cfg)
 
         for idx, e in enumerate(items[:max_items]):
-            self._render_experience_entry(
-                e, idx, cfg, keywords,
-                role_style=role_style,
-                bullet_style=bullet_style,
-                max_bullets=max_bullets,
-                recent_roles_count=recent_roles_count,
-                recent_max_bullets=recent_max_bullets,
-                prior_max_bullets=prior_max_bullets,
-            )
+            self._render_experience_entry(e, idx, cfg, keywords, opts)
 
     def _render_experience_entry(
         self,
@@ -421,13 +433,7 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         idx: int,
         cfg: Dict[str, Any],
         keywords: Optional[List[str]],
-        *,
-        role_style: str,
-        bullet_style: str,
-        max_bullets: int,
-        recent_roles_count: int,
-        recent_max_bullets: int,
-        prior_max_bullets: int,
+        opts: _ExperienceRenderOpts,
     ):
         """Render a single experience entry."""
         title = str(e.get("title") or "").strip()
@@ -442,12 +448,13 @@ class ExperienceSectionRenderer(ListSectionRenderer):
                 loc_text=loc_txt,
                 span_text=span,
                 sec=cfg,
-                style=role_style,
+                style=opts.role_style,
             )
 
         # Determine per-role bullet limit
         per_role_limit = self._calculate_bullet_limit(
-            idx, max_bullets, recent_roles_count, recent_max_bullets, prior_max_bullets
+            idx, opts.max_bullets, opts.recent_roles_count,
+            opts.recent_max_bullets, opts.prior_max_bullets,
         )
 
         # Render bullets
@@ -455,7 +462,8 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         if bullets:
             plain, glyph = self.bullets.get_bullet_config(cfg)
             self.bullets.add_bullets(
-                bullets, keywords=keywords, plain=plain, glyph=glyph, list_style=bullet_style
+                bullets, keywords=keywords, plain=plain, glyph=glyph,
+                list_style=opts.bullet_style,
             )
 
     def _format_date_span(self, e: Dict[str, Any]) -> str:

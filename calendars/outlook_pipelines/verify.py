@@ -64,7 +64,8 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
             if not (subj and rt == "weekly" and byday):
                 continue
             total += 1
-            result = self._verify_single_event(payload, i, nev, subj, byday, logs)
+            context = VerificationContext(idx=i, nev=nev, subj=subj, byday=byday)
+            result = self._verify_single_event_from_context(payload, context, logs)
             if result == "duplicate":
                 duplicates += 1
             elif result == "missing":
@@ -103,19 +104,6 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
             return "duplicate"
         logs.append(f"[{context.idx}] missing:   {context.subj} {','.join(context.byday)} {want_start}-{want_end} in '{cal_display}'")
         return "missing"
-
-    def _verify_single_event(
-        self,
-        payload: OutlookVerifyRequest,
-        idx: int,
-        nev: Dict[str, Any],
-        subj: str,
-        byday: List[str],
-        logs: List[str],
-    ) -> Optional[str]:
-        """Verify a single recurring event (legacy signature)."""
-        context = VerificationContext(idx=idx, nev=nev, subj=subj, byday=byday)
-        return self._verify_single_event_from_context(payload, context, logs)
 
 
 class OutlookVerifyProducer(BaseProducer):

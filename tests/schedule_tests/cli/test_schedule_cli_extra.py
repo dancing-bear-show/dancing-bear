@@ -132,60 +132,60 @@ class TestComputeExdates(unittest.TestCase):
 
 class TestBuildOneOffEvent(unittest.TestCase):
     def test_basic_event(self):
-        from schedule.cli.main import _build_one_off_event
+        from schedule.cli.main import _build_one_off_event, EventParams
 
-        result = _build_one_off_event("Yoga", "18:00", "19:00", dt.date(2025, 1, 13), "", None)
+        result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00"), dt.date(2025, 1, 13))
         self.assertEqual(result["subject"], "Yoga")
         self.assertEqual(result["start"], "2025-01-13T18:00")
 
     def test_with_location(self):
-        from schedule.cli.main import _build_one_off_event
+        from schedule.cli.main import _build_one_off_event, EventParams
 
-        result = _build_one_off_event("Yoga", "18:00", "19:00", dt.date(2025, 1, 13), "Studio", None)
+        result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00", location="Studio"), dt.date(2025, 1, 13))
         self.assertEqual(result["location"], "Studio")
 
     def test_with_calendar(self):
-        from schedule.cli.main import _build_one_off_event
+        from schedule.cli.main import _build_one_off_event, EventParams
 
-        result = _build_one_off_event("Yoga", "18:00", "19:00", dt.date(2025, 1, 13), "", "Health")
+        result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00", calendar="Health"), dt.date(2025, 1, 13))
         self.assertEqual(result["calendar"], "Health")
 
     def test_no_location_or_cal(self):
-        from schedule.cli.main import _build_one_off_event
+        from schedule.cli.main import _build_one_off_event, EventParams
 
-        result = _build_one_off_event("Yoga", "18:00", "19:00", dt.date(2025, 1, 13), "", None)
+        result = _build_one_off_event(EventParams("Yoga", "18:00", "19:00"), dt.date(2025, 1, 13))
         self.assertNotIn("location", result)
         self.assertNotIn("calendar", result)
 
 
 class TestBuildSeriesEvent(unittest.TestCase):
     def test_basic_series(self):
-        from schedule.cli.main import _build_series_event
+        from schedule.cli.main import _build_series_event, SeriesParams
 
-        result = _build_series_event(
-            "Yoga", "18:00", "19:00", "MO", "",
-            dt.date(2025, 1, 6), dt.date(2025, 1, 27), [], None
-        )
+        result = _build_series_event(SeriesParams(
+            subject="Yoga", start_time="18:00", end_time="19:00", day_of_week="MO",
+            start_date=dt.date(2025, 1, 6), end_date=dt.date(2025, 1, 27),
+        ))
         self.assertEqual(result["subject"], "Yoga")
         self.assertEqual(result["repeat"], "weekly")
         self.assertEqual(result["byday"], ["MO"])
 
     def test_with_exdates(self):
-        from schedule.cli.main import _build_series_event
+        from schedule.cli.main import _build_series_event, SeriesParams
 
-        result = _build_series_event(
-            "Yoga", "18:00", "19:00", "MO", "",
-            dt.date(2025, 1, 6), dt.date(2025, 1, 27), ["2025-01-13"], None
-        )
+        result = _build_series_event(SeriesParams(
+            subject="Yoga", start_time="18:00", end_time="19:00", day_of_week="MO",
+            start_date=dt.date(2025, 1, 6), end_date=dt.date(2025, 1, 27), exdates=["2025-01-13"],
+        ))
         self.assertEqual(result["exdates"], ["2025-01-13"])
 
     def test_no_exdates_not_in_result(self):
-        from schedule.cli.main import _build_series_event
+        from schedule.cli.main import _build_series_event, SeriesParams
 
-        result = _build_series_event(
-            "Yoga", "18:00", "19:00", "MO", "",
-            dt.date(2025, 1, 6), dt.date(2025, 1, 27), [], None
-        )
+        result = _build_series_event(SeriesParams(
+            subject="Yoga", start_time="18:00", end_time="19:00", day_of_week="MO",
+            start_date=dt.date(2025, 1, 6), end_date=dt.date(2025, 1, 27),
+        ))
         self.assertNotIn("exdates", result)
 
 
