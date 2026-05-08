@@ -242,7 +242,7 @@ def _extract_reply_headers(msg_full: dict) -> dict:
 def run_messages_reply(args) -> int:
     """Compose and send/draft a reply to a message."""
     from ..utils.cli_helpers import gmail_provider_from_args
-    from ..messages import _compose_reply, encode_email_message
+    from ..messages import _compose_reply, encode_email_message, ReplyEnvelope, ReplyOptions
     from email.utils import formatdate
 
     client = gmail_provider_from_args(args)
@@ -267,16 +267,20 @@ def run_messages_reply(args) -> int:
     subject = getattr(args, "subject", None) or hdr["subject"]
     include_quote = bool(getattr(args, "include_quote", False))
     msg = _compose_reply(
-        from_email=from_email,
-        to_email=to_email,
-        subject=subject,
+        envelope=ReplyEnvelope(
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            cc=[str(x) for x in getattr(args, "cc", []) if x],
+            bcc=[str(x) for x in getattr(args, "bcc", []) if x],
+        ),
         body_text="\n".join(body_lines).strip(),
-        in_reply_to=hdr["message_id"],
-        references=(f"{hdr['references']} {hdr['message_id']}".strip() if hdr["message_id"] else hdr["references"]),
-        cc=[str(x) for x in getattr(args, "cc", []) if x],
-        bcc=[str(x) for x in getattr(args, "bcc", []) if x],
-        include_quote=include_quote,
-        original_text=client.get_message_text(mid) if include_quote else None,
+        options=ReplyOptions(
+            in_reply_to=hdr["message_id"],
+            references=(f"{hdr['references']} {hdr['message_id']}".strip() if hdr["message_id"] else hdr["references"]),
+            include_quote=include_quote,
+            original_text=client.get_message_text(mid) if include_quote else None,
+        ),
     )
     msg["Date"] = formatdate(localtime=True)
     raw = encode_email_message(msg)

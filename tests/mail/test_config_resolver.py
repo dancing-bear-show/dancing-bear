@@ -12,6 +12,7 @@ from mail.config_resolver import (
     default_outlook_flow_path,
     _read_ini,
     _write_ini,
+    ProfileSettings,
     resolve_paths,
     resolve_paths_profile,
     persist_if_provided,
@@ -85,7 +86,10 @@ class IniOperationsTests(unittest.TestCase):
         self.assertEqual(result, {})
 
     def test_write_and_read_ini(self):
-        _write_ini("/path/to/creds.json", "/path/to/token.json")
+        _write_ini(ProfileSettings(
+            credentials="/path/to/creds.json",
+            token="/path/to/token.json",  # nosec B106
+        ))
         result = _read_ini()
 
         self.assertIn("mail", result)
@@ -93,20 +97,22 @@ class IniOperationsTests(unittest.TestCase):
         self.assertEqual(result["mail"]["token"], "/path/to/token.json")
 
     def test_write_with_profile(self):
-        _write_ini("/path/to/creds.json", "/path/to/token.json", profile="personal")
+        _write_ini(ProfileSettings(
+            credentials="/path/to/creds.json",
+            token="/path/to/token.json",  # nosec B106
+            profile="personal",
+        ))
         result = _read_ini()
 
         self.assertIn("mail.personal", result)
         self.assertEqual(result["mail.personal"]["credentials"], "/path/to/creds.json")
 
     def test_write_outlook_settings(self):
-        _write_ini(
-            None,
-            None,
+        _write_ini(ProfileSettings(
             outlook_client_id="client-123",
             tenant="consumers",
             outlook_token="/path/to/outlook.json",  # nosec B106 - test file path
-        )
+        ))
         result = _read_ini()
 
         self.assertEqual(result["mail"]["outlook_client_id"], "client-123")
@@ -118,7 +124,7 @@ class IniOperationsTests(unittest.TestCase):
         nested_path = os.path.join(self.tmpdir, "nested", "dir", "creds.ini")
         cr._INI_PATHS = [nested_path]
 
-        _write_ini("/path/to/creds.json", None)
+        _write_ini(ProfileSettings(credentials="/path/to/creds.json"))
 
         self.assertTrue(os.path.exists(nested_path))
 
@@ -138,7 +144,7 @@ class ResolvePathsTests(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_arg_credentials_takes_precedence(self):
-        _write_ini("/ini/creds.json", "/ini/token.json")
+        _write_ini(ProfileSettings(credentials="/ini/creds.json", token="/ini/token.json"))  # nosec B106
         creds, _token = resolve_paths(
             arg_credentials="/arg/creds.json",
             arg_token=None,
@@ -146,7 +152,7 @@ class ResolvePathsTests(unittest.TestCase):
         self.assertEqual(creds, "/arg/creds.json")
 
     def test_arg_token_takes_precedence(self):
-        _write_ini("/ini/creds.json", "/ini/token.json")
+        _write_ini(ProfileSettings(credentials="/ini/creds.json", token="/ini/token.json"))  # nosec B106
         _creds, token = resolve_paths(
             arg_credentials=None,
             arg_token="/arg/token.json",  # nosec B106 - test fixture path
@@ -154,7 +160,7 @@ class ResolvePathsTests(unittest.TestCase):
         self.assertEqual(token, "/arg/token.json")
 
     def test_falls_back_to_ini(self):
-        _write_ini("/ini/creds.json", "/ini/token.json")
+        _write_ini(ProfileSettings(credentials="/ini/creds.json", token="/ini/token.json"))  # nosec B106
         creds, token = resolve_paths(arg_credentials=None, arg_token=None)
         self.assertEqual(creds, "/ini/creds.json")
         self.assertEqual(token, "/ini/token.json")
@@ -181,7 +187,7 @@ class ResolvePathsProfileTests(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_with_profile(self):
-        _write_ini("/personal/creds.json", "/personal/token.json", profile="personal")
+        _write_ini(ProfileSettings(credentials="/personal/creds.json", token="/personal/token.json", profile="personal"))  # nosec B106
         creds, _token = resolve_paths_profile(
             arg_credentials=None,
             arg_token=None,
@@ -190,7 +196,7 @@ class ResolvePathsProfileTests(unittest.TestCase):
         self.assertEqual(creds, "/personal/creds.json")
 
     def test_without_profile_uses_default_section(self):
-        _write_ini("/default/creds.json", "/default/token.json")
+        _write_ini(ProfileSettings(credentials="/default/creds.json", token="/default/token.json"))  # nosec B106
         creds, _token = resolve_paths_profile(
             arg_credentials=None,
             arg_token=None,
@@ -247,17 +253,17 @@ class GetIniSectionTests(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_get_section_with_profile(self):
-        _write_ini("/profile/creds.json", None, profile="myprofile")
+        _write_ini(ProfileSettings(credentials="/profile/creds.json", profile="myprofile"))
         section = _get_ini_section("myprofile")
         self.assertEqual(section["credentials"], "/profile/creds.json")
 
     def test_get_section_falls_back_to_default(self):
-        _write_ini("/default/creds.json", None)
+        _write_ini(ProfileSettings(credentials="/default/creds.json"))
         section = _get_ini_section("nonexistent")
         self.assertEqual(section.get("credentials"), "/default/creds.json")
 
     def test_get_section_no_profile(self):
-        _write_ini("/default/creds.json", None)
+        _write_ini(ProfileSettings(credentials="/default/creds.json"))
         section = _get_ini_section(None)
         self.assertEqual(section["credentials"], "/default/creds.json")
 
@@ -277,22 +283,22 @@ class OutlookSettingsTests(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_get_outlook_client_id(self):
-        _write_ini(None, None, outlook_client_id="my-client-id")
+        _write_ini(ProfileSettings(outlook_client_id="my-client-id"))
         result = get_outlook_client_id()
         self.assertEqual(result, "my-client-id")
 
     def test_get_outlook_client_id_with_profile(self):
-        _write_ini(None, None, profile="work", outlook_client_id="work-client")
+        _write_ini(ProfileSettings(profile="work", outlook_client_id="work-client"))
         result = get_outlook_client_id(profile="work")
         self.assertEqual(result, "work-client")
 
     def test_get_outlook_tenant(self):
-        _write_ini(None, None, tenant="consumers")
+        _write_ini(ProfileSettings(tenant="consumers"))
         result = get_outlook_tenant()
         self.assertEqual(result, "consumers")
 
     def test_get_outlook_token_path(self):
-        _write_ini(None, None, outlook_token="/path/to/outlook.json")  # nosec B106 - test file path
+        _write_ini(ProfileSettings(outlook_token="/path/to/outlook.json"))  # nosec B106 - test file path
         result = get_outlook_token_path()
         self.assertEqual(result, "/path/to/outlook.json")
 

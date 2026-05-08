@@ -169,11 +169,63 @@ def run_outlook_auth_ensure(args) -> int:
     return _run_device_flow(app, scopes, cache, tp)
 
 
+def _load_validate_cache(client_id: str, tenant: str, tp) -> tuple:
+    """Load MSAL cache and acquire token silently. Returns (access_token, exit_code)."""
+    try:
+        import msal
+    except Exception as e:
+        print(f"Outlook validation unavailable (missing deps): {e}")
+        return None, 1
+
+    cache = msal.SerializableTokenCache()
+    try:
+        cache.deserialize(tp.read_text(encoding="utf-8"))
+    except Exception:  # nosec B110 - corrupt cache is a validation failure
+        print(f"Unable to read token cache: {tp}")
+        return None, 3
+
+    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
+
+    accounts = []
+    try:
+        accounts = app.get_accounts()
+    except Exception:  # nosec B110 - cache lookup may fail, treat as empty
+        pass
+
+    if not accounts:
+        print("No account in token cache.")
+        return None, 3
+
+    res = app.acquire_token_silent([GRAPH_DEFAULT_SCOPE], account=accounts[0])
+    if not (res and res.get("access_token")):
+        print("Silent token acquisition failed.")
+        return None, 4
+
+    return res["access_token"], 0
+
+
+def _ping_graph_me(access_token: str) -> int:
+    """Ping Graph /me endpoint. Returns exit code."""
+    try:
+        import requests
+    except Exception as e:
+        print(f"Outlook validation unavailable (missing deps): {e}")
+        return 1
+
+    r = requests.get(f"{GRAPH_API_URL}/me", headers={"Authorization": f"Bearer {access_token}"}, timeout=DEFAULT_REQUEST_TIMEOUT)
+    if r.status_code == 200:
+        print("Outlook token valid.")
+        return 0
+
+    print(f"Graph /me failed: {r.status_code} {r.text[:200]}")
+    return 5
+
+
 def run_outlook_auth_validate(args) -> int:
     """Validate Outlook token cache by performing a silent refresh and a /me ping."""
     try:
-        import msal
-        import requests
+        import msal  # noqa: F401
+        import requests  # noqa: F401
     except Exception as e:
         print(f"Outlook validation unavailable (missing deps): {e}")
         return 1
@@ -194,35 +246,8 @@ def run_outlook_auth_validate(args) -> int:
         print(f"Token cache not found: {tp}")
         return 2
 
-    cache = msal.SerializableTokenCache()
-    try:
-        cache.deserialize(tp.read_text(encoding="utf-8"))
-    except Exception:
-        print(f"Unable to read token cache: {tp}")
-        return 3
+    access_token, code = _load_validate_cache(client_id, tenant, tp)
+    if access_token is None:
+        return code
 
-    app = msal.PublicClientApplication(client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache)
-
-    accounts = []
-    try:
-        accounts = app.get_accounts()
-    except Exception:
-        accounts = []  # Cache lookup failed; proceed with empty accounts
-
-    if not accounts:
-        print("No account in token cache.")
-        return 3
-
-    res = app.acquire_token_silent([GRAPH_DEFAULT_SCOPE], account=accounts[0])
-    if not (res and res.get("access_token")):
-        print("Silent token acquisition failed.")
-        return 4
-
-    # Ping /me to confirm validity
-    r = requests.get(f"{GRAPH_API_URL}/me", headers={"Authorization": f"Bearer {res['access_token']}"}, timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code == 200:
-        print("Outlook token valid.")
-        return 0
-
-    print(f"Graph /me failed: {r.status_code} {r.text[:200]}")
-    return 5
+    return _ping_graph_me(access_token)

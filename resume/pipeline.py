@@ -28,6 +28,7 @@ from .overlays import apply_profile_overlays
 from .priority import filter_by_min_priority
 from .skills_filter import filter_skills_by_keywords
 from .experience_filter import filter_experience_by_keywords
+from .render_config import ExperienceFilterConfig
 
 
 class FilterPipeline:
@@ -114,18 +115,14 @@ class FilterPipeline:
         self,
         alignment_path: Optional[Union[str, Path]],
         job_path: Optional[Union[str, Path]] = None,
-        max_roles: Optional[int] = None,
-        max_bullets_per_role: Optional[int] = None,
-        min_score: int = 1,
+        filter_cfg: Optional[ExperienceFilterConfig] = None,
     ) -> "FilterPipeline":
         """Filter experience entries to those matching alignment keywords.
 
         Args:
             alignment_path: Path to alignment JSON with matched_keywords.
             job_path: Optional job config for additional synonyms.
-            max_roles: Maximum number of roles to keep.
-            max_bullets_per_role: Maximum bullets per role.
-            min_score: Minimum keyword match score to keep a role.
+            filter_cfg: Filtering limits (max_roles, max_bullets_per_role, min_score).
 
         Returns:
             Self for chaining.
@@ -144,9 +141,7 @@ class FilterPipeline:
                     self._data,
                     matched_keywords=matched,
                     synonyms=self._synonyms,
-                    max_roles=max_roles,
-                    max_bullets_per_role=max_bullets_per_role,
-                    min_score=min_score,
+                    filter_cfg=filter_cfg,
                 )
         except Exception:  # nosec B110 - experience filter failure
             pass

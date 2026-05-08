@@ -375,49 +375,47 @@ def run_labels_apply_suggestions(args) -> int:
 
     doc = load_config(args.config)
     sugg = doc.get('suggestions') or []
-    if not sugg:
-        print('No suggestions found.')
-        return 0
-
-    creds_path, tok_path = resolve_paths_profile(
-        arg_credentials=args.credentials,
-        arg_token=args.token,
-        profile=getattr(args, "profile", None),
-    )
-    client = GmailClient(
-        credentials_path=creds_path,
-        token_path=tok_path,
-        cache_dir=args.cache,
-    )
-    client.authenticate()
-
     created = 0
     dry_run = getattr(args, 'dry_run', False)
-    for s in sugg:
-        dom = s.get('domain')
-        label = s.get('label')
-        if not dom or not label:
-            continue
-        crit = {'query': f'from:({dom})'}
-        add_ids, _ = action_to_label_changes(client, {'add': [label]})
-        act = {'addLabelIds': add_ids}
-        if dry_run:
-            print(f"Would create: from:({dom}) -> add=[{label}]")
-        else:
-            client.create_filter(crit, act)
-            print(f"Created rule: from:({dom}) -> add=[{label}]")
-        created += 1
 
-    if getattr(args, 'sweep_days', None):
-        from ..filters.commands import run_filters_sweep
-        args2 = argparse.Namespace(
-            credentials=args.credentials, token=args.token, cache=args.cache,
-            config=args.config, days=int(args.sweep_days), only_inbox=False,
-            pages=args.pages, batch_size=args.batch_size, max_msgs=None, dry_run=dry_run,
+    if sugg:
+        creds_path, tok_path = resolve_paths_profile(
+            arg_credentials=args.credentials,
+            arg_token=args.token,
             profile=getattr(args, "profile", None),
         )
-        print(f"\nSweeping back {args.sweep_days} days for suggestions …")
-        run_filters_sweep(args2)
+        client = GmailClient(
+            credentials_path=creds_path,
+            token_path=tok_path,
+            cache_dir=args.cache,
+        )
+        client.authenticate()
+
+        for s in sugg:
+            dom = s.get('domain')
+            label = s.get('label')
+            if not dom or not label:
+                continue
+            crit = {'query': f'from:({dom})'}
+            add_ids, _ = action_to_label_changes(client, {'add': [label]})
+            act = {'addLabelIds': add_ids}
+            if dry_run:
+                print(f"Would create: from:({dom}) -> add=[{label}]")
+            else:
+                client.create_filter(crit, act)
+                print(f"Created rule: from:({dom}) -> add=[{label}]")
+            created += 1
+
+        if getattr(args, 'sweep_days', None):
+            from ..filters.commands import run_filters_sweep
+            args2 = argparse.Namespace(
+                credentials=args.credentials, token=args.token, cache=args.cache,
+                config=args.config, days=int(args.sweep_days), only_inbox=False,
+                pages=args.pages, batch_size=args.batch_size, max_msgs=None, dry_run=dry_run,
+                profile=getattr(args, "profile", None),
+            )
+            print(f"\nSweeping back {args.sweep_days} days for suggestions …")
+            run_filters_sweep(args2)
 
     print(f"Suggestions applied: {created}")
     return 0

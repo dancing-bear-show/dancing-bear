@@ -14,6 +14,7 @@ from metals.costs_common import extract_order_amount, merge_costs_csv
 from tests.metals_tests.fixtures import make_cost_row, write_costs_csv
 from metals.vendors import RCMParser
 from metals.outlook_costs import (
+    GoldRowContext,
     _build_gold_row,
     _compute_confirmation_line_costs,
     _compute_proximity_line_costs,
@@ -612,7 +613,8 @@ class TestBuildGoldRow(unittest.TestCase):
 
     def test_builds_basic_row(self):
         """Test builds basic gold row."""
-        row = _build_gold_row('PO123', 'Test Subject', '2024-01-15T10:00:00', 350.0, 0.1, {0.1: 1.0}, 350.0)
+        ctx = GoldRowContext(order_id='PO123', subject='Test Subject', received_date='2024-01-15T10:00:00', total_cost=350.0, oz=0.1, gold_units={0.1: 1.0}, line_cost=350.0)
+        row = _build_gold_row(ctx)
         self.assertEqual(row['vendor'], 'RCM')
         self.assertEqual(row['date'], '2024-01-15')
         self.assertEqual(row['metal'], 'gold')
@@ -623,18 +625,21 @@ class TestBuildGoldRow(unittest.TestCase):
 
     def test_alloc_strategy_order_single_metal(self):
         """Test uses order-single-metal when line_cost is 0."""
-        row = _build_gold_row('PO123', 'Test', '2024-01-15', 350.0, 0.1, {0.1: 1.0}, 0.0)
+        ctx = GoldRowContext(order_id='PO123', subject='Test', received_date='2024-01-15', total_cost=350.0, oz=0.1, gold_units={0.1: 1.0}, line_cost=0.0)
+        row = _build_gold_row(ctx)
         self.assertEqual(row['alloc'], 'order-single-metal')
 
     def test_formats_breakdown(self):
         """Test formats units breakdown."""
-        row = _build_gold_row('PO123', 'Test', '2024-01-15', 700.0, 0.2, {0.1: 2.0}, 700.0)
+        ctx = GoldRowContext(order_id='PO123', subject='Test', received_date='2024-01-15', total_cost=700.0, oz=0.2, gold_units={0.1: 2.0}, line_cost=700.0)
+        row = _build_gold_row(ctx)
         self.assertEqual(row['units_breakdown'], '0.1ozx2')
         self.assertEqual(row['unit_count'], 2)
 
     def test_handles_multiple_unit_sizes(self):
         """Test handles multiple unit sizes in breakdown."""
-        row = _build_gold_row('PO123', 'Test', '2024-01-15', 1000.0, 0.35, {0.1: 1.0, 0.25: 1.0}, 1000.0)
+        ctx = GoldRowContext(order_id='PO123', subject='Test', received_date='2024-01-15', total_cost=1000.0, oz=0.35, gold_units={0.1: 1.0, 0.25: 1.0}, line_cost=1000.0)
+        row = _build_gold_row(ctx)
         self.assertIn('0.1ozx1', row['units_breakdown'])
         self.assertIn('0.25ozx1', row['units_breakdown'])
 

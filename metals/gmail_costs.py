@@ -77,6 +77,17 @@ class ExtractionContext:
 
 
 @dataclass
+class PriceLineContext:
+    """Context for evaluating whether a line contains a valid price."""
+    has_metal: bool
+    has_uoz_here: bool
+    has_uoz_neighbor: bool
+    mentions_price: bool
+    mentions_total: bool
+    kind: str
+
+
+@dataclass
 class OrderRowData:
     """Data for building order output rows."""
     oid: str
@@ -361,42 +372,29 @@ def _check_uoz_in_neighbors(lines: List[str], j: int, uoz_pat: re.Pattern[str] |
     )
 
 
-def _is_valid_price_line(
-    has_metal: bool,
-    has_uoz_here: bool,
-    has_uoz_neighbor: bool,
-    mentions_price: bool,
-    mentions_total: bool,
-    kind: str
-) -> bool:
-    """Check if this line should be considered a valid price line.
-
-    Args:
-        has_metal: Line contains metal keyword.
-        has_uoz_here: Line contains unit-oz pattern.
-        has_uoz_neighbor: Neighbor lines contain unit-oz pattern.
-        mentions_price: Line mentions price-related keywords.
-        mentions_total: Line mentions "total".
-        kind: Determined price kind.
-
-    Returns:
-        True if line is valid for price extraction.
-    """
+def _is_valid_price_line(ctx: PriceLineContext) -> bool:
+    """Check if this line should be considered a valid price line."""
     # Skip if mentions "total" but kind isn't "total"
-    if mentions_total and kind != "total":
+    if ctx.mentions_total and ctx.kind != "total":
         return False
 
     # Accept if line has metal, unit-oz, or price keywords
-    return has_metal or has_uoz_here or has_uoz_neighbor or mentions_price
+    return ctx.has_metal or ctx.has_uoz_here or ctx.has_uoz_neighbor or ctx.mentions_price
+
+
+@dataclass
+class CandidateLineContext:
+    """Context for processing a candidate price line."""
+    lines: List[str]
+    j: int
+    metal: str
+    uoz_pat: re.Pattern[str] | None
 
 
 def _process_candidate_line(
     ln: str,
     lower: str,
-    lines: List[str],
-    j: int,
-    metal: str,
-    uoz_pat: re.Pattern[str] | None,
+    ctx: CandidateLineContext,
 ) -> Tuple[str, float, str] | None:
     """Process a single candidate line for price extraction.
 
@@ -406,18 +404,23 @@ def _process_candidate_line(
     if DEFAULT_PRICE_BAN.search(ln):
         return None
 
-    has_uoz_here = bool(uoz_pat and uoz_pat.search(lower))
-    has_uoz_neighbor = _check_uoz_in_neighbors(lines, j, uoz_pat)
+    has_uoz_here = bool(ctx.uoz_pat and ctx.uoz_pat.search(lower))
+    has_uoz_neighbor = _check_uoz_in_neighbors(ctx.lines, ctx.j, ctx.uoz_pat)
 
     money = find_money(ln)
     if not money:
         return None
 
-    want = (metal or "").lower()
+    want = (ctx.metal or "").lower()
     has_metal = bool(want and want in lower)
     kind, mentions_price, mentions_total = _determine_price_kind(lower, has_uoz_here, has_uoz_neighbor)
 
-    if _is_valid_price_line(has_metal, has_uoz_here, has_uoz_neighbor, mentions_price, mentions_total, kind):
+    plc = PriceLineContext(
+        has_metal=has_metal, has_uoz_here=has_uoz_here,
+        has_uoz_neighbor=has_uoz_neighbor, mentions_price=mentions_price,
+        mentions_total=mentions_total, kind=kind,
+    )
+    if _is_valid_price_line(plc):
         return money[0], money[1], kind
 
     return None
@@ -457,7 +460,8 @@ def _extract_amount_near_line(
                 return result
 
         # Try general price extraction
-        result = _process_candidate_line(ln, lower, lines, j, metal, uoz_pat)
+        cand_ctx = CandidateLineContext(lines=lines, j=j, metal=metal, uoz_pat=uoz_pat)
+        result = _process_candidate_line(ln, lower, cand_ctx)
         if result:
             return result
 
@@ -804,13 +808,13 @@ class GmailCostExtractor(CostExtractor):
 
         if not ids:
             print('no messages found')
-            return 0
+            return 1
 
         by_order = self._group_by_order(ids)
 
         if not by_order:
             print('no orders found')
-            return 0
+            return 1
 
         out_rows: List[Dict[str, str | float]] = []
         for oid, messages in by_order.items():

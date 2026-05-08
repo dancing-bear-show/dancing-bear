@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from io import StringIO
 
-from calendars.location_sync import LocationSync
+from calendars.location_sync import LocationSync, MatchCriteria
 from tests.calendars_tests.fixtures import FakeCalendarService
 
 
@@ -217,28 +217,28 @@ class TestLocationSyncSelectMatches(unittest.TestCase):
             make_test_event("2", "Meeting", "2024-01-16T09:00:00"),
         ]
         sync, _ = make_location_sync(events, mock_svc=True)
-        result = sync._select_matches(
+        result = sync._select_matches_from_criteria(MatchCriteria(
             cal_name="Test",
             subj="Meeting",
             win=("2024-01-01T00:00:00", "2024-02-01T23:59:59"),
             byday=[],
             start_time=None,
             end_time=None,
-        )
+        ))
         self.assertEqual(len(result), 2)
 
     def test_returns_first_when_no_filter_matches(self):
         # Events without start.dateTime (filter_events_by_day_time will return empty)
         events = [{"id": "1"}, {"id": "2"}]
         sync, _ = make_location_sync(events, mock_svc=True)
-        result = sync._select_matches(
+        result = sync._select_matches_from_criteria(MatchCriteria(
             cal_name="Test",
             subj="Meeting",
             win=("2024-01-01T00:00:00", "2024-02-01T23:59:59"),
             byday=["MO"],  # Filter by Monday
             start_time=None,
             end_time=None,
-        )
+        ))
         # Should return first event as fallback
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], "1")

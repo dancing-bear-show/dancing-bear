@@ -20,20 +20,18 @@ def load_config(path: Optional[str]) -> Dict[str, Any]:
     """Load a YAML file into a dict; returns {} if missing/empty."""
     if not path:
         return {}
-    yaml = _require_yaml()
     p = Path(path)
     if not p.exists():
         return {}
     text = p.read_text(encoding="utf-8")
     if not text.strip():
         return {}
-    data = yaml.safe_load(text)
-    if data is None:
-        return {}
-    if isinstance(data, dict):
-        return data
-    # Keep parity with previous behavior: non-dict roots are returned as-is
-    return data  # type: ignore[return-value]
+    yaml = _require_yaml()
+    result = yaml.safe_load(text)
+    # None means empty/comment-only YAML; coerce to empty dict
+    if result is None:
+        result = {}
+    return result  # type: ignore[return-value]
 
 
 def dump_config(path: str, data: Dict[str, Any]) -> None:

@@ -18,6 +18,7 @@ import argparse
 import csv
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
@@ -528,19 +529,27 @@ def _collect_profit_by_date(all_recs: List[Dict[str, str]]) -> Tuple[dict, Optio
     return by_date, min_date, max_date
 
 
-def _pnl_row(
-    ds: str,
-    g_oz: float, g_avg: float, g_spot: Optional[float],
-    s_oz: float, s_avg: float, s_spot: Optional[float],
-) -> List[str]:
+@dataclass
+class MetalPosition:
+    """Accumulated position for a single metal on a given date."""
+    oz: float = 0.0
+    avg_cost: float = 0.0
+    spot: Optional[float] = None
+
+    @property
+    def pnl(self) -> float:
+        if self.spot and self.avg_cost and self.oz:
+            return (self.spot - self.avg_cost) * self.oz
+        return 0.0
+
+
+def _pnl_row(ds: str, gold: MetalPosition, silver: MetalPosition) -> List[str]:
     """Build a single profit/loss row for a date."""
-    g_pnl = (g_spot - g_avg) * g_oz if (g_spot and g_avg and g_oz) else 0.0
-    s_pnl = (s_spot - s_avg) * s_oz if (s_spot and s_avg and s_oz) else 0.0
     return [
         ds,
-        f"{g_oz:.4f}", f"{g_avg:.2f}", f"{(g_spot or 0):.2f}", f"{g_pnl:.2f}",
-        f"{s_oz:.4f}", f"{s_avg:.2f}", f"{(s_spot or 0):.2f}", f"{s_pnl:.2f}",
-        f"{g_pnl + s_pnl:.2f}",
+        f"{gold.oz:.4f}", f"{gold.avg_cost:.2f}", f"{(gold.spot or 0):.2f}", f"{gold.pnl:.2f}",
+        f"{silver.oz:.4f}", f"{silver.avg_cost:.2f}", f"{(silver.spot or 0):.2f}", f"{silver.pnl:.2f}",
+        f"{gold.pnl + silver.pnl:.2f}",
     ]
 
 
@@ -582,7 +591,9 @@ def _profit_walk_days(
         g_oz, g_cost, s_oz, s_cost = _accumulate_day(by_date.get(ds), g_oz, g_cost, s_oz, s_cost)
         g_avg = (g_cost / g_oz) if g_oz > 0 else 0.0
         s_avg = (s_cost / s_oz) if s_oz > 0 else 0.0
-        values.append(_pnl_row(ds, g_oz, g_avg, spot_gold.get(ds), s_oz, s_avg, spot_silver.get(ds)))
+        gold = MetalPosition(oz=g_oz, avg_cost=g_avg, spot=spot_gold.get(ds))
+        silver = MetalPosition(oz=s_oz, avg_cost=s_avg, spot=spot_silver.get(ds))
+        values.append(_pnl_row(ds, gold, silver))
         cur = cur.fromordinal(cur.toordinal() + 1)
     return values
 

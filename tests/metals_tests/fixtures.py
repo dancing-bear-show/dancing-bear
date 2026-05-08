@@ -67,35 +67,28 @@ DEFAULT_DATE = "2024-01-15"
 DEFAULT_CURRENCY = "CAD"
 
 
-def make_cost_row(
-    date: str = DEFAULT_DATE,
-    vendor: str = "TD",
-    metal: str = "gold",
-    currency: str = DEFAULT_CURRENCY,
-    cost_total: float = 2500.0,
-    cost_per_oz: float = 2500.0,
-    order_id: str = "12345",
-    subject: str = "Order Confirmation",
-    total_oz: float = 1.0,
-    unit_count: int = 1,
-    units_breakdown: str = "1ozx1",
-    alloc: str = "line-item",
-) -> Dict[str, str | float | int]:
-    """Create a cost row dict with sensible defaults."""
-    return {
-        "date": date,
-        "vendor": vendor,
-        "metal": metal,
-        "currency": currency,
-        "cost_total": cost_total,
-        "cost_per_oz": cost_per_oz,
-        "order_id": order_id,
-        "subject": subject,
-        "total_oz": total_oz,
-        "unit_count": unit_count,
-        "units_breakdown": units_breakdown,
-        "alloc": alloc,
-    }
+_COST_ROW_DEFAULTS: Dict[str, str | float | int] = {
+    "date": DEFAULT_DATE,
+    "vendor": "TD",
+    "metal": "gold",
+    "currency": DEFAULT_CURRENCY,
+    "cost_total": 2500.0,
+    "cost_per_oz": 2500.0,
+    "order_id": "12345",
+    "subject": "Order Confirmation",
+    "total_oz": 1.0,
+    "unit_count": 1,
+    "units_breakdown": "1ozx1",
+    "alloc": "line-item",
+}
+
+
+def make_cost_row(**overrides: Any) -> Dict[str, str | float | int]:
+    """Create a cost row dict with sensible defaults.
+
+    Pass keyword overrides for any field in _COST_ROW_DEFAULTS.
+    """
+    return {**_COST_ROW_DEFAULTS, **overrides}
 
 
 def make_gold_row(
@@ -189,27 +182,24 @@ PREMIUM_HEADERS = [
 ]
 
 
-def make_premium_row(
-    date: str = DEFAULT_DATE,
-    vendor: str = "TD",
-    metal: str = "silver",
-    currency: str = DEFAULT_CURRENCY,
-    cost_per_oz: float = 35.0,
-    total_oz: float = 10.0,
-    order_id: str = "12345",
-    units_breakdown: str = "1ozx10",
-) -> Dict[str, str | float]:
-    """Create a premium row dict for CostRow parsing."""
-    return {
-        "date": date,
-        "vendor": vendor,
-        "metal": metal,
-        "currency": currency,
-        "cost_per_oz": cost_per_oz,
-        "total_oz": total_oz,
-        "order_id": order_id,
-        "units_breakdown": units_breakdown,
-    }
+_PREMIUM_ROW_DEFAULTS: Dict[str, str | float] = {
+    "date": DEFAULT_DATE,
+    "vendor": "TD",
+    "metal": "silver",
+    "currency": DEFAULT_CURRENCY,
+    "cost_per_oz": 35.0,
+    "total_oz": 10.0,
+    "order_id": "12345",
+    "units_breakdown": "1ozx10",
+}
+
+
+def make_premium_row(**overrides: Any) -> Dict[str, str | float]:
+    """Create a premium row dict for CostRow parsing.
+
+    Pass keyword overrides for any field in _PREMIUM_ROW_DEFAULTS.
+    """
+    return {**_PREMIUM_ROW_DEFAULTS, **overrides}
 
 
 @contextmanager
@@ -231,23 +221,22 @@ def temp_premium_csv(rows: List[Dict[str, str | float]]):
 SUMMARY_HEADERS = ["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]
 
 
-def make_summary_row(
-    date: str = DEFAULT_DATE,
-    order_id: str = "12345",
-    vendor: str = "TD",
-    metal: str = "gold",
-    total_oz: float = 1.0,
-    cost_per_oz: float = 2500.0,
-) -> Dict[str, str | float]:
-    """Create a summary row dict for build_summaries tests."""
-    return {
-        "date": date,
-        "order_id": order_id,
-        "vendor": vendor,
-        "metal": metal,
-        "total_oz": total_oz,
-        "cost_per_oz": cost_per_oz,
-    }
+_SUMMARY_ROW_DEFAULTS: Dict[str, str | float] = {
+    "date": DEFAULT_DATE,
+    "order_id": "12345",
+    "vendor": "TD",
+    "metal": "gold",
+    "total_oz": 1.0,
+    "cost_per_oz": 2500.0,
+}
+
+
+def make_summary_row(**overrides: Any) -> Dict[str, str | float]:
+    """Create a summary row dict for build_summaries tests.
+
+    Pass keyword overrides for any field in _SUMMARY_ROW_DEFAULTS.
+    """
+    return {**_SUMMARY_ROW_DEFAULTS, **overrides}
 
 
 @contextmanager
@@ -333,35 +322,23 @@ def make_price_lines(
 
 
 # Message/Email test data factories
-def make_message_info(
-    msg_id: str = "msg123",
-    subject: str = "Order Confirmation",
-    from_header: str = "noreply@td.com",
-    body_text: str = "Your order has been received.",
-    received_date: str = DEFAULT_DATE,
-    received_ms: Optional[int] = None,
-) -> MessageInfo:
+_MESSAGE_INFO_DEFAULTS: Dict[str, Any] = {
+    "msg_id": "msg123",
+    "subject": "Order Confirmation",
+    "from_header": "noreply@td.com",
+    "body_text": "Your order has been received.",
+    "received_date": DEFAULT_DATE,
+    "received_ms": None,
+}
+
+
+def make_message_info(**overrides: Any) -> MessageInfo:
     """Create a MessageInfo instance with sensible defaults.
 
-    Args:
-        msg_id: Message ID
-        subject: Email subject line
-        from_header: Sender email address
-        body_text: Email body content
-        received_date: Date received (ISO format)
-        received_ms: Optional timestamp in milliseconds
-
-    Returns:
-        MessageInfo instance
+    Pass keyword overrides for any field in _MESSAGE_INFO_DEFAULTS.
     """
-    return MessageInfo(
-        msg_id=msg_id,
-        subject=subject,
-        from_header=from_header,
-        body_text=body_text,
-        received_date=received_date,
-        received_ms=received_ms,
-    )
+    kw = {**_MESSAGE_INFO_DEFAULTS, **overrides}
+    return MessageInfo(**kw)
 
 
 # Mock client factories

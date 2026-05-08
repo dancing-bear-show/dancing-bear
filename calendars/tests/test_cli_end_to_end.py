@@ -1,6 +1,6 @@
+import argparse
 import types
 import unittest
-from types import SimpleNamespace
 
 from tests.fixtures import capture_stdout, FakeCalendarService
 
@@ -42,7 +42,7 @@ class TestAddFromConfigFlow(unittest.TestCase):
         sys.modules['calendars.outlook_service'] = stub_osvc
         from calendars.outlook.commands import run_outlook_add_from_config
         try:
-            args = SimpleNamespace(
+            args = argparse.Namespace(
                 config="dummy.yaml",
                 calendar=None,
                 no_reminder=False,

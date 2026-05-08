@@ -5,8 +5,10 @@ import unittest
 
 from phone.profile import (
     AppItem,
+    AutoCategorizeConfig,
     FolderItem,
     HomeScreenConfigBuilder,
+    HslPayloadConfig,
     Page,
     _add_all_apps_folder,
     _add_auto_categorized_folders,
@@ -231,50 +233,50 @@ class TestHomeScreenConfigBuilder(unittest.TestCase):
 
 class TestBuildHslPayload(unittest.TestCase):
     def test_with_pages_items(self):
-        payload = _build_hsl_payload(
+        payload = _build_hsl_payload(HslPayloadConfig(
             dock_ids=["com.dock"],
             pinned_ids=[],
             folders={},
             payload_identifier="com.test.hs",
             display_name="Test",
             pages_items=[[{"Type": "Application", "BundleID": "com.app1"}]],
-        )
+        ))
         self.assertEqual(payload["PayloadType"], "com.apple.homescreenlayout")
         self.assertEqual(len(payload["Pages"]), 1)
 
     def test_without_pages_items_uses_pins_and_folders(self):
-        payload = _build_hsl_payload(
+        payload = _build_hsl_payload(HslPayloadConfig(
             dock_ids=["com.dock"],
             pinned_ids=["com.pin1"],
             folders={"Work": ["com.slack"]},
             payload_identifier="com.test.hs",
             display_name="Test",
-        )
+        ))
         self.assertEqual(len(payload["Pages"]), 1)
         # Pins go to page 1 (if not in dock), plus folders
         page1 = payload["Pages"][0]
         self.assertGreater(len(page1), 0)
 
     def test_pins_in_dock_not_on_page1(self):
-        payload = _build_hsl_payload(
+        payload = _build_hsl_payload(HslPayloadConfig(
             dock_ids=["com.pin1"],
             pinned_ids=["com.pin1"],  # same as dock
             folders={},
             payload_identifier="com.test.hs",
             display_name="Test",
-        )
+        ))
         page1 = payload["Pages"][0]
         pin_ids = [i.get("BundleID") for i in page1 if i.get("Type") == "Application"]
         self.assertNotIn("com.pin1", pin_ids)
 
     def test_empty_folders_skipped(self):
-        payload = _build_hsl_payload(
+        payload = _build_hsl_payload(HslPayloadConfig(
             dock_ids=[],
             pinned_ids=[],
             folders={"Empty": []},
             payload_identifier="com.test.hs",
             display_name="Test",
-        )
+        ))
         page1 = payload["Pages"][0]
         folder_names = [i.get("DisplayName") for i in page1 if i.get("Type") == "Folder"]
         self.assertNotIn("Empty", folder_names)
@@ -395,12 +397,14 @@ class TestAddAutoCategorizedFolders(unittest.TestCase):
         builder = HomeScreenConfigBuilder(layout)
         _add_auto_categorized_folders(
             builder,
-            auto_categories=["Utilities", "Navigation"],
-            auto_categories_page=2,
-            layout_export=layout,
-            dock=[],
-            pins=[],
-            folders={},
+            AutoCategorizeConfig(
+                auto_categories=["Utilities", "Navigation"],
+                auto_categories_page=2,
+                layout_export=layout,
+                dock=[],
+                pins=[],
+                folders={},
+            ),
         )
         # Some folders should be added on page 2
         self.assertIsInstance(builder.pages, dict)
