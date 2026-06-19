@@ -127,8 +127,10 @@ def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     if wp:
         lines += _section("Output Files\nWrite results to", wp)
         lines += [
-            "Write structured JSON data to the JSON file. "
-            "Write a human-readable markdown summary to the .md file.",
+            (
+                "Write structured JSON data to the JSON file. "
+                "Write a human-readable markdown summary to the .md file."
+            ),
             "",
         ]
     lines.append(_completion(stage, ws))

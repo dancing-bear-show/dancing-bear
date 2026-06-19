@@ -330,8 +330,12 @@ def _build_cli_command(skill: str, mapping: dict[str, str]) -> str:
     """Build a CLI command from skill name and input mapping.
 
     Constructs: ``./bin/<skill> <subcommand> -- <flags>``
+    Absolute or relative paths (starting with "/" or "./") are used as-is.
     """
-    parts = [f"./bin/{skill}"]
+    if skill.startswith("/") or skill.startswith("./"):
+        parts = [skill]
+    else:
+        parts = [f"./bin/{skill}"]
 
     if sub := mapping.get("subcommand"):
         parts.append(sub)

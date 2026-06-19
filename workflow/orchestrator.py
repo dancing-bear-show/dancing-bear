@@ -294,7 +294,12 @@ class WorkflowOrchestrator:
         started_at = iso_now()
         if not self._dry_run:
             for rel_path in stage.spec.writes_to:
-                atomic_write_json(self._workspace_dir / rel_path, {})
+                # Mirror the same prefix logic as dispatchers._write_output_files.
+                if any(rel_path.startswith(p) for p in ("outputs/", "validation/", "stages/")):
+                    dest = self._workspace_dir / rel_path
+                else:
+                    dest = self._workspace_dir / "outputs" / rel_path
+                atomic_write_json(dest, {})
         logger.info("Stage '%s' skipped — when condition false: %r", stage.spec.name, stage.spec.when)
         return make_stage_result(
             stage, started_at, StageStatus.skipped,

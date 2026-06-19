@@ -51,7 +51,7 @@ stages:
     writes_to:
       - apply-result.json
     validates_output:
-      - path: apply-result.json
+      - path: outputs/apply-result.json
         checks: [is_json, is_dict]
 
   - name: validate-applied

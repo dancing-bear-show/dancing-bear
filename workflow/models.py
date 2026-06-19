@@ -287,7 +287,7 @@ class StageSpec:
     reads_from: tuple[str, ...] = ()  # stage names whose output files this reads
     writes_to: tuple[str, ...] = ()  # output filenames this stage produces
     fan_out: FanOutSpec | None = None  # expand into parallel stages per item
-    executor: str = "agent"  # "agent" (default) | "inline"
+    executor: str = "agent"  # "agent" (default) | "inline" | "local" | "skill"
     script: str = ""  # shell command template (unused in dancing-bear; retained for YAML compat)
     when: str | None = None  # Optional skip condition — see orchestrator._eval_when()
     sub_workflow: str = ""  # path to sub-workflow YAML when kind=sub-workflow

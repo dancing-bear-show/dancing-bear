@@ -44,7 +44,11 @@ def run_output_checks(
     workspace_real = os.path.realpath(workspace_dir)
     results: list[CheckResult] = []
     for output_check in checks:
-        full_path = os.path.join(workspace_dir, output_check.path)
+        # Bare filenames default to outputs/<name>; explicit prefixes (outputs/, validation/) used as-is.
+        raw = output_check.path
+        if not any(raw.startswith(p) for p in ("outputs/", "validation/", "stages/", "/")):
+            raw = f"outputs/{raw}"
+        full_path = os.path.join(workspace_dir, raw)
         real_full = os.path.realpath(full_path)
         if not real_full.startswith(workspace_real + os.sep) and real_full != workspace_real:
             for check_name in output_check.checks:

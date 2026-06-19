@@ -32,8 +32,17 @@ def atomic_write_json(
     indent: int = 2,
 ) -> None:
     """Atomically write JSON data to a file using temp file + rename."""
+    import tempfile
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=indent), encoding="utf-8")
-    tmp.replace(path)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=indent))
+        Path(tmp_path).replace(path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise

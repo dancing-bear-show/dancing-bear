@@ -108,8 +108,7 @@ class TestStageResultRoundTrip(unittest.TestCase):
 class TestListStageResults(unittest.TestCase):
     def test_list_stage_results_empty_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            init_workspace("wf", "run-1", base_dir=tmp_dir)
-            workspace = Path(tmp_dir) / "wf" / "run-1"
+            workspace = init_workspace("wf", "run-1", base_dir=tmp_dir)
             results = list_stage_results(workspace)
             self.assertEqual(results, [])
 

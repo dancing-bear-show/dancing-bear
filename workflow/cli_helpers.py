@@ -58,7 +58,7 @@ def format_workflow_not_found(
         )
         lines.append(
             "Use a relative path instead, e.g.: "
-            "./bin/workflow status workflows/<name>.yaml"
+            "./bin/workflow lint workflows/<name>.yaml"
         )
     else:
         lines.append(f"Error: {label} file not found: {path}")

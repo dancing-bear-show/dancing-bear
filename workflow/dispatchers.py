@@ -162,7 +162,11 @@ class LocalDispatcher:
         output_dir.mkdir(parents=True, exist_ok=True)
         outputs_list = stage.spec.outputs
         for i, filename in enumerate(stage.spec.writes_to):
-            dest = output_dir / filename
+            # Honor explicit prefixes (outputs/, validation/); bare names go under outputs/.
+            if any(filename.startswith(p) for p in ("outputs/", "validation/", "stages/")):
+                dest = workspace_dir / filename
+            else:
+                dest = output_dir / filename
             dest.parent.mkdir(parents=True, exist_ok=True)
             file_data = data.get(outputs_list[i].name, data) if i < len(outputs_list) else data
             content = file_data if isinstance(file_data, str) else json.dumps(file_data, indent=2, default=str)

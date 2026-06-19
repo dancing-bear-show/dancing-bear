@@ -23,7 +23,7 @@ stages:
     writes_to:
       - events.json
     validates_output:
-      - path: events.json
+      - path: outputs/events.json
         checks: [is_json, is_list]
 
   - name: propose-schedule
