@@ -379,7 +379,7 @@ def _validate_cli_command(cli: str, sub: str, stage_name: str) -> LintWarning | 
         return _cmd_warning(stage_name, not_found) if not bin_path.exists() else None
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # nosec B603 - bin_path resolved from workflow YAML; sub validated against allowlist
             [str(bin_path), sub, "--help"],
             capture_output=True,
             timeout=3,

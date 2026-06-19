@@ -85,8 +85,8 @@ def _dispatch_group_serial(
 def _run_cli_command(cmd: str, *, timeout: int = 300) -> dict[str, Any]:
     """Run a shell command and return a structured result dict."""
     try:
-        proc = subprocess.run(  # noqa: S602 - shell=True required for CLI pipes; commands from trusted workflow YAML
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+        proc = subprocess.run(  # nosec B602 - shell=True required for CLI pipes; commands from trusted workflow YAML
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout,  # noqa: S602
         )
         return {
             "status": "ok" if proc.returncode == 0 else "error",

@@ -61,7 +61,6 @@ def run_output_checks(
             result = _evaluate_check(
                 check_name=check_name,
                 path=output_check.path,
-                full_path=full_path,
                 parsed=parsed,
                 read_error=read_error,
             )
@@ -93,7 +92,6 @@ def _read_json(full_path: str) -> tuple[object | None, str | None]:
 def _evaluate_check(  # NOSONAR - branching mirrors the check-name dispatch table
     check_name: str,
     path: str,
-    full_path: str,  # noqa: ARG001
     parsed: object | None,
     read_error: str | None,
 ) -> CheckResult:

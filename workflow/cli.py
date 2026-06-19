@@ -658,7 +658,7 @@ def _generate_run_id(workflow_name: str) -> str:
     from workflow._timeutil import iso_now
 
     date_part = iso_now()[:10].replace("-", "")
-    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))  # noqa: S311
+    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))  # nosec B311 - run ID is not security-sensitive  # noqa: S311
     return f"{workflow_name}-{date_part}-{suffix}"
 
 
