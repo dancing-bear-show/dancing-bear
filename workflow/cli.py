@@ -431,10 +431,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print("Aborted.", file=sys.stderr)
         return 1
 
-    orchestrator = WorkflowOrchestrator(
-        manifest=manifest, workspace_dir=workspace, run_id=args.run_id,
-        dry_run=dry_run, trigger_params=resolved_params or None,
-    )
+    # If --workspace points to an existing workspace (has manifest.json), use it
+    # directly so we don't nest a new sub-directory inside it.
+    existing_manifest = Path(workspace) / "manifest.json"
+    if args.workspace and existing_manifest.exists():
+        orchestrator = WorkflowOrchestrator.resume(
+            manifest=manifest, workspace_dir=workspace,
+            trigger_params=resolved_params or None,
+        )
+    else:
+        orchestrator = WorkflowOrchestrator(
+            manifest=manifest, workspace_dir=workspace, run_id=args.run_id,
+            dry_run=dry_run, trigger_params=resolved_params or None,
+        )
     result = orchestrator.run()
     _emit_one({
         "run_id": result.run_id, "status": result.status.value,
