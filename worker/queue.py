@@ -171,7 +171,7 @@ def finish(
     error_msg: str | None = None,
     result: object | None = None,
 ) -> Path:
-    """Move a job from processing/ to done/ or error/ with updated metadata."""
+    """Write updated metadata to done/ or error/, then unlink the processing/ file."""
     data = safe_load_json(job_path)
     data[FIELD_UPDATED_AT] = iso_now()
     if success:

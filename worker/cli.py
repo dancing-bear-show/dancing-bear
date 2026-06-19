@@ -142,7 +142,8 @@ class WorkerApp:
         if cmd == "purge":
             return PurgeCommand.run(args)
 
-        print("Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help")
+        import sys
+        print("Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help", file=sys.stderr)
         return 1
 
     def main(self, argv: list[str] | None = None) -> int:

@@ -53,7 +53,7 @@ def _is_allowed_bin(cmd: str) -> bool:
     except Exception:
         return False
     bin_dir = (_repo_root() / "bin").resolve()
-    return str(p).startswith(str(bin_dir)) and p.exists() and os.access(str(p), os.X_OK)
+    return p.is_relative_to(bin_dir) and p.exists() and os.access(str(p), os.X_OK)
 
 
 def _build_command(prog: str, cmd_list: list) -> list[str]:
@@ -227,7 +227,7 @@ def _run_via_tempfile(
 
 def _dispatch_script_key(
     payload: dict[str, object], raw_script: object
-) -> tuple[bool, object] | None:  # pragma: no cover - subprocess execution
+) -> tuple[bool, object]:  # pragma: no cover - subprocess execution
     """Handle the ``script`` payload key path."""
     script = str(raw_script).strip()
     if not script:

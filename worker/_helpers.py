@@ -43,7 +43,7 @@ def atomic_write_json(
 def safe_load_json(
     path: str | Path,
     default: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> Any:
     """Safely load JSON from a file, returning default on any error."""
     if default is None:
         default = {}

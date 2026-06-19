@@ -260,7 +260,7 @@ class DaemonRunner:
         """Calculate how many jobs can be processed based on max_inflight cap."""
         if self.config.max_inflight > 0:
             try:
-                cur_proc = int(q.counts().get("processing", 0))
+                cur_proc = int(q.counts(root=q.QUEUE_ROOT).get("processing", 0))
                 return max(
                     0,
                     min(self.config.max_per_tick, self.config.max_inflight - cur_proc),
@@ -363,7 +363,7 @@ class EnqueueCommand:
             enqueued_at=datetime.now(UTC).strftime(ISO_DATETIME_FORMAT),
         )
 
-        path = q.enqueue(job)
+        path = q.enqueue(job, root=q.QUEUE_ROOT)
         print(json.dumps({"enqueued": True, "id": job_id, "path": str(path)}))
         return 0
 
@@ -374,7 +374,7 @@ class ListCommand:
     @staticmethod
     def run(args) -> int:
         """Execute list command."""
-        print(json.dumps(q.counts(), indent=2))
+        print(json.dumps(q.counts(root=q.QUEUE_ROOT), indent=2))
         return 0
 
 
@@ -384,7 +384,7 @@ class StatusCommand:
     @staticmethod
     def run(args) -> int:
         """Execute status command."""
-        s = q.status()
+        s = q.status(root=q.QUEUE_ROOT)
 
         if getattr(args, "text", False) and not getattr(args, "json", False):
             StatusCommand._print_text_status(s, args)
@@ -473,7 +473,7 @@ class ShowCommand:
                 print(p.read_text(encoding="utf-8"))
                 return 0
 
-        print("Job not found")
+        print("Job not found", file=os.sys.stderr)
         return 1
 
 
