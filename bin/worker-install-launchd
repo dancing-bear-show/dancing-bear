@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+PLIST_TEMPLATE="${REPO_ROOT}/configs/launchd/com.dancing-bear.worker.plist"
+PLIST_DST="${HOME}/Library/LaunchAgents/com.dancing-bear.worker.plist"
+
+if [[ ! -f "${PLIST_TEMPLATE}" ]]; then
+  echo "Plist template not found: ${PLIST_TEMPLATE}" >&2
+  exit 2
+fi
+
+mkdir -p "${HOME}/Library/LaunchAgents"
+# Ensure worker log directory exists under state dir (macOS Application Support)
+LOG_DIR="${HOME}/Library/Application Support/dancing-bear/logs"
+mkdir -p "${LOG_DIR}"
+# Render template with absolute paths for repo and HOME
+sed \
+  -e "s|__REPO_ROOT__|${REPO_ROOT}|g" \
+  -e "s|__HOME__|${HOME}|g" \
+  "${PLIST_TEMPLATE}" > "${PLIST_DST}"
+
+set +e
+launchctl unload -w "${PLIST_DST}" >/dev/null 2>&1 || true
+set -e
+launchctl load -w "${PLIST_DST}"
+echo "Loaded: ${PLIST_DST}"
+echo "Logs: ${LOG_DIR}/worker-daemon.out.log (and .err.log)"

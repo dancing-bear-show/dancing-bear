@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.dancing-bear.worker</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>__REPO_ROOT__/bin/worker</string>
+      <string>daemon</string>
+      <string>--interval</string>
+      <string>5</string>
+      <string>--max-per-tick</string>
+      <string>8</string>
+      <string>--max-inflight</string>
+      <string>8</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__REPO_ROOT__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>DANCING_BEAR_LOG_DIR</key>
+      <string>__HOME__/Library/Application Support/dancing-bear/logs</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Application Support/dancing-bear/logs/worker-daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Application Support/dancing-bear/logs/worker-daemon.err.log</string>
+  </dict>
+</plist>
