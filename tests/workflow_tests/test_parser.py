@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import tempfile
+import unittest
 from pathlib import Path
 
-import pytest
-
-from workflow.models import OutputMode, StageKind
+from workflow.models import StageKind
 from workflow.parser import WorkflowParseError, parse_workflow, parse_workflow_str
 
 
@@ -38,12 +38,12 @@ stages:
 # ---------------------------------------------------------------------------
 
 
-class TestParseFromString:
+class TestParseFromString(unittest.TestCase):
     """parse_workflow_str() with minimal valid YAML."""
 
     def test_returns_workflow_definition(self) -> None:
         wf = parse_workflow_str(_minimal_yaml())
-        assert wf.name == "minimal"
+        self.assertEqual(wf.name, "minimal")
 
     def test_version_coerced_to_string(self) -> None:
         yaml_str = """\
@@ -60,129 +60,122 @@ stages:
       role: researcher
 """
         wf = parse_workflow_str(yaml_str)
-        assert isinstance(wf.version, str)
+        self.assertIsInstance(wf.version, str)
 
     def test_custom_source_in_error_messages(self) -> None:
         bad_yaml = "name: only-name\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-        with pytest.raises(WorkflowParseError, match="my-source"):
+        with self.assertRaisesRegex(WorkflowParseError, "my-source"):
             parse_workflow_str(bad_yaml, source="my-source")
 
 
-class TestDefaults:
+class TestDefaults(unittest.TestCase):
     """Minimal YAML verifies default field values."""
 
-    def setup_method(self) -> None:
+    def setUp(self) -> None:
         self.wf = parse_workflow_str(_minimal_yaml())
         self.stage = self.wf.stages[0]
 
     def test_stage_depends_on_empty(self) -> None:
-        assert self.stage.depends_on == ()
+        self.assertEqual(self.stage.depends_on, ())
 
     def test_stage_reads_from_empty(self) -> None:
-        assert self.stage.reads_from == ()
+        self.assertEqual(self.stage.reads_from, ())
 
     def test_stage_validation_none(self) -> None:
-        assert self.stage.validation is None
+        self.assertIsNone(self.stage.validation)
 
     def test_stage_human_gate_false(self) -> None:
-        assert self.stage.human_gate is False
+        self.assertIs(self.stage.human_gate, False)
 
     def test_stage_required_true(self) -> None:
-        assert self.stage.required is True
+        self.assertIs(self.stage.required, True)
 
     def test_workspace_dir_none(self) -> None:
-        assert self.wf.workspace_dir is None
+        self.assertIsNone(self.wf.workspace_dir)
 
     def test_metadata_empty(self) -> None:
-        assert self.wf.metadata == {}
+        self.assertEqual(self.wf.metadata, {})
 
 
 # ---------------------------------------------------------------------------
-# Validation errors — parametrized
+# Validation errors — parametrized via subTest
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "yaml_str,match",
-    [
-        # Missing required top-level key: name
-        pytest.param(
-            "version: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
-            "missing required key 'name'",
-            id="missing-name",
-        ),
-        # Missing stages key entirely
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n",
-            "missing required key 'stages'",
-            id="missing-stages-key",
-        ),
-        # Duplicate stage names
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: dup\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-            "  - name: dup\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
-            "duplicate stage name 'dup'",
-            id="duplicate-stage-names",
-        ),
-        # Dangling depends_on
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [ghost]\n",
-            "depends_on unknown stage 'ghost'",
-            id="dangling-depends-on",
-        ),
-        # Dangling reads_from
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n    reads_from: [ghost]\n",
-            "reads_from unknown stage 'ghost'",
-            id="dangling-reads-from",
-        ),
-        # Cycle A→B→C→A
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: a\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [c]\n"
-            "  - name: b\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [a]\n"
-            "  - name: c\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [b]\n",
-            "cycle",
-            id="cycle-abc",
-        ),
-        # Self-dependency
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: self\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [self]\n",
-            "cycle",
-            id="self-dependency",
-        ),
-        # Invalid stage kind
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: s\n    kind: bogus\n    description: d\n    agent:\n      role: r\n",
-            "invalid kind 'bogus'",
-            id="invalid-stage-kind",
-        ),
-        # Invalid output mode
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-            "    outputs:\n      - name: o\n        mode: bogus\n",
-            "invalid mode 'bogus'",
-            id="invalid-output-mode",
-        ),
-        # Invalid validation strategy
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
-            "  - name: s\n    kind: validate\n    description: d\n    agent:\n      role: r\n"
-            "    validation:\n      strategy: bogus\n",
-            "invalid strategy 'bogus'",
-            id="invalid-validation-strategy",
-        ),
-    ],
-)
-def test_validation_errors(yaml_str: str, match: str) -> None:
-    with pytest.raises(WorkflowParseError, match=match):
-        parse_workflow_str(yaml_str)
+_VALIDATION_ERROR_CASES = [
+    (
+        "version: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
+        "missing required key 'name'",
+        "missing-name",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n",
+        "missing required key 'stages'",
+        "missing-stages-key",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: dup\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+        "  - name: dup\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
+        "duplicate stage name 'dup'",
+        "duplicate-stage-names",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [ghost]\n",
+        "depends_on unknown stage 'ghost'",
+        "dangling-depends-on",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n    reads_from: [ghost]\n",
+        "reads_from unknown stage 'ghost'",
+        "dangling-reads-from",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: a\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [c]\n"
+        "  - name: b\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [a]\n"
+        "  - name: c\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [b]\n",
+        "cycle",
+        "cycle-abc",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: self\n    kind: gather\n    description: d\n    agent:\n      role: r\n    depends_on: [self]\n",
+        "cycle",
+        "self-dependency",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: s\n    kind: bogus\n    description: d\n    agent:\n      role: r\n",
+        "invalid kind 'bogus'",
+        "invalid-stage-kind",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+        "    outputs:\n      - name: o\n        mode: bogus\n",
+        "invalid mode 'bogus'",
+        "invalid-output-mode",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages:\n"
+        "  - name: s\n    kind: validate\n    description: d\n    agent:\n      role: r\n"
+        "    validation:\n      strategy: bogus\n",
+        "invalid strategy 'bogus'",
+        "invalid-validation-strategy",
+    ),
+]
+
+
+class TestValidationErrors(unittest.TestCase):
+    def test_all_validation_errors(self) -> None:
+        for yaml_str, match, case_id in _VALIDATION_ERROR_CASES:
+            with self.subTest(id=case_id):
+                with self.assertRaises(WorkflowParseError) as ctx:
+                    parse_workflow_str(yaml_str)
+                self.assertRegex(str(ctx.exception), match)
 
 
 # ---------------------------------------------------------------------------
@@ -190,11 +183,11 @@ def test_validation_errors(yaml_str: str, match: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-class TestEdgeCases:
+class TestEdgeCases(unittest.TestCase):
     def test_empty_stages_list_raises(self) -> None:
         """stages: [] is rejected — must be a non-empty list."""
         yaml_str = "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\nstages: []\n"
-        with pytest.raises(WorkflowParseError, match="non-empty"):
+        with self.assertRaisesRegex(WorkflowParseError, "non-empty"):
             parse_workflow_str(yaml_str)
 
     def test_version_as_number_coerced_to_string(self) -> None:
@@ -213,25 +206,26 @@ stages:
       role: researcher
 """
         wf = parse_workflow_str(yaml_str)
-        assert isinstance(wf.version, str)
-        assert wf.version == "1.0"
+        self.assertIsInstance(wf.version, str)
+        self.assertEqual(wf.version, "1.0")
 
     def test_minimal_stage_all_defaults(self) -> None:
         """A stage with only the four required fields gets all defaults."""
         wf = parse_workflow_str(_minimal_yaml())
         stage = wf.stages[0]
-        assert stage.kind == StageKind.gather
-        assert stage.depends_on == ()
-        assert stage.outputs == ()
-        assert stage.validation is None
-        assert stage.human_gate is False
-        assert stage.required is True
-        assert stage.reads_from == ()
-        assert stage.writes_to == ()
+        self.assertEqual(stage.kind, StageKind.gather)
+        self.assertEqual(stage.depends_on, ())
+        self.assertEqual(stage.outputs, ())
+        self.assertIsNone(stage.validation)
+        self.assertIs(stage.human_gate, False)
+        self.assertIs(stage.required, True)
+        self.assertEqual(stage.reads_from, ())
+        self.assertEqual(stage.writes_to, ())
 
-    def test_file_not_found_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(WorkflowParseError, match="file not found"):
-            parse_workflow(tmp_path / "nonexistent.yaml")
+    def test_file_not_found_raises(self) -> None:
+        tmp_dir = tempfile.mkdtemp()
+        with self.assertRaisesRegex(WorkflowParseError, "file not found"):
+            parse_workflow(Path(tmp_dir) / "nonexistent.yaml")
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +233,7 @@ stages:
 # ---------------------------------------------------------------------------
 
 
-class TestReadsFromOrdering:
+class TestReadsFromOrdering(unittest.TestCase):
     """reads_from entries must be transitively reachable via depends_on."""
 
     def test_direct_dependency_is_valid(self) -> None:
@@ -265,7 +259,7 @@ stages:
     reads_from: [gather]
 """
         wf = parse_workflow_str(yaml_str)
-        assert wf.stages[1].reads_from == ("gather",)
+        self.assertEqual(wf.stages[1].reads_from, ("gather",))
 
     def test_unreachable_reads_from_raises(self) -> None:
         """reads_from a stage not in the transitive depends_on chain is rejected."""
@@ -294,7 +288,7 @@ stages:
     depends_on: [gather-a]
     reads_from: [gather-b]
 """
-        with pytest.raises(WorkflowParseError, match="reads_from 'gather-b'.*not a transitive dependency"):
+        with self.assertRaisesRegex(WorkflowParseError, "reads_from 'gather-b'.*not a transitive dependency"):
             parse_workflow_str(yaml_str)
 
 
@@ -303,110 +297,103 @@ stages:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "yaml_str,match",
-    [
-        # trigger not a mapping
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger: a-string\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
-            "trigger.*mapping",
-            id="trigger-not-a-dict",
-        ),
-        # trigger missing 'source'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  params: {}\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
-            "trigger missing required key 'source'",
-            id="trigger-missing-source",
-        ),
-        # agent not a mapping
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent: not-a-dict\n",
-            "agent.*mapping",
-            id="agent-not-a-dict",
-        ),
-        # agent missing 'role'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      model: foo\n",
-            "agent missing required key 'role'",
-            id="agent-missing-role",
-        ),
-        # output entry not a mapping
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-            "    outputs:\n      - just-a-string\n",
-            "output entry must be a mapping",
-            id="output-not-a-dict",
-        ),
-        # output missing 'name'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-            "    outputs:\n      - mode: generate\n",
-            "output missing required key 'name'",
-            id="output-missing-name",
-        ),
-        # output missing 'mode'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-            "    outputs:\n      - name: out\n",
-            "output 'out' missing required key 'mode'",
-            id="output-missing-mode",
-        ),
-        # validation not a mapping
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: validate\n    description: d\n    agent:\n      role: r\n"
-            "    validation: a-string\n",
-            "validation.*mapping",
-            id="validation-not-a-dict",
-        ),
-        # validation missing 'strategy'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    kind: validate\n    description: d\n    agent:\n      role: r\n"
-            "    validation:\n      criteria: [some criterion]\n",
-            "validation missing required key 'strategy'",
-            id="validation-missing-strategy",
-        ),
-        # stage not a mapping
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - just-a-string\n",
-            "stage entry must be a mapping",
-            id="stage-not-a-dict",
-        ),
-        # stage missing 'name'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - kind: gather\n    description: d\n    agent:\n      role: r\n",
-            "stage missing required key 'name'",
-            id="stage-missing-name",
-        ),
-        # stage missing 'kind'
-        pytest.param(
-            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-            "stages:\n  - name: s\n    description: d\n    agent:\n      role: r\n",
-            "stage missing required key 'kind'",
-            id="stage-missing-kind",
-        ),
-    ],
-)
-def test_malformed_sub_structures(yaml_str: str, match: str) -> None:
+_MALFORMED_CASES = [
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger: a-string\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
+        "trigger.*mapping",
+        "trigger-not-a-dict",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  params: {}\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n",
+        "trigger missing required key 'source'",
+        "trigger-missing-source",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent: not-a-dict\n",
+        "agent.*mapping",
+        "agent-not-a-dict",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      model: foo\n",
+        "agent missing required key 'role'",
+        "agent-missing-role",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+        "    outputs:\n      - just-a-string\n",
+        "output entry must be a mapping",
+        "output-not-a-dict",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+        "    outputs:\n      - mode: generate\n",
+        "output missing required key 'name'",
+        "output-missing-name",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+        "    outputs:\n      - name: out\n",
+        "output 'out' missing required key 'mode'",
+        "output-missing-mode",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: validate\n    description: d\n    agent:\n      role: r\n"
+        "    validation: a-string\n",
+        "validation.*mapping",
+        "validation-not-a-dict",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    kind: validate\n    description: d\n    agent:\n      role: r\n"
+        "    validation:\n      criteria: [some criterion]\n",
+        "validation missing required key 'strategy'",
+        "validation-missing-strategy",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - just-a-string\n",
+        "stage entry must be a mapping",
+        "stage-not-a-dict",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - kind: gather\n    description: d\n    agent:\n      role: r\n",
+        "stage missing required key 'name'",
+        "stage-missing-name",
+    ),
+    (
+        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+        "stages:\n  - name: s\n    description: d\n    agent:\n      role: r\n",
+        "stage missing required key 'kind'",
+        "stage-missing-kind",
+    ),
+]
+
+
+class TestMalformedSubStructures(unittest.TestCase):
     """Malformed sub-structures raise WorkflowParseError."""
-    with pytest.raises(WorkflowParseError, match=match):
-        parse_workflow_str(yaml_str)
+
+    def test_all_malformed_cases(self) -> None:
+        for yaml_str, match, case_id in _MALFORMED_CASES:
+            with self.subTest(id=case_id):
+                with self.assertRaises(WorkflowParseError) as ctx:
+                    parse_workflow_str(yaml_str)
+                self.assertRegex(str(ctx.exception), match)
 
 
-def test_non_mapping_top_level_raises() -> None:
-    """A YAML string that is not a mapping at top level raises WorkflowParseError."""
-    with pytest.raises(WorkflowParseError, match="expected a YAML mapping"):
-        parse_workflow_str("- item1\n- item2\n")
+class TestNonMappingTopLevel(unittest.TestCase):
+    def test_non_mapping_top_level_raises(self) -> None:
+        """A YAML string that is not a mapping at top level raises WorkflowParseError."""
+        with self.assertRaisesRegex(WorkflowParseError, "expected a YAML mapping"):
+            parse_workflow_str("- item1\n- item2\n")
 
 
 # ---------------------------------------------------------------------------
@@ -428,73 +415,73 @@ def _fan_out_two_stage_yaml(fan_out_extra: str = "") -> str:
     )
 
 
-def test_fan_out_default_mode_is_agent() -> None:
-    defn = parse_workflow_str(_fan_out_two_stage_yaml())
-    fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
-    assert fan_stage.fan_out is not None
-    assert fan_stage.fan_out.mode == "agent"
+class TestFanOut(unittest.TestCase):
+    def test_fan_out_default_mode_is_agent(self) -> None:
+        defn = parse_workflow_str(_fan_out_two_stage_yaml())
+        fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
+        self.assertIsNotNone(fan_stage.fan_out)
+        self.assertEqual(fan_stage.fan_out.mode, "agent")
+
+    def test_fan_out_worker_queue_mode(self) -> None:
+        extra = "      mode: worker_queue\n      script: ./bin/mail-assistant filters apply --team {team}\n"
+        defn = parse_workflow_str(_fan_out_two_stage_yaml(extra))
+        fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
+        self.assertIsNotNone(fan_stage.fan_out)
+        self.assertEqual(fan_stage.fan_out.mode, "worker_queue")
+        self.assertIn("{team}", fan_stage.fan_out.script)
+
+    def test_fan_out_script_defaults_empty(self) -> None:
+        defn = parse_workflow_str(_fan_out_two_stage_yaml())
+        fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
+        self.assertIsNotNone(fan_stage.fan_out)
+        self.assertEqual(fan_stage.fan_out.script, "")
+
+    def test_fan_out_invalid_mode_raises(self) -> None:
+        extra = "      mode: batch\n"
+        with self.assertRaisesRegex(WorkflowParseError, "invalid mode 'batch'"):
+            parse_workflow_str(_fan_out_two_stage_yaml(extra))
 
 
-def test_fan_out_worker_queue_mode() -> None:
-    extra = "      mode: worker_queue\n      script: ./bin/mail-assistant filters apply --team {team}\n"
-    defn = parse_workflow_str(_fan_out_two_stage_yaml(extra))
-    fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
-    assert fan_stage.fan_out is not None
-    assert fan_stage.fan_out.mode == "worker_queue"
-    assert "{team}" in fan_stage.fan_out.script
+_FAN_OUT_MISSING_KEY_CASES = [
+    (
+        "    fan_out:\n      field: items\n      key: id\n",
+        "fan_out missing required key 'source'",
+        "fan-out-missing-source",
+    ),
+    (
+        "    fan_out:\n      source: gather-stage\n      key: id\n",
+        "fan_out missing required key 'field'",
+        "fan-out-missing-field",
+    ),
+    (
+        "    fan_out:\n      source: gather-stage\n      field: items\n",
+        "fan_out missing required key 'key'",
+        "fan-out-missing-key",
+    ),
+]
 
 
-def test_fan_out_script_defaults_empty() -> None:
-    defn = parse_workflow_str(_fan_out_two_stage_yaml())
-    fan_stage = next(s for s in defn.stages if s.name == "fan-stage")
-    assert fan_stage.fan_out is not None
-    assert fan_stage.fan_out.script == ""
+class TestFanOutMissingRequiredKeys(unittest.TestCase):
+    def test_all_missing_key_cases(self) -> None:
+        for fan_out_yaml, match, case_id in _FAN_OUT_MISSING_KEY_CASES:
+            yaml_str = (
+                "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+                "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+                + fan_out_yaml
+            )
+            with self.subTest(id=case_id):
+                with self.assertRaises(WorkflowParseError) as ctx:
+                    parse_workflow_str(yaml_str)
+                self.assertRegex(str(ctx.exception), match)
 
-
-def test_fan_out_invalid_mode_raises() -> None:
-    extra = "      mode: batch\n"
-    with pytest.raises(WorkflowParseError, match="invalid mode 'batch'"):
-        parse_workflow_str(_fan_out_two_stage_yaml(extra))
-
-
-@pytest.mark.parametrize(
-    "fan_out_yaml,match",
-    [
-        pytest.param(
-            "    fan_out:\n      field: items\n      key: id\n",
-            "fan_out missing required key 'source'",
-            id="fan-out-missing-source",
-        ),
-        pytest.param(
-            "    fan_out:\n      source: gather-stage\n      key: id\n",
-            "fan_out missing required key 'field'",
-            id="fan-out-missing-field",
-        ),
-        pytest.param(
-            "    fan_out:\n      source: gather-stage\n      field: items\n",
-            "fan_out missing required key 'key'",
-            id="fan-out-missing-key",
-        ),
-    ],
-)
-def test_fan_out_missing_required_keys(fan_out_yaml: str, match: str) -> None:
-    yaml_str = (
-        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-        + fan_out_yaml
-    )
-    with pytest.raises(WorkflowParseError, match=match):
-        parse_workflow_str(yaml_str)
-
-
-def test_fan_out_not_a_mapping_raises() -> None:
-    yaml_str = (
-        "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
-        "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
-        "    fan_out: a-string\n"
-    )
-    with pytest.raises(WorkflowParseError, match="fan_out must be a mapping"):
-        parse_workflow_str(yaml_str)
+    def test_fan_out_not_a_mapping_raises(self) -> None:
+        yaml_str = (
+            "name: n\nversion: '1'\ndescription: d\ntrigger:\n  source: x\n"
+            "stages:\n  - name: s\n    kind: gather\n    description: d\n    agent:\n      role: r\n"
+            "    fan_out: a-string\n"
+        )
+        with self.assertRaisesRegex(WorkflowParseError, "fan_out must be a mapping"):
+            parse_workflow_str(yaml_str)
 
 
 # ---------------------------------------------------------------------------
@@ -502,8 +489,9 @@ def test_fan_out_not_a_mapping_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_executor_inline_parses_correctly() -> None:
-    yaml_str = """\
+class TestExecutor(unittest.TestCase):
+    def test_executor_inline_parses_correctly(self) -> None:
+        yaml_str = """\
 name: n
 version: '1'
 description: d
@@ -517,12 +505,11 @@ stages:
     agent:
       role: researcher
 """
-    wf = parse_workflow_str(yaml_str)
-    assert wf.stages[0].executor == "inline"
+        wf = parse_workflow_str(yaml_str)
+        self.assertEqual(wf.stages[0].executor, "inline")
 
-
-def test_executor_inline_agent_block_optional() -> None:
-    yaml_str = """\
+    def test_executor_inline_agent_block_optional(self) -> None:
+        yaml_str = """\
 name: n
 version: '1'
 description: d
@@ -535,18 +522,16 @@ stages:
     description: Quick auth probe
     writes_to: []
 """
-    wf = parse_workflow_str(yaml_str)
-    assert wf.stages[0].executor == "inline"
-    assert wf.stages[0].agent.role == "inline"
+        wf = parse_workflow_str(yaml_str)
+        self.assertEqual(wf.stages[0].executor, "inline")
+        self.assertEqual(wf.stages[0].agent.role, "inline")
 
+    def test_executor_agent_default(self) -> None:
+        wf = parse_workflow_str(_minimal_yaml())
+        self.assertEqual(wf.stages[0].executor, "agent")
 
-def test_executor_agent_default() -> None:
-    wf = parse_workflow_str(_minimal_yaml())
-    assert wf.stages[0].executor == "agent"
-
-
-def test_executor_invalid_value_raises() -> None:
-    yaml_str = """\
+    def test_executor_invalid_value_raises(self) -> None:
+        yaml_str = """\
 name: n
 version: '1'
 description: d
@@ -560,8 +545,8 @@ stages:
     agent:
       role: researcher
 """
-    with pytest.raises(WorkflowParseError, match="invalid executor 'lambda'"):
-        parse_workflow_str(yaml_str)
+        with self.assertRaisesRegex(WorkflowParseError, "invalid executor 'lambda'"):
+            parse_workflow_str(yaml_str)
 
 
 # ---------------------------------------------------------------------------
@@ -569,36 +554,37 @@ stages:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_stage_sub_workflow_kind_missing_path() -> None:
-    from workflow.parser import _parse_stage
+class TestSubWorkflow(unittest.TestCase):
+    def test_parse_stage_sub_workflow_kind_missing_path(self) -> None:
+        from workflow.parser import _parse_stage
 
-    stage_data: dict[str, object] = {
-        "name": "my-sub",
-        "kind": "sub-workflow",
-        "description": "test",
-        "agent": {"role": "researcher", "model": "sonnet", "tools": [], "access": "read-only"},
-    }
-    with pytest.raises(WorkflowParseError, match="missing or empty 'sub_workflow' path"):
-        _parse_stage(stage_data, source="test.yaml")
+        stage_data: dict[str, object] = {
+            "name": "my-sub",
+            "kind": "sub-workflow",
+            "description": "test",
+            "agent": {"role": "researcher", "model": "sonnet", "tools": [], "access": "read-only"},
+        }
+        with self.assertRaisesRegex(WorkflowParseError, "missing or empty 'sub_workflow' path"):
+            _parse_stage(stage_data, source="test.yaml")
+
+    def test_parse_stage_sub_workflow_happy_path(self) -> None:
+        from workflow.parser import _parse_stage
+
+        stage_data: dict[str, object] = {
+            "name": "my-sub",
+            "kind": "sub-workflow",
+            "description": "Delegates to a child workflow",
+            "agent": {"role": "researcher", "model": "sonnet", "tools": [], "access": "read-only"},
+            "sub_workflow": "workflows/sub.yaml",
+        }
+        stage = _parse_stage(stage_data, source="test.yaml")
+        self.assertEqual(stage.sub_workflow, "workflows/sub.yaml")
+        self.assertEqual(stage.kind, StageKind.sub_workflow)
 
 
-def test_parse_stage_sub_workflow_happy_path() -> None:
-    from workflow.parser import _parse_stage
-
-    stage_data: dict[str, object] = {
-        "name": "my-sub",
-        "kind": "sub-workflow",
-        "description": "Delegates to a child workflow",
-        "agent": {"role": "researcher", "model": "sonnet", "tools": [], "access": "read-only"},
-        "sub_workflow": "workflows/sub.yaml",
-    }
-    stage = _parse_stage(stage_data, source="test.yaml")
-    assert stage.sub_workflow == "workflows/sub.yaml"
-    assert stage.kind == StageKind.sub_workflow
-
-
-def test_validate_dag_shared_dependency_does_not_raise() -> None:
-    yaml_str = """\
+class TestDagSharedDependency(unittest.TestCase):
+    def test_validate_dag_shared_dependency_does_not_raise(self) -> None:
+        yaml_str = """\
 name: n
 version: '1'
 description: d
@@ -629,5 +615,9 @@ stages:
     agent:
       role: r
 """
-    wf = parse_workflow_str(yaml_str)
-    assert len(wf.stages) == 4
+        wf = parse_workflow_str(yaml_str)
+        self.assertEqual(len(wf.stages), 4)
+
+
+if __name__ == "__main__":
+    unittest.main()

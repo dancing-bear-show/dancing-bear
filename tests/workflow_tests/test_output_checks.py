@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 import os
-
-import pytest
+import tempfile
+import unittest
 
 from workflow.models import OutputCheck
 from workflow.output_checks import CheckResult, run_output_checks
@@ -39,25 +39,25 @@ def _check(workspace: str, path: str, *check_names: str) -> list[CheckResult]:
 # ---------------------------------------------------------------------------
 
 
-class TestIsJson:
-    def test_valid_json_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{"key": "value"}')
-        results = _check(ws, "out.json", "is_json")
-        assert len(results) == 1
-        assert results[0].passed is True
+class TestIsJson(unittest.TestCase):
+    def test_valid_json_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"key": "value"}')
+            results = _check(tmp_dir, "out.json", "is_json")
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0].passed)
 
-    def test_invalid_json_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", "not json {")
-        results = _check(ws, "out.json", "is_json")
-        assert results[0].passed is False
-        assert "invalid JSON" in results[0].message
+    def test_invalid_json_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", "not json {")
+            results = _check(tmp_dir, "out.json", "is_json")
+            self.assertFalse(results[0].passed)
+            self.assertIn("invalid JSON", results[0].message)
 
-    def test_missing_file_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        results = _check(ws, "missing.json", "is_json")
-        assert results[0].passed is False
+    def test_missing_file_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            results = _check(tmp_dir, "missing.json", "is_json")
+            self.assertFalse(results[0].passed)
 
 
 # ---------------------------------------------------------------------------
@@ -65,19 +65,19 @@ class TestIsJson:
 # ---------------------------------------------------------------------------
 
 
-class TestIsDict:
-    def test_dict_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{"a": 1}')
-        results = _check(ws, "out.json", "is_dict")
-        assert results[0].passed is True
+class TestIsDict(unittest.TestCase):
+    def test_dict_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"a": 1}')
+            results = _check(tmp_dir, "out.json", "is_dict")
+            self.assertTrue(results[0].passed)
 
-    def test_list_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '[1, 2]')
-        results = _check(ws, "out.json", "is_dict")
-        assert results[0].passed is False
-        assert "list" in results[0].message
+    def test_list_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '[1, 2]')
+            results = _check(tmp_dir, "out.json", "is_dict")
+            self.assertFalse(results[0].passed)
+            self.assertIn("list", results[0].message)
 
 
 # ---------------------------------------------------------------------------
@@ -85,18 +85,18 @@ class TestIsDict:
 # ---------------------------------------------------------------------------
 
 
-class TestIsList:
-    def test_list_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '[1, 2, 3]')
-        results = _check(ws, "out.json", "is_list")
-        assert results[0].passed is True
+class TestIsList(unittest.TestCase):
+    def test_list_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '[1, 2, 3]')
+            results = _check(tmp_dir, "out.json", "is_list")
+            self.assertTrue(results[0].passed)
 
-    def test_dict_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{"a": 1}')
-        results = _check(ws, "out.json", "is_list")
-        assert results[0].passed is False
+    def test_dict_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"a": 1}')
+            results = _check(tmp_dir, "out.json", "is_list")
+            self.assertFalse(results[0].passed)
 
 
 # ---------------------------------------------------------------------------
@@ -104,30 +104,30 @@ class TestIsList:
 # ---------------------------------------------------------------------------
 
 
-class TestNonEmpty:
-    def test_non_empty_dict_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{"a": 1}')
-        results = _check(ws, "out.json", "non_empty")
-        assert results[0].passed is True
+class TestNonEmpty(unittest.TestCase):
+    def test_non_empty_dict_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"a": 1}')
+            results = _check(tmp_dir, "out.json", "non_empty")
+            self.assertTrue(results[0].passed)
 
-    def test_empty_dict_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{}')
-        results = _check(ws, "out.json", "non_empty")
-        assert results[0].passed is False
+    def test_empty_dict_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{}')
+            results = _check(tmp_dir, "out.json", "non_empty")
+            self.assertFalse(results[0].passed)
 
-    def test_non_empty_list_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '[1]')
-        results = _check(ws, "out.json", "non_empty")
-        assert results[0].passed is True
+    def test_non_empty_list_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '[1]')
+            results = _check(tmp_dir, "out.json", "non_empty")
+            self.assertTrue(results[0].passed)
 
-    def test_empty_list_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '[]')
-        results = _check(ws, "out.json", "non_empty")
-        assert results[0].passed is False
+    def test_empty_list_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '[]')
+            results = _check(tmp_dir, "out.json", "non_empty")
+            self.assertFalse(results[0].passed)
 
 
 # ---------------------------------------------------------------------------
@@ -135,25 +135,25 @@ class TestNonEmpty:
 # ---------------------------------------------------------------------------
 
 
-class TestHasKey:
-    def test_key_present_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{"status": "ok", "count": 5}')
-        results = _check(ws, "out.json", "has_key:status")
-        assert results[0].passed is True
+class TestHasKey(unittest.TestCase):
+    def test_key_present_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"status": "ok", "count": 5}')
+            results = _check(tmp_dir, "out.json", "has_key:status")
+            self.assertTrue(results[0].passed)
 
-    def test_key_absent_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '{"count": 5}')
-        results = _check(ws, "out.json", "has_key:status")
-        assert results[0].passed is False
-        assert "status" in results[0].message
+    def test_key_absent_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"count": 5}')
+            results = _check(tmp_dir, "out.json", "has_key:status")
+            self.assertFalse(results[0].passed)
+            self.assertIn("status", results[0].message)
 
-    def test_requires_dict_not_list(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        _write(ws, "out.json", '[1, 2]')
-        results = _check(ws, "out.json", "has_key:status")
-        assert results[0].passed is False
+    def test_requires_dict_not_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '[1, 2]')
+            results = _check(tmp_dir, "out.json", "has_key:status")
+            self.assertFalse(results[0].passed)
 
 
 # ---------------------------------------------------------------------------
@@ -161,21 +161,21 @@ class TestHasKey:
 # ---------------------------------------------------------------------------
 
 
-class TestValuesHaveKey:
-    def test_all_values_have_key_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        data = {"a": {"x": 1}, "b": {"x": 2}}
-        _write(ws, "out.json", json.dumps(data))
-        results = _check(ws, "out.json", "values_have_key:x")
-        assert results[0].passed is True
+class TestValuesHaveKey(unittest.TestCase):
+    def test_all_values_have_key_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data = {"a": {"x": 1}, "b": {"x": 2}}
+            _write(tmp_dir, "out.json", json.dumps(data))
+            results = _check(tmp_dir, "out.json", "values_have_key:x")
+            self.assertTrue(results[0].passed)
 
-    def test_partial_miss_fails_with_sample(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        data = {"a": {"x": 1}, "b": {"y": 2}}
-        _write(ws, "out.json", json.dumps(data))
-        results = _check(ws, "out.json", "values_have_key:x")
-        assert results[0].passed is False
-        assert "b" in results[0].message
+    def test_partial_miss_fails_with_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data = {"a": {"x": 1}, "b": {"y": 2}}
+            _write(tmp_dir, "out.json", json.dumps(data))
+            results = _check(tmp_dir, "out.json", "values_have_key:x")
+            self.assertFalse(results[0].passed)
+            self.assertIn("b", results[0].message)
 
 
 # ---------------------------------------------------------------------------
@@ -183,20 +183,20 @@ class TestValuesHaveKey:
 # ---------------------------------------------------------------------------
 
 
-class TestListItemsHaveKey:
-    def test_all_items_have_key_passes(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        data = [{"id": 1}, {"id": 2}]
-        _write(ws, "out.json", json.dumps(data))
-        results = _check(ws, "out.json", "list_items_have_key:id")
-        assert results[0].passed is True
+class TestListItemsHaveKey(unittest.TestCase):
+    def test_all_items_have_key_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data = [{"id": 1}, {"id": 2}]
+            _write(tmp_dir, "out.json", json.dumps(data))
+            results = _check(tmp_dir, "out.json", "list_items_have_key:id")
+            self.assertTrue(results[0].passed)
 
-    def test_missing_item_fails(self, tmp_path: object) -> None:
-        ws = str(tmp_path)
-        data = [{"id": 1}, {"name": "no-id"}]
-        _write(ws, "out.json", json.dumps(data))
-        results = _check(ws, "out.json", "list_items_have_key:id")
-        assert results[0].passed is False
+    def test_missing_item_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data = [{"id": 1}, {"name": "no-id"}]
+            _write(tmp_dir, "out.json", json.dumps(data))
+            results = _check(tmp_dir, "out.json", "list_items_have_key:id")
+            self.assertFalse(results[0].passed)
 
 
 # ---------------------------------------------------------------------------
@@ -204,11 +204,12 @@ class TestListItemsHaveKey:
 # ---------------------------------------------------------------------------
 
 
-def test_path_escaping_workspace_root_is_rejected(tmp_path: object) -> None:
-    ws = str(tmp_path)
-    results = _check(ws, "../outside.json", "is_json")
-    assert results[0].passed is False
-    assert "escapes workspace" in results[0].message
+class TestPathEscaping(unittest.TestCase):
+    def test_path_escaping_workspace_root_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            results = _check(tmp_dir, "../outside.json", "is_json")
+            self.assertFalse(results[0].passed)
+            self.assertIn("escapes workspace", results[0].message)
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +217,15 @@ def test_path_escaping_workspace_root_is_rejected(tmp_path: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_unknown_check_is_skipped(tmp_path: object) -> None:
-    ws = str(tmp_path)
-    _write(ws, "out.json", '{"a": 1}')
-    results = _check(ws, "out.json", "some_unknown_check")
-    # Unknown checks are skipped (passed=True) so they don't block workflows
-    assert results[0].passed is True
-    assert "unknown" in results[0].message
+class TestUnknownCheck(unittest.TestCase):
+    def test_unknown_check_is_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            _write(tmp_dir, "out.json", '{"a": 1}')
+            results = _check(tmp_dir, "out.json", "some_unknown_check")
+            # Unknown checks are skipped (passed=True) so they don't block workflows
+            self.assertTrue(results[0].passed)
+            self.assertIn("unknown", results[0].message)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -7,9 +7,8 @@ are pure-Python dataclasses or enums.
 
 from __future__ import annotations
 
+import unittest
 from dataclasses import FrozenInstanceError
-
-import pytest
 
 from workflow.models import (
     AgentSpec,
@@ -38,54 +37,55 @@ from tests.workflow_tests.helpers.factories import (
     make_workflow_manifest,
 )
 
+
 # ---------------------------------------------------------------------------
 # Enum membership and string-value contract
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "member, expected_value",
-    [
-        (StageKind.gather, "gather"),
-        (StageKind.propose, "propose"),
-        (StageKind.execute, "execute"),
-        (StageKind.validate, "validate"),
-        (StageKind.publish, "publish"),
-        (StageKind.sub_workflow, "sub-workflow"),
-    ],
-)
-def test_stage_kind_values(member: StageKind, expected_value: str) -> None:
-    assert member == expected_value
-    assert isinstance(member, str)
+class TestStageKindValues(unittest.TestCase):
+    def test_values(self) -> None:
+        cases = [
+            (StageKind.gather, "gather"),
+            (StageKind.propose, "propose"),
+            (StageKind.execute, "execute"),
+            (StageKind.validate, "validate"),
+            (StageKind.publish, "publish"),
+            (StageKind.sub_workflow, "sub-workflow"),
+        ]
+        for member, expected_value in cases:
+            with self.subTest(member=member):
+                self.assertEqual(member, expected_value)
+                self.assertIsInstance(member, str)
 
 
-@pytest.mark.parametrize(
-    "member, expected_value",
-    [
-        (StageStatus.pending, "pending"),
-        (StageStatus.running, "running"),
-        (StageStatus.success, "success"),
-        (StageStatus.failed, "failed"),
-        (StageStatus.skipped, "skipped"),
-        (StageStatus.awaiting_human, "awaiting_human"),
-    ],
-)
-def test_stage_status_values(member: StageStatus, expected_value: str) -> None:
-    assert member == expected_value
-    assert isinstance(member, str)
+class TestStageStatusValues(unittest.TestCase):
+    def test_values(self) -> None:
+        cases = [
+            (StageStatus.pending, "pending"),
+            (StageStatus.running, "running"),
+            (StageStatus.success, "success"),
+            (StageStatus.failed, "failed"),
+            (StageStatus.skipped, "skipped"),
+            (StageStatus.awaiting_human, "awaiting_human"),
+        ]
+        for member, expected_value in cases:
+            with self.subTest(member=member):
+                self.assertEqual(member, expected_value)
+                self.assertIsInstance(member, str)
 
 
-@pytest.mark.parametrize(
-    "member, expected_value",
-    [
-        (OutputMode.invoke, "invoke"),
-        (OutputMode.generate, "generate"),
-        (OutputMode.template, "template"),
-    ],
-)
-def test_output_mode_values(member: OutputMode, expected_value: str) -> None:
-    assert member == expected_value
-    assert isinstance(member, str)
+class TestOutputModeValues(unittest.TestCase):
+    def test_values(self) -> None:
+        cases = [
+            (OutputMode.invoke, "invoke"),
+            (OutputMode.generate, "generate"),
+            (OutputMode.template, "template"),
+        ]
+        for member, expected_value in cases:
+            with self.subTest(member=member):
+                self.assertEqual(member, expected_value)
+                self.assertIsInstance(member, str)
 
 
 # ---------------------------------------------------------------------------
@@ -93,64 +93,56 @@ def test_output_mode_values(member: OutputMode, expected_value: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_agent_spec_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        spec = make_agent_spec()
-        spec.role = "changed"  # type: ignore[misc]
+class TestFrozenDataclasses(unittest.TestCase):
+    def test_agent_spec_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            spec = make_agent_spec()
+            spec.role = "changed"  # type: ignore[misc]
 
+    def test_output_spec_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            spec = make_output_spec()
+            spec.name = "changed"  # type: ignore[misc]
 
-def test_output_spec_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        spec = make_output_spec()
-        spec.name = "changed"  # type: ignore[misc]
+    def test_domain_rule_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            rule = make_domain_rule()
+            rule.id = "changed"  # type: ignore[misc]
 
+    def test_validation_spec_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            spec = make_validation_spec()
+            spec.strategy = "changed"  # type: ignore[misc]
 
-def test_domain_rule_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        rule = make_domain_rule()
-        rule.id = "changed"  # type: ignore[misc]
+    def test_stage_spec_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            spec = make_stage_spec()
+            spec.name = "changed"  # type: ignore[misc]
 
+    def test_trigger_spec_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            spec = make_trigger_spec()
+            spec.source = "changed"  # type: ignore[misc]
 
-def test_validation_spec_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        spec = make_validation_spec()
-        spec.strategy = "changed"  # type: ignore[misc]
+    def test_workflow_definition_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            wf = make_workflow_definition()
+            wf.name = "changed"  # type: ignore[misc]
 
+    def test_stage_result_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            result = make_stage_result()
+            result.stage_name = "changed"  # type: ignore[misc]
 
-def test_stage_spec_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        spec = make_stage_spec()
-        spec.name = "changed"  # type: ignore[misc]
+    def test_resolved_stage_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            resolved = make_resolved_stage()
+            resolved.index = 99  # type: ignore[misc]
 
-
-def test_trigger_spec_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        spec = make_trigger_spec()
-        spec.source = "changed"  # type: ignore[misc]
-
-
-def test_workflow_definition_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        wf = make_workflow_definition()
-        wf.name = "changed"  # type: ignore[misc]
-
-
-def test_stage_result_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        result = make_stage_result()
-        result.stage_name = "changed"  # type: ignore[misc]
-
-
-def test_resolved_stage_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        resolved = make_resolved_stage()
-        resolved.index = 99  # type: ignore[misc]
-
-
-def test_workflow_manifest_frozen() -> None:
-    with pytest.raises(FrozenInstanceError):
-        manifest = make_workflow_manifest()
-        manifest.manifest_version = 99  # type: ignore[misc]
+    def test_workflow_manifest_frozen(self) -> None:
+        with self.assertRaises(FrozenInstanceError):
+            manifest = make_workflow_manifest()
+            manifest.manifest_version = 99  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -158,30 +150,29 @@ def test_workflow_manifest_frozen() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_agent_spec_required_fields() -> None:
-    spec = AgentSpec(role="code-writer")
-    assert spec.role == "code-writer"
-    assert spec.model is None
-    assert spec.tools == ()
-    assert spec.access == "read-only"
+class TestAgentSpec(unittest.TestCase):
+    def test_required_fields(self) -> None:
+        spec = AgentSpec(role="code-writer")
+        self.assertEqual(spec.role, "code-writer")
+        self.assertIsNone(spec.model)
+        self.assertEqual(spec.tools, ())
+        self.assertEqual(spec.access, "read-only")
 
+    def test_all_fields(self) -> None:
+        spec = AgentSpec(
+            role="reviewer",
+            model="sonnet",
+            tools=("Read", "Grep"),
+            access="read-write",
+        )
+        self.assertEqual(spec.role, "reviewer")
+        self.assertEqual(spec.model, "sonnet")
+        self.assertEqual(spec.tools, ("Read", "Grep"))
+        self.assertEqual(spec.access, "read-write")
 
-def test_agent_spec_all_fields() -> None:
-    spec = AgentSpec(
-        role="reviewer",
-        model="sonnet",
-        tools=("Read", "Grep"),
-        access="read-write",
-    )
-    assert spec.role == "reviewer"
-    assert spec.model == "sonnet"
-    assert spec.tools == ("Read", "Grep")
-    assert spec.access == "read-write"
-
-
-def test_agent_spec_tools_is_tuple() -> None:
-    spec = make_agent_spec(tools=("Bash", "Edit"))
-    assert isinstance(spec.tools, tuple)
+    def test_tools_is_tuple(self) -> None:
+        spec = make_agent_spec(tools=("Bash", "Edit"))
+        self.assertIsInstance(spec.tools, tuple)
 
 
 # ---------------------------------------------------------------------------
@@ -189,49 +180,47 @@ def test_agent_spec_tools_is_tuple() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_output_spec_defaults() -> None:
-    spec = OutputSpec(name="out", mode=OutputMode.generate)
-    assert spec.description == ""
-    assert spec.skill is None
-    assert spec.input_mapping == {}
-    assert spec.template_ref is None
-    assert spec.writing_guide_ref is None
-    assert spec.example_ref is None
-    assert spec.schema is None
-    assert spec.when is None
+class TestOutputSpec(unittest.TestCase):
+    def test_defaults(self) -> None:
+        spec = OutputSpec(name="out", mode=OutputMode.generate)
+        self.assertEqual(spec.description, "")
+        self.assertIsNone(spec.skill)
+        self.assertEqual(spec.input_mapping, {})
+        self.assertIsNone(spec.template_ref)
+        self.assertIsNone(spec.writing_guide_ref)
+        self.assertIsNone(spec.example_ref)
+        self.assertIsNone(spec.schema)
+        self.assertIsNone(spec.when)
 
+    def test_invoke_mode(self) -> None:
+        spec = OutputSpec(
+            name="cli-out",
+            mode=OutputMode.invoke,
+            skill="/bin/github pr-view",
+            input_mapping={"pr_id": "--pr"},
+        )
+        self.assertEqual(spec.mode, OutputMode.invoke)
+        self.assertEqual(spec.skill, "/bin/github pr-view")
+        self.assertEqual(spec.input_mapping, {"pr_id": "--pr"})
 
-def test_output_spec_invoke_mode() -> None:
-    spec = OutputSpec(
-        name="cli-out",
-        mode=OutputMode.invoke,
-        skill="/bin/github pr-view",
-        input_mapping={"pr_id": "--pr"},
-    )
-    assert spec.mode == OutputMode.invoke
-    assert spec.skill == "/bin/github pr-view"
-    assert spec.input_mapping == {"pr_id": "--pr"}
+    def test_template_mode(self) -> None:
+        spec = OutputSpec(
+            name="report",
+            mode=OutputMode.template,
+            template_ref="templates/postmortem/TEMPLATE.md",
+            writing_guide_ref="templates/postmortem/WRITING_GUIDE.md",
+            example_ref="templates/postmortem/EXAMPLE.md",
+        )
+        self.assertEqual(spec.mode, OutputMode.template)
+        self.assertEqual(spec.template_ref, "templates/postmortem/TEMPLATE.md")
+        self.assertEqual(spec.writing_guide_ref, "templates/postmortem/WRITING_GUIDE.md")
+        self.assertEqual(spec.example_ref, "templates/postmortem/EXAMPLE.md")
 
-
-def test_output_spec_template_mode() -> None:
-    spec = OutputSpec(
-        name="report",
-        mode=OutputMode.template,
-        template_ref="templates/postmortem/TEMPLATE.md",
-        writing_guide_ref="templates/postmortem/WRITING_GUIDE.md",
-        example_ref="templates/postmortem/EXAMPLE.md",
-    )
-    assert spec.mode == OutputMode.template
-    assert spec.template_ref == "templates/postmortem/TEMPLATE.md"
-    assert spec.writing_guide_ref == "templates/postmortem/WRITING_GUIDE.md"
-    assert spec.example_ref == "templates/postmortem/EXAMPLE.md"
-
-
-def test_output_spec_generate_mode_with_schema() -> None:
-    schema = {"type": "object", "properties": {"summary": {"type": "string"}}}
-    spec = OutputSpec(name="structured", mode=OutputMode.generate, schema=schema)
-    assert spec.mode == OutputMode.generate
-    assert spec.schema == schema
+    def test_generate_mode_with_schema(self) -> None:
+        schema = {"type": "object", "properties": {"summary": {"type": "string"}}}
+        spec = OutputSpec(name="structured", mode=OutputMode.generate, schema=schema)
+        self.assertEqual(spec.mode, OutputMode.generate)
+        self.assertEqual(spec.schema, schema)
 
 
 # ---------------------------------------------------------------------------
@@ -239,24 +228,24 @@ def test_output_spec_generate_mode_with_schema() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_domain_rule_defaults() -> None:
-    rule = DomainRule(id="DR-001", description="Accuracy rule")
-    assert rule.severity == "minor"
-    assert rule.category == "accuracy"
-    assert rule.source_cmd is None
+class TestDomainRule(unittest.TestCase):
+    def test_defaults(self) -> None:
+        rule = DomainRule(id="DR-001", description="Accuracy rule")
+        self.assertEqual(rule.severity, "minor")
+        self.assertEqual(rule.category, "accuracy")
+        self.assertIsNone(rule.source_cmd)
 
-
-def test_domain_rule_all_fields() -> None:
-    rule = DomainRule(
-        id="DR-002",
-        description="Critical rule",
-        severity="critical",
-        category="consistency",
-        source_cmd="./bin/mail-assistant filters list",
-    )
-    assert rule.severity == "critical"
-    assert rule.category == "consistency"
-    assert rule.source_cmd == "./bin/mail-assistant filters list"
+    def test_all_fields(self) -> None:
+        rule = DomainRule(
+            id="DR-002",
+            description="Critical rule",
+            severity="critical",
+            category="consistency",
+            source_cmd="./bin/mail-assistant filters list",
+        )
+        self.assertEqual(rule.severity, "critical")
+        self.assertEqual(rule.category, "consistency")
+        self.assertEqual(rule.source_cmd, "./bin/mail-assistant filters list")
 
 
 # ---------------------------------------------------------------------------
@@ -264,25 +253,25 @@ def test_domain_rule_all_fields() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_validation_spec_defaults() -> None:
-    spec = ValidationSpec(strategy="fact_check")
-    assert spec.criteria == ()
-    assert spec.domain_rules == ()
-    assert spec.max_revisions == 2
+class TestValidationSpec(unittest.TestCase):
+    def test_defaults(self) -> None:
+        spec = ValidationSpec(strategy="fact_check")
+        self.assertEqual(spec.criteria, ())
+        self.assertEqual(spec.domain_rules, ())
+        self.assertEqual(spec.max_revisions, 2)
 
-
-def test_validation_spec_with_domain_rules() -> None:
-    rule = make_domain_rule(id="DR-003", severity="critical")
-    spec = ValidationSpec(
-        strategy="adversarial",
-        criteria=("No hallucinated numbers",),
-        domain_rules=(rule,),
-        max_revisions=3,
-    )
-    assert spec.strategy == "adversarial"
-    assert len(spec.domain_rules) == 1
-    assert spec.domain_rules[0].id == "DR-003"
-    assert spec.max_revisions == 3
+    def test_with_domain_rules(self) -> None:
+        rule = make_domain_rule(id="DR-003", severity="critical")
+        spec = ValidationSpec(
+            strategy="adversarial",
+            criteria=("No hallucinated numbers",),
+            domain_rules=(rule,),
+            max_revisions=3,
+        )
+        self.assertEqual(spec.strategy, "adversarial")
+        self.assertEqual(len(spec.domain_rules), 1)
+        self.assertEqual(spec.domain_rules[0].id, "DR-003")
+        self.assertEqual(spec.max_revisions, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -290,47 +279,44 @@ def test_validation_spec_with_domain_rules() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_stage_spec_defaults() -> None:
-    spec = StageSpec(
-        name="gather-data",
-        kind=StageKind.gather,
-        description="Gathers data",
-        agent=make_agent_spec(),
-    )
-    assert spec.depends_on == ()
-    assert spec.outputs == ()
-    assert spec.validation is None
-    assert spec.human_gate is False
-    assert spec.required is True
-    assert spec.reads_from == ()
-    assert spec.writes_to == ()
-    assert spec.sub_workflow == ""
+class TestStageSpec(unittest.TestCase):
+    def test_defaults(self) -> None:
+        spec = StageSpec(
+            name="gather-data",
+            kind=StageKind.gather,
+            description="Gathers data",
+            agent=make_agent_spec(),
+        )
+        self.assertEqual(spec.depends_on, ())
+        self.assertEqual(spec.outputs, ())
+        self.assertIsNone(spec.validation)
+        self.assertIs(spec.human_gate, False)
+        self.assertIs(spec.required, True)
+        self.assertEqual(spec.reads_from, ())
+        self.assertEqual(spec.writes_to, ())
+        self.assertEqual(spec.sub_workflow, "")
 
+    def test_depends_on(self) -> None:
+        spec = make_stage_spec(depends_on=("stage-a", "stage-b"))
+        self.assertEqual(spec.depends_on, ("stage-a", "stage-b"))
 
-def test_stage_spec_depends_on() -> None:
-    spec = make_stage_spec(depends_on=("stage-a", "stage-b"))
-    assert spec.depends_on == ("stage-a", "stage-b")
+    def test_human_gate(self) -> None:
+        spec = make_stage_spec(human_gate=True)
+        self.assertIs(spec.human_gate, True)
 
+    def test_reads_writes(self) -> None:
+        spec = make_stage_spec(
+            reads_from=("gather-stage",),
+            writes_to=("report.md", "summary.json"),
+        )
+        self.assertEqual(spec.reads_from, ("gather-stage",))
+        self.assertEqual(spec.writes_to, ("report.md", "summary.json"))
 
-def test_stage_spec_human_gate() -> None:
-    spec = make_stage_spec(human_gate=True)
-    assert spec.human_gate is True
-
-
-def test_stage_spec_reads_writes() -> None:
-    spec = make_stage_spec(
-        reads_from=("gather-stage",),
-        writes_to=("report.md", "summary.json"),
-    )
-    assert spec.reads_from == ("gather-stage",)
-    assert spec.writes_to == ("report.md", "summary.json")
-
-
-def test_stage_spec_with_validation() -> None:
-    validation = make_validation_spec(strategy="cross_unit")
-    spec = make_stage_spec(validation=validation)
-    assert spec.validation is not None
-    assert spec.validation.strategy == "cross_unit"
+    def test_with_validation(self) -> None:
+        validation = make_validation_spec(strategy="cross_unit")
+        spec = make_stage_spec(validation=validation)
+        self.assertIsNotNone(spec.validation)
+        self.assertEqual(spec.validation.strategy, "cross_unit")
 
 
 # ---------------------------------------------------------------------------
@@ -338,15 +324,15 @@ def test_stage_spec_with_validation() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_trigger_spec_defaults() -> None:
-    spec = TriggerSpec(source="zoom")
-    assert spec.params == {}
+class TestTriggerSpec(unittest.TestCase):
+    def test_defaults(self) -> None:
+        spec = TriggerSpec(source="zoom")
+        self.assertEqual(spec.params, {})
 
-
-def test_trigger_spec_with_params() -> None:
-    spec = TriggerSpec(source="manual", params={"incident_id": "INC-123"})
-    assert spec.source == "manual"
-    assert spec.params["incident_id"] == "INC-123"
+    def test_with_params(self) -> None:
+        spec = TriggerSpec(source="manual", params={"incident_id": "INC-123"})
+        self.assertEqual(spec.source, "manual")
+        self.assertEqual(spec.params["incident_id"], "INC-123")
 
 
 # ---------------------------------------------------------------------------
@@ -354,30 +340,28 @@ def test_trigger_spec_with_params() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_workflow_definition_defaults() -> None:
-    wf = make_workflow_definition()
-    assert wf.workspace_dir is None
-    assert wf.metadata == {}
+class TestWorkflowDefinition(unittest.TestCase):
+    def test_defaults(self) -> None:
+        wf = make_workflow_definition()
+        self.assertIsNone(wf.workspace_dir)
+        self.assertEqual(wf.metadata, {})
 
+    def test_stages_is_tuple(self) -> None:
+        stage_a = make_stage_spec(name="stage-a")
+        stage_b = make_stage_spec(name="stage-b", kind=StageKind.validate)
+        wf = make_workflow_definition(stages=(stage_a, stage_b))
+        self.assertIsInstance(wf.stages, tuple)
+        self.assertEqual(len(wf.stages), 2)
 
-def test_workflow_definition_stages_is_tuple() -> None:
-    stage_a = make_stage_spec(name="stage-a")
-    stage_b = make_stage_spec(name="stage-b", kind=StageKind.validate)
-    wf = make_workflow_definition(stages=(stage_a, stage_b))
-    assert isinstance(wf.stages, tuple)
-    assert len(wf.stages) == 2
+    def test_multiple_stages_order(self) -> None:
+        stages = tuple(make_stage_spec(name=f"stage-{i}") for i in range(3))
+        wf = make_workflow_definition(stages=stages)
+        self.assertEqual(wf.stages[0].name, "stage-0")
+        self.assertEqual(wf.stages[2].name, "stage-2")
 
-
-def test_workflow_definition_multiple_stages_order() -> None:
-    stages = tuple(make_stage_spec(name=f"stage-{i}") for i in range(3))
-    wf = make_workflow_definition(stages=stages)
-    assert wf.stages[0].name == "stage-0"
-    assert wf.stages[2].name == "stage-2"
-
-
-def test_workflow_definition_metadata() -> None:
-    wf = make_workflow_definition(metadata={"owner": "platform", "ticket": "WF-42"})
-    assert wf.metadata["owner"] == "platform"
+    def test_metadata(self) -> None:
+        wf = make_workflow_definition(metadata={"owner": "platform", "ticket": "WF-42"})
+        self.assertEqual(wf.metadata["owner"], "platform")
 
 
 # ---------------------------------------------------------------------------
@@ -385,33 +369,30 @@ def test_workflow_definition_metadata() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_stage_result_defaults() -> None:
-    result = make_stage_result()
-    assert result.data == {}
-    assert result.errors == []
-    assert result.output_files == []
-    assert result.input_stages == []
-    assert result.metadata == {}
+class TestStageResult(unittest.TestCase):
+    def test_defaults(self) -> None:
+        result = make_stage_result()
+        self.assertEqual(result.data, {})
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.output_files, [])
+        self.assertEqual(result.input_stages, [])
+        self.assertEqual(result.metadata, {})
 
+    def test_status_enum_round_trip(self) -> None:
+        result = make_stage_result(status=StageStatus.success)
+        self.assertEqual(result.status, "success")
+        self.assertIs(result.status, StageStatus.success)
 
-def test_stage_result_status_enum_round_trip() -> None:
-    result = make_stage_result(status=StageStatus.success)
-    # StageStatus inherits str — equality with the raw string must hold.
-    assert result.status == "success"
-    assert result.status is StageStatus.success
+    def test_failed_status(self) -> None:
+        result = make_stage_result(status=StageStatus.failed, errors=["timeout"])
+        self.assertEqual(result.status, StageStatus.failed)
+        self.assertIn("timeout", result.errors)
 
-
-def test_stage_result_failed_status() -> None:
-    result = make_stage_result(status=StageStatus.failed, errors=["timeout"])
-    assert result.status == StageStatus.failed
-    assert "timeout" in result.errors
-
-
-def test_stage_result_timestamps() -> None:
-    result = make_stage_result()
-    assert result.started_at == TEST_STARTED_AT
-    assert result.finished_at == TEST_FINISHED_AT
-    assert result.duration_ms == 60000
+    def test_timestamps(self) -> None:
+        result = make_stage_result()
+        self.assertEqual(result.started_at, TEST_STARTED_AT)
+        self.assertEqual(result.finished_at, TEST_FINISHED_AT)
+        self.assertEqual(result.duration_ms, 60000)
 
 
 # ---------------------------------------------------------------------------
@@ -419,25 +400,24 @@ def test_stage_result_timestamps() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolved_stage_defaults() -> None:
-    resolved = make_resolved_stage()
-    assert resolved.cli_commands == ()
-    assert resolved.prompt is None
-    assert resolved.template_content is None
-    assert resolved.guide_content is None
+class TestResolvedStage(unittest.TestCase):
+    def test_defaults(self) -> None:
+        resolved = make_resolved_stage()
+        self.assertEqual(resolved.cli_commands, ())
+        self.assertIsNone(resolved.prompt)
+        self.assertIsNone(resolved.template_content)
+        self.assertIsNone(resolved.guide_content)
 
+    def test_with_prompt(self) -> None:
+        resolved = make_resolved_stage(prompt="Gather all mail filters.")
+        self.assertEqual(resolved.prompt, "Gather all mail filters.")
 
-def test_resolved_stage_with_prompt() -> None:
-    resolved = make_resolved_stage(prompt="Gather all mail filters.")
-    assert resolved.prompt == "Gather all mail filters."
-
-
-def test_resolved_stage_spec_reference() -> None:
-    stage = make_stage_spec(name="custom-stage", kind=StageKind.publish)
-    resolved = make_resolved_stage(spec=stage, index=3)
-    assert resolved.spec.name == "custom-stage"
-    assert resolved.spec.kind == StageKind.publish
-    assert resolved.index == 3
+    def test_spec_reference(self) -> None:
+        stage = make_stage_spec(name="custom-stage", kind=StageKind.publish)
+        resolved = make_resolved_stage(spec=stage, index=3)
+        self.assertEqual(resolved.spec.name, "custom-stage")
+        self.assertEqual(resolved.spec.kind, StageKind.publish)
+        self.assertEqual(resolved.index, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -445,27 +425,26 @@ def test_resolved_stage_spec_reference() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_workflow_manifest_defaults() -> None:
-    manifest = make_workflow_manifest()
-    assert manifest.resolved_stages == {}
-    assert manifest.compiled_at == ""
-    assert manifest.manifest_version == 1
+class TestWorkflowManifest(unittest.TestCase):
+    def test_defaults(self) -> None:
+        manifest = make_workflow_manifest()
+        self.assertEqual(manifest.resolved_stages, {})
+        self.assertEqual(manifest.compiled_at, "")
+        self.assertEqual(manifest.manifest_version, 1)
 
+    def test_parallel_groups_structure(self) -> None:
+        manifest = make_workflow_manifest(
+            parallel_groups=(("stage-a",), ("stage-b", "stage-c"))
+        )
+        self.assertIsInstance(manifest.parallel_groups, tuple)
+        self.assertEqual(manifest.parallel_groups[0], ("stage-a",))
+        self.assertEqual(manifest.parallel_groups[1], ("stage-b", "stage-c"))
 
-def test_workflow_manifest_parallel_groups_structure() -> None:
-    manifest = make_workflow_manifest(
-        parallel_groups=(("stage-a",), ("stage-b", "stage-c"))
-    )
-    assert isinstance(manifest.parallel_groups, tuple)
-    assert manifest.parallel_groups[0] == ("stage-a",)
-    assert manifest.parallel_groups[1] == ("stage-b", "stage-c")
-
-
-def test_workflow_manifest_with_resolved_stages() -> None:
-    resolved = make_resolved_stage(spec=make_stage_spec(name="gather"))
-    manifest = make_workflow_manifest(resolved_stages={"gather": resolved})
-    assert "gather" in manifest.resolved_stages
-    assert manifest.resolved_stages["gather"].spec.name == "gather"
+    def test_with_resolved_stages(self) -> None:
+        resolved = make_resolved_stage(spec=make_stage_spec(name="gather"))
+        manifest = make_workflow_manifest(resolved_stages={"gather": resolved})
+        self.assertIn("gather", manifest.resolved_stages)
+        self.assertEqual(manifest.resolved_stages["gather"].spec.name, "gather")
 
 
 # ---------------------------------------------------------------------------
@@ -473,33 +452,29 @@ def test_workflow_manifest_with_resolved_stages() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_workflow_run_default_status_is_pending() -> None:
-    run = WorkflowRun(
-        manifest=make_workflow_manifest(),
-        workspace_dir="/tmp/runs/test-run",
-        run_id="run-abc-123",
-        started_at=TEST_STARTED_AT,
-    )
-    assert run.status == StageStatus.pending
-    assert run.status == "pending"
+class TestWorkflowRun(unittest.TestCase):
+    def _make_run(self):
+        return WorkflowRun(
+            manifest=make_workflow_manifest(),
+            workspace_dir="/tmp/runs/test-run",  # nosec B108 - test string only
+            run_id="run-abc-123",
+            started_at=TEST_STARTED_AT,
+        )
+
+    def test_default_status_is_pending(self) -> None:
+        run = self._make_run()
+        self.assertEqual(run.status, StageStatus.pending)
+        self.assertEqual(run.status, "pending")
+
+    def test_stage_results_default_empty(self) -> None:
+        run = self._make_run()
+        self.assertEqual(run.stage_results, {})
+
+    def test_frozen(self) -> None:
+        run = self._make_run()
+        with self.assertRaises(FrozenInstanceError):
+            run.run_id = "changed"  # type: ignore[misc]
 
 
-def test_workflow_run_stage_results_default_empty() -> None:
-    run = WorkflowRun(
-        manifest=make_workflow_manifest(),
-        workspace_dir="/tmp/runs/test-run",
-        run_id="run-abc-123",
-        started_at=TEST_STARTED_AT,
-    )
-    assert run.stage_results == {}
-
-
-def test_workflow_run_frozen() -> None:
-    run = WorkflowRun(
-        manifest=make_workflow_manifest(),
-        workspace_dir="/tmp/runs/test-run",
-        run_id="run-abc-123",
-        started_at=TEST_STARTED_AT,
-    )
-    with pytest.raises(FrozenInstanceError):
-        run.run_id = "changed"  # type: ignore[misc]
+if __name__ == "__main__":
+    unittest.main()

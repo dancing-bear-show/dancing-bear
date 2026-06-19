@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
+import unittest
 from pathlib import Path
-
-import pytest
 
 from workflow.models import StageStatus
 from workflow.persistence import (
@@ -33,25 +33,24 @@ _SUBDIRS = ("stages", "outputs", "validation")
 # ---------------------------------------------------------------------------
 
 
-def test_init_workspace_creates_subdirs(tmp_path: Path) -> None:
-    workspace = init_workspace("my-workflow", "run-001", base_dir=str(tmp_path))
+class TestInitWorkspace(unittest.TestCase):
+    def test_init_workspace_creates_subdirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = init_workspace("my-workflow", "run-001", base_dir=tmp_dir)
+            for subdir in _SUBDIRS:
+                self.assertTrue((workspace / subdir).is_dir(), f"Expected subdir '{subdir}' to exist")
 
-    for subdir in _SUBDIRS:
-        assert (workspace / subdir).is_dir(), f"Expected subdir '{subdir}' to exist"
+    def test_init_workspace_returns_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = init_workspace("my-workflow", "run-001", base_dir=tmp_dir)
+            self.assertIsInstance(workspace, Path)
+            self.assertTrue(workspace.is_dir())
 
-
-def test_init_workspace_returns_path(tmp_path: Path) -> None:
-    workspace = init_workspace("my-workflow", "run-001", base_dir=str(tmp_path))
-
-    assert isinstance(workspace, Path)
-    assert workspace.is_dir()
-
-
-def test_init_workspace_uses_provided_base_dir(tmp_path: Path) -> None:
-    workspace = init_workspace("wf", "run-id", base_dir=str(tmp_path))
-
-    assert workspace.is_dir()
-    assert str(tmp_path) in str(workspace)
+    def test_init_workspace_uses_provided_base_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = init_workspace("wf", "run-id", base_dir=tmp_dir)
+            self.assertTrue(workspace.is_dir())
+            self.assertIn(tmp_dir, str(workspace))
 
 
 # ---------------------------------------------------------------------------
@@ -59,41 +58,46 @@ def test_init_workspace_uses_provided_base_dir(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_write_and_read_stage_result_round_trip(tmp_path: Path) -> None:
-    result = make_stage_result(stage_name="gather-filters", stage_index=0)
-    write_stage_result(tmp_path, result)
+class TestStageResultRoundTrip(unittest.TestCase):
+    def test_write_and_read_stage_result_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            result = make_stage_result(stage_name="gather-filters", stage_index=0)
+            write_stage_result(tmp_path, result)
 
-    loaded = read_stage_result(tmp_path, "gather-filters")
+            loaded = read_stage_result(tmp_path, "gather-filters")
 
-    assert loaded is not None
-    assert loaded.stage_name == "gather-filters"
-    assert loaded.stage_index == 0
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.stage_name, "gather-filters")
+            self.assertEqual(loaded.stage_index, 0)
 
+    def test_read_stage_result_missing_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = read_stage_result(Path(tmp_dir), "nonexistent-stage")
+            self.assertIsNone(result)
 
-def test_read_stage_result_missing_returns_none(tmp_path: Path) -> None:
-    result = read_stage_result(tmp_path, "nonexistent-stage")
-    assert result is None
+    def test_write_stage_result_preserves_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            result = make_stage_result(status=StageStatus.failed)
+            write_stage_result(tmp_path, result)
 
+            loaded = read_stage_result(tmp_path, "test-stage")
 
-def test_write_stage_result_preserves_status(tmp_path: Path) -> None:
-    result = make_stage_result(status=StageStatus.failed)
-    write_stage_result(tmp_path, result)
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.status, StageStatus.failed)
 
-    loaded = read_stage_result(tmp_path, "test-stage")
+    def test_write_stage_result_preserves_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            result = make_stage_result(errors=["timeout", "rate limit"])
+            write_stage_result(tmp_path, result)
 
-    assert loaded is not None
-    assert loaded.status == StageStatus.failed
+            loaded = read_stage_result(tmp_path, "test-stage")
 
-
-def test_write_stage_result_preserves_errors(tmp_path: Path) -> None:
-    result = make_stage_result(errors=["timeout", "rate limit"])
-    write_stage_result(tmp_path, result)
-
-    loaded = read_stage_result(tmp_path, "test-stage")
-
-    assert loaded is not None
-    assert "timeout" in loaded.errors
-    assert "rate limit" in loaded.errors
+            self.assertIsNotNone(loaded)
+            self.assertIn("timeout", loaded.errors)
+            self.assertIn("rate limit", loaded.errors)
 
 
 # ---------------------------------------------------------------------------
@@ -101,24 +105,27 @@ def test_write_stage_result_preserves_errors(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_stage_results_empty_workspace(tmp_path: Path) -> None:
-    init_workspace("wf", "run-1", base_dir=str(tmp_path))
-    workspace = tmp_path / "wf" / "run-1"
-    results = list_stage_results(workspace)
-    assert results == []
+class TestListStageResults(unittest.TestCase):
+    def test_list_stage_results_empty_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            init_workspace("wf", "run-1", base_dir=tmp_dir)
+            workspace = Path(tmp_dir) / "wf" / "run-1"
+            results = list_stage_results(workspace)
+            self.assertEqual(results, [])
 
+    def test_list_stage_results_returns_written_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            result_a = make_stage_result(stage_name="stage-a", stage_index=0)
+            result_b = make_stage_result(stage_name="stage-b", stage_index=1)
+            write_stage_result(tmp_path, result_a)
+            write_stage_result(tmp_path, result_b)
 
-def test_list_stage_results_returns_written_results(tmp_path: Path) -> None:
-    result_a = make_stage_result(stage_name="stage-a", stage_index=0)
-    result_b = make_stage_result(stage_name="stage-b", stage_index=1)
-    write_stage_result(tmp_path, result_a)
-    write_stage_result(tmp_path, result_b)
+            results = list_stage_results(tmp_path)
 
-    results = list_stage_results(tmp_path)
-
-    names = {r.stage_name for r in results}
-    assert "stage-a" in names
-    assert "stage-b" in names
+            names = {r.stage_name for r in results}
+            self.assertIn("stage-a", names)
+            self.assertIn("stage-b", names)
 
 
 # ---------------------------------------------------------------------------
@@ -126,17 +133,24 @@ def test_list_stage_results_returns_written_results(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_write_and_read_manifest_round_trip(tmp_path: Path) -> None:
-    manifest = make_workflow_manifest()
-    write_manifest(tmp_path, manifest)
+class TestManifestRoundTrip(unittest.TestCase):
+    def test_write_and_read_manifest_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            manifest = make_workflow_manifest()
+            write_manifest(tmp_path, manifest)
 
-    loaded = read_manifest(tmp_path)
+            loaded = read_manifest(tmp_path)
 
-    assert loaded is not None
-    # read_manifest returns a ManifestRef (lightweight reference), not the full manifest
-    assert loaded.manifest_version == manifest.manifest_version
+            self.assertIsNotNone(loaded)
+            # read_manifest returns a ManifestRef (lightweight reference), not the full manifest
+            self.assertEqual(loaded.manifest_version, manifest.manifest_version)
+
+    def test_read_manifest_missing_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            loaded = read_manifest(Path(tmp_dir))
+            self.assertIsNone(loaded)
 
 
-def test_read_manifest_missing_returns_none(tmp_path: Path) -> None:
-    loaded = read_manifest(tmp_path)
-    assert loaded is None
+if __name__ == "__main__":
+    unittest.main()
