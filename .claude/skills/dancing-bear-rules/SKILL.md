@@ -13,8 +13,8 @@ Always use `./bin/<tool>` wrappers, never `python -m` directly:
 ./bin/calendar-assistant <subcommand> [flags]
 ./bin/schedule-assistant <subcommand> [flags]
 ./bin/phone <subcommand> [flags]
-./bin/resume-assistant <subcommand> [flags]
-./bin/whatsapp-assistant <subcommand> [flags]
+./bin/resume <subcommand> [flags]
+./bin/whatsapp <subcommand> [flags]
 ./bin/workflow <subcommand> [flags]
 ./bin/worker <subcommand> [flags]
 ```

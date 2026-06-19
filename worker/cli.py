@@ -100,49 +100,59 @@ class WorkerApp:
         pg.add_argument("--folders", default="done,error", help="Comma-separated folders (done,error)")
         return p
 
+    @staticmethod
+    def _parse_interval(args: argparse.Namespace) -> float | None:
+        """Parse and validate --interval; returns None and prints error on failure."""
+        import sys
+        raw = getattr(args, "interval", "5")
+        try:
+            value = float(str(raw))
+            if value <= 0:
+                raise ValueError("must be positive")
+            return value
+        except ValueError:
+            print(f"error: --interval must be a positive number, got {raw!r}", file=sys.stderr)
+            return None
+
+    def _run_processor(self, args: argparse.Namespace, cmd: str) -> int:
+        """Build config and run a job processor for run-once or daemon."""
+        interval = self._parse_interval(args)
+        if interval is None:
+            return 1
+        config = WorkerConfig(
+            backoff=int(getattr(args, "backoff", 60) or 60),
+            max_per_tick=int(getattr(args, "max", getattr(args, "max_per_tick", 3))),
+            max_inflight=int(getattr(args, "max_inflight", 0) or 0),
+            job_timeout=int(getattr(args, "job_timeout", 0) or 0),
+            interval=interval,
+        )
+        processor = JobProcessor(config, cmd)
+        runner = DaemonRunner(config, processor)
+        if cmd == "run-once":
+            return runner.run_once()
+        return runner.run_daemon()
+
     def run(self, args: argparse.Namespace) -> int:
         """Execute worker command using command pattern."""
+        import sys
         cmd = args.command
 
-        if cmd == "enqueue":
-            return EnqueueCommand.run(args)
+        dispatch: dict[str, object] = {
+            "enqueue": lambda: EnqueueCommand.run(args),
+            "list": lambda: ListCommand.run(args),
+            "status": lambda: StatusCommand.run(args),
+            "show": lambda: ShowCommand.run(args),
+            "requeue-errors": lambda: RequeueErrorsCommand.run(args),
+            "retry": lambda: RetryCommand.run(args),
+            "purge": lambda: PurgeCommand.run(args),
+        }
 
-        if cmd == "list":
-            return ListCommand.run(args)
-
-        if cmd == "status":
-            return StatusCommand.run(args)
-
-        if cmd == "show":
-            return ShowCommand.run(args)
+        if cmd in dispatch:
+            return dispatch[cmd]()  # type: ignore[operator]
 
         if cmd in {"run-once", "daemon"}:
-            config = WorkerConfig(
-                backoff=int(getattr(args, "backoff", 60) or 60),
-                max_per_tick=int(getattr(args, "max", getattr(args, "max_per_tick", 3))),
-                max_inflight=int(getattr(args, "max_inflight", 0) or 0),
-                job_timeout=int(getattr(args, "job_timeout", 0) or 0),
-                interval=float(str(getattr(args, "interval", "5")))
-            )
+            return self._run_processor(args, cmd)
 
-            processor = JobProcessor(config, cmd)
-            runner = DaemonRunner(config, processor)
-
-            if cmd == "run-once":
-                return runner.run_once()
-            else:  # daemon
-                return runner.run_daemon()
-
-        if cmd == "requeue-errors":
-            return RequeueErrorsCommand.run(args)
-
-        if cmd == "retry":
-            return RetryCommand.run(args)
-
-        if cmd == "purge":
-            return PurgeCommand.run(args)
-
-        import sys
         print("Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help", file=sys.stderr)
         return 1
 

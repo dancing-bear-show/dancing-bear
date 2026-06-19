@@ -8,7 +8,7 @@ Built-in handlers:
   avoid quoting issues when embedding Python or multi-line scripts
 
 Allowlisted bin commands: mail-assistant, calendar-assistant, schedule-assistant,
-phone, resume-assistant, whatsapp-assistant, worker.
+phone, resume, whatsapp, worker.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ _ALLOWED_BIN_NAMES = {
     "calendar-assistant",
     "schedule-assistant",
     "phone",
-    "resume-assistant",
-    "whatsapp-assistant",
+    "resume",
+    "whatsapp",
     "worker",
 }
 
