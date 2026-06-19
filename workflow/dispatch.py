@@ -91,14 +91,18 @@ def _header(stage: ResolvedStage, workflow_name: str, verb: str = "executing") -
     return [
         f"You are {verb} stage '{stage.spec.name}' in workflow '{workflow_name}'.",
         "",
-        "**Data provenance rule**: Use ONLY data from workspace files and CLI command "
-        "outputs. Do not cite numbers, counts, or facts from your prompt context or "
-        "prior knowledge. Every claim in your output must trace to a file you read or "
-        "a command you ran. If data is unavailable, say so — do not fill gaps with "
-        "assumptions.",
+        (
+            "**Data provenance rule**: Use ONLY data from workspace files and CLI command "
+            "outputs. Do not cite numbers, counts, or facts from your prompt context or "
+            "prior knowledge. Every claim in your output must trace to a file you read or "
+            "a command you ran. If data is unavailable, say so \u2014 do not fill gaps with "
+            "assumptions."
+        ),
         "",
-        "**No external side effects**: Write ONLY to the workspace directory. "
-        "Only stages with kind=publish are authorized to create external resources.",
+        (
+            "**No external side effects**: Write ONLY to the workspace directory. "
+            "Only stages with kind=publish are authorized to create external resources."
+        ),
         "",
         "**CLI quick reference** (do NOT use --help, use these exact patterns):",
         "- `./bin/mail-assistant filters list -- --format json`",
@@ -122,8 +126,11 @@ def _gather(stage: ResolvedStage, wf: str, ws: str) -> str:
     wp = _write_paths(stage, ws)
     if wp:
         lines += _section("Output Files\nWrite results to", wp)
-        lines += ["Write structured JSON data to the JSON file. "
-                   "Write a human-readable markdown summary to the .md file.", ""]
+        lines += [
+            "Write structured JSON data to the JSON file. "
+            "Write a human-readable markdown summary to the .md file.",
+            "",
+        ]
     lines.append(_completion(stage, ws))
     return "\n".join(lines)
 
@@ -244,6 +251,9 @@ def build_dispatch_instruction(
     return {
         "agent_type": agent_type,
         "agent_name": stage.spec.name,
+        "stage_name": stage.spec.name,
+        "stage_index": stage.index,
+        "workflow_name": workflow_name,
         "model": stage.spec.agent.model,
         "prompt": build_agent_prompt(stage, workflow_name, workspace_dir),
         "workspace_dir": ws,

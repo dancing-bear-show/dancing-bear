@@ -471,6 +471,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
 
     if not Path(args.file).is_file():
         print(format_workflow_not_found(args.file), file=sys.stderr)
+        return 1
     result = lint_workflow(args.file, check_commands=getattr(args, "check_commands", False))
 
     if args.strict and result.warnings:

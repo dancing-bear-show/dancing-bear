@@ -56,13 +56,15 @@ class StageDispatcher(Protocol):
         self,
         stage: ResolvedStage,
         workspace_dir: Path,
-    ) -> StageResult: ...
+    ) -> StageResult:
+        pass  # pragma: no cover
 
     def dispatch_group(
         self,
         stages: list[ResolvedStage],
         workspace_dir: Path,
-    ) -> dict[str, StageResult]: ...
+    ) -> dict[str, StageResult]:
+        pass  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
