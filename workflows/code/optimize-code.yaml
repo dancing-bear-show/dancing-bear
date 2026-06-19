@@ -11,8 +11,6 @@ description: >
 
   Stage dependency graph:
 
-    pre-check-auth
-        |
     scan-changed-files
         |
     mps-scan-reuse ─ mps-scan-complexity ─ mps-scan-coverage ─ mps-scan-security ─ scan-arch  (parallel G2 — first 4 via fragment)
@@ -38,7 +36,7 @@ trigger:
     test_path: ""       # e.g. "tests/workflow/"
     pr_number: ""       # optional — scope to changed files in this PR
     skip_checks: ""     # optional — comma-separated: reuse,complexity,coverage,security,arch
-    auth_domains: "github,sonarqube"
+    auth_domains: "github"
 
 workspace_dir: "{work_dir}/optimize-code-{pr_number}-{source_root}"
 
@@ -50,7 +48,7 @@ stages:
 
   - name: scan-changed-files
     kind: gather
-    depends_on: [pre-check-auth]
+    depends_on: []
     description: >
       Identify the set of source files to check.
 
@@ -205,11 +203,6 @@ stages:
       - validation/human-gate-decision.md
 
 include:
-  # Auth pre-flight: verify GitHub, SonarQube connections.
-  - path: workflows/shared/auth-check.yaml
-    prefix: pre
-    depends_on: []
-
   # Group 2: Parallel quality scans — reuse, complexity, coverage, security.
   # Collated output lands in {workspace}/analysis/collated-findings.json.
   # scan-arch runs inline in parallel with these.

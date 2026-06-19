@@ -1,12 +1,12 @@
 name: coverage-uplift
 version: "1.0"
 description: >
-  SonarQube-driven coverage uplift with adversarial review. Queries SonarQube
-  for files with the most uncovered lines, sweeps test domains for reuse
+  Coverage-driven uplift with adversarial review. Queries coverage.py for
+  files with the most uncovered lines, sweeps test domains for reuse
   consolidation opportunities, fans out parallel tester agents per domain
-  using the approved plan, validates quality, opens a PR, waits for Semaphore
-  CI (~10 min), runs the adversarial code-review swarm, measures the
-  SonarQube coverage delta, and presents a final human gate before merge.
+  using the approved plan, validates quality, opens a PR, waits for GitHub
+  Actions CI, runs the adversarial code-review swarm, measures the coverage
+  delta, and presents a final human gate before merge.
 
   Stage dependency graph:
 
@@ -32,11 +32,11 @@ description: >
                |
           pr-open-pr                                   (G10 — open PR)
                |
-         pr-wait-for-ci                                (G11 — Semaphore CI poll ~10 min)
+         pr-wait-for-ci                                (G11 — GitHub Actions CI poll)
                |
     pr-address-reviews + review-fetch-pr-context       (parallel G12)
                |
-    pr-sonarqube-check + review-concern-sweep          (parallel G13)
+    pr-qlty-check + review-concern-sweep               (parallel G13)
                |
     pr-post-fix-review + review-enumerate-targets      (parallel G14)
                |
@@ -52,7 +52,7 @@ description: >
                |
          review-post-comments                          (G20)
                |
-           sonarqube-delta                             (G21 — before/after uncovered-line diff)
+           coverage-delta                              (G21 — before/after uncovered-line diff)
                |
      coverage-final-gate  [human gate]                 (G22 — delta + swarm summary → approve/merge)
 
@@ -104,41 +104,38 @@ stages:
     writes_to: []
 
   # ===========================================================================
-  # G1: Parallel discovery — SonarQube + test-gaps run concurrently
+  # G1: Parallel discovery — coverage.py baseline + test-gaps run concurrently
   # ===========================================================================
   #
   # Both stages are independent; the workflow engine runs them in parallel.
   # Together they produce the raw inputs for prioritize-targets.
 
-  - name: sq-discover
+  - name: coverage-discover
     kind: gather
     depends_on: [init]
     description: >
-      Query SonarQube for per-file coverage metrics, sorted by uncovered lines
-      descending so the highest-yield files appear first.
+      Run coverage.py to get per-file coverage metrics, sorted by uncovered
+      lines descending so the highest-yield files appear first.
 
-      Step 1 — fetch file-level coverage from main branch (always):
-        ./bin/sonarqube file-coverage -- \
-          --project cars-sre-utils \
-          --sort-by uncovered_lines \
-          --format json
+      Step 1 — run test suite with coverage (main branch baseline):
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json \
+          > {workspace}/analysis/coverage-raw.json
 
-        Always query main (no --pr flag). This is the authoritative pre-work
-        baseline regardless of what branch is currently checked out. The delta
-        stage (sonarqube-delta, G21) will compare this against the PR-scoped
-        query after CI runs.
+        Always run against the current main branch state. This is the
+        authoritative pre-work baseline. The delta stage (coverage-delta, G21)
+        will compare this against post-PR coverage after CI runs.
 
       Step 2 — filter to source files only:
         Keep only rows whose path starts with {source_root}.
         Exclude test files (paths containing "/tests/" or starting with "tests/").
-        Exclude files with lines_to_cover < {min_lines}.
+        Exclude files with num_statements < {min_lines}.
 
       Step 3 — write baseline snapshot + filtered results:
-        Write {workspace}/analysis/sq-baseline.json:
+        Write {workspace}/analysis/coverage-baseline.json:
           {
             "queried_at": "<ISO-8601 timestamp>",
             "branch": "<current git branch>",
-            "fallback_to_main": true|false,
             "total_files": N,
             "total_uncovered_lines": N,
             "files": [
@@ -147,13 +144,13 @@ stages:
                 "coverage": 45.2,
                 "uncovered_lines": 88,
                 "lines_to_cover": 160,
-                "domain": "<second path component after >"
+                "domain": "<top-level directory under source_root>"
               },
               ...
             ]
           }
 
-        The baseline total_uncovered_lines is the number sonarqube-delta (G21)
+        The baseline total_uncovered_lines is the number coverage-delta (G21)
         will compare against after CI runs. Preserve it accurately.
     agent:
       role: researcher
@@ -162,7 +159,7 @@ stages:
       access: read-only
     required: true
     writes_to:
-      - analysis/sq-baseline.json
+      - analysis/coverage-baseline.json
 
   - name: gap-scan
     kind: gather
@@ -214,14 +211,14 @@ stages:
 
   - name: prioritize-targets
     kind: gather
-    depends_on: [sq-discover, gap-scan]
-    reads_from: [sq-discover, gap-scan]
+    depends_on: [coverage-discover, gap-scan]
+    reads_from: [coverage-discover, gap-scan]
     description: >
-      Merge the SonarQube baseline and gap-report into a single prioritized
+      Merge the coverage baseline and gap-report into a single prioritized
       target list, grouped by domain.
 
       Read:
-        {workspace}/analysis/sq-baseline.json
+        {workspace}/analysis/coverage-baseline.json
         {workspace}/analysis/gap-report.json
 
       Ranking algorithm:
@@ -230,7 +227,7 @@ stages:
         3. Remaining files sorted descending by uncovered_lines
 
       Apply filters:
-        - Skip files with lines_to_cover < {min_lines}
+        - Skip files with num_statements < {min_lines}
         - Skip files already at or above {min_coverage}%
         - If {domains} is not "*", skip files whose domain is not in the list
 
@@ -687,55 +684,172 @@ stages:
       - validation/corrections-applied.md
 
   # ===========================================================================
-  # G10-G20: Open PR + CI pipeline + adversarial swarm review (interleaved)
-  # Injected stages (prefixed pr-, from pr-ci-tail.yaml):
-  #   pr-open-pr (G10) → pr-wait-for-ci (G11) → pr-address-reviews (G12)
-  #   → pr-sonarqube-check (G13) → pr-post-fix-review (G14)
-  #   → pr-human-review-gate (G16)
-  # The adversarial review swarm (prefixed review-) runs in parallel from G12
-  # onward, after pr-wait-for-ci: review-fetch-pr-context (G12) →
-  # review-concern-sweep (G13) → review-enumerate-targets (G14) →
-  # review-validate-concerns + review-cross-unit-check (G15) →
-  # review-consolidate (G17) → review-fact-check-findings (G18) →
-  # review-human-gate (G19) → review-post-comments (G20).
-  # See the header dependency graph (lines 11-57) for the exact group layout.
+  # G10-G11: Open PR + wait for GitHub Actions CI
+  # ===========================================================================
+
+  - name: pr-open-pr
+    kind: publish
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+    description: >
+      Open a GitHub PR for the coverage uplift branch.
+
+      Step 1 — build PR body:
+        Read {workspace}/validation/domain-test-results.md and
+        {workspace}/validation/corrections-applied.md.
+        Summarize: domains covered, tests added, corrections applied.
+
+      Step 2 — create the PR:
+        gh pr create \
+          --title "{pr_title}" \
+          --body "<summary from Step 1>" \
+          --draft
+
+      Step 3 — write {workspace}/validation/pr.json:
+        { "pr_number": <number>, "pr_url": "<url>", "draft": true }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/pr.json
+
+  - name: pr-wait-for-ci
+    kind: validate
+    depends_on: [pr-open-pr]
+    reads_from: [pr-open-pr]
+    description: >
+      Wait for GitHub Actions CI to complete on the PR.
+
+      Step 1 — read PR number:
+        Read {workspace}/validation/pr.json. Extract pr_number.
+
+      Step 2 — mark PR ready (exits draft):
+        gh pr ready {pr_number}
+
+      Step 3 — poll CI status (up to 20 attempts, 60s each = ~20 min):
+        gh pr checks {pr_number} --watch --interval 60
+
+        If any check fails: read the failure details with:
+          gh run view <RUN_ID> --log-failed
+        Write failure notes to {workspace}/validation/ci-failures.txt.
+
+      Step 4 — write {workspace}/validation/ci-results.json:
+        {
+          "pr_number": N,
+          "all_passed": true|false,
+          "failed_checks": [],
+          "ci_duration_seconds": N
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - All GitHub Actions checks pass (gh pr checks exits 0)
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/ci-results.json
+
+  - name: pr-qlty-check
+    kind: validate
+    depends_on: [pr-wait-for-ci]
+    reads_from: [pr-wait-for-ci]
+    description: >
+      Run qlty on all files changed by this PR and report new issues.
+
+      Step 1 — get changed files:
+        Read {workspace}/validation/pr.json for pr_number.
+        gh pr diff {pr_number} --name-only | grep '\.py$'
+
+      Step 2 — run qlty:
+        ~/.qlty/bin/qlty check <changed files...> --format json
+        Write raw output to {workspace}/validation/qlty-results.json.
+
+      Step 3 — summarize new issues vs pre-existing:
+        Only report issues on lines changed in this PR (use `gh pr diff` to
+        establish the changed line ranges). Pre-existing issues on unchanged
+        lines are out of scope.
+
+      Write {workspace}/validation/qlty-summary.md:
+        ## qlty Check Results
+        New issues on changed files: N
+        | File | Line | Severity | Message |
+        |------|------|----------|---------|
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/qlty-results.json
+      - validation/qlty-summary.md
+
+  - name: pr-post-fix-review
+    kind: validate
+    depends_on: [pr-qlty-check]
+    reads_from: [pr-qlty-check]
+    description: >
+      Address any critical qlty issues found before swarm review starts.
+
+      Read {workspace}/validation/qlty-results.json.
+      For each issue with severity MAJOR or CRITICAL on changed files:
+        - Apply the fix (Edit tool).
+        - Re-run the relevant test: python3 -m unittest <test_file> -v
+        - Confirm green before moving to the next.
+
+      Push fixes:
+        git add -p  (stage only the fix lines, not test changes)
+        git commit -m "fix: address qlty findings before review"
+        gh pr push (or git push)
+
+      Write {workspace}/validation/post-fix-results.md:
+        | Issue | File:Line | Fix | Test Result |
+        |-------|-----------|-----|-------------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/post-fix-results.md
+
+  # ===========================================================================
+  # G20: Adversarial swarm review runs in parallel from G12 after pr-wait-for-ci.
+  # Injected via include below (prefix: review).
   # ===========================================================================
 
   # ===========================================================================
-  # G21: SonarQube coverage delta — compare before/after uncovered lines
-  # Runs after swarm review; SQ has had time to process CI coverage upload.
+  # G21: Coverage delta — compare before/after uncovered lines
+  # Runs after swarm review; CI has had time to run and upload coverage.
   # ===========================================================================
 
-  - name: sonarqube-delta
+  - name: coverage-delta
     kind: validate
     depends_on: [review-post-comments]
-    reads_from: [sq-discover, pr-open-pr]
+    reads_from: [coverage-discover, pr-open-pr]
     description: >
-      Re-query SonarQube file-level coverage and compute the delta against
-      the baseline captured in sq-discover.
+      Re-run coverage.py against the merged branch and compute the delta
+      against the baseline captured in coverage-discover.
 
       Step 1 — read baseline:
-        Read {workspace}/analysis/sq-baseline.json.
+        Read {workspace}/analysis/coverage-baseline.json.
         Record baseline total_uncovered_lines and per-file uncovered_lines.
 
-      Step 2 — read PR number:
-        Read {workspace}/validation/pr.json (written by pr-open-pr).
-        Extract pr_number.
+      Step 2 — run coverage against current HEAD:
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json \
+          > {workspace}/analysis/coverage-current.json
 
-      Step 3 — fetch current coverage for the PR:
-        Using the pr_number extracted in Step 2:
-        ./bin/sonarqube file-coverage -- \
-          --project cars-sre-utils \
-          --pr <pr_number> \
-          --sort-by uncovered_lines \
-          --format json
-
-        If the PR-scoped query returns zero rows (SQ analysis not yet
-        complete), wait 60 seconds and retry up to 5 times before giving up.
-        On give-up, note "SQ analysis pending" in the output and proceed —
-        this stage is informational, not a hard gate.
-
-      Step 4 — compute delta:
+      Step 3 — compute delta:
         For each file in the baseline that was targeted in design/targets.json:
           delta_lines = baseline_uncovered - current_uncovered
           delta_pct   = current_coverage - baseline_coverage
@@ -744,8 +858,8 @@ stages:
           total_lines_recovered = sum(delta_lines) across all targeted files
           total_files_improved  = count of files where delta_lines > 0
 
-      Step 5 — write delta report:
-        {workspace}/validation/sonarqube-delta.json:
+      Step 4 — write delta report:
+        {workspace}/validation/coverage-delta.json:
           {
             "baseline_uncovered_lines": N,
             "current_uncovered_lines": N,
@@ -762,13 +876,12 @@ stages:
                 "delta_lines": 66
               },
               ...
-            ],
-            "analysis_pending": false
+            ]
           }
 
-        Write {workspace}/validation/sonarqube-delta.md — a human-readable
+        Write {workspace}/validation/coverage-delta.md — a human-readable
         summary for the final gate:
-          ## SonarQube Coverage Delta
+          ## Coverage Delta
           Lines recovered: +N across M files
           | File | Before | After | Lines Recovered |
           |------|--------|-------|----------------|
@@ -783,8 +896,8 @@ stages:
       access: read-write
     required: true
     writes_to:
-      - validation/sonarqube-delta.json
-      - validation/sonarqube-delta.md
+      - validation/coverage-delta.json
+      - validation/coverage-delta.md
 
   # ===========================================================================
   # G22: Final human gate — SQ delta + review summary → approve to merge
@@ -792,26 +905,26 @@ stages:
 
   - name: coverage-final-gate
     kind: propose
-    depends_on: [sonarqube-delta, pr-post-fix-review]
-    reads_from: [sonarqube-delta, review-post-comments, pr-post-fix-review]
+    depends_on: [coverage-delta, pr-post-fix-review]
+    reads_from: [coverage-delta, review-post-comments, pr-post-fix-review]
     description: >
       Present the complete uplift summary and ask the human to approve or
       redirect before merge.
 
       Read and display:
-        {workspace}/validation/sonarqube-delta.md        — coverage delta
+        {workspace}/validation/coverage-delta.md         — coverage delta
         {workspace}/outputs/consolidated-summary.md      — swarm review findings
         {workspace}/validation/domain-test-results.md    — per-domain test results
         {workspace}/validation/corrections-applied.md    — what was fixed pre-PR
 
       Surface:
-        - Total lines recovered (from sonarqube-delta.json[lines_recovered])
-        - Files still below {min_coverage}% threshold (from sonarqube-delta.json
+        - Total lines recovered (from coverage-delta.json[lines_recovered])
+        - Files still below {min_coverage}% threshold (from coverage-delta.json
           where current_coverage < min_coverage)
         - Swarm review: N findings posted as inline comments (from
           {workspace}/outputs/post-results.json[posted])
-        - Any files that regressed (sonarqube-delta.json[files_regressed])
-        - SonarQube quality gate status (from pr-sonarqube-check output)
+        - Any files that regressed (coverage-delta.json[files_regressed])
+        - qlty check status (from pr-qlty-check output)
 
       Ask the user:
         A) Approve — merge the PR
@@ -831,21 +944,10 @@ stages:
       - validation/final-gate-decision.txt
 
 include:
-  # PR open + Semaphore CI wait (~10 min), then SQ gate, review-fix, human gate.
-  # Stages: pr-open-pr (G10) → pr-wait-for-ci (G11) → pr-address-reviews (G12)
-  # → pr-sonarqube-check (G13) → pr-post-fix-review (G14) → pr-human-review-gate (G16).
-  # The swarm review and SQ delta stages depend on pr-wait-for-ci completing.
-  - path: workflows/shared/pr-ci-tail.yaml
-    prefix: pr
-    depends_on: [apply-corrections]
-    reads_from: [apply-corrections]
-
-  # Adversarial swarm review — runs in parallel from G12, after pr-wait-for-ci.
-  # Stages: review-fetch-pr-context (G12) → review-concern-sweep (G13) →
-  # review-enumerate-targets (G14) → review-validate-concerns +
-  # review-cross-unit-check (G15) → review-consolidate (G17) →
-  # review-fact-check-findings (G18) → review-human-gate (G19) →
-  # review-post-comments (G20)
+  # Adversarial swarm review — runs after pr-wait-for-ci completes.
+  # Stages: review-fetch-pr-context → review-concern-sweep → review-enumerate-targets
+  #   → review-validate-concerns + review-cross-unit-check → review-consolidate
+  #   → review-fact-check-findings → review-human-gate → review-post-comments
   - path: workflows/shared/code-review-swarm.yaml
     prefix: review
     depends_on: [pr-wait-for-ci]

@@ -25,7 +25,7 @@ description: >
   confirmed findings. Phase 1 runs the full review swarm (diff fetch,
   concern sweep, per-file validation, consolidation, fact-check, human gate,
   inline comment posting). Phase 2 triages findings by fix type, fans out
-  code, test, and SonarQube fixes in parallel, verifies everything is still
+  code, test, and qlty fixes in parallel, verifies everything is still
   green, resolves posted threads, and presents a final summary for human
   approval.
 
@@ -109,7 +109,7 @@ stages:
         "test"       — missing coverage, broken assertions, weak test patterns
         "docs"       — outdated docstrings, missing PATTERNS.md entries,
                        incorrect CLI help text
-        "qlty"  — issues present in qlty-issues.json (new-code only)
+        "qlty"       — issues present in qlty-issues.json (new-code only)
 
       Classification rules:
         - If finding file path is under tests/, classify as "test"
@@ -293,9 +293,9 @@ stages:
               S1481 (unused variable): remove or use it
           - Use the Edit tool for each change.
 
-      Step 3 — verify SonarQube gate:
-        Bash tool: ./bin/sonarqube status -- --project cars-sre-utils --format json
-        Write result to {workspace}/outputs/fix/sonarqube-post-fix.json.
+      Step 3 — verify qlty gate:
+        Bash tool: ~/.qlty/bin/qlty check {source_root} --format json
+        Write result to {workspace}/outputs/fix/qlty-post-fix.json.
 
       Write {workspace}/outputs/fix/fix-sq-results.json:
         {
@@ -319,7 +319,7 @@ stages:
     required: true
     writes_to:
       - outputs/fix/fix-sq-results.json
-      - outputs/fix/sonarqube-post-fix.json
+      - outputs/fix/qlty-post-fix.json
 
   # ===========================================================================
   # Phase 2: Verify all fixes are green
@@ -344,9 +344,9 @@ stages:
           python3 -m unittest {test_path} -x -q
         If test_path is also blank, skip and mark as "no test_cmd provided".
 
-      Step 3 — SonarQube gate:
-        Bash tool: ./bin/sonarqube status -- --project cars-sre-utils --format json
-        Read gate_status from the response.
+      Step 3 — qlty gate:
+        Bash tool: ~/.qlty/bin/qlty check {source_root} --format json
+        Parse any new issues on changed files.
 
       Step 4 — read fix result files:
         Use the Read tool on:
@@ -360,7 +360,7 @@ stages:
           "ruff": "pass|fail",
           "ruff_new_violations": [],
           "tests": "pass|fail|skipped",
-          "sonarqube_gate": "OK|ERROR|pending",
+          "qlty_new_issues": [],
           "fix_summary": {
             "code_fixed": N,
             "test_fixed": N,
@@ -380,7 +380,7 @@ stages:
       criteria:
         - ruff exits 0 with no new violations
         - test suite passes (or was explicitly skipped)
-        - SonarQube gate is OK or pending (not ERROR with new violations)
+        - qlty check introduces no new issues on changed files
       max_revisions: 1
     required: true
     writes_to:
@@ -452,10 +452,10 @@ stages:
         Fix results:
           Read fix-code-results.json → count fixed / skipped / errors.
           Read fix-tests-results.json → count fixed / skipped / errors.
-          Read fix-sq-results.json → count fixed / skipped / gate_status.
+          Read fix-sq-results.json → count fixed / skipped.
 
         Verification:
-          Read verify-results.json → ruff status, test status, SQ gate, all_green.
+          Read verify-results.json → ruff status, test status, qlty new issues, all_green.
 
         Thread resolution:
           Read thread-resolution.json → resolved_finding_ids count,
@@ -466,7 +466,7 @@ stages:
 
       If the operator requests another round:
         Re-trigger by calling:
-          ./bin/github pr-update -- --pr-number {pr_number} --body "<same body>"
+          gh pr edit {pr_number} --body "<same body>"
         Then loop back to triage-findings.
 
       Write the operator decision to

@@ -901,7 +901,7 @@ stages:
       Step 1 — resolve repo and commit SHA:
         Read outputs/pr-context.json. The fetch-pr-context stage explicitly
         writes two fields required by the GitHub API:
-          owner_repo  — "org/repo" string (e.g. "confluent-io/cars-sre-utils")
+          owner_repo  — "org/repo" string (e.g. "brian-sherwin/dancing-bear")
           commit_id   — PR branch head SHA (fetched from GitHub API via
                         `gh pr view --json headRefOid`; never git rev-parse HEAD
                         which resolves to a synthetic merge commit in CI)

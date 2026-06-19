@@ -1,20 +1,17 @@
 name: ci-debug
 version: "1.0"
 description: >
-  Diagnose and fix Semaphore CI failures. Given a Semaphore URL or PR number,
-  fetches failure details (Semaphore + SonarQube in parallel), parses logs to
-  identify root cause, applies fixes, verifies locally, runs the full domain
+  Diagnose and fix GitHub Actions CI failures. Given a workflow run URL or PR
+  number, fetches failure details (GH Actions + qlty in parallel), parses logs
+  to identify root cause, applies fixes, verifies locally, runs the full test
   suite, and reports a structured summary.
 
   DAG: fetch-failures (G0) → diagnose (G1) → fix (G2) → verify (G3)
        → recheck (G4) → human-gate (G5)
 
-  At least one of semaphore_url or pr_number must be provided. If both are
-  given, semaphore_url takes precedence for log fetching; pr_number is used
-  for the SonarQube PR-scoped check.
-
-  The sonarqube-fix fragment (prefix=sq) is included after verify to gate
-  on SQ quality before the final human report.
+  At least one of run_url or pr_number must be provided. If both are
+  given, run_url takes precedence for log fetching; pr_number is used
+  for the qlty PR-scoped check.
 
 metadata:
   author: sre-platform
@@ -23,69 +20,63 @@ metadata:
 trigger:
   source: manual
   params:
-    semaphore_url: ""    # Semaphore pipeline URL (optional if pr_number given)
-    pr_number: ""        # PR number to check (optional if semaphore_url given)
-    test_cmd: ""         # Pytest invocation for local verify (e.g. "pytest tests/core/ -x -q")
+    run_url: ""          # GitHub Actions workflow run URL (optional if pr_number given)
+    pr_number: ""        # PR number to check (optional if run_url given)
+    test_cmd: ""         # Test invocation for local verify (e.g. "python3 -m unittest tests/core/ -x -q")
     source_root: ""      # Source dir for coverage scoping (e.g. "core/")
-    min_coverage: "80"   # Minimum new coverage % required by SQ gate
+    min_coverage: "80"   # Minimum new coverage % required
 
 workspace_dir: "{work_dir}/ci-debug-{pr_number}"
 
 stages:
   # ===========================================================================
-  # Group 0: Fetch CI failures — Semaphore + SonarQube in parallel
+  # Group 0: Fetch CI failures — GitHub Actions + qlty in parallel
   #
   # Both data sources are independent; run them concurrently. The stage writes
-  # raw failure JSON that diagnose reads. If semaphore_url is empty, use
-  # pr_number to look up the latest pipeline instead.
+  # raw failure data that diagnose reads. If run_url is empty, use pr_number
+  # to look up the latest failed run instead.
   # ===========================================================================
 
   - name: fetch-failures
     kind: gather
     description: >
-      Fetch CI failure details from Semaphore and SonarQube in parallel.
+      Fetch CI failure details from GitHub Actions and qlty in parallel.
 
       File access rules: use the Read tool (not cat/head/tail), Grep tool
       (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
       for CLI commands only.
 
       Step 1 — validate inputs:
-        At least one of {semaphore_url} or {pr_number} must be non-empty.
+        At least one of {run_url} or {pr_number} must be non-empty.
         If both are empty, write a failed stage result and exit.
 
-      Step 2 — fetch Semaphore failures:
-        If {semaphore_url} is non-empty:
-          Use the Bash tool to run:
-            ./bin/semaphore url '{semaphore_url}' --show-logs
-          Then extract the pipeline ID from the URL and run:
-            ./bin/semaphore fail-summary --pipeline-id <PIPELINE_ID> --show-logs
+      Step 2 — fetch GitHub Actions failures:
+        If {run_url} is non-empty:
+          Use the Bash tool to extract the run ID from the URL (last path segment)
+          and run:
+            gh run view <RUN_ID> --log-failed
         Else if {pr_number} is non-empty:
-          Use the Bash tool to run:
-            ./bin/semaphore pr-status -- --pr {pr_number}
-          Then extract the pipeline ID from the pr-status output and run:
-            ./bin/semaphore fail-summary --pipeline-id <PIPELINE_ID> --show-logs
-        Save all output including log lines to {workspace}/outputs/semaphore-raw.txt.
-        The fail-summary output provides a structured table of failed jobs; prefer
-        it over manual log parsing when extracting per-job failure details.
-        If full logs for a specific job are needed, use:
-          ./bin/semaphore log-tail <JOB_ID>
-        to tail the last N lines of that job's log.
+          Use the Bash tool to find the latest failed run for this PR:
+            gh pr checks {pr_number} --json name,state,detailsUrl
+          Then for each failed check, run:
+            gh run view <RUN_ID> --log-failed
+        Save all failure log output to {workspace}/outputs/gh-run-raw.txt.
 
-      Step 3 — fetch SonarQube status:
+      Step 3 — fetch qlty issues:
         Use the Bash tool to run:
-          ./bin/sonarqube status -- --project cars-sre-utils --format json
+          ~/.qlty/bin/qlty check {source_root} --format json
         If {pr_number} is non-empty, also run:
-          ./bin/sonarqube status -- --project cars-sre-utils --pr {pr_number} --format json
-        Save JSON output to {workspace}/outputs/sonarqube-raw.json.
+          gh pr diff {pr_number} --name-only | xargs ~/.qlty/bin/qlty check --format json
+        Save JSON output to {workspace}/outputs/qlty-raw.json.
 
       Step 4 — write combined summary:
         Use the Write tool to create {workspace}/outputs/fetch-summary.json containing:
           {
-            "semaphore_url": "{semaphore_url}",
+            "run_url": "{run_url}",
             "pr_number": "{pr_number}",
-            "semaphore_output_path": "{workspace}/outputs/semaphore-raw.txt",
-            "sonarqube_output_path": "{workspace}/outputs/sonarqube-raw.json",
-            "fetch_notes": "<any noteworthy conditions — pipeline still running, SQ 404, etc.>"
+            "gh_run_output_path": "{workspace}/outputs/gh-run-raw.txt",
+            "qlty_output_path": "{workspace}/outputs/qlty-raw.json",
+            "fetch_notes": "<any noteworthy conditions — run still queued, qlty 404, etc.>"
           }
     agent:
       role: researcher
@@ -94,17 +85,17 @@ stages:
       access: read-only
     required: true
     writes_to:
-      - outputs/semaphore-raw.txt
-      - outputs/sonarqube-raw.json
+      - outputs/gh-run-raw.txt
+      - outputs/qlty-raw.json
       - outputs/fetch-summary.json
 
   # ===========================================================================
   # Group 1: Diagnose — parse logs, identify root cause, write findings.json
   #
-  # Reads raw Semaphore and SonarQube output, extracts structured failure
-  # records. Handles both entry points: URL-based Semaphore logs and PR-based
-  # SonarQube issues. A researcher is correct: this stage only reads and
-  # reasons — no source edits happen here.
+  # Reads raw GH Actions and qlty output, extracts structured failure records.
+  # Handles both entry points: URL-based run logs and PR-based qlty issues.
+  # A researcher is correct: this stage only reads and reasons — no source
+  # edits happen here.
   # ===========================================================================
 
   - name: diagnose
@@ -121,14 +112,14 @@ stages:
 
       Step 1 — read all raw outputs:
         Use the Read tool to load:
-          {workspace}/outputs/semaphore-raw.txt
-          {workspace}/outputs/sonarqube-raw.json
+          {workspace}/outputs/gh-run-raw.txt
+          {workspace}/outputs/qlty-raw.json
           {workspace}/outputs/fetch-summary.json
 
-      Step 2 — extract Semaphore failures:
-        For each failed job in semaphore-raw.txt, extract:
-          - job_name: e.g. "Tests - Core Foundation"
-          - test_file: e.g. "tests/core/test_auth.py"
+      Step 2 — extract GH Actions failures:
+        For each failed step in gh-run-raw.txt, extract:
+          - job_name: e.g. "test / Run tests"
+          - test_file: e.g. "tests/core/test_auth.py" (parse from FAILED lines)
           - test_name: e.g. "test_token_refresh"
           - error_type: AssertionError | AttributeError | ImportError | other
           - error_message: the actual traceback or assertion text
@@ -138,7 +129,6 @@ stages:
               "import path changed" → ModuleNotFoundError
               "mock missing field" → Mock return value missing field
               "dict structure changed" → KeyError: X
-              "coveragerc deleted" → FileNotFoundError: .coveragerc.pr
 
       Step 3 — read the failing test source:
         For each unique test_file found above, use the Bash tool to run:
@@ -148,16 +138,14 @@ stages:
         (Derive source_module_path by mapping tests/<domain>/ → <domain>/)
         Record what changed recently that aligns with the error.
 
-      Step 4 — extract SonarQube issues:
-        From sonarqube-raw.json, identify:
-          - quality_gate.status: OK | ERROR
-          - Any conditions with status ERROR and their metricKey + actualValue
-          - New issues count on changed files
+      Step 4 — extract qlty issues:
+        From qlty-raw.json, identify any new violations on changed files.
+        Note the count and severity levels.
 
       Step 5 — write findings.json:
         Use the Write tool to create {workspace}/outputs/findings.json:
           {
-            "semaphore_failures": [
+            "ci_failures": [
               {
                 "job_name": "...",
                 "test_file": "...",
@@ -168,10 +156,9 @@ stages:
                 "recent_changes": "..."
               }
             ],
-            "sonarqube": {
-              "gate_status": "OK|ERROR",
-              "failing_conditions": [...],
-              "new_issues_count": N
+            "qlty": {
+              "new_issues_count": N,
+              "issues": [...]
             },
             "total_failures": N,
             "root_cause_summary": "one-sentence summary"
@@ -287,30 +274,29 @@ stages:
           {workspace}/outputs/fix-log.json
 
       Step 2 — run targeted tests:
-        For each failure in findings.json, use the Bash tool to run:
-          pytest <test_file>::<test_name> -x -v
+        For each failure in findings.json["ci_failures"], use the Bash tool to run:
+          python3 -m unittest <test_file>.<test_name> -v
         If {test_cmd} is non-empty, also use the Bash tool to run:
           {test_cmd}
         Record exit code and output for each run.
 
-      Step 3 — check .coveragerc.pr:
+      Step 3 — check for qlty regressions on changed files:
         Use the Bash tool to run:
-          ls -la .coveragerc.pr
-        If the file is missing: record it as a critical gap (CI will fail
-        even if tests pass).
+          ~/.qlty/bin/qlty check {source_root} --format json
+        If any new issues appear on files touched by the fix, record them.
 
       Step 4 — write verify-results.json:
         Use the Write tool to create {workspace}/outputs/verify-results.json:
           {
             "test_results": [
               {
-                "test": "<test_file>::<test_name>",
+                "test": "<test_file>.<test_name>",
                 "exit_code": 0,
                 "passed": true|false,
                 "output_snippet": "..."
               }
             ],
-            "coveragerc_present": true|false,
+            "qlty_new_issues": [],
             "all_targeted_passed": true|false
           }
     agent:
@@ -322,7 +308,7 @@ stages:
       strategy: unit
       criteria:
         - All previously-failing tests now pass (exit code 0)
-        - .coveragerc.pr exists on disk
+        - No new qlty issues introduced by the fix
       max_revisions: 2
     required: true
     writes_to:
@@ -333,7 +319,7 @@ stages:
   #
   # Runs the full domain test suite to confirm no regressions were introduced.
   # Uses {test_cmd} as the authoritative suite command. Also re-checks
-  # SonarQube gate status before the final report.
+  # qlty on changed files before the final report.
   # ===========================================================================
 
   - name: recheck
@@ -341,7 +327,7 @@ stages:
     depends_on: [verify]
     reads_from: [verify, diagnose]
     description: >
-      Run the full domain test suite and re-check SonarQube.
+      Run the full domain test suite and re-check qlty.
 
       File access rules: use the Read tool (not cat/head/tail), Grep tool
       (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
@@ -357,21 +343,20 @@ stages:
           {test_cmd}
         Else derive from findings.json (the domain from the first failure's
         test_file): use the Bash tool to run:
-          ./bin/test-quality test-failures tests/<domain>/ -x -q
+          python3 -m unittest discover -s tests/<domain>/ -x -q
         Record total tests, failures, and exit code.
 
-      Step 3 — re-check SonarQube gate:
+      Step 3 — re-check qlty on changed files:
         Use the Bash tool to run:
-          ./bin/sonarqube status -- --project cars-sre-utils --format json
-        Extract quality_gate.status and any new failing conditions.
+          ~/.qlty/bin/qlty check {source_root} --format json
+        Note any new issues on files changed by the fix.
 
       Step 4 — write recheck-results.json:
         Use the Write tool to create {workspace}/outputs/recheck-results.json:
           {
             "suite_exit_code": 0,
             "suite_passed": true|false,
-            "sonarqube_gate": "OK|ERROR",
-            "sonarqube_conditions": [...],
+            "qlty_new_issues": [],
             "regression_detected": true|false
           }
     agent:
@@ -384,7 +369,7 @@ stages:
       criteria:
         - Full domain test suite exits 0
         - No new test failures introduced by the fix
-        - SonarQube quality gate is OK or was already failing before (no regression)
+        - No new qlty issues introduced by the fix
       max_revisions: 1
     required: true
     writes_to:
@@ -421,7 +406,7 @@ stages:
 
           ## CI Debug Report
 
-          **Pipeline**: {semaphore_url} (or PR #{pr_number})
+          **Pipeline**: {run_url} (or PR #{pr_number})
 
           ### Failures Found: N
 
@@ -438,8 +423,7 @@ stages:
           ### Verification
           - Targeted tests: PASS / FAIL (from verify-results.json)
           - Full domain suite: PASS / FAIL (from recheck-results.json)
-          - SonarQube gate: OK / ERROR (from recheck-results.json)
-          - .coveragerc.pr: present / MISSING
+          - qlty new issues: N (from recheck-results.json[qlty_new_issues])
 
           ### Recommendation
           CLEAR TO MERGE — all tests pass, no regressions, SQ OK.
@@ -458,16 +442,3 @@ stages:
     writes_to:
       - outputs/ci-debug-report.md
 
-  # ===========================================================================
-  # SonarQube fix fragment — runs if SQ gate is failing after recheck
-  #
-  # Included after human-gate so SQ issues surface in the report before
-  # the fix loop starts. prefix=sq injects sq-check-sonarqube and
-  # sq-verify-sonarqube as the final two stages.
-  # ===========================================================================
-
-include:
-  - path: workflows/shared/sonarqube-fix.yaml
-    prefix: sq
-    depends_on: [human-gate]
-    reads_from: [human-gate, recheck]

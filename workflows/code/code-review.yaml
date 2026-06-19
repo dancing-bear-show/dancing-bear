@@ -2,7 +2,7 @@
 #
 # Review-only scope: fetches diff, sweeps for relevant concerns, fans out
 # per-file validators, consolidates findings, and posts inline GitHub comments.
-# No fixing, no CI, no SonarQube — just review → comment.
+# No fixing, no CI, no qlty gate — just review → comment.
 #
 # DAG — small path (pr_size=small, default):
 #   fetch-pr-context

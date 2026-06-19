@@ -46,8 +46,9 @@ stages:
 
         Filter output to files under {source_root}.
 
-      Step 3 — per-file coverage from qlty:
-         file-coverage -- --project cars-sre-utils --format yaml
+      Step 3 — per-file coverage from coverage.py:
+        coverage run -m unittest discover -s {test_path} -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json > /tmp/cov-report.json
 
         Filter results to files under {source_root}. Identify all files with
         coverage < {min_coverage}%.
@@ -166,8 +167,9 @@ stages:
         and record it — do not attempt further fixes in this stage (that would
         cause a revision of expand-coverage-files, not verify-coverage).
 
-      Step 3 — confirm per-file coverage via qlty:
-         file-coverage -- --project cars-sre-utils --format yaml
+      Step 3 — confirm per-file coverage via coverage.py:
+        coverage run -m unittest discover -s {test_path} -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json > /tmp/cov-verify.json
 
         Filter to files under {source_root}. Every file must be ≥{min_coverage}%.
 
