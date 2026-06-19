@@ -174,7 +174,7 @@ def _write_script_tempfile(script: str) -> str:
     except Exception:
         try:
             os.unlink(path)
-        except OSError:
+        except OSError:  # nosec B110 - best-effort cleanup; original error is re-raised below
             pass
         raise
     return path

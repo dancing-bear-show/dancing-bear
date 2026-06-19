@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import unittest
-from io import StringIO
-from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 from worker._helpers import log_perf_jsonl
