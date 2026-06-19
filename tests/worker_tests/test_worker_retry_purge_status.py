@@ -112,7 +112,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_status_with_throughput(self):
         from worker.cli import WorkerApp
-        from worker._helpers import ISO_DATETIME_FORMAT, DATE_FORMAT_YMD
+        from worker._helpers import DATE_FORMAT_YMD
         cwd = os.getcwd()
         try:
             os.chdir(self.root)
