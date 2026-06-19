@@ -47,7 +47,7 @@ def _emit_one(data: dict, *, fmt: str = "table") -> None:
     elif fmt == "yaml":
         try:
             import yaml
-            print(yaml.dump(data, default_flow_style=False).rstrip())
+            print(yaml.safe_dump(data, default_flow_style=False).rstrip())
         except ImportError:
             print(json.dumps(data, indent=2, default=str))
     else:

@@ -21,7 +21,7 @@ stages:
     agent:
       role: researcher
     writes_to:
-      - current-filters.json
+      - outputs/current-filters.json
 
   - name: propose-plan
     kind: propose
@@ -35,7 +35,7 @@ stages:
     depends_on: [gather-current-filters]
     reads_from: [gather-current-filters]
     writes_to:
-      - filter-plan.json
+      - outputs/filter-plan.json
 
   - name: execute-apply
     kind: execute
@@ -49,7 +49,7 @@ stages:
     depends_on: [propose-plan]
     reads_from: [propose-plan]
     writes_to:
-      - apply-result.json
+      - outputs/apply-result.json
     validates_output:
       - path: outputs/apply-result.json
         checks: [is_json, is_dict]

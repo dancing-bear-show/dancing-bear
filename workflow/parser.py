@@ -11,8 +11,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from .models import (
     AgentAccess,
     AgentSpec,
@@ -78,6 +76,7 @@ def parse_workflow_str(content: str, source: str = "<string>") -> WorkflowDefini
 
     Useful for testing. *source* is used in error messages.
     """
+    import yaml  # lazy — optional dep
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as exc:
@@ -293,7 +292,7 @@ def _parse_output_check(data: dict[str, Any], source: str, stage_name: str) -> O
         if not any(check == p or check.startswith(p) for p in _KNOWN_CHECK_PREFIXES):
             safe_check = check[:64] if len(check) <= 64 else f"{check[:61]}..."
             logger.warning(
-                "%s: stage '%s' validates_output has unrecognised check name (len=%d, prefix=%r) — accepted for forward-compat, skipped at runtime",
+                "%s: stage '%s' validates_output has unrecognised check name (len=%d, value=%r) — accepted for forward-compat, skipped at runtime",
                 source,
                 stage_name,
                 len(check),
