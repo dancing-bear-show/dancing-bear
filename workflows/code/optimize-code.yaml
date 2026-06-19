@@ -1,0 +1,219 @@
+name: optimize-code
+version: "1.0"
+description: >
+  Post-implementation code optimization workflow. Runs 5 quality scans in
+  parallel (reuse, complexity, coverage, security via shared fragment; plus
+  architecture inline), collates findings, applies corrections, and rechecks.
+
+  Replaces running /optimize-code, /optimize-code-complexity,
+  /optimize-code-coverage, /optimize-code-reuse, and
+  /optimize-code-security manually in sequence.
+
+  Stage dependency graph:
+
+    pre-check-auth
+        |
+    scan-changed-files
+        |
+    mps-scan-reuse ─ mps-scan-complexity ─ mps-scan-coverage ─ mps-scan-security ─ scan-arch  (parallel G2 — first 4 via fragment)
+        \──────────────────────────────────────────────────────────────────────────/
+                                             |
+                              mps-collate-findings   scan-arch
+                                             \───────────/
+                                                   |
+                                         apply-corrections (optional)
+                                                   |
+                                            recheck-lint
+                                                   |
+                                            human-gate
+
+metadata:
+  author: sre-platform
+  created: "2026-05-02"
+
+trigger:
+  source: manual
+  params:
+    source_root: ""     # e.g. "workflow/"
+    test_path: ""       # e.g. "tests/workflow/"
+    pr_number: ""       # optional — scope to changed files in this PR
+    skip_checks: ""     # optional — comma-separated: reuse,complexity,coverage,security,arch
+    auth_domains: "github,sonarqube"
+
+workspace_dir: "{work_dir}/optimize-code-{pr_number}-{source_root}"
+
+stages:
+
+  # ===========================================================================
+  # Group 1: Identify changed files to scan
+  # ===========================================================================
+
+  - name: scan-changed-files
+    kind: gather
+    depends_on: [pre-check-auth]
+    description: >
+      Identify the set of source files to check.
+
+      If {pr_number} is set:
+        gh pr diff {pr_number} --name-only
+        (Raw gh is intentional here — ./bin/github has no pr-diff subcommand. This is the
+        only approved use of raw gh in this workflow.)
+        Filter the output to .py files under {source_root}.
+      Otherwise:
+        git diff origin/main...HEAD --name-only
+        Filter to .py files under {source_root}.
+
+      If no files found (nothing changed in {source_root}), write an empty list
+      and note "no changed files in {source_root} — nothing to optimize".
+
+      Write {workspace}/context/changed-files.json:
+        { "source_root": "{source_root}", "files": ["path/to/file.py", ...] }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-only
+    required: true
+    writes_to:
+      - context/changed-files.json
+
+  # ===========================================================================
+  # Group 2: Architecture scan (inline — optimize-code-specific)
+  # Runs in parallel with the mps fragment scans.
+  # ===========================================================================
+
+  - name: scan-arch
+    kind: validate
+    when: '"{skip_checks}" does not contain "arch"'
+    depends_on: [scan-changed-files]
+    reads_from: [scan-changed-files]
+    description: >
+      Read context/changed-files.json. For each changed file:
+
+      Step 7 — Dead code:
+        Flag unused imports (importable but never referenced).
+        Flag unreachable branches (after return/raise with no guard).
+        Flag functions defined but never called within the module.
+
+      Step 8 — Architecture compliance:
+        CLI output: grep for json.dumps or print( in cli.py files — should use emit_rows/emit_one.
+        Argument declarations: grep for parser.add_argument('--format' — should use add_format_argument.
+        Layer separation: data classes should not import from CLI layer.
+
+      Step 9 — Dataclasses over dicts + type hints:
+        Flag functions returning plain dict where a frozen dataclass would be clearer.
+        Flag public function signatures missing type hints.
+        Flag legacy typing imports: from typing import Optional, List, Dict, Union.
+        Flag parameters with None default missing | None in the type hint.
+
+      Write {workspace}/validation/scan-arch.json.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Frozen dataclasses for structured data — no plain dict returns across layer boundaries
+        - PEP 585/604 type hints on all public signatures
+        - No dead code (unused imports, unreachable branches)
+        - CLI output through emit_rows/emit_one — never manual json.dumps or print
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/scan-arch.json
+
+  # ===========================================================================
+  # Group 3: Apply corrections — reads from fragment collation + arch scan
+  # ===========================================================================
+
+  - name: apply-corrections
+    kind: execute
+    depends_on: [mps-collate-findings, scan-arch]
+    reads_from: [mps-collate-findings, scan-arch]
+    description: >
+      Read {workspace}/analysis/collated-findings.json (from mps-collate-findings)
+      and {workspace}/validation/scan-arch.json.
+      Merge arch findings with the collated set for a complete picture.
+      If no critical or minor findings across all sources: write "no corrections needed" and exit.
+
+      Fix ALL critical findings. Fix minor findings that do not require a design decision.
+      After each file edit: run ruff check <file> and fix any lint errors.
+      Do not add comments explaining WHAT (only WHY if non-obvious).
+
+      Write {workspace}/validation/corrections-applied.md:
+        | Finding | File:Line | Fix Applied |
+        |---------|-----------|-------------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/corrections-applied.md
+
+  # ===========================================================================
+  # Group 4: Recheck lint + tests
+  # ===========================================================================
+
+  - name: recheck-lint
+    kind: validate
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+    description: >
+      ruff check {source_root}
+      ./bin/test-quality test-failures {test_path} -x -q
+      Confirm all previously-critical findings are resolved.
+      Write {workspace}/validation/recheck.json: { "lint_exit": 0, "test_exit": 0, "unresolved": [] }
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Bash, Read]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - ruff check {source_root} exits 0
+        - pytest {test_path} -x -q exits 0
+        - No new issues introduced by corrections
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/recheck.json
+
+  # ===========================================================================
+  # Group 5: Human gate
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    human_gate: true
+    depends_on: [recheck-lint]
+    description: >
+      Present analysis/findings-summary.md + corrections-applied.md + recheck.json status.
+      Ask: "Optimize pass complete. Ready to commit and open PR? (yes / request another scan round)"
+      Write {workspace}/validation/human-gate-decision.md with decision.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md
+
+include:
+  # Auth pre-flight: verify GitHub, SonarQube connections.
+  - path: workflows/shared/auth-check.yaml
+    prefix: pre
+    depends_on: []
+
+  # Group 2: Parallel quality scans — reuse, complexity, coverage, security.
+  # Collated output lands in {workspace}/analysis/collated-findings.json.
+  # scan-arch runs inline in parallel with these.
+  - path: workflows/shared/multi-parallel-scans.yaml
+    prefix: mps
+    depends_on: [scan-changed-files]
+    reads_from: [scan-changed-files]

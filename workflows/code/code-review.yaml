@@ -1,0 +1,96 @@
+# Adversarial swarm PR code review — thin wrapper around shared/code-review-swarm.yaml.
+#
+# Review-only scope: fetches diff, sweeps for relevant concerns, fans out
+# per-file validators, consolidates findings, and posts inline GitHub comments.
+# No fixing, no CI, no SonarQube — just review → comment.
+#
+# DAG — small path (pr_size=small, default):
+#   fetch-pr-context
+#       |
+#   concern-sweep-dispatch (inline)
+#       |
+#   review-consolidated  ← single agent: all guides + validation in one pass
+#       |
+#   fact-check-findings
+#       |
+#   human-gate
+#       |
+#   post-comments
+#
+# DAG — large path (pr_size=large):
+#   fetch-pr-context
+#       |
+#   concern-sweep-dispatch (inline)
+#       |
+#   concern-sweep (9 agents, fan-out)
+#       |
+#   concern-sweep-merge (inline)
+#       |
+#   enumerate-targets
+#       |
+#   validate-* (× N, parallel) ─── cross-unit-check (parallel)
+#       \                      /
+#        consolidate
+#            |
+#        fact-check-findings
+#            |
+#        human-gate
+#            |
+#        post-comments
+
+name: code-review
+version: "1.1"
+description: >
+  Adversarial swarm code review for a GitHub PR.
+  Fetches the diff and PR metadata, filters the concern library against the
+  actual changes, fans out per-file validators in parallel, consolidates and
+  de-duplicates findings, fact-checks the report for accuracy, presents
+  findings to the user for approval, then posts approved findings as inline
+  GitHub PR comments.
+
+  For small PRs (pr_size=small, default), a single consolidated reviewer agent
+  runs all guides and produces findings in one pass instead of spawning 9+
+  agents. Use pr_size=large for PRs with > 10 changed files or > 300 diff lines.
+
+metadata:
+  author: sre-platform
+  created: "2026-05-27"
+  updated: "2026-06-15"
+
+trigger:
+  source: manual
+  params:
+    pr_number: ""     # PR number to review (required; auto-detected from branch if blank)
+    pr_size: "small"  # "small" (default, single consolidated agent) or "large" (full fan-out)
+
+# Each run gets an isolated workspace so parallel invocations don't collide.
+workspace_dir: "{work_dir}/code-review-{pr_number}"
+
+stages:
+  # Thin entry stage. Creates the workspace directory structure so downstream
+  # fragment stages can write their outputs without racing on mkdir.
+  - name: init
+    kind: gather
+    description: >
+      Bootstrap the workspace. Create output directories needed by later stages:
+        mkdir -p {workspace}/outputs/diffs
+        mkdir -p {workspace}/outputs/findings
+        mkdir -p {workspace}/validation
+      Exit 0 immediately after. All substantive work starts in fetch-pr-context.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash]
+      access: read-only
+    required: true
+    writes_to: []
+
+include:
+  # Full review swarm DAG: fetch-pr-context → concern-sweep → enumerate-targets
+  # → validate-concerns + cross-unit-check → consolidate → fact-check-findings
+  # → human-gate → post-comments.
+  # No prefix — top-level workflow keeps original stage names.
+  - path: workflows/shared/code-review-swarm.yaml
+    prefix: ""
+    depends_on: [init]
+    reads_from: []
