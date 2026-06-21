@@ -11,8 +11,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, cast
 
-import yaml
-
 from .models import FanOutSpec, IncludeSpec, StageSpec
 
 __all__ = [
@@ -45,6 +43,7 @@ def extract_include_entries(content: str | bytes) -> list[object]:
 
     Swallows all YAML errors — callers use this as a best-effort pre-parse.
     """
+    import yaml  # lazy — optional dep
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError:
@@ -93,6 +92,7 @@ def _parse_fragment_str(
 
     _ps = parse_stage if parse_stage is not None else _default_parse_stage
 
+    import yaml  # lazy — optional dep
     try:
         data = yaml.safe_load(content)
     except yaml.YAMLError as exc:
@@ -287,6 +287,7 @@ def _expand_includes(
 
 def _parse_nested_includes(frag_text: str, source: str) -> tuple[IncludeSpec, ...]:
     """Extract and parse the ``include:`` list from a fragment's YAML text."""
+    import yaml  # lazy — optional dep
     try:
         data = yaml.safe_load(frag_text)
     except yaml.YAMLError:
