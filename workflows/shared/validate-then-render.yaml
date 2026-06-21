@@ -1,0 +1,108 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/validate-then-render.yaml
+#       prefix: vtr
+#       depends_on: [<last-execute-stage>]
+#       reads_from: [<last-execute-stage>]
+#
+# Stages injected: vtr-validate → vtr-render
+#
+# Used by: prompt-mining, workflow-synthesizer, domain-recommender
+#
+# Caller must set trigger.params:
+#   primary_artifact   — filename of the artifact to validate (e.g. "prompt-library.json")
+#   report_artifact    — filename of the rendered output (e.g. "report.md")
+#   validation_criteria — pipe-separated list of criteria strings
+#                         (e.g. "counts match source|no fabricated numbers|all paths exist")
+fragment: true
+name: validate-then-render
+version: "1.0"
+description: >
+  Shared validate-then-render tail: fact-check the primary artifact against
+  gathered workspace data, apply corrections for failing findings, and render
+  the final report. Parameterized via trigger.params so each caller can specify
+  its own artifact names and validation criteria.
+
+stages:
+
+  # ===========================================================================
+  # Stage 1: Validate primary artifact — structured fact-check
+  # ===========================================================================
+
+  - name: validate
+    kind: validate
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Read {workspace}/outputs/{primary_artifact} and verify every quantitative
+      claim traces to gathered data in the workspace.
+
+      Validation criteria (pipe-separated from trigger param, split on "|"):
+        {validation_criteria}
+
+      For each criterion, check it against the source files in {workspace}/outputs/.
+      Use Bash only to verify file existence (ls) or run targeted checks; use Write only to emit findings.
+
+      Write findings to {workspace}/validation/vtr-findings.json using the standard
+      findings array format:
+        [{"id":"F-001","status":"pass"|"fail","claim":"...","severity":"critical"|"minor"|"info",
+          "source":"<file or command used to verify>","fix":"..."}]
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Every quantitative claim traces to a source file in the workspace
+        - All criteria in {validation_criteria} are checked
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/vtr-findings.json
+
+  # ===========================================================================
+  # Stage 2: Render report — apply corrections and write final deliverable
+  # ===========================================================================
+
+  - name: render
+    kind: execute
+    depends_on: [validate]    # relative within fragment — rewritten to vtr-validate
+    reads_from: [validate]
+    description: >
+      Read {workspace}/validation/vtr-findings.json and {workspace}/outputs/{primary_artifact}.
+
+      If any findings have status="fail":
+        - Fix critical findings by looking up correct values in {workspace}/outputs/ source files
+        - Do not rewrite sections that passed
+
+      After applying corrections (or if no corrections are needed), always write
+      {workspace}/outputs/{primary_artifact} — either the corrected version or
+      the original unchanged content.
+
+      Then write the final rendered report to {workspace}/outputs/{report_artifact}.
+      The report must include:
+        - A summary section (key metrics from {primary_artifact})
+        - A validation status section (counts of pass/fail/warn from vtr-findings.json)
+        - All substantive content from {primary_artifact} rendered as readable markdown
+
+      Write {workspace}/validation/vtr-corrections.json listing each finding and the fix applied
+      (or "no change needed" for passing findings).
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    outputs:
+      - name: rendered-report
+        mode: generate
+        description: >
+          Apply corrections from vtr-findings.json, write the corrected primary
+          artifact, then render the final report to {report_artifact}.
+    required: false  # render failure produces no report but the corrected artifact still has value
+    writes_to:
+      - validation/vtr-corrections.json
+      # primary_artifact and report_artifact are param-substituted filenames; the
+      # compiler cannot resolve them statically so they are omitted here.

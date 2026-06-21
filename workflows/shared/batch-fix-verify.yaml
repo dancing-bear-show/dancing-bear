@@ -1,0 +1,75 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/batch-fix-verify.yaml
+#       prefix: fix
+#       depends_on: [last-fix-stage]
+#       reads_from: [last-fix-stage]
+#
+# Stage injected: {prefix}-verify-fixes
+#
+# Caller must set trigger.params: test_cmd
+#
+# Intent: run tests once after all fixes are batched; do not run after each
+# individual change. If the first run is red, read the failures, apply a
+# minimal targeted fix, and re-run once (max 1 retry). If still red, mark
+# stage failed and write failure details to validation/fixes-verified.json.
+fragment: true
+name: batch-fix-verify
+version: "1.0"
+description: >
+  Shared batch-fix verification fragment. Runs the test suite once after all
+  code changes are applied, with a single targeted retry if the first run fails.
+
+  Eliminates the "re-run after each change" anti-pattern: callers should apply
+  all changes first, then let this stage run tests once. A second run is only
+  triggered if the first fails and a concrete fix can be applied.
+
+  Params consumed from trigger.params: {test_cmd}.
+
+stages:
+
+  # ===========================================================================
+  # Batch verify: run tests once, targeted retry on failure
+  # ===========================================================================
+
+  - name: verify-fixes
+    kind: execute
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Run {test_cmd} once after all preceding fixes have been applied.
+      Do not re-run tests during the fix stage — this stage owns the test run.
+
+      Step 1 — initial test run:
+        {test_cmd}
+
+        If the run exits 0: write validation/fixes-verified.json with
+          {{"tests_green": true, "retry_count": 0}}
+        and stop — the stage is done.
+
+      Step 2 — targeted fix (only if Step 1 fails):
+        Read the full pytest output to identify which test file(s) are failing
+        and why. Read the corresponding source file(s) to understand the breakage.
+        Apply a minimal targeted fix — do not refactor unrelated code.
+
+      Step 3 — single retry:
+        Re-run {test_cmd} once more (this is the only allowed retry).
+
+        If exit 0: write validation/fixes-verified.json with
+          {{"tests_green": true, "retry_count": 1}}
+        and stop.
+
+        If still failing: write validation/fixes-verified.json with
+          {{"tests_green": false, "retry_count": 1, "failures": ["<test-id>: <brief reason>", ...]}}
+        and exit non-zero so the workflow marks this stage failed.
+
+      Do NOT run ruff, mypy, or any other linter in this stage — test-only.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/fixes-verified.json

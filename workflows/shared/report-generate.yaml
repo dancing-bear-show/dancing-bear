@@ -1,0 +1,167 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/report-generate.yaml
+#       prefix: rg
+#       depends_on: [gather-stage]
+#       reads_from: [gather-stage]
+#
+# Stages injected: rg-generate-report → rg-apply-corrections → rg-validate-recheck
+#
+# Callers that want style and adversarial validation must include those fragments
+# separately, positioned between rg-generate-report and rg-apply-corrections:
+#
+#   include:
+#     - path: workflows/shared/report-generate.yaml
+#       prefix: rg
+#       depends_on: [gather-stage]
+#     - path: workflows/shared/style-validate.yaml
+#       prefix: sv
+#       depends_on: [rg-generate-report]
+#     - path: workflows/shared/adversarial-validate.yaml
+#       prefix: av
+#       depends_on: [sv-apply-style-corrections]
+#
+# Then override rg-apply-corrections.depends_on in the caller to [av-apply-validation-corrections].
+# (Or simply use style-validate and adversarial-validate directly without this fragment.)
+#
+# Caller must set trigger.params: template_ref, style_guide_ref
+#
+# NOTE: As of 2026-05-20 this fragment is not included by any workflow.
+# The three claimed callers each diverge from this fragment's structure:
+#   - create-postmortem uses execute-scaffold/execute-corrections (opus model,
+#     different output names) and inline validate-recheck
+#   - slo-discovery-report has a generate-report stage but delegates corrections
+#     to separate style-validate and adversarial-validate fragments
+#   - slo-recommendations uses generate-recommendations with domain-specific content
+#     and delegates corrections to validate-and-correct
+# Review before wiring up: the callers may need adaptation or this fragment may
+# need per-domain params to cover the variance.
+fragment: true
+name: report-generate
+version: "1.0"
+description: >
+  Shared report generation fragment: compose report from template and workspace
+  data, then apply corrections and recheck. Style validation and adversarial
+  fact-checking must be included as separate fragments by the caller (fragments
+  cannot include other fragments — _parse_fragment_str ignores nested include:
+  blocks).
+
+  Params consumed from caller: {template_ref} (template path or ""),
+  {style_guide_ref} (writing guide path or "").
+
+  Used by any workflow that produces a prose report and wants consistent
+  generation and correction gating before publish or human review.
+
+stages:
+
+  # ===========================================================================
+  # Generate the report from template and workspace data
+  # ===========================================================================
+
+  - name: generate-report
+    kind: execute
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: |
+      Compose the report from the template and gathered workspace data.
+
+      Step 1 — Read the writing guide before writing anything:
+        {style_guide_ref} (skip if empty)
+        .claude/WRITING_GUIDE.md (always read — project-wide rules)
+
+      Step 2 — Read the template:
+        {template_ref} (if non-empty: fill every section from workspace data)
+        If {template_ref} is empty: write a structured markdown report with
+        standard sections (Summary, Findings, Recommendations, Next Steps).
+
+      Step 3 — Pull content from workspace:
+        Read all .json and .md files under {workspace}/outputs/ and {workspace}/context/.
+        Pull from workspace artifacts only — never from memory or prompt context.
+        Every claim must trace to a workspace file.
+
+      Step 4 — Write the completed report:
+        {workspace}/outputs/report.md
+
+      Do not use LLM tells (hollow enthusiasm, weasel words, filler transitions).
+      Professional neutral tone. Source attribution on every numeric claim.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/report.md
+
+  # ===========================================================================
+  # Apply corrections from style and adversarial validation passes
+  # ===========================================================================
+
+  - name: apply-corrections
+    kind: execute
+    depends_on: [generate-report]
+    reads_from: [generate-report]
+    description: |
+      Apply corrections from any validation passes that ran before this stage.
+
+      Read any finding files that exist under {workspace}/validation/:
+        style-findings.json   — from sv-validate-style (if style-validate was included)
+        unit-findings.json    — from av-validate-units (if adversarial-validate was included)
+        cross-findings.json   — from av-cross-validate (if adversarial-validate was included)
+
+      Fix all blockers and critical/minor findings found in those files.
+
+      Rules:
+      - Surgical edits only — do not rewrite passing sections
+      - Re-read {style_guide_ref} and .claude/WRITING_GUIDE.md before editing
+      - Every correction must be traceable to a finding
+
+      Write {workspace}/validation/report-corrections.md:
+        | Finding | Source | Severity | Fix Applied |
+        |---------|--------|----------|-------------|
+
+      If no findings exist: write "no corrections needed".
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Edit]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/report-corrections.md
+
+  # ===========================================================================
+  # Re-validate corrected sections
+  # ===========================================================================
+
+  - name: validate-recheck
+    kind: validate
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections, generate-report]
+    description: |
+      Re-validate only the previously-failing claims.
+
+      Read {workspace}/validation/style-findings.json — check that blockers are resolved.
+      Read {workspace}/validation/unit-findings.json — check that critical/minor findings are fixed.
+      Read {workspace}/validation/cross-findings.json — check consistency issues resolved.
+      Read {workspace}/outputs/report.md — verify corrections landed without introducing new errors.
+
+      Write {workspace}/validation/recheck-findings.json:
+        { "status": "pass|fail", "unresolved": [...], "new_issues": [...] }
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Bash]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Previously-failing claims are now correct in outputs/report.md
+        - Corrections did not introduce new errors or inconsistencies
+        - Style guide violations from sv-validate-style are resolved
+      max_revisions: 1
+    required: false
+    writes_to:
+      - validation/recheck-findings.json
+

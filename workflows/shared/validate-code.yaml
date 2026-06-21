@@ -1,0 +1,99 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/validate-code.yaml
+#       prefix: vc
+#       depends_on: [simplify]
+#       reads_from: [simplify, implement-code, implement-tests]
+#
+# Stage injected: {prefix}-validate-code
+#
+# Caller must set trigger.params:
+#   source_root   — e.g. "workflow/"
+#   test_path     — e.g. "tests/workflow/"
+#
+# Optional trigger.params:
+#   extra_checks  — additional domain-specific rules appended to the
+#                   description (plain text, injected after the guides block).
+#                   Leave unset or empty to use only the shared guides.
+#
+# Output: {workspace}/validation/code-review-findings.json
+#   { "critical": [...], "minor": [...], "passed": [...] }
+fragment: true
+name: validate-code
+version: "1.0"
+description: >
+  Shared single-pass code review fragment for focused enhancement workflows
+  (typically 3-8 changed files). A single reviewer reads all changed files
+  directly from the worktree — no PR diff, no fan-out.
+
+  Uses the canonical review guides from concerns/
+  as the checklist source rather than inlining rules. Guide updates propagate
+  automatically to all consumers.
+
+  For new-domain-from-scratch workflows (10+ files), use the full
+  code-review-swarm fragment instead.
+
+  Params: {source_root}, {test_path}, {extra_checks} (optional).
+
+stages:
+
+  # ===========================================================================
+  # Single-pass code review against shared guides
+  # ===========================================================================
+
+  - name: validate-code
+    kind: validate
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Single-pass code review of all changed files in {source_root} and
+      {test_path}. Read files directly from the worktree — this is not a
+      PR diff review.
+
+      Step 1 — load guides.
+      Read the following guide files from concerns/:
+        - correctness.md   (logic, return types, error paths)
+        - security.md      (injection, credentials, eval/exec)
+        - tests.md         (assertions, factories, mock boundaries)
+        - patterns.md      (type hints, emit_rows, dataclasses, no TODOs)
+
+      Step 2 — run ruff.
+      Use Bash to run:
+        ruff check {source_root}
+      Record any lint errors as critical findings.
+
+      Step 3 — review files.
+      Use the Read tool to read each file under {source_root} and {test_path}.
+      Apply every concern from the loaded guides. For each concern, either
+      record a finding or record it as passed.
+
+      {extra_checks}
+
+      Step 4 — write findings.
+      Write {workspace}/validation/code-review-findings.json:
+        {{
+          "critical": [
+            {{"id": "<concern-id>", "file": "<path>", "line": <n>, "detail": "..."}}
+          ],
+          "minor": [...],
+          "passed": ["<concern-id>: <brief confirmation>", ...]
+        }}
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Grep, Bash]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - ruff check {source_root} exits 0
+        - All correctness concerns checked (return types, error paths)
+        - All security concerns checked (no injection, no hardcoded creds)
+        - All pattern concerns checked (type hints, emit_rows, dataclasses)
+        - All test concerns checked (specific assertions, factories used)
+        - code-review-findings.json written with critical/minor/passed keys
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/code-review-findings.json
