@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# Push an iOS/iPadOS icon layout JSON to an attached supervised device via cfgutil
+# Usage:
+#   bin/ios-push-layout [--layout <path>] [--creds-profile <name>] [--udid <UDID>]
+# Default layout: out/ios.iconlayout.json
+
+set -euo pipefail
+
+# Helpers (same pattern as bin/ios-install-profile)
+resolve_config() {
+  if [[ -n "${CONFIG_PATH:-}" && -f "${CONFIG_PATH}" ]]; then
+    echo "${CONFIG_PATH}"; return 0
+  fi
+  if [[ -n "${CREDENTIALS:-}" && -f "${CREDENTIALS}" ]]; then
+    echo "${CREDENTIALS}"; return 0
+  fi
+  local xdg=${XDG_CONFIG_HOME:-"$HOME/.config"}
+  if [[ -f "$xdg/credentials.ini" ]]; then
+    echo "$xdg/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/credentials.ini" ]]; then
+    echo "$HOME/.config/credentials.ini"; return 0
+  fi
+  if [[ -f "$xdg/sre-utils/credentials.ini" ]]; then
+    echo "$xdg/sre-utils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/sre-utils/credentials.ini" ]]; then
+    echo "$HOME/.config/sre-utils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.config/sreutils/credentials.ini" ]]; then
+    echo "$HOME/.config/sreutils/credentials.ini"; return 0
+  fi
+  if [[ -f "$HOME/.sre-utils/credentials.ini" ]]; then
+    echo "$HOME/.sre-utils/credentials.ini"; return 0
+  fi
+  return 1
+}
+
+ini_get() {
+  local file="$1" section="$2" key="$3"
+  awk -v s="$section" -v k="$key" '
+    BEGIN{i=0}
+    $0 ~ /^[[:space:]]*\[/ { i = ($0 ~ "^\\s*\\[" s "\\]\\s*$") ? 1 : 0 }
+    i==1 && $0 ~ "^[[:space:]]*" k "[[:space:]]*=" {
+      val=$0; sub(/^[^=]*=/, "", val); gsub(/^[ \t]+|[ \t]+$/, "", val); print val; exit 0
+    }
+  ' "$file"
+}
+
+LAYOUT="out/ios.iconlayout.json"
+UDID="${IOS_DEVICE_UDID:-}"
+P12=""
+P12_PASS=""
+PROFILE_NAME="ios_layout_manager"
+ALT_PROFILE_NAME="ios_supervisor"
+CONFIG_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --layout|-l)
+      LAYOUT="$2"; shift 2 ;;
+    --udid|-u)
+      UDID="$2"; shift 2 ;;
+    --creds-profile)
+      PROFILE_NAME="$2"; shift 2 ;;
+    --config)
+      CONFIG_PATH="$2"; shift 2 ;;
+    --p12)
+      P12="$2"; shift 2 ;;
+    --p12-pass)
+      P12_PASS="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: $0 [--layout <path>] [--creds-profile <name>] [--udid <UDID>]"
+      echo ""
+      echo "Push an iOS icon layout JSON to a supervised device via cfgutil set-icon-layout."
+      echo ""
+      echo "Options:"
+      echo "  --layout <path>         Layout JSON file (default: out/ios.iconlayout.json)"
+      echo "  --creds-profile <name>  credentials.ini profile section (default: ios_layout_manager)"
+      echo "  --udid <UDID>           Target device UDID (else all attached devices)"
+      echo "  --config <path>         Path to credentials.ini override"
+      echo "  --p12 <path>            Supervision identity .p12 (else read from credentials)"
+      echo "  --p12-pass <pass>       Password for .p12 (else read from credentials)"
+      exit 0 ;;
+    *)
+      echo "Unknown argument: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Resolve cfgutil (PATH or known app bundle location)
+CFGUTIL_BIN="cfgutil"
+if ! command -v cfgutil >/dev/null 2>&1; then
+  if [[ -x "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil" ]]; then
+    CFGUTIL_BIN="/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
+  else
+    echo "Error: cfgutil not found. Install Apple Configurator (from Mac App Store)." >&2
+    echo "Expected at /Applications/Apple Configurator.app/Contents/MacOS/cfgutil or on PATH." >&2
+    exit 127
+  fi
+fi
+
+if [[ ! -f "$LAYOUT" ]]; then
+  echo "Error: layout file not found: $LAYOUT" >&2
+  echo "Generate it first, e.g.:" >&2
+  echo "  ./bin/phone-assistant validate-layout --layout $LAYOUT" >&2
+  exit 1
+fi
+
+# Resolve P12 and passphrase from credentials.ini
+if [[ -z "$P12" || -z "$P12_PASS" ]]; then
+  if CFG_FILE=$(resolve_config 2>/dev/null); then
+    if [[ -z "$P12" ]]; then
+      P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_identity_p12 || true)"
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" ios_home_layout_identity_p12 || true)"
+      fi
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_p12 || true)"
+      fi
+      # Fallback to alternate section
+      if [[ -z "$P12" ]]; then
+        P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_identity_p12 || true)"
+        if [[ -z "$P12" ]]; then
+          P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" ios_home_layout_identity_p12 || true)"
+        fi
+        if [[ -z "$P12" ]]; then
+          P12="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_p12 || true)"
+        fi
+      fi
+    fi
+    if [[ -z "$P12_PASS" ]]; then
+      P12_PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_identity_pass || true)"
+      if [[ -z "$P12_PASS" ]]; then
+        P12_PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" ios_home_layout_identity_pass || true)"
+      fi
+      if [[ -z "$P12_PASS" ]]; then
+        P12_PASS="$(ini_get "$CFG_FILE" "$PROFILE_NAME" supervision_p12_pass || true)"
+      fi
+      if [[ -z "$P12_PASS" ]]; then
+        P12_PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_identity_pass || true)"
+        if [[ -z "$P12_PASS" ]]; then
+          P12_PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" ios_home_layout_identity_pass || true)"
+        fi
+        if [[ -z "$P12_PASS" ]]; then
+          P12_PASS="$(ini_get "$CFG_FILE" "$ALT_PROFILE_NAME" supervision_p12_pass || true)"
+        fi
+      fi
+    fi
+  fi
+fi
+
+# Expand env vars and ~ in P12 path
+if [[ -n "$P12" ]]; then
+  # shellcheck disable=SC2086
+  P12="$(eval echo "$P12")"
+fi
+
+# Import supervision identity into keychain only if not already present
+if [[ -n "$P12" && -f "$P12" ]]; then
+  if ! security find-certificate -a -c "Apple Configurator" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1; then
+    echo "Importing supervision identity into keychain..."
+    security import "$P12" \
+      -k ~/Library/Keychains/login.keychain-db \
+      -P "$P12_PASS" \
+      -T "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil" \
+      2>/dev/null || true
+  else
+    echo "Supervision identity already in keychain; skipping import."
+  fi
+elif [[ -n "$P12" && ! -f "$P12" ]]; then
+  echo "Warning: P12 file not found: $P12 — proceeding without keychain import." >&2
+fi
+
+# Build cfgutil targeting args
+ECID_OPTS=()
+if [[ -n "$UDID" ]]; then
+  ECID="$("$CFGUTIL_BIN" list 2>/dev/null | awk -v U="$UDID" 'index($0,"UDID:")&&index($0,U){for(i=1;i<=NF;i++){if($i=="ECID:"){print $(i+1); exit}}}')"
+  if [[ -n "$ECID" ]]; then
+    echo "Targeting ECID: $ECID (matched UDID: $UDID)"
+    ECID_OPTS=(--ecid "$ECID")
+  else
+    echo "Warning: could not map UDID $UDID to ECID; targeting all attached devices." >&2
+  fi
+fi
+
+echo "Devices ($CFGUTIL_BIN list):"
+"$CFGUTIL_BIN" list || true
+
+echo "Pushing layout: $LAYOUT"
+export IOS_USE_CONFIGURATOR_IDENTITY=1
+
+set -x
+"$CFGUTIL_BIN" "${ECID_OPTS[@]}" set-icon-layout --force "$LAYOUT"
+set +x
+
+echo "Layout pushed successfully: $LAYOUT"
