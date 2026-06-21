@@ -1,80 +1,65 @@
 ---
 name: familiarize
-description: Preload repo context for the dancing-bear personal-assistants codebase. Use when the user runs /familiarize, says "get familiar with this repo", or starts a new session and wants Claude oriented before making changes. Reads the .llm/ context files and runs agentic-compact CLI help for the primary bin/*-assistant entry points so Claude has accurate, token-efficient knowledge of the public CLI surface without opening heavy READMEs.
-tools: Read, Bash, Glob
+description: Preload repo context for the dancing-bear personal-assistants codebase. Use when the user runs /familiarize, says "get familiar with this repo", or starts a new session and wants Claude oriented before making changes.
+allowed-tools: Bash, Read, Glob
+skills:
+  - dancing-bear-rules
 ---
 
-# Familiarize
+# Project Familiarization
 
-Preload orientation for this repo using its own token-efficient agentic capsules. This is **read-only** — do not edit files or run anything with side effects.
+Load context about dancing-bear at session start.
 
-## Why this exists
+## When to Use
 
-The repo is designed for LLM consumers: `.llm/*.md` files and `--agentic --agentic-compact` output from each CLI wrapper are the canonical, terse descriptions of public behavior. They are much cheaper than READMEs and always in sync with the implementation. Use them.
+- **Session start** — run before responding to first request
+- **Context refresh** — when you need to re-orient
+- **Feature discovery** — exploring what tools are available
 
-## Workflow
-
-Run everything in a single batched tool turn where possible — most calls are independent.
-
-### Phase 1 — LLM context files
-
-Read these in order (small, high signal):
-
-1. `.llm/CONTEXT.md` — system overview and rules
-2. `.llm/MIGRATION_STATE.md` — current status and in-flight work
-3. `.llm/PATTERNS.md` — copy-paste templates for common tasks
-4. `.llm/FAMILIARIZE_CORE.md` — the repo's own familiarization contract
-
-Skip `.llm/DOMAIN_MAP.md` unless it exists (generate on demand with `./bin/llm domain-map --stdout` only if the user asks for a deeper map).
-
-### Phase 2 — Aggregated agentic capsule
-
-Run the unified agentic capsule. This one command gives you schemas for every app in a compact form:
+## Run Familiarize
 
 ```bash
-./bin/llm agentic --stdout
+./bin/llm familiar --stdout
 ```
 
-Also pull the familiarization capsule itself (tiny, defines the read-only contract):
+This returns a YAML capsule covering:
+- Skip paths and heavy files to avoid
+- Key CLIs and agentic schema pointers
+- Familiarization contract (read-only rules)
+
+## Deep Dive (On-Demand Only)
+
+Load these only when the task requires deeper understanding:
+
+| File | When to Load |
+|------|-------------|
+| `.llm/CONTEXT.md` | Architecture questions, system overview |
+| `.llm/MIGRATION_STATE.md` | In-flight work, current status |
+| `.llm/PATTERNS.md` | Implementing features, copy-paste templates |
+| `.llm/FAMILIARIZE_CORE.md` | Familiarization contract details |
+
+Generate on demand (never preload):
 
 ```bash
-./bin/llm familiar --stdout --compact
+./bin/llm domain-map --stdout   # directory structure deep dive
 ```
 
-### Phase 3 — Per-app agentic help (compact)
+## Tool Discovery
 
-For each primary `bin/*-assistant` wrapper, fetch the compact agentic schema. These are the public CLI surfaces Claude will most often be asked to touch. Run them in parallel:
+For CLI capabilities, use agentic schemas (never `--help`):
 
 ```bash
-./bin/mail-assistant     --agentic --agentic-format yaml --agentic-compact
-./bin/calendar-assistant --agentic --agentic-format yaml --agentic-compact
-./bin/schedule-assistant --agentic --agentic-format yaml --agentic-compact
-./bin/phone-assistant    --agentic --agentic-format yaml --agentic-compact
+./bin/<assistant> --agentic --agentic-format yaml --agentic-compact
 ```
 
-If the user's stated task clearly targets a single domain (e.g. "fix the WhatsApp importer"), also pull the matching wrapper:
+Primary surfaces: `mail-assistant`, `calendar-assistant`, `schedule-assistant`, `phone-assistant`.
+Load only the wrapper(s) relevant to the current task.
 
-- `./bin/whatsapp --agentic --agentic-format yaml --agentic-compact`
-- `./bin/wifi-assistant --agentic --agentic-format yaml --agentic-compact`
-- `./bin/apple-music-assistant --agentic --agentic-format yaml --agentic-compact`
+## After Familiarize
 
-Skip wrappers that fall outside the task — don't burn tokens loading every app.
-
-### Phase 4 — Report
-
-After preloading, give the user a terse summary (≤10 lines):
-
-- Which context files were loaded
-- Which CLI surfaces were loaded
-- Any obvious migration / in-flight work surfaced by `MIGRATION_STATE.md`
-- One sentence confirming readiness and inviting the next instruction
-
-Do **not** dump the agentic output back at the user — the point is to have it in your own context, not theirs.
-
-## Rules
-
-- **Read-only.** Never pass `--write`, never run commands that modify files, never touch credentials or tokens.
-- **Prefer compact agentic output over `--help`.** The repo explicitly optimizes `--agentic-compact` for LLM consumption (see `CLAUDE.md` → "LLM Consumer Rules").
-- **Do not open heavy files** (`README.md`, `AGENTS.md`, provider READMEs, `config/*.yaml`, anything under `out/`) unless the user's task requires it. `.llm/FAMILIARIZE_CORE.md` calls these out as "extended, explicit only."
-- **Skip noisy paths** entirely: `.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`.
-- If `./bin/llm agentic --stdout` fails (e.g. dependency missing), fall back to reading `.llm/AGENTIC_SCHEMAS.json` directly and note the failure in your report.
+You should know:
+- What the project does (unified personal-workflow CLIs: mail, calendar, schedule, phone, WhatsApp)
+- How to run CLIs (`./bin/<assistant> <subcommand> <flags>`)
+- Where to find patterns (`.llm/PATTERNS.md`)
+- Paths to skip (`.venv/`, `.git/`, `.cache/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`)
+- Available skills (`/familiarize`, `/dancing-bear-rules`, etc.)
