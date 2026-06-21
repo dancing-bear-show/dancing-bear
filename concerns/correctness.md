@@ -1,0 +1,203 @@
+# Correctness Review Guide
+
+## When loaded
+
+Load this guide when the diff contains `.py` files. Applies to all Python source
+changes — new functions, modified logic, CLI `run()` methods, and datetime handling.
+
+## Concerns
+
+### return-type-mismatch
+- **severity**: critical
+- **check**: Verify return types match function signatures and call sites.
+- **triggers**: New or modified functions with type-annotated return types;
+  callers that assign or pass the return value.
+- **example**: Function declares `-> list[str]` but returns `None` on an early
+  exit path; caller then iterates over the result and raises `TypeError`.
+
+### silent-failure
+- **severity**: critical
+- **check**: Verify exceptions are not swallowed without re-raise, log, or
+  user-visible error. Also verify that functions returning `(status, data)` tuples
+  have their status component checked by the caller — ignoring the status and
+  unpacking only `data` silently discards error information.
+- **triggers**: `except` blocks; `try/except` without `raise`, `log`, or
+  `sys.exit`; bare `except:` clauses; callers that do `_, data = fn()` or
+  `result[1]` on a two-element return without checking `result[0]`; `or []` /
+  `or {}` applied to values that could carry error information.
+- **example**: `except Exception: pass` in a data-fetch method — the caller
+  receives `None` and proceeds as if the fetch succeeded. Bare `except` blocks
+  require `# nosec B110/B112` with an explanation of intent.
+- **see also**: `exit-code-coverage` in tests.md — tests that only check
+  `exit_code == 0` won't catch silent failures swallowed by the code under test.
+
+### unhandled-edge-case
+- **severity**: major
+- **check**: Verify `None`, empty collections, and zero-value inputs are
+  handled at function boundaries.
+- **triggers**: Functions accepting optional args (`| None`, default `None`);
+  list/dict arguments consumed without a length check; division or modulo
+  operations.
+- **example**: `items[0]` called on a list that may be empty; division by
+  `total` without a zero guard.
+
+### wrong-exit-code
+- **severity**: major
+- **check**: Verify `sys.exit()` calls use exit codes consistent with the
+  documented exit code semantics for the module.
+- **triggers**: `sys.exit()` calls in CLI files; error-handling branches in
+  `run()` methods.
+- **example**: `sys.exit(1)` on a connection timeout; `sys.exit(0)` after a
+  validation failure. Check `core/cli_errors.py` for `ExitCode` constants.
+
+### naive-timestamp-conversion
+- **severity**: major
+- **check**: Verify timestamp arithmetic uses timezone-aware datetimes throughout — from parse
+  to comparison to output. Watch for silent UTC-local mismatches when converting epoch floats
+  or parsing ISO strings without a timezone suffix.
+- **triggers**: `datetime.fromtimestamp(` without `tz=timezone.utc`; `datetime.fromisoformat(`
+  on strings that may lack a `+00:00` or `Z` suffix; arithmetic between a naive and an
+  aware datetime; `.total_seconds()` on a timedelta derived from mixed-aware/naive subtraction.
+- **example**: `datetime.fromtimestamp(ts)` on a Unix epoch returns a local-time datetime —
+  subtracting it from `datetime.now(timezone.utc)` raises `TypeError` at runtime. Fix:
+  `datetime.fromtimestamp(ts, tz=timezone.utc)` throughout.
+
+### unvalidated-passthrough
+- **severity**: major
+- **check**: Verify that values accepted from external sources (CLI args, API responses, config
+  files) are validated or sanitised before being used in shell commands, file paths, or format
+  strings — never passed through raw.
+- **triggers**: `args.<field>` used directly in `subprocess` / `os.system` / f-string shell
+  args; API response fields fed into `open()` paths or `str.format()`; config values
+  interpolated into URLs without encoding.
+- **example**: `subprocess.run(["git", "checkout", args.branch])` is safe; but
+  `subprocess.run(f"git checkout {args.branch}", shell=True)` is a shell-injection vector
+  when `branch` contains spaces or shell metacharacters. Fix: always pass args as a list, never
+  through `shell=True` with user-controlled input.
+
+### datetime-timezone-naive
+- **severity**: major
+- **check**: Verify `datetime.utcnow()` and naive `strptime()` results are
+  replaced with timezone-aware equivalents using `datetime.now(timezone.utc)`.
+- **triggers**: Any `.py` file importing `datetime`; `datetime.utcnow()`,
+  `datetime.now()` without a tz argument, `datetime.strptime(` without
+  explicit UTC attachment, `.timestamp()` called on a naive datetime, manual
+  `+'Z'` string concatenation instead of `.isoformat()`.
+- **example**: `datetime.utcnow()` in a calendar date filter — deprecated in
+  Python 3.12 and produces non-deterministic UTC offsets when the runner
+  timezone differs from UTC. Fix: `datetime.now(timezone.utc)` and
+  `.isoformat()` throughout.
+
+### undeclared-flag-constraint
+- **severity**: major
+- **check**: Verify that when a flag's help text documents a dependency on another flag (e.g. "requires --profile"), the constraint is enforced in the parser or `run()` with an error message — not just documented. Also verify the semantics match: if a spec describes a flag one way but the implementation treats it differently, that is an undeclared semantic mismatch.
+- **triggers**: `add_argument(` with a `help=` string containing "requires", "only with", or "must be used with"; CLI `run()` methods that accept a flag combination without checking the constraint.
+- **example**: `--dry-run` is described as requiring `--apply`, but `run()` accepts both flags independently and silently ignores `--dry-run`. Fix: enforce constraints in `run()` and align help text with actual parameter semantics.
+
+### api-response-no-fallback
+- **severity**: minor
+- **check**: Verify that output rows derived from API responses fall back to user-provided arguments when the API returns an empty or missing field, rather than silently emitting a blank value.
+- **triggers**: Output rows built from API response fields that could be empty or absent; CLI output that echoes a resource field the user already provided.
+- **example**: `{"title": response.get("title")}` — if the API returns `""` for the title, the user sees a blank row even though `args.title` has the correct value. Fix: `"title": response.get("title") or args.title`.
+
+### silent-truncation
+- **severity**: major
+- **check**: Verify that string truncation of IDs, UIDs, or keys is never silent — truncation must either raise a clear error or produce a deterministic, collision-resistant result.
+- **triggers**: `str[:N]` on ID, UID, key, or slug values; any length cap applied before storing or publishing a resource.
+- **example**: `uid = raw_uid[:40]` silently truncates — two configs whose UIDs differ only after character 40 will collide. Fix: raise `ValueError` when the raw value exceeds the limit, or use a hash-suffixed slug.
+
+### vacuous-all-check
+- **severity**: major
+- **check**: Verify that `all(...)` and `any(...)` calls are not applied to a potentially-empty iterable when an empty collection should be treated as a failure, not a pass.
+- **triggers**: `all(` over a generator or list that derives from `.get(`, `filter(`, or a list comprehension of a nullable collection; boolean flags set from `all(...)` expressions used as a validation result.
+- **example**: `all(item["ok"] for item in results if item)` — when all items are filtered out, `all([])` returns `True`, so validation passes even though no item was checked. Fix: `bool(results) and all(...)` or use `any(...)` semantics where appropriate.
+
+### inconsistent-fallback-default
+- **severity**: major
+- **check**: Verify that the same optional/missing field has a consistent fallback value at every call site — mixing `""` and `"unknown"` (or `None` and `0`) for the same key produces different behavior in different code paths.
+- **triggers**: `dict.get("key", ...)` where the same field key appears more than once with different default values; f-strings or format strings that embed the same optional field in multiple places with different guards.
+- **example**: `item.get("label", "unknown")` in one path and `i.get("label", "")` in another — downstream comparisons or exports diverge silently. Pick one fallback and apply it consistently.
+
+### lowercase-any-annotation
+- **severity**: critical
+- **check**: Verify type annotations use `Any` from `typing`, not the lowercase builtin `any`. Using `any` as a type annotation compiles without error but defeats type checking entirely.
+- **triggers**: `def ` or `->` followed by `: any` or `-> any`; type annotations where `any` appears without an uppercase `A`; missing `from typing import Any`.
+- **example**: `def process(args: any) -> None:` — `any` is the builtin function, not a type. Fix: `from typing import Any` and `def process(args: Any) -> None:`.
+
+### cli-flag-dead-code
+- **severity**: major
+- **check**: Verify every flag declared in `add_argument()` is consumed in the corresponding `run()` method — either read via `args.<flag>` or forwarded to a called function.
+- **triggers**: `add_argument(` in parser setup; argparse flags whose name does not appear in the same file's `run()` body; `--format choices` that advertise an option the handler has no branch for.
+- **example**: `parser.add_argument("--verbose", action="store_true")` defined but `run()` never reads `args.verbose` — the flag silently has no effect. Fix: wire it into the handler logic or remove the argument declaration.
+
+### resource-leak
+- **severity**: major
+- **check**: Verify that `tempfile.mkdtemp()` calls, raw file handles opened without a `with` block, and `sys.modules` injections all have a corresponding cleanup path — either a context manager or an explicit `del`/`shutil.rmtree` in a `finally` block.
+- **triggers**: `tempfile.mkdtemp(` not inside `with tempfile.TemporaryDirectory()`; `open(` assigned to a variable without `with`; `sys.modules["..."] =` outside a `with patch.dict(...)` block or test teardown.
+- **example**: `tmp = tempfile.mkdtemp()` with no cleanup — temp directory persists and accumulates across test runs. Fix: `with tempfile.TemporaryDirectory() as tmp:`.
+
+### env-var-not-exported
+- **severity**: major
+- **check**: Verify that shell variables intended to be read by Python subprocesses via `os.environ` are declared with `export`, not as bare shell assignments.
+- **triggers**: Shell scripts or hook files that assign a variable (`VAR=value`) and then invoke a Python subprocess or `./bin/` CLI that reads `os.environ["X"]`.
+- **example**: `PROFILE=$(...)` followed by `./bin/mail-assistant --profile $PROFILE` where Python reads `os.environ["PROFILE"]` — the variable is not exported so `os.environ` raises `KeyError`. Fix: `export PROFILE=$(...)`.
+
+### hardcoded-magic-constant
+- **severity**: major
+- **check**: Verify numeric literals that duplicate a named constant defined in the same module are replaced with the constant. Silent bypass of a named constant means the literal drifts when the constant is updated.
+- **triggers**: Numeric literals in `.py` files where a constant with the same value is importable from a sibling `constants.py` or defined at module level.
+- **example**: `max_h = 7.5 - MARGIN / 2` where `PAGE_HEIGHT = 7.5` is defined at module level — when `PAGE_HEIGHT` is updated, `max_h` silently uses the old value. Fix: `max_h = PAGE_HEIGHT - MARGIN`.
+
+### silent-type-coercion-on-wrong-input
+- **severity**: major
+- **check**: Verify that functions receiving structured input (lists from YAML/JSON) raise or surface an error when the input is the wrong type, rather than silently normalizing to an empty collection and returning as if the input were valid but empty.
+- **triggers**: `if not isinstance(x, list): return ()` or `or []` / `or {}` coercions inside YAML/config parsers; functions that return `[]` on both "no results" and "input was malformed."
+- **example**: `def _parse_includes(block): if not isinstance(block, list): return ()` — when a YAML author writes `include: {file: x.yaml}` (a mapping instead of a list), the function silently returns no includes, dropping the entry without any error. Fix: raise a descriptive error.
+
+### positional-parameter-should-be-keyword-only
+- **severity**: minor
+- **check**: Verify that internal/sentinel parameters (recursion guards, accumulator sets) are declared keyword-only (`def f(x, *, _visited=None)`). Positional access allows callers to accidentally populate an internal parameter.
+- **triggers**: Private parameters (leading `_`) that are not the first parameter in a signature; recursion-guard parameters of type `set | None` or `list | None` with `default=None`.
+- **example**: `def _expand(path, _visited=None)` — a caller writing `_expand(path, some_set)` accidentally seeds the visited set. Fix: `def _expand(path, *, _visited=None)`.
+
+### broad-except-shadows-narrower-handler
+- **severity**: major
+- **check**: Verify that `except Exception` blocks do not swallow typed exceptions that a narrower outer handler is meant to catch.
+- **triggers**: Functions with nested `try/except Exception` inside a call stack where an outer `except SpecificError` block depends on the exception propagating; `except Exception as e: print(...)` patterns that do not re-raise.
+- **example**: Inner `except Exception` catches all exceptions and only prints to stderr — a `ValueError` on invalid input never reaches the outer `except ValueError` block. Fix: narrow the inner handler to the specific exceptions expected there.
+
+### hook-invokes-package-module
+- **severity**: major
+- **check**: Verify that hooks and scripts invoke project CLIs via `./bin/<entrypoint>` rather than `python -m <package>`, which fails when the package is not installed in the active environment.
+- **triggers**: Hook files or scripts that invoke Python via `python -m personal_assistants.` or `python -m <module_path>`; subprocess calls that use `python -m` for project-internal CLI execution.
+- **example**: A hook calls `subprocess.run([sys.executable, "-m", "mail.cli", ...])` — this fails with `ModuleNotFoundError` in any environment where `pip install -e .` has not been run. Fix: replace with `["./bin/mail-assistant", ...]`.
+
+### query-unbounded
+- **severity**: major
+- **check**: Verify that queries and data scans load a bounded result set — every query has a limit, page_size, or streaming path.
+- **triggers**: API queries with no page_size parameter; `f.read().split()` calls where only a tail/head slice is needed; list comprehensions over query results with no bound.
+- **example**: `messages = api.list_messages()` with no page size — returns every message on the first production run with a large mailbox. Fix: add a `max_results` parameter at the query layer.
+
+### noqa-f401-on-used-import
+- **severity**: minor
+- **check**: Verify that `# noqa: F401` suppressions are only applied to imports that are genuinely unused in the file — not to imports that are actively referenced in the same file.
+- **triggers**: Any `.py` file containing `# noqa: F401` where the suppressed import name appears in the file body.
+- **example**: `from .parser import parse  # noqa: F401` — `parse` is then called in the same file, making the suppression incorrect. Fix: remove `# noqa: F401` from any import that is actually referenced.
+
+### help-text-behavior-mismatch
+- **severity**: major
+- **check**: Verify that every CLI flag's `help=` string accurately describes the flag's actual implementation behavior.
+- **triggers**: CLI `add_argument(` calls where the `help=` string describes a capability that is only triggered by a different input path; help strings containing "auto-extracted from" or "supports" when the implementation only handles that case elsewhere.
+- **example**: `--config` help reads "YAML config or URL (auto-fetched)" but URL fetching only runs for positional args — passing a URL to `--config` directly uses the string as a file path. Fix: narrow the help string to describe only what the flag itself handles.
+
+### cli-error-to-stdout
+- **severity**: major
+- **check**: Verify that error messages are written to stderr, not stdout — stdout is the structured output channel and must not contain human-readable error text.
+- **triggers**: CLI `run()` methods or dispatch handlers that call `print(f"Unknown command: {cmd}")` or `print("Error: ...")` without `file=sys.stderr`.
+- **example**: `print(f"Unknown command: {args.command}")` in a CLI dispatch handler outputs to stdout. When a caller pipes to `jq`, the error text corrupts the JSON stream. Fix: `print(f"Unknown command: {args.command}", file=sys.stderr); sys.exit(3)`.
+
+### docstring-implementation-mismatch
+- **severity**: major
+- **check**: Verify that module and function docstrings accurately describe what the implementation currently does — docstrings that claim behavior the code does not perform mislead callers.
+- **triggers**: Docstrings for functions that have been refactored or partially implemented; module-level docstrings that describe a feature set broader than what the code provides.
+- **example**: A `_filter_records()` docstring says it returns only records within a date range, but the implementation returns all records matching a file pattern with no date check. A caller relying on the docstring contract gets records outside the expected range. Fix: update the docstring to match the actual behavior.

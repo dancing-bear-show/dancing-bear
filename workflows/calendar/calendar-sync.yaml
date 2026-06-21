@@ -1,0 +1,61 @@
+name: calendar-sync
+version: "1.0"
+description: >
+  Gather upcoming calendar events from Outlook, generate a
+  structured schedule plan, review it with a human, then apply it.
+
+trigger:
+  source: manual
+  params:
+    days: "7"
+    profile: outlook_personal
+
+stages:
+  - name: gather-events
+    kind: gather
+    description: >
+      Fetch upcoming calendar events for the next {days} days.
+      Run:
+        ./bin/calendar-assistant events list -- --format json --profile {profile}
+      Write the output to outputs/events.json.
+    agent:
+      role: researcher
+    writes_to:
+      - outputs/events.json
+    validates_output:
+      - path: outputs/events.json
+        checks: [is_json, is_list]
+
+  - name: propose-schedule
+    kind: propose
+    human_gate: true
+    description: >
+      Read outputs/events.json and propose a structured daily schedule.
+      Identify conflicts, gaps, and over-scheduled periods.
+      Write the proposed schedule to outputs/schedule-plan.yaml.
+    agent:
+      role: doc-writer
+    depends_on: [gather-events]
+    reads_from: [gather-events]
+    writes_to:
+      - outputs/schedule-plan.yaml
+
+  - name: validate-schedule
+    kind: validate
+    description: >
+      Validate the proposed schedule in outputs/schedule-plan.yaml.
+      Check that:
+        - No events overlap
+        - Travel time is accounted for between locations
+        - No meetings are scheduled outside working hours
+      Report any issues found.
+    agent:
+      role: reviewer
+    validation:
+      strategy: unit
+      criteria:
+        - No two events overlap in time
+        - Schedule respects working hours (9am-6pm)
+        - All original events are accounted for
+    depends_on: [propose-schedule]
+    reads_from: [propose-schedule, gather-events]
