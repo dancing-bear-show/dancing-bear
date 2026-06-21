@@ -1,0 +1,504 @@
+name: coverage-improve
+version: "1.0"
+description: >
+  Phase 2: implement test improvements identified by coverage-report (Phase 1).
+  Reads the Phase 1 coverage-report.json, proposes an ordered plan, fans out
+  one tester agent per domain, validates the full suite, quality-checks new
+  tests, and presents a final human gate before the work is committed to a PR.
+
+  Requires Phase 1 to have completed and produced coverage-report.json.
+  Pass report_path in trigger.params (or the workflow will search for the most
+  recent coverage-report.json in the workspace parent directory).
+
+  Stage dependency graph:
+
+        load-report                               (G0 — read Phase 1 report, build work list)
+             |
+       propose-plan  [human gate]                 (G1 — approve scope before any writes)
+             |
+    implement-domain × N  (parallel fan-out)      (G2 — one tester per domain)
+             |
+        validate-all                              (G3 — full suite + coverage delta)
+             |
+       quality-check                              (G4 — review new tests for quality)
+             |
+      present-results  [human gate]               (G5 — final summary + PR decision)
+
+metadata:
+  author: sre-platform
+  created: "2026-06-19"
+
+trigger:
+  source: manual
+  params:
+    report_path: ""       # path to Phase 1 coverage-report.json; searched if blank
+    min_coverage: "80"    # files below this % are targeted
+    domains: "*"          # comma-list to restrict scope, or "*" for all
+
+workspace_dir: "{work_dir}/coverage-improve"
+
+stages:
+
+  # ===========================================================================
+  # G0: Load Phase 1 report, snapshot baseline, build domain work list
+  # ===========================================================================
+
+  - name: load-report
+    kind: gather
+    description: >
+      Locate and read the Phase 1 coverage-report.json, snapshot current
+      per-file coverage, and produce the domain work list for downstream stages.
+
+      Step 1 — locate the Phase 1 report:
+        If trigger.params.report_path is non-empty, read that file directly.
+        Otherwise, search for the most recent coverage-report.json:
+          find . -name 'coverage-report.json' -path '*/reports/*' \
+            ! -path './.venv/*' ! -path './.git/*'
+        Use the newest file by modification time.
+
+        If no file is found, exit with an error message:
+          "Phase 1 report not found. Run coverage-report workflow first and
+           pass the output path as report_path."
+
+      Step 2 — create workspace dirs:
+        mkdir -p {workspace}/design
+        mkdir -p {workspace}/coverage
+        mkdir -p {workspace}/validation
+
+      Step 3 — snapshot current coverage baseline:
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --format=json -o {workspace}/validation/coverage-before.json 2>/dev/null || true
+
+        If coverage.py fails, write a stub:
+          { "files": {}, "totals": {}, "note": "coverage baseline unavailable" }
+
+      Step 4 — build domain work list from Phase 1 report:
+        Read coverage-report.json[].domains.
+        Filter per trigger.params.domains:
+          - If domains == "*", include all.
+          - Else include only domains whose name is in the comma-separated list.
+        Filter per trigger.params.min_coverage:
+          - Include files where coverage_pct < min_coverage.
+          - Include files with any missing_both entries (always high-priority).
+          - Skip files with no missing_happy, no missing_sad, no missing_both
+            AND coverage_pct >= min_coverage.
+        Order: high-priority domains first (any file with missing_both or coverage < 50%),
+          then medium, then low.
+
+        Write {workspace}/design/work-list.json:
+          {
+            "min_coverage": {min_coverage},
+            "source_report": "<resolved path to coverage-report.json>",
+            "items": [
+              {
+                "domain": "mail",
+                "priority": "high",
+                "src_dir": "mail/",
+                "test_dir": "tests/mail_tests/",
+                "files": [
+                  {
+                    "src_path": "mail/dsl.py",
+                    "coverage_pct": 45.2,
+                    "missing_happy": ["func_a"],
+                    "missing_sad": ["resolve_filters"],
+                    "missing_both": ["func_d"]
+                  }
+                ]
+              }
+            ]
+          }
+
+        The "items" key at the top level is required — it is the fan_out
+        source for implement-domain.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - design/work-list.json
+      - validation/coverage-before.json
+
+  # ===========================================================================
+  # G1: Human gate — review and approve the implementation plan before writes
+  # ===========================================================================
+
+  - name: propose-plan
+    kind: propose
+    depends_on: [load-report]
+    reads_from: [load-report]
+    description: >
+      Synthesise the domain work list into a readable implementation plan and
+      present it for human approval before any test files are created or modified.
+
+      Read:
+        {workspace}/design/work-list.json
+
+      For each domain in work-list.json[].items, also inspect:
+        tests/<domain_test_dir>/fixtures.py (if it exists) — list available
+          make_* factory functions the tester agents can use.
+        tests/fixtures.py — global factories shared across domains.
+
+      Write {workspace}/design/plan.md:
+
+        # Coverage Improvement Plan
+
+        ## Scope
+        - Domains in scope: N
+        - Files to improve: N
+        - Target threshold: {min_coverage}%
+
+        ## Work Order
+
+        ### HIGH priority (implement first)
+        #### <domain>
+        Files to target (in order):
+        | File | Current % | Missing Happy | Missing Sad | Missing Both |
+        |------|-----------|--------------|------------|-------------|
+        | ...  |           |              |            |             |
+
+        Available factories in tests/<domain>_tests/fixtures.py:
+          - make_foo(...)
+          - make_bar(...)
+
+        Suggested approach:
+          <one paragraph: what test patterns fit this domain, which existing
+           tests to extend vs new files to create, how to mock external APIs>
+
+        ### MEDIUM priority
+        ... (same structure)
+
+        ### LOW priority
+        ... (same structure)
+
+        ## Parallel Execution Plan
+        Domains that can run tester agents concurrently (no shared conftest
+        writes that would conflict):
+          Group A: [domain1, domain2]   — fully independent
+          Group B: [domain3]            — independent of A
+
+        ## Skip List
+        | File | Reason |
+        |------|--------|
+
+      Present the plan for approval. The user may:
+        A) Approve — proceed with implementation
+        B) Narrow scope — specify which domains or files to exclude
+        C) Adjust approach — provide guidance on mocking strategy or test style
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - design/plan.md
+
+  # ===========================================================================
+  # G2: Per-domain test implementation — parallel fan-out
+  # ===========================================================================
+
+  - name: implement-domain
+    kind: execute
+    depends_on: [propose-plan]
+    reads_from: [propose-plan, load-report]
+    description: >
+      Fan out: one tester agent per domain in {workspace}/design/work-list.json.
+      All domain agents run concurrently.
+
+      Each tester agent works on its assigned {domain} only.
+
+      Step 1 — read context:
+        a. Read {workspace}/design/plan.md, locate the section for {domain}.
+        b. Read {workspace}/design/work-list.json, extract the file list for {domain}.
+        c. Read tests/{test_dir}/fixtures.py (if it exists) for available factories.
+        d. Read tests/fixtures.py for global factories.
+
+      Step 2 — process files in priority order (missing_both → missing_sad → missing_happy):
+
+        For each file:
+
+        a. Read the source file in full.
+        b. Read the existing test file for this source file (if any).
+           NEVER overwrite or delete passing test cases.
+
+        c. For each function in missing_both (neither happy nor sad path covered):
+           Write tests covering:
+             - The normal success case with valid inputs → assert the expected output
+             - At least one error case: invalid input, missing data, or raised exception
+               → use self.assertRaises(ExceptionType) or check returned error value
+
+        d. For each function in missing_sad (happy covered, sad missing):
+           Write tests covering:
+             - Invalid or boundary inputs → assert error handling behaviour
+             - Exception propagation or suppression → use assertRaises or assertIsNone
+             - Edge cases like empty lists, None, zero, negative numbers
+
+        e. For each function in missing_happy (sad covered, happy missing):
+           Write tests covering the normal success case with typical inputs.
+
+        f. Test conventions (this is a unittest project, NOT pytest):
+           - Subclass unittest.TestCase — never use bare functions
+           - setUp/tearDown for shared fixtures
+           - Use make_* factories from fixtures.py — never construct raw dicts or
+             objects inline when a factory is available
+           - Specific assertions: assertEqual, assertIn, assertIsInstance,
+             assertIsNotNone, assertRaises — never assertTrue(x is not None)
+           - Patch at the call site (where the function is used), not where defined:
+               unittest.mock.patch('mail.dsl.open') not 'builtins.open'
+           - Group related tests in the same TestCase class; use descriptive
+             method names: test_<function>_<scenario>
+
+        g. After writing or extending each test file, run:
+             python3 -m unittest discover -s tests/ -p 'test_*.py' -q 2>&1 | tail -5
+           Focus on failures related to the changed file.
+           Fix import errors or assertion failures — up to 2 fix cycles per file.
+           If still failing after 2 cycles, skip the remaining sad-path gaps
+           for that function and note it in the domain summary.
+
+      Step 3 — write per-domain results to {workspace}/coverage/{domain}-results.md:
+        ## {domain} — Coverage Improvement Results
+        | File | Before % | Tests Added | Scenarios Covered | Status |
+        |------|----------|-------------|-------------------|--------|
+        | mail/dsl.py | 45% | 6 | happy+sad for resolve_filters, func_d | PASS |
+
+        Functions still missing sad-path (with reason):
+        - func_x: requires live network call; skipped pending mock strategy
+
+        Factories used: [list]
+        New test methods written: N
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: load-report
+      field: items
+      key: domain
+      mode: agent
+    writes_to:
+      - coverage/{domain}-results.md
+
+  # ===========================================================================
+  # G3: Validate — full test suite + coverage delta
+  # ===========================================================================
+
+  - name: validate-all
+    kind: validate
+    depends_on: [implement-domain]
+    reads_from: [implement-domain]
+    description: >
+      Run the full test suite to confirm nothing was broken, measure the
+      coverage delta, and lint all changed test files.
+
+      Step 1 — full test suite:
+        python3 -m unittest discover -q
+
+        If this exits non-zero:
+          Read the error output. Identify which test file and assertion failed.
+          For each failure:
+            - Read the relevant test file and source file.
+            - Fix the specific failure (import error, wrong mock path,
+              wrong expected value). Do NOT make changes unrelated to the failure.
+            - Re-run after each fix.
+          Up to 3 global fix cycles. If still failing, record the blocker in
+          validation-results.md and continue.
+
+      Step 2 — coverage after:
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --format=json -o {workspace}/validation/coverage-after.json 2>/dev/null || true
+
+      Step 3 — compute delta:
+        Read {workspace}/validation/coverage-before.json and coverage-after.json.
+        For each file that appears in either report:
+          delta_pct = after_coverage - before_coverage
+        List files where delta_pct > 0 (improved), = 0 (unchanged), < 0 (regressed).
+
+      Step 4 — lint changed test files:
+        Find test files modified since the workflow started:
+          git diff --name-only --diff-filter=AM -- 'tests/**/*.py'
+        For each file: ~/.qlty/bin/qlty check <file>
+        Fix any ruff or bandit issues introduced (not pre-existing).
+
+      Step 5 — write {workspace}/validation/validation-results.md:
+        ## Test Suite
+        - Exit code: 0 (PASS) / 1 (FAIL)
+        - Total tests: N
+        - Failures: N (list each with test name and error summary)
+
+        ## Coverage Delta
+        | File | Before % | After % | Delta |
+        |------|----------|---------|-------|
+        | mail/dsl.py | 45% | 78% | +33% |
+        ...
+        Overall: before X% → after Y%
+
+        ## Lint
+        - Files checked: N
+        - Issues found: N (list if any)
+
+        ## Blockers
+        (list any failures that could not be fixed)
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - python3 -m unittest discover exits 0
+        - No new qlty issues introduced in changed test files
+        - coverage-after.json exists and is non-empty
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/validation-results.md
+      - validation/coverage-after.json
+
+  # ===========================================================================
+  # G4: Quality check — review new tests for idioms and correctness
+  # ===========================================================================
+
+  - name: quality-check
+    kind: validate
+    depends_on: [validate-all]
+    reads_from: [validate-all, implement-domain]
+    description: >
+      Review every new or modified test file for quality. Read
+      {workspace}/coverage/*-results.md to know which files were touched,
+      then read those test files directly.
+
+      Check for each new/modified test file:
+
+        Unittest conventions:
+          - All test classes subclass unittest.TestCase
+          - No bare pytest-style functions (def test_foo():) without a class
+          - setUp/tearDown used where 3+ test methods share the same setup
+
+        Factory and fixture use:
+          - No raw dict or object construction where a make_* factory exists
+          - Factories are called with keyword args; no positional-only calls
+            to factories with 4+ parameters
+
+        Assertion quality:
+          - No assertTrue(x is not None) — must be assertIsNotNone(x)
+          - No assertTrue(len(x) > 0) — must be assertGreater(len(x), 0)
+          - No test method that only asserts "does not raise" with no other check
+          - assertRaises used as a context manager (with self.assertRaises(...):)
+            not as a direct call
+
+        Coverage intent:
+          - Every test method has at least one meaningful assertion beyond
+            "the function was called"
+          - Files that had missing_both gaps now have at least one
+            happy-path AND one sad-path test for each such function
+
+        Security:
+          - No hardcoded credentials, tokens, or real email addresses in test data
+          - Sensitive values use placeholder strings like "test@example.com",
+            "fake-token-123"
+
+      Write {workspace}/validation/quality-findings.json:
+        {
+          "critical": [
+            {
+              "file": "tests/mail_tests/test_dsl.py",
+              "line": 42,
+              "issue": "assertTrue(result is not None) — use assertIsNotNone",
+              "fix": "Replace with self.assertIsNotNone(result)"
+            }
+          ],
+          "minor": [...],
+          "passed": ["tests/mail_tests/test_config.py", ...]
+        }
+
+      For each critical finding: apply the fix directly, then re-run:
+        python3 -m unittest discover -q
+      Confirm green after each fix.
+
+      Write updated {workspace}/validation/quality-findings.json with
+      "applied": true on each finding that was fixed.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    validation:
+      strategy: deliverable
+      criteria:
+        - No critical findings remain unfixed
+        - All test classes subclass unittest.TestCase
+        - No assertTrue(x is not None) patterns in new test files
+        - Every function with missing_both in Phase 1 report has at least
+          one happy-path and one sad-path test in the output
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/quality-findings.json
+
+  # ===========================================================================
+  # G5: Human gate — final summary and PR decision
+  # ===========================================================================
+
+  - name: present-results
+    kind: propose
+    depends_on: [quality-check]
+    reads_from: [quality-check, validate-all, implement-domain]
+    description: >
+      Synthesise all results into a final summary and present to the user
+      for a PR decision.
+
+      Read:
+        {workspace}/validation/validation-results.md
+        {workspace}/validation/quality-findings.json
+        {workspace}/coverage/*-results.md  (one per domain)
+
+      Write {workspace}/validation/final-summary.md:
+
+        # Coverage Improvement — Final Summary
+
+        ## Test Suite
+        - Status: PASS / FAIL
+        - Total tests before: N → after: N (+N new)
+
+        ## Coverage Delta by Domain
+        | Domain | Before % | After % | Delta | Files Improved |
+        |--------|----------|---------|-------|----------------|
+        | mail   | 45%      | 79%     | +34%  | 3 of 4         |
+        ...
+        Overall: X% → Y% (+Z%)
+
+        ## Quality Findings
+        - Critical issues found: N  (fixed: N)
+        - Minor issues found: N    (fixed: N)
+
+        ## Remaining Gaps
+        List any functions that still have missing happy-path or sad-path
+        coverage after this run, with a one-line reason for each.
+
+        ## Recommended Next Steps
+        - Files that need further work (with suggested approach)
+        - Any domains where coverage is still below {min_coverage}%
+
+      Display the summary and ask the user:
+        A) Open PR — the improvements are ready to commit and open a pull request
+        B) Iterate — re-run implement-domain for specific domains (specify which)
+        C) Done — commit locally but don't open a PR yet
+        D) Abandon — discard the changes
+
+      Write decision to {workspace}/validation/final-decision.txt.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - validation/final-summary.md
+      - validation/final-decision.txt
