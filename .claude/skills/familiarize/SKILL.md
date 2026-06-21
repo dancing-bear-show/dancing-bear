@@ -1,7 +1,7 @@
 ---
 name: familiarize
 description: Preload repo context for the dancing-bear personal-assistants codebase. Use when the user runs /familiarize, says "get familiar with this repo", or starts a new session and wants Claude oriented before making changes.
-allowed-tools: Bash, Read, Glob
+tools: Bash, Read, Glob
 skills:
   - dancing-bear-rules
 ---
