@@ -1,0 +1,379 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/plan-critic.yaml
+#       prefix: pc
+#       depends_on: [prior-stage]
+#       reads_from: [prior-stage]
+#
+# Stages injected (all prefixed):
+#   pc-validate → pc-critic → pc-validate-critique → pc-consolidate
+#   → pc-human-gate → pc-revise
+#
+# Caller must set trigger.params:
+#   plan_file    — workspace-relative path to the plan doc (e.g. plan.md, design/plan.md)
+#   critic_focus — optional one-line directive narrowing critic scrutiny;
+#                  empty string means full-spectrum critique
+
+fragment: true
+name: plan-critic
+version: "1.0"
+
+description: >
+  Shared adversarial plan-critique fragment. Takes a plan, design document,
+  architecture decision, or PR review summary produced by a prior stage and
+  runs it through a four-stage critique pipeline before presenting the
+  consolidated findings to the human for a revision decision.
+
+  Pipeline: internal-consistency validation (Sonnet) → adversarial critique
+  (Opus) → critique fact-check (Sonnet) → readable summary (Sonnet)
+  → human gate → surgical revision (Sonnet).
+
+  Used by any workflow that produces a plan or design artifact that needs
+  scrutiny before being acted on.
+
+stages:
+
+  # ===========================================================================
+  # Stage 1: validate — internal consistency check
+  # ===========================================================================
+
+  - name: validate
+    kind: execute
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Read {plan_file} and check its internal consistency.
+
+      Verify:
+        - Numeric claims are self-consistent (totals add up, percentages
+          sum correctly, before/after values do not contradict each other).
+        - Referenced files, symbols, or identifiers that can be verified
+          without external CLIs exist or are plausible.
+        - No contradictory statements (section A says X; section B says not-X).
+        - No obvious logical gaps (step N+1 assumes a precondition that step N
+          does not establish).
+
+      Do NOT verify claims that require external data — flag them as info-level
+      only, not fail. Restrict critical/minor findings to internal consistency
+      violations that can be confirmed purely from the document text.
+
+      Write {workspace}/validation/plan-validate-findings.json:
+        {{
+          "status": "pass|fail",
+          "findings": [
+            {{
+              "severity": "critical|minor|info",
+              "claim": "<quoted or paraphrased claim>",
+              "detail": "<why it is inconsistent or suspicious>"
+            }}
+          ]
+        }}
+
+      Status is "fail" if any critical findings exist; otherwise "pass".
+      Write the file on all code paths — write {{"status": "pass", "findings": []}}
+      if the document is fully consistent.
+    agent:
+      role: fact-checker
+      model: sonnet
+      tools: [Read, Grep, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/plan-validate-findings.json
+
+  # ===========================================================================
+  # Stage 2: critic — adversarial deep critique
+  # ===========================================================================
+
+  - name: critic
+    kind: execute
+    depends_on: [validate]
+    reads_from: [validate]
+    description: >
+      Read {plan_file} and {workspace}/validation/plan-validate-findings.json.
+
+      Step 1 — load the workflow concern library:
+        Read concerns/workflow.md
+        Read concerns/workflow-fanout.md
+        Read concerns/workflow-fragments.md
+        Read concerns/patterns.md
+        These contain named concerns (e.g. unused-trigger-params,
+        missing-human-gate, model-null, hardcoded-absolute-path,
+        fragment-standalone-execution, skill-dag-sync, fanout-writes-to-gather-output,
+        sub-workflow-field-not-copied-in-include). Apply every concern
+        whose check is relevant to the plan as a structured checklist —
+        "does this plan violate or risk this pattern?" — before moving to
+        freeform critique. A plan-level violation is a blocker; a risk or
+        missing guard is a suggestion.
+
+      Step 2 — freeform adversarial critique. If {critic_focus} is non-empty,
+      concentrate on that dimension but do not ignore critical issues outside it.
+      If {critic_focus} is empty, apply full-spectrum critique across all of:
+        - Tradeoffs not considered or dismissed without justification
+        - Correctness risks: edge cases, race conditions, error paths not handled
+        - Design flaws: tight coupling, wrong abstraction level, scalability
+          ceiling, reversibility
+        - Rollout concerns: migration path, backward compatibility, blast radius
+          of a bad deploy, observability during rollout
+        - Security or data-safety implications
+        - Missing success criteria or acceptance tests
+        - Assumptions stated as facts without validation
+
+      Do NOT re-raise findings already listed as critical in
+      plan-validate-findings.json — that avoids duplicating the consistency
+      check in the critique output.
+
+      Write {workspace}/validation/critique.json:
+        {{
+          "critic_focus": "<value of {{critic_focus}} or 'full-spectrum'>",
+          "blockers": [
+            {{
+              "concern": "<one-sentence summary>",
+              "detail": "<2-4 sentences: why it matters and what would fix it>",
+              "section": "<section heading or description of where in the plan>"
+            }}
+          ],
+          "suggestions": [
+            {{
+              "concern": "<one-sentence summary>",
+              "detail": "<2-4 sentences: reasoning and improvement>",
+              "section": "<section heading or description>"
+            }}
+          ],
+          "strengths": ["<one-sentence strength>", ...]
+        }}
+
+      Blockers are concerns that should block acting on the plan as written.
+      Suggestions are improvements that would strengthen the plan but are not
+      blocking. Strengths are aspects that are well-reasoned and should be
+      preserved through any revision.
+
+      Be concrete. Vague concerns without a specific section reference are not
+      useful. Each concern must cite where in the plan it manifests.
+    agent:
+      role: critic
+      model: opus
+      tools: [Read, Grep, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/critique.json
+
+  # ===========================================================================
+  # Stage 3: validate-critique — fact-check the critique
+  # ===========================================================================
+
+  - name: validate-critique
+    kind: execute
+    depends_on: [critic]
+    reads_from: [critic]
+    description: >
+      Read {plan_file} and {workspace}/validation/critique.json.
+
+      Verify every blocker and suggestion in the critique against the actual
+      plan text:
+
+        1. Is the cited section real and does the concern accurately describe
+           what is written there?
+        2. Does the plan already address the concern? If so, the critique item
+           is hallucinated or stale — remove it.
+        3. Is the concern grounded in the plan's content, or is it a generic
+           critique that could apply to any plan regardless of what is written?
+           Generic concerns without a plan-specific grounding must be removed.
+
+      Write {workspace}/validation/critique-checked.json using the same schema
+      as critique.json but with an additional top-level "removed" field:
+        {{
+          "critic_focus": "...",
+          "blockers": [...],
+          "suggestions": [...],
+          "strengths": [...],
+          "removed": [
+            {{
+              "concern": "<original concern summary>",
+              "type": "blocker|suggestion",
+              "reason": "<why it was removed: already-addressed|not-grounded|hallucinated-section>"
+            }}
+          ]
+        }}
+
+      Write the file on all code paths. If no items are removed, write an
+      empty "removed" array. If all blockers or suggestions are removed, write
+      an empty array for that field.
+    agent:
+      role: fact-checker
+      model: sonnet
+      tools: [Read, Grep, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/critique-checked.json
+
+  # ===========================================================================
+  # Stage 4: consolidate — readable human-review summary
+  # ===========================================================================
+
+  - name: consolidate
+    kind: execute
+    depends_on: [validate-critique]
+    reads_from: [validate, validate-critique]
+    description: >
+      Read {plan_file}, {workspace}/validation/plan-validate-findings.json,
+      and {workspace}/validation/critique-checked.json.
+
+      Produce a single readable summary for human review. Write
+      {workspace}/outputs/plan-critic-summary.md with the following sections:
+
+      ## Validation findings
+      List only critical and minor findings from plan-validate-findings.json.
+      Omit info-level findings. If no critical or minor findings, write
+      "No internal consistency issues found."
+
+      ## Critique
+      If critic_focus is non-empty, state it at the top of this section:
+      "Critique scope: <critic_focus>"
+      List blockers first, then suggestions. For each item include the section
+      reference and a one-paragraph explanation. If critique-checked.json
+      removed any items, note the count: "N concern(s) removed after
+      verification (already addressed or not grounded in plan text)."
+      If no blockers or suggestions remain after verification, write
+      "No blockers or suggestions identified."
+
+      ## Strengths
+      List strengths from critique-checked.json. If the list is empty, omit
+      this section.
+
+      ## Recommended revisions
+      A numbered action list the human can approve or reject, one item per
+      blocker and one item per suggestion. Number them sequentially starting
+      at 1. Each item: one sentence stating what to change and where.
+      Example:
+        1. Add rollback procedure to the Deployment section covering partial
+           migration failure.
+        2. Document the rate-limit assumption in the Assumptions section with
+           a source reference.
+      If there are no blockers or suggestions, write "No revisions recommended."
+
+      Write professional, neutral prose per .claude/WRITING_GUIDE.md.
+      No LLM tells. No hollow enthusiasm. No hedging language.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    outputs:
+      - name: plan-critic-summary
+        mode: generate
+        description: >
+          Readable markdown summary of validation findings, critique blockers
+          and suggestions, strengths, and numbered recommended revisions.
+    required: true
+    writes_to:
+      - plan-critic-summary.md
+
+  # ===========================================================================
+  # Stage 5: human-gate — review and revision decision
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [consolidate]
+    reads_from: [consolidate]
+    description: >
+      Present the critique summary to the human and ask for a revision
+      decision.
+
+      Read {workspace}/outputs/plan-critic-summary.md and display it in full.
+
+      Then ask:
+        "Review the recommended revisions above and choose one:
+          A) Approve all revisions — apply every numbered item.
+          B) Approve a subset — list the item numbers to apply.
+          C) Skip revisions — accept the plan as written."
+
+      Record the human's choice.
+
+      Write {workspace}/validation/human-decision.json:
+        {{
+          "decision": "approve_all|approve_subset|skip",
+          "approved_items": [1, 2, 3]
+        }}
+
+      For decision "approve_all", set approved_items to the full list of
+      numbered items from the Recommended revisions section.
+      For decision "approve_subset", set approved_items to the items the
+      human listed.
+      For decision "skip", set approved_items to an empty array.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - validation/human-decision.json
+
+  # ===========================================================================
+  # Stage 6: revise — apply approved revisions
+  # ===========================================================================
+
+  - name: revise
+    kind: execute
+    depends_on: [human-gate]
+    reads_from: [human-gate, consolidate]
+    description: >
+      Read {plan_file}, {workspace}/outputs/plan-critic-summary.md, and
+      {workspace}/validation/human-decision.json.
+
+      If decision is "skip":
+        Do not modify {plan_file}.
+        Write {workspace}/validation/revisions-applied.md:
+          "Revisions skipped at human gate. Plan accepted as written."
+        Exit.
+
+      Otherwise apply only the approved revision items (approved_items list
+      from human-decision.json). Find each numbered item in the Recommended
+      revisions section of plan-critic-summary.md, identify the corresponding
+      section in {plan_file}, and apply a surgical edit.
+
+      Rules for edits:
+        - Edit only the sections the revision targets. Do not rewrite passing
+          sections or restructure content that was not flagged.
+        - Preserve the original voice and structure of the plan.
+        - If two approved items target the same section, handle both in one
+          pass to avoid conflicting edits.
+
+      Overwrite {plan_file} in place with the revised content.
+
+      Write {workspace}/validation/revisions-applied.md — a markdown table
+      listing what changed:
+
+        | # | Revision | Section | Change summary |
+        |---|----------|---------|----------------|
+        | 1 | <revision text> | <section> | <one sentence: what was added/changed> |
+
+      If any approved item cannot be applied cleanly (target section not
+      found, conflicting edits), note it in the table with
+      "Could not apply — <reason>" in the Change summary column and leave
+      the section unchanged rather than making a best-guess edit.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Edit, Write]
+      access: read-write
+    outputs:
+      - name: revised-plan
+        mode: generate
+        description: >
+          Apply approved revision items to the plan document and produce a
+          revisions-applied.md table. If decision is skip, write the skip
+          sentinel and exit.
+    required: true
+    writes_to:
+      # NOTE: this stage also overwrites {plan_file} in-place (a param-resolved path).
+      # Static writes_to cannot represent param placeholders, so only the fixed
+      # output is declared here. Callers should treat {plan_file} as mutated after
+      # this stage completes.
+      - validation/revisions-applied.md

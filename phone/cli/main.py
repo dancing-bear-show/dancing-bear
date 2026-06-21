@@ -226,6 +226,68 @@ def cmd_analyze(args) -> int:
     return run_pipeline(request, AnalyzeProcessor, AnalyzeProducer)
 
 
+@app.command("validate-layout", help="Validate an iOS icon layout JSON file for structural errors")
+@app.argument("--layout", required=True, help="Path to layout JSON file (e.g. out/ios.iconlayout.json)")
+@app.argument("--device-layout", help="Optional device layout JSON with apps to check for unplaced entries")
+def cmd_validate_layout(args) -> int:
+    import json
+
+    from ..validate import validate_layout_json
+
+    layout_path = Path(args.layout)
+    if not layout_path.exists():
+        print(f"Error: layout file not found: {layout_path}", file=sys.stderr)
+        return 2
+
+    try:
+        layout = json.loads(layout_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in {layout_path}: {exc}", file=sys.stderr)
+        return 2
+
+    device_apps: list[str] | None = None
+    device_layout_arg = getattr(args, "device_layout", None)
+    if device_layout_arg:
+        device_layout_path = Path(device_layout_arg)
+        if not device_layout_path.exists():
+            print(f"Error: device-layout file not found: {device_layout_path}", file=sys.stderr)
+            return 2
+        try:
+            device_layout = json.loads(device_layout_path.read_text())
+        except json.JSONDecodeError as exc:
+            print(f"Error: invalid JSON in {device_layout_path}: {exc}", file=sys.stderr)
+            return 2
+        # Flatten all bundle IDs from device layout
+        device_apps = _flatten_bundle_ids(device_layout)
+
+    issues = validate_layout_json(layout, device_apps=device_apps)
+
+    if not issues:
+        print(f"OK: {layout_path} — no issues found")
+        return 0
+
+    errors = [i for i in issues if i.level == "error"]
+    warnings = [i for i in issues if i.level == "warning"]
+
+    for issue in issues:
+        prefix = "ERROR" if issue.level == "error" else "WARNING"
+        print(f"{prefix}: {issue.message}")
+
+    print(f"\n{len(errors)} error(s), {len(warnings)} warning(s)")
+    return 1 if errors else 0
+
+
+def _flatten_bundle_ids(layout: object) -> list[str]:
+    """Recursively collect all string leaf values from a nested layout structure."""
+    result: list[str] = []
+    if isinstance(layout, str):
+        result.append(layout)
+    elif isinstance(layout, list):
+        for item in layout:
+            result.extend(_flatten_bundle_ids(item))
+    return result
+
+
 # --- Helper functions for cmd_auto_folders ---
 
 def _parse_keep_list(keep_csv: str) -> list[str]:
@@ -619,6 +681,7 @@ def cmd_manifest_from_device(args) -> int:
 @manifest_group.argument("--device-label", help="Override device label (else manifest.device.label or env)")
 @manifest_group.argument("--creds-profile", help="Override credentials profile (else manifest.device.creds_profile or IOS_CREDS_PROFILE)")
 @manifest_group.argument("--config", help="credentials.ini path override (optional)")
+@manifest_group.argument("--dry-run", action="store_true", default=False, help="Plan only — build profile but skip device install")
 def cmd_manifest_install(args) -> int:
     out_path = Path(args.out) if getattr(args, "out", None) else None
     request = ManifestInstallRequest(
