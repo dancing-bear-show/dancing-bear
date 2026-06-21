@@ -10,7 +10,7 @@ from core.pipeline import Producer, ResultEnvelope
 
 from ..providers.base import BaseProvider
 from ..utils.batch import apply_in_chunks
-from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared
+from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared, MessageQueryParams
 from ..utils.cli_helpers import preview_criteria
 from ..utils.filters import action_to_label_changes
 from ..utils.plan import print_plan_summary
@@ -185,9 +185,7 @@ class FiltersSweepProducer(Producer[ResultEnvelope[FiltersSweepResult]]):
         for instruction in result.payload.instructions:
             ids = _list_message_ids_shared(
                 self.client,
-                query=instruction.query,
-                pages=self.config.pages,
-                max_msgs=self.config.max_msgs,
+                MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
             )
             query_display = instruction.query if instruction.query else _EMPTY_QUERY
             if self.config.dry_run:
@@ -228,9 +226,7 @@ class FiltersSweepRangeProducer(Producer[ResultEnvelope[FiltersSweepRangeResult]
             for instruction in window.instructions:
                 ids = _list_message_ids_shared(
                     self.client,
-                    query=instruction.query,
-                    pages=self.config.pages,
-                    max_msgs=self.config.max_msgs,
+                    MessageQueryParams(query=instruction.query, pages=self.config.pages, max_msgs=self.config.max_msgs),
                 )
                 if self.config.dry_run:
                     query_display = instruction.query if instruction.query else _EMPTY_QUERY

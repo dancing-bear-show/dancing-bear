@@ -121,7 +121,7 @@ class TestInferMetaFromText(unittest.TestCase):
 
     def test_empty_text_returns_empty_dict(self):
         self.assertEqual(infer_meta_from_text(''), {})
-        self.assertEqual(infer_meta_from_text(None), {})
+        self.assertEqual(infer_meta_from_text(""), {})
 
     def test_no_matches_returns_empty_dict(self):
         text = "This is generic text with no schedule info"

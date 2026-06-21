@@ -1,9 +1,30 @@
 import os
 import time
 import hashlib
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from .utils import expand_paths, parse_size, parse_duration, human_size
+
+
+@dataclass
+class ScanCriteria:
+    """Immutable scan thresholds passed through the walk."""
+
+    now: float
+    min_bytes: int
+    older_secs: Optional[float]
+    include_duplicates: bool
+
+
+@dataclass
+class ScanBuckets:
+    """Mutable result buckets populated during a scan walk."""
+
+    large: List[Dict] = field(default_factory=list)
+    stale: List[Dict] = field(default_factory=list)
+    by_dir: Dict[str, int] = field(default_factory=dict)
+    files_for_dupes: List[Tuple[str, int]] = field(default_factory=list)
 
 
 def _stat_file(fp: str):
@@ -17,51 +38,36 @@ def _stat_file(fp: str):
 def _collect_file(
     fp: str,
     st,
-    now: float,
-    min_bytes: int,
-    older_secs: Optional[float],
-    include_duplicates: bool,
-    large: List[Dict],
-    stale: List[Dict],
-    by_dir: Dict[str, int],
-    files_for_dupes: List[Tuple[str, int]],
+    criteria: ScanCriteria,
+    buckets: ScanBuckets,
 ) -> None:
     """Classify a single file into the appropriate result buckets."""
     size = st.st_size
     mtime = st.st_mtime
     parent = os.path.dirname(fp)
-    by_dir[parent] = by_dir.get(parent, 0) + size
+    buckets.by_dir[parent] = buckets.by_dir.get(parent, 0) + size
 
-    if size >= min_bytes:
-        large.append({
+    if size >= criteria.min_bytes:
+        buckets.large.append({
             "path": fp,
             "size": size,
             "size_h": human_size(size),
             "mtime": int(mtime),
         })
-    if older_secs is not None and (now - mtime) >= older_secs:
-        stale.append({
+    if criteria.older_secs is not None and (criteria.now - mtime) >= criteria.older_secs:
+        buckets.stale.append({
             "path": fp,
-            "age_days": round((now - mtime) / 86400, 1),
+            "age_days": round((criteria.now - mtime) / 86400, 1),
             "size": size,
             "size_h": human_size(size),
         })
-    if include_duplicates and size >= 1024 * 1024:
-        files_for_dupes.append((fp, size))
+    if criteria.include_duplicates and size >= 1024 * 1024:
+        buckets.files_for_dupes.append((fp, size))
 
 
-def _walk_roots(
-    roots: List[str],
-    now: float,
-    min_bytes: int,
-    older_secs: Optional[float],
-    include_duplicates: bool,
-) -> Tuple[List[Dict], List[Dict], Dict[str, int], List[Tuple[str, int]]]:
+def _walk_roots(roots: List[str], criteria: ScanCriteria) -> ScanBuckets:
     """Walk all root paths and collect file data."""
-    large: List[Dict] = []
-    stale: List[Dict] = []
-    by_dir: Dict[str, int] = {}
-    files_for_dupes: List[Tuple[str, int]] = []
+    buckets = ScanBuckets()
 
     for root in roots:
         if not os.path.exists(root):
@@ -72,12 +78,9 @@ def _walk_roots(
                 st = _stat_file(fp)
                 if st is None:
                     continue
-                _collect_file(
-                    fp, st, now, min_bytes, older_secs, include_duplicates,
-                    large, stale, by_dir, files_for_dupes,
-                )
+                _collect_file(fp, st, criteria, buckets)
 
-    return large, stale, by_dir, files_for_dupes
+    return buckets
 
 
 def run_scan(
@@ -92,30 +95,31 @@ def run_scan(
     older_secs = parse_duration(older_than) if older_than else None
     now = time.time()
 
-    large, stale, by_dir, files_for_dupes = _walk_roots(
-        roots, now, min_bytes, older_secs, include_duplicates
-    )
+    criteria = ScanCriteria(now, min_bytes, older_secs, include_duplicates)
+    buckets = _walk_roots(roots, criteria)
 
-    large.sort(key=lambda x: x["size"], reverse=True)
-    stale.sort(key=lambda x: (x["age_days"], x["size"]), reverse=True)
+    buckets.large.sort(key=lambda x: x["size"], reverse=True)
+    buckets.stale.sort(key=lambda x: (x["age_days"], x["size"]), reverse=True)
 
     # top directories by size
-    top_dirs_list = sorted(by_dir.items(), key=lambda kv: kv[1], reverse=True)[:top_dirs]
+    top_dirs_list = sorted(
+        buckets.by_dir.items(), key=lambda kv: kv[1], reverse=True
+    )[:top_dirs]
     top_dirs_report = [
         {"dir": d, "size": s, "size_h": human_size(s)} for d, s in top_dirs_list
     ]
 
     duplicates: List[List[str]] = []
-    if include_duplicates and files_for_dupes:
-        duplicates = find_duplicates(files_for_dupes)
+    if include_duplicates and buckets.files_for_dupes:
+        duplicates = find_duplicates(buckets.files_for_dupes)
 
     return {
         "paths": roots,
         "min_size": min_bytes,
         "older_than": older_secs,
         "generated_at": int(now),
-        "large_files": large,
-        "stale_files": stale,
+        "large_files": buckets.large,
+        "stale_files": buckets.stale,
         "top_dirs": top_dirs_report,
         "duplicates": duplicates,
     }

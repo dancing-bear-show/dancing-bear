@@ -15,6 +15,7 @@ from schedule.pipeline import (
     ApplyRequestConsumer,
     DryRunConfig,
     OutlookAuth,
+    RecurrenceExpansionConfig,
     SyncMatchContext,
     SyncRequest,
     _apply_outlook_events,
@@ -98,17 +99,20 @@ class TestExpandWeeklyOccurrences(unittest.TestCase):
         ev = {"byday": ["MO", "WE"]}
         start = dt.date(2025, 1, 13)  # Monday
         end = dt.date(2025, 1, 19)  # Sunday
-        result = _expand_weekly_occurrences(ev, start, end, "10:00", "11:00", set())
+        config = RecurrenceExpansionConfig(start_date=start, end_date=end, start_time="10:00", end_time="11:00", excluded_dates=set())
+        result = _expand_weekly_occurrences(ev, config)
         self.assertEqual(len(result), 2)
 
     def test_returns_empty_when_no_byday(self):
         ev = {}
-        result = _expand_weekly_occurrences(ev, dt.date(2025, 1, 13), dt.date(2025, 1, 19), "10:00", "11:00", set())
+        config = RecurrenceExpansionConfig(start_date=dt.date(2025, 1, 13), end_date=dt.date(2025, 1, 19), start_time="10:00", end_time="11:00", excluded_dates=set())
+        result = _expand_weekly_occurrences(ev, config)
         self.assertEqual(result, [])
 
     def test_returns_empty_when_invalid_byday(self):
         ev = {"byday": ["XX", "YY"]}
-        result = _expand_weekly_occurrences(ev, dt.date(2025, 1, 13), dt.date(2025, 1, 19), "10:00", "11:00", set())
+        config = RecurrenceExpansionConfig(start_date=dt.date(2025, 1, 13), end_date=dt.date(2025, 1, 19), start_time="10:00", end_time="11:00", excluded_dates=set())
+        result = _expand_weekly_occurrences(ev, config)
         self.assertEqual(result, [])
 
 

@@ -17,6 +17,7 @@ from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
 from .constants import G_PER_OZ
+from .extractors import OzAccumulator
 
 
 # Compiled patterns for amount extraction
@@ -26,63 +27,43 @@ _PAT_OZ_GE = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]{0,60}?\b(gold|
 _PAT_G_GE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")  # nosec
 
 
-def _ge_accumulate(
-    gold_oz: float, silver_oz: float,
-    metal: str, oz_unit: float, qty: float,
-    key: Tuple[str, float, float], seen: set,
-) -> Tuple[float, float]:
-    if key in seen:
-        return gold_oz, silver_oz
-    seen.add(key)
-    if metal.startswith('gold'):
-        gold_oz += oz_unit * qty
-    elif metal.startswith('silver'):
-        silver_oz += oz_unit * qty
-    return gold_oz, silver_oz
-
-
-def _extract_frac_amounts(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+def _extract_frac_amounts(ln: str, acc: OzAccumulator) -> None:
     for m in _PAT_FRAC_GE.finditer(ln):
         num = float(m.group(1))
         den = float(m.group(2) or 1)
         metal = (m.group(3) or '').lower()
         qty = float(m.group(4) or 1)
         oz_unit = num / max(den, 1.0)
-        gold_oz, silver_oz = _ge_accumulate(gold_oz, silver_oz, metal, oz_unit, qty, (metal, round(oz_unit, 6), qty), seen)
-    return gold_oz, silver_oz
+        acc.add(metal, oz_unit, qty, (metal, round(oz_unit, 6), qty))
 
 
-def _extract_oz_amounts(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+def _extract_oz_amounts(ln: str, acc: OzAccumulator) -> None:
     for m in _PAT_OZ_GE.finditer(ln):
         wt = float(m.group(1))
         metal = (m.group(2) or '').lower()
         qty = float(m.group(3) or 1)
-        gold_oz, silver_oz = _ge_accumulate(gold_oz, silver_oz, metal, wt, qty, (metal, round(wt, 6), qty), seen)
-    return gold_oz, silver_oz
+        acc.add(metal, wt, qty, (metal, round(wt, 6), qty))
 
 
-def _extract_gram_amounts(ln: str, gold_oz: float, silver_oz: float, seen: set) -> Tuple[float, float]:
+def _extract_gram_amounts(ln: str, acc: OzAccumulator) -> None:
     for m in _PAT_G_GE.finditer(ln):
         wt_g = float(m.group(1))
         metal = (m.group(3) or '').lower()
         qty = float(m.group(4) or 1)
         oz_unit = wt_g / G_PER_OZ
-        gold_oz, silver_oz = _ge_accumulate(gold_oz, silver_oz, metal, oz_unit, qty, (metal, round(oz_unit, 6), qty), seen)
-    return gold_oz, silver_oz
+        acc.add(metal, oz_unit, qty, (metal, round(oz_unit, 6), qty))
 
 
 def _extract_amounts(text: str) -> Tuple[float, float]:
-    gold_oz = 0.0
-    silver_oz = 0.0
     t = (text or "").replace("\u2013", "-").replace("\u2014", "-")
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-    seen: set[Tuple[str, float, float]] = set()
+    acc = OzAccumulator()
 
     for ln in lines:
-        gold_oz, silver_oz = _extract_frac_amounts(ln, gold_oz, silver_oz, seen)
-        gold_oz, silver_oz = _extract_oz_amounts(ln, gold_oz, silver_oz, seen)
-        gold_oz, silver_oz = _extract_gram_amounts(ln, gold_oz, silver_oz, seen)
-    return gold_oz, silver_oz
+        _extract_frac_amounts(ln, acc)
+        _extract_oz_amounts(ln, acc)
+        _extract_gram_amounts(ln, acc)
+    return acc.gold_oz, acc.silver_oz
 
 
 _GE_ORDER_PAT = re.compile(r"(?i)order\s*#?\s*(\d{6,})")

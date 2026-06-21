@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -118,41 +119,60 @@ def _compute_exdates(dates_sorted: List[_dt.date], start_date: _dt.date, end_dat
     return exdates
 
 
-def _build_one_off_event(
-    subj: str, st_time: str, en_time: str, d: _dt.date, loc: str, cal: Optional[str]
-) -> Dict[str, Any]:
+@dataclass
+class EventParams:
+    """Common parameters for building calendar events."""
+
+    subject: str
+    start_time: str
+    end_time: str
+    location: str = ""
+    calendar: Optional[str] = None
+
+
+@dataclass
+class SeriesParams(EventParams):
+    """Parameters for building a recurring series event."""
+
+    day_of_week: str = ""
+    start_date: Optional[_dt.date] = None
+    end_date: Optional[_dt.date] = None
+    exdates: Optional[List[str]] = None
+
+
+def _build_one_off_event(params: EventParams, d: _dt.date) -> Dict[str, Any]:
     """Build a one-off event dict."""
     ev: Dict[str, Any] = {
-        'subject': subj,
-        'start': f"{d.isoformat()}T{st_time}",
-        'end': f"{d.isoformat()}T{en_time}",
+        'subject': params.subject,
+        'start': f"{d.isoformat()}T{params.start_time}",
+        'end': f"{d.isoformat()}T{params.end_time}",
     }
-    if loc:
-        ev['location'] = loc
-    if cal:
-        ev['calendar'] = cal
+    if params.location:
+        ev['location'] = params.location
+    if params.calendar:
+        ev['calendar'] = params.calendar
     return ev
 
 
-def _build_series_event(
-    subj: str, st_time: str, en_time: str, dow: str, loc: str,
-    start_date: _dt.date, end_date: _dt.date, exdates: List[str], cal: Optional[str]
-) -> Dict[str, Any]:
+def _build_series_event(params: SeriesParams) -> Dict[str, Any]:
     """Build a recurring series event dict."""
     ev: Dict[str, Any] = {
-        'subject': subj,
+        'subject': params.subject,
         'repeat': 'weekly',
-        'byday': [dow],
-        'start_time': st_time,
-        'end_time': en_time,
-        'range': {'start_date': start_date.isoformat(), 'until': end_date.isoformat()},
+        'byday': [params.day_of_week],
+        'start_time': params.start_time,
+        'end_time': params.end_time,
+        'range': {
+            'start_date': params.start_date.isoformat() if params.start_date else '',
+            'until': params.end_date.isoformat() if params.end_date else '',
+        },
     }
-    if loc:
-        ev['location'] = loc
-    if exdates:
-        ev['exdates'] = exdates
-    if cal:
-        ev['calendar'] = cal
+    if params.location:
+        ev['location'] = params.location
+    if params.exdates:
+        ev['exdates'] = params.exdates
+    if params.calendar:
+        ev['calendar'] = params.calendar
     return ev
 
 
@@ -170,12 +190,16 @@ def _compress_events(
         cal = override_cal or meta[key].get('calendar')
 
         if len(dates_sorted) < min_occur:
+            ep = EventParams(subject=subj, start_time=st_time, end_time=en_time, location=loc, calendar=cal)
             for d in dates_sorted:
-                out_events.append(_build_one_off_event(subj, st_time, en_time, d, loc, cal))
+                out_events.append(_build_one_off_event(ep, d))
         else:
             start_date, end_date = dates_sorted[0], dates_sorted[-1]
             exdates = _compute_exdates(dates_sorted, start_date, end_date)
-            out_events.append(_build_series_event(subj, st_time, en_time, dow, loc, start_date, end_date, exdates, cal))
+            out_events.append(_build_series_event(SeriesParams(
+                subject=subj, start_time=st_time, end_time=en_time, location=loc, calendar=cal,
+                day_of_week=dow, start_date=start_date, end_date=end_date, exdates=exdates,
+            )))
     return out_events
 
 

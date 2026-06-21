@@ -24,6 +24,7 @@ from .docx_styles import (
 )
 from .docx_sections import BulletRenderer, HeaderRenderer
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS  # re-export
+from .render_config import HeaderLineConfig, BulletConfig
 
 
 SECTION_SYNONYMS = {
@@ -64,12 +65,11 @@ def _add_bullets(
     items: List[str],
     *,
     keywords: List[str] | None = None,
-    plain: bool = True,
-    glyph: str = "•",
-    list_style: str = "List Bullet",
+    cfg: BulletConfig | None = None,
 ):
+    c = cfg or BulletConfig()
     renderer = BulletRenderer(doc)
-    renderer.add_bullets(items, keywords=keywords, plain=plain, glyph=glyph, list_style=list_style)
+    renderer.add_bullets(items, keywords=keywords, plain=c.plain, glyph=c.glyph, list_style=c.list_style)
 
 
 def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
@@ -79,22 +79,16 @@ def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
 
 def _add_header_line(
     doc,
+    cfg: HeaderLineConfig | None = None,
     *,
-    title_text: str = "",
-    company_text: str = "",
-    loc_text: str = "",
-    span_text: str = "",
     sec: Dict[str, Any] | None = None,
-    style: str = "Normal",
 ):
+    c = cfg or HeaderLineConfig()
     renderer = HeaderRenderer(doc)
     return renderer.add_header_line(
-        title_text=title_text,
-        company_text=company_text,
-        loc_text=loc_text,
-        span_text=span_text,
-        sec=sec,
-        style=style,
+        title_text=c.title_text, company_text=c.company_text,
+        loc_text=c.loc_text, span_text=c.span_text,
+        sec=sec, style=c.style,
     )
 
 
@@ -104,11 +98,11 @@ def _add_named_bullet(
     desc_text: str,
     *,
     sec: Dict[str, Any] | None = None,
-    glyph: str = "•",
-    sep: str = ": ",
+    cfg: BulletConfig | None = None,
 ):
+    c = cfg or BulletConfig()
     renderer = BulletRenderer(doc)
-    return renderer.add_named_bullet(name_text, desc_text, sec=sec, glyph=glyph, sep=sep)
+    return renderer.add_named_bullet(name_text, desc_text, sec=sec, glyph=c.glyph, sep=c.sep)
 
 
 def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> int:
@@ -277,12 +271,13 @@ def write_resume_docx(
         keywords = [str(k) for k in seed.get("keywords", [])]
 
     sections = _resolve_sections(template, structure)
-    _render_sections(doc, page_cfg, template, data, sections, keywords)
+    _render_sections(doc, template, data, sections, keywords)
     doc.save(out_path)
 
 
-def _render_sections(doc, page_cfg, template, data, sections, keywords) -> None:
+def _render_sections(doc, template, data, sections, keywords) -> None:
     """Render all sections into the document."""
+    page_cfg = template.get("page") or {}
     for sec in sections:
         key = sec.get("key")
         if not key:

@@ -678,7 +678,7 @@ def _build_install_command(
 class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestInstallResult]):
     def _process_safe(self, payload: ManifestInstallRequest) -> ManifestInstallResult:
         import plistlib
-        from .profile import build_mobileconfig
+        from .profile import ProfileMetadata, build_mobileconfig
 
         man = _load_and_validate_manifest(payload.manifest_path)
         plan = _extract_plan_from_manifest(man)
@@ -687,10 +687,12 @@ class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestIns
         profile_dict = build_mobileconfig(
             plan=plan,
             layout_export=None,
-            top_identifier=prof.get("identifier", "com.example.profile"),
-            hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
-            display_name=prof.get("display_name", "Home Screen Layout"),
-            organization=prof.get("organization"),
+            profile_meta=ProfileMetadata(
+                top_identifier=prof.get("identifier", "com.example.profile"),
+                hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
+                display_name=prof.get("display_name", "Home Screen Layout"),
+                organization=prof.get("organization"),
+            ),
             dock_count=4,
         )
 

@@ -129,7 +129,7 @@ class AutoProposeProcessor(Processor[AutoProposePayload, ResultEnvelope[AutoProp
     def process(self, payload: AutoProposePayload) -> ResultEnvelope[AutoProposeResult]:
         try:
             from ..applog import AppLogger
-            from ..utils.gmail_ops import fetch_messages_with_metadata
+            from ..utils.gmail_ops import fetch_messages_with_metadata, MessageQueryParams
             from ..gmail_api import GmailClient
 
             logger = AppLogger(payload.log_path)
@@ -143,9 +143,7 @@ class AutoProposeProcessor(Processor[AutoProposePayload, ResultEnvelope[AutoProp
                 q = f"in:inbox newer_than:{payload.days}d"
                 _, msgs = fetch_messages_with_metadata(
                     client,
-                    query=q,
-                    pages=payload.pages,
-                    max_msgs=None,
+                    MessageQueryParams(query=q, pages=payload.pages),
                 )
 
                 selected = []
