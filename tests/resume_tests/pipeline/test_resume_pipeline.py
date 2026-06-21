@@ -258,22 +258,20 @@ class TestWithExperienceFilter(unittest.TestCase):
     @patch("resume.pipeline.read_yaml_or_json")
     @patch("resume.pipeline.filter_experience_by_keywords")
     def test_passes_optional_params(self, mock_filter, mock_read):
-        """Passes optional params to filter function."""
+        """Passes optional params to filter function via ExperienceFilterConfig."""
+        from resume.render_config import ExperienceFilterConfig
         mock_read.return_value = {"matched_keywords": [{"skill": "Python"}]}
         mock_filter.return_value = {"experience": []}
 
+        cfg = ExperienceFilterConfig(max_roles=3, max_bullets_per_role=5, min_score=2)
         pipeline = FilterPipeline({"experience": []})
-        pipeline.with_experience_filter(
-            "/alignment.json",
-            max_roles=3,
-            max_bullets_per_role=5,
-            min_score=2,
-        )
+        pipeline.with_experience_filter("/alignment.json", filter_cfg=cfg)
 
         call_kwargs = mock_filter.call_args[1]
-        self.assertEqual(call_kwargs["max_roles"], 3)
-        self.assertEqual(call_kwargs["max_bullets_per_role"], 5)
-        self.assertEqual(call_kwargs["min_score"], 2)
+        passed_cfg = call_kwargs["filter_cfg"]
+        self.assertEqual(passed_cfg.max_roles, 3)
+        self.assertEqual(passed_cfg.max_bullets_per_role, 5)
+        self.assertEqual(passed_cfg.min_score, 2)
 
     @patch("resume.pipeline.read_yaml_or_json")
     def test_handles_read_exception(self, mock_read):

@@ -119,12 +119,12 @@ SAMPLE_EMAIL = "john@example.com"
 def make_experience_entry(
     title: str = "Software Developer",
     company: str = "TechCorp",
-    start: str = "2020",
-    end: str = "2023",
-    location: str = "",
     bullets: list[str] | None = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Create an experience entry dict for testing.
+
+    Optional kwargs: start (default "2020"), end (default "2023"), location (default "").
 
     Example:
         exp = make_experience_entry(title="Senior Dev", company="BigCo")
@@ -133,9 +133,9 @@ def make_experience_entry(
     return {
         "title": title,
         "company": company,
-        "start": start,
-        "end": end,
-        "location": location,
+        "start": kwargs.get("start", "2020"),
+        "end": kwargs.get("end", "2023"),
+        "location": kwargs.get("location", ""),
         "bullets": bullets if bullets is not None else ["Developed software", "Wrote tests"],
     }
 
@@ -156,13 +156,11 @@ def make_education_entry(
 def make_candidate(
     name: str = SAMPLE_NAME,
     email: str = SAMPLE_EMAIL,
-    experience: list[dict] | None = None,
-    skills: list[str] | None = None,
-    skills_groups: list[dict] | None = None,
-    education: list[dict] | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Create a candidate/resume dict for testing.
+
+    Common kwargs: experience, skills, skills_groups, education.
 
     Example:
         candidate = make_candidate()
@@ -170,14 +168,9 @@ def make_candidate(
         candidate = make_candidate(experience=[make_experience_entry()])
     """
     result: dict[str, Any] = {"name": name, "email": email}
-    if experience is not None:
-        result["experience"] = experience
-    if skills is not None:
-        result["skills"] = skills
-    if skills_groups is not None:
-        result["skills_groups"] = skills_groups
-    if education is not None:
-        result["education"] = education
+    for key in ("experience", "skills", "skills_groups", "education"):
+        if key in extra:
+            result[key] = extra.pop(key)
     result.update(extra)
     return result
 

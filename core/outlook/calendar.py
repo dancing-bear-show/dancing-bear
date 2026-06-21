@@ -240,7 +240,7 @@ class OutlookCalendarMixin:
             try:
                 sid = series.get("id")
                 if sid:
-                    self._apply_exdate_deletions(cal_id, sid, params.exdates, tz_final, rng)
+                    self._apply_exdate_deletions(cal_id, sid, params.exdates, rng)
             except Exception:  # nosec B110 - non-fatal exdate deletion
                 pass
         return series
@@ -280,7 +280,6 @@ class OutlookCalendarMixin:
         calendar_id: Optional[str],
         series_id: str,
         exdates: List[str],
-        _tz: str,
         rng: Dict[str, Any],
     ) -> None:
         start_date = rng.get("startDate")
@@ -316,13 +315,12 @@ class OutlookCalendarMixin:
         event_id: str,
         calendar_id: Optional[str] = None,
         calendar_name: Optional[str] = None,
-        location_str: Optional[str] = None,
-        location_obj: Optional[Dict[str, Any]] = None,
+        location_str: str,
     ) -> Dict[str, Any]:
         """Patch the location of an event or series master."""
-        if not (location_obj or (location_str and location_str.strip())):
-            raise ValueError("Must provide location_str or location_obj")
-        loc = location_obj or _parse_location(str(location_str))
+        if not (location_str and location_str.strip()):
+            raise ValueError("Must provide location_str")
+        loc = _parse_location(location_str)
         return self._patch_event(event_id, calendar_id, calendar_name, {"location": loc})
 
     def update_event_reminder(

@@ -154,48 +154,58 @@ def _build_policies_builder(policies_fallback: Optional[str]) -> Callable[[], st
     return builder
 
 
+@dataclass
+class DomainLlmConfig:
+    """Configuration for creating domain-specific LLM modules.
+
+    Groups identity fields (app_id, app_title, purpose, agentic_module)
+    with optional customization (familiar steps, policies fallback).
+    """
+
+    app_id: str
+    app_title: str
+    purpose: str
+    agentic_module: str
+    familiar_compact_steps: Optional[List[str]] = None
+    familiar_extended_steps: Optional[List[str]] = None
+    policies_fallback: Optional[str] = None
+
+
 def make_domain_llm_module(
-    *,
-    app_id: str,
-    app_title: str,
-    purpose: str,
-    agentic_module: str,
-    familiar_compact_steps: Optional[List[str]] = None,
-    familiar_extended_steps: Optional[List[str]] = None,
-    policies_fallback: Optional[str] = None,
+    config: Optional[DomainLlmConfig] = None,
+    **kwargs,
 ) -> LlmConfig:
     """Factory to create an LlmConfig for a domain module with minimal boilerplate.
 
     Args:
-        app_id: Short identifier (e.g., "desk", "resume", "schedule")
-        app_title: Display title (e.g., "Desk", "Resume", "Schedule")
-        purpose: One-line description of the domain
-        agentic_module: Module path for .agentic imports (e.g., "desk.agentic")
-        familiar_compact_steps: List of commands for compact familiarization
-        familiar_extended_steps: List of commands for extended familiarization
-        policies_fallback: Custom policies YAML string (uses default if None)
+        config: DomainLlmConfig with all domain settings.
+                For convenience, keyword arguments are also accepted
+                and forwarded to DomainLlmConfig().
 
     Returns:
         LlmConfig ready for use with build_parser() and run()
     """
-    agentic_builder = _build_agentic_builder(agentic_module, app_id, purpose)
-    domain_map_builder = _build_domain_map_builder(agentic_module)
-    inventory_builder = _build_inventory_builder(app_title)
-    compact_builder = _build_familiar_compact_builder(app_id, familiar_compact_steps)
-    extended_builder = _build_familiar_extended_builder(app_id, familiar_extended_steps, compact_builder)
-    policies_builder = _build_policies_builder(policies_fallback)
+    if config is None:
+        config = DomainLlmConfig(**kwargs)
+
+    agentic_builder = _build_agentic_builder(config.agentic_module, config.app_id, config.purpose)
+    domain_map_builder = _build_domain_map_builder(config.agentic_module)
+    inventory_builder = _build_inventory_builder(config.app_title)
+    compact_builder = _build_familiar_compact_builder(config.app_id, config.familiar_compact_steps)
+    extended_builder = _build_familiar_extended_builder(config.app_id, config.familiar_extended_steps, compact_builder)
+    policies_builder = _build_policies_builder(config.policies_fallback)
 
     return LlmConfig(
-        prog=f"llm-{app_id}",
-        description=f"{app_title} Assistant LLM utilities (inventory, familiar, policies, agentic, domain-map)",
+        prog=f"llm-{config.app_id}",
+        description=f"{config.app_title} Assistant LLM utilities (inventory, familiar, policies, agentic, domain-map)",
         agentic=agentic_builder,
         domain_map=domain_map_builder,
         inventory=inventory_builder,
         familiar_compact=compact_builder,
         familiar_extended=extended_builder,
         policies=policies_builder,
-        agentic_filename=f"AGENTIC_{app_id.upper()}.md",
-        domain_map_filename=f"DOMAIN_MAP_{app_id.upper()}.md",
+        agentic_filename=f"AGENTIC_{config.app_id.upper()}.md",
+        domain_map_filename=f"DOMAIN_MAP_{config.app_id.upper()}.md",
     )
 
 

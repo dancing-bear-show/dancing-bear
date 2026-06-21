@@ -6,6 +6,8 @@ from email.message import EmailMessage
 from mail.messages import (
     _parse_addr,
     _compose_reply,
+    ReplyEnvelope,
+    ReplyOptions,
     Candidate,
     candidates_from_metadata,
     encode_email_message,
@@ -18,8 +20,8 @@ class ParseAddrTests(unittest.TestCase):
         self.assertEqual(name, "")
         self.assertEqual(email, "")
 
-    def test_none_input(self):
-        name, email = _parse_addr(None)
+    def test_whitespace_input(self):
+        name, email = _parse_addr("  ")
         self.assertEqual(name, "")
         self.assertEqual(email, "")
 
@@ -46,9 +48,11 @@ class ParseAddrTests(unittest.TestCase):
 class ComposeReplyTests(unittest.TestCase):
     def test_basic_reply(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Test Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Test Subject",
+            ),
             body_text="Reply body",
         )
         self.assertIsInstance(msg, EmailMessage)
@@ -58,60 +62,74 @@ class ComposeReplyTests(unittest.TestCase):
 
     def test_subject_already_has_re(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Re: Already a reply",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Re: Already a reply",
+            ),
             body_text="Body",
         )
         self.assertEqual(msg["Subject"], "Re: Already a reply")
 
     def test_subject_re_case_insensitive(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="RE: Uppercase Re",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="RE: Uppercase Re",
+            ),
             body_text="Body",
         )
         self.assertEqual(msg["Subject"], "RE: Uppercase Re")
 
     def test_with_cc(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Subject",
+                cc=["cc1@example.com", "cc2@example.com"],
+            ),
             body_text="Body",
-            cc=["cc1@example.com", "cc2@example.com"],
         )
         self.assertEqual(msg["Cc"], "cc1@example.com, cc2@example.com")
 
     def test_with_in_reply_to(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Subject",
+            ),
             body_text="Body",
-            in_reply_to="<original-msg-id@example.com>",
+            options=ReplyOptions(in_reply_to="<original-msg-id@example.com>"),
         )
         self.assertEqual(msg["In-Reply-To"], "<original-msg-id@example.com>")
 
     def test_with_references(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Subject",
+            ),
             body_text="Body",
-            references="<ref1@example.com> <ref2@example.com>",
+            options=ReplyOptions(references="<ref1@example.com> <ref2@example.com>"),
         )
         self.assertEqual(msg["References"], "<ref1@example.com> <ref2@example.com>")
 
     def test_include_quote(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Subject",
+            ),
             body_text="My reply",
-            include_quote=True,
-            original_text="Original line 1\nOriginal line 2",
+            options=ReplyOptions(
+                include_quote=True,
+                original_text="Original line 1\nOriginal line 2",
+            ),
         )
         content = msg.get_content()
         self.assertIn("My reply", content)
@@ -120,21 +138,24 @@ class ComposeReplyTests(unittest.TestCase):
 
     def test_include_quote_without_original(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Subject",
+            ),
             body_text="Reply only",
-            include_quote=True,
-            original_text="",
+            options=ReplyOptions(include_quote=True, original_text=""),
         )
         content = msg.get_content()
         self.assertEqual(content.strip(), "Reply only")
 
     def test_empty_body(self):
         msg = _compose_reply(
-            from_email="me@example.com",
-            to_email="you@example.com",
-            subject="Subject",
+            envelope=ReplyEnvelope(
+                from_email="me@example.com",
+                to_email="you@example.com",
+                subject="Subject",
+            ),
             body_text="",
         )
         self.assertIsInstance(msg, EmailMessage)

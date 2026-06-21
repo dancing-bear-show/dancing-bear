@@ -9,10 +9,39 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .client import OutlookClientBase, _requests
-from .models import SearchParams
+from .models import MessageSearchQuery, SearchParams
 from core.constants import GRAPH_API_URL
 
 _NEXT_LINK = "@odata.nextLink"
+
+
+def _build_kql_search_url(params: MessageSearchQuery) -> Optional[str]:
+    """Build the KQL search URL from MessageSearchQuery, or None if no terms."""
+    import urllib.parse
+    sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
+    folder_path = "mailFolders/inbox/messages" if params.only_inbox else "messages"
+    kql_terms: List[str] = []
+    if params.sender:
+        kql_terms.append(f"from:{params.sender}")
+    if params.query.strip():
+        kql_terms.append(params.query.strip())
+    if not kql_terms:
+        return None
+    encoded_query = urllib.parse.quote(f'"{" ".join(kql_terms)}"')
+    return f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(params.top)}&{sel}"
+
+
+def _map_search_result(m: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a Graph API message to a search result dict."""
+    addr = (m.get("from") or {}).get("emailAddress", {})
+    return {
+        "id": m.get("id"),
+        "subject": m.get("subject", ""),
+        "from": f"{addr.get('name', '')} <{addr.get('address', '')}>",
+        "received": m.get("receivedDateTime") or "",
+        "snippet": m.get("bodyPreview", ""),
+        "has_attachments": m.get("hasAttachments", False),
+    }
 
 
 class OutlookMailMixin:
@@ -288,54 +317,34 @@ class OutlookMailMixin:
 
     def search_messages(
         self: OutlookClientBase,
-        query: str,
-        top: int = 50,
-        pages: int = 3,
-        after: Optional[str] = None,
-        sender: Optional[str] = None,
-        only_inbox: bool = False,
+        query: str = "",
+        params: Optional[MessageSearchQuery] = None,
+        **kwargs,
     ) -> List[Dict[str, Any]]:
         """Search mail messages matching query.
 
+        Accepts either a MessageSearchQuery params object or keyword arguments
+        (query, top, pages, after, sender, only_inbox).
+
         Args:
-            query: KQL search string (e.g. 'Jing Zhang receipt'); combined with sender when both provided
-            top: page size
-            pages: max pages to fetch
-            after: ISO date YYYY-MM-DD — results are filtered client-side
-            sender: sender constraint added as a KQL ``from:<sender>`` term via ``$search``
-            only_inbox: restrict search to Inbox folder only
+            query: KQL search string (e.g. 'Jing Zhang receipt')
+            params: MessageSearchQuery with all search parameters.
+            **kwargs: Legacy keyword arguments forwarded to MessageSearchQuery.
         """
-        import urllib.parse
-        sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
-        folder_path = "mailFolders/inbox/messages" if only_inbox else "messages"
-        kql_terms: List[str] = []
-        if sender:
-            kql_terms.append(f"from:{sender}")
-        if query.strip():
-            kql_terms.append(query.strip())
-        if not kql_terms:
+        if params is None:
+            params = MessageSearchQuery(query=query, **kwargs)
+        nxt = _build_kql_search_url(params)
+        if not nxt:
             return []
-        encoded_query = urllib.parse.quote(f'"{" ".join(kql_terms)}"')
-        url = f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(top)}&{sel}"
         msgs: List[Dict[str, Any]] = []
-        nxt: Optional[str] = url
-        for _ in range(max(1, int(pages))):
+        for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
             data = r.json()
             for m in data.get("value", []):
-                received = m.get("receivedDateTime") or ""
-                if after and received and received[:10] < after[:10]:
+                if params.after and (m.get("receivedDateTime") or "")[:10] < params.after[:10]:
                     continue
-                addr = (m.get("from") or {}).get("emailAddress", {})
-                msgs.append({
-                    "id": m.get("id"),
-                    "subject": m.get("subject", ""),
-                    "from": f"{addr.get('name', '')} <{addr.get('address', '')}>",
-                    "received": received,
-                    "snippet": m.get("bodyPreview", ""),
-                    "has_attachments": m.get("hasAttachments", False),
-                })
+                msgs.append(_map_search_result(m))
             nxt = data.get(_NEXT_LINK)
             if not nxt:
                 break

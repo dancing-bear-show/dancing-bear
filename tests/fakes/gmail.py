@@ -52,8 +52,7 @@ class FakeGmailClient:
         return list(self.filters)
 
     def list_message_ids(
-        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None,  # NOSONAR
-        max_pages: int = 1, page_size: int = 500  # NOSONAR
+        self, query: Optional[str] = None, label_ids: Optional[List[str]] = None, **kwargs  # NOSONAR - fake interface must match real signature
     ) -> List[str]:
         q = (query or "").lower()
         for pattern, ids in self.message_ids_by_query.items():

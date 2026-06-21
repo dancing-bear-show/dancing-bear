@@ -49,25 +49,6 @@ def _make_schedule_item_from_params(params: ScheduleItemParams) -> ScheduleItem:
     )
 
 
-def _make_schedule_item(
-    subject: str,
-    byday: List[str],
-    start_time: str,
-    end_time: str,
-    location: str,
-    url: str,
-) -> ScheduleItem:
-    """Create a weekly recurring ScheduleItem (legacy signature)."""
-    params = ScheduleItemParams(
-        subject=subject,
-        byday=byday,
-        start_time=start_time,
-        end_time=end_time,
-        location=location,
-        url=url,
-    )
-    return _make_schedule_item_from_params(params)
-
 
 def _fetch_html(url: str) -> str:
     """Fetch HTML content from URL."""
@@ -197,9 +178,9 @@ class RichmondHillSkatingParser(ScheduleParser):
                 continue
             st, en = parse_time_range(txt)
             if st and en:
-                items.append(_make_schedule_item(
+                items.append(_make_schedule_item_from_params(ScheduleItemParams(
                     'Public Skating', [normalize_day(days[i])], st, en, location, url,
-                ))
+                )))
         return items
 
     def _parse_with_regex(self, html: str, url: str) -> List[ScheduleItem]:
@@ -218,9 +199,9 @@ class RichmondHillSkatingParser(ScheduleParser):
             for i, cell in enumerate(cells):
                 st, en = parse_time_range(html_to_text(cell))
                 if st and en:
-                    items.append(_make_schedule_item(
+                    items.append(_make_schedule_item_from_params(ScheduleItemParams(
                         'Public Skating', [normalize_day(WEEKDAYS[i])], st, en, arena, url,
-                    ))
+                    )))
         return items
 
 
@@ -260,9 +241,9 @@ class RichmondHillSwimmingParser(ScheduleParser):
             for i, cell in enumerate(cells):
                 st, en = parse_time_range(html_to_text(cell))
                 if st and en:
-                    items.append(_make_schedule_item(
+                    items.append(_make_schedule_item_from_params(ScheduleItemParams(
                         subject, [normalize_day(WEEKDAYS[i])], st, en, facility, url,
-                    ))
+                    )))
         return items
 
 
@@ -328,7 +309,7 @@ class AuroraAquaticsParser(ScheduleParser):
 
             for code in normalize_days(day_spec):
                 for st, en in extract_time_ranges(leisure_cell):
-                    items.append(_make_schedule_item(LEISURE_SWIM, [code], st, en, 'Aurora Pools', url))
+                    items.append(_make_schedule_item_from_params(ScheduleItemParams(LEISURE_SWIM, [code], st, en, 'Aurora Pools', url)))
 
         return items
 

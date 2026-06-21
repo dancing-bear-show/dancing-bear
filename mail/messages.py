@@ -1,8 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email.message import EmailMessage
 from typing import Any, Dict, List, Optional, Tuple
+
+
+@dataclass
+class ReplyEnvelope:
+    """Envelope addresses and subject for a reply message."""
+
+    from_email: str
+    to_email: str
+    subject: str
+    cc: List[str] = field(default_factory=list)
+    bcc: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ReplyOptions:
+    """Threading and quoting options for a reply message."""
+
+    in_reply_to: Optional[str] = None
+    references: Optional[str] = None
+    include_quote: bool = False
+    original_text: Optional[str] = None
 
 
 def _parse_addr(addr: str) -> Tuple[str, str]:
@@ -15,36 +36,30 @@ def _parse_addr(addr: str) -> Tuple[str, str]:
 
 def _compose_reply(
     *,
-    from_email: str,
-    to_email: str,
-    subject: str,
+    envelope: ReplyEnvelope,
     body_text: str,
-    in_reply_to: Optional[str] = None,
-    references: Optional[str] = None,
-    cc: Optional[List[str]] = None,
-    bcc: Optional[List[str]] = None,
-    include_quote: bool = False,
-    original_text: Optional[str] = None,
+    options: Optional[ReplyOptions] = None,
 ) -> EmailMessage:
+    opts = options or ReplyOptions()
     msg = EmailMessage()
-    msg["From"] = from_email
-    msg["To"] = to_email
-    if cc:
-        msg["Cc"] = ", ".join(cc)
-    if bcc:
-        msg["Bcc"] = ", ".join(bcc)
-    if subject.lower().startswith("re:"):
-        msg["Subject"] = subject
+    msg["From"] = envelope.from_email
+    msg["To"] = envelope.to_email
+    if envelope.cc:
+        msg["Cc"] = ", ".join(envelope.cc)
+    if envelope.bcc:
+        msg["Bcc"] = ", ".join(envelope.bcc)
+    if envelope.subject.lower().startswith("re:"):
+        msg["Subject"] = envelope.subject
     else:
-        msg["Subject"] = f"Re: {subject}"
-    if in_reply_to:
-        msg["In-Reply-To"] = in_reply_to
-    if references:
-        msg["References"] = references
+        msg["Subject"] = f"Re: {envelope.subject}"
+    if opts.in_reply_to:
+        msg["In-Reply-To"] = opts.in_reply_to
+    if opts.references:
+        msg["References"] = opts.references
 
     content = body_text or ""
-    if include_quote and (original_text or "").strip():
-        content = f"{content}\n\nOn previous message:\n> " + "\n> ".join((original_text or "").splitlines())
+    if opts.include_quote and (opts.original_text or "").strip():
+        content = f"{content}\n\nOn previous message:\n> " + "\n> ".join((opts.original_text or "").splitlines())
     msg.set_content(content)
     return msg
 
