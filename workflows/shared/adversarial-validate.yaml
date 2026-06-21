@@ -1,0 +1,238 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/adversarial-validate.yaml
+#       prefix: av
+#       depends_on: [prior-stage]
+#       reads_from: [prior-stage]
+#
+# Stages injected: av-discover-units → av-validate-units → av-cross-validate → av-apply-validation-corrections
+#
+# Caller must set trigger.params: validate_mode (confluence/code/local)
+# validate_target:
+#   confluence — parent page ID to search under
+#   code       — "HEAD" (literal)
+#   local      — directory path to scan, OR "" to default to {workspace}/outputs
+fragment: true
+name: adversarial-validate
+version: "1.0"
+
+description: >
+  Shared adversarial validation fragment: discover units, validate each in
+  parallel, check cross-unit consistency, then apply corrections.
+
+  Supports three modes via {validate_mode}:
+    confluence — discover Confluence child pages under {validate_target} (parent page ID)
+    code       — discover files changed vs main (HEAD diff); {validate_target} = "HEAD"
+    local      — discover markdown/yaml files under {validate_target} if set,
+                 otherwise under {workspace}/outputs (runtime workspace outputs dir)
+
+  Used by any workflow that produces multi-artifact LLM deliverables and
+  needs adversarial fact-checking before publishing or merging.
+
+stages:
+
+  # ===========================================================================
+  # Discover units to validate
+  # ===========================================================================
+
+  - name: discover-units
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Discover validation targets based on {validate_mode}.
+
+      confluence mode:
+        ./bin/docs search "ancestor = {validate_target} AND type = page" --limit 50 --format json
+        Extract page IDs and titles from the results.
+
+      code mode:
+        git diff main...HEAD --name-only
+        Filter to source files only: .py, .yaml, .md (exclude __pycache__,
+        *.pyc, *.egg-info, migrations, lock files).
+
+      local mode:
+        If {validate_target} is non-empty, use it as the root:
+          find {validate_target} -path "*/.*" -prune -o \( -name "*.md" -o -name "*.yaml" \) -print | sort
+        If {validate_target} is empty, default to scanning {workspace}/outputs:
+          find {workspace}/outputs -path "*/.*" -prune -o \( -name "*.md" -o -name "*.yaml" \) -print | sort
+        The -path "*/.*" -prune form stops descending into hidden directories (.git/,
+        .claude/, etc.) entirely, rather than just filtering them from output.
+        NOTE: Never set validate_target to the workflow workspace_dir param — that
+        is a base directory; the actual run directory has a run-id suffix appended
+        by init_workspace and will not match. Use "" to let the stage use the
+        correct runtime workspace path.
+
+      Write units.json to {workspace}/validation/units.json as a JSON array
+      where each element has:
+        { "id": "<page_id_or_path>", "path_or_url": "<full_path_or_url>", "type": "<confluence|code|local>" }
+
+      If no units are discovered, write an empty array and log a warning.
+    agent:
+      role: researcher
+      model: sonnet  # sonnet required: discover-units reads arbitrary workspace paths and Confluence pages;
+                     # haiku hallucinated page IDs and missed units in multi-type workspaces.
+      tools: [Bash, Read]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/units.json
+
+  # ===========================================================================
+  # Per-unit validation (parallel)
+  # ===========================================================================
+
+  - name: validate-units
+    kind: validate
+    depends_on: [discover-units]
+    reads_from: [discover-units]
+    description: >
+      Validate each unit discovered in units.json for internal consistency.
+
+      Read {workspace}/validation/units.json to get the unit list.
+
+      For each unit, apply mode-specific fetch and validation:
+
+      confluence units:
+        ./bin/docs get-page <ID> --format json
+        Verify numeric claims against source CLIs (AMP, BigQuery, PagerDuty).
+        Check that section links reference real page IDs.
+
+      code units:
+        Read the file directly.
+        Verify imports are used, types match usage, tests match implementation.
+        Check for hallucinated APIs or wrong method signatures.
+
+      local units:
+        Read the file directly.
+        Verify numeric claims are internally consistent.
+        Check cross-references (links, imports) resolve.
+
+      For large unit counts (>5), spawn parallel unit-validator subagents
+      via Task — batch up to 5 concurrently and collect results before
+      writing findings.
+
+      Write unit-findings.json to {workspace}/validation/unit-findings.json:
+        {
+          "units": [
+            {
+              "id": "<unit_id>",
+              "status": "pass|fail",
+              "findings": [
+                { "claim": "<claim_text>", "severity": "critical|minor|info", "detail": "<detail>" }
+              ]
+            }
+          ]
+        }
+    agent:
+      role: unit-validator
+      model: sonnet  # sonnet required: numeric claim verification against live CLIs (AMP, PD, BigQuery)
+                     # requires judgment that haiku consistently failed on multi-source validation.
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - All units pass internal consistency checks
+        - No hallucinated APIs or method signatures
+        - Numeric claims trace to source data
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/unit-findings.json
+
+  # ===========================================================================
+  # Cross-unit consistency check
+  # ===========================================================================
+
+  - name: cross-validate
+    kind: validate
+    depends_on: [validate-units]
+    reads_from: [validate-units, discover-units]
+    description: >
+      Check cross-unit consistency across all validated units.
+
+      Read {workspace}/validation/unit-findings.json (per-unit results) and
+      {workspace}/validation/units.json (unit list). Also read each unit's
+      source (page content or file) for direct comparison.
+
+      Check:
+        1. Shared data points (thresholds, counts, dates, metric values) agree
+           across all units that reference them — mismatches indicate stale updates.
+        2. API contracts are consistent across files — function signatures,
+           return types, and parameter names must match between producer and consumer.
+        3. Naming is consistent throughout — the same concept must use the same
+           name everywhere; no synonyms or abbreviated variants across units.
+        4. No stale references — if a symbol was renamed in one unit, verify
+           all other units use the new name.
+
+      Write cross-findings.json to {workspace}/validation/cross-findings.json:
+        {
+          "critical": [
+            { "units": ["<id1>", "<id2>"], "issue": "<description>", "detail": "<detail>" }
+          ],
+          "minor": [ ... ],
+          "passed": ["<check_description>", ...]
+        }
+    agent:
+      role: cross-unit-validator
+      model: sonnet  # sonnet required: cross-unit consistency across live-fetched sources needs
+                     # reasoning quality that haiku lacked; same rationale as validate-units above.
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: cross_unit
+      criteria:
+        - Shared data points agree across units
+        - API contracts consistent across files
+        - Naming consistent throughout
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/cross-findings.json
+
+  # ===========================================================================
+  # Apply validation corrections
+  # ===========================================================================
+
+  - name: apply-validation-corrections
+    kind: execute
+    depends_on: [cross-validate]
+    reads_from: [cross-validate, validate-units]
+    description: >
+      Fix all critical and minor findings from unit and cross-unit validation.
+
+      IMPORTANT: Do NOT edit any files that were not produced by the validate-units
+      or cross-validate stage in this run. Only edit files listed in the consolidated
+      findings report.
+
+      Read {workspace}/validation/unit-findings.json and
+      {workspace}/validation/cross-findings.json.
+
+      For each critical or minor finding:
+        - Read the affected unit (file or Confluence page) for full context.
+        - Apply the minimal targeted fix — do not rewrite passing sections.
+        - For Confluence pages: use ./bin/docs publish-markdown to push corrections.
+        - For code/local files: use Edit to apply surgical corrections.
+
+      After fixing, verify the fix does not introduce new inconsistencies by
+      spot-checking adjacent content.
+
+      Write validation-corrections.md to
+      {workspace}/validation/validation-corrections.md with a table:
+
+        | Finding | Severity | Unit | Fix Applied |
+        |---------|----------|------|-------------|
+        | <claim> | critical | <id> | <what was changed> |
+
+      If no critical or minor findings exist, write
+      "No corrections required — all findings are info or pass."
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/validation-corrections.md

@@ -1,0 +1,343 @@
+name: coverage-report
+version: "1.0"
+description: >
+  Phase 1: analyse every source domain for happy-path and sad-path test
+  coverage gaps. Read-only — no test files are written. Produces a
+  structured report (Markdown + JSON) for human review and as input to
+  coverage-improve (Phase 2).
+
+  Stage dependency graph:
+
+              init                            (G0 — workspace bootstrap + coverage run)
+               |
+      domain-scan × N  (parallel fan-out)    (G1 — per-domain gap analysis)
+               |
+          consolidate                         (G2 — aggregate into report)
+               |
+       present-report  [human gate]           (G3 — review and decide)
+
+metadata:
+  author: sre-platform
+  created: "2026-06-19"
+
+trigger:
+  source: manual
+  params: {}
+
+workspace_dir: "{work_dir}/coverage-report"
+
+stages:
+
+  # ===========================================================================
+  # G0: Workspace init — run coverage baseline, inventory source files
+  # ===========================================================================
+
+  - name: init
+    kind: gather
+    description: >
+      Bootstrap workspace directories and collect the coverage baseline and
+      domain file inventory that all downstream stages will read.
+
+      Step 1 — create workspace dirs:
+        mkdir -p {workspace}/outputs
+        mkdir -p {workspace}/analysis
+        mkdir -p {workspace}/reports
+
+      Step 2 — run coverage baseline (best-effort; failures are non-fatal):
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --format=json -o {workspace}/analysis/coverage.json 2>/dev/null || true
+
+        If coverage.json is not produced (coverage.py not installed or no
+        .coverage file), write an empty coverage.json stub:
+          { "files": {}, "totals": {} }
+        and continue — domain-scan agents will note files as "coverage unknown".
+
+      Step 3 — collect git log for context:
+        git log --oneline -20 > {workspace}/analysis/git-log.txt
+
+      Step 4 — inventory all non-trivial Python source files per domain.
+        For each domain directory listed below, find .py files excluding
+        __init__.py and __pycache__:
+          mail/ calendars/ schedule/ phone/ core/ desk/ wifi/
+          whatsapp/ resume/ metals/ apple_music/
+
+        Write {workspace}/analysis/domain-inventory.json:
+          {
+            "items": [
+              {
+                "domain": "mail",
+                "src_dir": "mail/",
+                "test_dir": "tests/mail_tests/",
+                "files": ["mail/dsl.py", "mail/config_resolver.py", ...]
+              },
+              {
+                "domain": "calendars",
+                "src_dir": "calendars/",
+                "test_dir": "tests/calendars_tests/",
+                "files": [...]
+              },
+              ...
+            ]
+          }
+
+        Include only domains that have at least one .py source file.
+        The "items" key at the top level is required — it is the fan_out
+        source for domain-scan.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: domain_inventory
+        mode: generate
+        description: >
+          domain-inventory.json written to {workspace}/analysis/ with an "items"
+          array of domain entries (domain, src_dir, test_dir, files[]).
+    required: true
+    writes_to:
+      - analysis/coverage.json
+      - analysis/domain-inventory.json
+      - analysis/git-log.txt
+
+  # ===========================================================================
+  # G1: Per-domain gap analysis — fan-out, one researcher per domain
+  # ===========================================================================
+
+  - name: domain-scan
+    kind: gather
+    depends_on: [init]
+    reads_from: [init]
+    description: >
+      Fan out: one researcher agent per domain in
+      {workspace}/analysis/domain-inventory.json.
+
+      Each agent analyses only its assigned {domain}.
+
+      Step 1 — read coverage baseline:
+        Read {workspace}/analysis/coverage.json.
+        Filter to files whose path starts with {src_dir}.
+        Build a map of { file_path → coverage_pct } for this domain.
+        If coverage.json has no entry for a file, treat coverage as unknown (null).
+
+      Step 2 — read all source files for this domain:
+        For each file in the domain-inventory entry for {domain}:
+          Read the source file.
+          Enumerate all top-level functions and class methods (skip dunder
+          methods, properties, and private helpers prefixed with __).
+
+      Step 3 — read all test files for this domain:
+        Read every .py file under {test_dir} recursively.
+        Also check tests/test_*.py at the top level for domain-relevant tests
+        (grep for imports from {src_dir} to confirm relevance).
+
+      Step 4 — per-function gap analysis:
+        For each enumerated function/method:
+          a. Search the test files for any test that calls it directly or
+             exercises the code path it represents.
+          b. Happy-path covered: at least one test exercises the function
+             with valid, successful inputs and asserts on a success result.
+          c. Sad-path covered: at least one test exercises the function with
+             invalid input, missing data, or forces an error/exception branch
+             and asserts on the error behaviour (assertRaises, checking error
+             messages, checking fallback values).
+          d. If coverage_pct for the file is < 50%, flag as high_priority.
+
+      Step 5 — write per-domain report to
+        {workspace}/analysis/domain-{domain}.json:
+          {
+            "domain": "{domain}",
+            "src_dir": "{src_dir}",
+            "test_dir": "{test_dir}",
+            "total_coverage_pct": 62.1,
+            "priority": "high|medium|low",
+            "files": [
+              {
+                "src_path": "mail/dsl.py",
+                "coverage_pct": 45.2,
+                "functions": [
+                  {
+                    "name": "resolve_filters",
+                    "happy_path_covered": true,
+                    "sad_path_covered": false,
+                    "notes": "No test for missing config key; raises KeyError uncovered"
+                  }
+                ],
+                "missing_happy": ["func_a"],
+                "missing_sad": ["resolve_filters", "func_c"],
+                "missing_both": ["func_d"],
+                "recommendation": "Add sad-path tests for resolve_filters; add both paths for func_d"
+              }
+            ],
+            "summary": "3 of 8 files below 50%; 12 functions missing sad-path tests"
+          }
+
+        Priority rules:
+          high   — any file with coverage_pct < 50%, or domain has 2+ files with missing_both
+          medium — any file with coverage_pct 50-79%, or has missing_sad entries
+          low    — all files ≥ 80% with only minor gaps
+
+        Sort files within the report: missing_both first, then missing_sad,
+        then missing_happy, then fully covered.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    outputs:
+      - name: domain_gap_report
+        mode: generate
+        description: >
+          Per-domain gap report written to {workspace}/analysis/domain-{domain}.json.
+          Contains per-file function coverage classification (happy/sad/both/neither).
+    required: true
+    fan_out:
+      source: init
+      field: items
+      key: domain
+      mode: agent
+    writes_to:
+      - analysis/domain-{domain}.json
+
+  # ===========================================================================
+  # G2: Consolidate — aggregate all per-domain reports into the deliverable
+  # ===========================================================================
+
+  - name: consolidate
+    kind: gather
+    depends_on: [domain-scan]
+    reads_from: [domain-scan]
+    description: >
+      Read all per-domain reports from {workspace}/analysis/domain-*.json
+      and produce two output files: a human-readable Markdown report and a
+      machine-readable JSON file for Phase 2.
+
+      Step 1 — read and merge:
+        For each domain-{domain}.json, extract:
+          - domain name, priority tier, total_coverage_pct
+          - per-file entries (coverage_pct, missing_happy, missing_sad, missing_both)
+
+        Aggregate totals:
+          - Total source files analysed
+          - Files by priority tier (high / medium / low)
+          - Functions missing happy-path only (count)
+          - Functions missing sad-path only (count)
+          - Functions missing both (count)
+          - Overall weighted-average coverage (sum of covered_lines / sum of total_lines
+            if available; else average of per-file coverage_pct values)
+
+      Step 2 — write {workspace}/reports/coverage-report.md:
+
+        # Coverage Gap Report
+        Generated: <date from git-log.txt first line>
+
+        ## Executive Summary
+        - Domains analysed: N
+        - Source files analysed: N
+        - Overall coverage: X%
+        - Files in HIGH priority tier: N (< 50% or has missing_both gaps)
+        - Files in MEDIUM priority tier: N
+        - Files in LOW priority tier: N
+
+        ## Coverage by Domain
+        One section per domain, ordered high → medium → low priority.
+
+        ### <Domain> (priority: high | X% overall)
+        | File | Coverage % | Missing Happy | Missing Sad | Missing Both |
+        |------|-----------|--------------|------------|-------------|
+        | mail/dsl.py | 45% | 1 | 3 | 1 |
+        ...
+        **Recommendation:** <domain-level recommendation>
+
+        ## Cross-Domain Patterns
+        - Most common gap type: missing sad-path (N instances across M domains)
+        - Domains with no sad-path tests at all: [list]
+        - Domains with ≥ 80% coverage: [list]
+
+        ## Recommended Phase 2 Implementation Order
+        List domains in the order they should be tackled, with a one-line
+        rationale for each (e.g., "mail — highest gap count, most user-facing").
+
+      Step 3 — write {workspace}/reports/coverage-report.json
+        (machine-readable; consumed by coverage-improve Phase 2):
+          {
+            "generated_from_branch": "<branch>",
+            "overall_coverage_pct": 67.4,
+            "domains": [
+              {
+                "domain": "mail",
+                "priority": "high",
+                "total_coverage_pct": 45.2,
+                "files": [
+                  {
+                    "src_path": "mail/dsl.py",
+                    "coverage_pct": 45.2,
+                    "missing_happy": ["func_a"],
+                    "missing_sad": ["resolve_filters"],
+                    "missing_both": ["func_d"],
+                    "recommendation": "..."
+                  }
+                ]
+              }
+            ],
+            "priority_order": ["mail", "calendars", "phone", ...]
+          }
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    outputs:
+      - name: coverage_report
+        mode: generate
+        description: >
+          Human-readable coverage-report.md and machine-readable coverage-report.json
+          written to {workspace}/reports/.
+    required: true
+    writes_to:
+      - reports/coverage-report.md
+      - reports/coverage-report.json
+
+  # ===========================================================================
+  # G3: Human gate — review report and decide whether to proceed to Phase 2
+  # ===========================================================================
+
+  - name: present-report
+    kind: propose
+    depends_on: [consolidate]
+    reads_from: [consolidate]
+    description: >
+      Present the coverage report to the user for review and decision.
+
+      Read and display:
+        {workspace}/reports/coverage-report.md
+
+      Then ask the user:
+        A) Proceed to Phase 2 — run coverage-improve workflow to implement
+           the improvements. The report JSON is at:
+             {workspace}/reports/coverage-report.json
+           Pass this path as report_path when triggering coverage-improve.
+        B) Redirect — specify which domains or files to focus on, or exclude.
+        C) Stop — the report is the only deliverable needed.
+
+      Write the user's decision and any notes to
+        {workspace}/reports/gate-decision.txt.
+
+      If the user chooses A, also print the exact trigger command they need:
+        Run coverage-improve with:
+          report_path: {workspace}/reports/coverage-report.json
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    outputs:
+      - name: gate_decision
+        mode: generate
+        description: >
+          User decision written to {workspace}/reports/gate-decision.txt —
+          A (proceed to Phase 2), B (redirect), or C (stop).
+    human_gate: true
+    required: true
+    writes_to:
+      - reports/gate-decision.txt

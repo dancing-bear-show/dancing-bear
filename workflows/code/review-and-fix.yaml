@@ -1,0 +1,492 @@
+# Adversarial swarm review followed by automated fix of all findings.
+#
+# Phase 1 — Review (via shared/code-review-swarm.yaml fragment):
+#   init
+#       |
+#   fetch-pr-context → concern-sweep → enumerate-targets
+#       → validate-concerns + cross-unit-check → consolidate
+#       → fact-check-findings → human-gate → post-comments
+#
+# Phase 2 — Fix (depends on post-comments):
+#   triage-findings
+#       |
+#   fix-code ─── fix-tests ─── fix-qlty  (parallel)
+#       \              |              /
+#              verify-fixes
+#                    |
+#            resolve-threads
+#                    |
+#          human-gate-fixes
+
+name: review-and-fix
+version: "1.0"
+description: >
+  Adversarial swarm code review followed by automated parallel fix of all
+  confirmed findings. Phase 1 runs the full review swarm (diff fetch,
+  concern sweep, per-file validation, consolidation, fact-check, human gate,
+  inline comment posting). Phase 2 triages findings by fix type, fans out
+  code, test, and qlty fixes in parallel, verifies everything is still
+  green, resolves posted threads, and presents a final summary for human
+  approval.
+
+  Set skip_review: "true" to jump directly to Phase 2 if the swarm review
+  already ran and findings are present in {workspace}/outputs/.
+
+metadata:
+  author: dancing-bear
+  created: "2026-05-29"
+
+trigger:
+  source: manual
+  params:
+    pr_number: ""          # PR number (required; auto-detected from branch if blank)
+    test_cmd: ""           # e.g. "pytest tests/grafana/ -x -q"
+    source_root: ""        # e.g. "grafana/"
+    test_path: ""          # e.g. "tests/grafana/"
+    min_coverage: "80"     # coverage threshold (percent, no % sign)
+    auth_domains: "github"
+    skip_review: "false"   # set "true" to bypass Phase 1 if review already ran
+
+workspace_dir: "{work_dir}/review-and-fix-{pr_number}"
+
+stages:
+
+  # ===========================================================================
+  # Phase 1 entry: bootstrap workspace directories
+  # ===========================================================================
+
+  - name: init
+    kind: gather
+    description: >
+      Bootstrap the workspace. Use the Bash tool to create the directory
+      structure needed by downstream stages:
+        mkdir -p {workspace}/outputs/diffs
+        mkdir -p {workspace}/outputs/findings
+        mkdir -p {workspace}/outputs/fix
+        mkdir -p {workspace}/validation
+      Exit 0 immediately. All substantive work begins in fetch-pr-context.
+
+      If skip_review is "true", also write a sentinel file so Phase 2 stages
+      know the swarm output already exists:
+        echo "skip_review=true" > {workspace}/outputs/skip-review.txt
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash]
+      access: read-only
+    required: true
+    writes_to: []
+
+  # ===========================================================================
+  # Phase 2: Triage findings by fix type
+  # ===========================================================================
+
+  - name: triage-findings
+    kind: gather
+    depends_on: [post-comments]
+    reads_from: [post-comments, fetch-pr-context, consolidate]
+    description: >
+      Read the confirmed findings and current qlty issues. Group them
+      into a fix manifest by fix type so parallel fix agents can self-select.
+
+      Step 1 — read consolidated findings:
+        Use the Read tool on {workspace}/outputs/consolidated.json.
+        If the file is absent (skip_review was "true" and swarm never ran),
+        fail with an explicit error: "consolidated.json not found — run without
+        skip_review=true or supply prior swarm output".
+
+      Step 2 — read post-comments results:
+        Use the Read tool on {workspace}/outputs/post-results.json.
+        Extract comment_urls so resolve-threads can match findings to threads.
+
+      Step 3 — fetch current qlty issues:
+        Bash tool: ~/.qlty/bin/qlty check --format json
+        Write raw output to {workspace}/outputs/fix/qlty-issues.json.
+
+      Step 4 — classify each finding into one of four types:
+        "code"       — logic bugs, type errors, incorrect control flow,
+                       style issues in source files (not test files)
+        "test"       — missing coverage, broken assertions, weak test patterns
+        "docs"       — outdated docstrings, missing PATTERNS.md entries,
+                       incorrect CLI help text
+        "qlty"       — issues present in qlty-issues.json (new-code only)
+
+      Classification rules:
+        - If finding file path is under tests/, classify as "test"
+        - If finding concern_id is "docstring-*" or "patterns-*", classify as "docs"
+        - Otherwise classify as "code"
+        - All qlty issues from Step 3 go into the "qlty" bucket
+
+      Step 5 — write fix manifest:
+        Use the Write tool to create {workspace}/outputs/fix-manifest.json:
+          {
+            "pr_number": "{pr_number}",
+            "code": [
+              {
+                "finding_id": "0",
+                "file": "foo.py",
+                "line": 42,
+                "concern_id": "silent-failure",
+                "severity": "critical",
+                "summary": "one-sentence description of what to fix",
+                "comment_url": "https://github.com/..."
+              }
+            ],
+            "test": [...],
+            "docs": [...],
+            "qlty": [
+              {
+                "key": "AY...",
+                "file": "foo.py",
+                "line": 55,
+                "message": "qlty issue message",
+                "severity": "MAJOR"
+              }
+            ]
+          }
+
+      Write a brief summary to {workspace}/outputs/fix/triage-summary.md:
+        - Total findings by type
+        - Files affected per type
+        - Any findings with no fix type (manual review needed)
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix-manifest.json
+      - outputs/fix/triage-summary.md
+      - outputs/fix/qlty-issues.json
+
+  # ===========================================================================
+  # Phase 2: Fix code issues (parallel with fix-tests and fix-qlty)
+  # ===========================================================================
+
+  - name: fix-code
+    kind: execute
+    mode: worker_queue
+    depends_on: [triage-findings]
+    reads_from: [triage-findings, fetch-pr-context]
+    description: >
+      Fix each item in the "code" group of {workspace}/outputs/fix-manifest.json.
+
+      For each item in fix-manifest.json["code"]:
+
+        1. Use the Read tool on the file at item["file"].
+        2. Locate the issue at item["line"] using the summary in item["summary"]
+           and the original finding detail in consolidated.json (read by index
+           item["finding_id"]).
+        3. Apply the fix using the Edit tool. Keep the change minimal — fix only
+           what the finding identifies; do not refactor surrounding code.
+        4. After editing, run ruff on the changed file:
+             Bash tool: ruff check --fix {file}
+           If ruff reports new errors unrelated to the fix, leave them — do not
+           introduce scope creep.
+        5. If item["finding_id"] maps to a test file in outputs/changed-files.txt,
+           run the corresponding test:
+             Bash tool: {test_cmd}
+           Record pass/fail.
+
+      Write {workspace}/outputs/fix/fix-code-results.json:
+        {
+          "fixed": [
+            {
+              "finding_id": "0",
+              "file": "foo.py",
+              "line": 42,
+              "action": "patched",
+              "test_result": "pass|fail|skipped"
+            }
+          ],
+          "skipped": [
+            {
+              "finding_id": "1",
+              "reason": "file not found or finding no longer present"
+            }
+          ],
+          "errors": []
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix/fix-code-results.json
+
+  # ===========================================================================
+  # Phase 2: Fix test issues (parallel with fix-code and fix-qlty)
+  # ===========================================================================
+
+  - name: fix-tests
+    kind: execute
+    mode: worker_queue
+    depends_on: [triage-findings]
+    reads_from: [triage-findings, fetch-pr-context]
+    description: >
+      Fix each item in the "test" group of {workspace}/outputs/fix-manifest.json.
+
+      For each item in fix-manifest.json["test"]:
+
+        1. Use the Read tool on item["file"] for existing test context.
+        2. Read the source file being tested (derive from test file path by
+           replacing "tests/" with "" and removing the "test_"
+           prefix from the filename).
+        3. Apply the fix: add missing assertions, replace weak assertTrue() with
+           specific assertEqual/assertIn, or add a new test function if coverage
+           is missing entirely. Use the Edit tool for modifications; use the
+           Write tool only when creating a new test file.
+        4. After each edit, run the test to confirm it is green:
+             Bash tool: python3 -m unittest {item["file"]} -x -q
+           If the test fails, re-read and fix before moving on.
+
+      Write {workspace}/outputs/fix/fix-tests-results.json:
+        {
+          "fixed": [
+            {
+              "finding_id": "2",
+              "file": "tests/foo/test_bar.py",
+              "action": "assertion-strengthened|test-added",
+              "test_result": "pass"
+            }
+          ],
+          "skipped": [],
+          "errors": []
+        }
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix/fix-tests-results.json
+
+  # ===========================================================================
+  # Phase 2: Fix qlty issues (parallel with fix-code and fix-tests)
+  # ===========================================================================
+
+  - name: fix-qlty
+    kind: execute
+    depends_on: [triage-findings]
+    reads_from: [triage-findings]
+    description: >
+      Fix new-code qlty issues from {workspace}/outputs/fix-manifest.json
+      ["qlty"]. Only address issues in files changed by this PR (new-code
+      scope — do not touch pre-existing issues).
+
+      Step 1 — load issues:
+        Use the Read tool on {workspace}/outputs/fix/qlty-issues.json.
+        Filter to items where the file appears in outputs/changed-files.txt.
+
+      Step 2 — fix each issue:
+        For each issue:
+          - Use the Read tool on issue["file"].
+          - Apply the fix at issue["line"] per issue["message"].
+            Common patterns:
+              S1172 (unused param): add noqa with justification or remove param
+              S3776 (cognitive complexity): extract a helper function
+              S125 (commented-out code): remove stale comments
+              S1481 (unused variable): remove or use it
+          - Use the Edit tool for each change.
+
+      Step 3 — verify qlty gate:
+        Bash tool: ~/.qlty/bin/qlty check {source_root} --format json
+        Write result to {workspace}/outputs/fix/qlty-post-fix.json.
+
+      Write {workspace}/outputs/fix/fix-sq-results.json:
+        {
+          "fixed": [
+            {
+              "key": "AY...",
+              "file": "foo.py",
+              "line": 55,
+              "message": "...",
+              "action": "removed|extracted|annotated"
+            }
+          ],
+          "skipped": [],
+          "gate_status": "OK|ERROR|pending"
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix/fix-sq-results.json
+      - outputs/fix/qlty-post-fix.json
+
+  # ===========================================================================
+  # Phase 2: Verify all fixes are green
+  # ===========================================================================
+
+  - name: verify-fixes
+    kind: validate
+    depends_on: [fix-code, fix-tests, fix-qlty]
+    reads_from: [fix-code, fix-tests, fix-qlty]
+    description: >
+      Confirm all fix rounds left the codebase in a green state. This stage
+      does not apply fixes — it only reads and runs.
+
+      Step 1 — linting:
+        Bash tool: ruff check {source_root}
+        Record pass/fail and any new violations (violations that are not in the
+        pre-fix diff are regressions from fix-code or fix-qlty).
+
+      Step 2 — tests:
+        Bash tool: {test_cmd}
+        Record pass/fail. If test_cmd is blank, run:
+          python3 -m unittest {test_path} -x -q
+        If test_path is also blank, skip and mark as "no test_cmd provided".
+
+      Step 3 — qlty gate:
+        Bash tool: ~/.qlty/bin/qlty check {source_root} --format json
+        Parse any new issues on changed files.
+
+      Step 4 — read fix result files:
+        Use the Read tool on:
+          {workspace}/outputs/fix/fix-code-results.json
+          {workspace}/outputs/fix/fix-tests-results.json
+          {workspace}/outputs/fix/fix-sq-results.json
+        Count total fixed, skipped, and errors across all three.
+
+      Write {workspace}/outputs/fix/verify-results.json:
+        {
+          "ruff": "pass|fail",
+          "ruff_new_violations": [],
+          "tests": "pass|fail|skipped",
+          "qlty_new_issues": [],
+          "fix_summary": {
+            "code_fixed": N,
+            "test_fixed": N,
+            "sq_fixed": N,
+            "total_skipped": N,
+            "total_errors": N
+          },
+          "all_green": true|false
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - ruff exits 0 with no new violations
+        - test suite passes (or was explicitly skipped)
+        - qlty check introduces no new issues on changed files
+      max_revisions: 1
+    required: true
+    writes_to:
+      - outputs/fix/verify-results.json
+
+  # ===========================================================================
+  # Phase 2: Resolve posted PR threads for fixed findings
+  # ===========================================================================
+
+  - name: resolve-threads
+    kind: publish
+    depends_on: [verify-fixes]
+    reads_from: [verify-fixes, triage-findings, post-comments]
+    description: >
+      Resolve GitHub PR review threads that correspond to fixed findings.
+      Only resolve threads whose finding_id appears in fix-code-results.json
+      or fix-tests-results.json with action != "skipped".
+
+      Step 1 — build resolved finding set:
+        Use the Read tool on {workspace}/outputs/fix/fix-code-results.json.
+        Use the Read tool on {workspace}/outputs/fix/fix-tests-results.json.
+        Collect all finding_ids with a "fixed" disposition.
+
+      Step 2 — match findings to comment URLs:
+        Use the Read tool on {workspace}/outputs/fix-manifest.json.
+        For each fixed finding_id, extract comment_url from the manifest entry.
+
+      Step 3 — resolve threads:
+        For each comment_url, extract the PR number and resolve via:
+          Bash tool: ./bin/github review-threads -- {pr_number} --resolve
+        Note: the CLI resolves all threads in one call; this step confirms the
+        command succeeds after fixes are applied.
+
+      Write {workspace}/outputs/fix/thread-resolution.json:
+        {
+          "resolved_finding_ids": ["0", "2"],
+          "unresolved_finding_ids": ["1"],
+          "unresolved_reason": {"1": "skipped — finding no longer present"},
+          "resolve_status": "ok|error"
+        }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix/thread-resolution.json
+
+  # ===========================================================================
+  # Phase 2: Human gate — present fix summary
+  # ===========================================================================
+
+  - name: human-gate-fixes
+    kind: propose
+    depends_on: [verify-fixes, resolve-threads]
+    reads_from: [verify-fixes, resolve-threads, triage-findings]
+    human_gate: true
+    description: >
+      Present a full fix-round summary and ask the operator whether to approve
+      or request another round.
+
+      Read and summarise each Phase 2 artifact:
+
+        Triage summary:
+          Read {workspace}/outputs/fix/triage-summary.md.
+          Show counts by fix type and files affected.
+
+        Fix results:
+          Read fix-code-results.json → count fixed / skipped / errors.
+          Read fix-tests-results.json → count fixed / skipped / errors.
+          Read fix-sq-results.json → count fixed / skipped.
+
+        Verification:
+          Read verify-results.json → ruff status, test status, qlty new issues, all_green.
+
+        Thread resolution:
+          Read thread-resolution.json → resolved_finding_ids count,
+          unresolved_finding_ids with reasons.
+
+      Present the summary to the operator, then ask:
+        "Fix round complete. Approve for merge? (yes / request another round)"
+
+      If the operator requests another round:
+        Re-trigger by calling:
+          gh pr edit {pr_number} --body "<same body>"
+        Then loop back to triage-findings.
+
+      Write the operator decision to
+      {workspace}/validation/human-gate-fixes-decision.md.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-fixes-decision.md
+
+include:
+  # Phase 1: Full adversarial review swarm.
+  # Injects: fetch-pr-context → concern-sweep → enumerate-targets
+  #   → validate-concerns + cross-unit-check → consolidate
+  #   → fact-check-findings → human-gate → post-comments
+  # No prefix — top-level workflow keeps original stage names from the fragment.
+  - path: workflows/shared/code-review-swarm.yaml
+    prefix: ""
+    depends_on: [init]
+    reads_from: []

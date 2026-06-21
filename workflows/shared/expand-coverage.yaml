@@ -1,0 +1,203 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/expand-coverage.yaml
+#       prefix: cov
+#       depends_on: [prior-stage]
+#       reads_from: [prior-stage]
+#
+# Stages injected (prefixed): cov-identify-gaps → cov-expand-coverage-files → cov-verify-coverage
+#
+# Caller must set trigger.params: source_root, test_path, min_coverage (default "80")
+fragment: true
+name: expand-coverage
+version: "1.0"
+description: >
+  Shared coverage expansion fragment. Identifies files below the coverage threshold
+  in a given source root, spawns tester agents to write missing tests, then
+  verifies all targets meet the threshold.
+
+  Used by workflows that need targeted coverage improvement on a specific domain
+  or set of files as part of a larger pipeline.
+
+  Params consumed from trigger.params: {source_root}, {test_path}, {min_coverage}.
+
+stages:
+
+  # ===========================================================================
+  # Stage 1: Identify coverage gaps
+  # ===========================================================================
+
+  - name: identify-gaps
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Find files in {source_root} that are below the {min_coverage}% threshold.
+
+      Step 1 — gaps on changed files (fastest path when diff context is available):
+         --only-changed --format table
+
+        If the command returns no results (no diff context, or all changed files
+        already have tests), fall back to Step 2.
+
+      Step 2 — full gap analysis for {source_root}:
+         --format table
+
+        Filter output to files under {source_root}.
+
+      Step 3 — per-file coverage from coverage.py:
+        coverage run -m unittest discover -s {test_path} -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json > /tmp/cov-report.json
+
+        Filter results to files under {source_root}. Identify all files with
+        coverage < {min_coverage}%.
+
+      Step 4 — write findings to {workspace}/coverage/gap-report.json:
+        {
+          "source_root": "{source_root}",
+          "min_coverage": {min_coverage},
+          "gaps": [
+            {
+              "src_path": "...",
+              "coverage": 45,
+              "uncovered_lines": 22,
+              "has_test_file": true
+            }
+          ],
+          "total_files_below_threshold": N
+        }
+
+      Only include files with coverage strictly below {min_coverage}%.
+      Files with no test file at all count as 0% coverage — list them first.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-only
+    required: true
+    writes_to:
+      - coverage/gap-report.json
+
+  # ===========================================================================
+  # Stage 2: Write tests for all files below threshold
+  # ===========================================================================
+
+  - name: expand-coverage-files
+    kind: execute
+    depends_on: [identify-gaps]
+    reads_from: [identify-gaps]
+    description: >
+      Read {workspace}/coverage/gap-report.json and write tests for every file
+      below the {min_coverage}% threshold.
+
+      For each file in gap-report.json[].gaps:
+
+        1. Read the source file to understand what to test.
+
+        2. Read the domain conftest.py for available factories and fixtures:
+             tests/conftest.py                         — global fixtures
+             tests/<domain>/conftest.py                — domain-specific factories
+             tests/helpers/README.md                   — shared mock libraries
+
+        3. Spawn a tester agent for the file:
+             Task(
+               subagent_type="tester",
+               prompt=(
+                 "Write tests for {src_path} targeting {min_coverage}%+ coverage. "
+                 "Read tests/<domain>/conftest.py first for available factories. "
+                 "Follow project conventions: make_* factories (no manual dicts), "
+                 "@pytest.mark.parametrize for multi-scenario cases, specific assertions "
+                 "(assertEqual/assertIn, not assertTrue), patch at the call site. "
+                 "After writing tests, run: python3 -m unittest discover -x -q {test_path} -x -q and fix any failures."
+               )
+             )
+
+        4. After the tester agent returns, verify the tests pass:
+             python3 -m unittest discover -x -q {test_path} -x -q
+
+           If the command exits non-zero: read the error, fix the specific failure,
+           and re-run. Up to 2 fix cycles per file.
+
+      Process files in order: 0%-coverage files first (no test file), then
+      lowest-coverage files ascending. Spawn tester agents in parallel for
+      files in different domains; serialize within the same domain to avoid
+      conftest conflicts.
+
+      Write a summary to {workspace}/coverage/tests-added.md:
+
+        ## Coverage Expansion Results
+
+        | File | Before % | Tests Added | Status |
+        |------|----------|-------------|--------|
+        | .../module.py | 45% | 8 | PASS |
+
+        Total: N new tests across M files.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - coverage/tests-added.md
+
+  # ===========================================================================
+  # Stage 3: Verify all targets meet the threshold
+  # ===========================================================================
+
+  - name: verify-coverage
+    kind: validate
+    depends_on: [expand-coverage-files]
+    reads_from: [expand-coverage-files, identify-gaps]
+    description: >
+      Confirm that all files in {source_root} now meet the {min_coverage}%
+      threshold and that no test gaps remain on changed files.
+
+      Step 1 — re-run gap check on changed files:
+         --only-changed --fail-on-gaps
+
+        A non-zero exit means gaps remain. Read the output, identify which
+        files are still below threshold, and report them in the output JSON.
+
+      Step 2 — run the test suite for the target path:
+        python3 -m unittest discover -x -q {test_path} -x -q
+
+        Must exit 0. If it fails: read the error, identify the root cause,
+        and record it — do not attempt further fixes in this stage (that would
+        cause a revision of expand-coverage-files, not verify-coverage).
+
+      Step 3 — confirm per-file coverage via coverage.py:
+        coverage run -m unittest discover -s {test_path} -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json > /tmp/cov-verify.json
+
+        Filter to files under {source_root}. Every file must be ≥{min_coverage}%.
+
+      Step 4 — write results to {workspace}/coverage/coverage-verified.json:
+        {
+          "source_root": "{source_root}",
+          "min_coverage": {min_coverage},
+          "test_path_exit_code": 0,
+          "all_targets_met": true,
+          "remaining_gaps": [],
+          "verified_at": "ISO-8601 timestamp"
+        }
+
+        If any file is still below threshold, set "all_targets_met": false and
+        list the stragglers in "remaining_gaps" — the validation criteria below
+        will force a revision cycle.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Bash, Read]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - All files in {source_root} are at or above {min_coverage}%
+        - No test gaps remain on changed files
+        - python3 -m unittest {test_path} exits 0
+      max_revisions: 2
+    required: true
+    writes_to:
+      - coverage/coverage-verified.json

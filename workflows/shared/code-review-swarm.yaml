@@ -1,0 +1,1026 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/code-review-swarm.yaml
+#       prefix: review
+#       depends_on: [last-pre-review-stage]
+#       reads_from: [last-pre-review-stage]
+#
+# Caller must set trigger.params.pr_number.
+# Stages injected (all prefixed):
+#   review-fetch-pr-context → review-concern-sweep → review-enumerate-targets
+#   → review-validate-concerns (native fan_out: one agent per manifest entry) + review-cross-unit-check
+#   → review-consolidate → review-fact-check-findings
+#   → review-human-gate → review-post-comments
+
+fragment: true
+name: code-review-swarm
+version: "1.1"
+description: >
+  Shared adversarial code-review swarm. Fetches PR diff, sweeps concern
+  guides against the diff, fans out per-file validators in parallel,
+  consolidates and fact-checks findings, presents at a human gate, then
+  posts approved findings as inline GitHub PR comments.
+
+  Two execution paths selected by the `pr_size` trigger param:
+
+    small — single consolidated reviewer agent runs all guide sweeps,
+      enumeration, and validation in one pass, writing consolidated.json +
+      consolidated-summary.md directly. Skips the multi-agent fan-out.
+
+    large (safe default when pr_size is absent/blank) — full fan-out:
+      concern-sweep (9 agents) → concern-sweep-merge → enumerate-targets
+      → validate-concerns (N agents) + cross-unit-check → consolidate.
+
+  NOTE: fragment trigger.params are NOT merged into callers by the include
+  engine. The `when:` conditions use "does not contain small" for the fan-out
+  path so it is the safe default when pr_size is absent or blank. Callers
+  that want the consolidated path must explicitly set pr_size=small.
+  code-review.yaml defaults to small; other callers default to large.
+
+  Both paths converge at fact-check-findings.
+
+  Used by: code-review.yaml, implement-domain.yaml, and any future
+  feature or enhancement workflow that needs a structured review pass.
+
+# ---------------------------------------------------------------------------
+# Filename sanitization convention (used across multiple stages):
+#   SAFE=$(echo "<file>" | tr '/' '_')
+# Produces a flat filename safe for the diffs/ directory.
+# All stages that read or write per-file diffs MUST use this exact idiom.
+# If the scheme changes, update ALL occurrences: fetch-pr-context,
+# enumerate-targets, validate-concerns.
+# ---------------------------------------------------------------------------
+
+trigger:
+  params:
+    pr_number:
+      type: string
+      default: ""
+      description: PR number to review. Auto-detected from current branch when blank.
+    pr_size:
+      type: string
+      default: "small"
+      description: >
+        Execution path selector. "small" (default) runs a single consolidated
+        reviewer agent — faster for PRs with ≤ 10 changed files or ≤ 300 diff
+        lines. "large" runs the full fan-out pipeline (9+ agents). Override to
+        "large" for big PRs where deeper parallel coverage is worth the cost.
+
+stages:
+  # ===========================================================================
+  # Group 0: Fetch PR context
+  # ===========================================================================
+
+  - name: fetch-pr-context
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Fetch all PR context needed by downstream stages.
+
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Step 0 — create output directories (this stage is self-contained;
+        callers need not provide an init stage for directory creation):
+          mkdir -p {workspace}/outputs/diffs {workspace}/outputs/findings {workspace}/validation
+
+      Step 1 — resolve PR number and repository context:
+        If {pr_number} is blank, detect from current branch:
+          git rev-parse --abbrev-ref HEAD
+          gh pr-view -- --format json   (no --pr, relies on branch)
+        Otherwise:
+          gh pr-view -- --pr {pr_number} --format json
+        Write to {workspace}/outputs/pr-context.json.
+        Record: title, body, base branch, head branch, author.
+
+        Additionally capture and inject into pr-context.json:
+          commit_id: the PR branch head SHA — NOT git rev-parse HEAD.
+            In GitHub Actions CI, HEAD points to a synthetic merge commit
+            (refs/pull/N/merge) that is not reachable from the PR branch;
+            GitHub's review comment API rejects such SHAs with HTTP 422.
+            Fetch the authoritative head SHA from the GitHub API instead:
+              gh pr view {pr_number} --json headRefOid --jq '.headRefOid'
+            If {pr_number} is blank (branch-detected PR), omit --pr:
+              gh pr view --json headRefOid --jq '.headRefOid'
+          owner_repo: $(git remote get-url origin \
+            | sed 's|.*github.com[:/]\(.*\)\.git|\1|; s|.*github.com[:/]\(.*\)|\1|')
+        These fields are required by the post-comments stage for the GitHub API.
+
+      Step 2 — changed files and raw diff:
+        Use the PR's actual base commit SHA (not the base branch name) to
+        avoid picking up unrelated commits that landed on main after this
+        branch diverged. Fetch the base SHA from GitHub.
+        Use an explicit blank-check so auto-detect only fires when {pr_number} is truly
+        absent (never as a silent fallback for an invalid/unresolvable PR number):
+          if [ -n "{pr_number}" ]; then
+            BASE_SHA=$(gh pr view {pr_number} --json baseRefOid --jq '.baseRefOid')
+            HEAD_SHA=$(gh pr view {pr_number} --json headRefOid --jq '.headRefOid')
+          else
+            BASE_SHA=$(gh pr view --json baseRefOid --jq '.baseRefOid')
+            HEAD_SHA=$(gh pr view --json headRefOid --jq '.headRefOid')
+          fi
+        Then also find the true merge-base so even if the PR description's
+        baseRefOid is a later commit we get only the PR's own changes:
+          MERGE_BASE=$(git merge-base "$HEAD_SHA" "$BASE_SHA" 2>/dev/null || echo "$BASE_SHA")
+        Use MERGE_BASE for all diffs:
+          git diff ${MERGE_BASE}..${HEAD_SHA} --name-only > {workspace}/outputs/changed-files.txt
+          git diff ${MERGE_BASE}..${HEAD_SHA}             > {workspace}/outputs/full-diff.patch
+        Per-file diffs (needed by validators):
+          for each file in changed-files.txt:
+            Sanitize the filename by replacing '/' with '_' to produce a flat
+            filename safe for the diffs/ directory:
+              SAFE=$(echo "<file>" | tr '/' '_')  # see filename sanitization convention above
+              git diff ${MERGE_BASE}..${HEAD_SHA} -- <file> \
+                > {workspace}/outputs/diffs/${SAFE}.patch
+        The diffs/ subdirectory is created in Step 0 above.
+        Store MERGE_BASE and HEAD_SHA in pr-context.json for downstream stages.
+
+      Step 3 — commit history:
+        git log ${MERGE_BASE}..${HEAD_SHA} --oneline > {workspace}/outputs/commit-history.txt
+
+      Step 4 — PR description (already in pr-context.json; extract body field
+        and write standalone for easy reading):
+        Write {workspace}/outputs/pr-description.md from the body field.
+
+      Fail fast if git diff produces no output (nothing changed).
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - pr-context.json
+      - changed-files.txt
+      - full-diff.patch
+      - commit-history.txt
+      - pr-description.md
+      - diffs/
+
+  # ===========================================================================
+  # Group 1: Concern sweep (3-stage pipeline)
+  # ===========================================================================
+
+  - name: concern-sweep-dispatch
+    kind: gather
+    executor: inline
+    depends_on: [fetch-pr-context]
+    reads_from: [fetch-pr-context]
+    description: >
+      Read {workspace}/outputs/changed-files.txt and select which concern guide
+      files to sweep based on file extensions present in the diff.
+
+      Guide selection rules:
+        - .py files present          → correctness.md, security.md, tests.md, patterns.md, reuse.md, complexity.md
+          (tests.md applies to test files AND source files that introduce sys.exit() / HTTP clients)
+        - .yaml/.yml files present   → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md
+        - SKILL.md files present     → workflow.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
+        - .md / README files present → docs.md
+        - always                     → patterns.md
+
+      Deduplicate the list (patterns.md appears once even if selected multiple times).
+
+      Write {workspace}/outputs/concern-sweep-index.json:
+        {
+          "total": N,
+          "items": [
+            {"index": "0", "data": {"guide": "correctness.md"}},
+            {"index": "1", "data": {"guide": "workflow.md"}},
+            ...
+          ]
+        }
+      Index width = len(str(max(total-1, 0))) digits, zero-padded.
+
+      Use python3 inline to build the index atomically.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - concern-sweep-index.json
+
+  # ---------------------------------------------------------------------------
+  # Small-PR fast path: single consolidated reviewer (pr_size=small)
+  # Skips concern-sweep, concern-sweep-merge, enumerate-targets,
+  # validate-concerns, cross-unit-check, and consolidate.
+  # Produces consolidated.json + consolidated-summary.md directly.
+  # This stage is SKIPPED when pr_size=large.
+  # ---------------------------------------------------------------------------
+
+  - name: review-consolidated
+    kind: execute
+    depends_on: [concern-sweep-dispatch]
+    reads_from: [fetch-pr-context, concern-sweep-dispatch]
+    when: '"{pr_size}" contains "small"'
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+
+      Single-agent consolidated review for small PRs. Runs all selected concern
+      guides, enumerates targets, validates concerns, and cross-checks in one
+      pass. Produces consolidated.json + consolidated-summary.md directly,
+      bypassing the multi-agent fan-out pipeline.
+
+      Step 1 — read concern-sweep index:
+        Read {workspace}/outputs/concern-sweep-index.json to get the list of
+        guide files selected for this PR.
+
+      Step 2 — read all guide files:
+        For each guide in the index, read concerns/{guide} (e.g. concerns/correctness.md).
+        Read ALL selected guides before proceeding — do not skip any.
+
+      Step 3 — read PR diff context:
+        Read {workspace}/outputs/changed-files.txt.
+        Read {workspace}/outputs/full-diff.patch.
+        For each file in changed-files.txt, read its per-file patch:
+          SAFE=$(echo "<file>" | tr '/' '_')
+          Read {workspace}/outputs/diffs/${SAFE}.patch.
+        Read {workspace}/outputs/pr-context.json for PR metadata.
+
+      Step 4 — concern sweep (all guides in one pass):
+        For each guide, apply every concern's triggers against the diff.
+        Include a concern only when the diff contains code that plausibly
+        triggers it. Err on the side of inclusion for critical/major concerns.
+        Self-check each included concern:
+          1. "file" is "N/A" or appears verbatim in changed-files.txt.
+          2. "trigger_reason" quotes a specific diff line (starting with "+").
+          3. The concern was not triggered solely from reading the live source
+             file — the diff patch must be the primary evidence.
+        Drop concerns that fail any check.
+
+      Step 5 — per-concern validation (read source files now):
+        For each active concern, read the actual source file (Read tool) and
+        apply the concern's check against both the file and its diff patch.
+        Determine verdict: confirmed | not-present | needs-context.
+        Keep only confirmed and needs-context findings.
+
+      Step 6 — cross-file consistency check (inline):
+        Check across all changed files for:
+          - Interface contract mismatches (function signature changes not
+            reflected in all callers in the PR diff)
+          - Type definition inconsistencies
+          - Import renames/moves not propagated to all importers in the diff
+          - Config constant value disagreements across files
+          - Public method additions without matching test coverage in the diff
+        Add any cross-file findings to the finding list with file = the primary
+        affected file.
+
+      Step 7 — deduplicate and sort:
+        Deduplicate by (file, concern_id, line). Keep the entry with more detail.
+        Sort: critical → major → minor; within each group by file then line.
+
+      Step 8 — write outputs:
+        mkdir -p {workspace}/outputs/findings
+
+        Write {workspace}/outputs/consolidated.json:
+          {
+            "pr_number": "{pr_number}",
+            "total_findings": N,
+            "by_severity": {"critical": N, "major": N, "minor": N},
+            "findings": [
+              {
+                "file": "...",
+                "concern_id": "...",
+                "severity": "critical|major|minor",
+                "verdict": "confirmed|needs-context",
+                "line": 42,
+                "end_line": 47,
+                "side": "RIGHT",
+                "finding": "one sentence: what the problem is",
+                "detail": "2-4 sentences: why it matters, what to fix",
+                "evidence": "quoted code line(s)"
+              },
+              ...
+            ]
+          }
+
+        Write {workspace}/outputs/consolidated-summary.md:
+          Brief markdown: total count, severity breakdown, then one section
+          per finding with file:line, severity tag, finding sentence, and
+          detail paragraph.
+          Professional neutral tone per .claude/WRITING_GUIDE.md.
+          No LLM tells. No hollow enthusiasm.
+
+        Also write {workspace}/outputs/cross-unit-findings.json as an empty
+        array [] (downstream fact-checker expects this file to exist):
+          echo '[]' > {workspace}/outputs/cross-unit-findings.json
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Grep, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - consolidated.json
+      - consolidated-summary.md
+      - cross-unit-findings.json
+
+  # ---------------------------------------------------------------------------
+  # Large-PR fan-out path (pr_size=large): concern-sweep + downstream stages
+  # These stages are SKIPPED when pr_size=small (review-consolidated runs instead).
+  # ---------------------------------------------------------------------------
+
+  - name: concern-sweep
+    kind: gather
+    depends_on: [concern-sweep-dispatch]
+    reads_from: [fetch-pr-context, concern-sweep-dispatch]
+    when: '"{pr_size}" does not contain "small"'
+    fan_out:
+      source: concern-sweep-dispatch
+      field: items
+      key: index
+      mode: agent
+    description: >
+      You are processing guide {index} from the concern-sweep fan-out.
+
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      DIFF-ONLY CONSTRAINT — base every concern solely on the diff patches in
+      {workspace}/outputs/diffs/ and the full patch in
+      {workspace}/outputs/full-diff.patch. Do NOT read source files in the live
+      repo. Every concern MUST cite a specific diff line as its trigger_reason.
+
+      SCOPE CONSTRAINT — every concern with a specific file MUST name a file
+      that appears in {workspace}/outputs/changed-files.txt. Global concerns
+      use "file": "N/A".
+
+      Step 1 — read {workspace}/outputs/concern-sweep-index.json. Find the entry
+        where "index" == "{index}" and extract its "data" field to get the
+        guide filename (e.g. "workflow.md").
+
+      Step 2 — read the guide file from concerns/{guide} (e.g.
+        concerns/workflow.md). This is a guide file, not a source file — reading
+        it is fine.
+
+      Step 3 — read {workspace}/outputs/full-diff.patch and
+        {workspace}/outputs/changed-files.txt.
+
+      Step 4 — for each concern in the guide, apply its triggers against the diff:
+        - Include if any trigger pattern matches. Err on the side of inclusion.
+        - Skip only when the diff contains nothing that could plausibly trigger it.
+
+      Step 5 — SELF-CHECK before writing: for each concern to include, verify:
+        1. "file" is "N/A" or appears verbatim in changed-files.txt.
+        2. "trigger_reason" quotes a specific diff line (starting with "+").
+        3. You did NOT read the live source file — only the diff patch.
+        Drop concerns that fail any check.
+
+      Step 6 — write {workspace}/outputs/concern-sweep/{index}.json:
+        {
+          "guide": "<guide filename>",
+          "active": [
+            {
+              "id": "...",
+              "check": "...",
+              "triggers": "...",
+              "severity": "critical|major|minor",
+              "file": "<file or N/A>",
+              "trigger_reason": "<quoted diff line>"
+            }
+          ],
+          "excluded": [
+            {"id": "...", "reason": "..."}
+          ]
+        }
+      Use mkdir -p {workspace}/outputs/concern-sweep first.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Grep, Bash, Write]
+      access: read-write
+    required: true
+
+  - name: concern-sweep-merge
+    kind: gather
+    executor: inline
+    depends_on: [concern-sweep]
+    reads_from: [concern-sweep]
+    when: '"{pr_size}" does not contain "small"'
+    description: >
+      Merge all per-guide concern results into the final concerns.json and
+      concerns-excluded.json that downstream stages expect.
+
+      Read all JSON files from {workspace}/outputs/concern-sweep/.
+      For each file, extract "active" and "excluded" arrays.
+
+      Deduplicate active concerns by (id, file) pair — if two guides produce
+      the same concern id for the same file, keep the one with the more specific
+      trigger_reason. A concern with file="N/A" deduplicates on id alone.
+
+      Write {workspace}/outputs/concerns.json — the merged, deduplicated active
+      concern list (same schema as before):
+        [{"id": "...", "check": "...", "triggers": "...", "severity": "...",
+          "file": "...", "trigger_reason": "..."}, ...]
+
+      Write {workspace}/outputs/concerns-excluded.json — all excluded entries
+      across all guides:
+        [{"id": "...", "guide": "...", "reason": "..."}, ...]
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+
+  # ===========================================================================
+  # Group 2: Enumerate targets
+  # ===========================================================================
+
+  - name: enumerate-targets
+    kind: gather
+    depends_on: [concern-sweep-merge]
+    reads_from: [fetch-pr-context, concern-sweep-merge]
+    when: '"{pr_size}" does not contain "small"'
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Cross-reference the active concern list with the per-file diffs to
+      produce a manifest of (file, concern) pairs for validation.
+
+      GUARD — before building the manifest, filter outputs/concerns.json:
+        Read outputs/changed-files.txt into a set.
+        For each concern in outputs/concerns.json:
+          If concern["file"] is not "N/A" and concern["file"] is not in the
+          changed-files set, DROP the concern and log it to stderr as
+          "dropped hallucinated concern: <id> references <file> not in PR diff".
+        Proceed with only the filtered concern list.
+
+      Algorithm:
+        For each concern in the filtered list:
+          For each file in outputs/changed-files.txt:
+            Derive the sanitized patch filename: SAFE=$(echo "<file>" | tr '/' '_')  # see filename sanitization convention above
+            Read outputs/diffs/${SAFE}.patch.
+            If the file's diff contains code relevant to the concern's triggers,
+            add an entry to the manifest.
+            Set scope to the relevant line range(s) in the file so validators
+            can focus their analysis.
+
+      Write to {workspace}/outputs/manifest.json:
+        [
+          {
+            "file": "github/consumer.py",
+            "concern_id": "silent-failure",
+            "scope": "lines 695-719",
+            "diff_excerpt": "..."
+          },
+          ...
+        ]
+
+      Also write a fan-out index to {workspace}/outputs/fan-out-index.json.
+      The index shape the engine needs:
+        {
+          "total": N,
+          "items": [
+            { "index": "<zero-padded>", "data": <manifest entry> },
+            ...
+          ]
+        }
+      Index width = len(str(total - 1)) digits (e.g. 9 items → 1 digit;
+      10 items → 2 digits). Each "data" value is the full manifest entry object.
+      Use python3 inline to build and write this file atomically:
+        python3 -c "
+        import json
+        from pathlib import Path
+
+        manifest = json.loads(Path('{workspace}/outputs/manifest.json').read_text())
+        total = len(manifest)
+        width = len(str(max(total - 1, 0)))
+        items = [
+            {'index': str(i).zfill(width), 'data': entry}
+            for i, entry in enumerate(manifest)
+        ]
+        out = {'total': total, 'items': items}
+        tmp = '{workspace}/outputs/fan-out-index.json.tmp'
+        Path(tmp).write_text(json.dumps(out, indent=2))
+        Path(tmp).replace('{workspace}/outputs/fan-out-index.json')
+        print(f'[enumerate-targets] wrote fan-out-index with {total} entries')
+        "
+
+      The manifest drives the native fan-out in the next group.
+      Each item in fan-out-index.json becomes one validator agent invocation.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    outputs:
+      - name: fan-out-index
+        mode: generate
+        description: Fan-out index of (file, concern_id) pairs for per-entry agent dispatch.
+
+  # ===========================================================================
+  # Group 3: Per-entry validation (parallel) + cross-unit check (parallel)
+  # ===========================================================================
+  #
+  # Native fan-out: the engine reads outputs/fan-out-index.json produced by
+  # enumerate-targets and spawns one independent agent per item. Each agent
+  # receives its {index} token from the fan-out, looks up the matching entry
+  # in the index file, and writes its finding to outputs/findings/{index}.json.
+  # The cross-unit-check runs in parallel with the per-entry validators.
+
+  - name: validate-concerns
+    kind: execute
+    depends_on: [enumerate-targets]
+    reads_from: [fetch-pr-context, enumerate-targets, concern-sweep]
+    when: '"{pr_size}" does not contain "small"'
+    fan_out:
+      source: enumerate-targets
+      field: items
+      key: index
+      mode: agent
+    description: >
+      You are processing manifest entry {index} from the fan-out index.
+
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+        0. Defensive guard — fetch-pr-context creates this directory in its
+           Step 0, but include it here as a safety idempotent check:
+           mkdir -p {workspace}/outputs/findings
+
+        1. Read {workspace}/outputs/fan-out-index.json.
+           Find the entry where "index" == "{index}" and extract its "data" field.
+           The data field is a manifest entry: {file, concern_id, scope, diff_excerpt}.
+           If no matching entry exists, write {workspace}/outputs/findings/{index}.json
+           with verdict: "failed" and exit.
+
+        2. Reads the full concern definition from the appropriate guide file in
+           concerns/ for concern_id (correctness.md, security.md, tests.md,
+           patterns.md, reuse.md, complexity.md, workflow.md, workflow-fanout.md,
+           workflow-fragments.md, or docs.md).
+
+        3. Reads the actual file at the path given (Read tool, not Bash).
+
+        4. Reads the per-file patch: SAFE=$(echo "<file>" | tr '/' '_'),  # see filename sanitization convention above
+           then reads {workspace}/outputs/diffs/${SAFE}.patch for the diff context.
+
+        5. Applies the concern's check against the code and diff.
+
+        6. Writes a single finding object to {workspace}/outputs/findings/{index}.json.
+           The top-level value MUST be a JSON object (dict), never an array.
+           If the concern reveals multiple distinct issues in the same file,
+           write only the most severe one. Save secondary issues as additional
+           keys in the same object (secondary_findings: [...]) — do NOT write
+           a JSON array as the top-level value, as consolidate iterates over
+           files expecting one dict per file and an array would break severity
+           sorting and fact-check iteration:
+             {
+               "file": "...",
+               "concern_id": "...",
+               "severity": "critical|major|minor",
+               "verdict": "confirmed|not-present|needs-context",
+               "line": 42,          # first relevant line, or null
+               "end_line": 47,      # last relevant line, or null (omit for single-line)
+               "side": "RIGHT",     # always RIGHT for new code
+               "finding": "...",    # one sentence: what the problem is
+               "detail": "...",     # 2-4 sentences: why it matters, what to fix
+               "evidence": "...",   # quoted code line(s) that demonstrate the issue
+               "secondary_findings": []  # optional; additional issues found in same file
+             }
+
+        7. Omit the entry (or write verdict: "not-present") if the concern
+           does not apply after reading the full file in context.
+
+      Only write confirmed or needs-context findings. Discard not-present
+      verdicts after writing them (they are noise for the consolidation step).
+
+      Read the appropriate guide file from concerns/
+      (correctness.md, security.md, tests.md, patterns.md, reuse.md,
+      complexity.md, workflow.md, workflow-fanout.md, workflow-fragments.md,
+      or docs.md) for the authoritative concern definition before evaluating.
+      Do not infer checks from memory.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Grep, Bash, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Finding references the actual code from the diff, not a hypothetical
+        - Line number exists in the current file (not a deleted line)
+        - Severity matches the concern's declared severity in the concerns/ file
+        - Detail explains what to fix, not just what is wrong
+      max_revisions: 1
+    required: true
+
+  - name: cross-unit-check
+    kind: validate
+    depends_on: [enumerate-targets]
+    reads_from: [fetch-pr-context, enumerate-targets]
+    when: '"{pr_size}" does not contain "small"'
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Cross-file consistency check. Runs in parallel with validate-concerns.
+
+      Checks that cut across multiple changed files — patterns the per-entry
+      validators cannot see because each validator sees only one file:
+
+        - Interface contracts: if file A exports a function and file B calls
+          it, verify the signature and return type are consistent across the
+          diff.
+        - Type definitions: verify shared dataclasses/TypedDicts are used
+          consistently and not duplicated with slight variations.
+        - Import consistency: if a symbol is renamed or moved in one file,
+          verify all importers in changed files are updated.
+        - Config constants: if a constant is defined in one file and used in
+          others, verify the value is consistent across the diff.
+        - Test-source parity: if a source file adds a new public method,
+          verify a test file in the diff exercises it.
+
+      Read all files in outputs/changed-files.txt and all patches in
+      outputs/diffs/ before drawing conclusions.
+
+      Write findings to {workspace}/outputs/cross-unit-findings.json as a
+      JSON array — a cross-unit check can produce multiple findings, and a
+      single-object schema would silently discard all but the last:
+        [
+          {
+            "file": "...",        # primary file where the issue manifests
+            "concern_id": "...",
+            "severity": "critical|major|minor",
+            "verdict": "confirmed|not-present|needs-context",
+            "line": 42,
+            "end_line": 47,
+            "side": "RIGHT",
+            "finding": "...",
+            "detail": "...",
+            "evidence": "..."
+          },
+          ...
+        ]
+      Write an empty array `[]` if no cross-unit issues are found.
+    agent:
+      role: cross-unit-validator
+      model: haiku
+      tools: [Read, Grep, Bash, Write]
+      access: read-write
+    required: true
+
+  # ===========================================================================
+  # Group 4: Consolidate
+  # ===========================================================================
+
+  - name: consolidate
+    kind: execute
+    depends_on: [validate-concerns, cross-unit-check]
+    reads_from: [validate-concerns, cross-unit-check]
+    when: '"{pr_size}" does not contain "small"'
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Merge all per-entry findings and cross-unit findings into a single
+      coherent, de-duplicated, prioritized report.
+
+      Step 1 — load all findings:
+        Read every JSON file in outputs/findings/. Filenames are zero-padded
+        index strings (e.g. 0.json, 1.json for <10 entries; 00.json, 01.json
+        for 10–99 entries) written by the fan-out agents. Each file should be a
+        single finding object (one per manifest entry), but parse defensively:
+          - If the parsed value is a dict, append it to the findings list.
+          - If the parsed value is a list, extend the findings list with it.
+        This handles both compliant single-object writes and any array writes
+        by a validator agent that found multiple issues.
+        Read outputs/cross-unit-findings.json. It is a JSON array; flatten
+        it into the same list.
+        Filter to verdict == "confirmed" entries only.
+
+      Step 2 — de-duplicate:
+        If two findings reference the same file + line range and concern_id,
+        keep the one with more detail. Identical findings from different
+        validators (can happen on shared utility code) must produce one entry.
+
+      Step 3 — sort:
+        critical severity first, then major, then minor.
+        Within each severity group, sort by file path then line number.
+
+      Step 4 — write consolidated report:
+        {workspace}/outputs/consolidated.json:
+          {
+            "pr_number": "...",
+            "total_findings": N,
+            "by_severity": {"critical": N, "major": N, "minor": N},
+            "findings": [
+              {
+                "file": "...",
+                "concern_id": "...",
+                "severity": "...",
+                "line": 42,
+                "end_line": 47,
+                "side": "RIGHT",
+                "finding": "...",
+                "detail": "...",
+                "evidence": "..."
+              },
+              ...
+            ]
+          }
+
+      Step 5 — write human-readable summary:
+        {workspace}/outputs/consolidated-summary.md:
+          Brief markdown: total count, severity breakdown, then one section
+          per finding with file:line, severity tag, finding sentence, and
+          detail paragraph.
+          Professional neutral tone per .claude/WRITING_GUIDE.md.
+          No LLM tells. No hollow enthusiasm.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Glob, Write]
+      access: read-write
+    outputs:
+      - name: consolidated-report
+        mode: generate
+        description: De-duplicated, prioritized findings report and human-readable summary.
+    required: true
+
+  # ===========================================================================
+  # Group 5: Fact-check findings
+  # ===========================================================================
+
+  - name: fact-check-findings
+    kind: validate
+    depends_on: [consolidate, review-consolidated]
+    reads_from: [consolidate, review-consolidated, fetch-pr-context]
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Validate the consolidated findings report before presenting it to the
+      user. Catches hallucinated line numbers, inaccurate code quotes, and
+      contradictions before they become inline comments.
+
+      For each finding in outputs/consolidated.json:
+        1. Verify the file path exists in outputs/changed-files.txt.
+        2. Verify the line number exists in the current file (use Read on the
+           file, count lines).
+        3. Verify the evidence quote appears verbatim (or close to verbatim)
+           in the file at the stated line.
+        4. Verify the severity matches the concern's declared severity in the
+           appropriate guide file under concerns/.
+        5. Verify no two findings contradict each other (e.g., one says "no
+           type hints" and another says "type hints are present").
+
+      Write results to {workspace}/outputs/fact-check.json:
+        {
+          "passed": true|false,
+          "finding_count": N,
+          "issues": [
+            {
+              "finding_index": 0,
+              "issue": "line 42 does not exist in file (file has 38 lines)",
+              "action": "drop|correct"
+            },
+            ...
+          ]
+        }
+
+      If issues are found with action "drop", remove those findings from
+      outputs/consolidated.json before proceeding.
+      If issues are found with action "correct", update the line number or
+      evidence quote in outputs/consolidated.json.
+
+      After applying corrections, write the updated file back in place so
+      the human-gate stage reads an accurate report.
+    agent:
+      role: fact-checker
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - All finding file paths exist in changed-files.txt
+        - All line numbers are within the actual file length
+        - Evidence quotes match the file content at the stated line
+        - Severities match the guide file declarations in concerns/
+      max_revisions: 1
+    required: true
+    writes_to:
+      - fact-check.json
+      - consolidated.json   # updated in place if corrections applied
+
+  # ===========================================================================
+  # Group 6: Human gate
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [fact-check-findings]
+    reads_from: [fact-check-findings, consolidate]
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Present the consolidated findings to the user and ask how to proceed.
+
+      Display:
+        - Total findings: N (critical: X, major: Y, minor: Z)
+        - Full contents of outputs/consolidated-summary.md
+        - Note if fact-check found and corrected any issues
+
+      Ask the user to choose:
+        A) Post findings as-is as inline GitHub PR comments
+        B) Edit outputs/consolidated.json before posting (user will edit
+           manually; resume after they confirm ready)
+        C) Discard — do not post any comments
+
+      If the user chooses B, pause and wait for them to edit the file.
+      If the user chooses C, exit cleanly with a summary of what was found
+      but not posted.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - human-gate-decision.txt
+
+  # ===========================================================================
+  # Group 7: Post inline GitHub comments
+  # ===========================================================================
+
+  - name: post-comments
+    kind: publish
+    executor: inline
+    depends_on: [human-gate]
+    reads_from: [human-gate, fact-check-findings, fetch-pr-context]
+    description: >
+      WORKSPACE LOCK — write ALL output files under {workspace}. Do NOT call
+      init_workspace(), create_workspace(), or any Python workspace function.
+      Do NOT create directories outside {workspace}. If you import
+      workflow.persistence, do not call init_workspace() — it will
+      generate a new path and orphan your outputs.
+
+      Post all findings from outputs/consolidated.json as a single
+      consolidated inline GitHub PR review comment.
+
+      Step 0 — check human-gate decision:
+        Read outputs/human-gate-decision.txt.
+        If decision is "discard", write outputs/post-results.json:
+          {"posted": 0, "skipped": 0, "errors": [], "comment_urls": [],
+           "skipped_reason": "discarded at human gate"}
+        Then exit cleanly.
+
+      Step 1 — resolve repo and commit SHA:
+        Read outputs/pr-context.json. The fetch-pr-context stage explicitly
+        writes two fields required by the GitHub API:
+          owner_repo  — "org/repo" string (e.g. "brian-sherwin/dancing-bear")
+          commit_id   — PR branch head SHA (fetched from GitHub API via
+                        `gh pr view --json headRefOid`; never git rev-parse HEAD
+                        which resolves to a synthetic merge commit in CI)
+        Both fields are guaranteed to be present; fail fast if either is absent.
+
+      Step 2 — build and post a single consolidated summary comment:
+        Read pr_number, owner_repo, and commit_id from pr-context.json.
+        Read findings from outputs/consolidated.json.
+
+        If consolidated.json contains zero findings (total_findings == 0 or
+        findings array is empty), write outputs/post-results.json:
+          {"posted": 0, "skipped": 0, "errors": [], "comment_urls": [],
+           "skipped_reason": "no findings to post"}
+        Then exit cleanly — do not attempt to post a comment with no anchor.
+
+        Otherwise, build one summary comment body in Markdown containing all
+        findings, grouped by severity (critical → major → minor):
+
+          ## Code Review Findings (N total: X critical, Y major, Z minor)
+
+          ### Critical
+
+          **`FILE_PATH:LINE`** — `CONCERN_ID`
+          FINDING sentence.
+          DETAIL paragraph.
+          > EVIDENCE
+
+          ### Major
+          ...
+
+        Write the body to /tmp/cr-summary-body.txt, then post as a single
+        PR review comment anchored to the first finding's line in the first
+        finding's file (use the first critical finding if any; otherwise first
+        major; otherwise first minor):
+          gh pr-review-comment -- PR_NUMBER \
+            --repo OWNER_REPO \
+            --path FIRST_FINDING_FILE \
+            --line FIRST_FINDING_LINE \
+            --body-file /tmp/cr-summary-body.txt
+
+        This posts one consolidated comment thread rather than N individual
+        threads, keeping the PR review tab readable.
+
+      Step 3 — track results:
+        Write {workspace}/outputs/post-results.json:
+          {
+            "posted": 1,
+            "skipped": 0,
+            "errors": [],
+            "comment_urls": ["https://github.com/..."]
+          }
+
+      Step 4 — report:
+        Print a final summary: how many findings were included in the comment,
+        any errors, and a link to the PR review tab.
+
+      If the pr-review-comment call fails (non-zero exit), log the error to
+      outputs/post-results.json["errors"] and report it — do not silently swallow.
+
+      Step 5 — write global findings log:
+        Append one NDJSON record to ~/.cache/claude/code-review-findings.ndjson
+        (create the file and parent dir if absent).
+        Build the record as a JSON object with these fields:
+          ts         — ISO-8601 UTC timestamp: python3 -c "from datetime import datetime,timezone; print(datetime.now(timezone.utc).isoformat())"
+          pr_number  — the PR number from pr-context.json
+          repo       — the owner_repo field from pr-context.json
+          total      — total_findings from consolidated.json
+          critical   — by_severity.critical from consolidated.json (default 0)
+          major      — by_severity.major from consolidated.json (default 0)
+          minor      — by_severity.minor from consolidated.json (default 0)
+          posted     — posted count from post-results.json
+          findings   — array of {file, concern_id, severity, line} for each finding in consolidated.json
+          worktree   — basename of the current working directory: basename "$PWD"
+        Use python3 inline to build and append the record atomically.
+        Note: the inline Python below contains dict literals with { } braces that are
+        NOT workflow template placeholders. This is safe because resolve_params() uses
+        plain str.replace("{key}", value) — not str.format() — so only exact
+        {pr_number} and {workspace} tokens are substituted; all other braces are
+        passed through verbatim to the agent.
+          python3 -c "
+          import json, os, sys
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          log_path = Path.home() / '.cache' / 'claude' / 'code-review-findings.ndjson'
+          log_path.parent.mkdir(parents=True, exist_ok=True)
+
+          pr    = json.loads(Path('{workspace}/outputs/pr-context.json').read_text())
+          cons  = json.loads(Path('{workspace}/outputs/consolidated.json').read_text())
+          post  = json.loads(Path('{workspace}/outputs/post-results.json').read_text())
+
+          record = {
+              'ts':        datetime.now(timezone.utc).isoformat(),
+              'pr_number': pr.get('number') or pr.get('pr_number') or '{pr_number}',
+              'repo':      pr.get('owner_repo', ''),
+              'total':     cons.get('total_findings', 0),
+              'critical':  cons.get('by_severity', {}).get('critical', 0),
+              'major':     cons.get('by_severity', {}).get('major', 0),
+              'minor':     cons.get('by_severity', {}).get('minor', 0),
+              'posted':    post.get('posted', 0),
+              'findings':  [{'file': f.get('file'), 'concern_id': f.get('concern_id'),
+                             'severity': f.get('severity'), 'line': f.get('line')}
+                            for f in cons.get('findings', [])],
+              'worktree':  os.path.basename(os.getcwd()),
+          }
+          with open(log_path, 'a') as fh:
+              fh.write(json.dumps(record) + '\n')
+          print(f'[code-review] logged {record[\"total\"]} findings to {log_path}')
+          "
+        If the python3 call fails for any reason (missing file, JSON parse error),
+        print a warning to stderr and continue — do not abort the post step.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - post-results.json
+      # Note: ~/.cache/claude/code-review-findings.ndjson is written by Step 5 as a
+      # side-effect using Path.home() — it is NOT a workspace output, so it is omitted
+      # here. The engine only tracks paths listed in writes_to as workspace artifacts.

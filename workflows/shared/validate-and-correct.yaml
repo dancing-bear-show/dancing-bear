@@ -1,0 +1,82 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/validate-and-correct.yaml
+#       prefix: vc
+#       depends_on: [prior-stage]
+#       reads_from: [prior-stage]
+fragment: true
+name: validate-and-correct
+version: "1.0"
+description: >
+  Shared validation + correction tail: validate findings, apply corrections,
+  re-validate corrected sections.
+
+stages:
+  - name: validate
+    kind: validate
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Fact-check the output against gathered source data. Verify all quantitative
+      claims trace to source files, numbers are arithmetically correct, and names/
+      dates/identifiers are consistent. Write structured findings to
+      validation/fact-findings.json.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - All claims trace to source data in workspace files
+        - Numbers and calculations are arithmetically correct
+        - Names, dates, and identifiers are consistent across sections
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/fact-findings.json
+
+  - name: correct
+    kind: execute
+    depends_on: [validate]   # relative within fragment — rewritten to prefix-validate
+    reads_from: [validate]
+    description: >
+      Apply corrections from validation/fact-findings.json. Fix only critical
+      and minor findings. Do not rewrite passing sections. Write
+      validation/corrections-applied.json listing each fix.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    outputs:
+      - name: corrected-output
+        mode: generate
+        description: Apply fixes for critical/minor findings from fact-findings.json.
+    required: false
+    writes_to:
+      - validation/corrections-applied.json
+
+  - name: recheck
+    kind: validate
+    depends_on: [correct]
+    reads_from: [correct, validate]
+    description: >
+      Re-validate only the previously-failing claims. Verify corrections landed
+      and did not introduce new errors. Write validation/recheck-findings.json.
+    agent:
+      role: unit-validator
+      model: haiku
+      tools: [Read, Bash]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Previously-failing claims are now correct
+        - Corrections did not introduce new errors
+      max_revisions: 1
+    required: false
+    writes_to:
+      - validation/recheck-findings.json
