@@ -1,0 +1,444 @@
+name: ci-debug
+version: "1.0"
+description: >
+  Diagnose and fix GitHub Actions CI failures. Given a workflow run URL or PR
+  number, fetches failure details (GH Actions + qlty in parallel), parses logs
+  to identify root cause, applies fixes, verifies locally, runs the full test
+  suite, and reports a structured summary.
+
+  DAG: fetch-failures (G0) → diagnose (G1) → fix (G2) → verify (G3)
+       → recheck (G4) → human-gate (G5)
+
+  At least one of run_url or pr_number must be provided. If both are
+  given, run_url takes precedence for log fetching; pr_number is used
+  for the qlty PR-scoped check.
+
+metadata:
+  author: sre-platform
+  created: "2026-05-28"
+
+trigger:
+  source: manual
+  params:
+    run_url: ""          # GitHub Actions workflow run URL (optional if pr_number given)
+    pr_number: ""        # PR number to check (optional if run_url given)
+    test_cmd: ""         # Test invocation for local verify (e.g. "python3 -m unittest tests/core/ -x -q")
+    source_root: ""      # Source dir for coverage scoping (e.g. "core/")
+    min_coverage: "80"   # Minimum new coverage % required
+
+workspace_dir: "{work_dir}/ci-debug-{pr_number}"
+
+stages:
+  # ===========================================================================
+  # Group 0: Fetch CI failures — GitHub Actions + qlty in parallel
+  #
+  # Both data sources are independent; run them concurrently. The stage writes
+  # raw failure data that diagnose reads. If run_url is empty, use pr_number
+  # to look up the latest failed run instead.
+  # ===========================================================================
+
+  - name: fetch-failures
+    kind: gather
+    description: >
+      Fetch CI failure details from GitHub Actions and qlty in parallel.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Step 1 — validate inputs:
+        At least one of {run_url} or {pr_number} must be non-empty.
+        If both are empty, write a failed stage result and exit.
+
+      Step 2 — fetch GitHub Actions failures:
+        If {run_url} is non-empty:
+          Use the Bash tool to extract the run ID from the URL (last path segment)
+          and run:
+            gh run view <RUN_ID> --log-failed
+        Else if {pr_number} is non-empty:
+          Use the Bash tool to find the latest failed run for this PR:
+            gh pr checks {pr_number} --json name,state,detailsUrl
+          Then for each failed check, run:
+            gh run view <RUN_ID> --log-failed
+        Save all failure log output to {workspace}/outputs/gh-run-raw.txt.
+
+      Step 3 — fetch qlty issues:
+        Use the Bash tool to run:
+          ~/.qlty/bin/qlty check {source_root} --format json
+        If {pr_number} is non-empty, also run:
+          gh pr diff {pr_number} --name-only | xargs ~/.qlty/bin/qlty check --format json
+        Save JSON output to {workspace}/outputs/qlty-raw.json.
+
+      Step 4 — write combined summary:
+        Use the Write tool to create {workspace}/outputs/fetch-summary.json containing:
+          {
+            "run_url": "{run_url}",
+            "pr_number": "{pr_number}",
+            "gh_run_output_path": "{workspace}/outputs/gh-run-raw.txt",
+            "qlty_output_path": "{workspace}/outputs/qlty-raw.json",
+            "fetch_notes": "<any noteworthy conditions — run still queued, qlty 404, etc.>"
+          }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - outputs/gh-run-raw.txt
+      - outputs/qlty-raw.json
+      - outputs/fetch-summary.json
+
+  # ===========================================================================
+  # Group 1: Diagnose — parse logs, identify root cause, write findings.json
+  #
+  # Reads raw GH Actions and qlty output, extracts structured failure records.
+  # Handles both entry points: URL-based run logs and PR-based qlty issues.
+  # A researcher is correct: this stage only reads and reasons — no source
+  # edits happen here.
+  # ===========================================================================
+
+  - name: diagnose
+    kind: gather
+    depends_on: [fetch-failures]
+    reads_from: [fetch-failures]
+    description: >
+      Parse the raw CI output and produce a structured findings.json for the
+      fix stage.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Step 1 — read all raw outputs:
+        Use the Read tool to load:
+          {workspace}/outputs/gh-run-raw.txt
+          {workspace}/outputs/qlty-raw.json
+          {workspace}/outputs/fetch-summary.json
+
+      Step 2 — extract GH Actions failures:
+        For each failed step in gh-run-raw.txt, extract:
+          - job_name: e.g. "test / Run tests"
+          - test_file: e.g. "tests/core/test_auth.py" (parse from FAILED lines)
+          - test_name: e.g. "test_token_refresh"
+          - error_type: AssertionError | AttributeError | ImportError | other
+          - error_message: the actual traceback or assertion text
+          - likely_cause: one of the common patterns:
+              "Namespace missing new arg" → AttributeError: Namespace has no attribute X
+              "dispatch table outdated" → AssertionError: X not in Y (dispatch)
+              "import path changed" → ModuleNotFoundError
+              "mock missing field" → Mock return value missing field
+              "dict structure changed" → KeyError: X
+
+      Step 3 — read the failing test source:
+        For each unique test_file found above, use the Bash tool to run:
+          git log --oneline -5 -- <test_file>
+        Use the Bash tool to run:
+          git log --oneline -5 -- <source_module_path>
+        (Derive source_module_path by mapping tests/<domain>/ → <domain>/)
+        Record what changed recently that aligns with the error.
+
+      Step 4 — extract qlty issues:
+        From qlty-raw.json, identify any new violations on changed files.
+        Note the count and severity levels.
+
+      Step 5 — write findings.json:
+        Use the Write tool to create {workspace}/outputs/findings.json:
+          {
+            "ci_failures": [
+              {
+                "job_name": "...",
+                "test_file": "...",
+                "test_name": "...",
+                "error_type": "...",
+                "error_message": "...",
+                "likely_cause": "...",
+                "recent_changes": "..."
+              }
+            ],
+            "qlty": {
+              "new_issues_count": N,
+              "issues": [...]
+            },
+            "total_failures": N,
+            "root_cause_summary": "one-sentence summary"
+          }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write, Grep]
+      access: read-only
+    required: true
+    writes_to:
+      - outputs/findings.json
+
+  # ===========================================================================
+  # Group 2: Fix — code-writer applies targeted fixes
+  #
+  # Reads findings.json, applies the minimal targeted fix for each failure.
+  # Spawns a ci-fixer sub-agent for complex multi-file cases. code-writer is
+  # used (not researcher) because source edits happen here.
+  # ===========================================================================
+
+  - name: fix
+    kind: execute
+    depends_on: [diagnose]
+    reads_from: [diagnose]
+    description: >
+      Apply targeted fixes for each failure in findings.json.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Step 1 — read findings:
+        Use the Read tool to load {workspace}/outputs/findings.json.
+
+      Step 2 — classify complexity:
+        Simple fix (handle inline with Edit tool):
+          - Single file changed
+          - Error type is one of the known patterns (Namespace missing arg,
+            dispatch table outdated, import path changed, mock missing field,
+            dict structure changed)
+
+        Complex fix (spawn ci-fixer agent):
+          - Three or more files need changes
+          - Error requires deep architectural understanding
+          - Failures span multiple domains/packages
+
+      Step 3 — apply simple fixes:
+        For each simple failure, read the test file and source module with the
+        Read tool, then use the Edit tool to apply the minimal targeted change.
+        Common fix patterns:
+          "Namespace missing new arg" → Add the missing attribute to the test Namespace fixture
+          "dispatch table outdated" → Update the assertion in the dispatch table test
+          "import path changed" → Update the import statement to the new path
+          "mock missing field" → Add the missing field to the Mock return value
+          "dict structure changed" → Update the test dict or switch to a factory helper
+          "coveragerc deleted" → Use the Bash tool to run:
+            git checkout origin/main -- .coveragerc.pr
+
+      Step 4 — handle complex fixes:
+        If any complex failures exist, use the Task tool to spawn a ci-fixer agent:
+          Task(subagent_type="ci-fixer",
+               prompt="Fix CI failures described in {workspace}/outputs/findings.json.
+               Apply all fixes in the worktree at {workspace}. Write a fix log to
+               {workspace}/outputs/fix-log.json listing each file changed and why.")
+        Wait for the ci-fixer agent to complete before proceeding.
+
+      Step 5 — write fix-log.json:
+        Use the Write tool to create {workspace}/outputs/fix-log.json:
+          {
+            "fixes_applied": [
+              {
+                "failure": "<test_file>::<test_name>",
+                "fix_type": "simple|complex",
+                "files_changed": ["..."],
+                "description": "one-line description of what was changed"
+              }
+            ],
+            "total_fixes": N,
+            "coveragerc_restored": true|false
+          }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash, Task]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/fix-log.json
+
+  # ===========================================================================
+  # Group 3: Verify — run the specific failing tests locally
+  #
+  # Runs only the tests that were failing to confirm the fix landed. Does NOT
+  # run the full domain suite here (that's recheck). Uses {test_cmd} if
+  # provided; otherwise derives the command from findings.json.
+  # ===========================================================================
+
+  - name: verify
+    kind: validate
+    depends_on: [fix]
+    reads_from: [fix, diagnose]
+    description: >
+      Run the specific failing tests to verify each fix landed.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Step 1 — read inputs:
+        Use the Read tool to load:
+          {workspace}/outputs/findings.json
+          {workspace}/outputs/fix-log.json
+
+      Step 2 — run targeted tests:
+        For each failure in findings.json["ci_failures"], use the Bash tool to run:
+          python3 -m unittest <test_file>.<test_name> -v
+        If {test_cmd} is non-empty, also use the Bash tool to run:
+          {test_cmd}
+        Record exit code and output for each run.
+
+      Step 3 — check for qlty regressions on changed files:
+        Use the Bash tool to run:
+          ~/.qlty/bin/qlty check {source_root} --format json
+        If any new issues appear on files touched by the fix, record them.
+
+      Step 4 — write verify-results.json:
+        Use the Write tool to create {workspace}/outputs/verify-results.json:
+          {
+            "test_results": [
+              {
+                "test": "<test_file>.<test_name>",
+                "exit_code": 0,
+                "passed": true|false,
+                "output_snippet": "..."
+              }
+            ],
+            "qlty_new_issues": [],
+            "all_targeted_passed": true|false
+          }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - All previously-failing tests now pass (exit code 0)
+        - No new qlty issues introduced by the fix
+      max_revisions: 2
+    required: true
+    writes_to:
+      - outputs/verify-results.json
+
+  # ===========================================================================
+  # Group 4: Recheck — full domain suite
+  #
+  # Runs the full domain test suite to confirm no regressions were introduced.
+  # Uses {test_cmd} as the authoritative suite command. Also re-checks
+  # qlty on changed files before the final report.
+  # ===========================================================================
+
+  - name: recheck
+    kind: validate
+    depends_on: [verify]
+    reads_from: [verify, diagnose]
+    description: >
+      Run the full domain test suite and re-check qlty.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Step 1 — read inputs:
+        Use the Read tool to load:
+          {workspace}/outputs/verify-results.json
+          {workspace}/outputs/findings.json
+
+      Step 2 — run full domain suite:
+        If {test_cmd} is non-empty, use the Bash tool to run:
+          {test_cmd}
+        Else derive from findings.json (the domain from the first failure's
+        test_file): use the Bash tool to run:
+          python3 -m unittest discover -s tests/<domain>/ -x -q
+        Record total tests, failures, and exit code.
+
+      Step 3 — re-check qlty on changed files:
+        Use the Bash tool to run:
+          ~/.qlty/bin/qlty check {source_root} --format json
+        Note any new issues on files changed by the fix.
+
+      Step 4 — write recheck-results.json:
+        Use the Write tool to create {workspace}/outputs/recheck-results.json:
+          {
+            "suite_exit_code": 0,
+            "suite_passed": true|false,
+            "qlty_new_issues": [],
+            "regression_detected": true|false
+          }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Full domain test suite exits 0
+        - No new test failures introduced by the fix
+        - No new qlty issues introduced by the fix
+      max_revisions: 1
+    required: true
+    writes_to:
+      - outputs/recheck-results.json
+
+  # ===========================================================================
+  # Group 5: Human gate — report findings and verification result
+  #
+  # Presents a structured summary before the workflow closes. The human can
+  # approve to complete, or reject to loop back and investigate further.
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    depends_on: [recheck]
+    reads_from: [diagnose, fix, verify, recheck]
+    human_gate: true
+    description: >
+      Synthesize all stage outputs into a final CI debug report for human review.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Step 1 — read all stage outputs:
+        Use the Read tool to load:
+          {workspace}/outputs/findings.json
+          {workspace}/outputs/fix-log.json
+          {workspace}/outputs/verify-results.json
+          {workspace}/outputs/recheck-results.json
+
+      Step 2 — compose the report:
+        Present:
+
+          ## CI Debug Report
+
+          **Pipeline**: {run_url} (or PR #{pr_number})
+
+          ### Failures Found: N
+
+          | # | Test | Error Type | Root Cause |
+          |---|------|-----------|------------|
+          <one row per failure from findings.json>
+
+          ### Fixes Applied: N
+
+          | # | File(s) Changed | Description |
+          |---|----------------|-------------|
+          <one row per fix from fix-log.json>
+
+          ### Verification
+          - Targeted tests: PASS / FAIL (from verify-results.json)
+          - Full domain suite: PASS / FAIL (from recheck-results.json)
+          - qlty new issues: N (from recheck-results.json[qlty_new_issues])
+
+          ### Recommendation
+          CLEAR TO MERGE — all tests pass, no regressions, SQ OK.
+          OR
+          ACTION NEEDED — <describe what still needs attention>.
+
+      Step 3 — write the report:
+        Use the Write tool to create {workspace}/outputs/ci-debug-report.md
+        with the full report text above.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/ci-debug-report.md
+

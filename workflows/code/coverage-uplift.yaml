@@ -1,0 +1,954 @@
+name: coverage-uplift
+version: "1.0"
+description: >
+  Coverage-driven uplift with adversarial review. Queries coverage.py for
+  files with the most uncovered lines, sweeps test domains for reuse
+  consolidation opportunities, fans out parallel tester agents per domain
+  using the approved plan, validates quality, opens a PR, waits for GitHub
+  Actions CI, runs the adversarial code-review swarm, measures the coverage
+  delta, and presents a final human gate before merge.
+
+  Stage dependency graph:
+
+               init                                    (G0 — workspace bootstrap)
+                |
+    sq-discover ─── gap-scan                           (parallel G1)
+          \             /
+        prioritize-targets                             (G2 — ranked targets + baseline snapshot)
+               |
+           reuse-sweep                                 (G3 — factory/helper consolidation map)
+               |
+         merge-reuse-map                               (G4 — aggregate per-domain reuse findings)
+               |
+          propose-plan  [human gate]                   (G5 — approve before any writes)
+               |
+    expand-coverage-{domain} × N  (parallel fan-out)  (G6)
+               |
+       validate-domain-tests                           (G7)
+               |
+        quality-review                                 (G8)
+               |
+       apply-corrections                               (G9)
+               |
+          pr-open-pr                                   (G10 — open PR)
+               |
+         pr-wait-for-ci                                (G11 — GitHub Actions CI poll)
+               |
+    pr-address-reviews + review-fetch-pr-context       (parallel G12)
+               |
+    pr-qlty-check + review-concern-sweep               (parallel G13)
+               |
+    pr-post-fix-review + review-enumerate-targets      (parallel G14)
+               |
+    review-validate-concerns + review-cross-unit-check (parallel G15)
+               |
+       pr-human-review-gate  [human gate]              (G16)
+               |
+         review-consolidate                            (G17)
+               |
+       review-fact-check-findings                      (G18)
+               |
+         review-human-gate  [human gate]               (G19)
+               |
+         review-post-comments                          (G20)
+               |
+           coverage-delta                              (G21 — before/after uncovered-line diff)
+               |
+     coverage-final-gate  [human gate]                 (G22 — delta + swarm summary → approve/merge)
+
+metadata:
+  author: sre-platform
+  created: "2026-05-28"
+
+trigger:
+  source: manual
+  params:
+    min_coverage: "90"         # coverage % threshold; files below this are targeted
+    min_lines: "20"            # skip files with fewer coverable lines than this
+    domains: "*"               # comma-list of domain names under , or "*" for all
+    source_root: ""
+    test_path: "tests/"
+    pr_title: "chore(coverage): uplift uncovered lines + consolidate test helpers"
+    test_cmd: "pytest tests/ -x -q"
+
+workspace_dir: "{work_dir}/coverage-uplift"
+
+stages:
+
+  # ===========================================================================
+  # G0: Workspace init
+  # ===========================================================================
+
+  - name: init
+    kind: gather
+    description: >
+      Bootstrap the workspace directory structure for all downstream stages.
+
+      Run:
+        mkdir -p {workspace}/outputs/diffs
+        mkdir -p {workspace}/outputs/findings
+        mkdir -p {workspace}/analysis
+        mkdir -p {workspace}/design
+        mkdir -p {workspace}/coverage
+        mkdir -p {workspace}/refactors
+        mkdir -p {workspace}/validation
+
+      Exit 0 immediately after. All substantive work starts in the parallel
+      G1 stages.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash]
+      access: read-only
+    required: true
+    writes_to: []
+
+  # ===========================================================================
+  # G1: Parallel discovery — coverage.py baseline + test-gaps run concurrently
+  # ===========================================================================
+  #
+  # Both stages are independent; the workflow engine runs them in parallel.
+  # Together they produce the raw inputs for prioritize-targets.
+
+  - name: coverage-discover
+    kind: gather
+    depends_on: [init]
+    description: >
+      Run coverage.py to get per-file coverage metrics, sorted by uncovered
+      lines descending so the highest-yield files appear first.
+
+      Step 1 — run test suite with coverage (main branch baseline):
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json \
+          > {workspace}/analysis/coverage-raw.json
+
+        Always run against the current main branch state. This is the
+        authoritative pre-work baseline. The delta stage (coverage-delta, G21)
+        will compare this against post-PR coverage after CI runs.
+
+      Step 2 — filter to source files only:
+        Keep only rows whose path starts with {source_root}.
+        Exclude test files (paths containing "/tests/" or starting with "tests/").
+        Exclude files with num_statements < {min_lines}.
+
+      Step 3 — write baseline snapshot + filtered results:
+        Write {workspace}/analysis/coverage-baseline.json:
+          {
+            "queried_at": "<ISO-8601 timestamp>",
+            "branch": "<current git branch>",
+            "total_files": N,
+            "total_uncovered_lines": N,
+            "files": [
+              {
+                "path": "...",
+                "coverage": 45.2,
+                "uncovered_lines": 88,
+                "lines_to_cover": 160,
+                "domain": "<top-level directory under source_root>"
+              },
+              ...
+            ]
+          }
+
+        The baseline total_uncovered_lines is the number coverage-delta (G21)
+        will compare against after CI runs. Preserve it accurately.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - analysis/coverage-baseline.json
+
+  - name: gap-scan
+    kind: gather
+    depends_on: [init]
+    description: >
+      Run the test-gaps CLI to identify source files with no test coverage
+      at all, and cross-reference with domain structure.
+
+      Step 1 — full gap scan:
+        ./bin/test-gaps --format json
+
+        Filter results to files under {source_root}.
+
+      Step 2 — changed-files gap scan (if a diff is available):
+        ./bin/test-gaps --only-changed --format json
+
+        If this returns results, annotate those files as "priority: high"
+        in the output (changed files with gaps are higher risk).
+
+      Step 3 — write results:
+        Write {workspace}/analysis/gap-report.json:
+          {
+            "gaps": [
+              {
+                "src_path": "...",
+                "has_test_file": false,
+                "domain": "...",
+                "priority": "high|normal"
+              },
+              ...
+            ],
+            "total_untested_files": N
+          }
+
+        Files that appear in both gap-report and sq-baseline are the
+        top-priority candidates — prioritize-targets will merge them.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - analysis/gap-report.json
+
+  # ===========================================================================
+  # G2: Prioritize targets — merge SQ + gap data into a ranked work list
+  # ===========================================================================
+
+  - name: prioritize-targets
+    kind: gather
+    depends_on: [coverage-discover, gap-scan]
+    reads_from: [coverage-discover, gap-scan]
+    description: >
+      Merge the coverage baseline and gap-report into a single prioritized
+      target list, grouped by domain.
+
+      Read:
+        {workspace}/analysis/coverage-baseline.json
+        {workspace}/analysis/gap-report.json
+
+      Ranking algorithm:
+        1. Files with no test file at all (has_test_file: false) — top priority
+        2. Files flagged priority: high (changed files with gaps)
+        3. Remaining files sorted descending by uncovered_lines
+
+      Apply filters:
+        - Skip files with num_statements < {min_lines}
+        - Skip files already at or above {min_coverage}%
+        - If {domains} is not "*", skip files whose domain is not in the list
+
+      Group into domains. For each domain, list the target files in priority
+      order.
+
+      Write {workspace}/design/targets.json:
+        {
+          "min_coverage": {min_coverage},
+          "min_lines": {min_lines},
+          "total_targeted_files": N,
+          "total_targeted_uncovered_lines": N,
+          "domains": {
+            "<domain>": {
+              "files": [
+                {
+                  "src_path": "...",
+                  "coverage": 30.1,
+                  "uncovered_lines": 88,
+                  "has_test_file": true,
+                  "priority": "high|normal|no-test-file"
+                }
+              ],
+              "total_uncovered_lines": N
+            }
+          },
+          "skip_list": [
+            { "path": "...", "reason": "..." }
+          ]
+        }
+
+      Also write {workspace}/design/domain-list.json — the fan-out source for
+      both reuse-sweep (G3) and expand-coverage-domains (G6). The iterated
+      array MUST live at the top level under "items" so the fan_out field
+      resolves against this file's primary structure:
+        { "items": [{ "domain": "aws" }, { "domain": "pagerduty" }, ...] }
+
+      Only include a domain in "items" if it has at least one targeted file
+      in targets.json — do not fan out over domains with no work.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    # domain-list.json is listed first because it is the fan_out source for
+    # reuse-sweep and expand-coverage-domains; its top-level "items" array is
+    # what the fan_out `field: items` resolves against.
+    writes_to:
+      - design/domain-list.json
+      - design/targets.json
+
+  # ===========================================================================
+  # G3: Reuse sweep — multi-agent fan-out, one researcher per domain
+  # ===========================================================================
+  #
+  # Fan-out over domain-list.json so each domain's test directory is scanned
+  # in parallel. Each agent writes a per-domain shard; merge-reuse-map
+  # consolidates them into the single reuse-map.json consumed by propose-plan.
+
+  - name: reuse-sweep
+    kind: gather
+    depends_on: [prioritize-targets]
+    reads_from: [prioritize-targets]
+    description: >
+      Fan out: spawn one researcher per domain in {workspace}/design/domain-list.json.
+      Each agent scans only its domain's test directory.
+
+      Each researcher agent must:
+
+        1. Read tests/helpers/README.md to know what shared factories already exist.
+        2. Read tests/helpers/*.py to catalog existing shared factory signatures.
+        3. For the assigned {domain}:
+           a. Check whether tests/{domain}/conftest.py exists.
+           b. Grep for make_* factory definitions:
+                grep -rn "^def make_" tests/{domain}/
+           c. Grep for make_* usage counts to find factories defined but
+              rarely called:
+                grep -rn "make_" tests/{domain}/
+           d. Check for manual dict construction patterns that should be
+              factories instead:
+                grep -rn "^    {\"" tests/{domain}/
+                grep -rn '= \{$' tests/{domain}/
+           e. Compare domain factories against tests/helpers/ — flag any
+              that duplicate a shared factory (same shape, different name).
+
+        4. Write per-domain findings to
+           {workspace}/design/reuse-shards/{domain}.json:
+             {
+               "domain": "{domain}",
+               "has_conftest": true|false,
+               "defined_factories": ["make_alert", ...],
+               "low_use_factories": [
+                 { "name": "make_alert", "defined_in": "conftest.py", "call_count": 1 }
+               ],
+               "duplicate_of_shared": [
+                 { "name": "make_alert", "matches_shared": "tests/helpers/alerts.py::make_alert" }
+               ],
+               "manual_dict_files": ["test_consumer.py"],
+               "missing_core_factories": ["make_incident"],
+               "recommendation": "extract|consolidate|no_action"
+             }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Grep]
+      access: read-only
+    required: true
+    fan_out:
+      source: prioritize-targets
+      field: items
+      key: domain
+      mode: agent
+    writes_to:
+      - design/reuse-shards/{domain}.json
+
+  - name: merge-reuse-map
+    kind: gather
+    depends_on: [reuse-sweep]
+    reads_from: [reuse-sweep]
+    description: >
+      Consolidate all per-domain reuse shards into a single reuse-map.json
+      consumed by propose-plan and expand-coverage-domains.
+
+      Read all files matching {workspace}/design/reuse-shards/*.json.
+
+      Aggregate across all domains:
+        shared_extraction_candidates:
+          Any factory where 2+ domain shards define it (same name or same
+          shape). Recommend extracting to tests/helpers/.
+
+        missing_factories:
+          Flatten all shard[].missing_core_factories into one list, each
+          entry tagged with its domain.
+
+        domains_missing_conftest:
+          All domains where has_conftest == false.
+
+        manual_dict_hotspots:
+          Domains where manual_dict_files is non-empty — these should have
+          factories written before their test files are expanded.
+
+        no_action_needed:
+          Domains where recommendation == "no_action" and no issues found.
+
+      Write {workspace}/design/reuse-map.json:
+        {
+          "shared_extraction_candidates": [
+            {
+              "factory": "make_alert",
+              "defined_in": ["tests/aws/conftest.py", "tests/pagerduty/conftest.py"],
+              "recommendation": "extract to tests/helpers/alerts.py"
+            }
+          ],
+          "missing_factories": [
+            {
+              "domain": "pagerduty",
+              "factory": "make_incident",
+              "reason": "No factory found; tests construct dicts manually in 4 files"
+            }
+          ],
+          "domains_missing_conftest": ["newdomain1"],
+          "manual_dict_hotspots": ["domain2"],
+          "no_action_needed": ["domain3", "domain4"]
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-only
+    required: true
+    writes_to:
+      - design/reuse-map.json
+
+  # ===========================================================================
+  # G5: Human gate — approve the plan before any writes
+  # ===========================================================================
+  #
+  # The workflow pauses here. The human reviews the prioritized target list
+  # and reuse consolidation plan before any test files are created or modified.
+
+  - name: propose-plan
+    kind: propose
+    depends_on: [merge-reuse-map]
+    reads_from: [prioritize-targets, merge-reuse-map]
+    description: >
+      Synthesize the ranked target list and reuse map into a readable
+      execution plan and present it for human approval.
+
+      Read:
+        {workspace}/design/targets.json
+        {workspace}/design/reuse-map.json
+
+      Write {workspace}/design/plan.md with the following sections:
+
+      ## Scope
+      - Total files targeted: N
+      - Total uncovered lines to address: N
+      - Domains in scope: [list]
+
+      ## Coverage Targets — by Domain
+      One subsection per domain. For each domain list:
+        - Files to target (path, current %, uncovered lines, priority)
+        - Recommended test approach (which existing factories to use,
+          what mocking strategy fits the domain)
+
+      ## Reuse Consolidation
+      - Factories to extract to tests/helpers/ (with source domains)
+      - Missing factories to create in domain conftests before writing tests
+      - Domains that need a conftest.py scaffolded
+
+      ## Parallel Work Plan
+      Which domains can run tester agents concurrently (no shared imports or
+      conftest writes that would conflict):
+        Group A: [domain1, domain2, domain3]   — fully independent
+        Group B: [domain4, domain5]            — independent of A
+        Sequential: [domain6]                  — must run after conftest extraction
+
+      ## Skip List
+      Domains or files excluded with a one-line reason each.
+
+      Present the plan clearly so the human can approve or redirect before
+      any test files are written.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - design/plan.md
+
+  # ===========================================================================
+  # G6: Parallel fan-out — one tester agent per domain
+  # ===========================================================================
+  #
+  # The workflow engine reads design/domain-list.json and spawns one tester
+  # agent per domain concurrently. Each agent reads the approved plan and
+  # reuse map to know its exact scope.
+
+  - name: expand-coverage-domains
+    kind: execute
+    depends_on: [propose-plan]
+    reads_from: [propose-plan, merge-reuse-map, prioritize-targets]
+    description: >
+      Fan out: spawn one tester agent per domain listed in
+      {workspace}/design/domain-list.json. All domain agents run in parallel.
+
+      Each tester agent must:
+
+        1. Read {workspace}/design/plan.md for its domain's section.
+        2. Read {workspace}/design/reuse-map.json for its domain's factory
+           and conftest requirements.
+        3. Read {workspace}/design/targets.json for the ordered file list.
+
+        4. Reuse consolidation first (before writing any tests):
+           a. If the domain is in reuse-map.json[].domains_missing_conftest,
+              scaffold tests/<domain>/conftest.py with standard imports and
+              a module-level docstring.
+           b. For each factory in reuse-map.json[].missing_factories for
+              this domain, add a make_* factory to the domain conftest.
+           c. Do NOT extract to tests/helpers/ in this stage — that is out of
+              scope for the tester agent. Flag it in the summary instead.
+
+        5. For each file in targets.json[domain].files (priority order):
+           a. Read the source file.
+           b. Read existing test file (if any) — never overwrite passing tests.
+           c. Write or extend tests following project conventions:
+                - make_* factories from conftest — never manual dict construction
+                - @pytest.mark.parametrize for multi-scenario cases
+                - Specific assertions (assertEqual, assertIn, assertIsInstance)
+                - run_cli_with_capture for CLI subcommand tests
+                - Patch at the call site (where it is used), not where defined
+                - No assertTrue(x is not None) — use assertIsNotNone(x)
+           d. After each file: pytest tests/<domain>/ -x -q
+              Fix import errors or assertion failures before the next file.
+
+        6. Write per-domain summary to {workspace}/coverage/<domain>-summary.md:
+             ## <domain> Coverage Expansion
+             | File | Before % | Tests Added | Status |
+             |------|----------|-------------|--------|
+             | ... | 30% | 8 | PASS |
+             Factories added to conftest: [list]
+             Files still below threshold: [list with reason]
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: prioritize-targets
+      field: items
+      key: domain
+      mode: agent
+    writes_to:
+      - coverage/{domain}-summary.md
+
+  # ===========================================================================
+  # G7: Validate domain tests — confirm all touched domains are green
+  # ===========================================================================
+
+  - name: validate-domain-tests
+    kind: validate
+    depends_on: [expand-coverage-domains]
+    reads_from: [expand-coverage-domains]
+    description: >
+      Run pytest for every domain that was touched in expand-coverage-domains
+      and confirm all tests pass.
+
+      Step 1 — identify touched domains:
+        Read all files matching {workspace}/coverage/*-summary.md.
+        Extract domain names from filenames (e.g., aws-summary.md → aws).
+
+      Step 2 — per-domain pytest:
+        For each domain:
+          pytest tests/<domain>/ -x -q
+
+        Fix failures:
+          - Missing factory: add make_* to tests/<domain>/conftest.py
+          - Import error: check that the source path in the test matches
+            the actual module path (Read the source file to verify)
+          - Assertion failure: read the source to understand the expected output
+          - Re-run after each fix
+
+        Up to 3 fix cycles per domain. If still failing: mark domain as FAIL
+        in the results and document the blocker — do not abort other domains.
+
+      Step 3 — run ruff on all changed files:
+        ruff check  tests/
+
+        Fix any lint errors before proceeding.
+
+      Step 4 — write consolidated report to
+        {workspace}/validation/domain-test-results.md:
+          | Domain | Tests Added | Lint | Pytest | Notes |
+          |--------|------------|------|--------|-------|
+          | aws    | +12        | PASS | PASS   |       |
+          | ...    |            |      |        |       |
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/domain-test-results.md
+
+  # ===========================================================================
+  # G8: Quality review — test quality gate before opening PR
+  # ===========================================================================
+
+  - name: quality-review
+    kind: validate
+    depends_on: [validate-domain-tests]
+    reads_from: [expand-coverage-domains, validate-domain-tests]
+    description: >
+      Review all new and modified test files for quality. Read every
+      *-summary.md in {workspace}/coverage/ to identify what was written,
+      then read those test files directly.
+
+      Check for:
+        Test quality:
+          - Tests use make_* factories — no manual dict/object construction
+          - Assertions are specific: assertEqual, assertIn, assertIsInstance,
+            assertIsNotNone — never assertTrue(x is not None) or assertTrue(len > 0)
+          - @pytest.mark.parametrize used where 3+ similar cases exist in
+            the same test method
+          - No test that only asserts "does not raise" with no content check
+          - run_cli_with_capture used for CLI tests, not subprocess.run
+
+        Coverage targets:
+          - Every file listed in design/targets.json that was addressed now
+            has meaningful test coverage (not just import-smoke tests)
+          - No new test file introduced with coverage < 60% of its own lines
+
+        Factory and conftest hygiene:
+          - New conftest.py files have module-level docstrings
+          - make_* factories have type-annotated return values
+          - No duplicate factory names across domain conftest and tests/helpers/
+
+      Write findings to {workspace}/validation/quality-review-findings.json:
+        {
+          "critical": [
+            { "file": "...", "line": N, "issue": "...", "fix": "..." }
+          ],
+          "minor": [...],
+          "passed": [...]
+        }
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: deliverable
+      criteria:
+        - All tests use make_* factories; no manual dict construction
+        - All assertions are specific (not assertTrue with a boolean expression)
+        - Every targeted file has substantive tests, not just smoke imports
+        - All new conftest.py files have docstrings and typed factory signatures
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/quality-review-findings.json
+
+  # ===========================================================================
+  # G9: Apply corrections from quality review
+  # ===========================================================================
+
+  - name: apply-corrections
+    kind: execute
+    depends_on: [quality-review]
+    reads_from: [quality-review, validate-domain-tests]
+    description: >
+      Fix every critical and minor finding from quality-review before the
+      PR is opened.
+
+      Read {workspace}/validation/quality-review-findings.json.
+
+      For each critical finding:
+        - Apply the fix described in the "fix" field
+        - Re-run pytest tests/<domain>/ -x -q for the affected domain
+        - Confirm green before moving to the next finding
+
+      For each minor finding:
+        - Apply if straightforward (rename, add type hint, add docstring)
+        - Skip only if the fix would require restructuring more than one file;
+          note the justification in corrections-applied.md
+
+      After all fixes: run ruff check  tests/ and fix any new
+      lint issues introduced.
+
+      Write {workspace}/validation/corrections-applied.md:
+        ## Corrections Applied
+        | Finding | Severity | Action | Result |
+        |---------|----------|--------|--------|
+        | ... | critical | replaced assertTrue with assertIsNotNone | PASS |
+
+        ## Deferred
+        | Finding | Reason |
+        |---------|--------|
+
+      If quality-review-findings.json has no critical or minor findings,
+      write "no corrections needed" and exit.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/corrections-applied.md
+
+  # ===========================================================================
+  # G10-G11: Open PR + wait for GitHub Actions CI
+  # ===========================================================================
+
+  - name: pr-open-pr
+    kind: publish
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+    description: >
+      Open a GitHub PR for the coverage uplift branch.
+
+      Step 1 — build PR body:
+        Read {workspace}/validation/domain-test-results.md and
+        {workspace}/validation/corrections-applied.md.
+        Summarize: domains covered, tests added, corrections applied.
+
+      Step 2 — create the PR:
+        gh pr create \
+          --title "{pr_title}" \
+          --body "<summary from Step 1>" \
+          --draft
+
+      Step 3 — write {workspace}/validation/pr.json:
+        { "pr_number": <number>, "pr_url": "<url>", "draft": true }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/pr.json
+
+  - name: pr-wait-for-ci
+    kind: validate
+    depends_on: [pr-open-pr]
+    reads_from: [pr-open-pr]
+    description: >
+      Wait for GitHub Actions CI to complete on the PR.
+
+      Step 1 — read PR number:
+        Read {workspace}/validation/pr.json. Extract pr_number.
+
+      Step 2 — mark PR ready (exits draft):
+        gh pr ready {pr_number}
+
+      Step 3 — poll CI status (up to 20 attempts, 60s each = ~20 min):
+        gh pr checks {pr_number} --watch --interval 60
+
+        If any check fails: read the failure details with:
+          gh run view <RUN_ID> --log-failed
+        Write failure notes to {workspace}/validation/ci-failures.txt.
+
+      Step 4 — write {workspace}/validation/ci-results.json:
+        {
+          "pr_number": N,
+          "all_passed": true|false,
+          "failed_checks": [],
+          "ci_duration_seconds": N
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - All GitHub Actions checks pass (gh pr checks exits 0)
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/ci-results.json
+
+  - name: pr-qlty-check
+    kind: validate
+    depends_on: [pr-wait-for-ci]
+    reads_from: [pr-wait-for-ci]
+    description: >
+      Run qlty on all files changed by this PR and report new issues.
+
+      Step 1 — get changed files:
+        Read {workspace}/validation/pr.json for pr_number.
+        gh pr diff {pr_number} --name-only | grep '\.py$'
+
+      Step 2 — run qlty:
+        ~/.qlty/bin/qlty check <changed files...> --format json
+        Write raw output to {workspace}/validation/qlty-results.json.
+
+      Step 3 — summarize new issues vs pre-existing:
+        Only report issues on lines changed in this PR (use `gh pr diff` to
+        establish the changed line ranges). Pre-existing issues on unchanged
+        lines are out of scope.
+
+      Write {workspace}/validation/qlty-summary.md:
+        ## qlty Check Results
+        New issues on changed files: N
+        | File | Line | Severity | Message |
+        |------|------|----------|---------|
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/qlty-results.json
+      - validation/qlty-summary.md
+
+  - name: pr-post-fix-review
+    kind: validate
+    depends_on: [pr-qlty-check]
+    reads_from: [pr-qlty-check]
+    description: >
+      Address any critical qlty issues found before swarm review starts.
+
+      Read {workspace}/validation/qlty-results.json.
+      For each issue with severity MAJOR or CRITICAL on changed files:
+        - Apply the fix (Edit tool).
+        - Re-run the relevant test: python3 -m unittest <test_file> -v
+        - Confirm green before moving to the next.
+
+      Push fixes:
+        git add -p  (stage only the fix lines, not test changes)
+        git commit -m "fix: address qlty findings before review"
+        gh pr push (or git push)
+
+      Write {workspace}/validation/post-fix-results.md:
+        | Issue | File:Line | Fix | Test Result |
+        |-------|-----------|-----|-------------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/post-fix-results.md
+
+  # ===========================================================================
+  # G20: Adversarial swarm review runs in parallel from G12 after pr-wait-for-ci.
+  # Injected via include below (prefix: review).
+  # ===========================================================================
+
+  # ===========================================================================
+  # G21: Coverage delta — compare before/after uncovered lines
+  # Runs after swarm review; CI has had time to run and upload coverage.
+  # ===========================================================================
+
+  - name: coverage-delta
+    kind: validate
+    depends_on: [review-post-comments]
+    reads_from: [coverage-discover, pr-open-pr]
+    description: >
+      Re-run coverage.py against the merged branch and compute the delta
+      against the baseline captured in coverage-discover.
+
+      Step 1 — read baseline:
+        Read {workspace}/analysis/coverage-baseline.json.
+        Record baseline total_uncovered_lines and per-file uncovered_lines.
+
+      Step 2 — run coverage against current HEAD:
+        coverage run -m unittest discover -q 2>/dev/null || true
+        coverage report --include="{source_root}*" --format=json \
+          > {workspace}/analysis/coverage-current.json
+
+      Step 3 — compute delta:
+        For each file in the baseline that was targeted in design/targets.json:
+          delta_lines = baseline_uncovered - current_uncovered
+          delta_pct   = current_coverage - baseline_coverage
+
+        Aggregate:
+          total_lines_recovered = sum(delta_lines) across all targeted files
+          total_files_improved  = count of files where delta_lines > 0
+
+      Step 4 — write delta report:
+        {workspace}/validation/coverage-delta.json:
+          {
+            "baseline_uncovered_lines": N,
+            "current_uncovered_lines": N,
+            "lines_recovered": N,
+            "files_improved": N,
+            "files_regressed": [...],
+            "per_file": [
+              {
+                "path": "...",
+                "baseline_coverage": 30.1,
+                "current_coverage": 78.4,
+                "baseline_uncovered": 88,
+                "current_uncovered": 22,
+                "delta_lines": 66
+              },
+              ...
+            ]
+          }
+
+        Write {workspace}/validation/coverage-delta.md — a human-readable
+        summary for the final gate:
+          ## Coverage Delta
+          Lines recovered: +N across M files
+          | File | Before | After | Lines Recovered |
+          |------|--------|-------|----------------|
+          ...
+
+      This stage is informational — it does not fail the workflow if targets
+      were not fully met. The human gate (coverage-final-gate) decides.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/coverage-delta.json
+      - validation/coverage-delta.md
+
+  # ===========================================================================
+  # G22: Final human gate — SQ delta + review summary → approve to merge
+  # ===========================================================================
+
+  - name: coverage-final-gate
+    kind: propose
+    depends_on: [coverage-delta, pr-post-fix-review]
+    reads_from: [coverage-delta, review-post-comments, pr-post-fix-review]
+    description: >
+      Present the complete uplift summary and ask the human to approve or
+      redirect before merge.
+
+      Read and display:
+        {workspace}/validation/coverage-delta.md         — coverage delta
+        {workspace}/outputs/consolidated-summary.md      — swarm review findings
+        {workspace}/validation/domain-test-results.md    — per-domain test results
+        {workspace}/validation/corrections-applied.md    — what was fixed pre-PR
+
+      Surface:
+        - Total lines recovered (from coverage-delta.json[lines_recovered])
+        - Files still below {min_coverage}% threshold (from coverage-delta.json
+          where current_coverage < min_coverage)
+        - Swarm review: N findings posted as inline comments (from
+          {workspace}/outputs/post-results.json[posted])
+        - Any files that regressed (coverage-delta.json[files_regressed])
+        - qlty check status (from pr-qlty-check output)
+
+      Ask the user:
+        A) Approve — merge the PR
+        B) Iterate — identify a specific remaining gap and re-run targeted
+           expansion for that domain (describe which domain)
+        C) Abandon — close the PR without merging
+
+      Write decision to {workspace}/validation/final-gate-decision.txt.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - validation/final-gate-decision.txt
+
+include:
+  # Adversarial swarm review — runs after pr-wait-for-ci completes.
+  # Stages: review-fetch-pr-context → review-concern-sweep → review-enumerate-targets
+  #   → review-validate-concerns + review-cross-unit-check → review-consolidate
+  #   → review-fact-check-findings → review-human-gate → review-post-comments
+  - path: workflows/shared/code-review-swarm.yaml
+    prefix: review
+    depends_on: [pr-wait-for-ci]
+    reads_from: [pr-wait-for-ci]
