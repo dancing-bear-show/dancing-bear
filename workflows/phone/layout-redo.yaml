@@ -1,0 +1,334 @@
+name: layout-redo
+version: "1.0"
+description: >
+  Redo an iPhone home screen layout end-to-end: export current device state,
+  propose a reorganization plan, build the cfgutil JSON, validate it, push to
+  the device, and verify the result.
+
+  Before running any stage, agents MUST read concerns/phone-layout.md for
+  critical format and sequencing rules (wrong JSON format, dock-in-folder,
+  unplaced apps, validate-before-push).
+
+  Stage dependency graph:
+
+    export (G0 — local shell)
+      |
+    plan [human gate] (G1 — agent)
+      |
+    build-layout (G2 — agent)
+      |
+    validate (G3 — local shell)
+      |
+    push [human gate] (G4 — local shell)
+      |
+    verify (G5 — agent)
+
+metadata:
+  author: sre-platform
+  created: "2026-06-19"
+  concerns:
+    - concerns/phone-layout.md
+
+trigger:
+  source: manual
+  params: {}
+
+workspace_dir: "{work_dir}/layout-redo"
+
+stages:
+
+  # ===========================================================================
+  # G0: Export — pull fresh state from the attached device
+  # ===========================================================================
+
+  - name: export
+    kind: gather
+    depends_on: []
+    description: >
+      Pull fresh layout data from the attached device and run the analyze
+      command to produce a human-readable summary.
+
+      Step 1 — export device layout to YAML:
+        ./bin/phone-assistant export-device --out out/ios.IconState.yaml
+
+      Step 2 — pull raw icon map JSON from device:
+        IOS_USE_CONFIGURATOR_IDENTITY=1 cfgutil get-icon-layout > out/ios.iconmap.current.json
+
+      Step 3 — analyze the exported layout:
+        ./bin/phone-assistant analyze --layout out/ios.IconState.yaml
+
+      All three commands must succeed (exit 0) before proceeding.
+      Write output to {workspace}/outputs/export-log.txt.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-only
+    required: true
+    writes_to:
+      - outputs/export-log.txt
+
+  # ===========================================================================
+  # G1: Plan — agent proposes reorganization; human reviews before proceeding
+  # ===========================================================================
+
+  - name: plan
+    kind: propose
+    human_gate: true
+    depends_on: [export]
+    reads_from: [export]
+    description: >
+      IMPORTANT: Read concerns/phone-layout.md before writing the plan.
+
+      Read the exported layout and analysis:
+        - out/ios.IconState.yaml       — current layout by page and folder
+        - out/ios.iconmap.current.json — raw bundle IDs from device (source of truth
+                                         for every app that must be placed)
+
+      Propose a reorganization plan:
+        1. Page 1 keep-list: which apps stay as loose icons on page 1 (max ~20).
+           These should be the most-used apps. Do NOT include dock apps here.
+        2. Folder candidates: all remaining bundle IDs grouped by category.
+           Suggest folder names and which apps belong in each.
+        3. Dock: confirm the four dock apps (do not change unless requested).
+        4. Overflow: any bundle IDs whose category is unclear go into "Other".
+
+      Rules (from concerns/phone-layout.md):
+        - Every bundle ID in out/ios.iconmap.current.json must appear exactly once
+          in the plan (page-1 loose, a folder, or "Other").
+        - Dock apps must NOT appear in any folder.
+        - Folder format for cfgutil is ["FolderName", [page1apps], [page2apps]]
+          — NOT flat lists.
+
+      Write the proposed plan to {workspace}/outputs/layout-plan.md in a format
+      the build-layout stage can follow:
+        ## Dock
+        - <bundle_id>
+        ...
+
+        ## Page 1 (loose)
+        - <bundle_id>
+        ...
+
+        ## Folders
+        ### <FolderName>
+        - <bundle_id>
+        ...
+
+        ## Other (overflow)
+        - <bundle_id>
+        ...
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    outputs:
+      - name: layout_plan
+        mode: generate
+        description: >
+          Proposed reorganization plan written to {workspace}/outputs/layout-plan.md.
+          Covers dock, page-1 keep-list, folder assignments, and overflow.
+    required: true
+    writes_to:
+      - outputs/layout-plan.md
+
+  # ===========================================================================
+  # G2: Build layout — agent constructs out/ios.iconlayout.json
+  # ===========================================================================
+
+  - name: build-layout
+    kind: execute
+    depends_on: [plan]
+    reads_from: [plan]
+    description: >
+      IMPORTANT: Read concerns/phone-layout.md before writing any JSON.
+
+      Read the approved plan from {workspace}/outputs/layout-plan.md.
+      Read out/ios.iconmap.current.json to get the authoritative list of every
+      bundle ID on the device.
+
+      Step 1 — run auto-folders to categorize remaining apps:
+        ./bin/phone-assistant auto-folders --layout out/ios.IconState.yaml
+
+        Use the output as a starting point, then adjust folder assignments
+        to match the approved plan.
+
+      Step 2 — construct out/ios.iconlayout.json in the correct cfgutil format.
+
+        Required top-level structure:
+          [
+            [dock_app1, dock_app2, dock_app3, dock_app4],
+            [page1_app1, page1_app2, ..., ["FolderName", [folder_page1_apps]], ...],
+            ...
+          ]
+
+        Folder entries MUST be: ["FolderName", [list_of_apps]]
+        NOT: ["FolderName", app1, app2]  (flat — WRONG)
+        NOT: a mobileconfig plist         (wrong tool)
+
+        A folder with two pages: ["FolderName", [page1_apps], [page2_apps]]
+
+      Step 3 — verify completeness:
+        Every bundle ID in out/ios.iconmap.current.json must appear exactly once
+        in the JSON (dock, page-1 loose, inside a folder, or in an "Other" folder).
+        Dock apps must NOT appear anywhere in the pages or folders.
+
+      Step 4 — write out/ios.iconlayout.json.
+
+      Write a brief build summary to {workspace}/outputs/build-summary.txt:
+        - Total bundle IDs placed
+        - Number of pages
+        - Folders created (name + app count)
+        - Any bundle IDs placed in "Other" overflow
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    outputs:
+      - name: icon_layout_json
+        mode: generate
+        description: >
+          out/ios.iconlayout.json — the cfgutil set-icon-layout compatible JSON.
+          Also writes {workspace}/outputs/build-summary.txt.
+    required: true
+    writes_to:
+      - outputs/build-summary.txt
+
+  # ===========================================================================
+  # G3: Validate — run phone-assistant validate-layout; fail hard on errors
+  # ===========================================================================
+
+  - name: validate
+    kind: validate
+    depends_on: [build-layout]
+    reads_from: [build-layout]
+    description: >
+      Run the layout validator against both the proposed layout and the
+      device-reported app inventory.
+
+        ./bin/phone-assistant validate-layout \
+          --layout out/ios.iconlayout.json \
+          --device-layout out/ios.iconmap.current.json
+
+      Exit codes:
+        0 — no issues (proceed)
+        1 — warnings only (proceed with note)
+        2 — errors found (STOP — do not push)
+
+      If the command exits 2, write the error output to
+      {workspace}/outputs/validate-errors.txt and halt the workflow.
+      The build-layout stage must be corrected before proceeding.
+
+      Write validation result to {workspace}/outputs/validate-result.txt.
+    agent:
+      role: reviewer
+      model: haiku
+      tools: [Bash, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - validate-layout exits 0 or 1 (never 2)
+        - Every device bundle ID is placed in the layout
+        - No dock app appears inside a folder
+        - Layout JSON parses as valid JSON
+      max_revisions: 0
+    required: true
+    writes_to:
+      - outputs/validate-result.txt
+
+  # ===========================================================================
+  # G4: Push — send layout to device; human gate before execution
+  # ===========================================================================
+
+  - name: push
+    kind: execute
+    human_gate: true
+    depends_on: [validate]
+    reads_from: [validate]
+    description: >
+      Push the validated layout to the attached device.
+
+      Pre-push checklist (confirm before running):
+        - Device is connected via USB and trusted on this Mac
+        - Configurator 2 is running and the device is visible
+        - out/ios.iconlayout.json passed validate-layout with 0 errors
+        - The P12 identity is in keychain (bin/ios-push-layout handles this
+          automatically — do NOT run 'security import' unless it is the
+          first-time setup)
+
+      Run:
+        ./bin/ios-push-layout --layout out/ios.iconlayout.json
+
+      NEVER use cfgutil install-profile or produce a .mobileconfig file —
+      install-profile requires a physical device tap (Code 625 error).
+
+      Write push result to {workspace}/outputs/push-result.txt.
+    agent:
+      role: code-writer
+      model: haiku
+      tools: [Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/push-result.txt
+
+  # ===========================================================================
+  # G5: Verify — pull layout back from device and compare to intended
+  # ===========================================================================
+
+  - name: verify
+    kind: validate
+    depends_on: [push]
+    reads_from: [push]
+    description: >
+      Pull the layout back from the device and compare it to the intended layout.
+
+      Step 1 — export post-push layout:
+        IOS_USE_CONFIGURATOR_IDENTITY=1 cfgutil get-icon-layout > out/ios.iconmap.verify.json
+
+      Step 2 — compare verify layout to intended layout (out/ios.iconlayout.json):
+        Check:
+          a. Page count matches
+          b. Dock bundle IDs match exactly (order matters)
+          c. Folder names are all present
+          d. Each folder contains the expected bundle IDs
+          e. No unexpected loose apps on any page
+
+      Step 3 — report discrepancies:
+        For each mismatch, note:
+          - What was expected (from out/ios.iconlayout.json)
+          - What was found (from out/ios.iconmap.verify.json)
+          - Likely cause (e.g. app not installed, duplicate placement)
+
+      Write {workspace}/outputs/verify-report.md:
+        ## Layout Verification Report
+        - Push timestamp: <from push-result.txt>
+        - Pages expected / found: N / N
+        - Dock: OK | MISMATCH (details)
+        - Folders: OK | N mismatches (details)
+        - Loose apps discrepancies: (list)
+        - Overall: PASS | FAIL
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    outputs:
+      - name: verify_report
+        mode: generate
+        description: >
+          Verification report written to {workspace}/outputs/verify-report.md
+          comparing the post-push device state to the intended layout.
+    validation:
+      strategy: unit
+      criteria:
+        - Dock contents match intended layout exactly
+        - All expected folders are present on the device
+        - No unintended loose apps on any page
+      max_revisions: 0
+    required: true
+    writes_to:
+      - outputs/verify-report.md

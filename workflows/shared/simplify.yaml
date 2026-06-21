@@ -1,0 +1,70 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/simplify.yaml
+#       prefix: s
+#       depends_on: [last-implementation-stage]
+#       reads_from: [implement-code, implement-tests]
+#
+# Stage injected: {prefix}-simplify
+#
+# Caller must set trigger.params:
+#   test_path  — e.g. "tests/workflow/"  (used in the no-test-run reminder)
+#   test_cmd   — e.g. "pytest tests/workflow/ -x -q"  (named for context only;
+#                the verify stage that follows this one owns the actual test run)
+#
+# Output: {workspace}/validation/simplify-notes.md
+fragment: true
+name: simplify
+version: "1.0"
+description: >
+  Shared simplify fragment. Reviews all changed files for over-engineering,
+  duplication, and unnecessary abstraction, then applies targeted edits.
+  Does not run tests — the verify/recheck stage that follows owns the test run.
+
+  Used by enhancement and feature-implementation workflows after the
+  implement stages complete and before validate-code runs.
+
+  Params: {test_path}, {test_cmd}.
+
+stages:
+
+  # ===========================================================================
+  # Simplify: dead code, duplication, complexity
+  # ===========================================================================
+
+  - name: simplify
+    kind: execute
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Review all changed files for over-engineering, duplication, and
+      unnecessary abstraction. Apply the /simplify criteria:
+
+        - Extract shared helpers if the same pattern appears 3+ times
+        - Remove dead code paths: unused args, unreachable branches,
+          leftover stubs from earlier iterations
+        - Collapse single-use intermediate dataclasses that add no value
+        - Verify no comments explain WHAT (only WHY where non-obvious)
+        - Confirm no backwards-compat shims, feature flags, or re-exports
+          of removed symbols
+        - Check cognitive complexity: any function > 15 should be split
+          (qlty will flag it; better to fix now)
+
+      Make targeted edits only. Do not refactor passing tests — test
+      refactoring is out of scope.
+
+      Do not run tests after individual changes — the verify/recheck stage
+      that follows this one runs {test_cmd} once after all changes in the
+      group are applied.
+
+      Write a brief summary of what was simplified (or "no simplifications
+      needed") to {workspace}/validation/simplify-notes.md.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/simplify-notes.md
