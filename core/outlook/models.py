@@ -241,3 +241,19 @@ class SearchParams:
     pages: int = 2
     use_cache: bool = True
     ttl: int = 300
+
+
+@dataclass
+class MessageSearchQuery:
+    """Parameters for search_messages (KQL-based mail search).
+
+    Groups query terms (query, sender) with pagination (top, pages)
+    and filtering (after, only_inbox).
+    """
+
+    query: str
+    top: int = 50
+    pages: int = 3
+    after: Optional[str] = None
+    sender: Optional[str] = None
+    only_inbox: bool = False

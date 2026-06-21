@@ -319,22 +319,22 @@ class CLIApp:
         if agentic_result is not None:
             return int(agentic_result)
 
-        # Get the command function
+        # Resolve and run the command
         cmd_func = getattr(args, "_cmd_func", None)
         if cmd_func is None:
             parser.print_help()
-            return 0
-
-        # Run the command with error handling
-        try:
-            return int(cmd_func(args))
-        except CLIError as e:
-            return handle_error(e, verbose=getattr(args, "verbose", False))
-        except KeyboardInterrupt:
-            print("\nInterrupted.", file=sys.stderr)
-            return ExitCode.INTERRUPTED
-        except Exception as e:
-            return handle_error(e, verbose=getattr(args, "verbose", False))
+            result = 0
+        else:
+            try:
+                result = int(cmd_func(args))
+            except CLIError as e:
+                result = handle_error(e, verbose=getattr(args, "verbose", False))
+            except KeyboardInterrupt:
+                print("\nInterrupted.", file=sys.stderr)
+                result = ExitCode.INTERRUPTED
+            except Exception as e:
+                result = handle_error(e, verbose=getattr(args, "verbose", False))
+        return result
 
     def run(self, argv: Optional[Sequence[str]] = None) -> int:
         """Run the CLI application.

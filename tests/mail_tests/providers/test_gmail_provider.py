@@ -35,8 +35,8 @@ class TestGmailProviderInit(unittest.TestCase):
                 token_path="/tok.json",  # nosec B106
             )
         mock_cls.assert_called_once_with(
-            credentials_path="/creds.json",
-            token_path="/tok.json",
+            credentials_path="/creds.json",  # nosec B106
+            token_path="/tok.json",  # nosec B106
             cache_dir=None,
         )
 
@@ -52,8 +52,8 @@ class TestGmailProviderInit(unittest.TestCase):
                 cache_dir="/cache",
             )
         mock_cls.assert_called_once_with(
-            credentials_path="/creds.json",
-            token_path="/tok.json",
+            credentials_path="/creds.json",  # nosec B106
+            token_path="/tok.json",  # nosec B106
             cache_dir="/cache",
         )
 
@@ -197,7 +197,7 @@ class TestGmailProviderForwarding(unittest.TestCase):
         client.update_auto_forwarding.assert_called_once_with(
             enabled=True, email="a@b.com", disposition="trash"
         )
-        self.assertEqual(result["enabled"], True)
+        self.assertTrue(result["enabled"])
 
     def test_set_auto_forwarding_disabled_no_email(self):
         provider, client = _make_provider()

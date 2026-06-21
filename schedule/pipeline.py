@@ -202,6 +202,20 @@ def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, 
 
 
 @dataclass
+class EventCreateParams:
+    """Bundled parameters for creating a calendar event."""
+
+    cal_id: Any
+    calendar_name: Optional[str]
+    subject: str
+    tz: Any
+    body_html: Any
+    location: Any
+    no_reminder: bool
+    reminder_minutes: Any
+
+
+@dataclass
 class RecurrenceExpansionConfig:
     """Configuration for expanding recurring event occurrences."""
 
@@ -284,7 +298,7 @@ def _calculate_expansion_window(
 
 
 def _expand_weekly_occurrences(
-    ev: Dict[str, Any], start_date: _dt.date, end_date: _dt.date, start_time: str, end_time: str, ex_set: set
+    ev: Dict[str, Any], config: RecurrenceExpansionConfig
 ) -> List[Tuple[str, str]]:
     """Expand weekly recurrence for event."""
     byday = ev.get("byday") or []
@@ -292,15 +306,15 @@ def _expand_weekly_occurrences(
     if not days_idx:
         return []
 
-    config = RecurrenceExpansionConfig(
-        start_date=start_date,
-        end_date=end_date,
-        start_time=start_time,
-        end_time=end_time,
-        excluded_dates=ex_set,
+    week_config = RecurrenceExpansionConfig(
+        start_date=config.start_date,
+        end_date=config.end_date,
+        start_time=config.start_time,
+        end_time=config.end_time,
+        excluded_dates=config.excluded_dates,
         weekdays=days_idx,
     )
-    return _expand_weekly(config)
+    return _expand_weekly(week_config)
 
 
 def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[Tuple[str, str]]:
@@ -324,7 +338,13 @@ def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str
     if rpt == "daily":
         return _expand_daily(start_date, end_date, start_time, end_time, ex_set)
 
-    return _expand_weekly_occurrences(ev, start_date, end_date, start_time, end_time, ex_set)
+    return _expand_weekly_occurrences(ev, RecurrenceExpansionConfig(
+        start_date=start_date,
+        end_date=end_date,
+        start_time=start_time,
+        end_time=end_time,
+        excluded_dates=ex_set,
+    ))
 
 
 def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
@@ -338,43 +358,42 @@ def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
 
 
 def _create_recurring_or_single(
-    service: Any, cal_id: Any, calendar_name: Optional[str], ev: Dict[str, Any],
-    subject: str, tz: Any, body_html: Any, location: Any, no_reminder: bool, reminder_minutes: Any,
+    service: Any, ev: Dict[str, Any], params: EventCreateParams,
 ) -> Optional[Any]:
     """Create recurring or single event. Returns result dict or None if skipped."""
     ev_range = ev.get("range") or {}
     if ev.get("repeat") and ev.get("start_time") and ev_range.get("start_date"):
         return service.create_recurring_event(
-            calendar_id=cal_id,
-            calendar_name=calendar_name,
-            subject=subject,
+            calendar_id=params.cal_id,
+            calendar_name=params.calendar_name,
+            subject=params.subject,
             start_time=ev.get("start_time"),
             end_time=ev.get("end_time") or ev.get("start_time"),
-            tz=tz,
+            tz=params.tz,
             repeat=str(ev.get("repeat") or "").lower(),
             interval=int(ev.get("interval") or 1),
             byday=ev.get("byday") or [],
             range_start_date=ev_range.get("start_date"),
             range_until=ev_range.get("until"),
             count=ev.get("count"),
-            body_html=body_html,
-            location=location,
+            body_html=params.body_html,
+            location=params.location,
             exdates=ev.get("exdates"),
-            no_reminder=no_reminder,
-            reminder_minutes=reminder_minutes,
+            no_reminder=params.no_reminder,
+            reminder_minutes=params.reminder_minutes,
         )
     if ev.get("start") and ev.get("end"):
         return service.create_event(
-            calendar_id=cal_id,
-            calendar_name=calendar_name,
-            subject=subject,
+            calendar_id=params.cal_id,
+            calendar_name=params.calendar_name,
+            subject=params.subject,
             start_iso=_to_iso_str(ev.get("start")),
             end_iso=_to_iso_str(ev.get("end")),
-            tz=tz,
-            body_html=body_html,
-            location=location,
-            no_reminder=no_reminder,
-            reminder_minutes=reminder_minutes,
+            tz=params.tz,
+            body_html=params.body_html,
+            location=params.location,
+            no_reminder=params.no_reminder,
+            reminder_minutes=params.reminder_minutes,
         )
     return None
 
@@ -395,11 +414,17 @@ def _apply_outlook_events(
             continue
         no_reminder = ev.get("is_reminder_on") is False
         try:
-            r = _create_recurring_or_single(
-                service, cal_id, calendar_name, ev, subject,
-                ev.get("tz"), ev.get("body_html"), ev.get("location"),
-                no_reminder, ev.get("reminder_minutes"),
+            params = EventCreateParams(
+                cal_id=cal_id,
+                calendar_name=calendar_name,
+                subject=subject,
+                tz=ev.get("tz"),
+                body_html=ev.get("body_html"),
+                location=ev.get("location"),
+                no_reminder=no_reminder,
+                reminder_minutes=ev.get("reminder_minutes"),
             )
+            r = _create_recurring_or_single(service, ev, params)
             if r is None:
                 logs.append(f"Skipping event (insufficient fields): {subject}")
                 continue

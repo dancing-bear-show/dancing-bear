@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.pipeline import SafeProcessor
 
-from .gmail_service import GmailService
+from .gmail_service import GmailService, QueryParams
 from .text_utils import to_24h, extract_email_address
 from core.text_utils import html_to_text
 from .scan_common import (
@@ -268,12 +268,12 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
 
     def _process_safe(self, payload: GmailScanClassesRequest) -> GmailScanClassesResult:
         svc = self._service_builder(payload.auth)
-        query = GmailService.build_query(
+        query = GmailService.build_query_from_params(QueryParams(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
-        )
+        ))
         ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
             return GmailScanClassesResult(events=[], message_count=0, out_path=payload.out_path)
@@ -384,12 +384,12 @@ class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListRe
 
     def _process_safe(self, payload: GmailMailListRequest) -> GmailMailListResult:
         svc = self._service_builder(payload.auth)
-        query = GmailService.build_query(
+        query = GmailService.build_query_from_params(QueryParams(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
-        )
+        ))
         ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
             return GmailMailListResult(messages=[])
@@ -453,12 +453,12 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
 
     def _process_safe(self, payload: GmailSweepTopRequest) -> GmailSweepTopResult:
         svc = self._service_builder(payload.auth)
-        query = GmailService.build_query(
+        query = GmailService.build_query_from_params(QueryParams(
             explicit=payload.query,
             from_text=payload.from_text,
             days=payload.days,
             inbox_only=payload.inbox_only,
-        )
+        ))
         ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
             return GmailSweepTopResult(top_senders=[], freq_days=payload.days, inbox_only=payload.inbox_only, out_path=payload.out_path)

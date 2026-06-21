@@ -43,6 +43,17 @@ OutlookSettingsRequestConsumer = RequestConsumer[OutlookSettingsRequest]
 
 
 @dataclass
+class _EventProcessingContext:
+    """Context for processing a single event against settings rules."""
+
+    svc: Any
+    defaults: Dict
+    rules: List
+    calendar: Optional[str]
+    dry_run: bool
+
+
+@dataclass
 class OutlookSettingsResult:
     logs: List[str]
     selected: int
@@ -67,23 +78,22 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         return defaults, rules
 
     def _process_single_event(
-        self, svc, event: Dict[str, Any], defaults: Dict, rules: List,
-        calendar: Optional[str], dry_run: bool
+        self, ctx: _EventProcessingContext, event: Dict[str, Any],
     ) -> Tuple[int, int, List[str]]:
         """Process one event: evaluate config, build patch, apply. Returns (selected, changed, logs)."""
         eid = event.get("id")
         if not eid:
             return 0, 0, []
-        cfg = self._evaluate_config(defaults, rules, event)
+        cfg = self._evaluate_config(ctx.defaults, ctx.rules, event)
         if cfg is None:
             return 0, 0, []
         patch = self._build_patch(cfg)
         if not patch:
             return 1, 0, []
-        if dry_run:
+        if ctx.dry_run:
             subject = (event.get("subject") or "").strip()
             return 1, 0, [self._format_patch_log(eid, subject, patch)]
-        ok, err = self._apply_event_patch(svc, eid, calendar, patch)
+        ok, err = self._apply_event_patch(ctx.svc, eid, ctx.calendar, patch)
         logs = [err] if err else []
         return 1, (1 if ok else 0), logs
 
@@ -100,12 +110,16 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             calendar_name=payload.calendar,
         ))
 
+        ctx = _EventProcessingContext(
+            svc=svc, defaults=defaults, rules=rules,
+            calendar=payload.calendar, dry_run=payload.dry_run,
+        )
         logs: List[str] = []
         selected = 0
         changed = 0
 
         for event in events or []:
-            sel, chg, ev_logs = self._process_single_event(svc, event, defaults, rules, payload.calendar, payload.dry_run)
+            sel, chg, ev_logs = self._process_single_event(ctx, event)
             selected += sel
             changed += chg
             logs.extend(ev_logs)

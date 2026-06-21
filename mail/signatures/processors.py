@@ -122,21 +122,30 @@ def _sync_primary_signature(client, current: Dict, default_html: str, payload, r
             result.gmail_updates.append(f"Updated {email}")
 
 
-def _sync_desired_signatures(client, current: Dict, desired: List, default_html: Optional[str], payload, result: SignaturesSyncResult) -> None:
+@dataclass
+class _GmailSignatureState:
+    """Current Gmail signature state for sync operations."""
+
+    client: Any
+    current: Dict[str, Any]
+    default_html: Optional[str]
+
+
+def _sync_desired_signatures(state: _GmailSignatureState, desired: List, payload: Any, result: SignaturesSyncResult) -> None:
     """Sync specific desired signatures."""
     for ent in desired:
         email = ent.get("sendAs")
-        html = ent.get("signature_html") or default_html
+        html = ent.get("signature_html") or state.default_html
         if not email or not html:
             continue
         if payload.send_as and email != payload.send_as:
             continue
-        disp = (current.get(email) or {}).get("displayName") or payload.account_display_name
+        disp = (state.current.get(email) or {}).get("displayName") or payload.account_display_name
         html_final = _inline_css(_render_template(html, {"displayName": disp or "", "email": email}))
         if payload.dry_run:
             result.gmail_updates.append(f"Would update {email}")
         else:
-            client.update_signature(email, html_final)
+            state.client.update_signature(email, html_final)
             result.gmail_updates.append(f"Updated {email}")
 
 
@@ -147,12 +156,13 @@ def _sync_gmail_signatures(payload, sigs: Dict, result: SignaturesSyncResult) ->
         client = payload.context.get_gmail_client()
         client.authenticate()
         current = {s.get("sendAsEmail"): s for s in client.list_signatures()}
+        state = _GmailSignatureState(client=client, current=current, default_html=default_html)
         desired = sigs.get("gmail") or []
 
         if not desired and default_html:
             _sync_primary_signature(client, current, default_html, payload, result)
         else:
-            _sync_desired_signatures(client, current, desired, default_html, payload, result)
+            _sync_desired_signatures(state, desired, payload, result)
     except Exception:  # nosec B110 - no Gmail credentials
         pass
 

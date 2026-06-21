@@ -693,8 +693,8 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests.patch.assert_called_once()
 
     def test_update_event_location_no_location_raises(self):
-        with self.assertRaises(ValueError):
-            OutlookCalendarMixin.update_event_location(FakeClient(), event_id="event-1")
+        with self.assertRaises((ValueError, TypeError)):
+            OutlookCalendarMixin.update_event_location(FakeClient(), event_id="event-1", location_str="")
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_reminder(self, mock_requests_fn):

@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import unittest
 
-from mail.cli.messages import register
+from mail.cli.messages import register, MessagesHandlers
 from tests.mail_tests.fixtures import CLIRegisterTestCase, make_noop_handlers
 
 
@@ -20,7 +20,7 @@ def make_messages_parser():
         """Dummy add_gmail_args function."""
         pass
 
-    register(subparsers, add_gmail_args, **make_noop_handlers(*_MESSAGES_HANDLERS))
+    register(subparsers, add_gmail_args, handlers=MessagesHandlers(**make_noop_handlers(*_MESSAGES_HANDLERS)))
     return parser
 
 
