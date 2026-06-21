@@ -1,0 +1,72 @@
+name: mail-filter-apply
+version: "1.0"
+description: >
+  Review unified mail filter config, generate per-provider plans,
+  get human sign-off, then apply to Gmail and Outlook.
+
+trigger:
+  source: manual
+  params:
+    profile: gmail_personal
+    dry_run: "true"
+
+stages:
+  - name: gather-current-filters
+    kind: gather
+    description: >
+      Gather the current mail filter state from all providers.
+      Run:
+        ./bin/mail-assistant filters list -- --format json --profile {profile}
+      Write the output to outputs/current-filters.json.
+    agent:
+      role: researcher
+    writes_to:
+      - outputs/current-filters.json
+
+  - name: propose-plan
+    kind: propose
+    human_gate: true
+    description: >
+      Compare outputs/current-filters.json against config/filters_unified.yaml.
+      Produce a plan showing which filters will be added, updated, or removed.
+      Write the plan to outputs/filter-plan.json.
+    agent:
+      role: reviewer
+    depends_on: [gather-current-filters]
+    reads_from: [gather-current-filters]
+    writes_to:
+      - outputs/filter-plan.json
+
+  - name: execute-apply
+    kind: execute
+    description: >
+      Apply the approved plan. If dry_run={dry_run} is true, pass --dry-run.
+      Run:
+        ./bin/mail-assistant filters apply -- --format json --profile {profile}
+      Write the result to outputs/apply-result.json.
+    agent:
+      role: researcher
+    depends_on: [propose-plan]
+    reads_from: [propose-plan]
+    writes_to:
+      - outputs/apply-result.json
+    validates_output:
+      - path: outputs/apply-result.json
+        checks: [is_json, is_dict]
+
+  - name: validate-applied
+    kind: validate
+    description: >
+      Verify the filter state after apply matches the plan.
+      Check outputs/apply-result.json for errors or unexpected changes.
+      Report any discrepancies.
+    agent:
+      role: reviewer
+    validation:
+      strategy: unit
+      criteria:
+        - All planned filters are present in the apply result
+        - No unplanned filter deletions occurred
+        - apply-result.json contains no error keys
+    depends_on: [execute-apply]
+    reads_from: [execute-apply]

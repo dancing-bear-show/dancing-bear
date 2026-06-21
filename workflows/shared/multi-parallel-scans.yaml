@@ -1,0 +1,263 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/multi-parallel-scans.yaml
+#       prefix: mps
+#       depends_on: [<prior-stage>]
+#
+# Stages injected (prefixed):
+#   mps-scan-reuse, mps-scan-complexity, mps-scan-coverage, mps-scan-security (parallel)
+#   → mps-collate-findings
+#
+# Params consumed: {source_root}, {test_path}
+# Output files:
+#   {workspace}/analysis/reuse-findings.json
+#   {workspace}/analysis/complexity-findings.json
+#   {workspace}/analysis/coverage-findings.json
+#   {workspace}/analysis/security-findings.json
+#   {workspace}/analysis/collated-findings.json
+fragment: true
+name: multi-parallel-scans
+version: "1.0"
+description: >
+  Shared parallel code-quality scan fragment.
+  Runs independent scans in parallel across four quality dimensions
+  (reuse/duplication, complexity, coverage, security), then collates
+  findings into a unified report.
+
+  Params consumed: {source_root}, {test_path}
+
+stages:
+
+  # ===========================================================================
+  # Parallel scans — all independent, run concurrently
+  # ===========================================================================
+
+  - name: scan-reuse
+    kind: validate
+    when: '"{skip_checks}" does not contain "reuse"'
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Scan {source_root} for code reuse issues using the canonical concern
+      definitions in concerns/reuse.md.
+
+      Step 1 — Read concerns/reuse.md. Apply the checks (not the diff-based
+        triggers — this is a whole-tree scan with no diff context) against
+        all .py files under {source_root}. Three source-tree concerns apply
+        here (conftest-helper-duplication is intentionally excluded — it
+        targets the test tree and is handled in Step 3):
+          intra-domain-duplicate  — same function/class in multiple files
+          bare-repeated-string    — string literal repeated 3+ times without a constant
+          promote-to-shared       — constant/dataclass used by 2+ files in domain
+
+      Step 2 — Core utility reuse (domain-layer check):
+        Grep core/ for available helpers. Flag any domain or
+        consumer code under {source_root} that reimplements equivalents of:
+        atomic_write_json, chunked, asdict_drop_none, get_repo_root,
+        format_validation_error. Emit findings under the intra-domain-duplicate
+        concern ID — reimplementing a core utility inside a domain package is
+        the same class of bug as intra-domain duplication.
+
+      Step 3 — Test tree reuse (only if {test_path} is non-empty):
+        Apply the conftest-helper-duplication concern from reuse.md against
+        .py files under {test_path}. This concern targets test files, not
+        source files, so it must be scoped to the test tree.
+
+      Write {workspace}/analysis/reuse-findings.json:
+        { "critical": [...], "minor": [...], "passed": [...] }
+      Each finding: { "check": "<concern-id>", "file": "...", "line": N, "detail": "..." }
+      Severity-to-bucket mapping (collate-findings reads only critical/minor/passed):
+        major severity (intra-domain-duplicate) → "critical" bucket
+        minor severity (bare-repeated-string, promote-to-shared,
+          conftest-helper-duplication) → "minor" bucket
+      Valid concern IDs: intra-domain-duplicate, bare-repeated-string,
+      promote-to-shared, conftest-helper-duplication.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - No reimplemented utilities that exist in core/
+        - No bare string literals repeated 3+ times without a constant
+        - No duplicate helpers within the domain
+        - No cross-file constants/dataclasses that belong in shared/__init__.py
+      max_revisions: 1
+    required: true
+    writes_to:
+      - analysis/reuse-findings.json
+
+  - name: scan-complexity
+    kind: validate
+    when: '"{skip_checks}" does not contain "complexity"'
+    depends_on: []      # overridden by include.depends_on (intra-fragment: parallel to scan-reuse)
+    reads_from: []
+    description: >
+      Scan {source_root} for complexity issues using the canonical concern
+      definitions in concerns/complexity.md.
+
+      Step 1 — Read concerns/complexity.md. Apply the checks (not the
+        diff-based triggers — this is a whole-tree scan with no diff context)
+        against all .py files under {source_root}:
+          high-cognitive-complexity-critical — branching point count > 15
+          high-cognitive-complexity-minor   — branching point count 11–15
+          deep-nesting              — function body nested 4+ levels deep
+          print-not-logging         — bare print() in non-CLI source modules
+
+      Write {workspace}/analysis/complexity-findings.json with the same
+      structure as reuse-findings.json.
+      Use concern IDs from complexity.md: high-cognitive-complexity-critical,
+      high-cognitive-complexity-minor, deep-nesting, print-not-logging.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - No function with cognitive complexity > 15
+        - Max nesting depth 3 in most functions
+        - No bare print() calls — use logging
+      max_revisions: 1
+    required: true
+    writes_to:
+      - analysis/complexity-findings.json
+
+  - name: scan-coverage
+    kind: validate
+    when: '"{skip_checks}" does not contain "coverage"'
+    depends_on: []      # overridden by include.depends_on (intra-fragment: parallel to scan-reuse)
+    reads_from: []
+    description: >
+      Scan {source_root} and {test_path} for test coverage gaps.
+
+      Step 1 — Test shared helper audit:
+        For each test file under {test_path}: grep for manual dict
+        construction {...} that should use make_* factories.
+        Flag assertTrue(x is not None) that should be assertIsNotNone(x).
+        Flag missing @pytest.mark.parametrize where 3+ near-identical test
+        functions exist.
+
+      Step 2 — Coverage gaps:
+         --only-changed --format table
+        Flag any source file under {source_root} with no corresponding
+        test file (critical).
+        Flag any source file with coverage < 80% (minor).
+
+      Step 3 — CI test block coverage:
+        Check .github/workflows/ci.yml — if any new tests/ directory was
+        added, verify it has a CI job block.
+
+      Write {workspace}/analysis/coverage-findings.json with the same
+      structure as reuse-findings.json.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - All source files have corresponding test files
+        - No test file uses manual dict construction (use make_* factories)
+        - Critical paths (auth, credentials, API clients) have >= 90% coverage target
+      max_revisions: 1
+    required: true
+    writes_to:
+      - analysis/coverage-findings.json
+
+  - name: scan-security
+    kind: validate
+    when: '"{skip_checks}" does not contain "security"'
+    depends_on: []      # overridden by include.depends_on (intra-fragment: parallel to scan-reuse)
+    reads_from: []
+    description: >
+      Scan {source_root} for hardcoded credentials, credential masking
+      gaps, and direct HTTP client usage.
+
+      Check 1 — Hardcoded credentials:
+        Grep for: password=, api_key=, token=, secret=, AUTH_, BEARER_
+        followed by a string literal. Flag any found as critical.
+
+      Check 2 — Credential masking:
+        If the file handles API responses containing tokens/keys: verify it
+        uses core.secrets masking before logging or printing.
+
+      Check 3 — HTTP client:
+        If the file makes HTTP requests: verify it imports from
+        core.http not requests directly.
+
+      Check 4 — Unmasked output:
+        Flag print()/logging calls that include variable names suggesting
+        sensitive data (password, token, secret, key, credential).
+
+      Check 5 — Error messages:
+        Flag exception messages that include variable values that might be
+        credentials.
+
+      Write {workspace}/analysis/security-findings.json with the same
+      structure as reuse-findings.json.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Zero hardcoded credentials, tokens, or passwords
+        - No unmasked sensitive values in output or logs
+        - HTTP clients use core.http.HttpClient for auto-masking
+      max_revisions: 1
+    required: true
+    writes_to:
+      - analysis/security-findings.json
+
+  # ===========================================================================
+  # Collate — merges all four scan results into a unified report
+  # ===========================================================================
+
+  - name: collate-findings
+    kind: gather
+    depends_on: [scan-reuse, scan-complexity, scan-coverage, scan-security]
+    reads_from: [scan-reuse, scan-complexity, scan-coverage, scan-security]
+    description: >
+      Read all four scan JSON files from {workspace}/analysis/.
+      Merge into a single {workspace}/analysis/collated-findings.json:
+        {
+          "critical": [...all critical from all scans...],
+          "minor":    [...all minor from all scans...],
+          "passed":   [...all passed checks...]
+        }
+      Deduplicate by (file, line, check) tuple.
+
+      Write {workspace}/analysis/findings-summary.md:
+
+        ## Code Quality Scan Results
+
+        | Check      | Critical | Minor | Passed |
+        |------------|----------|-------|--------|
+        | Reuse      | N        | N     | N      |
+        | Complexity | N        | N     | N      |
+        | Coverage   | N        | N     | N      |
+        | Security   | N        | N     | N      |
+        | **Total**  | **N**    | **N** | **N**  |
+
+        ### Critical Findings
+        (list each with file:line and detail)
+
+        ### Minor Findings
+        (list each with file:line and detail)
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-only
+    required: true
+    writes_to:
+      - analysis/collated-findings.json
+      - analysis/findings-summary.md

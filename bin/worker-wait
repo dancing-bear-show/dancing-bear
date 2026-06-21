@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Poll a worker job until it reaches a terminal state (done or error).
+# Exits 0 for done, 1 for error, 2 for timeout.
+#
+# Usage: worker-wait <job-id> [--timeout <seconds>] [--interval <seconds>]
+#
+# Avoids `status` as a variable name (read-only in zsh).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+JOB_ID=""
+TIMEOUT_SECS=3600
+INTERVAL_SECS=10
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --timeout) TIMEOUT_SECS="$2"; shift 2 ;;
+        --interval) INTERVAL_SECS="$2"; shift 2 ;;
+        -*) echo "Unknown option: $1" >&2; exit 2 ;;
+        *) JOB_ID="$1"; shift ;;
+    esac
+done
+
+if [[ -z "$JOB_ID" ]]; then
+    echo "Usage: worker-wait <job-id> [--timeout <seconds>] [--interval <seconds>]" >&2
+    exit 2
+fi
+
+deadline=$(( $(date +%s) + TIMEOUT_SECS ))
+
+while true; do
+    job_json="$("${SCRIPT_DIR}/worker" show "$JOB_ID" 2>/dev/null || true)"
+    job_state="$(echo "$job_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")"
+
+    case "$job_state" in
+        done)
+            echo "done"
+            exit 0
+            ;;
+        error)
+            echo "error"
+            exit 1
+            ;;
+        *)
+            if [[ $(date +%s) -ge $deadline ]]; then
+                echo "timeout"
+                exit 2
+            fi
+            sleep "$INTERVAL_SECS"
+            ;;
+    esac
+done
