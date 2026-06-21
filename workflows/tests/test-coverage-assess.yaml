@@ -1,0 +1,232 @@
+name: test-coverage-assess
+version: "1.0"
+description: >
+  Assess test coverage by domain by inspecting test and source files,
+  identify gaps, then author new tests for the lowest-coverage domains.
+  No coverage tool is run; analysis is static (file and symbol inspection).
+
+trigger:
+  source: manual
+
+stages:
+  - name: gather-test-inventory
+    kind: gather
+    description: >
+      Inspect each test directory under tests/ and produce a structured
+      inventory of what is tested. For each domain listed below, list every
+      test file and, within each file, every test class and test method name.
+
+      Domains and their test directories:
+        mail         -> tests/mail_tests/, tests/mail/
+        calendars    -> tests/calendars_tests/
+        schedule     -> tests/schedule_tests/
+        phone        -> tests/phone_tests/
+        whatsapp     -> tests/whatsapp_tests/
+        wifi         -> tests/wifi_tests/
+        desk         -> tests/desk_tests/
+        apple_music  -> tests/apple_music_tests/
+        metals       -> tests/metals_tests/
+        resume       -> tests/resume_tests/
+        core         -> tests/core_tests/
+        worker       -> tests/worker_tests/
+        workflow     -> tests/workflow_tests/
+
+      Steps:
+        1. For each directory above, run: find <dir> -name "*.py" -not -name "__init__.py"
+        2. For each .py file found, grep for lines matching "class Test" and "def test_"
+        3. Aggregate into a JSON object keyed by domain name. Each value is a list of
+           objects with keys: file (relative path from repo root), classes (list of
+           class names), methods (list of method names).
+        4. If a directory does not exist, record it with an empty list.
+
+      Write the result to {workspace}/outputs/test-inventory.json.
+    agent:
+      role: researcher
+    outputs:
+      - name: test-inventory
+        mode: generate
+        description: >
+          JSON object keyed by domain. Each value is a list of
+          {{file, classes, methods}} objects for test files in that domain.
+    writes_to:
+      - outputs/test-inventory.json
+
+  - name: gather-source-inventory
+    kind: gather
+    description: >
+      Inspect each source module directory and produce a structured inventory
+      of public symbols (classes and functions). Skip private names (leading
+      underscore) and dunder names.
+
+      Source directories by domain:
+        mail         -> mail/
+        calendars    -> calendars/
+        schedule     -> schedule/
+        phone        -> phone/
+        whatsapp     -> whatsapp/
+        wifi         -> wifi/
+        desk         -> desk/
+        apple_music  -> apple_music/
+        metals       -> metals/
+        resume       -> resume/
+        core         -> core/
+        worker       -> worker/
+        workflow     -> workflow/
+
+      Steps:
+        1. For each directory, run: find <dir> -name "*.py" -not -name "__init__.py"
+        2. For each .py file, grep for lines matching "^class " and "^def " to extract
+           top-level class and function names. Exclude names starting with _ or __.
+        3. Aggregate into a JSON object keyed by domain name. Each value is a list of
+           objects with keys: file (relative path from repo root), classes (list),
+           functions (list).
+        4. If a directory does not exist, record it with an empty list.
+
+      Write the result to {workspace}/outputs/source-inventory.json.
+    agent:
+      role: researcher
+    outputs:
+      - name: source-inventory
+        mode: generate
+        description: >
+          JSON object keyed by domain. Each value is a list of
+          {{file, classes, functions}} objects for source files in that domain.
+    writes_to:
+      - outputs/source-inventory.json
+
+  - name: assess-coverage
+    kind: propose
+    human_gate: true
+    description: >
+      Compare {workspace}/outputs/test-inventory.json against
+      {workspace}/outputs/source-inventory.json to assess test coverage
+      per domain. Produce a gap analysis.
+
+      For each domain:
+        1. Count distinct public classes and functions in the source inventory.
+        2. Count test methods in the test inventory.
+        3. Compute a coverage_score: (test_method_count / max(source_symbol_count, 1)).
+           This is a proxy, not an exact line-coverage figure.
+        4. List symbols that appear in source but have no corresponding test
+           method name containing a snake_case version of the symbol name.
+           These are the gaps.
+        5. Rank domains from lowest to highest coverage_score.
+
+      Output a JSON object with key "domains", a list ordered by coverage_score
+      ascending. Each entry has:
+        - domain (string)
+        - source_symbol_count (int)
+        - test_method_count (int)
+        - coverage_score (float, 2 decimal places)
+        - gaps (list of untested symbol names)
+
+      Write this to {workspace}/outputs/coverage-assessment.json.
+    agent:
+      role: reviewer
+    depends_on:
+      - gather-test-inventory
+      - gather-source-inventory
+    reads_from:
+      - gather-test-inventory
+      - gather-source-inventory
+    outputs:
+      - name: coverage-assessment
+        mode: generate
+        description: >
+          JSON object with key "domains": list of per-domain coverage
+          assessments ordered by coverage_score ascending, each with
+          domain, source_symbol_count, test_method_count, coverage_score,
+          and gaps fields.
+    writes_to:
+      - outputs/coverage-assessment.json
+
+  - name: write-tests
+    kind: execute
+    description: >
+      Read {workspace}/outputs/coverage-assessment.json and write new unittest
+      test files for the 3 lowest-coverage domains (the first 3 entries in the
+      "domains" list, ordered by coverage_score ascending).
+
+      Before writing any tests:
+        1. Read tests/AGENTS.md for project test conventions.
+        2. Read tests/fixtures.py to understand available fixtures and helpers.
+        3. Read tests/fakes/ to understand available fakes.
+        4. Read one existing test file from each target domain's test directory
+           to understand local patterns.
+
+      For each of the 3 target domains, write a new test file at:
+        tests/<domain>_tests/test_<domain>_new.py
+
+      Test authoring rules (strict):
+        - Use unittest.TestCase, not pytest. Import unittest and subclass TestCase.
+        - No network calls, no file I/O to real paths, no subprocess calls to
+          external services, no use of real credentials or API tokens.
+        - Patch at the point of use (where the name is imported/used, not defined).
+        - Use fakes from tests/fakes/ and fixtures from tests/fixtures.py
+          where applicable rather than constructing raw dicts or API objects.
+        - Test only the public symbols listed in the gap list for that domain.
+          Focus on the functions/classes with the lowest test coverage first.
+        - Each test class must have at least 3 test methods.
+        - Use descriptive method names: test_<symbol>_<scenario>.
+        - Include a module-level docstring explaining what the file covers.
+        - Do not fabricate imports; only import what exists in the source module.
+
+      After writing all test files, write a summary JSON to
+      {workspace}/outputs/tests-written.json with key "files_written":
+      a list of objects each with keys:
+        - path (relative path from repo root, e.g. tests/mail_tests/test_mail_new.py)
+        - domain (string)
+        - test_methods (list of method names written)
+    agent:
+      role: tester
+    depends_on:
+      - assess-coverage
+    reads_from:
+      - assess-coverage
+    outputs:
+      - name: tests-written
+        mode: generate
+        description: >
+          JSON object with key "files_written": list of {{path, domain,
+          test_methods}} for each new test file authored.
+    writes_to:
+      - outputs/tests-written.json
+
+  - name: validate-tests
+    kind: validate
+    description: >
+      Validate the test files produced by the write-tests stage.
+      Read {workspace}/outputs/tests-written.json to get the list of written files,
+      then for each file:
+        1. Confirm the file exists on disk.
+        2. Confirm it imports unittest and subclasses TestCase.
+        3. Confirm it contains no network-related imports
+           (requests, urllib, httpx, socket, http.client, google.auth).
+        4. Confirm it contains no credential/token string literals
+           (scan for "token", "password", "secret", "api_key" as bare strings).
+        5. Confirm each test method listed in tests-written.json is actually
+           present in the file.
+
+      Report findings as a structured list: one entry per file with keys:
+        - path, exists (bool), valid_unittest (bool), no_network (bool),
+          no_secrets (bool), methods_present (bool), notes (string).
+
+      If any file fails any check, report it clearly so the user can
+      take corrective action.
+    agent:
+      role: reviewer
+    validation:
+      strategy: unit
+      criteria:
+        - All files listed in outputs/tests-written.json exist on disk
+        - Every file uses unittest.TestCase, not pytest
+        - No file imports network or credential libraries
+        - No file contains bare secret/token string literals
+        - All test methods listed in tests-written.json are present in the file
+    depends_on:
+      - write-tests
+    reads_from:
+      - write-tests
+    validates_output:
+      - path: outputs/tests-written.json
+        checks: [exists]
