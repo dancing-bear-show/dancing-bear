@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .docx_styles import StyleManager, TextFormatter
+from .render_config import MetaRunConfig
 
 
 class BulletRenderer:
@@ -168,19 +169,18 @@ class HeaderRenderer:
         except (ValueError, TypeError):
             return None
 
-    def _add_meta_run(self, p, text: str, brackets: bool, open_br: str, close_br: str,
-                      meta_pt: Optional[float], color: Optional[str], italic: bool = False):
+    def _add_meta_run(self, p, text: str, cfg: MetaRunConfig):
         """Add a metadata run (location or duration) with optional brackets."""
         p.add_run(" — ")
-        if brackets:
-            p.add_run(open_br)
+        if cfg.brackets:
+            p.add_run(cfg.open_br)
         r = p.add_run(text)
-        if italic:
+        if cfg.italic:
             r.italic = True
-        self.styles.apply_run_size(r, meta_pt)
-        self.styles.apply_run_color(r, color)
-        if brackets:
-            p.add_run(close_br)
+        self.styles.apply_run_size(r, cfg.meta_pt)
+        self.styles.apply_run_color(r, cfg.color)
+        if cfg.brackets:
+            p.add_run(cfg.close_br)
 
     def add_header_line(
         self,
@@ -222,13 +222,19 @@ class HeaderRenderer:
 
         # Location
         if loc_text:
-            self._add_meta_run(p, loc_text, cfg.get("location_brackets", True),
-                               "[", "]", meta_pt, loc_color, italic=True)
+            self._add_meta_run(p, loc_text, MetaRunConfig(
+                brackets=cfg.get("location_brackets", True),
+                open_br="[", close_br="]",
+                meta_pt=meta_pt, color=loc_color, italic=True,
+            ))
 
         # Duration
         if span_text:
-            self._add_meta_run(p, span_text, cfg.get("duration_brackets", True),
-                               "(", ")", meta_pt, dur_color)
+            self._add_meta_run(p, span_text, MetaRunConfig(
+                brackets=cfg.get("duration_brackets", True),
+                open_br="(", close_br=")",
+                meta_pt=meta_pt, color=dur_color,
+            ))
 
         return p
 

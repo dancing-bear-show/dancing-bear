@@ -50,6 +50,25 @@ class RenderContext:
 
 
 @dataclass
+class IndentedRunStyle:
+    """Style options for indented paragraph runs."""
+
+    italic: bool = False
+    size_offset: int = 0
+    color: str = "#666666"
+    after_pt: int = 0
+
+
+@dataclass
+class ExperienceFilterConfig:
+    """Configuration for experience filtering."""
+
+    max_roles: Optional[int] = None
+    max_bullets_per_role: Optional[int] = None
+    min_score: int = 1
+
+
+@dataclass
 class ExperienceRenderConfig:
     """Configuration for rendering experience entries."""
 

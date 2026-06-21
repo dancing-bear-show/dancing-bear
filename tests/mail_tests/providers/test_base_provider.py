@@ -19,7 +19,7 @@ def _make_concrete_class():
         _provider_name = "test_provider"
 
         def authenticate(self) -> None:
-            pass
+            pass  # no-op: required by abstract interface
 
         def get_profile(self) -> Dict[str, Any]:
             return {"email": "test@example.com"}
@@ -40,7 +40,7 @@ def _make_concrete_class():
             return "label-id"
 
         def delete_label(self, label_id: str) -> None:
-            pass
+            pass  # no-op: required by abstract interface
 
         def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
             return []
@@ -49,7 +49,7 @@ def _make_concrete_class():
             return {}
 
         def delete_filter(self, filter_id: str) -> None:
-            pass
+            pass  # no-op: required by abstract interface
 
         def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
             return []
@@ -72,7 +72,7 @@ def _make_concrete_class():
             add_label_ids: Optional[List[str]] = None,
             remove_label_ids: Optional[List[str]] = None,
         ) -> None:
-            pass
+            pass  # no-op: required by abstract interface
 
         def list_signatures(self) -> List[Dict[str, Any]]:
             return []
@@ -226,9 +226,9 @@ class TestBaseProviderCapabilities(unittest.TestCase):
 
     def test_capabilities_can_be_overridden(self):
         """Subclass can override capabilities() to advertise features."""
-        ConcreteProvider = self.ConcreteProvider
+        concrete_provider = self.ConcreteProvider
 
-        class CapableProvider(ConcreteProvider):
+        class CapableProvider(concrete_provider):
             def capabilities(self) -> set:
                 return {"labels", "filters"}
 
@@ -253,8 +253,8 @@ class TestConcreteProviderInterface(unittest.TestCase):
     """Smoke-tests that all abstract methods are callable on a concrete subclass."""
 
     def setUp(self):
-        ConcreteProvider = _make_concrete_class()
-        self.provider = ConcreteProvider(
+        concrete_provider = _make_concrete_class()
+        self.provider = concrete_provider(
             credentials_path="c.json",  # nosec B106
             token_path="t.json",  # nosec B106
         )
@@ -358,12 +358,12 @@ class TestProviderNameClassAttribute(unittest.TestCase):
         self.assertEqual(BaseProvider._provider_name, "mail")
 
     def test_subclass_can_override_provider_name(self):
-        ConcreteProvider = _make_concrete_class()
-        self.assertEqual(ConcreteProvider._provider_name, "test_provider")
+        concrete_provider = _make_concrete_class()
+        self.assertEqual(concrete_provider._provider_name, "test_provider")
 
     def test_provider_name_used_as_cfg_provider(self):
-        ConcreteProvider = _make_concrete_class()
-        p = ConcreteProvider(credentials_path="c.json", token_path="t.json")  # nosec B106
+        concrete_provider = _make_concrete_class()
+        p = concrete_provider(credentials_path="c.json", token_path="t.json")  # nosec B106
         self.assertEqual(p._cfg_provider, "test_provider")
 
 

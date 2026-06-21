@@ -273,25 +273,34 @@ def get_ci_checks(pr_number):
     return checks
 
 
+_CONCLUSION_MAP = {
+    "success": "passed",
+    "failure": "failed",
+    "timed_out": "failed",
+    "startup_failure": "failed",
+    "cancelled": "cancelled",
+    "skipped": "skipped",
+    "neutral": "skipped",
+}
+
+_STATUS_MAP = {
+    "in_progress": "in_progress",
+    "queued": "pending",
+    "waiting": "pending",
+    "requested": "pending",
+    "pending": "pending",
+}
+
+
 def format_check_status(check):
     """Return display string for a check."""
     conclusion = check.get("conclusion") or ""
     status = check.get("status") or check.get("state") or ""
-    if conclusion in ("success",):
-        return "passed"
-    if conclusion in ("failure", "timed_out", "startup_failure"):
-        return "failed"
-    if conclusion in ("cancelled",):
-        return "cancelled"
-    if conclusion in ("skipped", "neutral"):
-        return "skipped"
-    if status in ("completed",):
+    if conclusion in _CONCLUSION_MAP:
+        return _CONCLUSION_MAP[conclusion]
+    if status == "completed":
         return conclusion or "completed"
-    if status in ("in_progress",):
-        return "in_progress"
-    if status in ("queued", "waiting", "requested", "pending"):
-        return "pending"
-    return conclusion or status or "unknown"
+    return _STATUS_MAP.get(status, conclusion or status or "unknown")
 
 
 # ---------------------------------------------------------------------------
@@ -354,123 +363,129 @@ def build_parser():
     return p
 
 
-def main():
-    parser = build_parser()
-    args = parser.parse_args()
-
-    owner, repo = parse_owner_repo()
-
-    # 1. Find or create PR
+def _ensure_pr(args):
+    """Find or create PR; return PR dict or (None, exit_code)."""
     pr = find_pr()
-    if pr is None:
-        if not args.create:
-            print("No PR found on current branch. Use --create to auto-create.", file=sys.stderr)
-            return 1
-        branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-        print(f"No PR found for branch '{branch}', creating...")
-        pr = create_pr(args.base, args.title, args.body, args.dry_run)
-        if pr is None and not args.dry_run:
-            print("Failed to create PR.", file=sys.stderr)
-            return 1
-        if args.dry_run:
-            print(f"[DRY RUN] Would create PR from '{branch}' into '{args.base}'")
-            return 0
+    if pr is not None:
+        return pr, None
+    if not args.create:
+        print("No PR found on current branch. Use --create to auto-create.", file=sys.stderr)
+        return None, 1
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    print(f"No PR found for branch '{branch}', creating...")
+    pr = create_pr(args.base, args.title, args.body, args.dry_run)
+    if pr is None and not args.dry_run:
+        print("Failed to create PR.", file=sys.stderr)
+        return None, 1
+    if args.dry_run:
+        print(f"[DRY RUN] Would create PR from '{branch}' into '{args.base}'")
+        return None, 0
+    return pr, None
 
-    if pr is None:
-        return 0
 
-    pr_number = pr["number"]
-    head = pr.get("headRefName", "?")
-    base = pr.get("baseRefName", args.base)
-    print(f"\nPR #{pr_number}: {head} -> {base}")
-    print(pr["url"])
-    print()
+def _collect_qlty(args):
+    """Run qlty checks on PR files if enabled; return issues dict or None."""
+    if not args.check_qlty:
+        return None
+    files = get_pr_files()
+    if files:
+        return run_qlty(files)
+    return {"high": [], "medium": [], "low": []}
 
-    # 2. Fetch Copilot threads
-    threads = fetch_copilot_threads(owner, repo, pr_number)
 
-    # 3. Check qlty
-    qlty_issues = None
-    if args.check_qlty:
-        files = get_pr_files()
-        if files:
-            qlty_issues = run_qlty(files)
-        else:
-            qlty_issues = {"high": [], "medium": [], "low": []}
-
-    # 4. Check CI
-    checks = []
-    if args.check_ci:
-        checks = get_ci_checks(pr_number)
-
-    # 5. Display summary
+def _display_summary(threads, qlty_issues, checks):
+    """Print human-readable summary of threads, qlty issues, and CI checks."""
     print(f"Copilot: {len(threads)} unresolved conversations")
     for t in threads:
         snippet = (t["body"][:100] + "...") if len(t["body"]) > 100 else t["body"]
         loc = f"{t['path']}:{t['line']}" if t["line"] else t["path"]
-        print(f"  {loc} — {snippet}")
+        print(f"  {loc} -- {snippet}")
 
     print()
     if qlty_issues is None:
         print("Qlty: skipped (qlty not found or --no-check-qlty)")
     else:
-        h = len(qlty_issues["high"])
-        m = len(qlty_issues["medium"])
-        lo = len(qlty_issues["low"])
+        h, m, lo = len(qlty_issues["high"]), len(qlty_issues["medium"]), len(qlty_issues["low"])
         print(f"Qlty: {h} high, {m} medium, {lo} low")
 
     print()
     print(f"CI: {len(checks)} checks")
     for c in checks:
-        name = c.get("name", "?")
-        status = format_check_status(c)
-        print(f"  {name:<30} {status}")
-
+        print(f"  {c.get('name', '?'):<30} {format_check_status(c)}")
     print()
 
-    # 6. Resolve Copilot conversations
-    if args.resolve_copilot and threads:
-        msg = f"Resolving {len(threads)} Copilot conversation(s)..."
-        print(msg, end=" ", flush=True)
-        if args.dry_run:
-            print()
-            for t in threads:
-                print(f"[DRY RUN] Would resolve thread {t['id']}")
-        else:
-            ok = all(resolve_thread(t["id"], dry_run=False) for t in threads)
-            print("done" if ok else "some failed")
 
-    # 7. Add summary comment
-    if args.update_summary:
-        comment = build_summary_comment(threads, qlty_issues, checks)
-        print("Adding summary comment...", end=" ", flush=True)
-        if args.dry_run:
-            print()
-            print(f"[DRY RUN] Would post comment:\n{comment}")
-        else:
-            _, stderr, rc = _gh("pr", "comment", str(pr_number), "--body", comment)
-            if rc != 0:
-                print(f"failed: {stderr.strip()}", file=sys.stderr)
-            else:
-                print("done")
+def _resolve_copilot_threads(threads, args):
+    """Resolve unresolved Copilot threads if enabled."""
+    if not (args.resolve_copilot and threads):
+        return
+    print(f"Resolving {len(threads)} Copilot conversation(s)...", end=" ", flush=True)
+    if args.dry_run:
+        print()
+        for t in threads:
+            print(f"[DRY RUN] Would resolve thread {t['id']}")
+    else:
+        ok = all(resolve_thread(t["id"], dry_run=False) for t in threads)
+        print("done" if ok else "some failed")
 
-    # 8. Update PR metadata
-    if (args.title or args.body) and not args.dry_run:
-        edit_args = ["pr", "edit", str(pr_number)]
-        if args.title:
-            edit_args += ["--title", args.title]
-        if args.body:
-            edit_args += ["--body", args.body]
-        _, stderr, rc = _gh(*edit_args)
-        if rc != 0:
-            print(f"PR edit failed: {stderr.strip()}", file=sys.stderr)
-    elif (args.title or args.body) and args.dry_run:
+
+def _post_summary_comment(pr_number, threads, qlty_issues, checks, args):
+    """Post or preview a summary comment on the PR."""
+    if not args.update_summary:
+        return
+    comment = build_summary_comment(threads, qlty_issues, checks)
+    print("Adding summary comment...", end=" ", flush=True)
+    if args.dry_run:
+        print()
+        print(f"[DRY RUN] Would post comment:\n{comment}")
+    else:
+        _, stderr, rc = _gh("pr", "comment", str(pr_number), "--body", comment)
+        print("done" if rc == 0 else f"failed: {stderr.strip()}")
+
+
+def _update_pr_metadata(pr_number, args):
+    """Update PR title/body if provided."""
+    if not (args.title or args.body):
+        return
+    if args.dry_run:
         if args.title:
             print(f"[DRY RUN] Would set PR title: {args.title}")
         if args.body:
             print(f"[DRY RUN] Would set PR body: {args.body[:80]}...")
+        return
+    edit_args = ["pr", "edit", str(pr_number)]
+    if args.title:
+        edit_args += ["--title", args.title]
+    if args.body:
+        edit_args += ["--body", args.body]
+    _, stderr, rc = _gh(*edit_args)
+    if rc != 0:
+        print(f"PR edit failed: {stderr.strip()}", file=sys.stderr)
 
-    # 9. Final URL
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    owner, repo = parse_owner_repo()
+
+    pr, exit_code = _ensure_pr(args)
+    if pr is None:
+        return exit_code
+
+    pr_number = pr["number"]
+    print(f"\nPR #{pr_number}: {pr.get('headRefName', '?')} -> {pr.get('baseRefName', args.base)}")
+    print(pr["url"])
+    print()
+
+    threads = fetch_copilot_threads(owner, repo, pr_number)
+    qlty_issues = _collect_qlty(args)
+    checks = get_ci_checks(pr_number) if args.check_ci else []
+
+    _display_summary(threads, qlty_issues, checks)
+    _resolve_copilot_threads(threads, args)
+    _post_summary_comment(pr_number, threads, qlty_issues, checks, args)
+    _update_pr_metadata(pr_number, args)
+
     print(f"\n{pr['url']}")
     return 0
 

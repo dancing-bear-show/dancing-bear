@@ -106,27 +106,11 @@ def _write_ini_from_settings(settings: ProfileSettings) -> None:
         cp.write(fh)
 
 
-def _write_ini(
-    creds: Optional[str],
-    token: Optional[str],
-    *,
-    profile: Optional[str] = None,
-    outlook_client_id: Optional[str] = None,
-    tenant: Optional[str] = None,
-    outlook_token: Optional[str] = None,
-) -> None:
-    """Write profile settings to INI (backward-compatible wrapper).
+def _write_ini(settings: ProfileSettings) -> None:
+    """Write profile settings to INI.
 
-    Prefer using persist_profile_settings() for new code.
+    Delegates to _write_ini_from_settings.
     """
-    settings = ProfileSettings(
-        profile=profile,
-        credentials=creds,
-        token=token,
-        outlook_client_id=outlook_client_id,
-        tenant=tenant,
-        outlook_token=outlook_token,
-    )
     _write_ini_from_settings(settings)
 
 
@@ -161,7 +145,7 @@ def persist_if_provided(*, arg_credentials: Optional[str], arg_token: Optional[s
     # Persist only when caller explicitly provided values (so we don't overwrite
     # ini with defaults).
     if arg_credentials or arg_token:
-        _write_ini(arg_credentials, arg_token, profile=profile)
+        _write_ini(ProfileSettings(profile=profile, credentials=arg_credentials, token=arg_token))
 
 
 def persist_profile_settings(settings: ProfileSettings) -> None:

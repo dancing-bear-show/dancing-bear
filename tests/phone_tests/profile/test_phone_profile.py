@@ -1,6 +1,6 @@
 import unittest
 
-from phone.profile import build_mobileconfig
+from phone.profile import ProfileMetadata, build_mobileconfig
 
 
 def _extract_folder_apps(folder_item):
@@ -29,8 +29,10 @@ class TestPhoneProfile(unittest.TestCase):
         profile = build_mobileconfig(
             plan=plan,
             layout_export=layout_export,
-            top_identifier="com.example.profile",
-            hs_identifier="com.example.hslayout",
+            profile_meta=ProfileMetadata(
+                top_identifier="com.example.profile",
+                hs_identifier="com.example.hslayout",
+            ),
         )
 
         payload = profile["PayloadContent"][0]

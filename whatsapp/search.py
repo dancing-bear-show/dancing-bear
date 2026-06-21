@@ -91,20 +91,30 @@ def _build_where(
     return " AND ".join(conds), params
 
 
-def search_messages(
-    *,
-    db_path: Optional[str] = None,
-    contains: Optional[List[str]] = None,
-    match_all: bool = False,
-    contact: Optional[str] = None,
-    from_me: Optional[bool] = None,
-    since_days: Optional[int] = None,
-    limit: int = 50,
-) -> List[MessageRow]:
-    path = os.path.expanduser(db_path or default_db_path())
+@dataclass
+class SearchQuery:
+    """Parameters for searching WhatsApp messages."""
+
+    db_path: Optional[str] = None
+    contains: Optional[List[str]] = None
+    match_all: bool = False
+    contact: Optional[str] = None
+    from_me: Optional[bool] = None
+    since_days: Optional[int] = None
+    limit: int = 50
+
+
+def search_messages(query: Optional[SearchQuery] = None, **kwargs: Any) -> List[MessageRow]:
+    """Search WhatsApp messages.
+
+    Accepts a SearchQuery dataclass or legacy keyword arguments.
+    """
+    if query is None:
+        query = SearchQuery(**kwargs)
+    path = os.path.expanduser(query.db_path or default_db_path())
     if not os.path.exists(path):
         raise FileNotFoundError(f"WhatsApp ChatStorage not found: {path}")
-    where, params = _build_where(contains or [], match_all, contact, from_me, since_days)
+    where, params = _build_where(query.contains or [], query.match_all, query.contact, query.from_me, query.since_days)
     # Safe: where clause from _build_where uses only hardcoded column names
     # and ? placeholders - no user input in SQL string itself
     sql = (
@@ -118,7 +128,7 @@ def search_messages(
     rows: List[MessageRow] = []
     with _connect_ro(path) as conn:
         cur = conn.cursor()
-        args = [APPLE_EPOCH_OFFSET, *params, int(limit)]
+        args = [APPLE_EPOCH_OFFSET, *params, int(query.limit)]
         for ts, partner, fromme, text in cur.execute(sql, args):
             rows.append(MessageRow(ts=str(ts or ""), partner=str(partner or ""), from_me=int(fromme or 0), text=str(text or "")))
     return rows

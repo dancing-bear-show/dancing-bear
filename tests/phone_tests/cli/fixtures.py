@@ -5,7 +5,7 @@ Provides arg builders for all phone CLI commands to simplify testing.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from unittest.mock import MagicMock
 
 # Default paths used across fixtures
@@ -79,42 +79,34 @@ def make_checklist_args(
     return make_args(plan=plan, layout=layout, backup=backup, out=out)
 
 
-def make_unused_args(
-    layout: Optional[str] = None,
-    backup: Optional[str] = None,
-    keep: Optional[str] = None,
-    limit: int = 20,
-    format: str = "text",  # Note: CLI uses 'format' not 'output'
-    out: Optional[str] = None,
-) -> MagicMock:
-    """Create args for cmd_unused."""
-    return make_args(
-        layout=layout,
-        backup=backup,
-        keep=keep,
-        limit=limit,
-        format=format,
-        out=out,
-    )
+_UNUSED_DEFAULTS: Dict[str, Any] = {
+    "layout": None,
+    "backup": None,
+    "keep": None,
+    "limit": 20,
+    "format": "text",  # Note: CLI uses 'format' not 'output'
+    "out": None,
+}
 
 
-def make_prune_args(
-    layout: Optional[str] = None,
-    backup: Optional[str] = None,
-    keep: Optional[str] = None,
-    limit: int = 20,
-    mode: str = "offload",  # Note: CLI uses 'mode' not 'delete'
-    out: str = "out/ios.prune_plan.txt",
-) -> MagicMock:
-    """Create args for cmd_prune."""
-    return make_args(
-        layout=layout,
-        backup=backup,
-        keep=keep,
-        limit=limit,
-        mode=mode,
-        out=out,
-    )
+def make_unused_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_unused.  Override any field via kwargs."""
+    return make_args(**{**_UNUSED_DEFAULTS, **overrides})
+
+
+_PRUNE_DEFAULTS: Dict[str, Any] = {
+    "layout": None,
+    "backup": None,
+    "keep": None,
+    "limit": 20,
+    "mode": "offload",  # Note: CLI uses 'mode' not 'delete'
+    "out": "out/ios.prune_plan.txt",
+}
+
+
+def make_prune_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_prune.  Override any field via kwargs."""
+    return make_args(**{**_PRUNE_DEFAULTS, **overrides})
 
 
 def make_analyze_args(
@@ -127,54 +119,40 @@ def make_analyze_args(
     return make_args(layout=layout, backup=backup, plan=plan, format=format)
 
 
-def make_manifest_from_export_args(
-    export: str = _DEFAULT_ICON_STATE_PATH,
-    out: str = "out/ios.manifest.from_export.yaml",
-    label: Optional[str] = None,
-    udid: Optional[str] = None,
-    creds_profile: str = "ios_layout_manager",
-    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
-    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
-    display_name: str = _DEFAULT_DISPLAY_NAME,
-    organization: str = "Personal",
-) -> MagicMock:
-    """Create args for cmd_manifest_from_export."""
-    return make_args(
-        export=export,
-        out=out,
-        label=label,
-        udid=udid,
-        creds_profile=creds_profile,
-        identifier=identifier,
-        hs_identifier=hs_identifier,
-        display_name=display_name,
-        organization=organization,
-    )
+_MANIFEST_FROM_EXPORT_DEFAULTS: Dict[str, Any] = {
+    "export": _DEFAULT_ICON_STATE_PATH,
+    "out": "out/ios.manifest.from_export.yaml",
+    "label": None,
+    "udid": None,
+    "creds_profile": "ios_layout_manager",
+    "identifier": _DEFAULT_PROFILE_IDENTIFIER,
+    "hs_identifier": _DEFAULT_HS_IDENTIFIER,
+    "display_name": _DEFAULT_DISPLAY_NAME,
+    "organization": "Personal",
+}
 
 
-def make_manifest_from_device_args(
-    out: str = "out/ios.manifest.from_device.yaml",
-    udid: Optional[str] = None,
-    timeout: int = 30,
-    label: Optional[str] = None,
-    creds_profile: str = "ios_layout_manager",
-    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
-    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
-    display_name: str = _DEFAULT_DISPLAY_NAME,
-    organization: str = "Personal",
-) -> MagicMock:
-    """Create args for cmd_manifest_from_device."""
-    return make_args(
-        out=out,
-        udid=udid,
-        timeout=timeout,
-        label=label,
-        creds_profile=creds_profile,
-        identifier=identifier,
-        hs_identifier=hs_identifier,
-        display_name=display_name,
-        organization=organization,
-    )
+def make_manifest_from_export_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_manifest_from_export.  Override any field via kwargs."""
+    return make_args(**{**_MANIFEST_FROM_EXPORT_DEFAULTS, **overrides})
+
+
+_MANIFEST_FROM_DEVICE_DEFAULTS: Dict[str, Any] = {
+    "out": "out/ios.manifest.from_device.yaml",
+    "udid": None,
+    "timeout": 30,
+    "label": None,
+    "creds_profile": "ios_layout_manager",
+    "identifier": _DEFAULT_PROFILE_IDENTIFIER,
+    "hs_identifier": _DEFAULT_HS_IDENTIFIER,
+    "display_name": _DEFAULT_DISPLAY_NAME,
+    "organization": "Personal",
+}
+
+
+def make_manifest_from_device_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_manifest_from_device.  Override any field via kwargs."""
+    return make_args(**{**_MANIFEST_FROM_DEVICE_DEFAULTS, **overrides})
 
 
 def make_manifest_install_args(
@@ -202,81 +180,59 @@ def make_identity_verify_args(
 # Inline command arg builders
 
 
-def make_auto_folders_args(
-    plan: str = _DEFAULT_PLAN_PATH,
-    out: str = "out/ios.plan.folderized.yaml",
-    start_page: int = 2,
-    per_page: int = 12,
-    keep: Optional[str] = None,
-    layout: Optional[str] = None,
-) -> MagicMock:
-    """Create args for cmd_auto_folders."""
-    return make_args(
-        plan=plan,
-        out=out,
-        start_page=start_page,
-        per_page=per_page,
-        keep=keep,
-        layout=layout,
-    )
+_AUTO_FOLDERS_DEFAULTS: Dict[str, Any] = {
+    "plan": _DEFAULT_PLAN_PATH,
+    "out": "out/ios.plan.folderized.yaml",
+    "start_page": 2,
+    "per_page": 12,
+    "keep": None,
+    "layout": None,
+}
 
 
-def make_profile_build_args(
-    plan: str = _DEFAULT_PLAN_PATH,
-    out: str = "out/ios.mobileconfig",
-    layout: Optional[str] = None,
-    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
-    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
-    display_name: str = _DEFAULT_DISPLAY_NAME,
-    organization: Optional[str] = None,
-    all_apps_folder_name: Optional[str] = None,
-    all_apps_folder_page: Optional[int] = None,
-    dock_count: int = 4,
-    sign_p12: Optional[str] = None,
-    sign_pass: Optional[str] = None,
-) -> MagicMock:
-    """Create args for cmd_profile_build."""
-    return make_args(
-        plan=plan,
-        out=out,
-        layout=layout,
-        identifier=identifier,
-        hs_identifier=hs_identifier,
-        display_name=display_name,
-        organization=organization,
-        all_apps_folder_name=all_apps_folder_name,
-        all_apps_folder_page=all_apps_folder_page,
-        dock_count=dock_count,
-        sign_p12=sign_p12,
-        sign_pass=sign_pass,
-    )
+def make_auto_folders_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_auto_folders.  Override any field via kwargs."""
+    return make_args(**{**_AUTO_FOLDERS_DEFAULTS, **overrides})
 
 
-def make_manifest_create_args(
-    from_plan: str = _DEFAULT_PLAN_PATH,
-    out: str = _DEFAULT_MANIFEST_PATH,
-    label: Optional[str] = None,
-    udid: Optional[str] = None,
-    creds_profile: str = "ios_layout_manager",
-    layout: Optional[str] = None,
-    identifier: str = _DEFAULT_PROFILE_IDENTIFIER,
-    hs_identifier: str = _DEFAULT_HS_IDENTIFIER,
-    display_name: str = _DEFAULT_DISPLAY_NAME,
-    organization: str = "Personal",
-) -> MagicMock:
-    """Create args for cmd_manifest_create."""
-    return make_args(
-        from_plan=from_plan,
-        out=out,
-        label=label,
-        udid=udid,
-        creds_profile=creds_profile,
-        layout=layout,
-        identifier=identifier,
-        hs_identifier=hs_identifier,
-        display_name=display_name,
-        organization=organization,
-    )
+_PROFILE_BUILD_DEFAULTS: Dict[str, Any] = {
+    "plan": _DEFAULT_PLAN_PATH,
+    "out": "out/ios.mobileconfig",
+    "layout": None,
+    "identifier": _DEFAULT_PROFILE_IDENTIFIER,
+    "hs_identifier": _DEFAULT_HS_IDENTIFIER,
+    "display_name": _DEFAULT_DISPLAY_NAME,
+    "organization": None,
+    "all_apps_folder_name": None,
+    "all_apps_folder_page": None,
+    "dock_count": 4,
+    "sign_p12": None,
+    "sign_pass": None,
+}
+
+
+def make_profile_build_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_profile_build.  Override any field via kwargs."""
+    return make_args(**{**_PROFILE_BUILD_DEFAULTS, **overrides})
+
+
+_MANIFEST_CREATE_DEFAULTS: Dict[str, Any] = {
+    "from_plan": _DEFAULT_PLAN_PATH,
+    "out": _DEFAULT_MANIFEST_PATH,
+    "label": None,
+    "udid": None,
+    "creds_profile": "ios_layout_manager",
+    "layout": None,
+    "identifier": _DEFAULT_PROFILE_IDENTIFIER,
+    "hs_identifier": _DEFAULT_HS_IDENTIFIER,
+    "display_name": _DEFAULT_DISPLAY_NAME,
+    "organization": "Personal",
+}
+
+
+def make_manifest_create_args(**overrides: Any) -> MagicMock:
+    """Create args for cmd_manifest_create.  Override any field via kwargs."""
+    return make_args(**{**_MANIFEST_CREATE_DEFAULTS, **overrides})
 
 
 def make_manifest_build_args(

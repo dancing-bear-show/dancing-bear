@@ -511,8 +511,15 @@ class RCMParser(VendorParser):
         lb, ub = get_price_band(metal, unit_oz)
         return lb <= amt <= ub
 
+    @dataclass
+    class _CandidateContext:
+        """Context for price candidate evaluation."""
+        idx: int
+        metal: str
+        unit_oz: float
+
     def _update_best_candidate(
-        self, best: Dict[str, Tuple[float, int]], ln: str, d: int, idx: int, metal: str, unit_oz: float
+        self, best: Dict[str, Tuple[float, int]], ln: str, d: int, ctx: '_CandidateContext'
     ) -> None:
         """Update best price candidates dict from a single line."""
         for m in MONEY_PATTERN.finditer(ln):
@@ -520,9 +527,9 @@ class RCMParser(VendorParser):
                 amt = float(m.group(2).replace(",", ""))
             except (ValueError, IndexError):
                 continue
-            if not self._is_price_in_range(amt, metal, unit_oz):
+            if not self._is_price_in_range(amt, ctx.metal, ctx.unit_oz):
                 continue
-            dist = abs(d - idx)
+            dist = abs(d - ctx.idx)
             kind = 'total' if _PAT_TOTAL.search(ln) else 'unit'
             if kind not in best or dist < best[kind][1]:
                 best[kind] = (amt, dist)
@@ -532,10 +539,11 @@ class RCMParser(VendorParser):
     ) -> Dict[str, Tuple[float, int]]:
         """Extract all price candidates near idx, ranked by distance."""
         best: Dict[str, Tuple[float, int]] = {}
+        ctx = self._CandidateContext(idx=idx, metal=metal, unit_oz=unit_oz)
         for d, ln in iter_nearby_lines(lines, idx, window=21, forward_only=True):
             if self._PRICE_BAN.search(ln.lower()):
                 continue
-            self._update_best_candidate(best, ln, d, idx, metal, unit_oz)
+            self._update_best_candidate(best, ln, d, ctx)
         return best
 
     def extract_price_near_item(
