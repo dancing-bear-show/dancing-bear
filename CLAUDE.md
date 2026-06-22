@@ -56,7 +56,7 @@ Read in order for best context:
 
 ## CLI Argument Conventions
 
-All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly — no `--` separator is needed or used anywhere in this codebase.
+All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly. Most CLIs accept a `--` separator before flags (used by the workflow engine in `workflow/compiler.py`); a small set (`llm`, `docs`, `workflow`) omit it.
 
 **Dispatch model**: `./bin/assistant <app> <subcommand> [flags]`
 
@@ -73,7 +73,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Subcommands are positional, not flag-prefixed
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
-- Do not use `--` passthrough; argparse handles all argument boundary detection natively
+- The workflow engine (`workflow/compiler.py`) inserts `--` before flags for most skills; `llm`, `docs`, and `workflow` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
 
 ## Development Rules
 
