@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest==9.0.3",
+  "pytest==9.1.1",
 ]
 # Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
 # Keep as optional but not recommended for security-sensitive use
