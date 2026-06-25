@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 
+from core.cli_output import emit_one
 from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
     SafeProcessor,
@@ -371,8 +372,7 @@ class AnalyzeProducer(BaseProducer):
         metrics = payload.metrics
 
         if payload.format == "json":
-            import json
-            print(json.dumps(metrics, indent=2))
+            emit_one(metrics)
             return
 
         # Text output
