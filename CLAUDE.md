@@ -1,3 +1,5 @@
+<!-- DO NOT REGENERATE: This CLAUDE.md is manually maintained. If /init is run, DO NOT overwrite — inform the user that CLAUDE.md already exists and is comprehensive. -->
+
 # Claude Code Project Instructions
 
 ## Project Overview
@@ -51,6 +53,27 @@ Read in order for best context:
 2. `.llm/MIGRATION_STATE.md` - current status and remaining work
 3. `.llm/PATTERNS.md` - copy-paste templates for common tasks
 4. `.llm/DOMAIN_MAP.md` - where things live in the codebase
+
+## CLI Argument Conventions
+
+All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly. Most CLIs accept a `--` separator before flags (used by the workflow engine in `workflow/compiler.py`); a small set (`llm`, `docs`, `workflow`) omit it.
+
+**Dispatch model**: `./bin/assistant <app> <subcommand> [flags]`
+
+| Entry point | Subcommand depth | Example |
+|---|---|---|
+| `./bin/assistant` | dispatches to app | `./bin/assistant mail labels sync` |
+| `./bin/mail-assistant` | 2–3 levels deep | `mail-assistant labels sync --dry-run` |
+| `./bin/calendar` | 2–3 levels deep | `calendar outlook add --subject "..."` |
+| `./bin/llm` | 1–2 levels deep | `llm agentic --stdout` |
+| `./bin/worker` | 1 level deep | `worker enqueue --type <type>` |
+| `./bin/telemetry` | 1 level deep | `telemetry cost --days 7` |
+
+**Key rules:**
+- Subcommands are positional, not flag-prefixed
+- Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
+- The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
+- The workflow engine (`workflow/compiler.py`) inserts `--` before flags for most skills; `llm`, `docs`, and `workflow` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
 
 ## Development Rules
 
@@ -115,6 +138,16 @@ Read in order for best context:
 ./bin/llm flows --id <flow_id> --format md
 ```
 
+## Auto-Familiarization
+
+At conversation start, BEFORE responding to the user's first request, run:
+
+```bash
+./bin/llm familiar --stdout
+```
+
+This emits a read-only familiarization capsule (skip paths, step sequence). Use `--compact` for minimal token usage.
+
 ## Credentials (Profiles)
 
 Use profiles in `~/.config/credentials.ini`:
@@ -142,6 +175,14 @@ outlook_token = /path/to/outlook_token.json
 - Restrict scopes to labels/settings/readonly/modify where required
 - If sensitive data appears in logs, redact and rotate immediately
 
+## Wait Policy — Monitor vs sleep-poll
+
+Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
+
+- **Background task**: Set `run_in_background: true` on the Bash tool call, then use the Monitor tool with the returned task ID to stream output and get notified on completion.
+- **Poll until condition**: Run `until <check>; do sleep 2; done` inside Monitor — you get one notification when the loop exits.
+- **One-time fixed delay** (`sleep 1` to let a server bind its port): acceptable. Sleep-as-retry-loop: never.
+
 ## Worktree Isolation
 
 **Session-level**: Always launch with `claude -w` to auto-create a worktree. Each session gets its own branch and working directory under `.claude/worktrees/`, preventing sessions from clobbering each other.
@@ -160,6 +201,14 @@ outlook_token = /path/to/outlook_token.json
 **Parallel sessions** (tmux): Use `claude --tmux` to open a new pane with its own worktree, or split manually (`Ctrl-b %` / `Ctrl-b "`) and run `claude` in each pane. Each session is fully isolated — separate directory, branch, and context.
 
 **Agent Teams** (coordinated parallel work): For 5+ tasks that need status tracking or mid-flight steering, use `TeamCreate` + `TaskCreate` instead of plain `Agent()` calls. Partition tasks by file/module to avoid conflicts — subagents in a team share the same worktree.
+
+**Team lifecycle**:
+1. `TeamCreate` — create the team and get a `team_id`
+2. `TaskCreate` (per agent) — spawn each teammate with its role and initial prompt
+3. Work phase — send steering messages via `SendMessage` as needed; read status via the team tools
+4. `TeamDelete` — tear down the team after all tasks are complete
+
+**Keep teams open** when tasks may produce follow-up work mid-flight (e.g., a reviewer finds bugs that the code-writer must fix). **Close immediately** when all tasks are independent and complete with no expected follow-up (e.g., parallel research or validation runs).
 
 **Cleanup**:
 - `git worktree list` — see active worktrees
@@ -181,6 +230,9 @@ outlook_token = /path/to/outlook_token.json
 | `unit-validator` | Haiku | Per-artifact validation, structured JSON findings |
 | `cross-unit-validator` | Sonnet | Multi-artifact consistency checking |
 | `ci-fixer` | Sonnet | CI failure diagnosis and fix |
+| `code-writer-opus` | Opus | Escalate from code-writer when Sonnet is stuck or producing incorrect code after retries |
+| `tester-opus` | Opus | Escalate from tester when Sonnet fails to produce passing tests after iteration |
+| `ci-fixer-opus` | Opus | Escalate from ci-fixer when CI failures resist Sonnet-level diagnosis |
 
 **Spawn teammates** for multi-file changes, test writing, code review, research. Use `isolation: "worktree"` for agents that write code (`code-writer`, `tester`, `ci-fixer`). Read-only agents (`reviewer`, `researcher`, `Explore`, `Plan`, `fact-checker`, validators) do not need isolation.
 
@@ -188,8 +240,24 @@ Do inline for single-line fixes, quick reads, git operations.
 
 **Backstop agents** (spawn after primary work completes):
 - `fact-checker` — always spawn after composing reports, postmortems, cost analyses, PR descriptions, or any deliverable that aggregates data from multiple sources.
+- `reviewer` — code review, dead code analysis, pattern finding. Spawn after parallel implementation agents complete.
 
 **Model selection**: Haiku for lookup + comparison. Sonnet for synthesis, judgment, multi-step reasoning. Inherit Opus only when generating code that will ship.
+
+**Delegation Default** — when to spawn vs inline:
+
+| Condition | Action |
+|-----------|--------|
+| Write/modify code touching >1 file | Spawn `code-writer` with `isolation: "worktree"` |
+| Write/modify code in 1 file, >3 tool calls expected | Spawn `code-writer` with `isolation: "worktree"` |
+| Write/modify code in 1 file, ≤3 tool calls | Inline edit |
+| Add or expand tests | Spawn `tester` with `isolation: "worktree"` |
+| Research / explore / read-only | Inline or spawn `researcher`/`Explore` (no isolation) |
+| PR description, changelog, postmortem | Spawn `doc-writer`, then backstop with `fact-checker` |
+| CI failure diagnosis + fix | Spawn `ci-fixer` with `isolation: "worktree"` |
+| Single-line fix, quick read, git op | Inline — no spawn needed |
+
+**No nested Skill() invocations in sub-agents**: Sub-agents that call `Skill()` (workflow/slash-command invocations) go silent — the skill never executes and the agent produces no output. Always give sub-agents concrete CLI commands or explicit instructions instead of delegating to workflow skills.
 
 ## PR Reviews
 
