@@ -46,7 +46,10 @@ def main() -> None:
 @click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
 def live(session: str | None, refresh: float, rules_path: str | None) -> None:
     """Live TUI dashboard that refreshes continuously."""
-    from telemetry.tui import run_live  # pragma: no cover
+    try:  # pragma: no cover
+        from telemetry.tui import run_live  # pragma: no cover
+    except ImportError:  # pragma: no cover
+        raise click.ClickException("textual is required for TUI commands: pip install textual")  # pragma: no cover
     run_live(session_id=session, refresh=refresh, rules_path=rules_path)  # pragma: no cover
 
 
@@ -57,7 +60,10 @@ def live(session: str | None, refresh: float, rules_path: str | None) -> None:
 @click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
 def stats(session: str | None, refresh: float, compact: bool, rules_path: str | None) -> None:
     """Live stats panel — compact real-time session metrics."""
-    from telemetry.tui import run_stats  # pragma: no cover
+    try:  # pragma: no cover
+        from telemetry.tui import run_stats  # pragma: no cover
+    except ImportError:  # pragma: no cover
+        raise click.ClickException("textual is required for TUI commands: pip install textual")  # pragma: no cover
     run_stats(session_id=session, refresh=refresh, compact=compact, rules_path=rules_path)  # pragma: no cover
 
 
@@ -585,6 +591,9 @@ def cost_breakdown(since: str, fmt: str, group_by: str, limit: int, projects_dir
 from telemetry.parse_transcripts import parse_transcripts  # noqa: E402
 
 main.add_command(parse_transcripts)
+
+# Backwards-compatible alias: `telemetry cost` → `telemetry cost-breakdown`
+main.add_command(cost_breakdown, name="cost")
 
 
 if __name__ == "__main__":  # pragma: no cover

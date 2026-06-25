@@ -189,9 +189,10 @@ def load_rules(path: str | Path | None = None) -> dict[str, Any]:
     merged = _deep_merge(DEFAULT_RULES, raw)
 
     errors = validate_rules(merged)
-    if errors:
+    real_errors = [e for e in errors if not e.startswith("jsonschema not installed")]
+    if real_errors:
         logger.warning("Warning: rules file %s failed schema validation; using defaults.", config_path)
-        for err in errors:
+        for err in real_errors:
             logger.warning("  - %s", err)
         return deepcopy(DEFAULT_RULES)
 

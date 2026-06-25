@@ -25,7 +25,7 @@ def atomic_write_json(path: Path, data: object) -> None:
         fd.close()
         try:
             os.unlink(fd.name)
-        except OSError:
+        except OSError:  # nosec B110 - cleanup failure is non-fatal; original exception re-raised below
             pass
         raise
 

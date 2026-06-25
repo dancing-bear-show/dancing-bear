@@ -654,5 +654,5 @@ class TranscriptProvider:
                     cache_read_acc[key] += usage.get("cache_read_input_tokens", 0)
                     cache_write_acc[key] += usage.get("cache_creation_input_tokens", 0)
                     call_acc[agent_name] += 1
-        except OSError:
+        except OSError:  # nosec B110 - skip unreadable JSONL files silently
             pass

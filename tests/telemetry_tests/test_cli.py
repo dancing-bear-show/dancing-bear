@@ -10,8 +10,8 @@ from telemetry.cli import (
     _truncate_id,
     main,
 )
-from telemetry.models import SessionSummary, AgentSummary
-from datetime import datetime, timezone
+from telemetry.models import SessionSummary
+from datetime import datetime
 
 
 def _make_session_summary(

@@ -199,6 +199,11 @@ def extract_email_address(s: str) -> str:
 
 def truncate_text(s: str, max_len: int, suffix: str = "…", **_kwargs: object) -> str:
     """Truncate s to max_len chars, appending suffix if truncated."""
+    if max_len <= 0:
+        return ""
     if len(s) <= max_len:
         return s
-    return s[: max_len - len(suffix)] + suffix
+    cut = max_len - len(suffix)
+    if cut <= 0:
+        return s[:max_len]
+    return s[:cut] + suffix
