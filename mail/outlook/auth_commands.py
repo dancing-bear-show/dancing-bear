@@ -226,6 +226,7 @@ def run_outlook_auth_validate(args) -> int:
     """Validate Outlook token cache by performing a silent refresh and a /me ping."""
     try:
         import msal  # noqa: F401
+        import requests  # noqa: F401
     except Exception as e:
         print(f"Outlook validation unavailable (missing deps): {e}")
         return 1

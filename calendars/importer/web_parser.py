@@ -51,7 +51,13 @@ def _make_schedule_item_from_params(params: ScheduleItemParams) -> ScheduleItem:
 
 def _fetch_html(url: str) -> str:
     """Fetch HTML content from URL."""
-    return HttpClient("", timeout=DEFAULT_REQUEST_TIMEOUT).get(url).text
+    import requests as _requests  # noqa: PLC0415 - intentional lazy import
+
+    try:
+        return HttpClient("", timeout=DEFAULT_REQUEST_TIMEOUT).get(url).text
+    except _requests.exceptions.HTTPError as exc:
+        r = exc.response
+        return r.text if r is not None else ""
 
 
 class WebParser(ScheduleParser):

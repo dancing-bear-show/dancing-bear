@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Dict, List, Optional
 
+from requests.exceptions import HTTPError
+
 
 class FakeResponse:
     """Fake HTTP response for mocking requests."""
@@ -21,7 +23,7 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+            raise HTTPError(f"HTTP {self.status_code}", response=self)
 
 
 class FakeSession:

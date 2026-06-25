@@ -32,7 +32,10 @@ class AppleMusicClient:
     def _make_path(self, path: str) -> str:
         if path.startswith("http://") or path.startswith("https://"):
             return path
-        return f"/v1/{path.lstrip('/')}"
+        stripped = path.lstrip("/")
+        if stripped.startswith("v1/"):
+            return f"/{stripped}"
+        return f"/v1/{stripped}"
 
     def _make_url(self, path: str) -> str:
         sub = self._make_path(path)
@@ -59,8 +62,16 @@ class AppleMusicClient:
         params: Optional[Dict[str, object]] = None,
         json_body: Optional[dict] = None,
     ) -> dict:
+        import requests as _requests  # noqa: PLC0415 - intentional lazy import
+
         path = self._make_path(path)
-        resp = self._http.request(method, path, params=params, headers=self._auth_headers(), json=json_body)
+        try:
+            resp = self._http.request(method, path, params=params, headers=self._auth_headers(), json=json_body)
+        except _requests.exceptions.HTTPError as exc:
+            r = exc.response
+            status = r.status_code if r is not None else "?"
+            body = r.text if r is not None else ""
+            raise AppleMusicError(f"{status} from Apple Music: {body}") from exc
         try:
             return resp.json()
         except Exception as exc:  # pragma: no cover - defensive

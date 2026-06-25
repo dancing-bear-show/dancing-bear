@@ -56,7 +56,8 @@ class HttpClient:
         self.base_url = base_url.rstrip("/")
         self.default_headers: dict[str, str] = default_headers or {}
         self.timeout = timeout if timeout is not None else _parse_env_float(ENV_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT)
-        self.retries = retries if retries is not None else _parse_env_int(ENV_HTTP_RETRIES, DEFAULT_HTTP_RETRIES)
+        raw_retries = retries if retries is not None else _parse_env_int(ENV_HTTP_RETRIES, DEFAULT_HTTP_RETRIES)
+        self.retries = max(1, raw_retries)  # always allow at least one attempt
         self.logger = logging.getLogger(f"http.{self.__class__.__name__}")
         self._session = _make_session()
 
@@ -151,6 +152,43 @@ class HttpClient:
             return True
         return False
 
+    def _attempt_request(
+        self,
+        method: str,
+        url: str,
+        hdrs: dict[str, str],
+        attempt: int,
+        *,
+        data: Any = None,
+        json: Any = None,
+        files: Any = None,
+        stream: bool = False,
+    ) -> Any:
+        """Execute a single HTTP attempt; returns response or None to retry, raises on terminal error."""
+        import requests as _requests  # noqa: PLC0415 - intentional lazy import
+
+        self._log_request(method, url, hdrs, attempt)
+        try:
+            resp = self._session.request(
+                method.upper(), url, headers=hdrs, data=data, json=json,
+                files=files, timeout=self.timeout, stream=stream,
+            )
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self._log_response(method, url, resp.status_code, len(resp.content))
+            if self._should_retry_response(resp, method, url, attempt):
+                resp.close()
+                return None
+            resp.raise_for_status()
+            return resp
+        except _requests.exceptions.ConnectionError as exc:
+            if self._handle_connection_error(exc, method, url, attempt):
+                return None
+            raise
+        except _requests.exceptions.Timeout:
+            if self._handle_timeout_error(method, url, attempt):
+                return None
+            raise
+
     def request(
         self,
         method: str,
@@ -164,39 +202,15 @@ class HttpClient:
         stream: bool = False,
     ) -> Any:
         """Make an HTTP request with retry logic, returning a requests.Response."""
-        import requests as _requests  # noqa: PLC0415 - intentional lazy import
-
         url = self._build_url(path, params)
         hdrs: dict[str, str] = dict(self.default_headers)
         if headers:
             hdrs.update(headers)
 
         for attempt in range(self.retries):
-            self._log_request(method, url, hdrs, attempt)
-            try:
-                resp = self._session.request(
-                    method.upper(),
-                    url,
-                    headers=hdrs,
-                    data=data,
-                    json=json,
-                    files=files,
-                    timeout=self.timeout,
-                    stream=stream,
-                )
-                self._log_response(method, url, resp.status_code, len(resp.content))
-                if self._should_retry_response(resp, method, url, attempt):
-                    continue
-                resp.raise_for_status()
+            resp = self._attempt_request(method, url, hdrs, attempt, data=data, json=json, files=files, stream=stream)
+            if resp is not None:
                 return resp
-            except _requests.exceptions.ConnectionError as exc:
-                if self._handle_connection_error(exc, method, url, attempt):
-                    continue
-                raise
-            except _requests.exceptions.Timeout:
-                if self._handle_timeout_error(method, url, attempt):
-                    continue
-                raise
 
         raise RuntimeError(f"request failed after {self.retries} attempts: {method} {url}")
 
