@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,10 +69,8 @@ class TestWriteOnce(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "once.txt"
             write_once(p, "first")
-            try:
+            with self.assertRaises(FileExistsError):
                 write_once(p, "second")
-            except FileExistsError:
-                pass
             self.assertEqual(p.read_bytes(), b"first")
 
 
