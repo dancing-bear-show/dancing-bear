@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from apple_music.client import AppleMusicClient, AppleMusicError
+from apple_music.client import AppleMusicClient
 from tests.apple_music_tests.fixtures import FakeResponse, FakeSession
 
 
