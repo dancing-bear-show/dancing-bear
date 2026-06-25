@@ -88,7 +88,8 @@ stages:
     reads_from: [check-auth]
     description: >
       Run four quality checks against {source_root}. Fix issues in a loop before
-      proceeding. Do not open a PR with known blocking issues.
+      proceeding. Qlty and coverage failures block the human gate; mypy failures
+      are documented and the human gate decides whether to proceed.
 
       Step 1 — Type checking (mypy):
         mypy {source_root} --ignore-missing-imports

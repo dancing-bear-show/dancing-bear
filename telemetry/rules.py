@@ -149,7 +149,7 @@ def validate_rules(rules: dict) -> list[str]:
     """Validate rules dict against the JSON schema.
 
     Returns a list of error strings (empty list means valid).
-    Requires jsonschema — returns a warning string if not installed.
+    If jsonschema is not installed, returns an empty list (validation skipped).
     """
     try:
         import jsonschema  # noqa: PLC0415 - lazy import; jsonschema is optional
