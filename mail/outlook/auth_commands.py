@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..config_resolver import expand_path, default_outlook_token_path
 from core.auth import resolve_outlook_credentials
-from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
+from core.constants import GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
 
 
 def run_outlook_auth_device_code(args) -> int:
@@ -206,26 +206,26 @@ def _load_validate_cache(client_id: str, tenant: str, tp) -> tuple:
 
 def _ping_graph_me(access_token: str) -> int:
     """Ping Graph /me endpoint. Returns exit code."""
-    try:
-        import requests
-    except Exception as e:
-        print(f"Outlook validation unavailable (missing deps): {e}")
-        return 1
+    import requests as _requests
 
-    r = requests.get(f"{GRAPH_API_URL}/me", headers={"Authorization": f"Bearer {access_token}"}, timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code == 200:
+    from core.http import HttpClient
+
+    try:
+        HttpClient(GRAPH_API_URL).get("/me", headers={"Authorization": f"Bearer {access_token}"})
         print("Outlook token valid.")
         return 0
-
-    print(f"Graph /me failed: {r.status_code} {r.text[:200]}")
-    return 5
+    except _requests.exceptions.HTTPError as exc:
+        r = exc.response
+        status = r.status_code if r is not None else "?"
+        body = r.text[:200] if r is not None else ""
+        print(f"Graph /me failed: {status} {body}")
+        return 5
 
 
 def run_outlook_auth_validate(args) -> int:
     """Validate Outlook token cache by performing a silent refresh and a /me ping."""
     try:
         import msal  # noqa: F401
-        import requests  # noqa: F401
     except Exception as e:
         print(f"Outlook validation unavailable (missing deps): {e}")
         return 1

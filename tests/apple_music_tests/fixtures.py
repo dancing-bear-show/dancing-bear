@@ -13,9 +13,15 @@ class FakeResponse:
         self.status_code = status
         self._body = body
         self.text = json.dumps(body)
+        self.content = self.text.encode()
+        self.headers: Dict[str, str] = {}
 
     def json(self) -> dict:
         return self._body
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
 
 
 class FakeSession:
@@ -25,11 +31,14 @@ class FakeSession:
         self.responses = list(responses)
         self.calls: List[Dict[str, Any]] = []
 
-    def get(self, url: str, headers=None, params=None, json=None) -> FakeResponse:  # NOSONAR - fake interface must match real signature
-        self.calls.append({"url": url, "params": params})
+    def request(self, method: str, url: str, **kwargs) -> FakeResponse:  # NOSONAR - fake interface must match real signature
+        self.calls.append({"method": method, "url": url, "params": kwargs.get("params")})
         if not self.responses:
             raise AssertionError("No response queued")
         return self.responses.pop(0)
+
+    def get(self, url: str, headers=None, params=None, **kwargs) -> FakeResponse:  # NOSONAR - kept for backward compat
+        return self.request("GET", url, params=params)
 
 
 class FakeAppleMusicClient:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, Iterable, List, Optional
 
-import requests
+from core.http import HttpClient
 
 LOG = logging.getLogger(__name__)
 
@@ -20,18 +20,31 @@ class AppleMusicClient:
         developer_token: str,
         user_token: str,
         base_url: str = "https://api.music.apple.com",
-        session: Optional[requests.Session] = None,
+        session: Optional[object] = None,
     ) -> None:
         self.developer_token = developer_token
         self.user_token = user_token
         self.base_url = base_url.rstrip("/")
-        self.session = session or requests.Session()
+        self._http = HttpClient(base_url)
+        if session is not None:
+            self._http._session = session
 
-    def _make_url(self, path: str) -> str:
+    def _make_path(self, path: str) -> str:
         if path.startswith("http://") or path.startswith("https://"):
             return path
-        path = path.lstrip("/")
-        return f"{self.base_url}/v1/{path}"
+        return f"/v1/{path.lstrip('/')}"
+
+    def _make_url(self, path: str) -> str:
+        sub = self._make_path(path)
+        if sub.startswith("http://") or sub.startswith("https://"):
+            return sub
+        return f"{self.base_url}{sub}"
+
+    def _auth_headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.developer_token}",
+            "Music-User-Token": self.user_token,
+        }
 
     def _get(self, path: str, params: Optional[Dict[str, object]] = None) -> dict:
         return self._request("GET", path, params=params)
@@ -46,24 +59,8 @@ class AppleMusicClient:
         params: Optional[Dict[str, object]] = None,
         json_body: Optional[dict] = None,
     ) -> dict:
-        url = self._make_url(path)
-        headers = {
-            "Authorization": f"Bearer {self.developer_token}",
-            "Music-User-Token": self.user_token,
-        }
-        LOG.debug("%s %s", method.upper(), url)
-        method = method.upper()
-        if method == "GET":
-            func = self.session.get
-        elif method == "POST":
-            func = self.session.post
-        elif method == "DELETE":
-            func = self.session.delete
-        else:  # pragma: no cover - defensive
-            raise ValueError(f"Unsupported method {method}")
-        resp = func(url, headers=headers, params=params, json=json_body)
-        if resp.status_code >= 400:
-            raise AppleMusicError(f"{resp.status_code} from Apple Music: {resp.text}")
+        path = self._make_path(path)
+        resp = self._http.request(method, path, params=params, headers=self._auth_headers(), json=json_body)
         try:
             return resp.json()
         except Exception as exc:  # pragma: no cover - defensive

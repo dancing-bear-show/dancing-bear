@@ -6,8 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-import requests
-
+from core.http import HttpClient
 from core.constants import DEFAULT_REQUEST_TIMEOUT
 from core.text_utils import html_to_text
 
@@ -52,7 +51,7 @@ def _make_schedule_item_from_params(params: ScheduleItemParams) -> ScheduleItem:
 
 def _fetch_html(url: str) -> str:
     """Fetch HTML content from URL."""
-    return requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT).text
+    return HttpClient("", timeout=DEFAULT_REQUEST_TIMEOUT).get(url).text
 
 
 class WebParser(ScheduleParser):

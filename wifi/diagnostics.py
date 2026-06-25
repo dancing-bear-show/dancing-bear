@@ -416,11 +416,11 @@ def trace_route(target: str, *, runner: CommandRunner, max_hops: int = 12) -> Tr
 
 
 def http_probe(url: str) -> HttpResult:
+    from core.http import HttpClient
+
     start = time.perf_counter()
     try:
-        import requests
-
-        resp = requests.get(url, stream=True, timeout=5)
+        resp = HttpClient("").get(url, stream=True)
         elapsed_ms = (time.perf_counter() - start) * 1000
         chunk = next(resp.iter_content(chunk_size=2048), b"")
         bytes_read = len(chunk)
