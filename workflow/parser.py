@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from core.text_utils import truncate_text
+
 from .models import (
     AgentAccess,
     AgentSpec,
@@ -290,7 +292,7 @@ def _parse_output_check(data: dict[str, Any], source: str, stage_name: str) -> O
     )
     for check in checks:
         if not any(check == p or check.startswith(p) for p in _KNOWN_CHECK_PREFIXES):
-            safe_check = check[:64] if len(check) <= 64 else f"{check[:61]}..."
+            safe_check = truncate_text(check, 64, "...")
             logger.warning(
                 "%s: stage '%s' validates_output has unrecognised check name (len=%d, value=%r) — accepted for forward-compat, skipped at runtime",
                 source,

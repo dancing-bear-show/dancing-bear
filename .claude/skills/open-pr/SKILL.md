@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: Comprehensive pre-PR validation and pull request creation. Runs type checking (mypy), linting (ruff), tests, coverage validation, checks for test gaps, generates PR description from template, and creates the PR. Use when ready to open a PR for review.
+description: Comprehensive pre-PR validation and pull request creation. Runs type checking (mypy), linting (qlty), tests, coverage validation, generates PR description from template, and creates the PR. Use when ready to open a PR for review.
 allowed-tools: Bash, Read, Glob, Grep, Write, Task, Agent, Skill
 skills:
   - dancing-bear-rules
@@ -20,11 +20,11 @@ Delegates to `workflows/code/open-pr.yaml` via the `/workflow` skill.
 
 Derive the params from context before invoking:
 - `pr_title`: use the conventional-commit format — read recent commits with `git log origin/main..HEAD --oneline` to determine type and scope
-- `test_cmd`: check the project's test runner — for cars-sre-utils use `python3 -m unittest tests/<domain>/ -x -q` scoped to the changed domain
-- `source_root`: the source directory being changed, e.g. `github/`
-- `test_path`: the corresponding test directory, e.g. `tests/github/`
+- `test_cmd`: check the project's test runner — use `python3 -m unittest discover -s tests/<domain>/ -q` scoped to the changed domain
+- `source_root`: the source directory being changed, e.g. `mail/`
+- `test_path`: the corresponding test directory, e.g. `tests/mail_tests/`
 - `min_coverage`: default `80` unless the project specifies otherwise
-- `auth_domains`: default `github,qlty` for cars-sre-utils
+- `auth_domains`: default `github,qlty`
 
 **IMPORTANT**: Use the `/workflow` skill — do NOT call `./bin/workflow run --execute` directly.
 `./bin/workflow run --execute` only writes dispatch files and exits immediately (status=pending).
@@ -38,18 +38,18 @@ Skill(skill="workflow", args="--workflow workflows/code/open-pr.yaml --params pr
 
 | Param | Default | Description |
 |-------|---------|-------------|
-| pr_title | "" | Required: conventional-commit title e.g. "feat(github): add pr-diff" |
-| test_cmd | "" | Test suite command e.g. "python3 -m unittest tests/github/ -x -q" |
-| source_root | "" | Source root for # mypy not used — + coverage scoping e.g. "github/" |
-| test_path | "" | Test directory path e.g. "tests/github/" |
+| pr_title | "" | Required: conventional-commit title e.g. "feat(mail): add label sync" |
+| test_cmd | "" | Test suite command e.g. "python3 -m unittest discover -s tests/mail_tests/ -q" |
+| source_root | "" | Source root for mypy + qlty scoping e.g. "mail/" |
+| test_path | "" | Test directory path e.g. "tests/mail_tests/" |
 | min_coverage | "80" | Minimum coverage threshold (percent) |
 | auth_domains | "github,qlty" | Comma-separated services for pre-flight auth check |
 
 ## Workflow Stages
 
-1. **pre-check-auth** — verify github and qlty credentials before any work begins
-2. **scan-validate** — run mypy, ruff, test-gaps check, and coverage gate; fix issues in-loop
-3. **generate-description** — gather diff + commit metadata and fill PR_TEMPLATE.md
+1. **check-auth** — verify github and qlty credentials before any work begins
+2. **scan-validate** — run mypy, qlty lint, and coverage gate; fix issues in-loop
+3. **generate-description** — gather diff + commit metadata and write PR description
 4. **human-gate** — present generated description for human review and confirmation
 5. **push-and-create** — push branch and create PR via `gh pr create`
 6. **fact-check** — validate PR description claims against actual diff; report discrepancies

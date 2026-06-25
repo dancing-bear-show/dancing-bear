@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,25 +19,26 @@ def atomic_write_json(
     indent: int | None = 2,
 ) -> None:
     """Write JSON atomically via unique temp file + rename."""
-    import tempfile
-
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path: str | None = None
+    fd = tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=path.parent,
+        delete=False,
+        suffix=".tmp",
+        encoding="utf-8",
+    )
     try:
-        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        json.dump(data, fd, indent=indent, ensure_ascii=False)
+        fd.close()
+        os.replace(fd.name, path)
+    except Exception:
+        fd.close()
         try:
-            os.write(fd, json.dumps(data, indent=indent, ensure_ascii=False).encode("utf-8"))
-        finally:
-            os.close(fd)
-        os.replace(tmp_path, path)
-        tmp_path = None  # replaced — no cleanup needed
-    finally:
-        if tmp_path is not None:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            os.unlink(fd.name)
+        except OSError:  # nosec B110 - cleanup failure is non-fatal; original exception re-raised below
+            pass
+        raise
 
 
 def write_once(path: str | Path, data: str | bytes) -> None:

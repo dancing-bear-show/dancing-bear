@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
 from .constants import FMT_DATETIME_SEC, FMT_DAY_START
@@ -17,7 +18,10 @@ __all__ = [
     "MONTH_MAP",
     "normalize_day",
     "normalize_days",
+    "now_utc",
+    "parse_iso_utc",
     "parse_month",
+    "parse_window",
     "to_iso_str",
 ]
 
@@ -124,3 +128,51 @@ def to_iso_str(v: Any) -> Optional[str]:
     except Exception:  # nosec B110 - fallback to str(v)
         pass
     return str(v)
+
+
+def now_utc() -> datetime:
+    """Return the current UTC datetime."""
+    return datetime.now(tz=timezone.utc)
+
+
+def parse_window(win: str, default_unit: str = "hours") -> timedelta:
+    """Parse a time window string like '7d', '24h', '30m' into a timedelta.
+
+    Supported units: s (seconds), m (minutes), h (hours), d (days), w (weeks).
+    """
+    import re as _re
+    win = win.strip().lower()
+    m = _re.fullmatch(r"(\d+)([smhdw]?)", win)
+    if not m:
+        raise ValueError(f"Cannot parse time window: {win!r}")
+    value = int(m.group(1))
+    unit = m.group(2) or default_unit[0]
+    if unit == "s":
+        return timedelta(seconds=value)
+    if unit == "m":
+        return timedelta(minutes=value)
+    if unit == "h":
+        return timedelta(hours=value)
+    if unit == "d":
+        return timedelta(days=value)
+    if unit == "w":
+        return timedelta(weeks=value)
+    raise ValueError(f"Unknown time unit in window: {win!r}")
+
+
+def parse_iso_utc(value: str | None) -> "datetime | None":
+    """Parse an ISO 8601 string to a UTC-aware datetime, or None on failure."""
+    if not value:
+        return None
+    try:
+        s = value
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt
+    except (ValueError, AttributeError):
+        return None

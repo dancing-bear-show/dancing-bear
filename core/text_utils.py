@@ -15,6 +15,7 @@ __all__ = [
     "parse_time_range",
     "extract_time_ranges",
     "extract_email_address",
+    "truncate_text",
 ]
 
 
@@ -194,3 +195,15 @@ def extract_email_address(s: str) -> str:
         return m.group(1).strip().lower()
     m2 = re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", s)
     return (m2.group(0).strip().lower() if m2 else s.strip().lower())
+
+
+def truncate_text(s: str, max_len: int, suffix: str = "…", **_kwargs: object) -> str:
+    """Truncate s to max_len chars, appending suffix if truncated."""
+    if max_len <= 0:
+        return ""
+    if len(s) <= max_len:
+        return s
+    cut = max_len - len(suffix)
+    if cut <= 0:
+        return s[:max_len]
+    return s[:cut] + suffix

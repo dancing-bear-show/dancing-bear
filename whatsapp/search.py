@@ -17,6 +17,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from core.text_utils import truncate_text
+
 
 APPLE_EPOCH_OFFSET = 978307200  # seconds to add to get Unix epoch
 
@@ -138,9 +140,7 @@ def format_rows_text(rows: Iterable[MessageRow]) -> str:
     out_lines: List[str] = []
     for r in rows:
         who = "me" if r.from_me == 1 else "them"
-        snippet = (r.text or "").replace("\n", " ")
-        if len(snippet) > 140:
-            snippet = snippet[:137] + "…"
+        snippet = truncate_text((r.text or "").replace("\n", " "), 140)
         out_lines.append(f"{r.ts}\t{r.partner}\t{who}\t{snippet}")
     return "\n".join(out_lines)
 
