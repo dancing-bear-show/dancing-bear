@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-import requests
 
 from .context import OutlookContext
 from core.constants import DEFAULT_REQUEST_TIMEOUT, GRAPH_API_URL
+from core.http import HttpClient
 from core.outlook.models import (
     EventCreationParams,
     EventSettingsPatch,
@@ -38,6 +38,7 @@ class OutlookService:
 
     def __post_init__(self) -> None:
         self.client = self.ctx.ensure_client()
+        self._http = HttpClient("", timeout=DEFAULT_REQUEST_TIMEOUT)
 
     # Creation helpers
     def create_event(self, params: EventCreationParams) -> Dict[str, Any]:
@@ -142,7 +143,7 @@ class OutlookService:
         out: List[Dict[str, Any]] = []
         nxt = url
         while nxt:
-            r = requests.get(nxt, headers=hdrs, timeout=DEFAULT_REQUEST_TIMEOUT)
+            r = self._http.get(nxt, headers=hdrs)
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
@@ -153,7 +154,7 @@ class OutlookService:
         base = self.graph_base()
         hdrs = self.headers()
         url = f"{base}/me/events/{event_id}"
-        r = requests.delete(url, headers=hdrs, timeout=DEFAULT_REQUEST_TIMEOUT)
+        r = self._http.delete(url, headers=hdrs)
         return r.status_code == 204 or 200 <= r.status_code < 300
 
     # Mail listing (read-only)
@@ -173,7 +174,7 @@ class OutlookService:
         nxt = url
         remaining_pages = int(pages)
         while nxt and remaining_pages > 0:
-            r = requests.get(nxt, headers=hdrs, timeout=DEFAULT_REQUEST_TIMEOUT)
+            r = self._http.get(nxt, headers=hdrs)
             r.raise_for_status()
             data = r.json() or {}
             out.extend(data.get("value") or [])
