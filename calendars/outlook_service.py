@@ -151,11 +151,16 @@ class OutlookService:
         return out
 
     def delete_event_by_id(self, event_id: str) -> bool:
+        import requests as _requests  # noqa: PLC0415 - intentional lazy import
+
         base = self.graph_base()
         hdrs = self.headers()
         url = f"{base}/me/events/{event_id}"
-        r = self._http.delete(url, headers=hdrs)
-        return r.status_code == 204 or 200 <= r.status_code < 300
+        try:
+            r = self._http.delete(url, headers=hdrs)
+            return r.status_code == 204 or 200 <= r.status_code < 300
+        except _requests.exceptions.HTTPError:
+            return False
 
     # Mail listing (read-only)
     def list_messages(
