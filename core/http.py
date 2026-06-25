@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
@@ -52,6 +53,7 @@ class HttpClient:
         default_headers: dict[str, str] | None = None,
         timeout: float | None = None,
         retries: int | None = None,
+        session: Any = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.default_headers: dict[str, str] = default_headers or {}
@@ -59,7 +61,7 @@ class HttpClient:
         raw_retries = retries if retries is not None else _parse_env_int(ENV_HTTP_RETRIES, DEFAULT_HTTP_RETRIES)
         self.retries = max(1, raw_retries)  # always allow at least one attempt
         self.logger = logging.getLogger(f"http.{self.__class__.__name__}")
-        self._session = _make_session()
+        self._session = session if session is not None else _make_session()
 
     def _build_url(self, path: str, params: dict[str, Any] | None = None) -> str:
         """Join base_url + path, appending query params if provided.
@@ -80,11 +82,24 @@ class HttpClient:
         return urlunsplit((parts.scheme, parts.netloc, combined, query, ""))
 
     def _parse_retry_after(self, response: Any) -> int | None:
-        """Return Retry-After seconds from response headers, or None."""
+        """Return Retry-After seconds from response headers, or None.
+
+        Handles both delta-seconds (RFC 9110 §10.2.4) and HTTP-date formats.
+        """
         try:
             ra = response.headers.get("Retry-After")
-            if ra:
-                return int(str(ra).strip())
+            if not ra:
+                return None
+            value = str(ra).strip()
+            try:
+                return int(value)
+            except ValueError:
+                pass
+            # Try HTTP-date format (e.g. "Wed, 25 Jun 2026 15:00:00 GMT")
+            from email.utils import parsedate_to_datetime  # noqa: PLC0415 - stdlib lazy import
+            dt = parsedate_to_datetime(value)
+            delta = (dt - datetime.now(timezone.utc)).total_seconds()
+            return max(0, int(delta))
         except Exception:  # nosec B110 - header may be absent or malformed
             pass
         return None
@@ -97,10 +112,10 @@ class HttpClient:
             method, mask_url(url), attempt + 1, self.retries, self.timeout, mask_headers(hdrs),
         )
 
-    def _log_response(self, method: str, url: str, status: int, length: int) -> None:
+    def _log_response(self, method: str, url: str, status: int, length: int | str) -> None:
         if not self.logger.isEnabledFor(logging.DEBUG):
             return
-        self.logger.debug("%s %s -> %d (%d bytes)", method, mask_url(url), status, length)
+        self.logger.debug("%s %s -> %d (%s bytes)", method, mask_url(url), status, length)
 
     def _log_transient(self, status: int, method: str, url: str, attempt: int, retry_after: int | None) -> None:
         if status == 429:
@@ -174,7 +189,8 @@ class HttpClient:
                 files=files, timeout=self.timeout, stream=stream,
             )
             if self.logger.isEnabledFor(logging.DEBUG):
-                self._log_response(method, url, resp.status_code, len(resp.content))
+                content_len: int | str = "<streamed>" if stream else len(resp.content)
+                self._log_response(method, url, resp.status_code, content_len)  # type: ignore[arg-type]
             if self._should_retry_response(resp, method, url, attempt):
                 resp.close()
                 return None
@@ -212,7 +228,7 @@ class HttpClient:
             if resp is not None:
                 return resp
 
-        raise RuntimeError(f"request failed after {self.retries} attempts: {method} {url}")
+        raise RuntimeError(f"request failed after {self.retries} attempts: {method} {mask_url(url)}")
 
     def get(self, path: str, **kw: Any) -> Any:
         """GET request."""

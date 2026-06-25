@@ -25,9 +25,7 @@ class AppleMusicClient:
         self.developer_token = developer_token
         self.user_token = user_token
         self.base_url = base_url.rstrip("/")
-        self._http = HttpClient(base_url)
-        if session is not None:
-            self._http._session = session
+        self._http = HttpClient(base_url, session=session)
 
     def _make_path(self, path: str) -> str:
         if path.startswith("http://") or path.startswith("https://"):
@@ -36,12 +34,6 @@ class AppleMusicClient:
         if stripped.startswith("v1/"):
             return f"/{stripped}"
         return f"/v1/{stripped}"
-
-    def _make_url(self, path: str) -> str:
-        sub = self._make_path(path)
-        if sub.startswith("http://") or sub.startswith("https://"):
-            return sub
-        return f"{self.base_url}{sub}"
 
     def _auth_headers(self) -> Dict[str, str]:
         return {
