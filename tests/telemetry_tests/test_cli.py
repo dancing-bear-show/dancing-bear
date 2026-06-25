@@ -53,7 +53,7 @@ class TestFmtTokens(unittest.TestCase):
         self.assertEqual(_fmt_tokens(500), "500")
 
     def test_thousands(self):
-        self.assertEqual(_fmt_tokens(1500), "2K")
+        self.assertEqual(_fmt_tokens(1500), "1K")
 
     def test_millions(self):
         self.assertEqual(_fmt_tokens(2_500_000), "2.5M")

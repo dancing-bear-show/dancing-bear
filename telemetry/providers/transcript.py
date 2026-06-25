@@ -470,25 +470,27 @@ class TranscriptProvider:
                 self._accumulate_windowed_event(e, bucket_start, num_slots, totals)
 
     def get_current_session_id(self) -> str | None:
-        """Return the session ID of the most recently modified .jsonl file."""
+        """Return the session ID of the most recently modified .jsonl file.
+
+        Scans both flat format (<session>.jsonl) and old subdirectory format
+        (<session>/subagents/<agent>.jsonl).
+        """
         if not self.projects_dir.exists():
             return None
 
-        latest_file: Path | None = None
+        latest_session: str | None = None
         latest_mtime: float = -1.0
 
         for project_dir in self.projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue
-            for jsonl_file in project_dir.glob(_JSONL_GLOB):
+            for jsonl_file, session_id in self._iter_jsonl_files(project_dir):
                 mtime = jsonl_file.stat().st_mtime
                 if mtime > latest_mtime:
                     latest_mtime = mtime
-                    latest_file = jsonl_file
+                    latest_session = session_id
 
-        if latest_file is None:
-            return None
-        return latest_file.stem
+        return latest_session
 
     def find_session_file(self, session_id: str) -> Path | None:
         """Find a .jsonl file by session ID across all project directories.

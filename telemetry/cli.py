@@ -201,7 +201,7 @@ def _fmt_tokens(n: int) -> str:
     if n >= 1_000_000:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n / 1_000:.0f}K"
+        return f"{n // 1_000}K"
     return str(n)
 
 
