@@ -134,7 +134,7 @@ def _append_bash_command(
     if not cmd:
         return 0
     bash_commands = session_index["bash_commands"]
-    assert isinstance(bash_commands, list)
+    assert isinstance(bash_commands, list)  # nosec B101 - type narrowing; caller always initializes this list
     bash_commands.append(cmd)
     return 1
 
@@ -157,7 +157,7 @@ def _process_tool_use_blocks(
         raw_input = block.get("input") or {}
         preview = _extract_tool_preview(raw_input)
         tool_calls = session_index["tool_calls"]
-        assert isinstance(tool_calls, list)
+        assert isinstance(tool_calls, list)  # nosec B101 - type narrowing; caller always initializes this list
         tool_calls.append({"name": name, "input_preview": preview})
         bash_added += _append_bash_command(name, raw_input, session_index)
     return bash_added
@@ -188,7 +188,7 @@ def _process_user_role_record(
         if not text:
             return 0
         prompts = session_index["prompts"]
-        assert isinstance(prompts, list)
+        assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
         prompts.append({
             "prompt_index": prompt_index_base + prompts_added,
             "text": text,
@@ -210,7 +210,7 @@ def _process_user_role_record(
         if not text:
             continue
         prompts = session_index["prompts"]
-        assert isinstance(prompts, list)
+        assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
         prompts.append({
             "prompt_index": prompt_index_base + prompts_added + added,
             "text": text,
