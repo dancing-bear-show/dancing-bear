@@ -7,6 +7,8 @@ import os
 import time
 from typing import Any, Optional
 
+from core.fileutil import atomic_write_json
+
 
 class ConfigCacheMixin:
     """Lightweight JSON cache for config/API responses with TTL support.
@@ -76,10 +78,8 @@ class ConfigCacheMixin:
         path = self._cfg_cache_path(name)
         if not path:
             return
-        os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False)
+            atomic_write_json(path, data, indent=0)
         except Exception:  # nosec B110 - non-fatal cache write
             pass
 
