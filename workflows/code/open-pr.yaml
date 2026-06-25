@@ -1,0 +1,362 @@
+name: open-pr
+version: "1.0"
+description: >
+  Comprehensive pre-PR validation and pull request creation for the dancing-bear
+  project. Covers six phases: auth pre-flight, code quality gate (mypy + qlty +
+  coverage), PR description generation from diff and commits, human review gate,
+  branch push and PR creation, and fact-check of the description against the
+  actual diff.
+
+  Stage dependency graph:
+
+    check-auth
+        |
+    scan-validate
+        |
+    generate-description
+        |
+    human-gate
+        |
+    push-and-create
+        |
+    fact-check
+
+metadata:
+  author: sre-platform
+  created: "2026-06-25"
+
+trigger:
+  source: manual
+  params:
+    pr_title: ""          # Required: conventional-commit title e.g. "feat(mail): add label sync"
+    test_cmd: ""          # Optional: override test command e.g. "python3 -m unittest discover -s tests/mail/ -q"
+    source_root: ""       # Source directory to scope mypy + qlty e.g. "mail/"
+    test_path: ""         # Test directory path e.g. "tests/mail/" (used when test_cmd is empty)
+    min_coverage: "80"    # Minimum coverage threshold (percent)
+    auth_domains: "github,qlty"  # Comma-separated services for pre-flight auth check
+
+workspace_dir: "{work_dir}/open-pr"
+
+stages:
+
+  # ===========================================================================
+  # Phase 1: Auth pre-flight — verify credentials before any work begins
+  # ===========================================================================
+
+  - name: check-auth
+    kind: gather
+    depends_on: []
+    description: >
+      Verify that all required auth domains are available before any work begins.
+      Fail fast rather than discovering missing credentials mid-workflow.
+
+      For each domain in "{auth_domains}" (comma-separated):
+
+        github:
+          gh auth status
+          If exit != 0: write error and abort — "GitHub auth missing; run: gh auth login"
+
+        qlty:
+          ~/.qlty/bin/qlty --version
+          If exit != 0: write error and abort — "qlty not found; install from https://qlty.sh"
+
+      Write {workspace}/validation/auth-status.json:
+        {
+          "domains_checked": ["github", "qlty"],
+          "all_ok": true|false,
+          "failures": []
+        }
+
+      If any check fails, set all_ok: false and list the domain in failures.
+      The workflow engine will halt subsequent stages on failure.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/auth-status.json
+
+  # ===========================================================================
+  # Phase 2: Code quality gate
+  # ===========================================================================
+
+  - name: scan-validate
+    kind: validate
+    depends_on: [check-auth]
+    reads_from: [check-auth]
+    description: >
+      Run four quality checks against {source_root}. Fix issues in a loop before
+      proceeding. Do not open a PR with known blocking issues.
+
+      Step 1 — Type checking (mypy):
+        mypy {source_root} --ignore-missing-imports
+        If exit != 0: show errors, attempt fixes (type annotations, imports),
+        re-run. Up to 3 fix cycles. If still failing after 3 cycles, write
+        the errors and continue — do not abort; report in scan-results.md.
+
+      Step 2 — Lint (qlty):
+        ~/.qlty/bin/qlty check {source_root}
+        Fix any reported issues using Edit tool on individual files.
+        After fixes, re-run qlty to confirm clean.
+        Also run ruff format --check {source_root} to catch formatting drift.
+        If ruff format --check fails: run ruff format {source_root} to fix.
+
+      Step 3 — Test suite with coverage:
+        Determine the test command:
+          - If {test_cmd} is non-empty: use it verbatim.
+          - Else if {test_path} is non-empty:
+              coverage run -m unittest discover -s {test_path} -q
+          - Else:
+              coverage run -m unittest discover -q
+
+        Run the determined command.
+
+        Then run coverage report:
+          coverage report --show-missing --fail-under={min_coverage}
+          (No --rcfile flag — .coveragerc does not exist in this project.)
+
+        If coverage report exits non-zero (threshold not met):
+          Record the actual coverage % from the output.
+          Do NOT abort — report the gap in scan-results.md; the human gate
+          will decide whether to proceed.
+
+      Write {workspace}/validation/scan-results.md:
+        ## scan-validate Results
+
+        ### mypy
+        Exit: 0|non-zero
+        Issues: N (or "clean")
+        [error list if any]
+
+        ### qlty + ruff
+        Exit: 0|non-zero
+        Issues fixed: N
+        Remaining: N
+
+        ### Coverage
+        Coverage: N%
+        Threshold: {min_coverage}%
+        Status: PASS|FAIL
+        Low-coverage files: [list files below threshold]
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    validation:
+      strategy: deliverable
+      criteria:
+        - mypy exits 0 or errors are documented in scan-results.md
+        - qlty check exits 0 on {source_root}
+        - ruff format --check exits 0
+        - Coverage measured and threshold status recorded
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/scan-results.md
+
+  # ===========================================================================
+  # Phase 3: Generate PR description from diff + commit history
+  # ===========================================================================
+
+  - name: generate-description
+    kind: gather
+    depends_on: [scan-validate]
+    reads_from: [scan-validate]
+    description: >
+      Gather diff and commit metadata, then write a complete PR description.
+
+      Step 1 — Gather context:
+        git log origin/main..HEAD --oneline
+        git diff origin/main...HEAD --stat
+        git diff origin/main...HEAD
+
+        Also read {workspace}/validation/scan-results.md for quality gate summary.
+
+      Step 2 — Load template:
+        Check if templates/pr/PR_TEMPLATE.md exists.
+        If it exists: read it and fill in the sections using the gathered context.
+        If it does not exist: write a standard PR markdown directly with these
+        sections:
+
+          ## Summary
+          - [bullet: what changed and why]
+          - [bullet: key design decision or trade-off, if any]
+
+          ## Changes
+          - [bullet per logical group of changed files]
+
+          ## Test plan
+          - [ ] mypy: pass/fail status from scan-results.md
+          - [ ] qlty lint: pass/fail status from scan-results.md
+          - [ ] coverage: N% (threshold: {min_coverage}%)
+          - [ ] Describe manual verification steps if applicable
+
+          ## Coverage
+          See scan-validate results: N% (threshold: {min_coverage}%)
+
+          ---
+          Generated with [Claude Code](https://claude.com/claude-code)
+
+      Step 3 — Write PR description:
+        Write the completed description to /tmp/pr-description.md.
+
+      Write {workspace}/outputs/pr-description.md (a copy for the workspace record).
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/pr-description.md
+
+  # ===========================================================================
+  # Phase 4: Human review gate
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [generate-description]
+    reads_from: [generate-description, scan-validate]
+    description: >
+      Present the generated PR description and quality gate results to the
+      human for review and confirmation before pushing anything.
+
+      Display:
+        1. {workspace}/validation/scan-results.md — quality gate summary
+        2. {workspace}/outputs/pr-description.md — the proposed PR description
+
+      Ask the user:
+        A) Approve — proceed with push and PR creation
+        B) Edit description — provide the corrected text (agent will update
+           /tmp/pr-description.md before push-and-create)
+        C) Abort — stop without pushing
+
+      If the user provides edits: apply them to /tmp/pr-description.md and
+      {workspace}/outputs/pr-description.md before recording the decision.
+
+      Write {workspace}/validation/human-gate-decision.md:
+        Decision: APPROVED|ABORTED
+        Notes: [any user-provided notes or edits]
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md
+
+  # ===========================================================================
+  # Phase 5: Push branch and create PR
+  # ===========================================================================
+
+  - name: push-and-create
+    kind: publish
+    depends_on: [human-gate]
+    reads_from: [human-gate, generate-description]
+    description: >
+      Push the current branch to origin and create the GitHub PR.
+
+      Step 1 — Confirm decision:
+        Read {workspace}/validation/human-gate-decision.md.
+        If Decision is ABORTED: log "PR creation aborted by user" and exit 0.
+
+      Step 2 — Push branch:
+        git push -u origin $(git branch --show-current)
+
+        If push fails (e.g., no upstream): add -u flag and retry once.
+        If still fails: abort with error message.
+
+      Step 3 — Create PR:
+        gh pr create \
+          --title "{pr_title}" \
+          --body-file /tmp/pr-description.md \
+          --base main
+
+        Capture the PR URL from stdout.
+
+      Step 4 — Write {workspace}/validation/pr.json:
+        {
+          "pr_url": "<url from gh pr create output>",
+          "pr_number": <number extracted from url>,
+          "branch": "<current branch name>",
+          "base": "main"
+        }
+
+      Print the PR URL clearly so the user can find it.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/pr.json
+
+  # ===========================================================================
+  # Phase 6: Fact-check PR description against actual diff
+  # ===========================================================================
+
+  - name: fact-check
+    kind: validate
+    depends_on: [push-and-create]
+    reads_from: [push-and-create, generate-description]
+    description: >
+      Validate that the PR description accurately reflects the actual diff.
+      Flag any claims that are unsupported, misleading, or missing.
+
+      Step 1 — Read PR number:
+        Read {workspace}/validation/pr.json. Extract pr_number.
+        If pr.json shows the PR was aborted, write "PR not created — fact-check skipped"
+        and exit 0.
+
+      Step 2 — Fetch PR body:
+        gh pr view {pr_number} --json body
+
+      Step 3 — Fetch actual diff:
+        git diff origin/main...HEAD --stat
+        git diff origin/main...HEAD
+
+      Step 4 — Cross-reference:
+        For each claim in the PR description (## Summary and ## Changes bullets):
+          - Verify the claim is supported by the actual diff
+          - Flag: claim about a file/module that was not changed
+          - Flag: omission of a significant change visible in the diff
+          - Flag: coverage % that does not match scan-results.md
+
+      Write {workspace}/validation/fact-check.md:
+        ## Fact-Check Results
+        Status: PASS|ISSUES FOUND
+
+        ### Verified Claims
+        - [claim]: supported by diff in <file>
+
+        ### Discrepancies
+        - [claim]: not found in diff — [explanation]
+
+        ### Missing from Description
+        - [change]: visible in diff but not mentioned
+
+      If ISSUES FOUND: print a warning so the human can decide whether to
+      update the PR description manually via `gh pr edit`.
+      Do not fail the workflow — the PR is already created; this is informational.
+    agent:
+      role: fact-checker
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: deliverable
+      criteria:
+        - All Summary/Changes claims are traceable to the diff
+        - No significant diff changes are omitted from the description
+        - Coverage % matches scan-results.md
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/fact-check.md
