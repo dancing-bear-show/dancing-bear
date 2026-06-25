@@ -79,7 +79,7 @@ class ConfigCacheMixin:
         if not path:
             return
         try:
-            atomic_write_json(path, data, indent=0)
+            atomic_write_json(path, data, indent=None)
         except Exception:  # nosec B110 - non-fatal cache write
             pass
 

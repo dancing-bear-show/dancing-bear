@@ -25,8 +25,12 @@ def parallel_map(
     *,
     max_workers: int = 16,
     return_exceptions: bool = False,
-) -> list[R]:
-    """Run ``func`` over ``items`` in a thread pool; return order-preserving results."""
+) -> list[R | None]:
+    """Run ``func`` over ``items`` in a thread pool; return order-preserving results.
+
+    On per-item failure: inserts the exception if ``return_exceptions=True``,
+    otherwise inserts ``None``.
+    """
     it_list: list[T] = list(items)
     n = max(1, int(max_workers or 1))
     results: list[R | None] = [None] * len(it_list)
@@ -37,8 +41,5 @@ def parallel_map(
             try:
                 results[idx] = fut.result()
             except Exception as e:  # nosec B110 - capture per-item failures, caller decides
-                if return_exceptions:
-                    results[idx] = e  # type: ignore[assignment]
-                else:
-                    results[idx] = None  # type: ignore[assignment]
-    return results  # type: ignore[return-value]
+                results[idx] = e if return_exceptions else None  # type: ignore[assignment]
+    return results

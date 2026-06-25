@@ -15,14 +15,28 @@ def atomic_write_json(
     path: str | Path,
     data: dict[str, Any] | list[Any],
     *,
-    indent: int = 2,
+    indent: int | None = 2,
 ) -> None:
-    """Write JSON atomically via temp file + rename."""
+    """Write JSON atomically via unique temp file + rename."""
+    import tempfile
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(str(path) + ".tmp")
-    tmp.write_text(json.dumps(data, indent=indent, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    tmp_path: str | None = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            os.write(fd, json.dumps(data, indent=indent, ensure_ascii=False).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.replace(tmp_path, path)
+        tmp_path = None  # replaced — no cleanup needed
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def write_once(path: str | Path, data: str | bytes) -> None:

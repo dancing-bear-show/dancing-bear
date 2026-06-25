@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Iterator, List, TypeVar
 
 from core.parallel import chunked as _chunked_seq
@@ -10,7 +10,7 @@ T = TypeVar("T")
 
 def chunked(seq: Iterable[T], size: int) -> Iterator[List[T]]:
     """Yield lists of up to `size` items from `seq`."""
-    items = list(seq)
+    items: Sequence[T] = seq if isinstance(seq, (list, tuple)) else list(seq)
     return _chunked_seq(items, size)
 
 

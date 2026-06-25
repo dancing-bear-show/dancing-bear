@@ -34,8 +34,8 @@ class TestAtomicWriteJson(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "out.json"
             atomic_write_json(p, {})
-            tmp = Path(str(p) + ".tmp")
-            self.assertFalse(tmp.exists())
+            tmp_files = list(Path(td).glob("*.tmp"))
+            self.assertEqual(tmp_files, [])
 
     def test_respects_indent(self) -> None:
         with tempfile.TemporaryDirectory() as td:
