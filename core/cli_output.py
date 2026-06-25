@@ -290,6 +290,9 @@ def output_table(data: Any, headers: Optional[List[str]] = None) -> None:
     writer.print_data(data, headers)
 
 
-def emit_one(data: object, fmt: str = "json") -> None:  # noqa: ARG001
+def emit_one(data: object, fmt: str = "json") -> None:
     """Emit a single JSON object to stdout."""
-    print(json.dumps(data, indent=2, default=str))
+    if fmt == "jsonl":
+        print(json.dumps(data, separators=(",", ":"), default=str))
+    else:
+        print(json.dumps(data, indent=2, default=str))

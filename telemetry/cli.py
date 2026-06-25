@@ -29,6 +29,11 @@ def _parse_since_cli(since: str) -> datetime:
     """Parse --since window string, raising click.BadParameter on bad input."""
     from telemetry.timeutil import now_utc, parse_window
 
+    if since.strip().isdigit():
+        raise click.BadParameter(
+            f"bare integer {since!r} is ambiguous — use a unit suffix (e.g. {since}h, {since}d)",
+            param_hint="--since",
+        )
     try:
         return now_utc() - parse_window(since)
     except ValueError as e:

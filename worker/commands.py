@@ -365,7 +365,7 @@ class EnqueueCommand:
         )
 
         path = q.enqueue(job, root=q.QUEUE_ROOT)
-        emit_one({"enqueued": True, "id": job_id, "path": str(path)})
+        emit_one({"enqueued": True, "id": job_id, "path": str(path)}, fmt="jsonl")
         return 0
 
 

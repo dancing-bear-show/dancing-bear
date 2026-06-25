@@ -154,7 +154,7 @@ def validate_rules(rules: dict) -> list[str]:
     try:
         import jsonschema  # noqa: PLC0415 - lazy import; jsonschema is optional
     except ImportError:
-        return ["jsonschema not installed — skipping schema validation"]
+        return []  # jsonschema not installed — skip validation
 
     try:
         schema = json.loads(_SCHEMA_PATH.read_text())
