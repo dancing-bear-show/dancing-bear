@@ -1,0 +1,183 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Telemetry Transcripts Rules Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "avoidable": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "window_seconds": {
+            "type": "number"
+          },
+          "lookback_events": {
+            "type": "integer"
+          },
+          "min_gap_seconds": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "consecutive_reads": {
+            "type": "integer"
+          },
+          "window_seconds": {
+            "type": "number"
+          },
+          "lookforward_events": {
+            "type": "integer"
+          },
+          "lookback_events": {
+            "type": "integer"
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tools": {
+      "type": "object",
+      "properties": {
+        "productive": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "neutral": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "tip_filters": {
+      "type": "object",
+      "properties": {
+        "exclude_blame_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "min_cost_impact": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "custom_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "tool",
+          "pattern",
+          "classification",
+          "reason"
+        ],
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "avoidable",
+              "review",
+              "productive",
+              "neutral"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "fix_hints": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "number"
+          },
+          "output": {
+            "type": "number"
+          },
+          "cache_read": {
+            "type": "number"
+          },
+          "cache_create": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

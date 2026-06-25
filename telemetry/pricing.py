@@ -1,35 +1,120 @@
-"""Token pricing for Claude models."""
+"""Pricing engine for Claude API cost calculation.
+
+Locally-computed costs use Anthropic's public list prices as of Apr 2026.
+``cost_multiplier`` in ``~/.claude/claudestats.json`` scales the result for
+calibration against actual billed spend. Default is 1.0 (no scaling).
+"""
 
 from __future__ import annotations
 
-PRICING = {
-    "opus":   {"input": 15.0,  "output": 75.0,  "cache_read": 1.5,  "cache_create": 18.75},
-    "sonnet": {"input": 3.0,   "output": 15.0,  "cache_read": 0.3,  "cache_create": 3.75},
-    "haiku":  {"input": 0.8,   "output": 4.0,   "cache_read": 0.08, "cache_create": 1.0},
+import json
+import re
+from pathlib import Path
+
+_CONFIG_PATH = Path.home() / ".claude" / "claudestats.json"
+
+# (mtime, multiplier) cache so we don't re-read the JSON on every call.
+_mult_cache: tuple[float, float] = (-1.0, 1.0)
+
+# Model pricing (input_per_million, output_per_million) — Apr 2026
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-opus-4-6": (5.0, 25.0),
+    "claude-opus-4-5": (5.0, 25.0),
+    "claude-sonnet-4-8": (3.0, 15.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-opus-4-7-1m": (5.0, 25.0),
+    "claude-opus-4-6-1m": (5.0, 25.0),
+    "claude-sonnet-4-8-1m": (3.0, 15.0),
+    "claude-sonnet-4-6-1m": (3.0, 15.0),
+    "claude-opus": (5.0, 25.0),
+    "claude-sonnet": (3.0, 15.0),
+    "claude-haiku": (1.0, 5.0),
+}
+
+# Legacy tier-based pricing (kept for backward compat with old cli.py)
+PRICING: dict[str, dict[str, float]] = {
+    "opus":   {"input": 15.0, "output": 75.0,  "cache_read": 1.5,  "cache_create": 18.75},
+    "sonnet": {"input": 3.0,  "output": 15.0,  "cache_read": 0.3,  "cache_create": 3.75},
+    "haiku":  {"input": 0.8,  "output": 4.0,   "cache_read": 0.08, "cache_create": 1.0},
 }
 
 
-def model_tier(model_id: str) -> str:
-    """Map a model ID string to a pricing tier.
+def _cost_multiplier() -> float:
+    """Return the configured cost multiplier, cached on config mtime."""
+    global _mult_cache
+    try:
+        mtime = _CONFIG_PATH.stat().st_mtime
+        if mtime != _mult_cache[0]:
+            with _CONFIG_PATH.open() as fh:
+                raw = json.load(fh)
+            m = raw.get("cost_multiplier", 1.0)
+            mult = float(m) if isinstance(m, (int, float)) and float(m) > 0 else 1.0
+            _mult_cache = (mtime, mult)
+    except Exception:  # nosec B110 - config read failure falls back to default multiplier
+        pass
+    return _mult_cache[1]
 
-    Returns 'unknown' for unrecognized models to avoid silently mispricing.
+
+def normalize_model(model_id: str) -> str:
+    """Map a full model ID to a pricing tier key.
+
+    Returns "opus", "sonnet", "haiku", or "unknown".
     """
     lower = model_id.lower()
     for tier in ("opus", "sonnet", "haiku"):
-        if tier in lower:
+        if re.search(tier, lower):
             return tier
     return "unknown"
 
 
-def compute_cost(input_tok: int, output_tok: int,
-                 cache_read: int, cache_create: int,
-                 model: str) -> float:
-    """Compute dollar cost from token counts and model ID.
+def model_tier(model_id: str) -> str:
+    """Map a model ID string to a pricing tier (alias for normalize_model)."""
+    return normalize_model(model_id)
 
-    Returns 0.0 for unrecognized models.
+
+def _get_model_pricing(model: str) -> tuple[float, float]:
+    """Return (input_per_million, output_per_million) for a model ID."""
+    if model in _MODEL_PRICING:
+        return _MODEL_PRICING[model]
+    lower = model.lower()
+    if "opus" in lower and "1m" in lower:
+        return _MODEL_PRICING["claude-opus-4-7-1m"]
+    if "sonnet" in lower and "1m" in lower:
+        return _MODEL_PRICING["claude-sonnet-4-8-1m"]
+    if "opus" in lower:
+        return _MODEL_PRICING["claude-opus"]
+    if "sonnet" in lower:
+        return _MODEL_PRICING["claude-sonnet"]
+    if "haiku" in lower:
+        return _MODEL_PRICING["claude-haiku"]
+    return _MODEL_PRICING["claude-haiku"]  # default
+
+
+def compute_cost(
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int,
+    cache_creation_tokens: int,
+    model: str,
+    pricing_override: dict[str, float] | None = None,
+) -> float:
+    """Compute the dollar cost for a Claude API call.
+
+    The result is scaled by ``cost_multiplier`` from the user config.
     """
-    r = PRICING.get(model_tier(model))
-    if r is None:
-        return 0.0
-    return (input_tok * r["input"] + output_tok * r["output"] +
-            cache_read * r["cache_read"] + cache_create * r["cache_create"]) / 1_000_000
+    if pricing_override is not None:
+        in_rate = pricing_override.get("input", 0.0)
+        out_rate = pricing_override.get("output", 0.0)
+    else:
+        in_rate, out_rate = _get_model_pricing(model)
+
+    raw = (
+        input_tokens * in_rate
+        + output_tokens * out_rate
+        + cache_read_tokens * (in_rate / 10)
+        + cache_creation_tokens * (in_rate * 1.25)
+    ) / 1_000_000
+    return raw * _cost_multiplier()

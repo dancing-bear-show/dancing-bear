@@ -3,6 +3,7 @@ import os
 import re
 from typing import Dict, Iterable, List, Optional
 
+from core.cli_output import emit_one
 from core.yamlio import dump_config as _dump_yaml
 
 
@@ -70,7 +71,7 @@ def human_size(n: int) -> str:
 def dump_output(obj: Dict, out_path: Optional[str]) -> None:
     if not out_path:
         # default to pretty JSON on stdout
-        print(json.dumps(obj, indent=2, sort_keys=False))
+        emit_one(obj)
         return
     out_path = os.path.expanduser(out_path)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)

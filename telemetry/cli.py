@@ -1,223 +1,591 @@
-"""Claude Code telemetry CLI — history, summary, cost."""
+"""telemetry CLI entry point."""
 
 from __future__ import annotations
 
-import argparse
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .parser import SessionStats, iter_session_files, parse_session
-from .pricing import PRICING, model_tier
+import click
+from rich.console import Console
+from rich.table import Table
 
-NO_SESSIONS = "No sessions found."
-DAYS_HELP = "Lookback days (default: 7)"
+from core.cli_output import emit_one
+from core.text_utils import truncate_text
 
+if TYPE_CHECKING:
+    from telemetry.models import AgentTokenRow, SessionSummary
 
-def _session_cost(s: SessionStats) -> float:
-    if not s.model:
-        return 0.0
-    from .pricing import compute_cost
-    return compute_cost(s.input_tokens, s.output_tokens,
-                        s.cache_read_tokens, s.cache_create_tokens, s.model)
+console = Console()
 
-
-def _format_duration(seconds: float) -> str:
-    if seconds < 60:
-        return f"{seconds:.0f}s"
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}h{m:02d}m"
-    return f"{m}m{s:02d}s"
+_COL_EST_COST = "Est. Cost"
 
 
-def _format_tokens(n: int) -> str:
+def _truncate_id(s: str) -> str:
+    return truncate_text(s, 16, "…")
+
+
+def _parse_since_cli(since: str) -> datetime:
+    """Parse --since window string, raising click.BadParameter on bad input."""
+    from telemetry.timeutil import now_utc, parse_window
+
+    try:
+        return now_utc() - parse_window(since)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--since") from e
+
+
+@click.group()
+def main() -> None:
+    """telemetry — Claude Code session analysis TUI."""
+
+
+@main.command()
+@click.option("--session", default=None, help="Session ID to monitor (auto-detects if omitted).")
+@click.option("--refresh", default=2.0, show_default=True, help="Refresh interval in seconds.")
+@click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
+def live(session: str | None, refresh: float, rules_path: str | None) -> None:
+    """Live TUI dashboard that refreshes continuously."""
+    from telemetry.tui import run_live  # pragma: no cover
+    run_live(session_id=session, refresh=refresh, rules_path=rules_path)  # pragma: no cover
+
+
+@main.command()
+@click.option("--session", default=None, help="Session ID (auto-detects if omitted).")
+@click.option("--refresh", default=2.0, show_default=True, help="Refresh interval in seconds.")
+@click.option("--compact", is_flag=True, help="Single-line compact format.")
+@click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
+def stats(session: str | None, refresh: float, compact: bool, rules_path: str | None) -> None:
+    """Live stats panel — compact real-time session metrics."""
+    from telemetry.tui import run_stats  # pragma: no cover
+    run_stats(session_id=session, refresh=refresh, compact=compact, rules_path=rules_path)  # pragma: no cover
+
+
+@main.command()
+@click.option("--session", default=None, help="Session ID to summarise (auto-detects if omitted).")
+@click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
+def summary(session: str | None, rules_path: str | None) -> None:
+    """Print a one-shot session summary."""
+    from telemetry.tui import print_summary  # pragma: no cover
+    print_summary(session_id=session, rules_path=rules_path)  # pragma: no cover
+
+
+@main.command()
+@click.option("-d", "--days", default=7, show_default=True, help="Number of past days to include.")
+def history(days: int) -> None:
+    """List recent sessions in a Rich table."""
+    from telemetry.providers.transcript import TranscriptProvider
+
+    since = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    transcript = TranscriptProvider()
+    sessions = transcript.get_sessions(since=since)
+
+    if not sessions:
+        console.print(f"[dim]No sessions found in the last {days} day(s).[/]")
+        return
+
+    table = Table(show_header=True, header_style="bold", title=f"Sessions (last {days}d)")
+    table.add_column("Session ID", style="cyan", no_wrap=True)
+    table.add_column("Project", no_wrap=True)
+    table.add_column("Model")
+    table.add_column("Start", justify="right")
+    table.add_column("Events", justify="right")
+    table.add_column("Cost", justify="right")
+
+    for s in sessions:
+        table.add_row(
+            _truncate_id(s.session_id),
+            (s.project_path or "—")[-30:],
+            (s.model or "—").split("/")[-1],
+            s.start_time.strftime("%m-%d %H:%M"),
+            str(s.total_events),
+            f"${s.total_cost:.3f}",
+        )
+
+    console.print(table)
+
+
+@main.command("sessions")
+@click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
+@click.option("--format", "fmt", default="table", type=click.Choice(["table", "json"]), show_default=True)
+@click.option("--limit", default=0, help="Show only top N sessions by cost (0 = all).")
+@click.option("--errors-only", is_flag=True, help="Show only sessions that spawned at least one subagent.")
+@click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
+def sessions(since: str, fmt: str, limit: int, errors_only: bool, projects_dir: str | None) -> None:
+    """List sessions with cost and token breakdown, parsed from JSONL transcripts."""
+    from telemetry.providers.transcript import TranscriptProvider
+
+    since_dt = _parse_since_cli(since)
+
+    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
+    all_sessions = provider.get_sessions(since=since_dt)
+    all_sessions = [s for s in all_sessions if s.total_events > 0 or s.total_cost > 0]
+    if errors_only:
+        all_sessions = [s for s in all_sessions if s.agents]
+    all_sessions.sort(key=lambda s: s.total_cost, reverse=True)
+    if limit > 0:
+        all_sessions = all_sessions[:limit]
+
+    if fmt == "json":
+        emit_one(_sessions_json_payload(all_sessions), fmt="json")
+        return
+
+    if not all_sessions:
+        console.print("[dim]No sessions found.[/]")
+        return
+
+    console.print(_build_sessions_table(all_sessions, since))
+
+
+def _sessions_json_payload(all_sessions: list["SessionSummary"]) -> dict[str, object]:
+    total_cost = sum(s.total_cost for s in all_sessions)
+    return {
+        "session_count": len(all_sessions),
+        "total_cost": round(total_cost, 6),
+        "sessions": [_session_to_dict(s) for s in all_sessions],
+    }
+
+
+def _build_sessions_table(all_sessions: list["SessionSummary"], since_label: str) -> Table:
+    table = Table(show_header=True, header_style="bold", title=f"Sessions ({since_label})")
+    table.add_column("Session ID", style="cyan", no_wrap=True)
+    table.add_column("Project", no_wrap=True)
+    table.add_column("Start")
+    table.add_column("Duration", justify="right")
+    table.add_column("Cost", justify="right")
+    table.add_column("In", justify="right")
+    table.add_column("Out", justify="right")
+    table.add_column("Cache", justify="right")
+    table.add_column("Agents", justify="right")
+    table.add_column("Events", justify="right")
+    for s in all_sessions:
+        parts = [p for p in (s.project_path or "").split("/") if p]
+        project = "/".join(parts[-2:]) if len(parts) >= 2 else (s.project_path or "—")
+        table.add_row(
+            _truncate_id(s.session_id),
+            project[-22:],
+            s.start_time.strftime("%m-%d %H:%M"),
+            _fmt_duration(s),
+            f"${s.total_cost:.4f}",
+            _fmt_tokens(s.input_tokens),
+            _fmt_tokens(s.output_tokens),
+            _fmt_tokens(s.cache_read_tokens),
+            str(len(s.agents)),
+            str(s.total_events),
+        )
+    return table
+
+
+def _fmt_duration(s: object) -> str:
+    from telemetry.models import SessionSummary
+    if not isinstance(s, SessionSummary) or s.start_time is None or s.end_time is None:
+        return "—"
+    secs = int((s.end_time - s.start_time).total_seconds())
+    h, rem = divmod(secs, 3600)
+    m = rem // 60
+    return f"{h}h{m:02d}m" if h else f"{m}m"
+
+
+def _fmt_tokens(n: int) -> str:
     if n >= 1_000_000:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
+        return f"{n / 1_000:.0f}K"
     return str(n)
 
 
-def _load_sessions(days: int) -> list[SessionStats]:
-    sessions = []
-    for path in iter_session_files(days=days):
-        s = parse_session(path)
-        if s.events > 0:
-            sessions.append(s)
-    sessions.sort(key=lambda s: s.start_time or datetime.min.replace(tzinfo=timezone.utc),
-                  reverse=True)
-    return sessions
-
-
-def _find_current_session() -> Optional[SessionStats]:
-    """Return the most recently modified session, or None."""
-    latest = None
-    for path in iter_session_files(days=90):
-        if latest is None or path.stat().st_mtime > latest.stat().st_mtime:
-            latest = path
-    if not latest:
-        return None
-    session = parse_session(latest)
-    return session if session.events > 0 else None
-
-
-def _print_session_detail(session: SessionStats) -> None:
-    """Print token breakdown, cost, and top tools for a session."""
-    cost = _session_cost(session)
-    tier = model_tier(session.model) if session.model else "?"
-    dur = _format_duration(session.duration_seconds)
-    start = session.start_time.strftime("%Y-%m-%d %H:%M") if session.start_time else "?"
-
-    print(f"Session:  {session.session_id}")
-    print(f"Model:    {session.model} ({tier})")
-    print(f"Start:    {start}")
-    print(f"Duration: {dur}")
-    print(f"Events:   {session.events:,}")
-    print()
-
-    print("── Tokens ──")
-    print(f"  Input:        {_format_tokens(session.input_tokens):>10}")
-    print(f"  Output:       {_format_tokens(session.output_tokens):>10}")
-    print(f"  Cache read:   {_format_tokens(session.cache_read_tokens):>10}")
-    print(f"  Cache create: {_format_tokens(session.cache_create_tokens):>10}")
-    print(f"  Total:        {_format_tokens(session.total_tokens):>10}")
-    print()
-
-    print(f"── Cost: ${cost:.2f} ──")
-    r = PRICING.get(tier)
-    if session.model and r:
-        print(f"  Input:        ${session.input_tokens * r['input'] / 1_000_000:>8.2f}")
-        print(f"  Output:       ${session.output_tokens * r['output'] / 1_000_000:>8.2f}")
-        print(f"  Cache read:   ${session.cache_read_tokens * r['cache_read'] / 1_000_000:>8.2f}")
-        print(f"  Cache create: ${session.cache_create_tokens * r['cache_create'] / 1_000_000:>8.2f}")
-    print()
-
-    if session.tool_counts:
-        print("── Top Tools ──")
-        sorted_tools = sorted(session.tool_counts.items(), key=lambda x: x[1], reverse=True)
-        for name, count in sorted_tools[:10]:
-            print(f"  {name:<30} {count:>6,}")
-
-
-# ── Commands ──────────────────────────────────────────────────────────
-
-
-def cmd_history(args) -> int:
-    sessions = _load_sessions(args.days)
-    if not sessions:
-        print(NO_SESSIONS)
-        return 1
-
-    print(f"{'SESSION':<44} {'MODEL':<10} {'START':<14} {'EVENTS':>7} {'COST':>9}")
-    print("─" * 88)
-
-    for s in sessions:
-        sid = s.session_id[:40] + "…" if len(s.session_id) > 40 else s.session_id
-        tier = model_tier(s.model) if s.model else "?"
-        start = s.start_time.strftime("%m-%d %H:%M") if s.start_time else "?"
-        cost = _session_cost(s)
-        print(f"{sid:<44} {tier:<10} {start:<14} {s.events:>7,} ${cost:>8.2f}")
-
-    total = sum(_session_cost(s) for s in sessions)
-    print("─" * 88)
-    print(f"{'TOTAL':<44} {'':<10} {'':<14} {sum(s.events for s in sessions):>7,} ${total:>8.2f}")
-    return 0
-
-
-def cmd_summary(args) -> int:
-    if args.session:
-        sessions = _load_sessions(days=90)
-        matches = [s for s in sessions if s.session_id.startswith(args.session)]
-        if not matches:
-            print(f"No session matching '{args.session}'")
-            return 1
-        session = matches[0]
-    else:
-        session = _find_current_session()
-        if not session:
-            print(NO_SESSIONS)
-            return 1
-
-    _print_session_detail(session)
-    return 0
-
-
-def cmd_cost(args) -> int:
-    sessions = _load_sessions(args.days)
-    if not sessions:
-        print(NO_SESSIONS)
-        return 1
-
-    daily: dict[str, dict[str, int]] = {}
-    daily_cost: dict[str, float] = {}
-
-    for s in sessions:
-        if not s.start_time or not s.model:
-            continue
-        date_key = s.start_time.strftime("%Y-%m-%d")
-        tier = model_tier(s.model)
-        cost = _session_cost(s)
-
-        if date_key not in daily:
-            daily[date_key] = {"opus": 0, "sonnet": 0, "haiku": 0}
-            daily_cost[date_key] = 0.0
-
-        if tier in daily[date_key]:
-            daily[date_key][tier] += s.total_tokens
-        daily_cost[date_key] += cost
-
-    if not daily:
-        print("No sessions with model data found.")
-        return 1
-
-    print(f"{'Date':<12} {'Opus':>10} {'Sonnet':>10} {'Haiku':>10} {'Cost':>10}")
-    print("─" * 56)
-
-    total_cost = 0.0
-    for date_key in sorted(daily.keys(), reverse=True):
-        tiers = daily[date_key]
-        cost = daily_cost[date_key]
-        total_cost += cost
-        print(f"{date_key:<12} "
-              f"{_format_tokens(tiers['opus']):>10} "
-              f"{_format_tokens(tiers['sonnet']):>10} "
-              f"{_format_tokens(tiers['haiku']):>10} "
-              f"${cost:>9.2f}")
-
-    print("─" * 56)
-    print(f"{'TOTAL':<12} {'':<10} {'':<10} {'':<10} ${total_cost:>9.2f}")
-    return 0
-
-
-# ── Entry point ───────────────────────────────────────────────────────
-
-
-def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="telemetry",
-        description="Claude Code session telemetry",
-    )
-    sub = parser.add_subparsers(dest="command")
-
-    p_hist = sub.add_parser("history", help="List recent sessions")
-    p_hist.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
-
-    p_sum = sub.add_parser("summary", help="Session detail summary")
-    p_sum.add_argument("--session", help="Session ID (prefix match); default: current")
-
-    p_cost = sub.add_parser("cost", help="Daily cost breakdown")
-    p_cost.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
-
-    args = parser.parse_args(argv)
-
-    commands = {
-        "history": cmd_history,
-        "summary": cmd_summary,
-        "cost": cmd_cost,
+def _session_to_dict(s: object) -> dict[str, object]:
+    from telemetry.models import SessionSummary
+    if not isinstance(s, SessionSummary):
+        return {}
+    dur = None
+    if s.start_time and s.end_time:
+        dur = round((s.end_time - s.start_time).total_seconds() / 60, 1)
+    return {
+        "session_id": s.session_id,
+        "project_path": s.project_path,
+        "start_time": s.start_time.isoformat() if s.start_time else None,
+        "end_time": s.end_time.isoformat() if s.end_time else None,
+        "duration_minutes": dur,
+        "model": s.model,
+        "total_cost": round(s.total_cost, 6),
+        "total_events": s.total_events,
+        "input_tokens": s.input_tokens,
+        "output_tokens": s.output_tokens,
+        "cache_read_tokens": s.cache_read_tokens,
+        "cache_creation_tokens": s.cache_creation_tokens,
+        "num_agents": len(s.agents),
+        "agents": [
+            {
+                "agent_id": a.agent_id,
+                "agent_type": a.agent_type,
+                "description": a.description,
+                "model": a.model,
+                "duration_ms": a.duration_ms,
+                "total_tokens": a.total_tokens,
+                "total_tool_uses": a.total_tool_uses,
+                "cost_usd": round(a.cost_usd, 6),
+            }
+            for a in s.agents
+        ],
     }
-    handler = commands.get(args.command)
-    if handler:
-        return handler(args)
-    parser.print_help()
-    return 0
+
+
+_AGENT_SORT_KEYS = {
+    "cost": lambda r: r.est_cost,
+    "output": lambda r: r.output_tokens,
+    "calls": lambda r: r.calls,
+    "input": lambda r: r.input_tokens,
+    "cache-read": lambda r: r.cache_read_tokens,
+}
+
+
+def _agent_row_to_dict(r: object) -> dict[str, object]:
+    from telemetry.models import AgentTokenRow
+    if not isinstance(r, AgentTokenRow):
+        return {}
+    return {
+        "agent": r.agent,
+        "calls": r.calls,
+        "input_tokens": r.input_tokens,
+        "output_tokens": r.output_tokens,
+        "cache_read_tokens": r.cache_read_tokens,
+        "cache_write_tokens": r.cache_write_tokens,
+        "models": r.models,
+        "est_cost": round(r.est_cost, 6),
+    }
+
+
+def _print_agents_json(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRow"], since: str) -> None:
+    emit_one(
+        {
+            "agent_count": len(all_rows),
+            "returned_count": len(rows),
+            "since": since,
+            "total_cost": round(sum(r.est_cost for r in all_rows), 6),
+            "agents": [_agent_row_to_dict(r) for r in rows],
+        },
+        fmt="json",
+    )
+
+
+def _print_agents_csv(rows: list["AgentTokenRow"]) -> None:
+    import csv as csv_mod
+    import io
+
+    buf = io.StringIO()
+    writer = csv_mod.writer(buf)
+    writer.writerow([
+        "agent", "calls", "input_tokens", "output_tokens",
+        "cache_read_tokens", "cache_write_tokens", "models", "est_cost",
+    ])
+    for r in rows:
+        writer.writerow([
+            r.agent, r.calls, r.input_tokens, r.output_tokens,
+            r.cache_read_tokens, r.cache_write_tokens,
+            ";".join(r.models), round(r.est_cost, 6),
+        ])
+    console.print(buf.getvalue(), end="")
+
+
+def _build_agents_table(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRow"], since: str) -> Table:
+    table = Table(show_header=True, header_style="bold", title=f"Agent usage ({since})", show_footer=True)
+    table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
+    table.add_column("Calls", justify="right", footer=str(sum(r.calls for r in all_rows)))
+    table.add_column("In", justify="right", footer=_fmt_tokens(sum(r.input_tokens for r in all_rows)))
+    table.add_column("Out", justify="right", footer=_fmt_tokens(sum(r.output_tokens for r in all_rows)))
+    table.add_column("Cache R", justify="right", footer=_fmt_tokens(sum(r.cache_read_tokens for r in all_rows)))
+    table.add_column("Cache W", justify="right", footer=_fmt_tokens(sum(r.cache_write_tokens for r in all_rows)))
+    table.add_column("Models")
+    table.add_column(_COL_EST_COST, justify="right", footer=f"${sum(r.est_cost for r in all_rows):.4f}")
+    for r in rows:
+        table.add_row(
+            r.agent,
+            str(r.calls),
+            _fmt_tokens(r.input_tokens),
+            _fmt_tokens(r.output_tokens),
+            _fmt_tokens(r.cache_read_tokens),
+            _fmt_tokens(r.cache_write_tokens),
+            ", ".join(r.models) or "—",
+            f"${r.est_cost:.4f}",
+        )
+    return table
+
+
+@main.command("agents")
+@click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
+@click.option(
+    "--format", "fmt", default="table",
+    type=click.Choice(["table", "json", "csv"]), show_default=True,
+)
+@click.option("--limit", default=0, show_default=True, help="Show only top N agents (0 = all).")
+@click.option("--model", default=None, help="Filter to agents that used this model (substring match).")
+@click.option(
+    "--sort", default="cost", show_default=True,
+    type=click.Choice(list(_AGENT_SORT_KEYS)), help="Sort column.",
+)
+@click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
+def agents(since: str, fmt: str, limit: int, model: str | None, sort: str, projects_dir: str | None) -> None:
+    """Per-agent token and cost breakdown."""
+    from telemetry.providers.transcript import TranscriptProvider
+
+    since_dt = _parse_since_cli(since)
+
+    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
+    all_rows = provider.aggregate_agents(since=since_dt)
+
+    if model:
+        all_rows = [r for r in all_rows if any(model.lower() in m.lower() for m in r.models)]
+
+    all_rows.sort(key=_AGENT_SORT_KEYS[sort], reverse=True)
+    rows = all_rows[:limit] if limit > 0 else all_rows
+
+    if fmt == "json":
+        _print_agents_json(all_rows, rows, since)
+        return
+
+    if fmt == "csv":
+        _print_agents_csv(rows)
+        return
+
+    if not rows:
+        console.print("[dim]No agent data found.[/]")
+        return
+
+    console.print(_build_agents_table(all_rows, rows, since))
+
+
+def _rules_init(config_path: Path) -> None:
+    import yaml
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    if config_path.exists():
+        console.print(f"[yellow]Already exists:[/] {config_path}")
+        return
+    starter = {
+        "avoidable": {
+            "bash-as-grep": {"enabled": True},
+            "bash-as-read": {"enabled": True},
+            "bash-as-glob": {"enabled": True},
+            "bash-as-write": {"enabled": True},
+            "redundant-read": {"enabled": True, "window_seconds": 60},
+            "rapid-re-edit": {"enabled": True, "window_seconds": 30},
+        },
+        "review": {
+            "abandoned-search": {"enabled": True, "consecutive_reads": 3},
+            "fruitless-agent": {"enabled": True, "window_seconds": 300},
+        },
+        "custom_rules": [],
+    }
+    config_path.write_text(yaml.safe_dump(starter, default_flow_style=False))
+    console.print(f"[green]Created:[/] {config_path}")
+
+
+def _rules_validate() -> None:
+    from telemetry.rules import load_rules, validate_rules
+
+    loaded = load_rules()
+    errors = validate_rules(loaded)
+    if errors:
+        console.print("[red]Validation errors:[/]")
+        for err in errors:
+            console.print(f"  [red]•[/] {err}")
+        raise SystemExit(1)
+    console.print("[green]No errors — rules are valid.[/]")
+
+
+def _rules_explain(name: str) -> None:
+    from telemetry.rules import load_rules
+
+    loaded = load_rules()
+    for category in ("avoidable", "review"):
+        rule_cfg = loaded.get(category, {}).get(name)
+        if rule_cfg is None:
+            continue
+        console.print(f"[bold cyan]{name}[/]  ([dim]{category}[/])")
+        console.print(f"  Config: {rule_cfg}")
+        fix_hints = loaded.get("fix_hints", {}).get(name, {})
+        if fix_hints:
+            console.print("  Fix hints:")
+            for level, hint in fix_hints.items():
+                console.print(f"    [dim]{level}:[/] {hint}")
+        return
+    console.print(f"[yellow]Rule not found:[/] {name}")
+    console.print("[dim]Use 'telemetry rules' to list all rules.[/]")
+
+
+def _rules_list() -> None:
+    from telemetry.rules import load_rules
+
+    loaded = load_rules()
+    table = Table(show_header=True, header_style="bold", title="Telemetry Rules")
+    table.add_column("Name", style="cyan")
+    table.add_column("Category")
+    table.add_column("Enabled", justify="center")
+    table.add_column("Config")
+
+    for category in ("avoidable", "review"):
+        cat_rules = loaded.get(category, {})
+        for rule_name, cfg in cat_rules.items():
+            if not isinstance(cfg, dict):
+                continue
+            enabled = cfg.get("enabled", True)
+            enabled_str = "[green]yes[/]" if enabled else "[dim]no[/]"
+            config_items = {
+                k: v for k, v in cfg.items()
+                if k != "enabled" and not isinstance(v, list)
+            }
+            config_str = "  ".join(f"{k}={v}" for k, v in config_items.items())
+            table.add_row(rule_name, category, enabled_str, config_str or "—")
+
+    custom = loaded.get("custom_rules", [])
+    for i, rule in enumerate(custom):
+        rule_name = rule.get("reason", f"custom-{i}")
+        table.add_row(rule_name, "custom", "[green]yes[/]", str(rule.get("tool", "any")))
+
+    console.print(table)
+
+
+@main.command()
+@click.option("--init", "do_init", is_flag=True, help="Scaffold ~/.telemetry-transcripts/rules.yaml.")
+@click.option("--validate", "do_validate", is_flag=True, help="Validate rules and report errors.")
+@click.option("--explain", default=None, metavar="NAME", help="Show config + fix hint for a rule.")
+def rules(do_init: bool, do_validate: bool, explain: str | None) -> None:
+    """Manage telemetry classification rules."""
+    config_path = Path.home() / ".telemetry-transcripts" / "rules.yaml"
+
+    if do_init:
+        _rules_init(config_path)
+    elif do_validate:
+        _rules_validate()
+    elif explain:
+        _rules_explain(explain)
+    else:
+        _rules_list()
+
+
+def _breakdown_by_agent(all_rows: list["AgentTokenRow"]) -> list[dict[str, object]]:
+    rows = [
+        {
+            "agent": r.agent,
+            "calls": r.calls,
+            "est_cost": round(r.est_cost, 6),
+        }
+        for r in all_rows
+    ]
+    rows.sort(key=lambda d: float(d["est_cost"]), reverse=True)  # type: ignore[arg-type]
+    return rows
+
+
+def _breakdown_by_day(sessions: list["SessionSummary"]) -> list[dict[str, object]]:
+    import sys as _sys
+    from collections import defaultdict
+
+    buckets: dict[str, float] = defaultdict(float)
+    skipped = sum(1 for s in sessions if s.start_time is None)
+    if skipped:
+        print(f"Warning: {skipped} session(s) with no start time skipped", file=_sys.stderr)
+    for session in sessions:
+        if session.start_time is None:
+            continue
+        day_key = session.start_time.date().isoformat()
+        buckets[day_key] += session.total_cost
+
+    rows: list[dict[str, object]] = [
+        {"day": day, "est_cost": round(cost, 6)}
+        for day, cost in buckets.items()
+    ]
+    rows.sort(key=lambda d: str(d["day"]), reverse=True)
+    return rows
+
+
+def _print_cost_csv(rows: list[dict[str, object]], group_by: str) -> None:  # noqa: ARG001
+    import csv
+    import sys as _sys
+
+    if not rows:
+        return
+    writer = csv.DictWriter(_sys.stdout, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+
+
+def _build_breakdown_table(
+    rows: list[dict[str, object]], group_by: str, since: str
+) -> Table:
+    title = f"Cost breakdown by {group_by} ({since})"
+    table = Table(show_header=True, header_style="bold", title=title, show_footer=True)
+
+    total_cost = sum(float(r["est_cost"]) for r in rows)
+
+    if group_by == "agent":
+        table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
+        table.add_column("Calls", justify="right", footer=str(sum(int(r["calls"]) for r in rows)))  # type: ignore[arg-type]
+        table.add_column(_COL_EST_COST, justify="right", footer=f"${total_cost:.4f}")
+        for r in rows:
+            table.add_row(
+                str(r["agent"]),
+                str(r["calls"]),
+                f"${float(r['est_cost']):.4f}",
+            )
+    else:
+        table.add_column("Day", style="cyan", no_wrap=True, footer="TOTAL")
+        table.add_column(_COL_EST_COST, justify="right", footer=f"${total_cost:.4f}")
+        for r in rows:
+            table.add_row(
+                str(r["day"]),
+                f"${float(r['est_cost']):.4f}",
+            )
+
+    return table
+
+
+@main.command("cost-breakdown")
+@click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
+@click.option(
+    "--format", "fmt", default="table",
+    type=click.Choice(["table", "json", "csv"]), show_default=True,
+)
+@click.option(
+    "--group-by", "group_by", default="agent",
+    type=click.Choice(["agent", "day"]), show_default=True,
+)
+@click.option("--limit", default=0, show_default=True, help="Top N entries (0 = all).")
+@click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
+def cost_breakdown(since: str, fmt: str, group_by: str, limit: int, projects_dir: str | None) -> None:
+    """Per-agent or per-day cost breakdown."""
+    from telemetry.providers.transcript import TranscriptProvider
+
+    since_dt = _parse_since_cli(since)
+    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
+
+    if group_by == "agent":
+        rows = _breakdown_by_agent(provider.aggregate_agents(since=since_dt))
+    else:
+        rows = _breakdown_by_day(provider.get_sessions(since=since_dt))
+
+    if limit > 0:
+        rows = rows[:limit]
+
+    if fmt == "json":
+        emit_one({"group_by": group_by, "since": since, "rows": rows}, fmt="json")
+        return
+
+    if fmt == "csv":
+        _print_cost_csv(rows, group_by)
+        return
+
+    if not rows:
+        console.print("[dim]No cost data found.[/]")
+        return
+
+    console.print(_build_breakdown_table(rows, group_by, since))
+
+
+from telemetry.parse_transcripts import parse_transcripts  # noqa: E402
+
+main.add_command(parse_transcripts)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

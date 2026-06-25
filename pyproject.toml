@@ -9,6 +9,8 @@ description = "Reconstituted personal assistants (mail, resume, schedule)"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
+  "click>=8.0",
+  "rich>=13.0",
   "PyYAML==6.0.3",
   "python-docx==1.2.0",
   "google-api-python-client==2.196.0",
@@ -56,6 +58,7 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 include = [
+  "telemetry*",
   "core*",
   "mail*",
   "resume*",

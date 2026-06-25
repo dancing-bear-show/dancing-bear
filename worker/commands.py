@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from core.cli_output import emit_one
 from worker._helpers import (
     DATE_FORMAT_YMD,
     ISO_DATETIME_FORMAT,
@@ -364,7 +365,7 @@ class EnqueueCommand:
         )
 
         path = q.enqueue(job, root=q.QUEUE_ROOT)
-        print(json.dumps({"enqueued": True, "id": job_id, "path": str(path)}))
+        emit_one({"enqueued": True, "id": job_id, "path": str(path)})
         return 0
 
 
@@ -374,7 +375,7 @@ class ListCommand:
     @staticmethod
     def run(args) -> int:
         """Execute list command."""
-        print(json.dumps(q.counts(root=q.QUEUE_ROOT), indent=2))
+        emit_one(q.counts(root=q.QUEUE_ROOT))
         return 0
 
 
@@ -389,7 +390,7 @@ class StatusCommand:
         if getattr(args, "text", False) and not getattr(args, "json", False):
             StatusCommand._print_text_status(s, args)
         else:
-            print(json.dumps(s, indent=2))
+            emit_one(s)
 
         return 0
 
@@ -509,11 +510,7 @@ class RequeueErrorsCommand:
                 )
             )
 
-        print(
-            json.dumps(
-                {"requeued": len(paths), "paths": [str(p) for p in paths]}, indent=2
-            )
-        )
+        emit_one({"requeued": len(paths), "paths": [str(p) for p in paths]})
         return 0
 
     @staticmethod
@@ -576,7 +573,7 @@ class RetryCommand:
             new_max_attempts=(int(getattr(args, "new_max_attempts", 0) or 0) or None),
         )
 
-        print(json.dumps({"requeued": True, "path": str(np)}))
+        emit_one({"requeued": True, "path": str(np)})
         return 0
 
 
@@ -595,5 +592,5 @@ class PurgeCommand:
         ]
 
         res = q.purge(secs, root=q.QUEUE_ROOT, folders=folders)
-        print(json.dumps(res, indent=2))
+        emit_one(res)
         return 0
