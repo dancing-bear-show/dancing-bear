@@ -288,3 +288,11 @@ def output_table(data: Any, headers: Optional[List[str]] = None) -> None:
     """Print data as a table."""
     writer = OutputWriter(OutputConfig(format=OutputFormat.TABLE))
     writer.print_data(data, headers)
+
+
+def emit_one(data: object, fmt: str = "json") -> None:
+    """Emit a single JSON object to stdout."""
+    if fmt == "jsonl":
+        print(json.dumps(data, separators=(",", ":"), default=str))
+    else:
+        print(json.dumps(data, indent=2, default=str))
