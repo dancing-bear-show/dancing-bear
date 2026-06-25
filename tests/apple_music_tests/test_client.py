@@ -8,30 +8,31 @@ from apple_music.client import AppleMusicClient, AppleMusicError
 from tests.apple_music_tests.fixtures import FakeResponse, FakeSession
 
 
-class TestMakeUrl(unittest.TestCase):
+class TestMakePath(unittest.TestCase):
+    """Tests for _make_path(), the path normalizer used before delegating to HttpClient."""
+
     def setUp(self):
         self.client = AppleMusicClient("dev", "user")
 
     def test_absolute_http_url_returned_unchanged(self):
-        url = self.client._make_url("http://example.com/path")
-        self.assertEqual(url, "http://example.com/path")
+        path = self.client._make_path("http://example.com/path")
+        self.assertEqual(path, "http://example.com/path")
 
     def test_absolute_https_url_returned_unchanged(self):
-        url = self.client._make_url("https://api.example.com/v1/me/playlists?offset=2")
-        self.assertEqual(url, "https://api.example.com/v1/me/playlists?offset=2")
+        path = self.client._make_path("https://api.example.com/v1/me/playlists?offset=2")
+        self.assertEqual(path, "https://api.example.com/v1/me/playlists?offset=2")
 
-    def test_relative_path_builds_url(self):
-        url = self.client._make_url("me/library/playlists")
-        self.assertEqual(url, "https://api.music.apple.com/v1/me/library/playlists")
+    def test_relative_path_prefixes_v1(self):
+        path = self.client._make_path("me/library/playlists")
+        self.assertEqual(path, "/v1/me/library/playlists")
 
-    def test_relative_path_with_leading_slash(self):
-        url = self.client._make_url("/me/library/playlists")
-        self.assertEqual(url, "https://api.music.apple.com/v1/me/library/playlists")
+    def test_relative_path_with_leading_slash_prefixes_v1(self):
+        path = self.client._make_path("/me/library/playlists")
+        self.assertEqual(path, "/v1/me/library/playlists")
 
-    def test_base_url_trailing_slash_stripped(self):
-        client = AppleMusicClient("dev", "user", base_url="https://api.music.apple.com/")
-        url = client._make_url("me/storefront")
-        self.assertEqual(url, "https://api.music.apple.com/v1/me/storefront")
+    def test_path_already_v1_not_doubled(self):
+        path = self.client._make_path("v1/me/library/playlists")
+        self.assertEqual(path, "/v1/me/library/playlists")
 
 
 class TestRequestMethod(unittest.TestCase):
