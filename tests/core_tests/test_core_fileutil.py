@@ -22,6 +22,7 @@ class TestAtomicWriteJson(unittest.TestCase):
             p = Path(td) / "a" / "b" / "out.json"
             atomic_write_json(p, [1, 2, 3])
             self.assertTrue(p.exists())
+            self.assertEqual(json.loads(p.read_text()), [1, 2, 3])
 
     def test_overwrites_existing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -116,14 +117,16 @@ class TestLoadJsonOrExit(unittest.TestCase):
     def test_exits_on_missing_file(self) -> None:
         with self.assertRaises(SystemExit) as cm:
             load_json_or_exit("/nonexistent/missing.json")
-        self.assertEqual(cm.exception.code if isinstance(cm.exception.code, int) else 1, 1)
+        self.assertIsInstance(cm.exception.code, str)
+        self.assertIn("missing.json", cm.exception.code)
 
     def test_exits_on_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "bad.json"
             p.write_text("{bad json", encoding="utf-8")
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(SystemExit) as cm:
                 load_json_or_exit(p)
+        self.assertIn("bad.json", str(cm.exception.code))
 
     def test_exit_message_mentions_path(self) -> None:
         with self.assertRaises(SystemExit) as cm:

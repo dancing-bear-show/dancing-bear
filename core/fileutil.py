@@ -72,5 +72,5 @@ def load_json_or_exit(path: str | Path) -> Any:
         sys.exit(f"File not found: {path}")
     except json.JSONDecodeError as exc:
         sys.exit(f"Invalid JSON in {path}: {exc}")
-    except Exception as exc:  # nosec B110 - catch-all for unexpected read errors
+    except Exception as exc:  # catch-all for unexpected read errors
         sys.exit(f"Failed to load {path}: {exc}")
