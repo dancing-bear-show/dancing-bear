@@ -10,7 +10,7 @@ T = TypeVar("T")
 
 def chunked(seq: Iterable[T], size: int) -> Iterator[list[T]]:
     """Yield lists of up to `size` items from `seq`."""
-    items: Sequence[T] = seq if isinstance(seq, (list, tuple)) else list(seq)
+    items: Sequence[T] = seq if isinstance(seq, Sequence) else list(seq)
     return _chunked_seq(items, size)
 
 

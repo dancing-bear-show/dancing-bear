@@ -45,6 +45,13 @@ class TestAtomicWriteJson(unittest.TestCase):
             text = p.read_text()
             self.assertIn("    ", text)
 
+    def test_no_tmp_file_left_on_serialization_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "out.json"
+            with self.assertRaises(TypeError):
+                atomic_write_json(p, {"bad": object()})  # type: ignore[arg-type]
+            self.assertEqual(list(Path(td).glob("*.tmp")), [])
+
 
 class TestWriteOnce(unittest.TestCase):
     def test_creates_file(self) -> None:

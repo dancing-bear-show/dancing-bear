@@ -65,7 +65,7 @@ def safe_load_json(
 
 
 def load_json_or_exit(path: str | Path) -> Any:
-    """Load JSON from path; call sys.exit(1) with an error message if it fails."""
+    """Load JSON from path; exit with an error message string (exit status 1) if it fails."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
