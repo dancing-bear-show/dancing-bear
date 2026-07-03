@@ -66,18 +66,42 @@ def make_fake_msal_module(flow_success=True, has_accounts=True, silent_success=T
 
 
 def make_fake_requests_module(api_success=True):
-    """Factory for creating fake requests modules."""
+    """Factory for creating fake requests modules with Session and exceptions support."""
     requests = types.ModuleType("requests")
+
+    class _Exceptions:
+        class HTTPError(Exception):
+            def __init__(self, *args, response=None, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.response = response
+
+        class ConnectionError(Exception):
+            pass
+
+        class Timeout(Exception):
+            pass
 
     class _Resp:
         def __init__(self):
             self.status_code = 200 if api_success else 401
             self.text = "OK" if api_success else "Unauthorized"
+            self.content = b""
+            self.headers = {}
 
-    def _get(url, headers=None, **kwargs):
-        return _Resp()
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise _Exceptions.HTTPError(response=self)
 
-    requests.get = _get
+    class _Session:
+        def request(self, method, url, **kwargs):
+            return _Resp()
+
+        def get(self, url, **kwargs):
+            return _Resp()
+
+    requests.Session = _Session
+    requests.exceptions = _Exceptions
+    requests.get = lambda url, headers=None, **kw: _Resp()
     return requests
 
 

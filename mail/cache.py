@@ -6,6 +6,8 @@ import json
 import os
 from typing import Any, Dict, Optional
 
+from core.fileutil import atomic_write_json
+
 
 class MailCache:
     def __init__(self, root: str) -> None:
@@ -32,9 +34,7 @@ class MailCache:
 
     def put_meta(self, msg_id: str, data: Dict[str, Any]) -> None:
         p = self._path("meta", msg_id)
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=2)
+        atomic_write_json(p, data)
 
     def get_full(self, msg_id: str) -> Optional[Dict[str, Any]]:
         p = self._path("full", msg_id)
@@ -48,7 +48,5 @@ class MailCache:
 
     def put_full(self, msg_id: str, data: Dict[str, Any]) -> None:
         p = self._path("full", msg_id)
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=2)
+        atomic_write_json(p, data)
 

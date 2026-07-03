@@ -1,14 +1,25 @@
-"""File I/O utilities."""
+"""File utilities: atomic JSON writes and safe JSON reads."""
+
 from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
+from typing import Any
+
+__all__ = ["atomic_write_json", "write_once", "safe_load_json", "load_json_or_exit"]
 
 
-def atomic_write_json(path: Path, data: object) -> None:
-    """Write data as JSON to path atomically (temp file + os.replace)."""
+def atomic_write_json(
+    path: str | Path,
+    data: dict[str, Any] | list[Any],
+    *,
+    indent: int | None = 2,
+) -> None:
+    """Write JSON atomically via unique temp file + rename."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = tempfile.NamedTemporaryFile(
         mode="w",
@@ -18,7 +29,7 @@ def atomic_write_json(path: Path, data: object) -> None:
         encoding="utf-8",
     )
     try:
-        json.dump(data, fd, indent=2, default=str)
+        json.dump(data, fd, indent=indent, ensure_ascii=False)
         fd.close()
         os.replace(fd.name, path)
     except Exception:
@@ -30,11 +41,36 @@ def atomic_write_json(path: Path, data: object) -> None:
         raise
 
 
-def safe_load_json(path: Path) -> dict[str, object]:
-    """Load JSON from path, returning {} on missing file or parse error."""
+def write_once(path: str | Path, data: str | bytes) -> None:
+    """Write to path only if it does not exist; raises FileExistsError if it does."""
+    path = Path(path)
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with open(path, encoding="utf-8") as f:
-            result = json.load(f)
-            return result if isinstance(result, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+def safe_load_json(
+    path: str | Path,
+    default: Any = None,
+) -> Any:
+    """Load JSON from path; return default on any error."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:  # nosec B110 - intentional fallback; caller supplies default
+        return default
+
+
+def load_json_or_exit(path: str | Path) -> Any:
+    """Load JSON from path; exit with an error message string (exit status 1) if it fails."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        sys.exit(f"File not found: {path}")
+    except json.JSONDecodeError as exc:
+        sys.exit(f"Invalid JSON in {path}: {exc}")
+    except Exception as exc:  # catch-all for unexpected read errors
+        sys.exit(f"Failed to load {path}: {exc}")

@@ -130,14 +130,34 @@ class AuthCLITests(unittest.TestCase):
         # Fake requests module
         requests = types.ModuleType("requests")
 
+        class _Exceptions:
+            class HTTPError(Exception):
+                def __init__(self, *args, response=None, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.response = response
+
+            class ConnectionError(Exception):
+                pass
+
+            class Timeout(Exception):
+                pass
+
         class _Resp:
             status_code = 200
             text = "OK"
+            content = b""
+            headers = {}
 
-        def _get(url, headers=None, **kwargs):
-            return _Resp()
+            def raise_for_status(self):
+                pass  # success stub — status 200, no error to raise
 
-        requests.get = _get
+        class _Session:
+            def request(self, method, url, **kwargs):
+                return _Resp()
+
+        requests.Session = _Session
+        requests.exceptions = _Exceptions
+        requests.get = lambda url, headers=None, **kw: _Resp()
 
         with patch.dict("sys.modules", {"msal": msal, "requests": requests}, clear=False):
             from mail.outlook.commands import run_outlook_auth_validate
