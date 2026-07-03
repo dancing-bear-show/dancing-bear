@@ -7,6 +7,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import List, Optional
 
+from core.fileutil import atomic_write_json
+
 
 def _queue_path() -> Path:
     env = os.environ.get("MAIL_ASSISTANT_SCHEDULE_PATH")
@@ -42,8 +44,7 @@ def _load_queue() -> List[dict]:
 
 def _save_queue(items: List[dict]) -> None:
     p = _queue_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(p, items)
 
 
 def enqueue(item: ScheduledItem) -> None:
