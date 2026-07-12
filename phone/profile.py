@@ -151,14 +151,24 @@ class HomeScreenConfigBuilder:
     def add_folder(self, page: int, name: str, apps: List[str]) -> None:
         self._ensure_page(page)
         self.pages[page].folders.append(
-            FolderItem(name or "Folder", [AppItem(a) for a in apps or []], page_size=self.folder_page_size)
+            FolderItem(
+                name or "Folder",
+                [AppItem(a) for a in apps or []],
+                page_size=self.folder_page_size,
+            )
         )
 
-    def add_all_apps_folder(self, *, page: int, name: str = "All Apps", exclude: Optional[Set[str]] = None) -> None:
+    def add_all_apps_folder(
+        self, *, page: int, name: str = "All Apps", exclude: Optional[Set[str]] = None
+    ) -> None:
         if not self.layout_export:
             return
         exclude = exclude or set()
-        remaining = [a for a in _list_apps_from_export(self.layout_export) if a and a not in exclude]
+        remaining = [
+            a
+            for a in _list_apps_from_export(self.layout_export)
+            if a and a not in exclude
+        ]
         self.add_folder(page, name, remaining)
 
     def _build_pages_items(self) -> List[List[Dict[str, Any]]]:
@@ -170,16 +180,20 @@ class HomeScreenConfigBuilder:
             pages_items.append(spec.as_items())
         return pages_items
 
-    def build_payload(self, *, payload_identifier: str, display_name: str) -> Dict[str, Any]:
+    def build_payload(
+        self, *, payload_identifier: str, display_name: str
+    ) -> Dict[str, Any]:
         pages_items = self._build_pages_items()
-        return _build_hsl_payload(HslPayloadConfig(
-            dock_ids=self.dock,
-            pinned_ids=[],
-            folders={},
-            payload_identifier=payload_identifier,
-            display_name=display_name,
-            pages_items=pages_items,
-        ))
+        return _build_hsl_payload(
+            HslPayloadConfig(
+                dock_ids=self.dock,
+                pinned_ids=[],
+                folders={},
+                payload_identifier=payload_identifier,
+                display_name=display_name,
+                pages_items=pages_items,
+            )
+        )
 
     def build_profile(
         self,
@@ -189,7 +203,9 @@ class HomeScreenConfigBuilder:
         top_identifier: str,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
-        payload = self.build_payload(payload_identifier=payload_identifier, display_name=display_name)
+        payload = self.build_payload(
+            payload_identifier=payload_identifier, display_name=display_name
+        )
         profile: Dict[str, Any] = {
             "PayloadContent": [payload],
             "PayloadType": "Configuration",
@@ -261,6 +277,7 @@ def _normalize_pages_spec(pages_spec: Dict[Any, Any]) -> List[Dict[str, Any]]:
           apps: [...]
           folders: [...]
     """
+
     def _to_int(k: Any) -> int:
         try:
             return int(k)
@@ -270,10 +287,12 @@ def _normalize_pages_spec(pages_spec: Dict[Any, Any]) -> List[Dict[str, Any]]:
     ordered: List[Dict[str, Any]] = []
     for k in sorted(pages_spec.keys(), key=_to_int):
         v = pages_spec.get(k) or {}
-        ordered.append({
-            "apps": list(v.get("apps") or []),
-            "folders": list(v.get("folders") or []),
-        })
+        ordered.append(
+            {
+                "apps": list(v.get("apps") or []),
+                "folders": list(v.get("folders") or []),
+            }
+        )
     return ordered
 
 
@@ -386,7 +405,11 @@ def _add_auto_categorized_folders(
         target_page = 2
 
     assigned = _collect_assigned_apps(builder, config.dock, config.pins, config.folders)
-    remaining = [a for a in _list_apps_from_export(config.layout_export) if a and a not in assigned]
+    remaining = [
+        a
+        for a in _list_apps_from_export(config.layout_export)
+        if a and a not in assigned
+    ]
 
     buckets: Dict[str, List[str]] = {cat: [] for cat in config.auto_categories}
     for app_id in remaining:
@@ -458,14 +481,15 @@ def build_mobileconfig(
     # Auto-categorize remaining apps if enabled
     if auto_categories and layout_export:
         _add_auto_categorized_folders(
-            builder, AutoCategorizeConfig(
+            builder,
+            AutoCategorizeConfig(
                 auto_categories=auto_categories,
                 auto_categories_page=auto_categories_page,
                 layout_export=layout_export,
                 dock=dock,
                 pins=pins,
                 folders=folders,
-            )
+            ),
         )
 
     return builder.build_profile(

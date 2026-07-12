@@ -30,7 +30,7 @@ _MAX_FOLDER_PAGE_APPS = 9
 class ValidationIssue:
     """A single validation finding from ``validate_layout_json``."""
 
-    level: str   # 'error' or 'warning'
+    level: str  # 'error' or 'warning'
     message: str
 
 
@@ -46,10 +46,18 @@ def _validate_dock(dock: object, issues: list[ValidationIssue]) -> set[str]:
 
     for item in dock:
         if not isinstance(item, str):
-            issues.append(ValidationIssue("error", f"dock item must be a string, got: {type(item).__name__}"))
+            issues.append(
+                ValidationIssue(
+                    "error", f"dock item must be a string, got: {type(item).__name__}"
+                )
+            )
 
     if len(dock) > _MAX_DOCK_ITEMS:
-        issues.append(ValidationIssue("error", f"dock has {len(dock)} items; max is {_MAX_DOCK_ITEMS}"))
+        issues.append(
+            ValidationIssue(
+                "error", f"dock has {len(dock)} items; max is {_MAX_DOCK_ITEMS}"
+            )
+        )
 
     return set(item for item in dock if isinstance(item, str))
 
@@ -64,9 +72,15 @@ def _validate_bundle_id(
     """Check a single bundle ID and record it in all_bundle_ids."""
     all_bundle_ids.append(app)
     if not _is_bundle_id(app):
-        issues.append(ValidationIssue("warning", f"'{app}' does not look like a bundle ID (no dot)"))
+        issues.append(
+            ValidationIssue(
+                "warning", f"'{app}' does not look like a bundle ID (no dot)"
+            )
+        )
     if app in dock_set:
-        issues.append(ValidationIssue("error", f"'{app}' appears in both dock and {context}"))
+        issues.append(
+            ValidationIssue("error", f"'{app}' appears in both dock and {context}")
+        )
 
 
 def _validate_folder_page(
@@ -79,17 +93,25 @@ def _validate_folder_page(
 ) -> None:
     """Validate a single folder page (list of bundle IDs)."""
     if len(page) > _MAX_FOLDER_PAGE_APPS:
-        issues.append(ValidationIssue(
-            "warning",
-            f"folder '{folder_name}' page {page_index} has {len(page)} apps; "
-            f"recommended max is {_MAX_FOLDER_PAGE_APPS}",
-        ))
+        issues.append(
+            ValidationIssue(
+                "warning",
+                f"folder '{folder_name}' page {page_index} has {len(page)} apps; "
+                f"recommended max is {_MAX_FOLDER_PAGE_APPS}",
+            )
+        )
     if len(page) == 0:
-        issues.append(ValidationIssue("warning", f"folder '{folder_name}' page {page_index} is empty"))
+        issues.append(
+            ValidationIssue(
+                "warning", f"folder '{folder_name}' page {page_index} is empty"
+            )
+        )
 
     for app in page:
         if isinstance(app, str):
-            _validate_bundle_id(app, f"folder '{folder_name}'", dock_set, all_bundle_ids, issues)
+            _validate_bundle_id(
+                app, f"folder '{folder_name}'", dock_set, all_bundle_ids, issues
+            )
 
 
 def _validate_folder(
@@ -104,28 +126,36 @@ def _validate_folder(
         return
 
     if not isinstance(folder[0], str):
-        issues.append(ValidationIssue(
-            "error",
-            f"folder first element must be a string name, got: {type(folder[0]).__name__}",
-        ))
+        issues.append(
+            ValidationIssue(
+                "error",
+                f"folder first element must be a string name, got: {type(folder[0]).__name__}",
+            )
+        )
         return
 
     folder_name: str = folder[0]
 
     for i, item in enumerate(folder[1:], start=1):
         if isinstance(item, str):
-            issues.append(ValidationIssue(
-                "error",
-                f"folder '{folder_name}' item {i} is a string ('{item}'); "
-                "folder pages must be lists of bundle IDs, not flat strings",
-            ))
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    f"folder '{folder_name}' item {i} is a string ('{item}'); "
+                    "folder pages must be lists of bundle IDs, not flat strings",
+                )
+            )
         elif isinstance(item, list):
-            _validate_folder_page(folder_name, i, item, dock_set, all_bundle_ids, issues)
+            _validate_folder_page(
+                folder_name, i, item, dock_set, all_bundle_ids, issues
+            )
         else:
-            issues.append(ValidationIssue(
-                "warning",
-                f"folder '{folder_name}' item {i} is unexpected type: {type(item).__name__}",
-            ))
+            issues.append(
+                ValidationIssue(
+                    "warning",
+                    f"folder '{folder_name}' item {i} is unexpected type: {type(item).__name__}",
+                )
+            )
 
 
 def _validate_page_item(
@@ -141,10 +171,12 @@ def _validate_page_item(
     elif isinstance(item, list):
         _validate_folder(item, dock_set, all_bundle_ids, issues)
     else:
-        issues.append(ValidationIssue(
-            "warning",
-            f"page {page_idx} contains unexpected item type: {type(item).__name__}",
-        ))
+        issues.append(
+            ValidationIssue(
+                "warning",
+                f"page {page_idx} contains unexpected item type: {type(item).__name__}",
+            )
+        )
 
 
 def _validate_page(
@@ -161,10 +193,12 @@ def _validate_page(
         for item in page:
             _validate_page_item(item, page_idx, dock_set, all_bundle_ids, issues)
     else:
-        issues.append(ValidationIssue(
-            "error",
-            f"page {page_idx} must be a string or list, got: {type(page).__name__}",
-        ))
+        issues.append(
+            ValidationIssue(
+                "error",
+                f"page {page_idx} must be a string or list, got: {type(page).__name__}",
+            )
+        )
 
 
 def _check_duplicates(all_bundle_ids: list[str], issues: list[ValidationIssue]) -> None:
@@ -183,7 +217,9 @@ def _check_unplaced(
     placed = set(all_bundle_ids)
     for app in device_apps:
         if app not in placed:
-            issues.append(ValidationIssue("warning", f"device app not placed in layout: '{app}'"))
+            issues.append(
+                ValidationIssue("warning", f"device app not placed in layout: '{app}'")
+            )
 
 
 def validate_layout_json(
@@ -203,10 +239,12 @@ def validate_layout_json(
     issues: list[ValidationIssue] = []
 
     if not isinstance(layout, list) or len(layout) < 2:
-        issues.append(ValidationIssue(
-            "error",
-            "layout must be a list with at least 2 items (dock + ≥1 page)",
-        ))
+        issues.append(
+            ValidationIssue(
+                "error",
+                "layout must be a list with at least 2 items (dock + ≥1 page)",
+            )
+        )
         return issues
 
     dock = layout[0]

@@ -20,7 +20,9 @@ def find_latest_backup_dir(mobilesync_dir: Optional[Path] = None) -> Optional[Pa
       ~/Library/Application Support/MobileSync/Backup/<UDID>/
     """
     if mobilesync_dir is None:
-        mobilesync_dir = Path.home() / "Library" / "Application Support" / "MobileSync" / "Backup"
+        mobilesync_dir = (
+            Path.home() / "Library" / "Application Support" / "MobileSync" / "Backup"
+        )
     if not mobilesync_dir.exists():
         return None
     # Choose by most recent Manifest.db mtime when present, else dir mtime.
@@ -37,7 +39,9 @@ def find_latest_backup_dir(mobilesync_dir: Optional[Path] = None) -> Optional[Pa
     return candidates[0][1]
 
 
-def _manifest_select(db_path: Path, sql: str, params: Tuple[Any, ...]) -> list[sqlite3.Row]:
+def _manifest_select(
+    db_path: Path, sql: str, params: Tuple[Any, ...]
+) -> list[sqlite3.Row]:
     con = sqlite3.connect(str(db_path))
     try:
         con.row_factory = sqlite3.Row
@@ -95,4 +99,3 @@ def find_iconstate_file(backup_dir: Path) -> Optional[IconStateFile]:
 def load_plist(path: Path) -> Dict[str, Any]:
     with path.open("rb") as f:
         return plistlib.load(f)
-

@@ -18,27 +18,39 @@ FOLDERS = [
 ]
 
 # Stock Apple apps that are often unused
-STOCK_MAYBE_UNUSED = frozenset({
-    "com.apple.tips",
-    "com.apple.stocks",
-    "com.apple.measure",
-    "com.apple.compass",
-    "com.apple.podcasts",
-    "com.apple.books",
-})
+STOCK_MAYBE_UNUSED = frozenset(
+    {
+        "com.apple.tips",
+        "com.apple.stocks",
+        "com.apple.measure",
+        "com.apple.compass",
+        "com.apple.podcasts",
+        "com.apple.books",
+    }
+)
 
 # Common Apple apps users typically want to keep accessible
-COMMON_KEEP = frozenset({
-    "com.apple.camera",
-    "com.apple.Preferences",
-    "com.apple.facetime",
-    "com.apple.mobilephone",
-    "com.apple.mobilesafari",
-    "com.apple.MobileSMS",
-    "com.apple.mobilemail",
-    "com.apple.Maps",
-})
+COMMON_KEEP = frozenset(
+    {
+        "com.apple.camera",
+        "com.apple.Preferences",
+        "com.apple.facetime",
+        "com.apple.mobilephone",
+        "com.apple.mobilesafari",
+        "com.apple.MobileSMS",
+        "com.apple.mobilemail",
+        "com.apple.Maps",
+    }
+)
 
 # Credential key names for supervision identity
-P12_PATH_KEYS = ("supervision_identity_p12", "ios_home_layout_identity_p12", "supervision_p12")
-P12_PASS_KEYS = ("supervision_identity_pass", "ios_home_layout_identity_pass", "supervision_p12_pass")
+P12_PATH_KEYS = (
+    "supervision_identity_p12",
+    "ios_home_layout_identity_p12",
+    "supervision_p12",
+)
+P12_PASS_KEYS = (
+    "supervision_identity_pass",
+    "ios_home_layout_identity_pass",
+    "supervision_p12_pass",
+)
