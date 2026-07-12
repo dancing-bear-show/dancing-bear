@@ -124,10 +124,16 @@ class Page:
 class HomeScreenConfigBuilder:
     """Object-oriented builder for Home Screen layout payloads."""
 
-    def __init__(self, layout_export: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        layout_export: Optional[Dict[str, Any]] = None,
+        *,
+        folder_page_size: int = 30,
+    ) -> None:
         self.layout_export = layout_export or {"dock": [], "pages": []}
         self.dock: List[str] = []
         self.pages: Dict[int, Page] = {}
+        self.folder_page_size = folder_page_size
 
     def set_dock(self, dock_ids: List[str]) -> None:
         self.dock = [d for d in dock_ids if isinstance(d, str) and d]
@@ -144,7 +150,9 @@ class HomeScreenConfigBuilder:
 
     def add_folder(self, page: int, name: str, apps: List[str]) -> None:
         self._ensure_page(page)
-        self.pages[page].folders.append(FolderItem(name or "Folder", [AppItem(a) for a in apps or []]))
+        self.pages[page].folders.append(
+            FolderItem(name or "Folder", [AppItem(a) for a in apps or []], page_size=self.folder_page_size)
+        )
 
     def add_all_apps_folder(self, *, page: int, name: str = "All Apps", exclude: Optional[Set[str]] = None) -> None:
         if not self.layout_export:
@@ -403,6 +411,7 @@ def build_mobileconfig(
     all_apps_folder: Optional[Dict[str, Any]] = None,
     auto_categories: Optional[List[str]] = None,
     auto_categories_page: int = 2,
+    folder_page_size: int = 30,
 ) -> Dict[str, Any]:
     """Return a Configuration profile dict suitable for plistlib.dump().
 
@@ -422,7 +431,10 @@ def build_mobileconfig(
     dock = _resolve_dock(plan, layout_export, pins, dock_count)
 
     # Initialize builder and configure dock
-    builder = HomeScreenConfigBuilder(layout_export or {"dock": [], "pages": []})
+    builder = HomeScreenConfigBuilder(
+        layout_export or {"dock": [], "pages": []},
+        folder_page_size=folder_page_size,
+    )
     builder.set_dock(dock)
 
     # Build pages from specification or use defaults
