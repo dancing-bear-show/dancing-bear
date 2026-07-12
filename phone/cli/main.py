@@ -669,7 +669,7 @@ def _sign_mobileconfig(
     "--folder-page-size",
     type=int,
     default=30,
-    help="Apps per folder page (9 for iPhone grids; default 30)",
+    help="Apps per folder page, must be >= 1 (9 for iPhone grids; default 30)",
 )
 @profile_group.argument(
     "--sign-p12", help="Path to .p12 certificate for signing the profile"
