@@ -31,7 +31,9 @@ def find_cfgutil_path() -> str:
     alt = "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil"
     if Path(alt).exists():
         return alt
-    raise FileNotFoundError("cfgutil not found; install Apple Configurator or add cfgutil to PATH")
+    raise FileNotFoundError(
+        "cfgutil not found; install Apple Configurator or add cfgutil to PATH"
+    )
 
 
 def _extract_ecid_from_parts(parts: List[str]) -> str:
@@ -52,7 +54,9 @@ def _extract_ecid_from_parts(parts: List[str]) -> str:
 def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     """Map a device UDID to its ECID via cfgutil list."""
     try:
-        out = subprocess.check_output([cfgutil, "list"], stderr=subprocess.STDOUT, text=True)  # nosec B603 - cfgutil from find_cfgutil_path()
+        out = subprocess.check_output(
+            [cfgutil, "list"], stderr=subprocess.STDOUT, text=True
+        )  # nosec B603 - cfgutil from find_cfgutil_path()
     except Exception as e:
         raise RuntimeError(f"cfgutil list failed: {e}")
     for line in out.splitlines():
@@ -161,12 +165,16 @@ def _parse_plist_format(data: Dict) -> Dict[str, Any]:
     """Parse cfgutil plist format with buttonBar/iconLists keys."""
     dock = [bid for it in (data.get("buttonBar") or []) if (bid := _get_bundle_id(it))]
     pages: List[Dict[str, Any]] = []
-    for page in (data.get("iconLists") or []):
+    for page in data.get("iconLists") or []:
         page_out: Dict[str, Any] = {"apps": [], "folders": []}
-        for it in (page or []):
+        for it in page or []:
             if isinstance(it, dict) and "iconLists" in it and "displayName" in it:
                 name = it.get("displayName") or "Folder"
-                flist = [bid for sub in (it.get("iconLists") or [[]])[0] if (bid := _get_bundle_id(sub))]
+                flist = [
+                    bid
+                    for sub in (it.get("iconLists") or [[]])[0]
+                    if (bid := _get_bundle_id(sub))
+                ]
                 page_out["folders"].append({"name": name, "apps": flist})
             elif bid := _get_bundle_id(it):
                 page_out["apps"].append(bid)
@@ -191,7 +199,9 @@ def _fallback_parse(data: Any) -> Dict[str, Any]:
 # -----------------------------------------------------------------------------
 
 
-def read_credentials_ini(explicit: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Dict[str, str]]]:
+def read_credentials_ini(
+    explicit: Optional[str] = None,
+) -> Tuple[Optional[str], Dict[str, Dict[str, str]]]:
     """Read credentials.ini and return (path, sections_dict)."""
     candidates: List[str] = []
     if explicit:
@@ -302,7 +312,9 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
         return None
 
     try:
-        out = subprocess.check_output([cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True)  # nosec B603 - cfg from find_cfgutil_path()
+        out = subprocess.check_output(
+            [cfg, "get", "Supervised"], stderr=subprocess.DEVNULL, text=True
+        )  # nosec B603 - cfg from find_cfgutil_path()
         if "Supervised:" in out:
             return out.split(":", 1)[1].strip()
     except Exception:  # nosec B110 - cfgutil query failure
