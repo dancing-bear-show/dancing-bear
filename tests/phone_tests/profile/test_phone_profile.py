@@ -48,3 +48,31 @@ class TestPhoneProfile(unittest.TestCase):
         all_apps_folder = pages[1][0]
         self.assertEqual(all_apps_folder["DisplayName"], "All Apps")
         self.assertEqual(set(_extract_folder_apps(all_apps_folder)), {"com.example.b", "com.example.c"})
+
+    def test_build_mobileconfig_folder_page_size_chunks_folder_pages(self):
+        apps = [f"com.example.app{i}" for i in range(20)]
+        plan = {
+            "dock": ["com.example.dock"],
+            "folders": {"Big": apps},
+            "pages": {1: {"folders": ["Big"]}},
+        }
+
+        profile = build_mobileconfig(plan=plan, folder_page_size=9)
+
+        folder = profile["PayloadContent"][0]["Pages"][0][0]
+        self.assertEqual(folder["DisplayName"], "Big")
+        self.assertEqual([len(p) for p in folder["Pages"]], [9, 9, 2])
+        self.assertEqual(_extract_folder_apps(folder), apps)
+
+    def test_build_mobileconfig_default_folder_page_size_unchanged(self):
+        apps = [f"com.example.app{i}" for i in range(20)]
+        plan = {
+            "dock": ["com.example.dock"],
+            "folders": {"Big": apps},
+            "pages": {1: {"folders": ["Big"]}},
+        }
+
+        profile = build_mobileconfig(plan=plan)
+
+        folder = profile["PayloadContent"][0]["Pages"][0][0]
+        self.assertEqual([len(p) for p in folder["Pages"]], [20])
