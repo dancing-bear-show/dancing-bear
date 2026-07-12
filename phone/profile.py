@@ -296,6 +296,13 @@ def _normalize_pages_spec(pages_spec: Dict[Any, Any]) -> List[Dict[str, Any]]:
     return ordered
 
 
+def _validate_folder_page_size(folder_page_size: int) -> None:
+    """Reject non-positive page sizes so the <=0 'unlimited' sentinel in
+    FolderItem.as_spec() cannot be reached through the public build path."""
+    if folder_page_size < 1:
+        raise ValueError(f"folder_page_size must be >= 1, got {folder_page_size}")
+
+
 def _resolve_dock(
     plan: Dict[str, Any],
     layout_export: Optional[Dict[str, Any]],
@@ -446,6 +453,7 @@ def build_mobileconfig(
     Page 1 contains remaining pins, then folders (single page each).
     Optionally place all remaining apps into a single folder (all_apps_folder) on a target page.
     """
+    _validate_folder_page_size(folder_page_size)
     meta = profile_meta or ProfileMetadata()
     pins: List[str] = list(plan.get("pins") or [])
     folders: Dict[str, List[str]] = dict(plan.get("folders") or {})
