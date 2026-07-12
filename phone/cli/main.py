@@ -490,6 +490,7 @@ def _sign_mobileconfig(in_path: Path, out_path: Path, p12_path: Path, p12_pass: 
 @profile_group.argument("--dock-count", type=int, default=4, help="Dock count from pins when --layout missing (default 4)")
 @profile_group.argument("--all-apps-folder-name", help="Optional folder name for all remaining apps (requires --layout)")
 @profile_group.argument("--all-apps-folder-page", type=int, help="Page number to place the all-apps folder (requires --layout)")
+@profile_group.argument("--folder-page-size", type=int, default=30, help="Apps per folder page (9 for iPhone grids; default 30)")
 @profile_group.argument("--sign-p12", help="Path to .p12 certificate for signing the profile")
 @profile_group.argument("--sign-pass", help="Password for .p12 certificate (or set IOS_SIGN_PASS env var)")
 def cmd_profile_build(args) -> int:
@@ -513,6 +514,7 @@ def cmd_profile_build(args) -> int:
             ),
             dock_count=max(0, int(getattr(args, "dock_count", 4))),
             all_apps_folder=all_apps_folder,
+            folder_page_size=int(getattr(args, "folder_page_size", 30)),
         )
 
         out_path = Path(args.out)
