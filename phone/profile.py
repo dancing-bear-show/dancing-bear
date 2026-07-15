@@ -450,7 +450,9 @@ def build_mobileconfig(
 
     Dock comes from `layout_export['dock']` when provided; otherwise, take
     the first N from plan['pins'] (N=dock_count, default 4).
-    Page 1 contains remaining pins, then folders (single page each).
+    Page 1 contains remaining pins, then folders. Folder contents are chunked
+    into sub-pages of folder_page_size apps each (default 30; use 9 for
+    iPhone 3x3 folder grids; must be >= 1).
     Optionally place all remaining apps into a single folder (all_apps_folder) on a target page.
     """
     _validate_folder_page_size(folder_page_size)
