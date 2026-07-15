@@ -554,6 +554,26 @@ class TestInlineCommands(unittest.TestCase):
     @patch("phone.cli.main.build_mobileconfig")
     @patch("phone.cli.main._build_all_apps_folder_config")
     @patch("phone.cli.main._write_mobileconfig")
+    def test_profile_build_forwards_folder_page_size(
+        self, mock_write, mock_folder, mock_build, mock_read
+    ):
+        """Test cmd_profile_build passes --folder-page-size to build_mobileconfig."""
+        from phone.cli.main import cmd_profile_build
+
+        mock_read.return_value = make_mock_plan()
+        mock_folder.return_value = None
+        mock_build.return_value = {"test": "profile"}
+        args = make_profile_build_args(plan="plan.yaml", folder_page_size=9)
+
+        result = cmd_profile_build(args)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_build.call_args.kwargs["folder_page_size"], 9)
+
+    @patch("phone.cli.main.read_yaml")
+    @patch("phone.cli.main.build_mobileconfig")
+    @patch("phone.cli.main._build_all_apps_folder_config")
+    @patch("phone.cli.main._write_mobileconfig")
     def test_profile_build_uses_all_apps_folder_helper(self, mock_write, mock_folder, mock_build, mock_read):
         """Test cmd_profile_build uses _build_all_apps_folder_config helper."""
         from phone.cli.main import cmd_profile_build

@@ -206,6 +206,7 @@ _PROFILE_BUILD_DEFAULTS: Dict[str, Any] = {
     "all_apps_folder_name": None,
     "all_apps_folder_page": None,
     "dock_count": 4,
+    "folder_page_size": 30,
     "sign_p12": None,
     "sign_pass": None,
 }
