@@ -1,7 +1,4 @@
-"""Secret masking utilities for logs, errors, and URLs.
-
-Ported from cars-sre-utils (stdlib-only, conservative masking).
-"""
+"""Secret masking utilities for logs, errors, and URLs."""
 
 from __future__ import annotations
 

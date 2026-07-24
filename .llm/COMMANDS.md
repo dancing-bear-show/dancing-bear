@@ -85,7 +85,7 @@ Supervision identity helpers (silent install):
 - Install using the identity directly:
   - `./bin/ios-install-profile --udid <UDID> --profile out/ipad.hslayout.mobileconfig --p12 "/Users/you/Documents/sherwin family.p12" --p12-pass 'PASSWORD'`
 - Read from credentials.ini (preferred, descriptive names):
-  - Put this in `~/.config/sre-utils/credentials.ini` (or `$SRE_CREDENTIALS`):
+  - Put this in `~/.config/credentials.ini` (or `$CREDENTIALS`):
     [ios_layout_manager]
     supervision_identity_p12 = /Users/you/Documents/SHERWIN.p12
     supervision_identity_pass = YOURPASSWORD

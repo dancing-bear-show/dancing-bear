@@ -27,7 +27,7 @@ Find coverage gaps, write tests, and verify improvement.
 ./bin/test-gaps --format table
 
 # Per-file coverage from qlty
-./bin/qlty file-coverage -- --project cars-sre-utils --format yaml
+./bin/qlty file-coverage -- --project dancing-bear --format yaml
 
 # Run tests with coverage for a specific domain
 python3 -m unittest tests/<domain>/ --cov=<domain> --cov-report=term-missing -x

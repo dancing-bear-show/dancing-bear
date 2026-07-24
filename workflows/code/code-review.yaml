@@ -53,7 +53,7 @@ description: >
   agents. Use pr_size=large for PRs with > 10 changed files or > 300 diff lines.
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-05-27"
   updated: "2026-06-15"
 

@@ -2,7 +2,7 @@ meta:
   name: mail_familiarize
   version: 2
 
-# Adapted from cars-sre-utils familiarize capsule (capsule-only policy)
+# capsule-only familiarize policy
 identity:
   name: Mail Assistant
   summary: Gmail/Outlook CLI for labels, filters/rules, signatures
@@ -33,6 +33,6 @@ directory_map:
   bin: bin
 
 notes:
-  - Use profiles in ~/.config/sre-utils/credentials.ini (avoid --credentials/--token)
+  - Use profiles in ~/.config/credentials.ini (avoid --credentials/--token)
   - Unified filters at config/filters_unified.yaml; derive provider configs, do not hand-edit outputs
   - Plan → Apply → Verify for both Gmail and Outlook flows

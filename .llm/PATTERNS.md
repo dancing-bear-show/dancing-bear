@@ -90,7 +90,7 @@ Schedule Planning/Apply
 Profile-Based Credentials
 ```
 # ~/.config/credentials.ini (preferred)
-# Legacy paths also supported: ~/.config/sre-utils/, ~/.config/sreutils/
+# Legacy paths also supported: ~/.config/sreutils/
 [mail.gmail_personal]
 credentials = /Users/you/.config/google_credentials.gmail_personal.json
 token = /Users/you/.config/token.gmail_personal.json

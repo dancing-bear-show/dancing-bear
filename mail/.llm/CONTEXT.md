@@ -15,7 +15,7 @@ Key Workflows
   - Outlook: `outlook rules list` and spot-check against `out/filters.outlook.from_unified.yaml`
 
 Auth & Profiles
-- Prefer profiles in INI: `~/.config/sre-utils/credentials.ini` (or `~/.config/sreutils/credentials.ini`).
+- Prefer profiles in INI: `~/.config/credentials.ini` (or `~/.config/sreutils/credentials.ini`).
 - Sections: `[mail]` or `[mail.<profile>]`.
 - Keys: `credentials`, `token`, `outlook_client_id`, `tenant`, `outlook_token`.
 - Use `--profile` instead of passing `--credentials`/`--token` repeatedly.

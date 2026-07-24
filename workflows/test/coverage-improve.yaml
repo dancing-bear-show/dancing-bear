@@ -25,7 +25,7 @@ description: >
       present-results  [human gate]               (G5 — final summary + PR decision)
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-06-19"
 
 trigger:

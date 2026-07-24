@@ -134,7 +134,7 @@ File-First Credentials (Preferred)
 - Use profiles in `~/.config/credentials.ini` (or `$XDG_CONFIG_HOME/credentials.ini`).
 - Gmail profile example: `[mail.gmail_personal]` with `credentials` and `token` file paths.
 - Outlook profile example: `[mail.outlook_personal]` with `outlook_client_id`, `tenant`, and `outlook_token`.
-- Search order: `$CREDENTIALS` -> `$XDG_CONFIG_HOME/credentials.ini` -> `~/.config/credentials.ini` -> `~/.config/sre-utils/credentials.ini` -> `~/.config/sreutils/credentials.ini` -> `~/.sre-utils/credentials.ini`.
+- Search order: `$CREDENTIALS` -> `$XDG_CONFIG_HOME/credentials.ini` -> `~/.config/credentials.ini` -> `~/.config/sreutils/credentials.ini`.
 
 Code Quality & Testing
 - Linting: `~/.qlty/bin/qlty check <path>` (ruff + bandit + complexity metrics)

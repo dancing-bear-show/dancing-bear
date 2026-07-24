@@ -3,7 +3,7 @@ Canonical tracker for provider-based architecture
 
 Current Status
 - Base provider abstraction present; Gmail and Outlook paths implemented where applicable
-- Profile-aware credentials via `~/.config/sre-utils/credentials.ini`
+- Profile-aware credentials via `~/.config/credentials.ini`
 - Outlook device-code auth split into `outlook auth device-code` and `outlook auth poll`
 - Gmail commands include labels: prune-empty/sweep-parents; filters: export/plan/sync (dry-run first)
 - YAML read/write helpers centralized; optional JSON cache helpers available
