@@ -150,8 +150,12 @@ class TestSequenceDiagramBuilderRequestResponse(unittest.TestCase):
 
     def test_response_uses_dashed_arrow(self):
         out = SequenceDiagramBuilder().response("B", "A", "200 OK").render()
-        # dashed arrow -->> with deactivation -
-        self.assertIn("B-->>-A: 200 OK", out)
+        # dashed arrow -->> followed by a separate deactivate directive targeting
+        # the *sender* (B), not the destination. Mermaid's "B-->>-A" syntax
+        # deactivates the destination A, which is wrong for a response; we emit
+        # "deactivate B" on a separate line so the sender is deactivated instead.
+        self.assertIn("B-->>A: 200 OK", out)
+        self.assertIn("deactivate B", out)
 
     def test_request_response_returns_self(self):
         b = SequenceDiagramBuilder()
@@ -168,7 +172,9 @@ class TestSequenceDiagramBuilderRequestResponse(unittest.TestCase):
             .render()
         )
         self.assertIn("C->>+S: Login", out)
-        self.assertIn("S-->>-C: Token", out)
+        # Server (src) is deactivated after the response, not the Client (dst).
+        self.assertIn("S-->>C: Token", out)
+        self.assertIn("deactivate S", out)
 
 
 class TestSequenceDiagramBuilderActivateDeactivate(unittest.TestCase):
@@ -219,7 +225,9 @@ class TestSequenceDiagramBuilderChaining(unittest.TestCase):
         self.assertIn("participant C as Client", out)
         self.assertIn("actor U as User", out)
         self.assertIn("C->>+U: Ping", out)
-        self.assertIn("U-->>-C: Pong", out)
+        # User (src) is deactivated after responding; deactivate targets sender U.
+        self.assertIn("U-->>C: Pong", out)
+        self.assertIn("deactivate U", out)
         self.assertIn("activate C", out)
         self.assertIn("deactivate C", out)
 

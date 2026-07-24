@@ -98,7 +98,12 @@ def find_rotated_files(base_path: Path) -> list[Path]:
     filename = base_path.name
     parent = base_path.parent
 
-    for rotated in sorted(parent.glob(f"{filename}.*")):
+    for rotated in sorted(
+        parent.glob(f"{filename}.*"),
+        key=lambda p: int(p.name.removeprefix(f"{filename}."))
+        if p.name.removeprefix(f"{filename}.").isdigit()
+        else -1,
+    ):
         suffix = rotated.name.removeprefix(f"{filename}.")
         if suffix.isdigit():
             files.append(rotated)

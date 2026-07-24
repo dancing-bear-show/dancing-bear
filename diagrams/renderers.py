@@ -173,6 +173,13 @@ class LocalRenderer:
         Raises:
             LocalRendererError: If rendering fails.
         """
+        _SUPPORTED_FORMATS = {"svg", "png", "pdf"}
+        if output_format not in _SUPPORTED_FORMATS:
+            raise ValueError(
+                f"Unsupported format {output_format!r}. "
+                f"Choose one of: {', '.join(sorted(_SUPPORTED_FORMATS))}"
+            )
+
         import pathlib
         import tempfile
 

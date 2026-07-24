@@ -85,7 +85,7 @@ _app_version_cache: str | None = None
 
 def _build_version() -> str:
     try:
-        sha = subprocess.check_output(
+        sha = subprocess.check_output(  # nosec B603 B607 - fixed git command with no user input
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).resolve().parent,
             stderr=subprocess.DEVNULL,

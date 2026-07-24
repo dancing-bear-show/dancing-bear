@@ -188,12 +188,16 @@ class SequenceDiagramBuilder:
         deactivate: bool = False,
     ) -> SequenceDiagramBuilder:
         """Add a message between participants."""
-        suffix = ""
-        if activate:
-            suffix = "+"
-        elif deactivate:
-            suffix = "-"
+        # For activation, Mermaid's +/- shorthand goes before the destination:
+        #   "A->>+B: msg" activates B (receiver) — correct for requests.
+        # For deactivation on a response, the notation "A-->>-B: msg" would
+        # deactivate B (the destination), not A (the sender/source). The
+        # docstring for response() says it deactivates the *sender*, so we emit
+        # a separate "deactivate {src}" directive after the message line instead.
+        suffix = "+"  if activate else ""
         self._steps.append(f"    {src}{arrow}{suffix}{dst}: {text}")
+        if deactivate:
+            self._steps.append(f"    deactivate {src}")
         return self
 
     def request(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
