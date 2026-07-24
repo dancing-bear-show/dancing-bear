@@ -411,14 +411,14 @@ class TestRenderChartMocked(unittest.TestCase):
             with self._mock_matplotlib():
                 from charts.renderer import render_chart
                 with self.assertRaises(ValueError):
-                    render_chart(spec, "/tmp/out.gif")
+                    render_chart(spec, "test-output/out.gif")
 
     def test_negative_dpi_raises(self):
         with patch("charts.renderer._require_matplotlib"):
             with self._mock_matplotlib():
                 from charts.renderer import render_chart
                 with self.assertRaises(ValueError):
-                    render_chart(self._make_spec(), "/tmp/out.png", dpi=-1)
+                    render_chart(self._make_spec(), "test-output/out.png", dpi=-1)
 
 
 class TestRenderChartImportError(unittest.TestCase):

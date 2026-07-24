@@ -298,7 +298,7 @@ def emit_one(data: object, fmt: str = "json") -> None:
         print(json.dumps(data, indent=2, default=str))
 
 
-def emit_rows(
+def emit_rows(  # noqa: S3516 - NOSONAR - always returns 0 by design; callers chain return emit_rows() as exit code
     rows: list[dict[str, object]],
     fmt: str = "json",
     headers: list[str] | None = None,
@@ -306,7 +306,7 @@ def emit_rows(
 ) -> int:
     """Emit list of dicts as table, json, or csv. Returns 0 on success."""
     if not rows:
-        print(empty_msg)
+        print(empty_msg, file=sys.stderr)
         return 0
     if fmt == "json":
         print(json.dumps(rows, default=str))

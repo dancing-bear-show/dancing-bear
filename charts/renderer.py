@@ -204,9 +204,10 @@ def _parse_iso_to_datetime(value: str) -> datetime.datetime:
     try:
         dt = datetime.datetime.fromisoformat(value)
         if dt.tzinfo is not None:
+            # Intentionally strip tzinfo: matplotlib expects naive UTC datetimes for axis comparisons
             dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
         return dt
-    except ValueError:
+    except ValueError:  # nosec B110 - intentional fallback: if not ISO datetime, try date-only below
         pass
     return datetime.datetime.combine(datetime.date.fromisoformat(value), datetime.time.min)
 
@@ -222,13 +223,13 @@ def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[object
     try:
         parsed = [_parse_iso_to_datetime(v) for v in unique_raw]
         return sorted(parsed), True
-    except ValueError:
+    except ValueError:  # nosec B110 - intentional fallback: values are not datetime strings; try numeric
         pass
 
     try:
         nums = [float(v) for v in unique_raw]
         return sorted(nums), False
-    except ValueError:
+    except ValueError:  # nosec B110 - intentional fallback: values are not numeric; fall back to string sort
         pass
 
     return sorted(unique_raw), False
@@ -359,7 +360,7 @@ def _x_key(v: object) -> str:
         return datetime.datetime.combine(v, datetime.time.min).isoformat()
     try:
         return _parse_iso_to_datetime(str(v)).isoformat()
-    except ValueError:
+    except ValueError:  # nosec B110 - intentional fallback: not a datetime string; try numeric
         pass
     try:
         f = float(str(v))

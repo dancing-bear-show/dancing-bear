@@ -19,7 +19,7 @@ EVENTS_FILE = "events.jsonl"
 SPANS_FILE = "spans.jsonl"
 
 
-@dataclass
+@dataclass(frozen=True)
 class OTLPDataDir:
     """Represents the directory containing OTLP telemetry data files."""
 
