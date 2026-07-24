@@ -18,7 +18,6 @@ from phone.profile import (
     _collect_apps,
     _collect_assigned_apps,
     _collect_page_apps,
-    _folder_item,
     _list_apps_from_export,
     _normalize_pages_spec,
     _resolve_dock,
@@ -69,21 +68,21 @@ class TestFolderItem(unittest.TestCase):
 
 class TestFolderItemFunction(unittest.TestCase):
     def test_folder_item_basic(self):
-        result = _folder_item("Work", ["com.slack", "com.mail"])
+        result = FolderItem("Work", [AppItem(a) for a in ["com.slack", "com.mail"]]).as_spec()
         self.assertEqual(result["Type"], "Folder")
         self.assertEqual(result["DisplayName"], "Work")
 
     def test_folder_item_zero_page_size(self):
-        result = _folder_item("Work", ["com.app1", "com.app2"], page_size=0)
+        result = FolderItem("Work", [AppItem(a) for a in ["com.app1", "com.app2"]], page_size=0).as_spec()
         self.assertEqual(len(result["Pages"]), 1)
 
     def test_folder_item_filters_empty_apps(self):
-        result = _folder_item("Work", ["com.app1", "", "com.app2"])
+        result = FolderItem("Work", [AppItem(a) for a in ["com.app1", "com.app2"]]).as_spec()
         total_apps = sum(len(p) for p in result["Pages"])
         self.assertEqual(total_apps, 2)
 
     def test_folder_item_empty_apps(self):
-        result = _folder_item("Empty", [])
+        result = FolderItem("Empty").as_spec()
         self.assertEqual(result["Pages"], [[]])
 
 
