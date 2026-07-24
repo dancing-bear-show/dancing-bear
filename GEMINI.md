@@ -31,4 +31,4 @@ If safe auto-approvals are needed, mirror the approach from `configs/llm/gemini-
 - CLIs: `./bin/mail-assistant`, `./bin/calendar`, `./bin/schedule-assistant`, `./bin/phone`.
 - Auth: leverage `--profile gmail_personal|outlook_personal` (paths in `~/.config/credentials.ini`).
 - Tests: `python3 -m unittest tests/test_cli.py -v`, `make test`.
-- Config SoT: `config/filters_unified.yaml` for filters/rules; derived outputs in `out/`.
+- Config SoT: filter YAML lives in `config/` (not yet created); derived outputs in `out/`.

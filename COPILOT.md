@@ -37,7 +37,7 @@ For safe auto-approvals, follow `configs/llm/copilot-yolo.md` guidance (shared w
 ## Quick Reference
 - **Primary CLIs**:
   ```bash
-  ./bin/mail-assistant filters plan --config config/filters_unified.yaml --delete-missing
+  ./bin/mail-assistant filters plan --config config/filters_unified.yaml --delete-missing  # config/ not yet created
   ./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders
   ./bin/calendar outlook add-from-config --config config/calendar/your_family_blas.yaml
   ```

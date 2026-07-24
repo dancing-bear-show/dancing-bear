@@ -42,7 +42,7 @@ bin/                      # entry wrappers and helper scripts
 core/                     # shared helpers
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
-config/                   # YAML inputs (canonical source of truth)
+configs/                  # runtime config templates (e.g. launchd plist)
 out/                      # derived outputs and plans
 ```
 
@@ -165,8 +165,7 @@ outlook_token = /path/to/outlook_token.json
 
 ## Config Source of Truth
 
-- Canonical filters: `config/filters_unified.yaml`
-- Derived configs: `out/filters.gmail.from_unified.yaml`, `out/filters.outlook.from_unified.yaml`
+- Filter configs (when used): canonical YAML lives in `config/` (not yet created); derived outputs go to `out/`
 - Always run plan first, then apply with dry-run, then apply for real
 
 ## Security
