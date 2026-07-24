@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
 from maker.pipeline import (
-    ConsoleProducer,
-    ToolCatalogConsumer,
-    ToolCatalogFormatter,
+    ToolCatalogProcessor,
+    ToolCatalogRequest,
+    ToolCatalogRequestConsumer,
     ToolRequest,
     ToolRequestConsumer,
     ToolResult,
@@ -22,14 +22,17 @@ class MakerPipelineTests(TestCase):
     def setUp(self):
         self.tools_root = repo_root() / "maker"
 
-    def test_catalog_consumer_discovers_tools(self):
-        catalog = ToolCatalogConsumer(self.tools_root).consume()
-        self.assertTrue(any(spec.relative_path.match("card/*.py") for spec in catalog))
+    def test_catalog_processor_discovers_tools(self):
+        req = ToolCatalogRequest(tools_root=self.tools_root)
+        envelope = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(req).consume())
+        self.assertTrue(envelope.ok())
+        self.assertTrue(any(spec.relative_path.match("card/*.py") for spec in envelope.payload.specs))
 
-    def test_catalog_formatter_outputs_rows(self):
-        catalog = ToolCatalogConsumer(self.tools_root).consume()
-        output = ToolCatalogFormatter().process(catalog[:2])
-        self.assertIn("maker/", output)
+    def test_catalog_processor_formats_text(self):
+        req = ToolCatalogRequest(tools_root=self.tools_root)
+        envelope = ToolCatalogProcessor().process(ToolCatalogRequestConsumer(req).consume())
+        self.assertTrue(envelope.ok())
+        self.assertIn("maker/", envelope.payload.text)
 
     def test_tool_runner_imports_and_calls_entry_point(self):
         req = ToolRequest(module="test_module", entry_point="main")
@@ -54,7 +57,7 @@ class MakerPipelineTests(TestCase):
             envelope = processor.process(ToolRequestConsumer(req).consume())
 
         self.assertFalse(envelope.ok())
-        self.assertIn("no callable", envelope.payload.error)
+        self.assertIn("no callable", envelope.diagnostics["message"])
 
     def test_tool_runner_handles_exception(self):
         req = ToolRequest(module="test_module")
@@ -64,18 +67,11 @@ class MakerPipelineTests(TestCase):
             envelope = processor.process(ToolRequestConsumer(req).consume())
 
         self.assertFalse(envelope.ok())
-        self.assertIn("No such module", envelope.payload.error)
+        self.assertIn("No such module", envelope.diagnostics["message"])
 
     def test_tool_result_producer_reports_failure(self):
         buf = io.StringIO()
-        result = ToolResult(module="test.module", return_code=2, error="Something went wrong")
-        envelope = ResultEnvelope(status="error", payload=result)
+        envelope = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong"})
         with redirect_stdout(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Something went wrong", buf.getvalue())
-
-    def test_console_producer_prints_text(self):
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            ConsoleProducer().produce("hello")
-        self.assertEqual("hello\n", buf.getvalue())
