@@ -3,7 +3,7 @@ google-auth==2.55.0
 google-auth-httplib2==0.3.1
 google-auth-oauthlib==1.4.0
 httplib2==0.32.0
-requests==2.33.1
+requests==2.34.2
 urllib3==2.7.0
 PyYAML==6.0.3
 python-docx==1.2.0
