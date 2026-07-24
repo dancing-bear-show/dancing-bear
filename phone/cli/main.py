@@ -89,23 +89,36 @@ assistant = BaseAssistant(
 
 # Create command groups
 profile_group = app.group("profile", help="Home Screen Layout profile helpers")
-manifest_group = app.group("manifest", help="Simplified manifest helpers (embed complex plan)")
-identity_group = app.group("identity", help="Identity helpers (p12 ↔ device supervision parity)")
+manifest_group = app.group(
+    "manifest", help="Simplified manifest helpers (embed complex plan)"
+)
+identity_group = app.group(
+    "identity", help="Identity helpers (p12 ↔ device supervision parity)"
+)
 
 
 # --- Top-level commands ---
 
+
 @app.command("export", help="DEPRECATED: export layout from Finder backup to YAML")
-@app.argument("--backup", help="Path to Finder backup UDID dir (defaults to latest under MobileSync/Backup)")
+@app.argument(
+    "--backup",
+    help="Path to Finder backup UDID dir (defaults to latest under MobileSync/Backup)",
+)
 @app.argument("--out", help="Output YAML path (default out/ios.IconState.yaml)")
 def cmd_export(args) -> int:
-    print("Deprecated: 'phone export' uses Finder backups. Use 'phone export-device' or 'phone iconmap'.", file=sys.stderr)
+    print(
+        "Deprecated: 'phone export' uses Finder backups. Use 'phone export-device' or 'phone iconmap'.",
+        file=sys.stderr,
+    )
     out_path = Path(getattr(args, "out", None) or "out/ios.IconState.yaml")
     request = ExportRequest(backup=getattr(args, "backup", None), out_path=out_path)
     return run_pipeline(request, ExportProcessor, ExportProducer)
 
 
-@app.command("export-device", help="Export layout from attached device via cfgutil to YAML")
+@app.command(
+    "export-device", help="Export layout from attached device via cfgutil to YAML"
+)
 @app.argument("--udid", help="Device UDID (optional when only one device is attached)")
 @app.argument("--ecid", help="Device ECID (optional; overrides --udid)")
 @app.argument("--out", help="Output YAML path (default out/ios.IconState.yaml)")
@@ -122,7 +135,12 @@ def cmd_export_device(args) -> int:
 @app.command("iconmap", help="Download raw icon layout from device via cfgutil")
 @app.argument("--udid", help="Device UDID (optional when only one device is attached)")
 @app.argument("--ecid", help="Device ECID (optional; overrides --udid)")
-@app.argument("--format", choices=["json", "plist"], default="json", help="Output format (default json)")
+@app.argument(
+    "--format",
+    choices=["json", "plist"],
+    default="json",
+    help="Output format (default json)",
+)
 @app.argument("--out", help="Output path (default out/ios.iconmap.json or .plist)")
 def cmd_iconmap(args) -> int:
     fmt = getattr(args, "format", "json")
@@ -139,7 +157,9 @@ def cmd_iconmap(args) -> int:
 
 @app.command("plan", help="Scaffold a plan YAML (pins + folders) from current layout")
 @app.argument("--backup", help="Path to Finder backup UDID dir (or use --layout)")
-@app.argument("--layout", help="Existing export YAML to derive plan from (skips backup)")
+@app.argument(
+    "--layout", help="Existing export YAML to derive plan from (skips backup)"
+)
 @app.argument("--out", help="Output plan YAML path (default out/ios.plan.yaml)")
 def cmd_plan(args) -> int:
     out_path = Path(getattr(args, "out", None) or "out/ios.plan.yaml")
@@ -151,10 +171,14 @@ def cmd_plan(args) -> int:
     return run_pipeline(request, PlanProcessor, PlanProducer)
 
 
-@app.command("checklist", help="Generate manual move checklist from plan + current layout")
+@app.command(
+    "checklist", help="Generate manual move checklist from plan + current layout"
+)
 @app.argument("--plan", required=True, help="Plan YAML path")
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
+@app.argument(
+    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
+)
 @app.argument("--out", help="Output text path (default out/ios.checklist.txt)")
 def cmd_checklist(args) -> int:
     plan_path = Path(args.plan)
@@ -168,13 +192,26 @@ def cmd_checklist(args) -> int:
     return run_pipeline(request, ChecklistProcessor, ChecklistProducer)
 
 
-@app.command("unused", help="Suggest rarely-used app candidates from current layout (heuristic)")
+@app.command(
+    "unused", help="Suggest rarely-used app candidates from current layout (heuristic)"
+)
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
-@app.argument("--recent", help="Path to file with bundle IDs used recently (one per line)")
-@app.argument("--keep", help="Path to file with bundle IDs to always keep (one per line)")
+@app.argument(
+    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
+)
+@app.argument(
+    "--recent", help="Path to file with bundle IDs used recently (one per line)"
+)
+@app.argument(
+    "--keep", help="Path to file with bundle IDs to always keep (one per line)"
+)
 @app.argument("--limit", type=int, default=50, help="Max rows to display (default 50)")
-@app.argument("--format", choices=["text", "csv"], default="text", help="Output format (default text)")
+@app.argument(
+    "--format",
+    choices=["text", "csv"],
+    default="text",
+    help="Output format (default text)",
+)
 def cmd_unused(args) -> int:
     request = UnusedRequest(
         layout=getattr(args, "layout", None),
@@ -188,15 +225,36 @@ def cmd_unused(args) -> int:
     return run_pipeline(request, UnusedProcessor, UnusedProducer)
 
 
-@app.command("prune", help="Generate OFFLOAD/DELETE checklist for unused candidates (no device writes)")
+@app.command(
+    "prune",
+    help="Generate OFFLOAD/DELETE checklist for unused candidates (no device writes)",
+)
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
-@app.argument("--recent", help="Path to file with bundle IDs used recently (one per line)")
-@app.argument("--keep", help="Path to file with bundle IDs to always keep (one per line)")
+@app.argument(
+    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
+)
+@app.argument(
+    "--recent", help="Path to file with bundle IDs used recently (one per line)"
+)
+@app.argument(
+    "--keep", help="Path to file with bundle IDs to always keep (one per line)"
+)
 @app.argument("--limit", type=int, default=50, help="Max rows to include (default 50)")
-@app.argument("--threshold", type=float, default=1.0, help="Minimum score to include (default 1.0)")
-@app.argument("--mode", choices=["offload", "delete"], default="offload", help="Checklist mode (default offload)")
-@app.argument("--out", default="out/ios.unused.prune_checklist.txt", help="Output text file")
+@app.argument(
+    "--threshold",
+    type=float,
+    default=1.0,
+    help="Minimum score to include (default 1.0)",
+)
+@app.argument(
+    "--mode",
+    choices=["offload", "delete"],
+    default="offload",
+    help="Checklist mode (default offload)",
+)
+@app.argument(
+    "--out", default="out/ios.unused.prune_checklist.txt", help="Output text file"
+)
 def cmd_prune(args) -> int:
     request = PruneRequest(
         layout=getattr(args, "layout", None),
@@ -213,9 +271,16 @@ def cmd_prune(args) -> int:
 
 @app.command("analyze", help="Analyze layout balance and folder structure (text/json)")
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
+@app.argument(
+    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
+)
 @app.argument("--plan", help="Optional plan YAML to check pins/folders alignment")
-@app.argument("--format", choices=["text", "json"], default="text", help="Output format (default text)")
+@app.argument(
+    "--format",
+    choices=["text", "json"],
+    default="text",
+    help="Output format (default text)",
+)
 def cmd_analyze(args) -> int:
     request = AnalyzeRequest(
         layout=getattr(args, "layout", None),
@@ -226,9 +291,19 @@ def cmd_analyze(args) -> int:
     return run_pipeline(request, AnalyzeProcessor, AnalyzeProducer)
 
 
-@app.command("validate-layout", help="Validate an iOS icon layout JSON file for structural errors")
-@app.argument("--layout", required=True, help="Path to layout JSON file (e.g. out/ios.iconlayout.json)")
-@app.argument("--device-layout", help="Optional device layout JSON with apps to check for unplaced entries")
+@app.command(
+    "validate-layout",
+    help="Validate an iOS icon layout JSON file for structural errors",
+)
+@app.argument(
+    "--layout",
+    required=True,
+    help="Path to layout JSON file (e.g. out/ios.iconlayout.json)",
+)
+@app.argument(
+    "--device-layout",
+    help="Optional device layout JSON with apps to check for unplaced entries",
+)
 def cmd_validate_layout(args) -> int:
     import json
 
@@ -250,12 +325,17 @@ def cmd_validate_layout(args) -> int:
     if device_layout_arg:
         device_layout_path = Path(device_layout_arg)
         if not device_layout_path.exists():
-            print(f"Error: device-layout file not found: {device_layout_path}", file=sys.stderr)
+            print(
+                f"Error: device-layout file not found: {device_layout_path}",
+                file=sys.stderr,
+            )
             return 2
         try:
             device_layout = json.loads(device_layout_path.read_text())
         except json.JSONDecodeError as exc:
-            print(f"Error: invalid JSON in {device_layout_path}: {exc}", file=sys.stderr)
+            print(
+                f"Error: invalid JSON in {device_layout_path}: {exc}", file=sys.stderr
+            )
             return 2
         # Flatten all bundle IDs from device layout
         device_apps = _flatten_bundle_ids(device_layout)
@@ -289,6 +369,7 @@ def _flatten_bundle_ids(layout: object) -> list[str]:
 
 
 # --- Helper functions for cmd_auto_folders ---
+
 
 def _parse_keep_list(keep_csv: str) -> list[str]:
     """Parse comma-separated bundle IDs into list.
@@ -341,7 +422,9 @@ def _update_plan_with_folders(
             continue
 
     # Add new folder pages
-    new_pages = distribute_folders_across_pages(folder_names, per_page=per_page, start_page=start_page)
+    new_pages = distribute_folders_across_pages(
+        folder_names, per_page=per_page, start_page=start_page
+    )
     # Merge in new pages
     for k, v in new_pages.items():
         pages[k] = v
@@ -350,16 +433,36 @@ def _update_plan_with_folders(
     return plan
 
 
-@app.command("auto-folders", help="Auto-assign all apps into folders in plan (keeps specified apps out)")
+@app.command(
+    "auto-folders",
+    help="Auto-assign all apps into folders in plan (keeps specified apps out)",
+)
 @app.argument("--layout", help="Layout export YAML (optional; otherwise reads backup)")
-@app.argument("--backup", help="Path to Finder backup UDID dir (used if --layout not provided)")
-@app.argument("--plan", default="out/ipad.plan.yaml", help="Plan YAML path to read/update")
-@app.argument("--keep", default="com.apple.mobilesafari,com.apple.Preferences", help="Comma-separated bundle IDs to keep out of folders")
-@app.argument("--place-folders-from-page", type=int, default=2, help="Start placing folders from this page (default 2)")
-@app.argument("--folders-per-page", type=int, default=12, help="Max folders per page (default 12)")
+@app.argument(
+    "--backup", help="Path to Finder backup UDID dir (used if --layout not provided)"
+)
+@app.argument(
+    "--plan", default="out/ipad.plan.yaml", help="Plan YAML path to read/update"
+)
+@app.argument(
+    "--keep",
+    default="com.apple.mobilesafari,com.apple.Preferences",
+    help="Comma-separated bundle IDs to keep out of folders",
+)
+@app.argument(
+    "--place-folders-from-page",
+    type=int,
+    default=2,
+    help="Start placing folders from this page (default 2)",
+)
+@app.argument(
+    "--folders-per-page", type=int, default=12, help="Max folders per page (default 12)"
+)
 def cmd_auto_folders(args) -> int:
     try:
-        layout = load_layout(getattr(args, "layout", None), getattr(args, "backup", None))
+        layout = load_layout(
+            getattr(args, "layout", None), getattr(args, "backup", None)
+        )
     except LayoutLoadError as err:
         print(err, file=sys.stderr)
         return err.code
@@ -389,11 +492,14 @@ def cmd_auto_folders(args) -> int:
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     write_yaml(plan, plan_path)
     print(f"Updated plan with auto-folders → {plan_path}")
-    print(f"Folders: {len(folders)} (non-empty: {sum(1 for a in folders.values() if a)})")
+    print(
+        f"Folders: {len(folders)} (non-empty: {sum(1 for a in folders.values() if a)})"
+    )
     return 0
 
 
 # --- Profile group commands ---
+
 
 def _build_all_apps_folder_config(args, layout_export) -> dict | None:
     """Build all-apps folder config from args.
@@ -408,12 +514,16 @@ def _build_all_apps_folder_config(args, layout_export) -> dict | None:
     Raises:
         ValueError: If --all-apps-folder-* used without layout
     """
-    if not (getattr(args, "all_apps_folder_name", None) or
-            getattr(args, "all_apps_folder_page", None) is not None):
+    if not (
+        getattr(args, "all_apps_folder_name", None)
+        or getattr(args, "all_apps_folder_page", None) is not None
+    ):
         return None
 
     if not layout_export:
-        raise ValueError("--all-apps-folder-* requires --layout to enumerate remaining apps")
+        raise ValueError(
+            "--all-apps-folder-* requires --layout to enumerate remaining apps"
+        )
 
     folder = {"name": getattr(args, "all_apps_folder_name", None) or "All Apps"}
     if getattr(args, "all_apps_folder_page", None) is not None:
@@ -429,12 +539,15 @@ def _write_mobileconfig(profile_dict: dict, out_path: Path) -> None:
         out_path: Output file path
     """
     import plistlib
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("wb") as f:
         plistlib.dump(profile_dict, f, fmt=plistlib.FMT_XML, sort_keys=False)
 
 
-def _sign_mobileconfig(in_path: Path, out_path: Path, p12_path: Path, p12_pass: str) -> None:
+def _sign_mobileconfig(
+    in_path: Path, out_path: Path, p12_path: Path, p12_pass: str
+) -> None:
     """Sign a mobileconfig profile using openssl smime.
 
     Args:
@@ -452,46 +565,124 @@ def _sign_mobileconfig(in_path: Path, out_path: Path, p12_path: Path, p12_pass: 
 
         # Check if openssl supports -legacy flag (OpenSSL 3.x)
         result = subprocess.run(  # nosec B603 B607 - fixed openssl command
-            ["openssl", "pkcs12", "-help"],
-            capture_output=True, text=True
+            ["openssl", "pkcs12", "-help"], capture_output=True, text=True
         )
-        legacy_flag = ["-legacy"] if "-legacy" in result.stderr else []
+        legacy_flag = ["-legacy"] if "-legacy" in (result.stdout + result.stderr) else []
+
+        import os
+
+        env = {**os.environ, "_IOS_P12_PASS": p12_pass}
 
         # Extract certificate
         subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
-            ["openssl", "pkcs12", *legacy_flag, "-in", str(p12_path),
-             "-clcerts", "-nokeys", "-out", str(cert_pem), "-passin", f"pass:{p12_pass}"],
-            check=True, capture_output=True
+            [
+                "openssl",
+                "pkcs12",
+                *legacy_flag,
+                "-in",
+                str(p12_path),
+                "-clcerts",
+                "-nokeys",
+                "-out",
+                str(cert_pem),
+                "-passin",
+                "env:_IOS_P12_PASS",
+            ],
+            check=True,
+            capture_output=True,
+            env=env,
         )
 
         # Extract private key
         subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
-            ["openssl", "pkcs12", *legacy_flag, "-in", str(p12_path),
-             "-nocerts", "-nodes", "-out", str(key_pem), "-passin", f"pass:{p12_pass}"],
-            check=True, capture_output=True
+            [
+                "openssl",
+                "pkcs12",
+                *legacy_flag,
+                "-in",
+                str(p12_path),
+                "-nocerts",
+                "-nodes",
+                "-out",
+                str(key_pem),
+                "-passin",
+                "env:_IOS_P12_PASS",
+            ],
+            check=True,
+            capture_output=True,
+            env=env,
         )
 
         # Sign the profile
         subprocess.run(  # nosec B603 B607 - openssl smime with controlled paths
-            ["openssl", "smime", "-sign", "-in", str(in_path), "-out", str(out_path),
-             "-signer", str(cert_pem), "-inkey", str(key_pem), "-outform", "der", "-nodetach"],
-            check=True, capture_output=True
+            [
+                "openssl",
+                "smime",
+                "-sign",
+                "-in",
+                str(in_path),
+                "-out",
+                str(out_path),
+                "-signer",
+                str(cert_pem),
+                "-inkey",
+                str(key_pem),
+                "-outform",
+                "der",
+                "-nodetach",
+            ],
+            check=True,
+            capture_output=True,
         )
 
 
 @profile_group.command("build", help="Build a .mobileconfig from a plan YAML")
 @profile_group.argument("--plan", required=True, help="Plan YAML path (pins + folders)")
-@profile_group.argument("--layout", help="Optional layout export YAML; uses 'dock' if present")
+@profile_group.argument(
+    "--layout", help="Optional layout export YAML; uses 'dock' if present"
+)
 @profile_group.argument("--out", required=True, help="Output .mobileconfig path")
-@profile_group.argument("--identifier", default=_DEFAULT_PROFILE_IDENTIFIER, help="Top-level PayloadIdentifier")
-@profile_group.argument("--hs-identifier", default=_DEFAULT_HS_IDENTIFIER, help="Home Screen PayloadIdentifier")
-@profile_group.argument("--display-name", default=_DEFAULT_DISPLAY_NAME, help="Payload display name")
+@profile_group.argument(
+    "--identifier",
+    default=_DEFAULT_PROFILE_IDENTIFIER,
+    help="Top-level PayloadIdentifier",
+)
+@profile_group.argument(
+    "--hs-identifier",
+    default=_DEFAULT_HS_IDENTIFIER,
+    help="Home Screen PayloadIdentifier",
+)
+@profile_group.argument(
+    "--display-name", default=_DEFAULT_DISPLAY_NAME, help="Payload display name"
+)
 @profile_group.argument("--organization", help="Optional PayloadOrganization")
-@profile_group.argument("--dock-count", type=int, default=4, help="Dock count from pins when --layout missing (default 4)")
-@profile_group.argument("--all-apps-folder-name", help="Optional folder name for all remaining apps (requires --layout)")
-@profile_group.argument("--all-apps-folder-page", type=int, help="Page number to place the all-apps folder (requires --layout)")
-@profile_group.argument("--sign-p12", help="Path to .p12 certificate for signing the profile")
-@profile_group.argument("--sign-pass", help="Password for .p12 certificate (or set IOS_SIGN_PASS env var)")
+@profile_group.argument(
+    "--dock-count",
+    type=int,
+    default=4,
+    help="Dock count from pins when --layout missing (default 4)",
+)
+@profile_group.argument(
+    "--all-apps-folder-name",
+    help="Optional folder name for all remaining apps (requires --layout)",
+)
+@profile_group.argument(
+    "--all-apps-folder-page",
+    type=int,
+    help="Page number to place the all-apps folder (requires --layout)",
+)
+@profile_group.argument(
+    "--folder-page-size",
+    type=int,
+    default=30,
+    help="Apps per folder page, must be >= 1 (9 for iPhone grids; default 30)",
+)
+@profile_group.argument(
+    "--sign-p12", help="Path to .p12 certificate for signing the profile"
+)
+@profile_group.argument(
+    "--sign-pass", help="Password for .p12 certificate (or set IOS_SIGN_PASS env var)"
+)
 def cmd_profile_build(args) -> int:
     try:
         plan = read_yaml(Path(args.plan))
@@ -513,6 +704,7 @@ def cmd_profile_build(args) -> int:
             ),
             dock_count=max(0, int(getattr(args, "dock_count", 4))),
             all_apps_folder=all_apps_folder,
+            folder_page_size=int(getattr(args, "folder_page_size", 30)),
         )
 
         out_path = Path(args.out)
@@ -522,7 +714,9 @@ def cmd_profile_build(args) -> int:
         # Sign the profile if requested
         sign_p12 = getattr(args, "sign_p12", None)
         if sign_p12:
-            sign_pass = getattr(args, "sign_pass", None) or os.environ.get("IOS_SIGN_PASS", "")
+            sign_pass = getattr(args, "sign_pass", None) or os.environ.get(
+                "IOS_SIGN_PASS", ""
+            )
             _sign_mobileconfig(out_path, out_path, Path(sign_p12), sign_pass)
             print(f"Signed profile with {sign_p12}")
 
@@ -539,6 +733,7 @@ def cmd_profile_build(args) -> int:
 
 
 # --- Manifest group commands ---
+
 
 def _build_manifest_dict(plan: dict, args) -> dict:
     """Build manifest dict from plan and args.
@@ -557,7 +752,8 @@ def _build_manifest_dict(plan: dict, args) -> dict:
         "device": {
             "label": getattr(args, "label", None) or os.environ.get("IOS_DEVICE_LABEL"),
             "udid": getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID"),
-            "creds_profile": getattr(args, "creds_profile", None) or os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"),
+            "creds_profile": getattr(args, "creds_profile", None)
+            or os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"),
         },
         "profile": {
             "identifier": getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
@@ -601,17 +797,37 @@ def _extract_manifest_profile_config(manifest: dict) -> tuple[dict, dict | None,
     return plan, layout_export, profile_config
 
 
-@manifest_group.command("create", help="Create a manifest by embedding an existing plan")
-@manifest_group.argument("--from-plan", required=True, help="Path to existing plan YAML to embed")
+@manifest_group.command(
+    "create", help="Create a manifest by embedding an existing plan"
+)
+@manifest_group.argument(
+    "--from-plan", required=True, help="Path to existing plan YAML to embed"
+)
 @manifest_group.argument("--out", required=True, help="Output manifest YAML path")
 @manifest_group.argument("--label", help="Optional device label to include")
 @manifest_group.argument("--udid", help="Optional device UDID to include")
-@manifest_group.argument("--creds-profile", default=os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"), help="Credentials profile name")
-@manifest_group.argument("--layout", help="Optional layout export YAML path to include (for Dock inference)")
-@manifest_group.argument("--identifier", default=_DEFAULT_PROFILE_IDENTIFIER, help="Profile identifier")
-@manifest_group.argument("--hs-identifier", default=_DEFAULT_HS_IDENTIFIER, help="Home Screen PayloadIdentifier")
-@manifest_group.argument("--display-name", default=_DEFAULT_DISPLAY_NAME, help="Profile display name")
-@manifest_group.argument("--organization", default="Personal", help="Profile organization")
+@manifest_group.argument(
+    "--creds-profile",
+    default=os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"),
+    help="Credentials profile name",
+)
+@manifest_group.argument(
+    "--layout", help="Optional layout export YAML path to include (for Dock inference)"
+)
+@manifest_group.argument(
+    "--identifier", default=_DEFAULT_PROFILE_IDENTIFIER, help="Profile identifier"
+)
+@manifest_group.argument(
+    "--hs-identifier",
+    default=_DEFAULT_HS_IDENTIFIER,
+    help="Home Screen PayloadIdentifier",
+)
+@manifest_group.argument(
+    "--display-name", default=_DEFAULT_DISPLAY_NAME, help="Profile display name"
+)
+@manifest_group.argument(
+    "--organization", default="Personal", help="Profile organization"
+)
 def cmd_manifest_create(args) -> int:
     plan = read_yaml(Path(args.from_plan))
     manifest = _build_manifest_dict(plan, args)
@@ -647,27 +863,43 @@ def cmd_manifest_build(args) -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     import plistlib
+
     with out.open("wb") as f:
         plistlib.dump(profile_dict, f, fmt=plistlib.FMT_XML, sort_keys=False)
     print(f"Wrote {_DEFAULT_DISPLAY_NAME} profile to {out}")
     return 0
 
 
-@manifest_group.command("from-export", help="Create a device layout manifest from a layout export YAML")
-@manifest_group.argument("--export", required=True, help="Layout export YAML (from 'phone export-device' or legacy export')")
+@manifest_group.command(
+    "from-export", help="Create a device layout manifest from a layout export YAML"
+)
+@manifest_group.argument(
+    "--export",
+    required=True,
+    help="Layout export YAML (from 'phone export-device' or legacy export')",
+)
 @manifest_group.argument("--out", required=True, help="Output manifest YAML path")
 def cmd_manifest_from_export(args) -> int:
     request = ManifestFromExportRequest(
         export_path=Path(args.export),
         out_path=Path(args.out),
     )
-    return run_pipeline(request, ManifestFromExportProcessor, ManifestFromExportProducer)
+    return run_pipeline(
+        request, ManifestFromExportProcessor, ManifestFromExportProducer
+    )
 
 
-@manifest_group.command("from-device", help="Create a device layout manifest from an attached device via cfgutil")
+@manifest_group.command(
+    "from-device",
+    help="Create a device layout manifest from an attached device via cfgutil",
+)
 @manifest_group.argument("--out", required=True, help="Output manifest YAML path")
-@manifest_group.argument("--export-out", help="Optional export YAML to also write (dock/pages)")
-@manifest_group.argument("--udid", help="Device UDID (optional when only one device is attached)")
+@manifest_group.argument(
+    "--export-out", help="Optional export YAML to also write (dock/pages)"
+)
+@manifest_group.argument(
+    "--udid", help="Device UDID (optional when only one device is attached)"
+)
 def cmd_manifest_from_device(args) -> int:
     export_out = Path(args.export_out) if getattr(args, "export_out", None) else None
     request = ManifestFromDeviceRequest(
@@ -675,17 +907,34 @@ def cmd_manifest_from_device(args) -> int:
         export_out=export_out,
         out_path=Path(args.out),
     )
-    return run_pipeline(request, ManifestFromDeviceProcessor, ManifestFromDeviceProducer)
+    return run_pipeline(
+        request, ManifestFromDeviceProcessor, ManifestFromDeviceProducer
+    )
 
 
-@manifest_group.command("install", help="Build and install a profile from a manifest (hands-off via credentials)")
+@manifest_group.command(
+    "install",
+    help="Build and install a profile from a manifest (hands-off via credentials)",
+)
 @manifest_group.argument("--manifest", required=True, help="Manifest YAML path")
 @manifest_group.argument("--out", help="Output .mobileconfig path (default under out/)")
-@manifest_group.argument("--udid", help="Override device UDID (else manifest.device.udid or env)")
-@manifest_group.argument("--device-label", help="Override device label (else manifest.device.label or env)")
-@manifest_group.argument("--creds-profile", help="Override credentials profile (else manifest.device.creds_profile or IOS_CREDS_PROFILE)")
+@manifest_group.argument(
+    "--udid", help="Override device UDID (else manifest.device.udid or env)"
+)
+@manifest_group.argument(
+    "--device-label", help="Override device label (else manifest.device.label or env)"
+)
+@manifest_group.argument(
+    "--creds-profile",
+    help="Override credentials profile (else manifest.device.creds_profile or IOS_CREDS_PROFILE)",
+)
 @manifest_group.argument("--config", help="credentials.ini path override (optional)")
-@manifest_group.argument("--dry-run", action="store_true", default=False, help="Plan only — build profile but skip device install")
+@manifest_group.argument(
+    "--dry-run",
+    action="store_true",
+    default=False,
+    help="Plan only — build profile but skip device install",
+)
 def cmd_manifest_install(args) -> int:
     out_path = Path(args.out) if getattr(args, "out", None) else None
     request = ManifestInstallRequest(
@@ -702,14 +951,32 @@ def cmd_manifest_install(args) -> int:
 
 # --- Identity group commands ---
 
+
 @identity_group.command("verify", help="Verify .p12 identity vs device supervision")
-@identity_group.argument("--p12", help="Path to Supervision Identity .p12 (optional; else reads credentials.ini)")
-@identity_group.argument("--pass", dest="p12_pass", help="Password for .p12 (optional; else reads credentials.ini)")
-@identity_group.argument("--creds-profile", default=os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"), help="Credentials profile name")
+@identity_group.argument(
+    "--p12",
+    help="Path to Supervision Identity .p12 (optional; else reads credentials.ini)",
+)
+@identity_group.argument(
+    "--pass",
+    dest="p12_pass",
+    help="Password for .p12 (optional; else reads credentials.ini)",
+)
+@identity_group.argument(
+    "--creds-profile",
+    default=os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager"),
+    help="Credentials profile name",
+)
 @identity_group.argument("--config", help="Path to credentials.ini (optional)")
-@identity_group.argument("--device-label", help="Device label to resolve UDID from credentials.ini [ios_devices]")
+@identity_group.argument(
+    "--device-label",
+    help="Device label to resolve UDID from credentials.ini [ios_devices]",
+)
 @identity_group.argument("--udid", help="Device UDID (optional)")
-@identity_group.argument("--expected-org", help="Expected organization name to match certificate subject/issuer (optional)")
+@identity_group.argument(
+    "--expected-org",
+    help="Expected organization name to match certificate subject/issuer (optional)",
+)
 def cmd_identity_verify(args) -> int:
     request = IdentityVerifyRequest(
         p12_path=getattr(args, "p12", None),
@@ -726,6 +993,7 @@ def cmd_identity_verify(args) -> int:
 def _install_output_masking() -> None:
     """Install output masking for secret shielding."""
     from core.secrets import install_output_masking_from_env
+
     install_output_masking_from_env()
 
 
@@ -742,6 +1010,7 @@ def main(argv: list[str] | None = None) -> int:
 def _lazy_agentic():
     """Lazy loader for agentic emit function."""
     from ..agentic import emit_agentic_context
+
     return emit_agentic_context
 
 

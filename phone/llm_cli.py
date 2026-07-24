@@ -15,8 +15,10 @@ def _agentic() -> str:
 
     try:
         return build_agentic_capsule()
-    except Exception:
-        return "agentic: phone\npurpose: Home Screen layout planning and manifest helpers"
+    except Exception:  # nosec B110 - fall back to static capsule if build fails
+        return (
+            "agentic: phone\npurpose: Home Screen layout planning and manifest helpers"
+        )
 
 
 def _domain_map() -> str:
@@ -29,7 +31,10 @@ def _domain_map() -> str:
 
 
 def _inventory() -> str:
-    return read_text(LLM_DIR / "INVENTORY.md") or "# LLM Agent Inventory (Phone Assistant)\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
+    return (
+        read_text(LLM_DIR / "INVENTORY.md")
+        or "# LLM Agent Inventory (Phone Assistant)\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
+    )
 
 
 def _familiar_compact() -> str:
@@ -54,7 +59,10 @@ def _familiar_extended() -> str:
 
 
 def _policies() -> str:
-    return read_text(LLM_DIR / "PR_POLICIES.yaml") or "policies:\n  style:\n    - Keep CLI stable; prefer plan→apply flows\n  tests:\n    - Add lightweight unittest for new CLI surfaces\n"
+    return (
+        read_text(LLM_DIR / "PR_POLICIES.yaml")
+        or "policies:\n  style:\n    - Keep CLI stable; prefer plan→apply flows\n  tests:\n    - Add lightweight unittest for new CLI surfaces\n"
+    )
 
 
 CONFIG = llm_cli.LlmConfig(
