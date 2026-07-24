@@ -1,10 +1,10 @@
 """Pipeline primitives for messages commands."""
 from __future__ import annotations
 
+import json as _json
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.cli_output import emit_one
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 
@@ -126,7 +126,7 @@ class MessagesSearchProducer(BaseProducer):
         candidates = payload.candidates
 
         if self._output_json:
-            emit_one([c.__dict__ for c in candidates])
+            print(_json.dumps([c.__dict__ for c in candidates], ensure_ascii=False, indent=2))
         else:
             for c in candidates:
                 print(f"{c.id}\t{c.subject}\t{c.from_header}\t{c.snippet}")

@@ -135,7 +135,7 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
             )
         return duplicates
 
-    def _key_for_event(self, event: dict[str, Any]) -> tuple[str, str, str, str | None]:
+    def _key_for_event(self, event: dict[str, Any]) -> tuple[str, str, str, str]:
         subject = (event.get("subject") or "").strip().lower()
         start = ((event.get("start") or {}).get("dateTime") or "")
         end = ((event.get("end") or {}).get("dateTime") or "")
