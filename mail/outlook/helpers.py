@@ -1,12 +1,10 @@
 """Shared helpers for Outlook pipeline."""
 from __future__ import annotations
 
-import logging
 import os
+import sys
 
 from core.auth import resolve_outlook_credentials
-
-logger = logging.getLogger(__name__)
 
 
 def norm_label_name_outlook(name: str, mode: str = "join-dash") -> str:
@@ -97,12 +95,12 @@ def get_outlook_client(args):
     try:
         from ..outlook_api import OutlookClient
     except Exception as e:
-        logger.error("Outlook features unavailable: %s", e)
+        print(f"Outlook features unavailable: {e}", file=sys.stderr)
         return None, 1
 
     client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
     if not client_id:
-        logger.error("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
+        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.", file=sys.stderr)
         return None, 2
 
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)
