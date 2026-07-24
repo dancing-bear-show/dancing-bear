@@ -296,3 +296,39 @@ def emit_one(data: object, fmt: str = "json") -> None:
         print(json.dumps(data, separators=(",", ":"), default=str))
     else:
         print(json.dumps(data, indent=2, default=str))
+
+
+def emit_rows(
+    rows: list[dict[str, object]],
+    fmt: str = "json",
+    headers: list[str] | None = None,
+    empty_msg: str = "No results.",
+) -> int:
+    """Emit list of dicts as table, json, or csv. Returns 0 on success."""
+    if not rows:
+        print(empty_msg)
+        return 0
+    if fmt == "json":
+        print(json.dumps(rows, default=str))
+    elif fmt == "csv":
+        import csv
+        import sys as _sys
+        cols = headers or list(rows[0].keys())
+        w = csv.DictWriter(_sys.stdout, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    else:  # table
+        try:
+            from rich.table import Table
+            from rich.console import Console
+            cols = headers or list(rows[0].keys())
+            t = Table(*cols, show_header=True, header_style="bold")
+            for row in rows:
+                t.add_row(*[str(row.get(c, "")) for c in cols])
+            Console().print(t)
+        except ImportError:  # nosec B110 - rich is optional, fall back to plain text
+            cols = headers or list(rows[0].keys())
+            print("\t".join(cols))
+            for row in rows:
+                print("\t".join(str(row.get(c, "")) for c in cols))
+    return 0

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from typing import Optional
+import sys
+from collections.abc import Callable
+from typing import Any
 
 from .mermaid import GanttBuilder, PieBuilder
 
@@ -19,11 +21,12 @@ def _format_tokens(n: int) -> str:
     return str(n)
 
 
-def _load_telemetry(days: int):
+def _load_telemetry(days: int) -> tuple[list[Any], Callable[..., float], Callable[..., str]]:
     """Load session stats and helpers from the telemetry module."""
+    from datetime import datetime, timezone
+
     from telemetry.parser import iter_session_files, parse_session
     from telemetry.pricing import compute_cost, model_tier
-    from datetime import datetime, timezone
 
     sessions = []
     for path in iter_session_files(days=days):
@@ -37,7 +40,7 @@ def _load_telemetry(days: int):
     return sessions, compute_cost, model_tier
 
 
-def _session_cost(s, compute_cost) -> float:
+def _session_cost(s: Any, compute_cost: Callable[..., float]) -> float:
     if not s.model:
         return 0.0
     return compute_cost(
@@ -46,10 +49,10 @@ def _session_cost(s, compute_cost) -> float:
     )
 
 
-# ── Diagram renderers ────────────────────────────────────────────────
+# ── Telemetry diagram renderers ───────────────────────────────────────────────
 
 
-def _render_cost_pie(sessions, days, compute_cost, model_tier) -> str:
+def _render_cost_pie(sessions: list[Any], days: int, compute_cost: Callable[..., float], model_tier: Callable[..., str]) -> str:
     tier_cost: dict[str, float] = {"opus": 0.0, "sonnet": 0.0, "haiku": 0.0}
     for s in sessions:
         if s.model:
@@ -62,7 +65,7 @@ def _render_cost_pie(sessions, days, compute_cost, model_tier) -> str:
     return pie.render()
 
 
-def _render_token_pie(sessions, days, model_tier) -> str:
+def _render_token_pie(sessions: list[Any], days: int, model_tier: Callable[..., str]) -> str:
     tier_tokens: dict[str, int] = {"opus": 0, "sonnet": 0, "haiku": 0}
     for s in sessions:
         if s.model:
@@ -75,8 +78,7 @@ def _render_token_pie(sessions, days, model_tier) -> str:
     return pie.render()
 
 
-def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
-    # Use dateFormat YYYY-MM-DD; durations expressed in days (min 1d)
+def _render_timeline(sessions: list[Any], days: int, compute_cost: Callable[..., float], model_tier: Callable[..., str]) -> str:
     gantt = GanttBuilder(f"Sessions (last {days}d)", date_format="YYYY-MM-DD")
     by_date: dict[str, list] = {}
     for s in sessions:
@@ -97,13 +99,153 @@ def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
     return gantt.render()
 
 
-# ── Commands ──────────────────────────────────────────────────────────
+# ── Shared I/O helpers ────────────────────────────────────────────────────────
 
 
-def cmd_telemetry(args) -> int:
+def _read_input(input_path: str | None, label: str = "diagram.mmd") -> str | None:
+    """Read content from a file or stdin. Returns None and prints to stderr on error."""
+    if input_path:
+        try:
+            with open(input_path) as f:
+                return f.read()
+        except FileNotFoundError:
+            print(f"Error: Input file not found: {input_path}", file=sys.stderr)
+            return None
+        except OSError as e:
+            print(f"Error reading {input_path}: {e}", file=sys.stderr)
+            return None
+    else:
+        if sys.stdin.isatty():
+            print("Error: No input file specified and stdin is empty", file=sys.stderr)
+            print(f"Usage: diagrams <command> --input {label}", file=sys.stderr)
+            return None
+        return sys.stdin.read()
+
+
+def _write_output(content: str, output_path: str | None, success_msg: str = "") -> int:
+    """Write content to a file or stdout. Returns 0 on success, 1 on error."""
+    if output_path:
+        try:
+            with open(output_path, "w") as f:
+                f.write(content)
+                f.write("\n")
+            if success_msg:
+                print(success_msg, file=sys.stderr)
+        except OSError as e:
+            print(f"Error writing {output_path}: {e}", file=sys.stderr)
+            return 1
+    else:
+        print(content)
+    return 0
+
+
+def _validate_non_empty(content: str) -> bool:
+    if not content.strip():
+        print("Error: Empty input", file=sys.stderr)
+        return False
+    return True
+
+
+def _load_yaml(content: str) -> dict | None:
+    try:
+        import yaml  # noqa: PLC0415
+        return yaml.safe_load(content)
+    except ImportError:
+        import json
+        try:
+            return json.loads(content)
+        except Exception as e:
+            print(f"Error parsing input: {e}", file=sys.stderr)
+            return None
+    except Exception as e:
+        print(f"Error parsing YAML: {e}", file=sys.stderr)
+        return None
+
+
+# ── YAML → Mermaid conversion helpers ────────────────────────────────────────
+
+
+def _build_flowchart_from_spec(spec: dict) -> str:
+    from .mermaid import FlowchartBuilder
+
+    builder = FlowchartBuilder()
+    if "direction" in spec:
+        builder.with_direction(spec["direction"])
+    if "title" in spec:
+        builder.with_title(spec["title"])
+    for node_spec in spec.get("nodes", []):
+        builder.node(
+            node_id=node_spec["id"],
+            label=node_spec.get("label"),
+            shape=node_spec.get("shape", "rect"),
+        )
+    for edge_spec in spec.get("edges", []):
+        builder.edge(
+            src=edge_spec["source"],
+            dst=edge_spec["target"],
+            label=edge_spec.get("label", ""),
+            style=edge_spec.get("style", "-->"),
+        )
+    return builder.render()
+
+
+def _build_sequence_from_spec(spec: dict) -> str:
+    from .mermaid import SequenceDiagramBuilder
+
+    builder = SequenceDiagramBuilder()
+    if "title" in spec:
+        builder.with_title(spec["title"])
+    if spec.get("autonumber"):
+        builder.autonumber()
+    for p_spec in spec.get("participants", []):
+        builder.participant(
+            name=p_spec["id"],
+            alias=p_spec.get("label", ""),
+            actor=p_spec.get("actor", False),
+        )
+    for m_spec in spec.get("messages", []):
+        builder.message(
+            src=m_spec["sender"],
+            dst=m_spec["receiver"],
+            text=m_spec["text"],
+            arrow=m_spec.get("arrow_type", "->>"),
+            activate=m_spec.get("activate", False),
+            deactivate=m_spec.get("deactivate", False),
+        )
+    return builder.render()
+
+
+def _convert_yaml_spec(spec: dict) -> tuple[str | None, int]:
+    """Convert a YAML spec dict to mermaid text. Returns (text, exit_code)."""
+    if not isinstance(spec, dict):
+        print("Error: YAML spec must be a dictionary", file=sys.stderr)
+        return None, 1
+
+    diagram_type = spec.get("type", "flowchart").lower()
+    try:
+        if diagram_type in ("flowchart", "graph"):
+            return _build_flowchart_from_spec(spec), 0
+        elif diagram_type in ("sequence", "sequencediagram"):
+            return _build_sequence_from_spec(spec), 0
+        else:
+            print(f"Error: Unsupported diagram type {diagram_type!r}", file=sys.stderr)
+            print("Supported types: flowchart, sequence", file=sys.stderr)
+            return None, 1
+    except KeyError as e:
+        print(f"Error: Missing required field {e} in spec", file=sys.stderr)
+        return None, 1
+    except Exception as e:
+        print(f"Error building diagram: {e}", file=sys.stderr)
+        return None, 1
+
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+
+def cmd_telemetry(args: argparse.Namespace) -> int:
     sessions, compute_cost, model_tier = _load_telemetry(args.days)
     if not sessions:
-        print(NO_SESSIONS)
+        print(NO_SESSIONS, file=sys.stderr)
         return 1
 
     renderers = {
@@ -113,31 +255,255 @@ def cmd_telemetry(args) -> int:
     }
     renderer = renderers.get(args.type)
     if not renderer:
-        print(f"Unknown diagram type: {args.type}")
+        print(f"Unknown diagram type: {args.type}", file=sys.stderr)
         return 1
     print(renderer())
     return 0
 
 
-# ── Entry point ───────────────────────────────────────────────────────
+def cmd_render(args: argparse.Namespace) -> int:
+    """Render a .mmd file to PNG/SVG/PDF via mmdc."""
+    mermaid_text = _read_input(args.input)
+    if mermaid_text is None:
+        return 1
+    if not _validate_non_empty(mermaid_text):
+        return 1
+
+    from .renderers import LocalRenderer, LocalRendererError
+
+    try:
+        renderer = LocalRenderer(timeout=args.timeout)
+    except LocalRendererError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        output_path = renderer.render_to_file(
+            mermaid_text,
+            args.output,
+            output_format=getattr(args, "format", None),
+            background=getattr(args, "background", None),
+            theme=getattr(args, "theme", None),
+            width=getattr(args, "width", None),
+            height=getattr(args, "height", None),
+        )
+        print(f"Rendered to: {output_path}", file=sys.stderr)
+        return 0
+    except LocalRendererError as e:
+        print(f"Render error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Validate mermaid syntax via mmdc."""
+    mermaid_text = _read_input(args.input)
+    if mermaid_text is None:
+        return 1
+    if not _validate_non_empty(mermaid_text):
+        return 1
+
+    from .renderers import LocalRenderer, LocalRendererError
+
+    try:
+        renderer = LocalRenderer(timeout=args.timeout)
+    except LocalRendererError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    is_valid, error = renderer.validate_syntax(mermaid_text)
+    if is_valid:
+        print("Valid: Mermaid syntax is correct", file=sys.stderr)
+        return 0
+    else:
+        print(f"Invalid: {error}", file=sys.stderr)
+        return 1
+
+
+def cmd_embed(args: argparse.Namespace) -> int:
+    """Output mermaid wrapped in a ```mermaid code fence."""
+    content = _read_input(args.input)
+    if content is None:
+        return 1
+    if not _validate_non_empty(content):
+        return 1
+
+    if getattr(args, "from_yaml", False):
+        spec = _load_yaml(content)
+        if spec is None:
+            return 1
+        mermaid_text, err = _convert_yaml_spec(spec)
+        if err:
+            return err
+    else:
+        mermaid_text = content
+
+    from .renderers import TextRenderer
+    renderer = TextRenderer()
+    embedded = renderer.render_embedded(mermaid_text)
+
+    output_path = getattr(args, "output", None)
+    success_msg = f"Written to: {output_path}" if output_path else ""
+    return _write_output(embedded, output_path, success_msg)
+
+
+def _check_builder() -> bool:
+    """Return True if FlowchartBuilder works; print failure and return False otherwise."""
+    try:
+        from .mermaid import FlowchartBuilder
+        diagram = FlowchartBuilder().node("A", "Start").node("B", "End").edge("A", "B").render()
+        if "flowchart" not in diagram:
+            raise RuntimeError("Builder produced invalid output")
+        print("builder ok", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"builder FAILED: {e}", file=sys.stderr)
+        return False
+
+
+def _check_text_renderer() -> bool:
+    """Return True if TextRenderer works; print failure and return False otherwise."""
+    try:
+        from .mermaid import FlowchartBuilder
+        from .renderers import TextRenderer
+        builder = FlowchartBuilder().node("A", "Test")
+        text = TextRenderer().render(builder)
+        if not text:
+            raise RuntimeError("Text renderer returned empty output")
+        print("text renderer ok", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"text renderer FAILED: {e}", file=sys.stderr)
+        return False
+
+
+def _check_local_renderer(timeout: int = 30) -> bool:
+    """Return True if LocalRenderer works; print failure and return False otherwise."""
+    try:
+        from .renderers import LocalRenderer, LocalRendererError
+        if not LocalRenderer.is_available():
+            raise LocalRendererError(
+                "mmdc not installed. Run: npm install -g @mermaid-js/mermaid-cli"
+            )
+        renderer = LocalRenderer(timeout=timeout)
+        svg_bytes = renderer.render("flowchart LR\n    A-->B", "svg")
+        if not svg_bytes or b"<svg" not in svg_bytes:
+            raise RuntimeError("Local renderer returned invalid SVG")
+        print("local renderer ok", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"local renderer FAILED: {e}", file=sys.stderr)
+        return False
+
+
+def cmd_health(args: argparse.Namespace) -> int:
+    """Check mmdc is installed and working."""
+    skip_render = getattr(args, "skip_render", False)
+
+    if not _check_builder():
+        return 1
+    if not _check_text_renderer():
+        return 1
+    if skip_render:
+        print("local renderer: skipped", file=sys.stderr)
+        return 0
+    if not _check_local_renderer():
+        return 1
+    return 0
+
+
+def cmd_from_yaml(args: argparse.Namespace) -> int:
+    """Generate .mmd from a YAML spec (flowchart and sequence types)."""
+    yaml_content = _read_input(args.input, "spec.yaml")
+    if yaml_content is None:
+        return 1
+    if not _validate_non_empty(yaml_content):
+        return 1
+
+    spec = _load_yaml(yaml_content)
+    if spec is None:
+        return 1
+
+    mermaid_text, err = _convert_yaml_spec(spec)
+    if err:
+        return err
+
+    if getattr(args, "embedded", False):
+        mermaid_text = f"```mermaid\n{mermaid_text}\n```"
+
+    output_path = getattr(args, "output", None)
+    success_msg = f"Generated: {output_path}" if output_path else ""
+    return _write_output(mermaid_text, output_path, success_msg)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="diagrams",
         description="Mermaid diagram generation",
     )
     sub = parser.add_subparsers(dest="command")
 
+    # telemetry
     p_tel = sub.add_parser("telemetry", help="Telemetry diagrams (cost, tokens, timeline)")
     p_tel.add_argument("type", choices=["cost-pie", "token-pie", "timeline"],
                        help="Diagram type")
     p_tel.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
 
+    # render
+    p_render = sub.add_parser("render", help="Render .mmd to PNG/SVG/PDF via mmdc")
+    p_render.add_argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
+    p_render.add_argument("--output", "-o", type=str, required=True,
+                          help="Output file (.svg, .png, or .pdf)")
+    p_render.add_argument("--format", "-f", choices=["svg", "png", "pdf"],
+                          help="Output format (inferred from path if omitted)")
+    p_render.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")
+    p_render.add_argument("--theme", choices=["default", "forest", "dark", "neutral"],
+                          help="Mermaid theme")
+    p_render.add_argument("--background", "-b", type=str,
+                          help="Background color (e.g. 'white', 'transparent')")
+    p_render.add_argument("--width", "-w", type=int, help="Width in pixels (PNG only)")
+    p_render.add_argument("--height", type=int, help="Height in pixels (PNG only)")
+
+    # validate
+    p_val = sub.add_parser("validate", help="Validate mermaid syntax via mmdc")
+    p_val.add_argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
+    p_val.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")
+
+    # embed
+    p_embed = sub.add_parser("embed", help="Output mermaid wrapped in ```mermaid code fence")
+    p_embed.add_argument("--input", "-i", type=str, help="Input file (stdin if omitted)")
+    p_embed.add_argument("--output", "-o", type=str, help="Output file (stdout if omitted)")
+    p_embed.add_argument("--from-yaml", action="store_true",
+                         help="Treat input as YAML spec")
+
+    # health
+    p_health = sub.add_parser("health", help="Check mmdc is installed and working")
+    p_health.add_argument("--skip-render", action="store_true",
+                          help="Skip local mmdc render check")
+
+    # from-yaml
+    p_yaml = sub.add_parser("from-yaml", help="Generate .mmd from a YAML spec")
+    p_yaml.add_argument("--input", "-i", type=str,
+                        help="Input YAML spec file (stdin if omitted)")
+    p_yaml.add_argument("--output", "-o", type=str,
+                        help="Output .mmd file (stdout if omitted)")
+    p_yaml.add_argument("--embedded", action="store_true",
+                        help="Wrap output in ```mermaid code fence")
+
     args = parser.parse_args(argv)
 
     commands = {
         "telemetry": cmd_telemetry,
+        "render": cmd_render,
+        "validate": cmd_validate,
+        "embed": cmd_embed,
+        "health": cmd_health,
+        "from-yaml": cmd_from_yaml,
     }
     handler = commands.get(args.command)
     if handler:

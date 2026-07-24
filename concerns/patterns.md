@@ -197,3 +197,81 @@ applicability by file type:
   `./bin/llm agentic --stdout` get a stale schema. Fix: run
   `./bin/llm derive-all --out-dir .llm --include-generated` after changing any
   CLI surface and include the updated `.llm/` artifacts in the PR.
+
+### missing-csv-format-choice
+- **severity**: minor
+- **check**: Verify CLIs that add `--format` include `"csv"` in the formats list when output
+  is tabular (list of rows with named columns).
+- **triggers**: New or modified CLI `build_parser()` methods calling `add_format_argument`;
+  `emit_rows(` call sites; CLI classes with `format_choices` that omit `"csv"`.
+- **example**: `add_format_argument(parser, formats=["json", "table"])` for a CLI that emits
+  row data — callers can't pipe to spreadsheets or `csvkit`. Fix: add `"csv"` to the formats list.
+
+### dead-format-flag
+- **severity**: minor
+- **check**: Verify `--format` is wired through to `emit_rows`/`emit_one` and not silently
+  ignored when `format_choices` is set but the `run()` body hardcodes an output format.
+- **triggers**: CLI classes with `format_choices` or `add_format_argument()`; `run()` methods
+  that call `emit_rows`/`emit_one` without passing `fmt=args.format`.
+- **example**: `add_format_argument(parser, ...)` is called in `build_parser()` but `run()`
+  calls `emit_rows(rows, fmt="table")` — `--format json` is silently ignored.
+  Fix: `emit_rows(rows, fmt=args.format, ...)`.
+
+### namespace-field-mismatch
+- **severity**: major
+- **check**: Verify that internal model field names match the external API field names they map to, or that an explicit mapping/alias exists. Silent name divergence causes serialization to produce wrong keys.
+- **triggers**: Dataclass or TypedDict fields that will be serialized to or deserialized from an external API (Google, GitHub, Outlook); field names that differ from the documented API field name with no `alias`, `field(metadata=...)`, or explicit mapping function.
+- **example**: `@dataclass class EventPlan: event_type: str` — if the API expects `"eventType"` (camelCase). Without a mapping, serialization produces `{"event_type": ...}` which the API rejects silently. Fix: rename to match the API field name or add an explicit key mapping in the serializer.
+
+### schema-version-not-bumped
+- **severity**: major
+- **check**: Verify that any change to an on-disk schema (adding, removing, or renaming a field in a JSON/YAML structure written to `~/.config/` or a workspace file) is accompanied by a version bump in the corresponding schema version constant. On-disk copies from before the change will be misread without a version guard.
+- **triggers**: New fields added to a dataclass or dict that is serialized to disk by a hook or CLI; `HOOK_VERSION`, `SCHEMA_VERSION`, or `FORMAT_VERSION` constants in hook files when the surrounding data structure changes; comments in source that say "bump when schema changes."
+- **example**: A new `job_id` field is written to every queue entry but `HOOK_VERSION` is not bumped — existing on-disk queue files lack `job_id`, and code reading them with `chore["job_id"]` raises `KeyError` at runtime. Fix: bump `HOOK_VERSION`, add a migration default (`chore.get("job_id", "")`), and document the new field.
+
+### pruner-path-gap
+- **severity**: major
+- **check**: Verify that every path a hook or CLI writes to is also listed in the corresponding cleanup/prune list. When a new output path is added on the write side without updating the prune manifest, the path leaks across sessions and accumulates stale files.
+- **triggers**: New `Path(...)` assignments or `open(path, "w")` calls in hook files where a sibling `cmd_prune` list, `MANAGED_PATHS`, or cleanup registry exists; PR diffs that add a write path but show no corresponding change to the prune list.
+- **example**: `RECOMMENDATIONS_PATH` is appended to by the hook on every run but is absent from the prune list — after many sessions the file grows unbounded while all other managed paths are pruned. Fix: add the new path to the prune list in the same commit.
+
+### cli-preferences-wrong-separator
+- **severity**: major
+- **check**: Verify that CLI examples added to `.llm/DOMAIN_MAP.md` use the correct argument form for each CLI — direct argparse CLIs do not accept a `--` separator, and flags listed must exist in the CLI's argument parser.
+- **triggers**: New or modified example lines in `.llm/DOMAIN_MAP.md` for CLIs that do not use the unified `--` separator pattern; examples that include `--` before flags for CLIs documented as direct argparse (no `--` in the CLAUDE.md separator table); format choices listed in examples that do not match the CLI's declared `--format` choices.
+- **example**: `./bin/calendar outlook list -- --limit 10` — if the calendar CLI is a direct argparse CLI, the `--` causes `--limit` to be parsed as a positional arg and fails. Also: an example shows `--format yaml` but the CLI only registers `json` and `table` as format choices — agents following the example get an `invalid choice` error. Fix: verify against `./bin/<tool> --agentic --agentic-format yaml --agentic-compact` before documenting any example.
+
+### decomposition-dead-symbol
+- **severity**: major
+- **check**: Verify that private helper functions introduced during file decomposition are actually imported and called by the new module structure — functions that existed in a monolithic file but are not wired into the facade or submodule graph after decomposition become unreachable dead code.
+- **triggers**: PRs that decompose a large file into private submodules (`_*.py`); new private functions (names prefixed with `_`) in submodule files; refactor commits that split a `providers.py`, `handlers.py`, or `cli.py` into subdirectories; duplicate function definitions where the same logic appears in both the new submodule and in the module that previously held it.
+- **example**:
+  ```python
+  # bad — _process_results extracted into _results.py during decomposition,
+  # but the facade module never imports it; equivalent logic was written
+  # directly in the facade instead (function in _results.py is unreachable)
+  def _process_results(data): ...
+
+  # good — import and delegate from the facade
+  from ._results import _process_results
+
+  # or, if the submodule is redundant, delete it rather than leaving dead code
+  ```
+
+### graceful-degradation-breaks-format-contract
+- **severity**: major
+- **check**: Verify that CLI graceful-degradation paths ("no data in window", "no metadata found") still emit a valid structured payload to stdout via `emit_rows(..., empty_msg=...)` when `--format json` or `--format csv` is active, rather than printing a human-readable note directly to stdout or emitting nothing at all.
+- **triggers**: CLI `run()` branches handling an empty-result or no-data condition that call bare `print("...")` (no `file=sys.stderr`) or return without calling any output helper; graceful-degradation branches in the same file as a sibling branch that correctly calls an output helper for the empty case, creating an inconsistency.
+- **example**:
+  ```python
+  # bad — human note on stdout corrupts json/csv output
+  if not results:
+      print("No data found in this window.")
+      return 0
+
+  # good — empty_msg goes to stderr; stdout still gets valid structured output
+  if not results:
+      emit_rows([], fmt=args.format, headers=["name", "count"], empty_msg="No data found.")
+      return 0
+  ```
+  A caller running `./bin/tool --format json | jq .` gets a `jq` parse error in the bad case (mixed text) or nothing at all (missing stdout) — both are indistinguishable from a hang or crash to a non-interactive caller.

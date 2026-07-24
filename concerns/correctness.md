@@ -201,3 +201,92 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
 - **check**: Verify that module and function docstrings accurately describe what the implementation currently does — docstrings that claim behavior the code does not perform mislead callers.
 - **triggers**: Docstrings for functions that have been refactored or partially implemented; module-level docstrings that describe a feature set broader than what the code provides.
 - **example**: A `_filter_records()` docstring says it returns only records within a date range, but the implementation returns all records matching a file pattern with no date check. A caller relying on the docstring contract gets records outside the expected range. Fix: update the docstring to match the actual behavior.
+
+### silent-wrong-nesting-level
+- **severity**: major
+- **check**: Verify that API response field access uses the correct nesting depth. Reading `response["field"]` when the value lives at `response["meta"]["field"]` silently returns `None` without raising, producing wrong output that passes all type checks.
+- **triggers**: `.get("folderUid")`, `.get("uid")`, `.get("title")` on API response dicts where the API documentation shows the field nested under a sub-key (`meta`, `data`, `result`, `attributes`); field access on Grafana dashboard JSON which nests metadata under `meta`.
+- **example**: `folder_uid = dashboard.get("folderUid")` — Grafana's API places `folderUid` at `dashboard["meta"]["folderUid"]`; the top-level key is absent, so `folder_uid` is `None` and all downstream folder-filtering silently skips every dashboard. Fix: `folder_uid = dashboard.get("meta", {}).get("folderUid")`.
+
+### emit-one-in-poll-loop
+- **severity**: major
+- **check**: Verify that polling loops do not call `emit_one()` on every tick — each call prints a standalone JSON or YAML object, producing multiple concatenated top-level objects that are not valid JSON or YAML and cannot be parsed by downstream consumers. Also verify that any `print(json.dumps(...))` in a poll loop uses `flush=True` — without it, stdout is block-buffered when piped and tick output is held until the buffer fills or the process exits.
+- **triggers**: `emit_one(` calls inside `while True:`, `for ... in range(...)`, or any other loop body; CLIs with `--format json` or `--format yaml` that run a polling loop and emit one record per iteration; poll-until-done patterns where each status check calls the output helper directly; `print(json.dumps(...))` in a poll loop without `flush=True`.
+- **example**: A CI poll loop calls `emit_one(record, fmt='json')` on each tick. After 5 ticks, stdout contains 5 separate `{...}` objects separated only by newlines — not a JSON array. `jq '.[].status'` fails with `parse error: Invalid numeric literal at EOF`. Separately, `print(json.dumps(record))` in a poll loop without `flush=True` causes output to be held in Python's block buffer when stdout is piped — a caller running `./bin/monitor-poll ... | jq` sees nothing until the buffer fills or the process exits. Fix: collect all tick records in a list and call `emit_rows(records, fmt=fmt)` once after the loop exits. For genuinely streaming NDJSON output, use `print(json.dumps(record), flush=True)` and document that the format is ndjson so callers use a line-by-line parser. Evidence: PR #528.
+
+### unguarded-api-call-cli
+- **severity**: major
+- **check**: Verify that API and network calls in CLI `run()` methods are wrapped in exception handlers that return a controlled non-zero exit code — unguarded calls produce tracebacks instead of actionable error messages and violate the CLI's documented exit code contract.
+- **triggers**: CLI `run()` methods that call client methods (`client.get_pipeline(...)`, `client.get_project_status(...)`, HTTP calls) without a surrounding `try/except`; poll loops where each tick calls a network client without error handling; `cli_main()` entry points that do not catch general `Exception` when the `run()` method makes network calls.
+- **example**: `result = client.get_pipeline(pipeline_id)` inside a poll loop with no try/except. When a transient network error occurs, the CLI crashes with a full traceback — callers in workflows see exit code 1 (Python exception) rather than the documented exit code 2 (connection error). Fix: `try: result = client.get_pipeline(pipeline_id) except (ConnectionError, TimeoutError) as e: print(f"Connection error: {e}", file=sys.stderr); return 2`. Evidence: PR #492.
+
+### exit-code-table-incomplete
+- **severity**: major
+- **check**: Verify that the module-level exit code table documents every return code the implementation can produce — omitted codes cause callers to misclassify error types and build incorrect retry or alerting logic.
+- **triggers**: Module docstrings that include an explicit exit-code table (e.g. `Exit codes: 0=success, 1=not-found`) when the implementation also returns additional codes not listed; poll loops or error handlers that return codes like `rc=2` (connection/auth) that are absent from the documented table; `not-found` and `connection-error` paths that share the same return code contrary to the table's claims.
+- **example**: A module docstring documents `Exit codes: 0 = success, 1 = failure/timeout` but both poll loop functions return `2` on API/network exceptions. Workflow orchestrators that rely on `rc=1` to distinguish a real test failure from a transient connectivity issue will misclassify network outages as test failures. Fix: add `2 = connection/auth error` to the table and verify that `not-found` (rc=1) and `connection-error` (rc=2) use distinct return values throughout the module. Evidence: PR #492.
+
+### regex-unicode-scope-change
+- **severity**: major
+- **check**: Verify that `\w` used in a regex compiled without `re.ASCII` is intentional — by default Python's `\w` matches all Unicode word characters, not just `[A-Za-z0-9_]`, silently broadening what was previously an ASCII-only pattern.
+- **triggers**: Python files where a `[A-Za-z0-9_]` character class is replaced with `\w` (e.g. to satisfy SonarQube or reduce complexity) without adding `re.ASCII` (or `re.A`) to the compile flags; regex patterns used for identifier validation, placeholder substitution, or slug matching that previously used an explicit ASCII character class.
+- **example**: `re.compile(r'\{(\w+)\}')` replaces the prior `re.compile(r'\{([A-Za-z0-9_]+)\}')`. Without `re.ASCII`, `\w` now matches accented letters, CJK word characters, and other Unicode word chars — `{café}` and `{変数}` become valid placeholder names. If the intent is to keep the original ASCII-only contract while satisfying the linter, compile with `re.compile(r'\{(\w+)\}', re.ASCII)` so `\w == [A-Za-z0-9_]`. Evidence: PR #543.
+
+### threadpool-result-submission-order
+- **severity**: major
+- **check**: Verify that `ThreadPoolExecutor` results are collected via `as_completed()` rather than by calling `future.result()` in the original submission-order loop — awaiting in submission order reintroduces head-of-line blocking, and if stable output order matters, sort the collected rows afterward rather than relying on submission order.
+- **triggers**: `ThreadPoolExecutor` usage where a list of `future.result()` calls is made inside the same `for` loop used to `submit()` the futures; code that collects parallel results without importing `as_completed` from `concurrent.futures`; `emit_rows(` called with rows built directly from an `as_completed()` loop with no subsequent sort.
+- **example**:
+  ```python
+  # bad — future.result() in submission order re-serializes the pool
+  futures = [executor.submit(fetch, pr) for pr in pr_numbers]
+  rows = [f.result() for f in futures]  # slow first PR blocks all later ones
+
+  # good — collect via as_completed, then sort for stable output
+  from concurrent.futures import as_completed
+  futures = {executor.submit(fetch, pr): pr for pr in pr_numbers}
+  rows = [f.result() for f in as_completed(futures)]
+  rows.sort(key=lambda r: r["pr_number"])  # restore deterministic order
+  ```
+  Evidence: PR #632 — 5 occurrences.
+
+### emit-rows-columns-kwarg-wrong
+- **severity**: critical
+- **check**: Verify that `emit_rows()` calls use the `headers=` keyword argument, not `columns=` — `emit_rows` does not accept `columns=`, and passing it raises `TypeError` at runtime before any output is produced. Also verify accompanying tests assert on `headers=`, not `columns=` — a test asserting on the wrong kwarg name silently skips validating the real call.
+- **triggers**: `emit_rows(` call sites passing a `columns=` keyword argument; test files asserting on a `columns` kwarg in `call_args` for an `emit_rows` call.
+- **example**:
+  ```python
+  # bad — raises TypeError at runtime
+  emit_rows(rows, args.format, columns=["group", "count"])
+
+  # good
+  emit_rows(rows, args.format, headers=["group", "count"])
+  ```
+  ```python
+  # bad test — columns is never set, so this assertion is silently skipped
+  call_kwargs = mock_emit.call_args.kwargs
+  if "columns" in call_kwargs:
+      assert call_kwargs["columns"] == ["group", "count"]
+
+  # good test — asserts on the real kwarg unconditionally
+  assert mock_emit.call_args.kwargs["headers"] == ["group", "count"]
+  ```
+
+### hardcoded-default-branch-master
+- **severity**: major
+- **check**: Verify that workflow YAML and shell steps operating on an external or parameterized repo do not hardcode `master` as the default branch — use a configurable param or discover the actual default branch before checking it out.
+- **triggers**: Workflow YAML stage descriptions or inline scripts containing `git checkout master`, `--base master`, or similar literal `master` references where the target repo is a variable rather than a fixed, known-master repo.
+- **example**:
+  ```yaml
+  # bad — assumes the target repo's default branch is master
+  description: |
+    cd {repo_path} && git checkout master && git pull
+
+  # good — parameterize the base branch
+  trigger:
+    params:
+      base_branch: "main"
+  description: |
+    cd {repo_path} && git checkout {base_branch} && git pull
+  ```
+  If the target repo uses `main` (or any non-`master` default), the hardcoded checkout fails and the workflow stops mid-run.

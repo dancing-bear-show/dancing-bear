@@ -601,5 +601,24 @@ main.add_command(parse_transcripts)
 main.add_command(cost_breakdown, name="cost")
 
 
+@main.command(
+    "otel",
+    context_settings={
+        "ignore_unknown_options": True,
+        "allow_extra_args": True,
+        "allow_interspersed_args": False,
+    },
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def otel_cmd(args: tuple[str, ...]) -> None:
+    """Query and manage local OTEL telemetry data (~/.config/otel/).
+
+    Run 'telemetry otel <subcommand> --help' for subcommand options.
+    """
+    from telemetry.otel.cli import main as otel_main
+
+    raise SystemExit(otel_main(list(args)))
+
+
 if __name__ == "__main__":  # pragma: no cover
     main()

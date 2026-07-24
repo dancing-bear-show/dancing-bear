@@ -6,10 +6,19 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-__all__ = ["atomic_write_json", "write_once", "safe_load_json", "load_json_or_exit"]
+__all__ = [
+    "atomic_write_json",
+    "find_rotated_files",
+    "iter_jsonl_file",
+    "iter_rotated_jsonl",
+    "load_json_or_exit",
+    "safe_load_json",
+    "write_once",
+]
 
 
 def atomic_write_json(
@@ -74,3 +83,64 @@ def load_json_or_exit(path: str | Path) -> Any:
         sys.exit(f"Invalid JSON in {path}: {exc}")
     except Exception as exc:  # catch-all for unexpected read errors
         sys.exit(f"Failed to load {path}: {exc}")
+
+
+def find_rotated_files(base_path: Path) -> list[Path]:
+    """Return the main JSONL file plus numbered and timestamped rotation files.
+
+    Returns files in a deterministic order: base first, then numbered suffixes
+    (.1, .2, …) in sorted order, then stem-dated variants (metrics-2024-01-01.jsonl).
+    """
+    files: list[Path] = []
+    if base_path.exists():
+        files.append(base_path)
+
+    filename = base_path.name
+    parent = base_path.parent
+
+    for rotated in sorted(parent.glob(f"{filename}.*")):
+        suffix = rotated.name.removeprefix(f"{filename}.")
+        if suffix.isdigit():
+            files.append(rotated)
+
+    stem = filename.removesuffix(".jsonl")
+    for rotated in sorted(parent.glob(f"{stem}-*.jsonl")):
+        if rotated != base_path and rotated not in files:
+            files.append(rotated)
+
+    return files
+
+
+def iter_jsonl_file(fpath: Path, *, tolerant: bool) -> Iterator[dict[str, Any]]:
+    """Yield parsed JSON objects from a single JSONL file.
+
+    Args:
+        fpath: Path to the JSONL file.
+        tolerant: When True, skip unreadable files and malformed lines silently.
+                  When False, raise on any I/O or parse error.
+    """
+    try:
+        f = open(fpath, encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        if tolerant:
+            return
+        raise
+    with f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except (ValueError, TypeError):
+                if not tolerant:
+                    raise
+
+
+def iter_rotated_jsonl(
+    base_path: Path,
+    *,
+    tolerant: bool = True,
+) -> Iterator[dict[str, Any]]:
+    """Yield JSON objects from *base_path* and its numbered/timestamped rotation files."""
+    for fpath in find_rotated_files(base_path):
+        yield from iter_jsonl_file(fpath, tolerant=tolerant)
