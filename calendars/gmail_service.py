@@ -17,7 +17,7 @@ class QueryParams:
     from_text: str | None = None
     days: int | None = None
     inbox_only: bool = False
-    include_terms: str | Sequence[str | None] | None = None
+    include_terms: str | Sequence[str] | None = None
     phrase: str | None = None
 
 

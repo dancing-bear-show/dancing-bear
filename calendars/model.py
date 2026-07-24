@@ -23,7 +23,7 @@ def _tok_to_day_code(t: str, day_map: dict) -> str:
     return code or t[:2].upper()
 
 
-def _normalize_byday(v: Any) -> list[str | None] | None:
+def _normalize_byday(v: Any) -> list[str] | None:
     if not v:
         return None
     # Accept ["MO","TU"], or comma/space separated variants, or full names
@@ -74,7 +74,7 @@ def _coerce_int(v: Any) -> int | None:
         return None
 
 
-def _normalize_exdates(raw: Any) -> list[str | None] | None:
+def _normalize_exdates(raw: Any) -> list[str] | None:
     """Normalize exdates from list/tuple or comma-separated string."""
     if isinstance(raw, (list, tuple)):
         return [str(x).strip() for x in raw if str(x).strip()] or None
@@ -108,11 +108,11 @@ def normalize_event(ev: dict[str, Any]) -> dict[str, Any]:
       - body_html: str | None
       - repeat: str | None ('daily'|'weekly'|'monthly')
       - interval: int | None
-      - byday: list[str | None]  # e.g., ['MO','WE']
+      - byday: list[str]  # e.g., ['MO','WE']
       - range: {'start_date': 'YYYY-MM-DD', 'until': 'YYYY-MM-DD'} | None
       - start_time: str | None   # 'HH:MM' for recurring
       - end_time: str | None     # 'HH:MM' for recurring
-      - exdates: list[str | None]
+      - exdates: list[str]
       - start: str | None        # ISO for single events
       - end: str | None
       - count: int | None

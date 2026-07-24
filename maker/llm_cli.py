@@ -9,15 +9,16 @@ from core.textio import read_text
 LLM_DIR = Path(".llm")
 
 
+_AGENTIC_FALLBACK = "agentic: maker\npurpose: Utility generators and print helpers"
+
+
 def _agentic() -> str:
     try:
         from .agentic import build_agentic_capsule
 
         return build_agentic_capsule()
     except Exception:  # nosec B110 - graceful fallback when agentic module unavailable
-        from .agentic import FALLBACK_AGENTIC_HEADER
-
-        return FALLBACK_AGENTIC_HEADER
+        return _AGENTIC_FALLBACK
 
 
 def _domain_map() -> str:
