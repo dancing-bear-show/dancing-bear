@@ -67,7 +67,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         from worker.cli import WorkerApp
         q.QUEUE_ROOT = self.root / "queue"
         self._mk_error_job("r1")
-        rc, out = _capture_stdout(WorkerApp().main, ["retry", "r1", "--reset-attempts", "--delay", "1"])
+        rc, _ = _capture_stdout(WorkerApp().main, ["retry", "r1", "--reset-attempts", "--delay", "1"])
         self.assertEqual(rc, 0)
         # moved from error to pending
         c = q.counts(root=q.QUEUE_ROOT)

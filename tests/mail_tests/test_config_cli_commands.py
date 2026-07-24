@@ -132,7 +132,7 @@ class TestRunCacheStats(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_stats(args)
+        result = run_cache_stats(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.CacheStatsProducer")
@@ -144,7 +144,7 @@ class TestRunCacheStats(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_stats(args)
+        result = run_cache_stats(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 1)
 
 
@@ -160,7 +160,7 @@ class TestRunCacheClear(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_clear(args)
+        result = run_cache_clear(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.CacheClearProducer")
@@ -172,7 +172,7 @@ class TestRunCacheClear(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(cache="/tmp/cache")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_clear(args)
+        result = run_cache_clear(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 1)
 
 
@@ -188,7 +188,7 @@ class TestRunCachePrune(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(cache="/tmp/cache", days="7")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_prune(args)
+        result = run_cache_prune(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.CachePruneProducer")
@@ -200,7 +200,7 @@ class TestRunCachePrune(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(cache="/tmp/cache", days="7")  # nosec B108 - test-only temp file, not a security concern
-        result = run_cache_prune(args)
+        result = run_cache_prune(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 1)
 
     @patch("mail.config_cli.commands.CachePruneProducer")
@@ -219,7 +219,7 @@ class TestRunCachePrune(unittest.TestCase):
         mock_req_consumer.side_effect = capture_request
 
         args = SimpleNamespace(cache="/tmp/cache", days="14")  # nosec B108 - test-only temp file, not a security concern
-        run_cache_prune(args)
+        run_cache_prune(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
 
         # Days was passed as int(args.days)
         self.assertTrue(any(True for _ in captured) or True)  # Just ensure it ran
@@ -237,7 +237,7 @@ class TestRunConfigInspect(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(path="/tmp/creds.ini", section=None, only_mail=False)  # nosec B108 - test-only temp file, not a security concern
-        result = run_config_inspect(args)
+        result = run_config_inspect(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.ConfigInspectProducer")
@@ -249,7 +249,7 @@ class TestRunConfigInspect(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(path="/nonexistent.ini", section=None, only_mail=False)
-        result = run_config_inspect(args)
+        result = run_config_inspect(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 2)
 
     @patch("mail.config_cli.commands.ConfigInspectProducer")
@@ -261,7 +261,7 @@ class TestRunConfigInspect(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(path="/bad.ini", section=None, only_mail=False)
-        result = run_config_inspect(args)
+        result = run_config_inspect(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 3)
 
     @patch("mail.config_cli.commands.ConfigInspectProducer")
@@ -274,7 +274,7 @@ class TestRunConfigInspect(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(path="/c.ini", section="nonexistent", only_mail=False)
-        result = run_config_inspect(args)
+        result = run_config_inspect(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         # "Section not found" contains "not found" which is checked first -> returns 2
         self.assertEqual(result, 2)
 
@@ -287,7 +287,7 @@ class TestRunConfigInspect(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(path="/c.ini", section=None, only_mail=False)
-        result = run_config_inspect(args)
+        result = run_config_inspect(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 1)
 
 
@@ -303,7 +303,7 @@ class TestRunConfigDeriveLabels(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(in_path="/in.yaml", out_gmail="/gmail.yaml", out_outlook="/outlook.yaml")
-        result = run_config_derive_labels(args)
+        result = run_config_derive_labels(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.DeriveLabelsProducer")
@@ -315,7 +315,7 @@ class TestRunConfigDeriveLabels(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(in_path="/in.yaml", out_gmail="/gmail.yaml", out_outlook="/outlook.yaml")
-        result = run_config_derive_labels(args)
+        result = run_config_derive_labels(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 2)
 
     @patch("mail.config_cli.commands.DeriveLabelsProducer")
@@ -328,7 +328,7 @@ class TestRunConfigDeriveLabels(unittest.TestCase):
 
         # No in_path attribute set
         args = SimpleNamespace(out_gmail="/g.yaml", out_outlook="/o.yaml")
-        run_config_derive_labels(args)
+        run_config_derive_labels(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
 
         # Should not raise; in_path defaults to ""
         mock_req_consumer.assert_called_once()
@@ -351,7 +351,7 @@ class TestRunConfigDeriveFilters(unittest.TestCase):
             in_path="/in.yaml", out_gmail="/gmail.yaml", out_outlook="/outlook.yaml",
             outlook_archive_on_remove_inbox=False, outlook_move_to_folders=True
         )
-        result = run_config_derive_filters(args)
+        result = run_config_derive_filters(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.DeriveFiltersProducer")
@@ -366,7 +366,7 @@ class TestRunConfigDeriveFilters(unittest.TestCase):
             in_path="/in.yaml", out_gmail="/gmail.yaml", out_outlook="/outlook.yaml",
             outlook_archive_on_remove_inbox=False, outlook_move_to_folders=True
         )
-        result = run_config_derive_filters(args)
+        result = run_config_derive_filters(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 2)
 
 
@@ -382,7 +382,7 @@ class TestRunConfigOptimizeFilters(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(in_path="/in.yaml", out="/out.yaml", merge_threshold=2, preview=False)
-        result = run_config_optimize_filters(args)
+        result = run_config_optimize_filters(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.OptimizeFiltersProducer")
@@ -394,7 +394,7 @@ class TestRunConfigOptimizeFilters(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(in_path="/in.yaml", out="/out.yaml", merge_threshold=2, preview=False)
-        result = run_config_optimize_filters(args)
+        result = run_config_optimize_filters(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 2)
 
 
@@ -410,7 +410,7 @@ class TestRunConfigAuditFilters(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(in_path="/in.yaml", export_path="/export.yaml", preview_missing=False)
-        result = run_config_audit_filters(args)
+        result = run_config_audit_filters(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.AuditFiltersProducer")
@@ -422,7 +422,7 @@ class TestRunConfigAuditFilters(unittest.TestCase):
         mock_processor_cls.return_value.process.return_value = envelope
 
         args = SimpleNamespace(in_path="/in.yaml", export_path="/export.yaml", preview_missing=False)
-        result = run_config_audit_filters(args)
+        result = run_config_audit_filters(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 1)
 
 
@@ -443,7 +443,7 @@ class TestRunEnvSetup(unittest.TestCase):
             outlook_client_id=None, tenant=None, outlook_token=None,
             copy_gmail_example=False,
         )
-        result = run_env_setup(args)
+        result = run_env_setup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 0)
 
     @patch("mail.config_cli.commands.EnvSetupProducer")
@@ -460,7 +460,7 @@ class TestRunEnvSetup(unittest.TestCase):
             outlook_client_id=None, tenant=None, outlook_token=None,
             copy_gmail_example=False,
         )
-        result = run_env_setup(args)
+        result = run_env_setup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
         self.assertEqual(result, 2)
 
     @patch("mail.config_cli.commands.EnvSetupProducer")
@@ -478,7 +478,7 @@ class TestRunEnvSetup(unittest.TestCase):
             outlook_client_id=None, tenant=None, outlook_token=None,
             copy_gmail_example=False,
         )
-        run_env_setup(args)
+        run_env_setup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
 
         req_arg = mock_req_consumer.call_args[0][0]
         self.assertEqual(req_arg.venv_dir, ".venv")
