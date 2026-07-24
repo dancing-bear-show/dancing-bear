@@ -3,7 +3,7 @@
     "domain": "mail",
     "capsule_hint": "./bin/assistant mail --agentic",
     "notes": "Prefer agentic schema from unified CLI: ./bin/assistant mail --agentic --agentic-format yaml --agentic-compact (or direct ./bin/mail-assistant …)",
-    "preferred_sources": "Profiles in ~/.config/sre-utils/credentials.ini"
+    "preferred_sources": "Profiles in ~/.config/credentials.ini"
   },
   "llm": {
     "domain": "maintenance",
