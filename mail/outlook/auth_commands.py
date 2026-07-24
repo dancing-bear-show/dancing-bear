@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 
 from ..config_resolver import expand_path, default_outlook_token_path
 from core.auth import resolve_outlook_credentials
 from core.constants import GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
-
-logger = logging.getLogger(__name__)
 
 _MSAL_MISSING_MSG = "Missing msal dependency: {}. Run: pip install msal"
 

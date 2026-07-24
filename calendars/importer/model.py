@@ -16,7 +16,7 @@ class ScheduleItem:
 
     # Recurring support
     recurrence: str | None = None   # weekly|daily|monthly
-    byday: list[str | None] | None = None  # e.g., ["MO","WE"] for weekly
+    byday: list[str] | None = None  # e.g., ["MO","WE"] for weekly
     start_time: str | None = None   # HH:MM (24h)
     end_time: str | None = None
     range_start: str | None = None  # YYYY-MM-DD

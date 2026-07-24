@@ -11,7 +11,6 @@ from maker.pipeline import (
     ToolCatalogRequestConsumer,
     ToolRequest,
     ToolRequestConsumer,
-    ToolResult,
     ToolRunnerProcessor,
     ToolResultProducer,
 )

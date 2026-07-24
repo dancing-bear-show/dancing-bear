@@ -84,7 +84,7 @@ class LocationSync:
 
     def _resolve_event_location(
         self, ev: dict[str, Any], calendar: str | None
-    ) -> tuple[dict[str, Any | None, str, str]]:
+    ) -> tuple[dict[str, Any], str, str] | None:
         """Return (nev, yaml_loc, cal_name) for an event, or None if not applicable."""
         if not isinstance(ev, dict):
             return None

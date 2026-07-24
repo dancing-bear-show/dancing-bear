@@ -76,7 +76,7 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
 
 
 class OutlookListOneOffsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookListOneOffsResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookListOneOffsResult, diagnostics: dict[str, Any] | None) -> None:
         rows = payload.rows
         print(f"Found {len(rows)} single events from {payload.start} to {payload.end}.")
         for ev in rows[: payload.limit]:

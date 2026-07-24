@@ -84,7 +84,7 @@ def mask_value(key: str, val: str) -> str:
     return v
 
 
-def shield_dict(data: dict[str, Any]) -> dict[str, Any]:
+def shield_dict(data: dict[str, Any] | None) -> dict[str, Any]:
     """Return a shallow-copied dict with masked values for known secret keys."""
     out: dict[str, Any] = {}
     for k, v in (data or {}).items():

@@ -66,7 +66,7 @@ class OutlookCalendarShareProcessor(SafeProcessor[OutlookCalendarShareRequest, O
 
 
 class OutlookCalendarShareProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookCalendarShareResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookCalendarShareResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Shared '{payload.calendar}' with {payload.recipient} role={payload.role}")
 
 

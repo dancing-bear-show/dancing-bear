@@ -203,7 +203,7 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
 
 
 class OutlookDedupProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookDedupResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookDedupResult, diagnostics: dict[str, Any] | None) -> None:
         duplicates = payload.duplicates
         if not duplicates:
             print("No duplicate series detected in window.")

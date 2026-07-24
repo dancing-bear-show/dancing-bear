@@ -81,7 +81,7 @@ class LabelsSyncProcessor(Processor[LabelsSyncPayload, ResultEnvelope[LabelsSync
 
     def process(self, payload: LabelsSyncPayload) -> ResultEnvelope[LabelsSyncResult]:
         plan_envelope = LabelsPlanProcessor().process(payload)
-        plan = plan_envelope.payload or LabelsPlanResult([], [], [])
+        plan = plan_envelope.payload or LabelsPlanResult([], [], [], show_delete=False)
 
         redirects: list[dict[str, str]] = []
         if payload.sweep_redirects:

@@ -218,7 +218,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
 
 
 class GmailPlanProducer(BaseProducer):
-    def _produce_success(self, payload: GmailPlanResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: GmailPlanResult, diagnostics: dict[str, Any] | None) -> None:
         from calendars.yamlio import dump_config
 
         dump_config(str(payload.out_path), payload.document)
@@ -329,7 +329,7 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
 
 
 class GmailScanClassesProducer(BaseProducer):
-    def _produce_success(self, payload: GmailScanClassesResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: GmailScanClassesResult, diagnostics: dict[str, Any] | None) -> None:
         events = payload.events
         if not events:
             if payload.message_count:
@@ -406,7 +406,7 @@ class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListRe
 
 
 class GmailMailListProducer(BaseProducer):
-    def _produce_success(self, payload: GmailMailListResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: GmailMailListResult, diagnostics: dict[str, Any] | None) -> None:
         messages = payload.messages
         if not messages:
             print("No messages matched.")
@@ -502,7 +502,7 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
 
 
 class GmailSweepTopProducer(BaseProducer):
-    def _produce_success(self, payload: GmailSweepTopResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: GmailSweepTopResult, diagnostics: dict[str, Any] | None) -> None:
         top = payload.top_senders
         if not top:
             print("No sender stats available.")

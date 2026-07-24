@@ -92,7 +92,7 @@ class GmailService:
         ))
 
     @staticmethod
-    def build_activerh_query(*, days: int, explicit: str | None = None, programs: list[str | None] = None, from_text: str | None = None) -> str:
+    def build_activerh_query(*, days: int, explicit: str | None = None, programs: list[str] | None = None, from_text: str | None = None) -> str:
         """Construct a broad ActiveRH receipt query (delegates to build_query)."""
         progs = programs or [
             "Swimmer", "Swim Kids", "Chess", "Sportball", "Culinary", "Preschool", "Bronze",

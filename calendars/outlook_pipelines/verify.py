@@ -95,7 +95,7 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
 
 
 class OutlookVerifyProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookVerifyResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookVerifyResult, diagnostics: dict[str, Any] | None) -> None:
         self.print_logs(payload.logs)
         print(
             f"Checked {payload.total} recurring entries. "

@@ -382,7 +382,7 @@ def _add_profile_arg(parser) -> None:
     parser.add_argument("--profile", help="Credentials profile (INI section suffix)")
 
 
-def main(argv: list[str | None] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Calendar Assistant CLI."""
     return app.run_with_assistant(
         assistant=assistant,

@@ -233,7 +233,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
 
 class OutlookSettingsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookSettingsResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookSettingsResult, diagnostics: dict[str, Any] | None) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
             print(f"{MSG_PREVIEW_COMPLETE} {payload.selected} item(s) matched.")

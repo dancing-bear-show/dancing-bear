@@ -43,7 +43,7 @@ class OutlookMailListProcessor(SafeProcessor[OutlookMailListRequest, OutlookMail
 
 
 class OutlookMailListProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookMailListResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookMailListResult, diagnostics: dict[str, Any] | None) -> None:
         msgs = payload.messages
         if not msgs:
             print("No messages.")

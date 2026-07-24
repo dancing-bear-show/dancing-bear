@@ -15,7 +15,7 @@ def _ymd(d: str) -> str:
     return str(d)[:10]
 
 
-def compute_window(event: dict[str, Any]) -> tuple[str, str | None] | None:
+def compute_window(event: dict[str, Any]) -> tuple[str, str] | None:
     """Compute [start_iso, end_iso] for an event spec.
 
     Accepts canonical event dict (see model.normalize_event). Returns
@@ -91,7 +91,7 @@ def _event_matches_filters(
 def filter_events_by_day_time(
     events: Iterable[dict[str, Any]],
     *,
-    byday: list[str | None] = None,
+    byday: list[str] | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
 ) -> list[dict[str, Any]]:

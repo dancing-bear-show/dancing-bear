@@ -149,7 +149,7 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
 
 
 class OutlookScheduleImportProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookScheduleImportResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookScheduleImportResult, diagnostics: dict[str, Any] | None) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)

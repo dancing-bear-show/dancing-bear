@@ -229,7 +229,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
 
 
 class OutlookRemoveProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookRemoveResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookRemoveResult, diagnostics: dict[str, Any] | None) -> None:
         if not payload.apply:
             print("Planned deletions:")
             for entry in payload.plan:

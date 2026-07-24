@@ -56,7 +56,7 @@ def _run_filter_pipeline(
         consumer_cls: Consumer class to instantiate
         processor_cls: Processor class to instantiate
         producer_factory: Callable that takes payload and returns producer instance
-        handle_error: None custom error handler for envelope errors
+        handle_error: Optional callable to handle envelope errors; None uses default
 
     Returns:
         Exit code (0 for success, 1 for failure)

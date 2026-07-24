@@ -148,7 +148,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
 
 class OutlookAddProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookAddResult, diagnostics: dict[str, Any] | None) -> None:
         self.print_logs(payload.logs)
         suffix = " (dry-run)" if payload.dry_run else ""
         print(f"Planned {payload.created} events/series from config{suffix}")

@@ -132,7 +132,7 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
 
 
 class OutlookLocationsEnrichProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookLocationsEnrichResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookLocationsEnrichResult, diagnostics: dict[str, Any] | None) -> None:
         logs = (diagnostics or {}).get("logs") or []
         self.print_logs(logs)
         if payload.dry_run:
@@ -203,7 +203,7 @@ class OutlookLocationsApplyProcessor(SafeProcessor[OutlookLocationsRequest, Outl
 
 
 class OutlookLocationsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookLocationsResult, diagnostics: dict[str, Any | None]) -> None:
+    def _produce_success(self, payload: OutlookLocationsResult, diagnostics: dict[str, Any] | None) -> None:
         print(payload.message)
 
 
