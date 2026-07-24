@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from ._base import (
     Any,
-    Dict,
-    List,
-    Optional,
     Path,
-    Tuple,
     dataclass,
     re,
     BaseProducer,
@@ -18,6 +14,7 @@ from ._base import (
     check_service_required,
     _load_yaml,
     LOG_DRY_RUN,
+    MSG_PREVIEW_COMPLETE,
 )
 
 __all__ = [
@@ -32,9 +29,9 @@ __all__ = [
 @dataclass
 class OutlookSettingsRequest:
     config_path: Path
-    calendar: Optional[str]
-    from_date: Optional[str]
-    to_date: Optional[str]
+    calendar: str | None
+    from_date: str | None
+    to_date: str | None
     dry_run: bool
     service: Any
 
@@ -43,19 +40,19 @@ OutlookSettingsRequestConsumer = RequestConsumer[OutlookSettingsRequest]
 
 
 @dataclass
-class _EventProcessingContext:
+class _SettingsProcessingContext:
     """Context for processing a single event against settings rules."""
 
     svc: Any
-    defaults: Dict
-    rules: List
-    calendar: Optional[str]
+    defaults: dict
+    rules: list
+    calendar: str | None
     dry_run: bool
 
 
 @dataclass
 class OutlookSettingsResult:
-    logs: List[str]
+    logs: list[str]
     selected: int
     changed: int
     dry_run: bool
@@ -67,7 +64,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         self._regex = regex_module
         self._window = DateWindowResolver(today_factory)
 
-    def _load_config_rules(self, config_path: Path) -> Tuple[Dict, List]:
+    def _load_config_rules(self, config_path: Path) -> tuple[dict, list]:
         """Load defaults and rules from config file."""
         doc = self._config_loader(str(config_path)) or {}
         root = doc.get("settings") if isinstance(doc, dict) and "settings" in doc else doc
@@ -78,8 +75,8 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         return defaults, rules
 
     def _process_single_event(
-        self, ctx: _EventProcessingContext, event: Dict[str, Any],
-    ) -> Tuple[int, int, List[str]]:
+        self, ctx: _SettingsProcessingContext, event: dict[str, Any],
+    ) -> tuple[int, int, list[str]]:
         """Process one event: evaluate config, build patch, apply. Returns (selected, changed, logs)."""
         eid = event.get("id")
         if not eid:
@@ -110,11 +107,11 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             calendar_name=payload.calendar,
         ))
 
-        ctx = _EventProcessingContext(
+        ctx = _SettingsProcessingContext(
             svc=svc, defaults=defaults, rules=rules,
             calendar=payload.calendar, dry_run=payload.dry_run,
         )
-        logs: List[str] = []
+        logs: list[str] = []
         selected = 0
         changed = 0
 
@@ -126,7 +123,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
         return OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
 
-    def _evaluate_config(self, defaults, rules, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _evaluate_config(self, defaults, rules, event: dict[str, Any]) -> dict[str, Any | None]:
         subject = (event.get("subject") or "").strip()
         location = ((event.get("location") or {}).get("displayName") or "").strip()
         apply_set = None
@@ -144,7 +141,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             cfg.update(apply_set)
         return cfg
 
-    def _match_rule(self, rule: Dict[str, Any], subject: str, location: str) -> bool:
+    def _match_rule(self, rule: dict[str, Any], subject: str, location: str) -> bool:
         matcher = rule.get("match") or {}
         sc = self._to_list(matcher.get("subject_contains"))
         if sc and not any(s.lower() in subject.lower() for s in sc):
@@ -157,7 +154,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             return False
         return True
 
-    def _build_patch(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_patch(self, cfg: dict[str, Any]) -> dict[str, Any]:
         cats = cfg.get("categories")
         if isinstance(cats, str):
             cats = [s.strip() for s in cats.split(",") if s.strip()]
@@ -181,7 +178,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             "reminder_minutes": rem_min,
         }
 
-    def _format_patch_log(self, eid: str, subject: str, patch: Dict[str, Any]) -> str:
+    def _format_patch_log(self, eid: str, subject: str, patch: dict[str, Any]) -> str:
         """Format a dry-run log message for a patch operation."""
         parts = []
         if patch.get("categories") is not None:
@@ -197,8 +194,8 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         return f"{LOG_DRY_RUN} would update {eid} | {subject} -> {{" + ", ".join(parts) + "}}"
 
     def _apply_event_patch(
-        self, svc, eid: str, calendar: Optional[str], patch: Dict[str, Any]
-    ) -> Tuple[bool, Optional[str]]:
+        self, svc, eid: str, calendar: str | None, patch: dict[str, Any]
+    ) -> tuple[bool, str | None]:
         """Apply settings patch to an event. Returns (success, error_message)."""
         try:
             from calendars.outlook_service import EventSettingsPatch
@@ -215,7 +212,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
         except Exception as exc:
             return False, f"Failed to update {eid}: {exc}"
 
-    def _coerce_bool(self, value: Any) -> Optional[bool]:
+    def _coerce_bool(self, value: Any) -> bool | None:
         if isinstance(value, bool):
             return value
         if value is None:
@@ -227,7 +224,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
             return False
         return None
 
-    def _to_list(self, value: Any) -> List[str]:
+    def _to_list(self, value: Any) -> list[str]:
         if value is None:
             return []
         if isinstance(value, (list, tuple)):
@@ -236,9 +233,9 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
 
 class OutlookSettingsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookSettingsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookSettingsResult, diagnostics: dict[str, Any | None]) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
-            print(f"Preview complete. {payload.selected} item(s) matched.")
+            print(f"{MSG_PREVIEW_COMPLETE} {payload.selected} item(s) matched.")
         else:
             print(f"Applied settings to {payload.changed} item(s).")

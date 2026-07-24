@@ -5,7 +5,6 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -15,7 +14,7 @@ from .consumers import AutoProposePayload, AutoSummaryPayload, AutoApplyPayload
 _PROMO_KEYWORDS = ["sale", "% off", "percent off", "deal", "promo", "clearance", "free shipping", "coupon"]
 
 
-def _detect_low_interest_reasons(hdrs: dict, label_ids: set, subject: str) -> List[str]:
+def _detect_low_interest_reasons(hdrs: dict, label_ids: set, subject: str) -> list[str]:
     """Return list of low-interest reason tags for a message."""
     reasons = []
     if hdrs.get("list-unsubscribe") or hdrs.get("list-id"):
@@ -33,10 +32,10 @@ def _detect_low_interest_reasons(hdrs: dict, label_ids: set, subject: str) -> Li
     return reasons
 
 
-def classify_low_interest(msg: dict) -> Optional[dict]:
+def classify_low_interest(msg: dict) -> dict | None:
     """Return action suggestion if message is likely low-interest.
 
-    Heuristics: List-Unsubscribe/List-Id headers, Precedence: bulk, Auto-Submitted,
+    Heuristics: list-Unsubscribe/list-Id headers, Precedence: bulk, Auto-Submitted,
     Gmail categories (CATEGORY_PROMOTIONS/FORUMS), promo keywords in subject.
     """
     from ..gmail_api import GmailClient
@@ -84,7 +83,7 @@ def _matches_pattern(email: str, domain: str, pattern: str) -> bool:
     return pattern == email
 
 
-def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
+def _is_protected(from_val: str, protected_patterns: list[str]) -> bool:
     """Check if sender matches any protected pattern."""
     email = _extract_bare_email(from_val)
     domain = email.split("@")[-1] if "@" in email else email
@@ -99,7 +98,7 @@ def _is_protected(from_val: str, protected_patterns: List[str]) -> bool:
 class AutoProposeResult:
     """Result of auto propose."""
 
-    out_path: Optional[Path] = None
+    out_path: Path | None = None
     total_considered: int = 0
     selected_count: int = 0
     query: str = ""
@@ -110,8 +109,8 @@ class AutoSummaryResult:
     """Result of auto summary."""
 
     message_count: int = 0
-    reasons: Dict[str, int] = field(default_factory=dict)
-    label_adds: Dict[str, int] = field(default_factory=dict)
+    reasons: dict[str, int] = field(default_factory=dict)
+    label_adds: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -120,7 +119,7 @@ class AutoApplyResult:
 
     total_modified: int = 0
     dry_run: bool = False
-    groups: List[Tuple[int, List[str], List[str]]] = field(default_factory=list)  # (count, add_ids, rem_ids)
+    groups: list[tuple[int, list[str], list[str]]] = field(default_factory=list)  # (count, add_ids, rem_ids)
 
 
 class AutoProposeProcessor(Processor[AutoProposePayload, ResultEnvelope[AutoProposeResult]]):
@@ -230,10 +229,10 @@ class AutoSummaryProcessor(Processor[AutoSummaryPayload, ResultEnvelope[AutoSumm
 
 
 def _group_messages_by_labels(
-    msgs: list, name_to_id: dict, cutoff_ts: Optional[int]
-) -> Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]]:
+    msgs: list, name_to_id: dict, cutoff_ts: int | None
+) -> dict[tuple[tuple[str, ...], tuple[str, ...]], list[str]]:
     """Group message IDs by their (add_ids, remove_ids) label signature."""
-    groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = defaultdict(list)
+    groups: dict[tuple[tuple[str, ...], tuple[str, ...]], list[str]] = defaultdict(list)
     for m in msgs:
         if cutoff_ts and int(m.get("ts", 0)) > cutoff_ts:
             continue
@@ -286,7 +285,7 @@ class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyRes
                 diagnostics={"error": str(exc), "code": 1},
             )
 
-    def _apply_groups(self, client, groups, payload) -> Tuple[int, list]:
+    def _apply_groups(self, client, groups, payload) -> tuple[int, list]:
         """Apply label changes per group; return (total, result_groups)."""
         total = 0
         result_groups = []

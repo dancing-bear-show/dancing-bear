@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import datetime as _dt
+import logging
 import re
-from typing import Any, List
+from typing import Any
 
 from .base import ScheduleParser
 from .model import ScheduleItem
 from .text_utils import extract_time_ranges, normalize_days
+
+logger = logging.getLogger(__name__)
 
 
 class PDFParser(ScheduleParser):
@@ -17,7 +20,7 @@ class PDFParser(ScheduleParser):
     and pdfminer.six (text extraction) fallback.
     """
 
-    def parse(self, path: str) -> List[ScheduleItem]:
+    def parse(self, path: str) -> list[ScheduleItem]:
         """Parse schedule items from PDF file.
 
         Args:
@@ -35,7 +38,7 @@ class PDFParser(ScheduleParser):
         except Exception as e:  # pragma: no cover - optional
             raise RuntimeError("pdfminer.six is required to parse PDFs. Try: python3 -m pip install pdfminer.six") from e
 
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
 
         # First, attempt table extraction where possible for structured schedules
         items = self._try_pdfplumber(path)
@@ -55,7 +58,7 @@ class PDFParser(ScheduleParser):
         # Fallback
         raise NotImplementedError("Generic PDF parsing not implemented. This parser supports Aurora drop-in schedules.")
 
-    def _find_column_indices(self, header: List[str]) -> tuple[int | None, int | None]:
+    def _find_column_indices(self, header: list[str]) -> tuple[int | None, int | None]:
         """Find day and leisure column indices in table header."""
         day_idx = None
         leisure_idx = None
@@ -68,10 +71,10 @@ class PDFParser(ScheduleParser):
         return day_idx, leisure_idx
 
     def _parse_table_row(
-        self, row: List[Any], day_idx: int, leisure_idx: int, path: str
-    ) -> List[ScheduleItem]:
+        self, row: list[Any], day_idx: int, leisure_idx: int, path: str
+    ) -> list[ScheduleItem]:
         """Parse a single table row and create schedule items."""
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
         if not row or len(row) <= max(day_idx, leisure_idx):
             return items
 
@@ -94,9 +97,9 @@ class PDFParser(ScheduleParser):
                 ))
         return items
 
-    def _extract_from_table(self, tbl: List[List[Any]], path: str) -> List[ScheduleItem]:
+    def _extract_from_table(self, tbl: list[list[Any]], path: str) -> list[ScheduleItem]:
         """Extract schedule items from a single table."""
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
         if not tbl or not isinstance(tbl, list):
             return items
 
@@ -111,7 +114,7 @@ class PDFParser(ScheduleParser):
 
         return items
 
-    def _try_pdfplumber(self, path: str) -> List[ScheduleItem]:
+    def _try_pdfplumber(self, path: str) -> list[ScheduleItem]:
         """Attempt to extract schedule using pdfplumber table extraction.
 
         Returns empty list if pdfplumber is not available or extraction fails.
@@ -121,7 +124,7 @@ class PDFParser(ScheduleParser):
         except Exception:
             return []
 
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
         try:
             with pdfplumber.open(str(path)) as pdf:
                 for page in pdf.pages:
@@ -129,59 +132,44 @@ class PDFParser(ScheduleParser):
                     for tbl in tables:
                         items.extend(self._extract_from_table(tbl, path))
         except (OSError, ValueError, KeyError) as e:  # nosec B110 - pdfplumber failures are non-fatal
-            # PDF parsing may fail due to corrupt files, missing tables, or format changes
-            # Return partial results and let caller fall back to text extraction
-            import sys
-            print(f"Warning: PDF table extraction failed ({type(e).__name__}), returning partial results", file=sys.stderr)
+            logger.warning("PDF table extraction failed (%s), returning partial results", type(e).__name__)
 
         return items
 
-    def _parse_aurora_text(self, text: str, path: str) -> List[ScheduleItem]:
-        """Parse Aurora Aquatics schedule from extracted text.
+    def _parse_aurora_block(self, blk: str, path: str) -> list[ScheduleItem]:
+        """Parse one Day-header block from Aurora text into schedule items."""
+        if not re.search(r'Leisure', blk, re.I):
+            return []
+        if not re.search(r'\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)', blk, re.I):
+            return []
+        day_pattern = r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
+        rows = re.findall(
+            rf'({day_pattern}[^\n]*)\n(.*?)(?=\n{day_pattern}|\Z)',
+            blk,
+            re.I | re.DOTALL
+        )
+        items: list[ScheduleItem] = []
+        for day_spec, rest in rows:
+            for st, en in extract_time_ranges(rest):
+                for code in normalize_days(day_spec):
+                    items.append(ScheduleItem(
+                        subject='Leisure Swim',
+                        recurrence='weekly',
+                        byday=[code],
+                        start_time=st,
+                        end_time=en,
+                        range_start=_dt.date.today().isoformat(),
+                        location='Aurora Pools',
+                        notes=f'Imported from PDF {path}',
+                    ))
+        return items
 
-        Args:
-            text: Extracted text from PDF
-            path: Original PDF path for notes
-
-        Returns:
-            List of ScheduleItem objects
-        """
-        items: List[ScheduleItem] = []
-
+    def _parse_aurora_text(self, text: str, path: str) -> list[ScheduleItem]:
+        """Parse Aurora Aquatics schedule from extracted text."""
         t = text.replace("\r", "\n")
         t = re.sub(r"\n{2,}", "\n", t)
-
-        # Split into rough sections by headers and process rows
-        # Match Day header at start of string or after a newline
         blocks = re.split(r'(?:^|\n)\s*Day\s*\n', t)
+        items: list[ScheduleItem] = []
         for blk in blocks[1:]:
-            # Heuristic: check if block contains "Leisure" header and at least one weekday
-            if not re.search(r'Leisure', blk, re.I):
-                continue
-            if not re.search(r'\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)', blk, re.I):
-                continue
-
-            # Split into row-ish chunks, starting with a day spec
-            # Match: Day name + rest of line, newline, then content until next day or end
-            day_pattern = r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
-            rows = re.findall(
-                rf'({day_pattern}[^\n]*)\n(.*?)(?=\n{day_pattern}|\Z)',
-                blk,
-                re.I | re.DOTALL
-            )
-            for day_spec, rest in rows:
-                # Extract Leisure Swim times from rest
-                for st, en in extract_time_ranges(rest):
-                    for code in normalize_days(day_spec):
-                        items.append(ScheduleItem(
-                            subject='Leisure Swim',
-                            recurrence='weekly',
-                            byday=[code],
-                            start_time=st,
-                            end_time=en,
-                            range_start=_dt.date.today().isoformat(),
-                            location='Aurora Pools',
-                            notes=f'Imported from PDF {path}',
-                        ))
-
+            items.extend(self._parse_aurora_block(blk, path))
         return items

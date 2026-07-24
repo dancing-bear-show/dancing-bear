@@ -5,7 +5,6 @@ import os
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import List, Optional
 
 from core.fileutil import atomic_write_json
 
@@ -26,13 +25,13 @@ class ScheduledItem:
     profile: str   # e.g., 'gmail_personal'
     due_at: int    # epoch seconds (local time interpreted when parsed)
     raw_b64: str   # base64-encoded EmailMessage bytes
-    thread_id: Optional[str] = None
-    to: Optional[str] = None
-    subject: Optional[str] = None
+    thread_id: str | None = None
+    to: str | None = None
+    subject: str | None = None
     created_at: int = 0
 
 
-def _load_queue() -> List[dict]:
+def _load_queue() -> list[dict]:
     p = _queue_path()
     if not p.exists():
         return []
@@ -42,7 +41,7 @@ def _load_queue() -> List[dict]:
         return []
 
 
-def _save_queue(items: List[dict]) -> None:
+def _save_queue(items: list[dict]) -> None:
     p = _queue_path()
     atomic_write_json(p, items)
 
@@ -55,11 +54,11 @@ def enqueue(item: ScheduledItem) -> None:
     _save_queue(items)
 
 
-def pop_due(now_ts: Optional[int] = None, *, profile: Optional[str] = None, limit: Optional[int] = None) -> List[dict]:
+def pop_due(now_ts: int | None = None, *, profile: str | None = None, limit: int | None = None) -> list[dict]:
     now = int(now_ts or time.time())
     items = _load_queue()
-    due: List[dict] = []
-    rest: List[dict] = []
+    due: list[dict] = []
+    rest: list[dict] = []
     for it in items:
         if it.get("due_at", 0) <= now and (profile is None or it.get("profile") == profile):
             due.append(it)
@@ -74,7 +73,7 @@ def pop_due(now_ts: Optional[int] = None, *, profile: Optional[str] = None, limi
     return due
 
 
-def parse_send_at(s: str) -> Optional[int]:
+def parse_send_at(s: str) -> int | None:
     """Parse absolute time like 'YYYY-MM-DD HH:MM' or ISO8601 'YYYY-MM-DDTHH:MM'.
 
     Returns epoch seconds in local time.
@@ -98,7 +97,7 @@ def parse_send_at(s: str) -> Optional[int]:
     return None
 
 
-def parse_send_in(s: str) -> Optional[int]:
+def parse_send_in(s: str) -> int | None:
     """Parse relative duration like '90m', '2h', '1h30m', '2d4h'. Returns seconds."""
     if not s:
         return None

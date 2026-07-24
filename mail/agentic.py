@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import Any
 import ast
 
 from core.agentic import (
@@ -34,11 +34,11 @@ def build_agentic_capsule(compact: bool = False) -> str:
         "filters export: python3 -m mail filters export --out filters.yaml",
     ]
 
-    sections: List[Tuple[str, str]] = []
+    sections: list[tuple[str, str]] = []
 
     if not compact:
         # Full mode: include .llm context files
-        files: List[Path] = [
+        files: list[Path] = [
             llm / "CONTEXT.md",
             llm / "UNIFIED.llm",
             llm / "DOMAIN_MAP.md",
@@ -103,9 +103,9 @@ _FOLDER_SECTIONS = [
 ]
 
 
-def _list_folder_modules(root: Path, folder: str) -> List[Tuple[str, str]]:
+def _list_folder_modules(root: Path, folder: str) -> list[tuple[str, str]]:
     """Return (name, first-doc-line) pairs for Python files in a folder."""
-    items: List[Tuple[str, str]] = []
+    items: list[tuple[str, str]] = []
     d = root / folder
     if not d.exists() or not d.is_dir():
         return items
@@ -125,7 +125,7 @@ def _list_folder_modules(root: Path, folder: str) -> List[Tuple[str, str]]:
 def build_domain_map() -> str:
     """Programmatically build a minimal domain map with CLI tree and key modules."""
     root = Path(os.getcwd())
-    parts: List[str] = [
+    parts: list[str] = [
         "Top-Level\n- bin/ — wrappers (mail-assistant, mail-assistant-auth, llm)"
         "\n- config/ — unified YAML inputs\n- out/ — derived artifacts"
         "\n- tests/ — unit tests\n- .llm/ — agent context"
@@ -150,7 +150,7 @@ def build_domain_map() -> str:
     return "\n".join([s for s in parts if s.strip()])
 
 
-def _cli_path_exists(path: List[str]) -> bool:
+def _cli_path_exists(path: list[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
@@ -162,12 +162,12 @@ def _bin_exists(name: str) -> bool:
         return False
 
 
-def _filter_flows_by_requires(flows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _filter_flows_by_requires(flows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Filter flow list to only those whose required CLI paths all exist."""
     return [f for f in flows if all(_cli_path_exists(p) for p in f.get("requires", []))]
 
 
-def _mail_flows() -> List[Dict[str, Any]]:
+def _mail_flows() -> list[dict[str, Any]]:
     """Return mail/outlook/auto/label/signature flow specs."""
     return [
         {
@@ -311,7 +311,7 @@ def _mail_flows() -> List[Dict[str, Any]]:
     ]
 
 
-def _ios_flows() -> List[Dict[str, Any]]:
+def _ios_flows() -> list[dict[str, Any]]:
     """Return iOS phone-management flow specs."""
     return [
         {
@@ -395,7 +395,7 @@ def _ios_flows() -> List[Dict[str, Any]]:
     ]
 
 
-def build_flows() -> List[Dict[str, Any]]:
+def build_flows() -> list[dict[str, Any]]:
     """Return a list of composable flow specs (small, parameterized)."""
     flows = _filter_flows_by_requires(_mail_flows())
     if _bin_exists('phone'):
@@ -405,14 +405,14 @@ def build_flows() -> List[Dict[str, Any]]:
 
 def _build_flows_index() -> str:
     flows = build_flows()
-    lines: List[str] = []
+    lines: list[str] = []
     for f in flows:
         tags = ",".join(f.get('tags', []))
         lines.append(f"- {f['id']}: {f.get('title','')} [{tags}]")
     return "\n".join(lines)
 
 
-def render_flow(flow: Dict[str, Any], fmt: str = 'md') -> str:
+def render_flow(flow: dict[str, Any], fmt: str = 'md') -> str:
     """Render a single flow in md|yaml|json."""
     fmt = (fmt or 'md').lower()
     if fmt == 'json':

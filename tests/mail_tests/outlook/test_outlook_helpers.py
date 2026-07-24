@@ -93,7 +93,7 @@ class TestNormLabelColorOutlook(unittest.TestCase):
         self.assertIsNone(norm_label_color_outlook(None))
 
     def test_string_input(self):
-        self.assertIsNone(norm_label_color_outlook("blue"))
+        self.assertEqual(norm_label_color_outlook("blue"), {"name": "blue"})
 
     def test_empty_dict(self):
         self.assertIsNone(norm_label_color_outlook({}))

@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
 
 
 @dataclass
 class LabelMapping:
     """Bidirectional label ID to name mapping."""
 
-    id_to_name: Dict[str, str]
-    name_to_id: Dict[str, str] = field(default_factory=dict)
+    id_to_name: dict[str, str]
+    name_to_id: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_labels(cls, labels: list) -> LabelMapping:

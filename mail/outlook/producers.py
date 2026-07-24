@@ -1,7 +1,7 @@
 """Producers for Outlook pipelines."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from core.pipeline import Producer, ResultEnvelope
 
@@ -24,7 +24,7 @@ from .processors import (
 _WOULD_SYNC = "Would sync"
 
 
-def _format_rule_criteria(criteria: Dict[str, Any]) -> str:
+def _format_rule_criteria(criteria: dict[str, Any]) -> str:
     """Format rule criteria for display.
 
     Always includes from/to/subject fields to preserve stable tab-separated format,
@@ -38,9 +38,9 @@ def _format_rule_criteria(criteria: Dict[str, Any]) -> str:
 
 
 def _format_rule_details(
-    action: Dict[str, Any],
-    id_to_name: Dict[str, str],
-    folder_path_rev: Dict[str, str],
+    action: dict[str, Any],
+    id_to_name: dict[str, str],
+    folder_path_rev: dict[str, str],
 ) -> str:
     """Format rule action details for display."""
     cats = []
@@ -83,7 +83,7 @@ class OutlookRulesListProducer(Producer[ResultEnvelope[OutlookRulesListResult]])
         self._print_rules(rules, result.payload.id_to_name, result.payload.folder_path_rev)
 
     def _print_rules(
-        self, rules: List[Dict[str, Any]], id_to_name: Dict[str, str], folder_path_rev: Dict[str, str]
+        self, rules: list[dict[str, Any]], id_to_name: dict[str, str], folder_path_rev: dict[str, str]
     ) -> None:
         """Print formatted rules."""
         for r in rules:

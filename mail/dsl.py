@@ -1,35 +1,15 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
 
-from .outlook.helpers import norm_label_name_outlook
+from .outlook.helpers import norm_label_name_outlook, norm_label_color_outlook as normalize_label_color_outlook
 
 # Re-export for backwards compatibility
 _norm_label_name_outlook = norm_label_name_outlook
 
 
-def normalize_label_color_outlook(color: Optional[dict | str]) -> Optional[dict]:
-    """Normalize color to Outlook category color.
-
-    Accepts dict with {name: preset} or a string preset name. Ignores hex.
-    """
-    if isinstance(color, str):
-        name = color.strip()
-        if name:
-            return {"name": name}
-        return None
-    if not isinstance(color, dict):
-        return None
-    name = color.get("name")
-    if name and isinstance(name, str):
-        return {"name": name}
-    # If hex provided, drop for now (no hex mapping). Could add heuristic mapping later.
-    return None
-
-
-def normalize_labels_for_outlook(labels: List[dict], name_mode: str = "join-dash") -> List[dict]:
+def normalize_labels_for_outlook(labels: list[dict], name_mode: str = "join-dash") -> list[dict]:
     seen = set()
-    out: List[Dict] = []
+    out: list[dict] = []
     for lbl in labels or []:
         if not isinstance(lbl, dict):
             continue
@@ -37,7 +17,7 @@ def normalize_labels_for_outlook(labels: List[dict], name_mode: str = "join-dash
         if not name or name in seen:
             continue
         seen.add(name)
-        entry: Dict = {"name": name}
+        entry: dict = {"name": name}
         c = normalize_label_color_outlook(lbl.get("color"))
         if c:
             entry["color"] = c
@@ -45,7 +25,7 @@ def normalize_labels_for_outlook(labels: List[dict], name_mode: str = "join-dash
     return out
 
 
-def normalize_filter_for_outlook(spec: dict) -> Optional[dict]:
+def normalize_filter_for_outlook(spec: dict) -> dict | None:
     if not isinstance(spec, dict):
         return None
     m = spec.get("match") or {}
@@ -67,8 +47,8 @@ def normalize_filter_for_outlook(spec: dict) -> Optional[dict]:
     return {"match": crit, "action": act}
 
 
-def normalize_filters_for_outlook(filters: List[dict]) -> List[dict]:
-    out: List[dict] = []
+def normalize_filters_for_outlook(filters: list[dict]) -> list[dict]:
+    out: list[dict] = []
     for f in filters or []:
         nf = normalize_filter_for_outlook(f)
         if nf:

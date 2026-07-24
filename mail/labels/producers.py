@@ -1,7 +1,6 @@
 """Producers for labels pipelines."""
 from __future__ import annotations
 
-from typing import Dict, List
 
 from core.pipeline import Producer, ResultEnvelope
 
@@ -73,7 +72,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
 
         print(f"Sync complete. Created: {created}, Updated: {updated}, Deleted: {deleted}.")
 
-    def _apply_creates(self, specs: List[Dict]) -> int:
+    def _apply_creates(self, specs: list[dict]) -> int:
         count = 0
         for spec in specs:
             name = spec.get("name")
@@ -88,7 +87,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             count += 1
         return count
 
-    def _apply_updates(self, changes: List[LabelChange]) -> int:
+    def _apply_updates(self, changes: list[LabelChange]) -> int:
         count = 0
         for change in changes:
             body = {"name": change.name}
@@ -105,7 +104,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             count += 1
         return count
 
-    def _apply_deletes(self, names: List[str]) -> int:
+    def _apply_deletes(self, names: list[str]) -> int:
         count = 0
         for name in names:
             if self.dry_run:
@@ -118,7 +117,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             count += 1
         return count
 
-    def _apply_redirects(self, redirects: List[Dict[str, str]]) -> set[str]:
+    def _apply_redirects(self, redirects: list[dict[str, str]]) -> set[str]:
         processed: set[str] = set()
         for redirect in redirects:
             old = redirect.get("from")
@@ -152,7 +151,7 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
         return processed
 
 
-def _label_body_from_spec(spec: Dict) -> Dict:
+def _label_body_from_spec(spec: dict) -> dict:
     body = {"name": spec.get("name")}
     for key in ("color", "labelListVisibility", "messageListVisibility"):
         value = spec.get(key)

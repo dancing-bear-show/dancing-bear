@@ -4,9 +4,6 @@ from ._base import (
     dataclass,
     Path,
     Any,
-    Dict,
-    List,
-    Optional,
     SafeProcessor,
     normalize_event,
     compute_window,
@@ -15,12 +12,13 @@ from ._base import (
     RequestConsumer,
     load_events_config,
 )
+from ._context import VerificationContext
 
 
 @dataclass
 class OutlookVerifyRequest:
     config_path: Path
-    calendar: Optional[str]
+    calendar: str | None
     service: Any
 
 
@@ -30,20 +28,10 @@ OutlookVerifyRequestConsumer = RequestConsumer[OutlookVerifyRequest]
 
 @dataclass
 class OutlookVerifyResult:
-    logs: List[str]
+    logs: list[str]
     total: int
     duplicates: int
     missing: int
-
-
-@dataclass
-class VerificationContext:
-    """Context for verifying a single event."""
-
-    idx: int
-    nev: Dict[str, Any]
-    subj: str
-    byday: List[str]
 
 
 class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyResult]):
@@ -52,7 +40,7 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
 
     def _process_safe(self, payload: OutlookVerifyRequest) -> OutlookVerifyResult:
         items = load_events_config(payload.config_path, self._config_loader)
-        logs: List[str] = []
+        logs: list[str] = []
         total = duplicates = missing = 0
         for i, ev in enumerate(items, start=1):
             if not isinstance(ev, dict):
@@ -76,8 +64,8 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
         self,
         payload: OutlookVerifyRequest,
         context: VerificationContext,
-        logs: List[str],
-    ) -> Optional[str]:
+        logs: list[str],
+    ) -> str | None:
         """Verify a single recurring event using VerificationContext."""
         cal_name = payload.calendar or context.nev.get("calendar")
         win = compute_window(context.nev)
@@ -107,7 +95,7 @@ class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyRe
 
 
 class OutlookVerifyProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookVerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookVerifyResult, diagnostics: dict[str, Any | None]) -> None:
         self.print_logs(payload.logs)
         print(
             f"Checked {payload.total} recurring entries. "

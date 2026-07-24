@@ -273,18 +273,21 @@ def _extract_domain(email: str) -> str:
     return email.split('@')[-1].lower().strip() if '@' in email else email.lower().strip()
 
 
+def _pattern_matches(email: str, domain: str, pattern: str) -> bool:
+    """Return True if email/domain matches a single protected pattern."""
+    if pattern.startswith('@'):
+        return email.endswith(pattern) or domain == pattern.lstrip('@')
+    return pattern == email
+
+
 def _is_protected_sender(email: str, protected_patterns: list) -> bool:
     """Check if sender matches any protected pattern."""
     domain = _extract_domain(email)
-    for pattern in protected_patterns:
-        if not pattern:
-            continue
-        if pattern.startswith('@'):
-            if email.endswith(pattern) or domain == pattern.lstrip('@'):
-                return True
-        elif pattern == email:
-            return True
-    return False
+    return any(
+        _pattern_matches(email, domain, p)
+        for p in protected_patterns
+        if p
+    )
 
 
 def _classify_domain(hints: dict, count: int) -> str | None:
@@ -366,12 +369,30 @@ def run_labels_learn(args) -> int:
     return 0
 
 
+def _apply_one_suggestion(client, s: dict, dry_run: bool) -> bool:
+    """Apply a single label suggestion. Returns True if a filter was created/planned."""
+    from ..utils.filters import action_to_label_changes
+
+    dom = s.get('domain')
+    label = s.get('label')
+    if not dom or not label:
+        return False
+    crit = {'query': f'from:({dom})'}
+    add_ids, _ = action_to_label_changes(client, {'add': [label]})
+    act = {'addLabelIds': add_ids}
+    if dry_run:
+        print(f"Would create: from:({dom}) -> add=[{label}]")
+    else:
+        client.create_filter(crit, act)
+        print(f"Created rule: from:({dom}) -> add=[{label}]")
+    return True
+
+
 def run_labels_apply_suggestions(args) -> int:
     """Apply learned label suggestions."""
     from ..yamlio import load_config
     from ..config_resolver import resolve_paths_profile
     from ..gmail_api import GmailClient
-    from ..utils.filters import action_to_label_changes
 
     doc = load_config(args.config)
     sugg = doc.get('suggestions') or []
@@ -392,19 +413,8 @@ def run_labels_apply_suggestions(args) -> int:
         client.authenticate()
 
         for s in sugg:
-            dom = s.get('domain')
-            label = s.get('label')
-            if not dom or not label:
-                continue
-            crit = {'query': f'from:({dom})'}
-            add_ids, _ = action_to_label_changes(client, {'add': [label]})
-            act = {'addLabelIds': add_ids}
-            if dry_run:
-                print(f"Would create: from:({dom}) -> add=[{label}]")
-            else:
-                client.create_filter(crit, act)
-                print(f"Created rule: from:({dom}) -> add=[{label}]")
-            created += 1
+            if _apply_one_suggestion(client, s, dry_run):
+                created += 1
 
         if getattr(args, 'sweep_days', None):
             from ..filters.commands import run_filters_sweep

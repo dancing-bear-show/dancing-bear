@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 import os
 import re
 
@@ -84,9 +84,9 @@ def mask_value(key: str, val: str) -> str:
     return v
 
 
-def shield_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+def shield_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Return a shallow-copied dict with masked values for known secret keys."""
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for k, v in (data or {}).items():
         try:
             if isinstance(v, str):

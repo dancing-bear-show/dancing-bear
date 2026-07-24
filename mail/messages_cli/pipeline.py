@@ -1,10 +1,10 @@
 """Pipeline primitives for messages commands."""
 from __future__ import annotations
 
-import json as _json
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any
 
+from core.cli_output import emit_one
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 
@@ -18,7 +18,7 @@ class MessagesSearchRequest:
     """Request for messages search."""
 
     query: str
-    days: Optional[int] = None
+    days: int | None = None
     only_inbox: bool = False
     max_results: int = 5
     output_json: bool = False
@@ -38,7 +38,7 @@ class MessageCandidate:
 class MessagesSearchResult:
     """Result from messages search."""
 
-    candidates: List[MessageCandidate] = field(default_factory=list)
+    candidates: list[MessageCandidate] = field(default_factory=list)
 
 
 # Type alias using generic RequestConsumer from core.pipeline
@@ -122,11 +122,11 @@ class MessagesSearchProducer(BaseProducer):
     def __init__(self, output_json: bool = False) -> None:
         self._output_json = output_json
 
-    def _produce_success(self, payload: MessagesSearchResult, diagnostics: Optional[Any]) -> None:
+    def _produce_success(self, payload: MessagesSearchResult, diagnostics: Any | None) -> None:
         candidates = payload.candidates
 
         if self._output_json:
-            print(_json.dumps([c.__dict__ for c in candidates], ensure_ascii=False, indent=2))
+            emit_one([c.__dict__ for c in candidates])
         else:
             for c in candidates:
                 print(f"{c.id}\t{c.subject}\t{c.from_header}\t{c.snippet}")
@@ -141,12 +141,12 @@ class MessagesSearchProducer(BaseProducer):
 class MessagesSummarizeRequest:
     """Request for message summarization."""
 
-    message_id: Optional[str] = None
-    query: Optional[str] = None
-    days: Optional[int] = None
+    message_id: str | None = None
+    query: str | None = None
+    days: int | None = None
     only_inbox: bool = False
     max_words: int = 120
-    out_path: Optional[str] = None
+    out_path: str | None = None
 
 
 @dataclass
@@ -194,10 +194,10 @@ class MessagesSummarizeProcessor(SafeProcessor[MessagesSummarizeRequest, Message
 class MessagesSummarizeProducer(BaseProducer):
     """Output summarization results with automatic error handling."""
 
-    def __init__(self, out_path: Optional[str] = None) -> None:
+    def __init__(self, out_path: str | None = None) -> None:
         self._out_path = out_path
 
-    def _produce_success(self, payload: MessagesSummarizeResult, diagnostics: Optional[Any]) -> None:
+    def _produce_success(self, payload: MessagesSummarizeResult, diagnostics: Any | None) -> None:
         from pathlib import Path
 
         summary = payload.summary

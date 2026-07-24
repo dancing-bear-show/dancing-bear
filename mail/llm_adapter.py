@@ -6,13 +6,12 @@ be extended to call out to that provider. Keep imports lazy.
 """
 from __future__ import annotations
 
-from typing import Optional
 
 
 def summarize_text(
     text: str,
     *,
-    instructions: Optional[str] = None,
+    instructions: str | None = None,
     max_words: int = 120,
 ) -> str:
     """Return a concise summary of the given text.

@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from core.pipeline import Producer, ResultEnvelope, SafeProcessor, RequestConsumer
+
+_LOG_PREFIX = "[signatures sync] "
 
 # -----------------------------------------------------------------------------
 # Shared abstractions
@@ -41,7 +43,7 @@ class AccountAuthenticator:
     """Factory for creating authenticated account providers."""
 
     @staticmethod
-    def iter_authenticated_accounts(config_path: str, accounts_filter: Optional[List[str]] = None):
+    def iter_authenticated_accounts(config_path: str, accounts_filter: list[str] | None = None):
         """Load accounts, filter, build providers, and authenticate.
 
         Yields:
@@ -56,7 +58,7 @@ class AccountAuthenticator:
             yield account, client
 
 
-def canonicalize_filter(f: Dict[str, Any]) -> str:
+def canonicalize_filter(f: dict[str, Any]) -> str:
     """Canonical string representation of a filter for comparison."""
     crit = f.get("criteria") or f.get("match") or {}
     act = f.get("action") or {}
@@ -71,28 +73,28 @@ def canonicalize_filter(f: Dict[str, Any]) -> str:
     })
 
 
-def _build_label_id_to_name_map(labels: list) -> Dict[str, str]:
+def _build_label_id_to_name_map(labels: list) -> dict[str, str]:
     """Build mapping from label IDs to names."""
     return {lab.get("id", ""): lab.get("name", "") for lab in labels}
 
 
-def _convert_label_ids_to_names(ids: Optional[list], id_to_name: Dict[str, str]) -> list:
+def _convert_label_ids_to_names(ids: list | None, id_to_name: dict[str, str]) -> list:
     """Convert list of label IDs to names using provided mapping."""
     return [id_to_name.get(x) for x in ids or [] if id_to_name.get(x)]
 
 
-def _extract_filter_criteria(criteria_dict: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_filter_criteria(criteria_dict: dict[str, Any]) -> dict[str, Any]:
     """Extract relevant filter criteria fields."""
     allowed_fields = ("from", "to", "subject", "query", "negatedQuery", "hasAttachment", "size", "sizeComparison")
     return {k: v for k, v in criteria_dict.items() if k in allowed_fields and v not in (None, "")}
 
 
-def _build_filter_dsl_entry(filter_obj: Dict[str, Any], id_to_name: Dict[str, str]) -> Dict[str, Any]:
+def _build_filter_dsl_entry(filter_obj: dict[str, Any], id_to_name: dict[str, str]) -> dict[str, Any]:
     """Build a DSL filter entry from a raw filter object."""
     crit = filter_obj.get("criteria", {}) or {}
     act = filter_obj.get("action", {}) or {}
 
-    entry: Dict[str, Any] = {
+    entry: dict[str, Any] = {
         "match": _extract_filter_criteria(crit),
         "action": {},
     }
@@ -107,7 +109,7 @@ def _build_filter_dsl_entry(filter_obj: Dict[str, Any], id_to_name: Dict[str, st
     return entry
 
 
-def _needs_label_update(spec: Dict[str, Any], current: Dict[str, Any], provider: str) -> bool:
+def _needs_label_update(spec: dict[str, Any], current: dict[str, Any], provider: str) -> bool:
     """Check if label needs updating based on spec vs current state."""
     if provider == "gmail":
         for k in ("color", "labelListVisibility", "messageListVisibility"):
@@ -119,7 +121,7 @@ def _needs_label_update(spec: Dict[str, Any], current: Dict[str, Any], provider:
     return False
 
 
-def _build_label_update_dict(name: str, spec: Dict[str, Any], current: Dict[str, Any], provider: str) -> Optional[Dict[str, Any]]:
+def _build_label_update_dict(name: str, spec: dict[str, Any], current: dict[str, Any], provider: str) -> dict[str, Any] | None:
     """Build update dict for a label if changes are needed."""
     upd = {"name": name}
     changed = False
@@ -137,11 +139,11 @@ def _build_label_update_dict(name: str, spec: Dict[str, Any], current: Dict[str,
     return upd if changed else None
 
 
-def _build_outlook_filter_action(action_spec: Dict[str, Any], name_to_id: Dict[str, str]) -> Dict[str, Any]:
+def _build_outlook_filter_action(action_spec: dict[str, Any], name_to_id: dict[str, str]) -> dict[str, Any]:
     """Build Outlook filter action from spec."""
     from ..outlook.helpers import norm_label_name_outlook
 
-    action: Dict[str, Any] = {}
+    action: dict[str, Any] = {}
     if action_spec.get("add"):
         action["addLabelIds"] = [
             name_to_id.get(x) or name_to_id.get(norm_label_name_outlook(x))
@@ -153,7 +155,7 @@ def _build_outlook_filter_action(action_spec: Dict[str, Any], name_to_id: Dict[s
     return action
 
 
-def _sync_outlook_filters(client, desired_filters: list, existing_filters: list, name_to_id: Dict[str, str], dry_run: bool) -> tuple[int, int]:
+def _sync_outlook_filters(client, desired_filters: list, existing_filters: list, name_to_id: dict[str, str], dry_run: bool) -> tuple[int, int]:
     """Sync Outlook filters and return (created, errors) counts."""
     existing_keys = {canonicalize_filter(f): f for f in existing_filters}
     created = 0
@@ -188,7 +190,7 @@ def _sync_outlook_filters(client, desired_filters: list, existing_filters: list,
     return created, errors
 
 
-def _sync_labels_for_account(client, desired: list, existing: Dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
+def _sync_labels_for_account(client, desired: list, existing: dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
     """Sync labels for an account and return (created, updated) counts."""
     created = 0
     updated = 0
@@ -242,7 +244,7 @@ class AccountInfo:
 class AccountsListResult:
     """Result from listing accounts."""
 
-    accounts: List[AccountInfo] = field(default_factory=list)
+    accounts: list[AccountInfo] = field(default_factory=list)
 
 
 # Use SimpleConsumer[AccountsListRequest] directly or alias:
@@ -284,7 +286,7 @@ class AccountsExportLabelsRequest:
 
     config_path: str
     out_dir: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
 
 
 @dataclass
@@ -300,7 +302,7 @@ class ExportedLabelsInfo:
 class AccountsExportLabelsResult:
     """Result from exporting labels."""
 
-    exports: List[ExportedLabelsInfo] = field(default_factory=list)
+    exports: list[ExportedLabelsInfo] = field(default_factory=list)
 
 
 AccountsExportLabelsRequestConsumer = SimpleConsumer[AccountsExportLabelsRequest]
@@ -313,7 +315,7 @@ class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, A
         out_dir = Path(payload.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        exports: List[ExportedLabelsInfo] = []
+        exports: list[ExportedLabelsInfo] = []
         for account, client in AccountAuthenticator.iter_authenticated_accounts(
             payload.config_path, payload.accounts_filter
         ):
@@ -353,7 +355,7 @@ class AccountsExportFiltersRequest:
 
     config_path: str
     out_dir: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
 
 
 @dataclass
@@ -369,7 +371,7 @@ class ExportedFiltersInfo:
 class AccountsExportFiltersResult:
     """Result from exporting filters."""
 
-    exports: List[ExportedFiltersInfo] = field(default_factory=list)
+    exports: list[ExportedFiltersInfo] = field(default_factory=list)
 
 
 AccountsExportFiltersRequestConsumer = SimpleConsumer[AccountsExportFiltersRequest]
@@ -384,7 +386,7 @@ class AccountsExportFiltersProcessor(SafeProcessor[AccountsExportFiltersRequest,
         out_dir = Path(payload.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        exports: List[ExportedFiltersInfo] = []
+        exports: list[ExportedFiltersInfo] = []
         for a in iter_accounts(accts, payload.accounts_filter):
             client = build_provider_for_account(a)
             client.authenticate()
@@ -420,7 +422,7 @@ class AccountsPlanLabelsRequest:
 
     config_path: str
     labels_path: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
 
 
 @dataclass
@@ -437,7 +439,7 @@ class LabelsPlanInfo:
 class AccountsPlanLabelsResult:
     """Result from planning labels."""
 
-    plans: List[LabelsPlanInfo] = field(default_factory=list)
+    plans: list[LabelsPlanInfo] = field(default_factory=list)
 
 
 AccountsPlanLabelsRequestConsumer = SimpleConsumer[AccountsPlanLabelsRequest]
@@ -453,7 +455,7 @@ class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, Accou
         desired_doc = load_config(payload.labels_path)
         base = desired_doc.get("labels") or []
 
-        plans: List[LabelsPlanInfo] = []
+        plans: list[LabelsPlanInfo] = []
         for a in iter_accounts(accts, payload.accounts_filter):
             provider = (a.get("provider") or "").lower()
             client = build_provider_for_account(a)
@@ -499,7 +501,7 @@ class AccountsSyncLabelsRequest:
 
     config_path: str
     labels_path: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
     dry_run: bool = False
 
 
@@ -517,7 +519,7 @@ class SyncedLabelInfo:
 class AccountsSyncLabelsResult:
     """Result from syncing labels."""
 
-    synced: List[SyncedLabelInfo] = field(default_factory=list)
+    synced: list[SyncedLabelInfo] = field(default_factory=list)
 
 
 AccountsSyncLabelsRequestConsumer = SimpleConsumer[AccountsSyncLabelsRequest]
@@ -533,7 +535,7 @@ class AccountsSyncLabelsProcessor(SafeProcessor[AccountsSyncLabelsRequest, Accou
         desired_doc = load_config(payload.labels_path)
         desired_base = desired_doc.get("labels") or []
 
-        synced: List[SyncedLabelInfo] = []
+        synced: list[SyncedLabelInfo] = []
         for a in iter_accounts(accts, payload.accounts_filter):
             provider = (a.get("provider") or "").lower()
             client = build_provider_for_account(a)
@@ -571,7 +573,7 @@ class AccountsPlanFiltersRequest:
 
     config_path: str
     filters_path: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
 
 
 @dataclass
@@ -587,7 +589,7 @@ class FiltersPlanInfo:
 class AccountsPlanFiltersResult:
     """Result from planning filters."""
 
-    plans: List[FiltersPlanInfo] = field(default_factory=list)
+    plans: list[FiltersPlanInfo] = field(default_factory=list)
 
 
 AccountsPlanFiltersRequestConsumer = SimpleConsumer[AccountsPlanFiltersRequest]
@@ -603,7 +605,7 @@ class AccountsPlanFiltersProcessor(SafeProcessor[AccountsPlanFiltersRequest, Acc
         desired_doc = load_config(payload.filters_path)
         base = desired_doc.get("filters") or []
 
-        plans: List[FiltersPlanInfo] = []
+        plans: list[FiltersPlanInfo] = []
         for a in iter_accounts(accts, payload.accounts_filter):
             provider = (a.get("provider") or "").lower()
             client = build_provider_for_account(a)
@@ -651,7 +653,7 @@ class AccountsSyncFiltersRequest:
 
     config_path: str
     filters_path: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
     dry_run: bool = False
     require_forward_verified: bool = False
 
@@ -670,7 +672,7 @@ class SyncedFiltersInfo:
 class AccountsSyncFiltersResult:
     """Result from syncing filters."""
 
-    synced: List[SyncedFiltersInfo] = field(default_factory=list)
+    synced: list[SyncedFiltersInfo] = field(default_factory=list)
 
 
 AccountsSyncFiltersRequestConsumer = SimpleConsumer[AccountsSyncFiltersRequest]
@@ -685,7 +687,7 @@ class AccountsSyncFiltersProcessor(SafeProcessor[AccountsSyncFiltersRequest, Acc
         from ..filters.commands import run_filters_sync
 
         accts = load_accounts(payload.config_path)
-        synced: List[SyncedFiltersInfo] = []
+        synced: list[SyncedFiltersInfo] = []
 
         for a in iter_accounts(accts, payload.accounts_filter):
             provider = (a.get("provider") or "").lower()
@@ -755,7 +757,7 @@ class AccountsExportSignaturesRequest:
 
     config_path: str
     out_dir: str
-    accounts_filter: Optional[List[str]] = None
+    accounts_filter: list[str] | None = None
 
 
 @dataclass
@@ -772,7 +774,7 @@ class ExportedSignaturesInfo:
 class AccountsExportSignaturesResult:
     """Result from exporting signatures."""
 
-    exports: List[ExportedSignaturesInfo] = field(default_factory=list)
+    exports: list[ExportedSignaturesInfo] = field(default_factory=list)
 
 
 AccountsExportSignaturesRequestConsumer = SimpleConsumer[AccountsExportSignaturesRequest]
@@ -787,14 +789,14 @@ class AccountsExportSignaturesProcessor(SafeProcessor[AccountsExportSignaturesRe
         out_dir = Path(payload.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        exports: List[ExportedSignaturesInfo] = []
+        exports: list[ExportedSignaturesInfo] = []
         for a in iter_accounts(accts, payload.accounts_filter):
             name = a.get("name", "account")
             provider = (a.get("provider") or "").lower()
             path = out_dir / f"signatures_{name}.yaml"
             assets = out_dir / f"{name}_assets"
             assets.mkdir(parents=True, exist_ok=True)
-            doc: Dict[str, Any] = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
+            doc: dict[str, Any] = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
             sig_count = 0
 
             if provider == "gmail":
@@ -848,8 +850,8 @@ class AccountsSyncSignaturesRequest:
     """Request for syncing signatures to accounts."""
 
     config_path: str
-    accounts_filter: Optional[List[str]] = None
-    send_as: Optional[str] = None
+    accounts_filter: list[str] | None = None
+    send_as: str | None = None
     dry_run: bool = False
 
 
@@ -866,7 +868,7 @@ class SyncedSignaturesInfo:
 class AccountsSyncSignaturesResult:
     """Result from syncing signatures."""
 
-    synced: List[SyncedSignaturesInfo] = field(default_factory=list)
+    synced: list[SyncedSignaturesInfo] = field(default_factory=list)
 
 
 AccountsSyncSignaturesRequestConsumer = SimpleConsumer[AccountsSyncSignaturesRequest]
@@ -879,7 +881,7 @@ class AccountsSyncSignaturesProcessor(SafeProcessor[AccountsSyncSignaturesReques
         from ..signatures.commands import run_signatures_sync
 
         accts = load_accounts(payload.config_path)
-        synced: List[SyncedSignaturesInfo] = []
+        synced: list[SyncedSignaturesInfo] = []
 
         for a in iter_accounts(accts, payload.accounts_filter):
             provider = (a.get("provider") or "").lower()
@@ -926,8 +928,8 @@ class AccountsSyncSignaturesProducer(AccountsResultProducer[AccountsSyncSignatur
     def _produce_items(self, payload: AccountsSyncSignaturesResult) -> None:
         for info in payload.synced:
             if info.status == "delegated":
-                print(f"[signatures sync] {info.account_name} provider={info.provider} (delegated)")
+                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} (delegated)")
             elif info.status == "wrote_guidance":
-                print(f"[signatures sync] {info.account_name} provider={info.provider} wrote guidance to signatures_assets/")
+                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} wrote guidance to signatures_assets/")
             else:
-                print(f"[signatures sync] {info.account_name} provider={info.provider} status={info.status}")
+                print(f"{_LOG_PREFIX}{info.account_name} provider={info.provider} status={info.status}")

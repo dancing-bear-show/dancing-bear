@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -19,7 +19,7 @@ from .consumers import (
 class ForwardingListResult:
     """Result of forwarding list."""
 
-    addresses: List[Dict[str, Any]] = field(default_factory=list)
+    addresses: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

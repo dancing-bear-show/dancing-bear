@@ -6,7 +6,7 @@ Provides the subset needed by the CLI with lazy imports of Google libs.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     # Imported here; CLI avoids importing this module on --help unless used.
@@ -45,11 +45,11 @@ def ensure_google_api() -> None:
 
 
 class GmailClient(ConfigCacheMixin):
-    def __init__(self, credentials_path: str, token_path: str, cache_dir: Optional[str] = None) -> None:
+    def __init__(self, credentials_path: str, token_path: str, cache_dir: str | None = None) -> None:
         ConfigCacheMixin.__init__(self, cache_dir, provider="gmail")
         self.credentials_path = os.path.expanduser(credentials_path)
         self.token_path = os.path.expanduser(token_path)
-        self.creds: Optional[Credentials] = None  # type: ignore
+        self.creds: Credentials | None = None  # type: ignore
         self._service = None
         self.cache = MailCache(cache_dir) if cache_dir else None
         self.cache_dir = cache_dir
@@ -89,10 +89,10 @@ class GmailClient(ConfigCacheMixin):
             raise RuntimeError("GmailClient not authenticated. Call authenticate().")
         return self._service
 
-    def get_profile(self) -> Dict[str, Any]:
+    def get_profile(self) -> dict[str, Any]:
         return self.service.users().getProfile(userId="me").execute()
 
-    def list_labels(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
+    def list_labels(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]:
         if use_cache:
             cached = self.cfg_get_json("labels", ttl)
             if isinstance(cached, list):
@@ -103,17 +103,17 @@ class GmailClient(ConfigCacheMixin):
             self.cfg_put_json("labels", labs)
         return labs
 
-    def get_label_id_map(self) -> Dict[str, str]:
+    def get_label_id_map(self) -> dict[str, str]:
         return {lab.get("name", ""): lab.get("id", "") for lab in self.list_labels()}
 
     # --- Label helpers ---
     def create_label(
         self,
         name: str,
-        color: Optional[Dict[str, str]] = None,
+        color: dict[str, str] | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
-        body: Dict[str, Any] = {"name": name}
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"name": name}
         if color:
             body["color"] = color
         # Allow caller to pass additional fields (e.g. labelListVisibility,
@@ -123,7 +123,7 @@ class GmailClient(ConfigCacheMixin):
                 body[k] = v
         return self.service.users().labels().create(userId="me", body=body).execute()
 
-    def update_label(self, label_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    def update_label(self, label_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self.service.users().labels().update(userId="me", id=label_id, body=body).execute()
 
     def ensure_label(self, name: str, **kwargs: Any) -> str:
@@ -135,11 +135,11 @@ class GmailClient(ConfigCacheMixin):
         return created.get("id", "")
 
     # --- Signatures (sendAs) ---
-    def list_send_as(self) -> List[Dict[str, Any]]:
+    def list_send_as(self) -> list[dict[str, Any]]:
         resp = self.service.users().settings().sendAs().list(userId="me").execute()
         return resp.get("sendAs", [])
 
-    def list_signatures(self) -> List[Dict[str, Any]]:
+    def list_signatures(self) -> list[dict[str, Any]]:
         out = []
         for sa in self.list_send_as():
             out.append({
@@ -150,18 +150,18 @@ class GmailClient(ConfigCacheMixin):
             })
         return out
 
-    def update_signature(self, send_as_email: str, signature_html: str) -> Dict[str, Any]:
+    def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]:
         body = {"signature": signature_html}
         return self.service.users().settings().sendAs().patch(userId="me", sendAsEmail=send_as_email, body=body).execute()
 
     # --- Messages helpers for sweeping/merging ---
     def list_message_ids(
         self,
-        query: Optional[str] = None,
-        label_ids: Optional[List[str]] = None,
+        query: str | None = None,
+        label_ids: list[str] | None = None,
         max_pages: int = 1,
         page_size: int = 500,
-    ) -> List[str]:
+    ) -> list[str]:
         """List message IDs matching query/labels with efficient pagination."""
         from .paging import paginate_gmail_messages, gather_pages
 
@@ -172,13 +172,13 @@ class GmailClient(ConfigCacheMixin):
 
     def batch_modify_messages(
         self,
-        ids: List[str],
-        add_label_ids: Optional[List[str]] = None,
-        remove_label_ids: Optional[List[str]] = None,
+        ids: list[str],
+        add_label_ids: list[str] | None = None,
+        remove_label_ids: list[str] | None = None,
     ) -> None:
         if not ids:
             return
-        body: Dict[str, Any] = {}
+        body: dict[str, Any] = {}
         if add_label_ids:
             body["addLabelIds"] = add_label_ids
         if remove_label_ids:
@@ -189,7 +189,7 @@ class GmailClient(ConfigCacheMixin):
         self.service.users().labels().delete(userId="me", id=label_id).execute()
 
     # --- Filters and forwarding ---
-    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> List[Dict[str, Any]]:
+    def list_filters(self, use_cache: bool = False, ttl: int = 300) -> list[dict[str, Any]]:
         if use_cache:
             cached = self.cfg_get_json("filters", ttl)
             if isinstance(cached, list):
@@ -200,32 +200,32 @@ class GmailClient(ConfigCacheMixin):
             self.cfg_put_json("filters", flt)
         return flt
 
-    def create_filter(self, criteria: Dict[str, Any], action: Dict[str, Any]) -> Dict[str, Any]:
+    def create_filter(self, criteria: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         body = {"criteria": criteria, "action": action}
         return self.service.users().settings().filters().create(userId="me", body=body).execute()
 
     def delete_filter(self, filter_id: str) -> None:
         self.service.users().settings().filters().delete(userId="me", id=filter_id).execute()
 
-    def list_forwarding_addresses(self) -> List[str]:
+    def list_forwarding_addresses(self) -> list[str]:
         infos = self.list_forwarding_addresses_info()
         return [i.get("forwardingEmail") for i in infos if i.get("forwardingEmail")]
 
-    def list_forwarding_addresses_info(self) -> List[Dict[str, Any]]:
+    def list_forwarding_addresses_info(self) -> list[dict[str, Any]]:
         resp = self.service.users().settings().forwardingAddresses().list(userId="me").execute()
         return resp.get("forwardingAddresses", [])
 
-    def get_verified_forwarding_addresses(self) -> List[str]:
+    def get_verified_forwarding_addresses(self) -> list[str]:
         infos = self.list_forwarding_addresses_info()
         return [i.get("forwardingEmail") for i in infos if i.get("verificationStatus") == "accepted"]
 
-    def create_forwarding_address(self, email: str) -> Dict[str, Any]:
+    def create_forwarding_address(self, email: str) -> dict[str, Any]:
         body = {"forwardingEmail": email}
         # Note: This requires recipient verification outside of this tool.
         return self.service.users().settings().forwardingAddresses().create(userId="me", body=body).execute()
 
     # --- Account-level auto-forwarding settings ---
-    def get_auto_forwarding(self) -> Dict[str, Any]:
+    def get_auto_forwarding(self) -> dict[str, Any]:
         """Return Gmail account-level auto-forwarding settings.
 
         Includes keys like enabled, emailAddress, and disposition.
@@ -236,14 +236,14 @@ class GmailClient(ConfigCacheMixin):
         self,
         *,
         enabled: bool,
-        email: Optional[str] = None,
-        disposition: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        email: str | None = None,
+        disposition: str | None = None,
+    ) -> dict[str, Any]:
         """Update Gmail account-level auto-forwarding settings.
 
         disposition: one of leaveInInbox, archive, trash, markRead
         """
-        body: Dict[str, Any] = {"enabled": bool(enabled)}
+        body: dict[str, Any] = {"enabled": bool(enabled)}
         if email:
             body["emailAddress"] = str(email)
         if disposition:
@@ -251,7 +251,7 @@ class GmailClient(ConfigCacheMixin):
         return self.service.users().settings().updateAutoForwarding(userId="me", body=body).execute()
 
     # --- Messages metadata helpers (with optional caching) ---
-    def get_message_metadata(self, msg_id: str, use_cache: bool = True) -> Dict[str, Any]:
+    def get_message_metadata(self, msg_id: str, use_cache: bool = True) -> dict[str, Any]:
         if use_cache and self.cache:
             m = self.cache.get_meta(msg_id)
             if isinstance(m, dict):
@@ -277,8 +277,8 @@ class GmailClient(ConfigCacheMixin):
                 pass
         return msg
 
-    def get_messages_metadata(self, ids: List[str], use_cache: bool = True) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def get_messages_metadata(self, ids: list[str], use_cache: bool = True) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         for mid in ids:
             try:
                 out.append(self.get_message_metadata(mid, use_cache=use_cache))
@@ -287,8 +287,8 @@ class GmailClient(ConfigCacheMixin):
         return out
 
     @staticmethod
-    def headers_to_dict(msg: Dict[str, Any]) -> Dict[str, str]:
-        hdrs: Dict[str, str] = {}
+    def headers_to_dict(msg: dict[str, Any]) -> dict[str, str]:
+        hdrs: dict[str, str] = {}
         try:
             for h in ((msg.get("payload") or {}).get("headers") or []):
                 name = h.get("name")
@@ -300,7 +300,7 @@ class GmailClient(ConfigCacheMixin):
         return hdrs
 
     # --- Message content helpers ---
-    def get_message(self, msg_id: str, fmt: str = "full") -> Dict[str, Any]:
+    def get_message(self, msg_id: str, fmt: str = "full") -> dict[str, Any]:
         return self.service.users().messages().get(userId="me", id=msg_id, format=fmt).execute()
 
     @staticmethod
@@ -313,7 +313,7 @@ class GmailClient(ConfigCacheMixin):
             return ""
 
     @staticmethod
-    def _walk_message_parts(payload: Dict[str, Any]) -> list[dict]:
+    def _walk_message_parts(payload: dict[str, Any]) -> list[dict]:
         """Recursively walk message parts to find all MIME parts."""
         parts = payload.get("parts") or []
         out = []
@@ -322,7 +322,7 @@ class GmailClient(ConfigCacheMixin):
             out.extend(GmailClient._walk_message_parts(part))
         return out
 
-    def _find_text_parts(self, parts: list[dict]) -> tuple[Optional[str], Optional[str]]:
+    def _find_text_parts(self, parts: list[dict]) -> tuple[str | None, str | None]:
         """Extract text/plain and text/html content from message parts.
 
         Returns:
@@ -368,14 +368,14 @@ class GmailClient(ConfigCacheMixin):
         import base64
         return base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
 
-    def send_message_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict[str, Any]:
-        body: Dict[str, Any] = {"raw": self._encode_message_raw(raw_bytes)}
+    def send_message_raw(self, raw_bytes: bytes, thread_id: str | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"raw": self._encode_message_raw(raw_bytes)}
         if thread_id:
             body["threadId"] = thread_id
         return self.service.users().messages().send(userId="me", body=body).execute()
 
-    def create_draft_raw(self, raw_bytes: bytes, thread_id: Optional[str] = None) -> Dict[str, Any]:
-        msg: Dict[str, Any] = {"raw": self._encode_message_raw(raw_bytes)}
+    def create_draft_raw(self, raw_bytes: bytes, thread_id: str | None = None) -> dict[str, Any]:
+        msg: dict[str, Any] = {"raw": self._encode_message_raw(raw_bytes)}
         if thread_id:
             msg["threadId"] = thread_id
         body = {"message": msg}

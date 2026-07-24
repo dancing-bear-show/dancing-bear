@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 from core.pipeline import Consumer
 
@@ -105,11 +105,11 @@ class OutlookCalendarAddPayload:
     subject: str
     start_iso: str
     end_iso: str
-    calendar_name: Optional[str] = None
-    tz: Optional[str] = None
-    body_html: Optional[str] = None
+    calendar_name: str | None = None
+    tz: str | None = None
+    body_html: str | None = None
     all_day: bool = False
-    location: Optional[str] = None
+    location: str | None = None
     no_reminder: bool = False
 
 
@@ -122,15 +122,15 @@ class OutlookCalendarAddRecurringPayload:
     end_time: str
     repeat: str
     range_start: str
-    calendar_name: Optional[str] = None
-    tz: Optional[str] = None
+    calendar_name: str | None = None
+    tz: str | None = None
     interval: int = 1
-    byday: Optional[List[str]] = None
-    until: Optional[str] = None
-    count: Optional[int] = None
-    body_html: Optional[str] = None
-    location: Optional[str] = None
-    exdates: Optional[List[str]] = None
+    byday: list[str] | None = None
+    until: str | None = None
+    count: int | None = None
+    body_html: str | None = None
+    location: str | None = None
+    exdates: list[str] | None = None
     no_reminder: bool = False
 
 

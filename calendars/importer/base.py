@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .model import ScheduleItem
 
@@ -11,7 +11,7 @@ class ScheduleParser(ABC):
     """Base class for schedule parsers."""
 
     @abstractmethod
-    def parse(self, source: str) -> List[ScheduleItem]:
+    def parse(self, source: str) -> list[ScheduleItem]:
         """Parse schedule items from source.
 
         Args:
@@ -23,7 +23,7 @@ class ScheduleParser(ABC):
         pass
 
     @staticmethod
-    def _get_field(row: Dict[str, Any], *keys: str, default: str = '') -> str:
+    def _get_field(row: dict[str, Any], *keys: str, default: str = '') -> str:
         """Get first non-empty field from row by trying multiple key variants.
 
         Supports both normalized rows (lowercase keys, e.g. from parse_csv) and
@@ -43,7 +43,7 @@ class ScheduleParser(ABC):
         return default
 
     @staticmethod
-    def _row_to_schedule_item(row: Dict[str, Any]) -> Optional[ScheduleItem]:
+    def _row_to_schedule_item(row: dict[str, Any]) -> ScheduleItem | None:
         """Convert a row dict to ScheduleItem, returning None if subject is empty."""
         get_field = ScheduleParser._get_field
         subj = get_field(row, 'subject', 'Subject')

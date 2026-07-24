@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass
@@ -12,21 +12,21 @@ class ReplyEnvelope:
     from_email: str
     to_email: str
     subject: str
-    cc: List[str] = field(default_factory=list)
-    bcc: List[str] = field(default_factory=list)
+    cc: list[str] = field(default_factory=list)
+    bcc: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ReplyOptions:
     """Threading and quoting options for a reply message."""
 
-    in_reply_to: Optional[str] = None
-    references: Optional[str] = None
+    in_reply_to: str | None = None
+    references: str | None = None
     include_quote: bool = False
-    original_text: Optional[str] = None
+    original_text: str | None = None
 
 
-def _parse_addr(addr: str) -> Tuple[str, str]:
+def _parse_addr(addr: str) -> tuple[str, str]:
     """Return (name, email) from a header value like 'Name <email@example.com>'."""
     from email.utils import parseaddr
 
@@ -38,7 +38,7 @@ def _compose_reply(
     *,
     envelope: ReplyEnvelope,
     body_text: str,
-    options: Optional[ReplyOptions] = None,
+    options: ReplyOptions | None = None,
 ) -> EmailMessage:
     opts = options or ReplyOptions()
     msg = EmailMessage()
@@ -67,14 +67,14 @@ def _compose_reply(
 @dataclass
 class Candidate:
     id: str
-    thread_id: Optional[str]
+    thread_id: str | None
     from_header: str
     subject: str
     snippet: str
 
 
-def candidates_from_metadata(msgs: List[Dict[str, Any]]) -> List[Candidate]:
-    out: List[Candidate] = []
+def candidates_from_metadata(msgs: list[dict[str, Any]]) -> list[Candidate]:
+    out: list[Candidate] = []
     for m in msgs:
         payload = m.get("payload") or {}
         headers = {h.get("name", "").lower(): h.get("value", "") for h in (payload.get("headers") or [])}

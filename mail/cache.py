@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.fileutil import atomic_write_json
 
@@ -22,7 +22,7 @@ class MailCache:
         subdir = self.meta_dir if kind == "meta" else self.full_dir
         return os.path.join(subdir, f"{safe}.json")
 
-    def get_meta(self, msg_id: str) -> Optional[Dict[str, Any]]:
+    def get_meta(self, msg_id: str) -> dict[str, Any] | None:
         p = self._path("meta", msg_id)
         if not os.path.exists(p):
             return None
@@ -32,11 +32,11 @@ class MailCache:
         except Exception:
             return None
 
-    def put_meta(self, msg_id: str, data: Dict[str, Any]) -> None:
+    def put_meta(self, msg_id: str, data: dict[str, Any]) -> None:
         p = self._path("meta", msg_id)
         atomic_write_json(p, data)
 
-    def get_full(self, msg_id: str) -> Optional[Dict[str, Any]]:
+    def get_full(self, msg_id: str) -> dict[str, Any] | None:
         p = self._path("full", msg_id)
         if not os.path.exists(p):
             return None
@@ -46,7 +46,7 @@ class MailCache:
         except Exception:
             return None
 
-    def put_full(self, msg_id: str, data: Dict[str, Any]) -> None:
+    def put_full(self, msg_id: str, data: dict[str, Any]) -> None:
         p = self._path("full", msg_id)
         atomic_write_json(p, data)
 

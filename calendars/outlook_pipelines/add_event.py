@@ -3,8 +3,6 @@
 from ._base import (
     dataclass,
     Any,
-    Dict,
-    Optional,
     SafeProcessor,
     BaseProducer,
     RequestConsumer,
@@ -44,7 +42,7 @@ class OutlookAddEventProcessor(SafeProcessor[OutlookAddEventRequest, OutlookAddE
 
 
 class OutlookAddEventProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddEventResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookAddEventResult, diagnostics: dict[str, Any | None]) -> None:
         print(f"Created event: {payload.event_id} subject={payload.subject}")
 
 
@@ -80,7 +78,7 @@ class OutlookAddRecurringProcessor(SafeProcessor[OutlookAddRecurringRequest, Out
 
 
 class OutlookAddRecurringProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddRecurringResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookAddRecurringResult, diagnostics: dict[str, Any | None]) -> None:
         print(f"Created recurring series: {payload.event_id} subject={payload.subject}")
 
 

@@ -10,7 +10,7 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class AppLogger:
@@ -20,14 +20,14 @@ class AppLogger:
         if d:
             os.makedirs(d, exist_ok=True)
 
-    def _write(self, record: Dict[str, Any]) -> None:
+    def _write(self, record: dict[str, Any]) -> None:
         try:
             with open(self.path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception:  # nosec B110 - logging must never crash the app
             pass
 
-    def start(self, cmd: str, argv: Optional[List[str]] = None) -> str:
+    def start(self, cmd: str, argv: list[str] | None = None) -> str:
         sid = str(uuid.uuid4())
         rec = {
             "ts": time.time(),
@@ -44,8 +44,8 @@ class AppLogger:
         self,
         session_id: str,
         status: str = "ok",
-        duration_ms: Optional[int] = None,
-        error: Optional[str] = None,
+        duration_ms: int | None = None,
+        error: str | None = None,
     ) -> None:
         rec = {
             "ts": time.time(),
@@ -59,11 +59,11 @@ class AppLogger:
             rec["error"] = error
         self._write(rec)
 
-    def info(self, session_id: str, data: Dict[str, Any]) -> None:
+    def info(self, session_id: str, data: dict[str, Any]) -> None:
         rec = {"ts": time.time(), "event": "info", "session_id": session_id, "data": data}
         self._write(rec)
 
-    def error(self, session_id: str, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def error(self, session_id: str, message: str, extra: dict[str, Any] | None = None) -> None:
         rec = {
             "ts": time.time(),
             "event": "error",

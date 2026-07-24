@@ -5,7 +5,7 @@ by weekday/time. Dependency-light and easily unit testable.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable
 import datetime as _dt
 
 from core.constants import DAY_START_TIME, DAY_END_TIME
@@ -15,7 +15,7 @@ def _ymd(d: str) -> str:
     return str(d)[:10]
 
 
-def compute_window(event: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+def compute_window(event: dict[str, Any]) -> tuple[str, str | None] | None:
     """Compute [start_iso, end_iso] for an event spec.
 
     Accepts canonical event dict (see model.normalize_event). Returns
@@ -39,6 +39,17 @@ def _weekday_code(dt: _dt.datetime) -> str:
     return ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][dt.weekday()]
 
 
+def weekday_code(dt: _dt.datetime, *, upper: bool = False) -> str:
+    """Return 2-letter weekday code (mo/tu/we/th/fr/sa/su) for a datetime.
+
+    Args:
+        dt: datetime object.
+        upper: If True, return uppercase (MO/TU/...). Default is lowercase.
+    """
+    code = ["mo", "tu", "we", "th", "fr", "sa", "su"][dt.weekday()]
+    return code.upper() if upper else code
+
+
 def _local_time_hhmm(iso: str) -> str:
     """Extract HH:MM from an ISO datetime, tolerant of Z/offsets.
 
@@ -57,8 +68,8 @@ def _event_matches_filters(
     st: str,
     en: str,
     want_days: set,
-    start_time: Optional[str],
-    end_time: Optional[str],
+    start_time: str | None,
+    end_time: str | None,
 ) -> bool:
     """Return True if an event's times/weekday match the given filters."""
     tstart = _local_time_hhmm(st)
@@ -78,19 +89,19 @@ def _event_matches_filters(
 
 
 def filter_events_by_day_time(
-    events: Iterable[Dict[str, Any]],
+    events: Iterable[dict[str, Any]],
     *,
-    byday: Optional[List[str]] = None,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    byday: list[str | None] = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> list[dict[str, Any]]:
     """Filter Outlook events by weekday and start/end time.
 
     - byday: list like ["MO", "WE"]. If None/empty, weekday is ignored.
     - start_time/end_time: HH:MM strings. If missing, time is ignored.
     """
     want_days = {(d or "").lower() for d in (byday or [])}
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for ex in events:
         st = ((ex.get("start") or {}).get("dateTime") or "")
         en = ((ex.get("end") or {}).get("dateTime") or "")

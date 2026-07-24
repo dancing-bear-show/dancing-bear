@@ -8,7 +8,7 @@ import collections
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Sequence
 
 from core.pipeline import SafeProcessor
 
@@ -71,12 +71,12 @@ _RECEIPT_LOC_PAT = re.compile(r"Location:\s*(?P<loc>.+)", re.I)
 @dataclass
 class GmailReceiptsRequest:
     auth: GmailAuth
-    query: Optional[str]
-    from_text: Optional[str]
+    query: str | None
+    from_text: str | None
     days: int
     pages: int
     page_size: int
-    calendar: Optional[str]
+    calendar: str | None
     out_path: Path
 
 
@@ -85,7 +85,7 @@ GmailReceiptsRequestConsumer = RequestConsumer[GmailReceiptsRequest]
 
 @dataclass
 class GmailPlanResult:
-    document: Dict[str, Sequence[Dict[str, object]]]
+    document: dict[str, Sequence[dict[str, object]]]
     out_path: Path
 
 
@@ -125,7 +125,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         uniq = dedupe_events(events, key_fn)
         return GmailPlanResult(document={"events": uniq}, out_path=payload.out_path)
 
-    def _parse_receipts(self, svc, ids: List[str], calendar: Optional[str]):
+    def _parse_receipts(self, svc, ids: list[str], calendar: str | None):
         events = []
         for mid in ids:
             try:
@@ -138,8 +138,8 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         return events
 
     def _parse_single_receipt(
-        self, text: Optional[str], calendar: Optional[str]
-    ) -> Optional[Dict[str, Any]]:
+        self, text: str | None, calendar: str | None
+    ) -> dict[str, Any | None]:
         """Parse a single receipt message and return an event dict or None."""
         text = text or ""
         m_cls = _RECEIPT_CLS_PAT.search(text)
@@ -156,7 +156,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         loc_hint = m_loc.group("loc") if m_loc else None
         loc = loc_hint.strip() if loc_hint else None
 
-        ev: Dict[str, Any] = {
+        ev: dict[str, Any] = {
             "calendar": calendar,
             "subject": self._normalize_subject(m_cls.group("cls"), loc_hint),
             "repeat": "weekly",
@@ -174,7 +174,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
             ev["child_full"] = child_full
         return ev
 
-    def _parse_receipt_date_range(self, m_dates) -> Optional[Dict[str, str]]:
+    def _parse_receipt_date_range(self, m_dates) -> dict[str, str | None] | None:
         """Parse date range from regex match, return dict or None if invalid."""
         m1v = parse_month(m_dates.group("m1"))
         m2v = parse_month(m_dates.group("m2"))
@@ -187,7 +187,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
             "until": f"{y2:04d}-{m2v:02d}-{d2:02d}",
         }
 
-    def _extract_child_info(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+    def _extract_child_info(self, text: str) -> tuple[str | None, str | None]:
         """Extract child first name and full name from receipt text."""
         m_reg = _RECEIPT_REG_PAT_1.search(text) or _RECEIPT_REG_PAT_2.search(text)
         if not m_reg:
@@ -196,7 +196,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         child_first = child_full.split()[0].title() if child_full else None
         return child_first, child_full
 
-    def _normalize_subject(self, raw: Optional[str], loc_hint: Optional[str]) -> str:
+    def _normalize_subject(self, raw: str | None, loc_hint: str | None) -> str:
         """Normalize subject text using predefined rules."""
         base = (raw or "").strip().split(" - ", 1)[0].strip()
         lower = base.lower()
@@ -218,7 +218,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
 
 
 class GmailPlanProducer(BaseProducer):
-    def _produce_success(self, payload: GmailPlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: GmailPlanResult, diagnostics: dict[str, Any | None]) -> None:
         from calendars.yamlio import dump_config
 
         dump_config(str(payload.out_path), payload.document)
@@ -233,14 +233,14 @@ class GmailPlanProducer(BaseProducer):
 @dataclass
 class GmailScanClassesRequest:
     auth: GmailAuth
-    from_text: Optional[str]
-    query: Optional[str]
+    from_text: str | None
+    query: str | None
     days: int
     pages: int
     page_size: int
     inbox_only: bool
-    calendar: Optional[str]
-    out_path: Optional[Path]
+    calendar: str | None
+    out_path: Path | None
 
 
 GmailScanClassesRequestConsumer = RequestConsumer[GmailScanClassesRequest]
@@ -248,9 +248,9 @@ GmailScanClassesRequestConsumer = RequestConsumer[GmailScanClassesRequest]
 
 @dataclass
 class GmailScanClassesResult:
-    events: List[Dict[str, Any]]
+    events: list[dict[str, Any]]
     message_count: int
-    out_path: Optional[Path]
+    out_path: Path | None
 
 
 class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScanClassesResult]):
@@ -277,7 +277,7 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
         ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
             return GmailScanClassesResult(events=[], message_count=0, out_path=payload.out_path)
-        extracted: List[Dict[str, Any]] = []
+        extracted: list[dict[str, Any]] = []
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
@@ -289,19 +289,19 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
             return GmailScanClassesResult(events=[], message_count=len(ids), out_path=payload.out_path)
         return GmailScanClassesResult(events=events, message_count=len(ids), out_path=payload.out_path)
 
-    def _extract_events(self, message_text: str, calendar: Optional[str]) -> List[Dict[str, Any]]:
+    def _extract_events(self, message_text: str, calendar: str | None) -> list[dict[str, Any]]:
         plain = self._html_to_text(message_text)
         matches = list(self._range_pat.finditer(plain))
         if not matches:
             return []
         meta = self._infer_meta(plain)
-        events: List[Dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
         for match in matches:
             day_raw = (match.group("day") or "").lower()
             byday = [self._day_map.get(day_raw, day_raw[:2].upper())]
             start_time = self._norm_time(match.group("h1"), match.group("m1"), match.group("ampm1"))
             end_time = self._norm_time(match.group("h2"), match.group("m2"), match.group("ampm2"))
-            ev: Dict[str, Any] = {
+            ev: dict[str, Any] = {
                 "calendar": calendar,
                 "subject": "Class",
                 "repeat": "weekly",
@@ -321,15 +321,15 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
     def _html_to_text(self, html: str) -> str:
         return html_to_text(html)
 
-    def _norm_time(self, hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
+    def _norm_time(self, hour: str, minute: str | None, ampm: str | None) -> str:
         return _norm_time_common(hour, minute, ampm)
 
-    def _infer_meta(self, text: str) -> Dict[str, Any]:
+    def _infer_meta(self, text: str) -> dict[str, Any]:
         return infer_meta_from_text(text, config=self._meta_config)
 
 
 class GmailScanClassesProducer(BaseProducer):
-    def _produce_success(self, payload: GmailScanClassesResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: GmailScanClassesResult, diagnostics: dict[str, Any | None]) -> None:
         events = payload.events
         if not events:
             if payload.message_count:
@@ -359,8 +359,8 @@ class GmailScanClassesProducer(BaseProducer):
 @dataclass
 class GmailMailListRequest:
     auth: GmailAuth
-    query: Optional[str]
-    from_text: Optional[str]
+    query: str | None
+    from_text: str | None
     days: int
     pages: int
     page_size: int
@@ -372,7 +372,7 @@ GmailMailListRequestConsumer = RequestConsumer[GmailMailListRequest]
 
 @dataclass
 class GmailMailListResult:
-    messages: List[Dict[str, str]]
+    messages: list[dict[str, str]]
 
 
 class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListResult]):
@@ -393,7 +393,7 @@ class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListRe
         ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
             return GmailMailListResult(messages=[])
-        messages: List[Dict[str, str]] = []
+        messages: list[dict[str, str]] = []
         for mid in ids:
             try:
                 text = svc.get_message_text(mid)
@@ -406,7 +406,7 @@ class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListRe
 
 
 class GmailMailListProducer(BaseProducer):
-    def _produce_success(self, payload: GmailMailListResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: GmailMailListResult, diagnostics: dict[str, Any | None]) -> None:
         messages = payload.messages
         if not messages:
             print("No messages matched.")
@@ -423,14 +423,14 @@ class GmailMailListProducer(BaseProducer):
 @dataclass
 class GmailSweepTopRequest:
     auth: GmailAuth
-    query: Optional[str]
-    from_text: Optional[str]
+    query: str | None
+    from_text: str | None
     days: int
     pages: int
     page_size: int
     inbox_only: bool
     top: int
-    out_path: Optional[Path]
+    out_path: Path | None
 
 
 GmailSweepTopRequestConsumer = RequestConsumer[GmailSweepTopRequest]
@@ -438,10 +438,10 @@ GmailSweepTopRequestConsumer = RequestConsumer[GmailSweepTopRequest]
 
 @dataclass
 class GmailSweepTopResult:
-    top_senders: List[Tuple[str, int]]
+    top_senders: list[tuple[str, int]]
     freq_days: int
     inbox_only: bool
-    out_path: Optional[Path]
+    out_path: Path | None
 
 
 class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopResult]):
@@ -471,7 +471,7 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
             out_path=payload.out_path,
         )
 
-    def _count_senders(self, svc, ids: List[str]) -> collections.Counter:
+    def _count_senders(self, svc, ids: list[str]) -> collections.Counter:
         """Count sender frequencies from message IDs."""
         freq: collections.Counter = collections.Counter()
         for mid in ids:
@@ -480,7 +480,7 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
                 freq[sender] += 1
         return freq
 
-    def _extract_sender(self, svc, mid: str) -> Optional[str]:
+    def _extract_sender(self, svc, mid: str) -> str | None:
         """Extract sender email address from a message."""
         try:
             msg = svc.get_message(mid)
@@ -488,7 +488,7 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
             return None
         return self._parse_sender_from_message(msg)
 
-    def _parse_sender_from_message(self, msg: Dict[str, Any]) -> Optional[str]:
+    def _parse_sender_from_message(self, msg: dict[str, Any]) -> str | None:
         """Parse sender from Gmail message dict."""
         payload_data = msg.get("payload") or {}
         headers = payload_data.get("headers") or []
@@ -502,7 +502,7 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
 
 
 class GmailSweepTopProducer(BaseProducer):
-    def _produce_success(self, payload: GmailSweepTopResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: GmailSweepTopResult, diagnostics: dict[str, Any | None]) -> None:
         top = payload.top_senders
         if not top:
             print("No sender stats available.")

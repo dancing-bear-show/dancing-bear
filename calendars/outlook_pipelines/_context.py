@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 if TYPE_CHECKING:
     from calendars.outlook_service import OutlookService
@@ -14,20 +14,20 @@ class EventProcessingContext:
     """Context for processing a single calendar event in add pipeline."""
 
     idx: int  # Event index in config file (1-based for logging)
-    nev: Dict[str, Any]  # Normalized event dictionary from config
+    nev: dict[str, Any]  # Normalized event dictionary from config
     subj: str  # Event subject/title (already validated as non-empty)
     no_rem: bool  # True if reminders should be disabled
-    rem_minutes: Optional[int]  # Reminder minutes before start (None = use default)
-    logs: List[str]  # Accumulated log messages
+    rem_minutes: int | None  # Reminder minutes before start (None = use default)
+    logs: list[str]  # Accumulated log messages
 
 
 @dataclass
 class DedupSelectionContext:
     """Context for selecting which duplicate series to keep/delete."""
 
-    sorted_sids: List[str]  # Series IDs sorted by creation date (oldest first)
-    std: List[str]  # Series with standardized locations (address or parens)
-    non: List[str]  # Series without standardized locations
+    sorted_sids: list[str]  # Series IDs sorted by creation date (oldest first)
+    std: list[str]  # Series with standardized locations (address or parens)
+    non: list[str]  # Series without standardized locations
     newest: str  # Most recently created series ID
     oldest: str  # Oldest created series ID
 
@@ -38,8 +38,8 @@ class ReminderUpdateContext:
 
     ids: Sequence[str]  # Event/series IDs to update
     label: str  # Event type label for logging (e.g., "series master", "occurrence")
-    cal_id: Optional[str]  # Calendar ID (None = primary calendar)
-    logs: List[str]  # Accumulated log messages
+    cal_id: str | None  # Calendar ID (None = primary calendar)
+    logs: list[str]  # Accumulated log messages
 
 
 @dataclass
@@ -64,7 +64,7 @@ class ScheduleImportContext:
     svc: "OutlookService"  # Outlook service instance for API calls
     cal_id: str  # Target calendar ID (already ensured to exist)
     cal_name: str  # Target calendar name for logging
-    logs: List[str]  # Accumulated log messages
+    logs: list[str]  # Accumulated log messages
 
 
 @dataclass
@@ -76,6 +76,16 @@ class EventClassification:
     single_ids: set[str]  # Single (non-recurring) event IDs
 
 
+@dataclass
+class VerificationContext:
+    """Context for verifying a single event."""
+
+    idx: int
+    nev: dict[str, Any]
+    subj: str
+    byday: list[str]
+
+
 __all__ = [
     "EventProcessingContext",
     "DedupSelectionContext",
@@ -83,4 +93,5 @@ __all__ = [
     "EventMatchingCriteria",
     "ScheduleImportContext",
     "EventClassification",
+    "VerificationContext",
 ]

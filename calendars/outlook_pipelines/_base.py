@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Sequence
 
 from core.pipeline import ResultEnvelope, SafeProcessor
 
@@ -25,7 +25,6 @@ from calendars.pipeline_base import (
 )
 
 # Error message constants
-ERR_OUTLOOK_SERVICE_REQUIRED = "Outlook service is required"
 ERR_CONFIG_MUST_CONTAIN_EVENTS = "Config must contain events: [] list"
 MSG_PREVIEW_COMPLETE = "Preview complete."
 
@@ -44,7 +43,7 @@ DEFAULT_IMPORT_CALENDAR = "Imported Schedules"
 def load_events_config(
     config_path: Path,
     loader=None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Load config and extract events list, raising on invalid config."""
     load_fn = loader if loader is not None else _load_yaml
     cfg = load_fn(str(config_path))
@@ -62,11 +61,7 @@ __all__ = [
     "dataclass",
     "Path",
     "Any",
-    "Dict",
-    "List",
-    "Optional",
     "Sequence",
-    "Tuple",
     "ResultEnvelope",
     "SafeProcessor",
 
@@ -81,7 +76,6 @@ __all__ = [
     "check_service_required",
     "to_iso_str",
     # Constants
-    "ERR_OUTLOOK_SERVICE_REQUIRED",
     "ERR_CONFIG_MUST_CONTAIN_EVENTS",
     "MSG_PREVIEW_COMPLETE",
     "ERR_CODE_CONFIG",

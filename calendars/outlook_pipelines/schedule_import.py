@@ -9,11 +9,8 @@ from ._base import (
     Any,
     BaseProducer,
     DEFAULT_IMPORT_CALENDAR,
-    Dict,
-    List,
     LOG_DRY_RUN,
     MSG_PREVIEW_COMPLETE,
-    Optional,
     RequestConsumer,
     SafeProcessor,
     check_service_required,
@@ -26,10 +23,10 @@ from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 @dataclass
 class OutlookScheduleImportRequest:
     source: str
-    kind: Optional[str]
-    calendar: Optional[str]
-    tz: Optional[str]
-    until: Optional[str]
+    kind: str | None
+    calendar: str | None
+    tz: str | None
+    until: str | None
     dry_run: bool
     no_reminder: bool
     service: Any
@@ -40,7 +37,7 @@ OutlookScheduleImportRequestConsumer = RequestConsumer[OutlookScheduleImportRequ
 
 @dataclass
 class OutlookScheduleImportResult:
-    logs: List[str]
+    logs: list[str]
     created: int
     dry_run: bool
     calendar: str
@@ -61,7 +58,7 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
         if not items:
             return OutlookScheduleImportResult(logs=["No schedule items parsed."], created=0, dry_run=payload.dry_run, calendar=cal_name)
 
-        logs: List[str] = []
+        logs: list[str] = []
         ctx = ScheduleImportContext(svc=svc, cal_id=cal_id, cal_name=cal_name, logs=logs)
         created = 0
         for item in items:
@@ -74,7 +71,7 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
         cal_id = svc.ensure_calendar_exists(cal_name)
         return cal_id
 
-    def _load_items(self, payload: OutlookScheduleImportRequest) -> List:
+    def _load_items(self, payload: OutlookScheduleImportRequest) -> list:
         """Load schedule items from source."""
         loader = self._schedule_loader
         if loader is None:
@@ -152,7 +149,7 @@ class OutlookScheduleImportProcessor(SafeProcessor[OutlookScheduleImportRequest,
 
 
 class OutlookScheduleImportProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookScheduleImportResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookScheduleImportResult, diagnostics: dict[str, Any | None]) -> None:
         self.print_logs(payload.logs)
         if payload.dry_run:
             print(MSG_PREVIEW_COMPLETE)

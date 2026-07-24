@@ -5,11 +5,7 @@ from ._base import (
     dataclass,
     Path,
     Any,
-    Dict,
-    List,
-    Optional,
     Sequence,
-    Tuple,
     SafeProcessor,
     normalize_event,
     BaseProducer,
@@ -18,13 +14,14 @@ from ._base import (
     load_events_config,
 )
 from ._context import EventMatchingCriteria
+from calendars.selection import weekday_code
 from core.constants import DAY_START_TIME, DAY_END_TIME
 
 
 @dataclass
 class OutlookRemoveRequest:
     config_path: Path
-    calendar: Optional[str]
+    calendar: str | None
     subject_only: bool
     apply: bool
     service: Any
@@ -36,16 +33,16 @@ OutlookRemoveRequestConsumer = RequestConsumer[OutlookRemoveRequest]
 @dataclass
 class OutlookRemovePlanEntry:
     subject: str
-    series_ids: List[str]
-    event_ids: List[str]
+    series_ids: list[str]
+    event_ids: list[str]
 
 
 @dataclass
 class OutlookRemoveResult:
-    plan: List[OutlookRemovePlanEntry]
+    plan: list[OutlookRemovePlanEntry]
     apply: bool
     deleted: int
-    logs: List[str]
+    logs: list[str]
 
 
 class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveResult]):
@@ -57,8 +54,8 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         check_service_required(payload.service)  # Raises ValueError if None
         svc = payload.service
 
-        plan: List[OutlookRemovePlanEntry] = []
-        logs: List[str] = []
+        plan: list[OutlookRemovePlanEntry] = []
+        logs: list[str] = []
         deleted_total = 0
 
         for idx, raw in enumerate(items, start=1):
@@ -94,7 +91,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         result = OutlookRemoveResult(plan=plan, apply=payload.apply, deleted=deleted_total, logs=logs)
         return result
 
-    def _resolve_window(self, event: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    def _resolve_window(self, event: dict[str, Any]) -> tuple[str, str | None] | None:
         single_start = (event.get("start") or "").strip()
         single_end = (event.get("end") or "").strip()
         if single_start and single_end:
@@ -108,7 +105,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         end_iso = f"{(until or start_date)[:10]}{DAY_END_TIME}"
         return start_iso, end_iso
 
-    def _extract_occurrence_times(self, ex: Dict[str, Any]) -> Tuple[str, str]:
+    def _extract_occurrence_times(self, ex: dict[str, Any]) -> tuple[str, str]:
         """Extract start and end datetime from occurrence."""
         st = ((ex.get("start") or {}).get("dateTime") or "")
         en = ((ex.get("end") or {}).get("dateTime") or "")
@@ -122,7 +119,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         """Get weekday code (mo/tu/we/th/fr/sa/su) from datetime string."""
         try:
             dt = _dt.datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-            return ["mo", "tu", "we", "th", "fr", "sa", "su"][dt.weekday()]
+            return weekday_code(dt)
         except Exception:  # nosec B110 - invalid datetime format
             return ""
 
@@ -152,7 +149,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
 
         return True
 
-    def _is_matching_occurrence(self, ex: Dict[str, Any], ctx: EventMatchingCriteria) -> bool:
+    def _is_matching_occurrence(self, ex: dict[str, Any], ctx: EventMatchingCriteria) -> bool:
         """Check if a single occurrence matches the event criteria."""
         st, en = self._extract_occurrence_times(ex)
 
@@ -166,7 +163,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
 
         return True
 
-    def _match_events(self, occ: Sequence[Dict[str, Any]], event: Dict[str, Any], subject_only: bool):
+    def _match_events(self, occ: Sequence[dict[str, Any]], event: dict[str, Any], subject_only: bool):
         """Match occurrences against event criteria."""
         single_start = (event.get("start") or "").strip()
         single_end = (event.get("end") or "").strip()
@@ -189,9 +186,9 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
                 matches.append(ex)
         return matches
 
-    def _collect_ids(self, matches: Sequence[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
-        series_ids: List[str] = []
-        event_ids: List[str] = []
+    def _collect_ids(self, matches: Sequence[dict[str, Any]]) -> tuple[list[str], list[str]]:
+        series_ids: list[str] = []
+        event_ids: list[str] = []
         for match in matches:
             sid = match.get("seriesMasterId")
             if sid:
@@ -203,7 +200,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
                 event_ids.append(mid)
         return series_ids, event_ids
 
-    def _apply_deletions(self, entry: OutlookRemovePlanEntry, svc, logs: List[str]) -> int:
+    def _apply_deletions(self, entry: OutlookRemovePlanEntry, svc, logs: list[str]) -> int:
         deleted = 0
         subj = entry.subject
         for sid in entry.series_ids:
@@ -232,7 +229,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
 
 
 class OutlookRemoveProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookRemoveResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookRemoveResult, diagnostics: dict[str, Any | None]) -> None:
         if not payload.apply:
             print("Planned deletions:")
             for entry in payload.plan:

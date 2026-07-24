@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from ..config_resolver import expand_path, default_outlook_token_path
 from core.auth import resolve_outlook_credentials
 from core.constants import GRAPH_API_URL, GRAPH_DEFAULT_SCOPE
+
+logger = logging.getLogger(__name__)
+
+_MSAL_MISSING_MSG = "Missing msal dependency: {}. Run: pip install msal"
 
 
 def run_outlook_auth_device_code(args) -> int:
@@ -24,7 +29,7 @@ def run_outlook_auth_device_code(args) -> int:
     try:
         import msal
     except Exception as e:
-        print(f"Missing msal dependency: {e}. Run: pip install msal")
+        print(_MSAL_MISSING_MSG.format(e))
         return 1
 
     authority = f"https://login.microsoftonline.com/{tenant}"
@@ -59,7 +64,7 @@ def run_outlook_auth_poll(args) -> int:
     try:
         import msal
     except Exception as e:
-        print(f"Missing msal dependency: {e}. Run: pip install msal")
+        print(_MSAL_MISSING_MSG.format(e))
         return 1
 
     flow_path = Path(expand_path(args.flow))
@@ -136,7 +141,7 @@ def run_outlook_auth_ensure(args) -> int:
     try:
         import msal
     except Exception as e:
-        print(f"Missing msal dependency: {e}. Run: pip install msal")
+        print(_MSAL_MISSING_MSG.format(e))
         return 1
 
     client_id, tenant, token_path = resolve_outlook_credentials(

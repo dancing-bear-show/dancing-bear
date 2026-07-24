@@ -4,9 +4,6 @@ from ._base import (
     dataclass,
     Path,
     Any,
-    Dict,
-    List,
-    Optional,
     SafeProcessor,
     BaseProducer,
     DateWindowResolver,
@@ -18,11 +15,11 @@ from ._base import (
 @dataclass
 class OutlookListOneOffsRequest:
     service: Any
-    calendar: Optional[str]
-    from_date: Optional[str]
-    to_date: Optional[str]
+    calendar: str | None
+    from_date: str | None
+    to_date: str | None
     limit: int
-    out_path: Optional[Path]
+    out_path: Path | None
 
 
 OutlookListOneOffsRequestConsumer = RequestConsumer[OutlookListOneOffsRequest]
@@ -30,23 +27,23 @@ OutlookListOneOffsRequestConsumer = RequestConsumer[OutlookListOneOffsRequest]
 
 @dataclass
 class OutlookListOneOffsResult:
-    rows: List[Dict[str, str]]
+    rows: list[dict[str, str]]
     start: str
     end: str
     limit: int
-    out_path: Optional[Path]
+    out_path: Path | None
 
 
 class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, OutlookListOneOffsResult]):
     def __init__(self, today_factory=None) -> None:
         self._window = DateWindowResolver(today_factory)
 
-    def _is_one_off(self, ev: Dict[str, Any]) -> bool:
+    def _is_one_off(self, ev: dict[str, Any]) -> bool:
         """Return True if the event is a single-instance (not part of a series)."""
         etype = (ev.get("type") or "").lower()
         return etype == "singleinstance" or not ev.get("seriesMasterId")
 
-    def _event_to_row(self, ev: Dict[str, Any]) -> Dict[str, str]:
+    def _event_to_row(self, ev: dict[str, Any]) -> dict[str, str]:
         """Convert an Outlook event dict to a flat row dict."""
         return {
             "subject": ev.get("subject") or "",
@@ -79,7 +76,7 @@ class OutlookListOneOffsProcessor(SafeProcessor[OutlookListOneOffsRequest, Outlo
 
 
 class OutlookListOneOffsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookListOneOffsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookListOneOffsResult, diagnostics: dict[str, Any | None]) -> None:
         rows = payload.rows
         print(f"Found {len(rows)} single events from {payload.start} to {payload.end}.")
         for ev in rows[: payload.limit]:

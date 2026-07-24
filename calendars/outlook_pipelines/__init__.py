@@ -6,7 +6,6 @@ share, reminders, settings, dedup, and more.
 
 # Re-export constants from _base
 from ._base import (
-    ERR_OUTLOOK_SERVICE_REQUIRED,
     ERR_CONFIG_MUST_CONTAIN_EVENTS,
     MSG_PREVIEW_COMPLETE,
 )
@@ -27,7 +26,6 @@ from .mail import *  # noqa: F401, F403
 
 __all__ = [
     # Constants
-    "ERR_OUTLOOK_SERVICE_REQUIRED",
     "ERR_CONFIG_MUST_CONTAIN_EVENTS",
     "MSG_PREVIEW_COMPLETE",
 ]

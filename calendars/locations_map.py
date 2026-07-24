@@ -7,8 +7,9 @@ Main entry points:
 The YAML is optional and loaded lazily; functions are dependency-light.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, Optional
 
 # Built-in fallback map (kept for compatibility); prefer YAML at config/locations.yaml
 ADDRESS_MAP = {
@@ -29,7 +30,7 @@ ADDRESS_MAP = {
     'A.F.L.C. Pool': 'Aurora Family Leisure Complex (135 Industrial Pkwy N, Aurora, ON)',
 }
 
-_CACHED_MAP: Optional[Dict[str, str]] = None
+_CACHED_MAP: dict[str, str] | None = None
 
 
 def _default_locations_yaml_paths() -> list[Path]:
@@ -44,7 +45,7 @@ def _default_locations_yaml_paths() -> list[Path]:
     return paths
 
 
-def _try_load_yaml_locations(p: "Path") -> Optional[Dict[str, str]]:
+def _try_load_yaml_locations(p: Path) -> dict[str, str] | None:
     """Attempt to load a locations YAML file. Returns dict or None."""
     try:
         from calendars.yamlio import load_config  # lazy import
@@ -59,7 +60,7 @@ def _try_load_yaml_locations(p: "Path") -> Optional[Dict[str, str]]:
     return None
 
 
-def get_locations_map() -> Dict[str, str]:
+def get_locations_map() -> dict[str, str]:
     """Return a mapping of short names to standardized location strings.
 
     Attempts to read `config/locations.yaml` from CWD or repo root; falls

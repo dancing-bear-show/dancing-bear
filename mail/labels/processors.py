@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -13,15 +12,15 @@ from .consumers import LabelsPlanPayload, LabelsSyncPayload, LabelsExportPayload
 @dataclass
 class LabelChange:
     name: str
-    changes: Dict[str, Dict[str, str]]
-    spec: Dict
+    changes: dict[str, dict[str, str]]
+    spec: dict
 
 
 @dataclass
 class LabelsPlanResult:
-    to_create: List[Dict]
-    to_update: List[LabelChange]
-    to_delete: List[str]
+    to_create: list[dict]
+    to_update: list[LabelChange]
+    to_delete: list[str]
     show_delete: bool
 
 
@@ -43,11 +42,11 @@ class LabelsPlanProcessor(Processor[LabelsPlanPayload, ResultEnvelope[LabelsPlan
         )
 
     def _compute_creates_updates(
-        self, desired_labels: List[Dict], existing_map: Dict
-    ) -> Tuple[List[Dict], List[LabelChange]]:
+        self, desired_labels: list[dict], existing_map: dict
+    ) -> tuple[list[dict], list[LabelChange]]:
         """Return (to_create, to_update) based on desired vs existing labels."""
-        to_create: List[Dict] = []
-        to_update: List[LabelChange] = []
+        to_create: list[dict] = []
+        to_update: list[LabelChange] = []
         for spec in desired_labels:
             name = spec.get("name")
             if not name:
@@ -61,7 +60,7 @@ class LabelsPlanProcessor(Processor[LabelsPlanPayload, ResultEnvelope[LabelsPlan
                 to_update.append(LabelChange(name=name, changes=changes, spec=spec))
         return to_create, to_update
 
-    def _compute_deletes(self, payload) -> List[str]:
+    def _compute_deletes(self, payload) -> list[str]:
         """Return list of label names to delete (missing from desired)."""
         desired_names = {spec.get("name") for spec in payload.desired_labels if spec.get("name")}
         return [
@@ -74,7 +73,7 @@ class LabelsPlanProcessor(Processor[LabelsPlanPayload, ResultEnvelope[LabelsPlan
 @dataclass
 class LabelsSyncResult:
     plan: LabelsPlanResult
-    redirects: List[Dict[str, str]]
+    redirects: list[dict[str, str]]
 
 
 class LabelsSyncProcessor(Processor[LabelsSyncPayload, ResultEnvelope[LabelsSyncResult]]):
@@ -84,7 +83,7 @@ class LabelsSyncProcessor(Processor[LabelsSyncPayload, ResultEnvelope[LabelsSync
         plan_envelope = LabelsPlanProcessor().process(payload)
         plan = plan_envelope.payload or LabelsPlanResult([], [], [])
 
-        redirects: List[Dict[str, str]] = []
+        redirects: list[dict[str, str]] = []
         if payload.sweep_redirects:
             redirects = [
                 r for r in payload.desired_redirects if isinstance(r, dict) and r.get("from") and r.get("to")
@@ -95,8 +94,8 @@ class LabelsSyncProcessor(Processor[LabelsSyncPayload, ResultEnvelope[LabelsSync
 
 @dataclass
 class LabelsExportResult:
-    labels: List[dict]
-    redirects: List[dict]
+    labels: list[dict]
+    redirects: list[dict]
     out_path: Path
 
 
@@ -104,7 +103,7 @@ class LabelsExportProcessor(Processor[LabelsExportPayload, ResultEnvelope[Labels
     """Normalize labels for export."""
 
     def process(self, payload: LabelsExportPayload) -> ResultEnvelope[LabelsExportResult]:
-        clean: List[dict] = []
+        clean: list[dict] = []
         for lab in payload.labels:
             if lab.get("type") == "system":
                 continue
@@ -122,8 +121,8 @@ class LabelsExportProcessor(Processor[LabelsExportPayload, ResultEnvelope[Labels
         )
 
 
-def _diff_label(current: Dict, desired: Dict) -> Dict[str, Dict[str, str]]:
-    changes: Dict[str, Dict[str, str]] = {}
+def _diff_label(current: dict, desired: dict) -> dict[str, dict[str, str]]:
+    changes: dict[str, dict[str, str]] = {}
     for key in ("color", "labelListVisibility", "messageListVisibility"):
         desired_value = desired.get(key)
         if desired_value and current.get(key) != desired_value:
@@ -131,5 +130,5 @@ def _diff_label(current: Dict, desired: Dict) -> Dict[str, Dict[str, str]]:
     return changes
 
 
-def _is_system_label(label: Dict) -> bool:
+def _is_system_label(label: dict) -> bool:
     return label.get("type") == "system"

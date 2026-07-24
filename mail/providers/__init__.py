@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional
 
 from .base import BaseProvider
 
 
-def get_provider(name: str, *, credentials_path: str, token_path: str, cache_dir: Optional[str] = None) -> BaseProvider:
+def get_provider(name: str, *, credentials_path: str, token_path: str, cache_dir: str | None = None) -> BaseProvider:
     n = (name or "").lower()
     if n == "gmail":
         # Lazy import to avoid importing optional deps during --help
