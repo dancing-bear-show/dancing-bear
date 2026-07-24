@@ -24,7 +24,7 @@ description: >
     verify (G5 — agent)
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-06-19"
   concerns:
     - concerns/phone-layout.md

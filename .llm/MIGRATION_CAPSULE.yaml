@@ -2,7 +2,7 @@ paths:
   migration_state: .llm/MIGRATION_STATE.md
 status:
   - Provider abstractions present (Gmail, Outlook)
-  - Profile-aware credentials via ~/.config/sre-utils/credentials.ini
+  - Profile-aware credentials via ~/.config/credentials.ini
   - Outlook device-code split: outlook auth device-code → outlook auth poll
   - YAML IO helpers centralized; optional JSON cache helpers available
 completed_work:

@@ -57,7 +57,7 @@ description: >
      coverage-final-gate  [human gate]                 (G22 — delta + swarm summary → approve/merge)
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-05-28"
 
 trigger:

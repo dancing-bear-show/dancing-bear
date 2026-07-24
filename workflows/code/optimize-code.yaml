@@ -26,7 +26,7 @@ description: >
                                             human-gate
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-05-02"
 
 trigger:

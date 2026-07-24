@@ -22,7 +22,6 @@ SECRET_KEYS = (
 )
 
 # Heuristic patterns that imply secret values even if key name is generic
-# Borrowed/adapted from cars-sre-utils secret shielding conventions
 SECRET_VALUE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),  # GitHub personal access token
     re.compile(r"\bglsa_[A-Z0-9]{20,}\b", re.I),  # Grafana service account token

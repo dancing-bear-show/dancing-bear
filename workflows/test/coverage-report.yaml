@@ -17,7 +17,7 @@ description: >
        present-report  [human gate]           (G3 — review and decide)
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-06-19"
 
 trigger:

@@ -14,7 +14,7 @@ description: >
   for the qlty PR-scoped check.
 
 metadata:
-  author: sre-platform
+  author: dancing-bear
   created: "2026-05-28"
 
 trigger:

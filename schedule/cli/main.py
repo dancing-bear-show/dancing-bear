@@ -1,6 +1,6 @@
 """Schedule Assistant CLI
 
-Follows the LLM patterns used in cars-sre-utils:
+Conventions:
 - plan then apply (apply requires --apply; default is dry-run)
 - small, dependency-light modules with lazy imports
 - YAML IO helpers kept minimal and human-friendly

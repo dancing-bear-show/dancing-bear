@@ -10,8 +10,8 @@ Profile Overlay + Nested Outputs
 One-Page Render (compact)
 - `python -m resume render --data _out/<prefix>/data.json --template config/template.onepage.yaml --profile <prefix> --structure-from _out/<prefix>/structure.json --out _out/<prefix>/resume.onepage.docx`
 
-Alignment + Tailored Render (RBC example)
-- Align: `python -m resume align --data _out/brian_sherwin/data.json --job config/job.rbc_sre.yaml --out _out/brian_sherwin/alignment.rbc.json --tailored _out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
+Alignment + Tailored Render (example)
+- Align: `python -m resume align --data _out/brian_sherwin/data.json --job config/job.rbc.yaml --out _out/brian_sherwin/alignment.rbc.json --tailored _out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
 - Render with filters: `python -m resume render --data _out/brian_sherwin/data.json --template config/template.onepage.yaml --profile brian_sherwin --structure-from _out/brian_sherwin/structure.json --filter-skills-alignment _out/brian_sherwin/alignment.rbc.json --filter-exp-alignment _out/brian_sherwin/alignment.rbc.json --min-priority 0.9 --out _out/brian_sherwin/resume.rbc.onepage.docx`
 
 Experience Export
