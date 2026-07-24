@@ -151,9 +151,9 @@ class TestWebParser(unittest.TestCase):
 class TestRichmondHillSkatingParser(unittest.TestCase):
     """Tests for RichmondHillSkatingParser."""
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_with_bs4(self, mock_get):
-        mock_get.return_value.text = RICHMOND_HILL_SKATING_HTML
+        mock_get.return_value = RICHMOND_HILL_SKATING_HTML
         parser = RichmondHillSkatingParser()
 
         # Force bs4 path by ensuring import succeeds
@@ -167,9 +167,9 @@ class TestRichmondHillSkatingParser(unittest.TestCase):
             self.assertEqual(item.subject, 'Public Skating')
             self.assertEqual(item.recurrence, 'weekly')
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_with_regex_fallback(self, mock_get):
-        mock_get.return_value.text = RICHMOND_HILL_SKATING_REGEX_HTML
+        mock_get.return_value = RICHMOND_HILL_SKATING_REGEX_HTML
         parser = RichmondHillSkatingParser()
 
         # Test regex fallback by patching bs4 import to fail
@@ -205,36 +205,36 @@ class TestRichmondHillSkatingParser(unittest.TestCase):
 class TestRichmondHillSwimmingParser(unittest.TestCase):
     """Tests for RichmondHillSwimmingParser."""
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_leisure_swim(self, mock_get):
-        mock_get.return_value.text = RICHMOND_HILL_SWIMMING_HTML
+        mock_get.return_value = RICHMOND_HILL_SWIMMING_HTML
         parser = RichmondHillSwimmingParser()
         items = parser.parse('https://www.richmondhill.ca/en/rec/Swimming.aspx')
 
         leisure_items = [i for i in items if i.subject == 'Leisure Swim']
         self.assertGreater(len(leisure_items), 0)
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_fun_n_fit(self, mock_get):
-        mock_get.return_value.text = RICHMOND_HILL_SWIMMING_HTML
+        mock_get.return_value = RICHMOND_HILL_SWIMMING_HTML
         parser = RichmondHillSwimmingParser()
         items = parser.parse('https://www.richmondhill.ca/en/rec/Swimming.aspx')
 
         fnf_items = [i for i in items if i.subject == 'Fun N Fit']
         self.assertGreater(len(fnf_items), 0)
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_extracts_facility_name(self, mock_get):
-        mock_get.return_value.text = RICHMOND_HILL_SWIMMING_HTML
+        mock_get.return_value = RICHMOND_HILL_SWIMMING_HTML
         parser = RichmondHillSwimmingParser()
         items = parser.parse('https://www.richmondhill.ca/en/rec/Swimming.aspx')
 
         if items:
             self.assertIn('Richmond Green Pool', items[0].location)
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_empty_html_returns_empty(self, mock_get):
-        mock_get.return_value.text = '<html></html>'
+        mock_get.return_value = '<html></html>'
         parser = RichmondHillSwimmingParser()
         items = parser.parse('https://www.richmondhill.ca/en/rec/Swimming.aspx')
         self.assertEqual(items, [])
@@ -243,9 +243,9 @@ class TestRichmondHillSwimmingParser(unittest.TestCase):
 class TestAuroraAquaticsParser(unittest.TestCase):
     """Tests for AuroraAquaticsParser."""
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_leisure_swim(self, mock_get):
-        mock_get.return_value.text = AURORA_AQUATICS_HTML
+        mock_get.return_value = AURORA_AQUATICS_HTML
         parser = AuroraAquaticsParser()
         items = parser.parse('https://www.aurora.ca/aquatics-and-swim-programs')
 
@@ -255,9 +255,9 @@ class TestAuroraAquaticsParser(unittest.TestCase):
             self.assertEqual(item.recurrence, 'weekly')
             self.assertEqual(item.location, 'Aurora Pools')
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_handles_day_range(self, mock_get):
-        mock_get.return_value.text = AURORA_AQUATICS_HTML
+        mock_get.return_value = AURORA_AQUATICS_HTML
         parser = AuroraAquaticsParser()
         items = parser.parse('https://www.aurora.ca/aquatics-and-swim-programs')
 
@@ -271,9 +271,9 @@ class TestAuroraAquaticsParser(unittest.TestCase):
         self.assertIn('TH', all_days)
         self.assertIn('FR', all_days)
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_no_leisure_table_returns_empty(self, mock_get):
-        mock_get.return_value.text = '''
+        mock_get.return_value = '''
         <html><table><thead><tr><th>Day</th><th>Lane Swim</th></tr></thead>
         <tbody><tr><td>Monday</td><td>6:00am</td></tr></tbody></table></html>
         '''
@@ -281,9 +281,9 @@ class TestAuroraAquaticsParser(unittest.TestCase):
         items = parser.parse('https://www.aurora.ca/aquatics-and-swim-programs')
         self.assertEqual(items, [])
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_parse_empty_html_returns_empty(self, mock_get):
-        mock_get.return_value.text = '<html></html>'
+        mock_get.return_value = '<html></html>'
         parser = AuroraAquaticsParser()
         items = parser.parse('https://www.aurora.ca/aquatics-and-swim-programs')
         self.assertEqual(items, [])
@@ -305,9 +305,9 @@ class TestParseWebsiteFunction(unittest.TestCase):
 class TestScheduleItemAttributes(unittest.TestCase):
     """Tests for ScheduleItem attributes set by web parsers."""
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_items_have_notes_with_url(self, mock_get):
-        mock_get.return_value.text = AURORA_AQUATICS_HTML
+        mock_get.return_value = AURORA_AQUATICS_HTML
         parser = AuroraAquaticsParser()
         url = 'https://www.aurora.ca/aquatics-and-swim-programs'
         items = parser.parse(url)
@@ -316,9 +316,9 @@ class TestScheduleItemAttributes(unittest.TestCase):
             self.assertIn(url, items[0].notes)
             self.assertIn('Imported from', items[0].notes)
 
-    @patch('calendars.importer.web_parser.requests.get')
+    @patch('calendars.importer.web_parser._fetch_html')
     def test_items_have_range_start(self, mock_get):
-        mock_get.return_value.text = AURORA_AQUATICS_HTML
+        mock_get.return_value = AURORA_AQUATICS_HTML
         parser = AuroraAquaticsParser()
         items = parser.parse('https://www.aurora.ca/aquatics-and-swim-programs')
 

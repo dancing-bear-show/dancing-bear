@@ -11,33 +11,32 @@ Usage:
 """
 import argparse
 import os
-import requests
 from pathlib import Path
+
+from core.http import HttpClient
 
 
 def upload_octoprint(url: str, api_key: str, file: Path, do_print: bool):
     # POST /api/files/local
-    headers = {"X-Api-Key": api_key}
+    client = HttpClient(url, default_headers={"X-Api-Key": api_key}, timeout=60)
     with open(file, "rb") as fh:
         files = {"file": (file.name, fh, "application/octet-stream")}
         data = {"print": "true" if do_print else "false"}
-        r = requests.post(f"{url.rstrip('/')}/api/files/local", headers=headers, files=files, data=data, timeout=60)
-    r.raise_for_status()
+        r = client.post("/api/files/local", files=files, data=data)
     return r.json()
 
 
 def upload_moonraker(url: str, file: Path, do_print: bool):
     # POST /server/files/upload
+    client = HttpClient(url, timeout=60)
     with open(file, "rb") as fh:
         files = {"file": (file.name, fh, "application/octet-stream")}
-        r = requests.post(f"{url.rstrip('/')}/server/files/upload", files=files, timeout=60)
-    r.raise_for_status()
+        client.post("/server/files/upload", files=files)
     if do_print:
         # Start: POST /printer/print/start {"filename":"gcodes/<name>"}
         # Moonraker usually places uploads under gcodes/
         payload = {"filename": f"gcodes/{file.name}"}
-        r2 = requests.post(f"{url.rstrip('/')}/printer/print/start", json=payload, timeout=30)
-        r2.raise_for_status()
+        HttpClient(url, timeout=30).post("/printer/print/start", json=payload)
     return {"status": "ok"}
 
 

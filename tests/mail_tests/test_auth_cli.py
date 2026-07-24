@@ -146,7 +146,9 @@ class AuthCLITests(unittest.TestCase):
             status_code = 200
             text = "OK"
             content = b""
-            headers = {}
+
+            def __init__(self):
+                self.headers: dict = {}
 
             def raise_for_status(self):
                 pass  # success stub — status 200, no error to raise

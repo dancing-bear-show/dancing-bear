@@ -198,7 +198,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         page_data = {"value": [{"id": "e1"}, {"id": "e2"}]}
         mock_resp = self._make_response(page_data)
 
-        with patch("calendars.outlook_service.requests.get", return_value=mock_resp) as mock_get:
+        with patch.object(svc._http, "get", return_value=mock_resp) as mock_get:
             params = ListCalendarViewRequest(
                 calendar_id="cal1",
                 start_iso="2025-01-01T00:00:00",
@@ -217,7 +217,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         page1 = {"value": [{"id": "e1"}], "@odata.nextLink": "https://graph.microsoft.com/v1.0/next"}
         page2 = {"value": [{"id": "e2"}]}
 
-        with patch("calendars.outlook_service.requests.get", side_effect=[
+        with patch.object(svc._http, "get", side_effect=[
             self._make_response(page1),
             self._make_response(page2),
         ]) as mock_get:
@@ -238,7 +238,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 204
 
-        with patch("calendars.outlook_service.requests.delete", return_value=mock_resp):
+        with patch.object(svc._http, "delete", return_value=mock_resp):
             result = svc.delete_event_by_id("evt123")
 
         self.assertTrue(result)
@@ -248,7 +248,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
 
-        with patch("calendars.outlook_service.requests.delete", return_value=mock_resp):
+        with patch.object(svc._http, "delete", return_value=mock_resp):
             result = svc.delete_event_by_id("evt123")
 
         self.assertTrue(result)
@@ -258,7 +258,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         mock_resp = MagicMock()
         mock_resp.status_code = 404
 
-        with patch("calendars.outlook_service.requests.delete", return_value=mock_resp):
+        with patch.object(svc._http, "delete", return_value=mock_resp):
             result = svc.delete_event_by_id("missing")
 
         self.assertFalse(result)
@@ -268,7 +268,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         page_data = {"value": [{"id": "m1", "subject": "Hello"}]}
         mock_resp = self._make_response(page_data)
 
-        with patch("calendars.outlook_service.requests.get", return_value=mock_resp):
+        with patch.object(svc._http, "get", return_value=mock_resp):
             msgs = svc.list_messages(folder="inbox", top=5, pages=1)
 
         self.assertEqual(len(msgs), 1)
@@ -279,7 +279,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         page1 = {"value": [{"id": "m1"}], "@odata.nextLink": "https://graph.microsoft.com/v1.0/next"}
         page2 = {"value": [{"id": "m2"}]}
 
-        with patch("calendars.outlook_service.requests.get", side_effect=[
+        with patch.object(svc._http, "get", side_effect=[
             self._make_response(page1),
             self._make_response(page2),
         ]):
@@ -293,7 +293,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         page_with_next = {"value": [{"id": "m1"}], "@odata.nextLink": "https://graph.next"}
         mock_resp = self._make_response(page_with_next)
 
-        with patch("calendars.outlook_service.requests.get", return_value=mock_resp) as mock_get:
+        with patch.object(svc._http, "get", return_value=mock_resp) as mock_get:
             msgs = svc.list_messages(folder="inbox", top=1, pages=1)
 
         # Only 1 page fetched even though nextLink exists
@@ -307,7 +307,7 @@ class TestOutlookServiceHTTP(unittest.TestCase):
         page_data = {"value": []}
         mock_resp = self._make_response(page_data)
 
-        with patch("calendars.outlook_service.requests.get", return_value=mock_resp) as mock_get:
+        with patch.object(svc._http, "get", return_value=mock_resp) as mock_get:
             params = ListCalendarViewRequest(
                 calendar_id=None,
                 start_iso="2025-01-01T00:00:00",
