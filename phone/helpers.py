@@ -38,22 +38,33 @@ def _layout_from_export(export: Dict[str, Any]) -> NormalizedLayout:
         for a in p.get("apps", []):
             items.append({"kind": "app", "id": a})
         for f in p.get("folders", []):
-            items.append({"kind": "folder", "name": f.get("name"), "apps": f.get("apps", [])})
+            items.append(
+                {"kind": "folder", "name": f.get("name"), "apps": f.get("apps", [])}
+            )
         pages.append(items)
     return NormalizedLayout(dock=dock, pages=pages)
 
 
-def load_layout(layout_path: Optional[str], backup_path: Optional[str]) -> NormalizedLayout:
+def load_layout(
+    layout_path: Optional[str], backup_path: Optional[str]
+) -> NormalizedLayout:
     if layout_path:
         export = read_yaml(Path(layout_path).expanduser())
         return _layout_from_export(export)
 
-    backup_dir = Path(backup_path).expanduser() if backup_path else find_latest_backup_dir()
+    backup_dir = (
+        Path(backup_path).expanduser() if backup_path else find_latest_backup_dir()
+    )
     if not backup_dir or not backup_dir.exists():
-        raise LayoutLoadError(2, "Error: No Finder backup found. Provide --backup or create an encrypted backup in Finder.")
+        raise LayoutLoadError(
+            2,
+            "Error: No Finder backup found. Provide --backup or create an encrypted backup in Finder.",
+        )
     iconfile = find_iconstate_file(backup_dir)
     if not iconfile:
-        raise LayoutLoadError(3, f"Error: IconState plist not found in backup at {backup_dir}")
+        raise LayoutLoadError(
+            3, f"Error: IconState plist not found in backup at {backup_dir}"
+        )
     data = load_plist(iconfile.path)
     return normalize_iconstate(data)
 
@@ -65,6 +76,10 @@ def read_lines_file(path: Optional[str]) -> List[str]:
     if not p.exists():
         return []
     try:
-        return [ln.strip() for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.strip().startswith("#")]
-    except Exception:
+        return [
+            ln.strip()
+            for ln in p.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+    except Exception:  # nosec B110 - return empty list on any read/encoding error
         return []

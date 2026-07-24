@@ -122,7 +122,9 @@ def to_yaml_export(layout: NormalizedLayout) -> Dict[str, Any]:
             if _is_app_item(it):
                 page_out["apps"].append(it["id"])
             elif _is_folder_item(it):
-                page_out["folders"].append({"name": _get_folder_name(it), "apps": _get_folder_apps(it)})
+                page_out["folders"].append(
+                    {"name": _get_folder_name(it), "apps": _get_folder_apps(it)}
+                )
         export["pages"].append(page_out)
     return export
 
@@ -212,11 +214,15 @@ def _generate_page_instructions(
             continue
         spec = pages_spec.get(page_key) or {}
         instructions.extend(_folder_page_instructions(spec, folder_page, target_page))
-        instructions.extend(_app_page_instructions(spec, root_app_page, loc, target_page))
+        instructions.extend(
+            _app_page_instructions(spec, root_app_page, loc, target_page)
+        )
     return instructions
 
 
-def _folder_page_instructions(spec: Dict, folder_page: Dict[str, int], target: int) -> List[str]:
+def _folder_page_instructions(
+    spec: Dict, folder_page: Dict[str, int], target: int
+) -> List[str]:
     """Generate folder move instructions for a target page."""
     result: List[str] = []
     for fname in spec.get("folders") or []:
@@ -224,7 +230,9 @@ def _folder_page_instructions(spec: Dict, folder_page: Dict[str, int], target: i
         if curp is None:
             result.append(f"  • Locate folder '{fname}' and move to Page {target}")
         elif curp != target:
-            result.append(f"  • Move folder '{fname}' from Page {curp} to Page {target}")
+            result.append(
+                f"  • Move folder '{fname}' from Page {curp} to Page {target}"
+            )
     return result
 
 
@@ -240,7 +248,9 @@ def _app_page_instructions(
             if where:
                 result.append(f"  • Move app {app} from {where} to Page {target}")
             else:
-                result.append(f"  • Install or locate app: {app} (then move to Page {target})")
+                result.append(
+                    f"  • Install or locate app: {app} (then move to Page {target})"
+                )
         elif cur_root != target:
             result.append(f"  • Move app {app} from Page {cur_root} to Page {target}")
     return result
@@ -258,7 +268,9 @@ def checklist_from_plan(layout: NormalizedLayout, plan: Dict[str, Any]) -> List[
     if pages_spec:
         folder_page = compute_folder_page_map(layout)
         root_app_page = compute_root_app_page_map(layout)
-        instructions.extend(_generate_page_instructions(pages_spec, folder_page, root_app_page, loc))
+        instructions.extend(
+            _generate_page_instructions(pages_spec, folder_page, root_app_page, loc)
+        )
 
     return instructions
 
@@ -359,15 +371,13 @@ def _score_membership(app: str, dock: List[str], recent: set, keep: set) -> floa
 
 
 def _compute_app_score(
-    app: str, layout: NormalizedLayout, loc: Dict[str, str],
-    recent: set, keep: set
+    app: str, layout: NormalizedLayout, loc: Dict[str, str], recent: set, keep: set
 ) -> float:
     """Compute unused likelihood score for an app."""
     where = loc.get(app, "")
     page_idx, folder = _parse_location(where)
-    return (
-        _score_membership(app, layout.dock or [], recent, keep)
-        + _score_location(page_idx, folder)
+    return _score_membership(app, layout.dock or [], recent, keep) + _score_location(
+        page_idx, folder
     )
 
 
@@ -383,7 +393,11 @@ def rank_unused_candidates(
     loc = compute_location_map(layout)
 
     results = [
-        (app, _compute_app_score(app, layout, loc, recent, keep), loc.get(app, "(unknown)"))
+        (
+            app,
+            _compute_app_score(app, layout, loc, recent, keep),
+            loc.get(app, "(unknown)"),
+        )
         for app in list_all_apps(layout)
     ]
     results.sort(key=lambda t: t[1], reverse=True)
@@ -426,16 +440,22 @@ def _analyze_pages(layout: NormalizedLayout) -> Tuple[List[Dict], List[Dict], in
 
         for it in page:
             if _is_folder_item(it):
-                folder_details.append({
-                    "name": _get_folder_name(it),
-                    "page": idx,
-                    "app_count": len(_get_folder_apps(it)),
-                })
+                folder_details.append(
+                    {
+                        "name": _get_folder_name(it),
+                        "page": idx,
+                        "app_count": len(_get_folder_apps(it)),
+                    }
+                )
 
-        pages_info.append({
-            "page": idx, "root_apps": root_apps,
-            "folders": folders, "items_total": root_apps + folders,
-        })
+        pages_info.append(
+            {
+                "page": idx,
+                "root_apps": root_apps,
+                "folders": folders,
+                "items_total": root_apps + folders,
+            }
+        )
 
     return pages_info, folder_details, total_root_apps
 
@@ -449,14 +469,19 @@ def _count_app_occurrences(layout: NormalizedLayout) -> Dict[str, int]:
 
 
 def _generate_observations(
-    dock: List[str], pages_info: List[Dict], folder_details: List[Dict],
-    unique_apps: List[str], plan: Optional[Dict[str, Any]]
+    dock: List[str],
+    pages_info: List[Dict],
+    folder_details: List[Dict],
+    unique_apps: List[str],
+    plan: Optional[Dict[str, Any]],
 ) -> List[str]:
     """Generate observations and suggestions about the layout."""
     observations: List[str] = []
 
     if len(dock) < 4:
-        observations.append(f"Dock has {len(dock)} apps; consider pinning up to 4 frequently used apps.")
+        observations.append(
+            f"Dock has {len(dock)} apps; consider pinning up to 4 frequently used apps."
+        )
 
     if pages_info:
         _add_page_observations(pages_info, observations)
@@ -475,46 +500,68 @@ def _add_page_observations(pages_info: List[Dict], observations: List[str]) -> N
     min_items = min(p["items_total"] for p in pages_info)
 
     if max_items - min_items >= 6 and len(pages_info) > 1:
-        observations.append("Pages appear unbalanced; consider moving seldom-used items to later pages or folders.")
+        observations.append(
+            "Pages appear unbalanced; consider moving seldom-used items to later pages or folders."
+        )
     if pages_info[0]["items_total"] >= 24:
-        observations.append("Page 1 is crowded (>=24 items); consider reducing root apps or using folders.")
+        observations.append(
+            "Page 1 is crowded (>=24 items); consider reducing root apps or using folders."
+        )
     if pages_info[0]["root_apps"] >= 16:
-        observations.append("Many root apps on Page 1; move infrequent ones into folders or later pages.")
+        observations.append(
+            "Many root apps on Page 1; move infrequent ones into folders or later pages."
+        )
 
 
-def _add_folder_observations(folder_details: List[Dict], observations: List[str]) -> None:
+def _add_folder_observations(
+    folder_details: List[Dict], observations: List[str]
+) -> None:
     """Add folder-related observations."""
     tiny = [f for f in folder_details if f["app_count"] <= 2]
     large = [f for f in folder_details if f["app_count"] >= 10]
     if tiny:
-        observations.append(f"{len(tiny)} tiny folder(s) (<=2 apps); consider flattening or merging.")
+        observations.append(
+            f"{len(tiny)} tiny folder(s) (<=2 apps); consider flattening or merging."
+        )
     if large:
-        observations.append(f"{len(large)} large folder(s) (>=10 apps); consider splitting for easier access.")
+        observations.append(
+            f"{len(large)} large folder(s) (>=10 apps); consider splitting for easier access."
+        )
 
 
-def _add_plan_observations(plan: Dict[str, Any], unique_apps: List[str], observations: List[str]) -> None:
+def _add_plan_observations(
+    plan: Dict[str, Any], unique_apps: List[str], observations: List[str]
+) -> None:
     """Add plan alignment observations."""
     pins = list(plan.get("pins") or [])
     if pins:
         missing_pins = [p for p in pins if p not in unique_apps]
         if missing_pins:
-            observations.append(f"Plan pins not found in layout: {len(missing_pins)} app(s). Install or adjust pins.")
+            observations.append(
+                f"Plan pins not found in layout: {len(missing_pins)} app(s). Install or adjust pins."
+            )
 
     pfolders: Dict[str, List[str]] = plan.get("folders") or {}
     empty_planned = [name for name, apps in pfolders.items() if not apps]
     if empty_planned:
         suffix = "…" if len(empty_planned) > 5 else ""
-        observations.append(f"Planned folders without assigned apps: {', '.join(empty_planned[:5])}{suffix}.")
+        observations.append(
+            f"Planned folders without assigned apps: {', '.join(empty_planned[:5])}{suffix}."
+        )
 
 
-def analyze_layout(layout: NormalizedLayout, plan: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def analyze_layout(
+    layout: NormalizedLayout, plan: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Return summary metrics and observations about a Home Screen layout."""
     dock = list(layout.dock or [])
     pages_info, folder_details, total_root_apps = _analyze_pages(layout)
     unique_apps = list_all_apps(layout)
     counts = _count_app_occurrences(layout)
     duplicates = sorted([a for a, c in counts.items() if c > 1])
-    observations = _generate_observations(dock, pages_info, folder_details, unique_apps, plan)
+    observations = _generate_observations(
+        dock, pages_info, folder_details, unique_apps, plan
+    )
 
     return {
         "dock": dock,
@@ -536,9 +583,10 @@ def analyze_layout(layout: NormalizedLayout, plan: Optional[Dict[str, Any]] = No
 
 
 def auto_folderize(
-    layout: NormalizedLayout, *,
+    layout: NormalizedLayout,
+    *,
     keep: Optional[List[str]] = None,
-    seed_folders: Optional[Dict[str, List[str]]] = None
+    seed_folders: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, List[str]]:
     """Return a folder -> apps mapping assigning all apps (except keep) to folders.
 
@@ -553,7 +601,9 @@ def auto_folderize(
     from .classify import classify_app
 
     keep_set = set(keep or [])
-    folders: Dict[str, List[str]] = {k: list(v) for k, v in (seed_folders or {}).items()}
+    folders: Dict[str, List[str]] = {
+        k: list(v) for k, v in (seed_folders or {}).items()
+    }
 
     for app in list_all_apps(layout):
         if not app or app in keep_set:
@@ -572,6 +622,6 @@ def distribute_folders_across_pages(
     """Return a pages mapping that places folders across pages, starting from start_page."""
     pages: Dict[int, Dict[str, List[str]]] = {}
     for i in range(0, len(folder_names), per_page):
-        chunk = folder_names[i:i + per_page]
+        chunk = folder_names[i : i + per_page]
         pages[start_page + i // per_page] = {"apps": [], "folders": chunk}
     return pages

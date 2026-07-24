@@ -1,0 +1,58 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  file/metrics:
+    path: /data/metrics.jsonl
+    rotation:
+      max_megabytes: 200
+      max_days: 30
+      max_backups: 50
+
+  file/logs:
+    path: /data/events.jsonl
+    rotation:
+      max_megabytes: 200
+      max_days: 30
+      max_backups: 50
+
+  file/traces:
+    path: /data/spans.jsonl
+    rotation:
+      max_megabytes: 200
+      max_days: 30
+      max_backups: 50
+
+  otlphttp/central:
+    endpoint: ${env:CENTRAL_OTLP_ENDPOINT}
+    tls:
+      insecure: false
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [file/traces, otlphttp/central, debug]
+    metrics:
+      receivers: [otlp]
+      exporters: [file/metrics, otlphttp/central, debug]
+    logs:
+      receivers: [otlp]
+      exporters: [file/logs, otlphttp/central, debug]

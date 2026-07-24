@@ -1,0 +1,20 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.103.1
+    environment:
+      - CENTRAL_OTLP_ENDPOINT=${CENTRAL_OTLP_ENDPOINT:-https://otlp.telemetry.devel.cpdev.cloud:4318}
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ./configs/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml
+      - otel-data:/data
+    restart: unless-stopped
+
+volumes:
+  otel-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${OTEL_DATA_DIR:-${HOME}/.config/otel}

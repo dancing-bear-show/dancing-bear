@@ -1,4 +1,5 @@
 """Phone assistant pipeline components (export, plan, checklist)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,7 +26,9 @@ def _collect_unique_app(app_id: str, seen: set, all_apps: List[str]) -> None:
         all_apps.append(app_id)
 
 
-def _process_page_folders(folders_in: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+def _process_page_folders(
+    folders_in: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], int]:
     """Process folders from a page and return normalized folders list and count."""
     folders_out = []
     for f in folders_in:
@@ -145,7 +148,9 @@ class ExportProcessor(SafeProcessor[ExportRequest, ExportResult]):
 
 
 class ExportProducer(BaseProducer):
-    def _produce_success(self, payload: ExportResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: ExportResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote layout export to {payload.out_path}")
 
@@ -174,7 +179,9 @@ class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
 
 
 class PlanProducer(BaseProducer):
-    def _produce_success(self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote plan scaffold to {payload.out_path}")
 
@@ -208,7 +215,9 @@ class ChecklistProcessor(SafeProcessor[ChecklistRequest, ChecklistResult]):
 
 
 class ChecklistProducer(BaseProducer):
-    def _produce_success(self, payload: ChecklistResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: ChecklistResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("\n".join(payload.steps) + "\n", encoding="utf-8")
@@ -254,7 +263,9 @@ class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
 
 
 class UnusedProducer(BaseProducer):
-    def _produce_success(self, payload: UnusedResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: UnusedResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         rows = payload.rows
         if payload.format == "csv":
             print("app,score,location")
@@ -308,7 +319,9 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
         lines.append("")
         lines.append("Instructions:")
         if payload.mode == "offload":
-            lines.append("1) Settings → General → iPhone Storage → search for app → Offload App")
+            lines.append(
+                "1) Settings → General → iPhone Storage → search for app → Offload App"
+            )
             lines.append("   or long‑press app icon → Remove App → Offload App")
         else:
             lines.append("1) Long‑press app icon → Remove App → Delete App")
@@ -322,7 +335,9 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
 
 
 class PruneProducer(BaseProducer):
-    def _produce_success(self, payload: PruneResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: PruneResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("\n".join(payload.lines) + "\n", encoding="utf-8")
@@ -368,7 +383,9 @@ class AnalyzeProcessor(SafeProcessor[AnalyzeRequest, AnalyzeResult]):
 
 
 class AnalyzeProducer(BaseProducer):
-    def _produce_success(self, payload: AnalyzeResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: AnalyzeResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         metrics = payload.metrics
 
         if payload.format == "json":
@@ -382,10 +399,14 @@ class AnalyzeProducer(BaseProducer):
             print("  - " + ", ".join(metrics["dock"]))
         print(f"Pages: {metrics['pages_count']}")
         for p in metrics.get("pages", []):
-            print(f"  Page {p['page']}: {p['root_apps']} apps, {p['folders']} folders (items {p['items_total']})")
+            print(
+                f"  Page {p['page']}: {p['root_apps']} apps, {p['folders']} folders (items {p['items_total']})"
+            )
         print(f"Folders: {metrics['totals']['folders']}")
         if metrics.get("folders"):
-            top = sorted(metrics["folders"], key=lambda x: x.get("app_count", 0), reverse=True)[:5]
+            top = sorted(
+                metrics["folders"], key=lambda x: x.get("app_count", 0), reverse=True
+            )[:5]
             for f in top:
                 print(f"  - {f['name']} (page {f['page']}, {f['app_count']} apps)")
         if metrics.get("duplicates"):
@@ -437,7 +458,9 @@ class ExportDeviceProcessor(SafeProcessor[ExportDeviceRequest, ExportDeviceResul
 
 
 class ExportDeviceProducer(BaseProducer):
-    def _produce_success(self, payload: ExportDeviceResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: ExportDeviceResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         payload.out_path.parent.mkdir(parents=True, exist_ok=True)
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote layout export to {payload.out_path}")
@@ -486,7 +509,9 @@ class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
 
 
 class IconmapProducer(BaseProducer):
-    def _produce_success(self, payload: IconmapResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: IconmapResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         payload.out_path.parent.mkdir(parents=True, exist_ok=True)
         payload.out_path.write_bytes(payload.data)
         print(f"Wrote icon map to {payload.out_path}")
@@ -512,8 +537,12 @@ class ManifestFromExportResult:
     out_path: Path
 
 
-class ManifestFromExportProcessor(SafeProcessor[ManifestFromExportRequest, ManifestFromExportResult]):
-    def _process_safe(self, payload: ManifestFromExportRequest) -> ManifestFromExportResult:
+class ManifestFromExportProcessor(
+    SafeProcessor[ManifestFromExportRequest, ManifestFromExportResult]
+):
+    def _process_safe(
+        self, payload: ManifestFromExportRequest
+    ) -> ManifestFromExportResult:
         try:
             exp = read_yaml(payload.export_path)
         except FileNotFoundError:
@@ -527,7 +556,9 @@ class ManifestFromExportProcessor(SafeProcessor[ManifestFromExportRequest, Manif
 
 
 class ManifestFromExportProducer(BaseProducer):
-    def _produce_success(self, payload: ManifestFromExportResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: ManifestFromExportResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         write_yaml(payload.manifest, payload.out_path)
         print(f"Wrote device layout manifest to {payload.out_path}")
 
@@ -550,8 +581,12 @@ class ManifestFromDeviceResult:
     export_document: Optional[Dict[str, Any]]
 
 
-class ManifestFromDeviceProcessor(SafeProcessor[ManifestFromDeviceRequest, ManifestFromDeviceResult]):
-    def _process_safe(self, payload: ManifestFromDeviceRequest) -> ManifestFromDeviceResult:
+class ManifestFromDeviceProcessor(
+    SafeProcessor[ManifestFromDeviceRequest, ManifestFromDeviceResult]
+):
+    def _process_safe(
+        self, payload: ManifestFromDeviceRequest
+    ) -> ManifestFromDeviceResult:
         import os
         from .device import find_cfgutil_path, map_udid_to_ecid, export_from_device
 
@@ -577,7 +612,9 @@ class ManifestFromDeviceProcessor(SafeProcessor[ManifestFromDeviceRequest, Manif
 
 
 class ManifestFromDeviceProducer(BaseProducer):
-    def _produce_success(self, payload: ManifestFromDeviceResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: ManifestFromDeviceResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         # Write export if path specified or default
         if payload.export_document:
             export_path = payload.export_out or Path("out/device.IconState.yaml")
@@ -637,7 +674,9 @@ def _extract_plan_from_manifest(man: Dict[str, Any]) -> Dict[str, Any]:
     return plan
 
 
-def _determine_profile_path(payload_path: Optional[Path], manifest: Dict[str, Any]) -> Path:
+def _determine_profile_path(
+    payload_path: Optional[Path], manifest: Dict[str, Any]
+) -> Path:
     """Determine output path for profile."""
     if payload_path:
         return payload_path
@@ -656,10 +695,17 @@ def _build_install_command(
         return None
 
     import os
+
     dev = manifest.get("device") or {}
     udid = payload.udid or dev.get("udid") or os.environ.get("IOS_DEVICE_UDID")
-    label = payload.device_label or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
-    creds_profile = payload.creds_profile or dev.get("creds_profile") or os.environ.get("IOS_CREDS_PROFILE")
+    label = (
+        payload.device_label or dev.get("label") or os.environ.get("IOS_DEVICE_LABEL")
+    )
+    creds_profile = (
+        payload.creds_profile
+        or dev.get("creds_profile")
+        or os.environ.get("IOS_CREDS_PROFILE")
+    )
 
     repo_root = Path(__file__).resolve().parents[1]
     installer = str(repo_root / "bin" / "ios-install-profile")
@@ -675,7 +721,9 @@ def _build_install_command(
     return cmd
 
 
-class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestInstallResult]):
+class ManifestInstallProcessor(
+    SafeProcessor[ManifestInstallRequest, ManifestInstallResult]
+):
     def _process_safe(self, payload: ManifestInstallRequest) -> ManifestInstallResult:
         import plistlib
         from .profile import ProfileMetadata, build_mobileconfig
@@ -697,19 +745,23 @@ class ManifestInstallProcessor(SafeProcessor[ManifestInstallRequest, ManifestIns
         )
 
         out_path = _determine_profile_path(payload.out_path, man)
-        profile_bytes = plistlib.dumps(profile_dict, fmt=plistlib.FMT_XML, sort_keys=False)
+        profile_bytes = plistlib.dumps(
+            profile_dict, fmt=plistlib.FMT_XML, sort_keys=False
+        )
         install_cmd = _build_install_command(payload, man, out_path)
 
         return ManifestInstallResult(
-                profile_path=out_path,
-                profile_bytes=profile_bytes,
-                dry_run=payload.dry_run,
-                install_cmd=install_cmd,
-            )
+            profile_path=out_path,
+            profile_bytes=profile_bytes,
+            dry_run=payload.dry_run,
+            install_cmd=install_cmd,
+        )
 
 
 class ManifestInstallProducer(BaseProducer):
-    def _produce_success(self, payload: ManifestInstallResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: ManifestInstallResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         import subprocess  # nosec B404
 
         # Write profile
@@ -731,7 +783,11 @@ class ManifestInstallProducer(BaseProducer):
 
 def _plan_from_layout(layout_obj: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a layout object to a plan format."""
-    plan: Dict[str, Any] = {"dock": list(layout_obj.get("dock") or []), "pages": {}, "folders": {}}
+    plan: Dict[str, Any] = {
+        "dock": list(layout_obj.get("dock") or []),
+        "pages": {},
+        "folders": {},
+    }
     pages = layout_obj.get("pages") or []
     page_map: Dict[int, Dict[str, Any]] = {}
     for idx, p in enumerate(pages, start=1):
@@ -777,7 +833,9 @@ class IdentityVerifyResult:
     org_match: Optional[bool]
 
 
-class IdentityVerifyProcessor(SafeProcessor[IdentityVerifyRequest, IdentityVerifyResult]):
+class IdentityVerifyProcessor(
+    SafeProcessor[IdentityVerifyRequest, IdentityVerifyResult]
+):
     def _process_safe(self, payload: IdentityVerifyRequest) -> IdentityVerifyResult:
         import os
         from .device import (
@@ -790,7 +848,9 @@ class IdentityVerifyProcessor(SafeProcessor[IdentityVerifyRequest, IdentityVerif
 
         # Load credentials
         cfg_path, ini = read_credentials_ini(payload.config)
-        creds_profile = payload.creds_profile or os.environ.get("IOS_CREDS_PROFILE", "ios_layout_manager")
+        creds_profile = payload.creds_profile or os.environ.get(
+            "IOS_CREDS_PROFILE", "ios_layout_manager"
+        )
 
         # Resolve p12
         p12_path, p12_pass = resolve_p12_path(
@@ -824,34 +884,44 @@ class IdentityVerifyProcessor(SafeProcessor[IdentityVerifyRequest, IdentityVerif
         # Check org match if expected
         org_match: Optional[bool] = None
         if payload.expected_org:
-            org_match = (payload.expected_org in cert.subject) or (payload.expected_org in cert.issuer)
+            org_match = (payload.expected_org in cert.subject) or (
+                payload.expected_org in cert.issuer
+            )
 
         return IdentityVerifyResult(
-                p12_path=p12_path,
-                cert_subject=cert.subject,
-                cert_issuer=cert.issuer,
-                udid=udid,
-                supervised=supervised,
-                expected_org=payload.expected_org,
-                org_match=org_match,
-            )
+            p12_path=p12_path,
+            cert_subject=cert.subject,
+            cert_issuer=cert.issuer,
+            udid=udid,
+            supervised=supervised,
+            expected_org=payload.expected_org,
+            org_match=org_match,
+        )
 
 
 class IdentityVerifyProducer(BaseProducer):
-    def _produce_success(self, payload: IdentityVerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(
+        self, payload: IdentityVerifyResult, diagnostics: Optional[Dict[str, Any]]
+    ) -> None:
         print("Identity Verification Summary")
         print(f"- p12: {payload.p12_path}")
         print(f"- cert.subject: {payload.cert_subject or '(unknown)'}")
         print(f"- cert.issuer:  {payload.cert_issuer or '(unknown)'}")
         if payload.expected_org:
-            print(f"- expected org '{payload.expected_org}': {'MATCH' if payload.org_match else 'NO MATCH'}")
+            print(
+                f"- expected org '{payload.expected_org}': {'MATCH' if payload.org_match else 'NO MATCH'}"
+            )
         print(f"- device.udid: {payload.udid or '(not provided)'}")
         print(f"- device.supervised: {payload.supervised or '(unknown)'}")
         print("")
         print("Next steps:")
-        print("- Ensure the device shows 'Supervised by <Org>' matching the certificate subject/issuer above.")
+        print(
+            "- Ensure the device shows 'Supervised by <Org>' matching the certificate subject/issuer above."
+        )
         print("- If they match, no-touch installs should succeed using this identity.")
-        print("- If they do not match, Prepare again under the correct Organization, or export the matching Supervision Identity.")
+        print(
+            "- If they do not match, Prepare again under the correct Organization, or export the matching Supervision Identity."
+        )
 
 
 # -----------------------------------------------------------------------------

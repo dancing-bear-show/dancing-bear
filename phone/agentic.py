@@ -1,4 +1,5 @@
 """Agentic capsule builders for the Phone Assistant CLI."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -33,10 +34,26 @@ def _cli_path_exists(path: List[str]) -> bool:
 def _flow_map() -> str:
     lines: List[str] = []
     layout_cmds = [
-        ("export-device", "Export layout (device)", "./bin/phone export-device --out out/ios.IconState.yaml"),
-        ("iconmap", "Download icon map", "./bin/phone iconmap --out out/ios.iconmap.json"),
-        ("plan", "Scaffold plan", "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml"),
-        ("checklist", "Checklist", "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt"),
+        (
+            "export-device",
+            "Export layout (device)",
+            "./bin/phone export-device --out out/ios.IconState.yaml",
+        ),
+        (
+            "iconmap",
+            "Download icon map",
+            "./bin/phone iconmap --out out/ios.iconmap.json",
+        ),
+        (
+            "plan",
+            "Scaffold plan",
+            "./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
+        ),
+        (
+            "checklist",
+            "Checklist",
+            "./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt",
+        ),
     ]
     if all(_cli_path_exists([cmd]) for cmd, *_ in layout_cmds):
         lines.append("- Layout workflow")
@@ -45,20 +62,30 @@ def _flow_map() -> str:
     if _cli_path_exists(["auto-folders"]) or _cli_path_exists(["analyze"]):
         lines.append("- Layout insights")
         if _cli_path_exists(["analyze"]):
-            lines.append("  - Analyze balance: ./bin/phone analyze --layout out/ios.IconState.yaml --format text")
+            lines.append(
+                "  - Analyze balance: ./bin/phone analyze --layout out/ios.IconState.yaml --format text"
+            )
         if _cli_path_exists(["auto-folders"]):
-            lines.append("  - Auto folders: ./bin/phone auto-folders --layout out/ios.IconState.yaml --plan out/ios.plan.yaml")
+            lines.append(
+                "  - Auto folders: ./bin/phone auto-folders --layout out/ios.IconState.yaml --plan out/ios.plan.yaml"
+            )
     if _cli_path_exists(["profile", "build"]):
         lines.append("- Profiles")
-        lines.append("  - Build .mobileconfig: ./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig")
+        lines.append(
+            "  - Build .mobileconfig: ./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig"
+        )
     if _cli_path_exists(["export-device"]):
         lines.append("- Device snapshot")
         lines.append("  - Refresh icon map + YAML: ./bin/ios-iconmap-refresh")
     if _cli_path_exists(["manifest", "create"]):
         lines.append("- Manifests")
-        lines.append("  - Create manifest: ./bin/phone manifest create --plan out/ios.plan.yaml --out out/ios.manifest.yaml")
+        lines.append(
+            "  - Create manifest: ./bin/phone manifest create --plan out/ios.plan.yaml --out out/ios.manifest.yaml"
+        )
         if _cli_path_exists(["manifest", "install"]):
-            lines.append("  - Install profile: ./bin/phone manifest install --manifest out/ios.manifest.yaml --device-label ipad2025")
+            lines.append(
+                "  - Install profile: ./bin/phone manifest install --manifest out/ios.manifest.yaml --device-label ipad2025"
+            )
     return "\n".join(lines)
 
 
@@ -89,7 +116,9 @@ def build_agentic_capsule() -> str:
 def build_domain_map() -> str:
     """Programmatically build a minimal domain map for Phone Assistant."""
     sections: List[str] = []
-    sections.append("Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout.py — normalization + plan scaffolds\n- phone/profile.py — .mobileconfig builders")
+    sections.append(
+        "Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout.py — normalization + plan scaffolds\n- phone/profile.py — .mobileconfig builders"
+    )
     tree = _cli_tree()
     if tree:
         sections.append(_section("CLI Tree", tree))

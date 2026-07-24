@@ -22,7 +22,10 @@ class TestPhoneProfile(unittest.TestCase):
         layout_export = {
             "dock": ["com.example.dock"],
             "pages": [
-                {"apps": ["com.example.a", "com.example.b", "com.example.c"], "folders": []},
+                {
+                    "apps": ["com.example.a", "com.example.b", "com.example.c"],
+                    "folders": [],
+                },
             ],
         }
 
@@ -47,4 +50,46 @@ class TestPhoneProfile(unittest.TestCase):
         # Page 2 contains the All Apps folder with remaining apps
         all_apps_folder = pages[1][0]
         self.assertEqual(all_apps_folder["DisplayName"], "All Apps")
-        self.assertEqual(set(_extract_folder_apps(all_apps_folder)), {"com.example.b", "com.example.c"})
+        self.assertEqual(
+            set(_extract_folder_apps(all_apps_folder)),
+            {"com.example.b", "com.example.c"},
+        )
+
+    def test_build_mobileconfig_folder_page_size_chunks_folder_pages(self):
+        apps = [f"com.example.app{i}" for i in range(20)]
+        plan = {
+            "dock": ["com.example.dock"],
+            "folders": {"Big": apps},
+            "pages": {1: {"folders": ["Big"]}},
+        }
+
+        profile = build_mobileconfig(plan=plan, folder_page_size=9)
+
+        folder = profile["PayloadContent"][0]["Pages"][0][0]
+        self.assertEqual(folder["DisplayName"], "Big")
+        per_page = [[it["BundleID"] for it in page] for page in folder["Pages"]]
+        self.assertEqual(per_page, [apps[0:9], apps[9:18], apps[18:20]])
+
+    def test_build_mobileconfig_rejects_non_positive_folder_page_size(self):
+        plan = {
+            "dock": ["com.example.dock"],
+            "folders": {"Big": ["com.example.a"]},
+            "pages": {1: {"folders": ["Big"]}},
+        }
+
+        for bad in (0, -1):
+            with self.assertRaises(ValueError):
+                build_mobileconfig(plan=plan, folder_page_size=bad)
+
+    def test_build_mobileconfig_default_folder_page_size_unchanged(self):
+        apps = [f"com.example.app{i}" for i in range(20)]
+        plan = {
+            "dock": ["com.example.dock"],
+            "folders": {"Big": apps},
+            "pages": {1: {"folders": ["Big"]}},
+        }
+
+        profile = build_mobileconfig(plan=plan)
+
+        folder = profile["PayloadContent"][0]["Pages"][0][0]
+        self.assertEqual([len(p) for p in folder["Pages"]], [20])

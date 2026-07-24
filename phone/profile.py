@@ -124,10 +124,16 @@ class Page:
 class HomeScreenConfigBuilder:
     """Object-oriented builder for Home Screen layout payloads."""
 
-    def __init__(self, layout_export: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        layout_export: Optional[Dict[str, Any]] = None,
+        *,
+        folder_page_size: int = 30,
+    ) -> None:
         self.layout_export = layout_export or {"dock": [], "pages": []}
         self.dock: List[str] = []
         self.pages: Dict[int, Page] = {}
+        self.folder_page_size = folder_page_size
 
     def set_dock(self, dock_ids: List[str]) -> None:
         self.dock = [d for d in dock_ids if isinstance(d, str) and d]
@@ -144,13 +150,25 @@ class HomeScreenConfigBuilder:
 
     def add_folder(self, page: int, name: str, apps: List[str]) -> None:
         self._ensure_page(page)
-        self.pages[page].folders.append(FolderItem(name or "Folder", [AppItem(a) for a in apps or []]))
+        self.pages[page].folders.append(
+            FolderItem(
+                name or "Folder",
+                [AppItem(a) for a in apps or []],
+                page_size=self.folder_page_size,
+            )
+        )
 
-    def add_all_apps_folder(self, *, page: int, name: str = "All Apps", exclude: Optional[Set[str]] = None) -> None:
+    def add_all_apps_folder(
+        self, *, page: int, name: str = "All Apps", exclude: Optional[Set[str]] = None
+    ) -> None:
         if not self.layout_export:
             return
         exclude = exclude or set()
-        remaining = [a for a in _list_apps_from_export(self.layout_export) if a and a not in exclude]
+        remaining = [
+            a
+            for a in _list_apps_from_export(self.layout_export)
+            if a and a not in exclude
+        ]
         self.add_folder(page, name, remaining)
 
     def _build_pages_items(self) -> List[List[Dict[str, Any]]]:
@@ -162,16 +180,20 @@ class HomeScreenConfigBuilder:
             pages_items.append(spec.as_items())
         return pages_items
 
-    def build_payload(self, *, payload_identifier: str, display_name: str) -> Dict[str, Any]:
+    def build_payload(
+        self, *, payload_identifier: str, display_name: str
+    ) -> Dict[str, Any]:
         pages_items = self._build_pages_items()
-        return _build_hsl_payload(HslPayloadConfig(
-            dock_ids=self.dock,
-            pinned_ids=[],
-            folders={},
-            payload_identifier=payload_identifier,
-            display_name=display_name,
-            pages_items=pages_items,
-        ))
+        return _build_hsl_payload(
+            HslPayloadConfig(
+                dock_ids=self.dock,
+                pinned_ids=[],
+                folders={},
+                payload_identifier=payload_identifier,
+                display_name=display_name,
+                pages_items=pages_items,
+            )
+        )
 
     def build_profile(
         self,
@@ -181,7 +203,9 @@ class HomeScreenConfigBuilder:
         top_identifier: str,
         organization: Optional[str] = None,
     ) -> Dict[str, Any]:
-        payload = self.build_payload(payload_identifier=payload_identifier, display_name=display_name)
+        payload = self.build_payload(
+            payload_identifier=payload_identifier, display_name=display_name
+        )
         profile: Dict[str, Any] = {
             "PayloadContent": [payload],
             "PayloadType": "Configuration",
@@ -253,6 +277,7 @@ def _normalize_pages_spec(pages_spec: Dict[Any, Any]) -> List[Dict[str, Any]]:
           apps: [...]
           folders: [...]
     """
+
     def _to_int(k: Any) -> int:
         try:
             return int(k)
@@ -262,11 +287,20 @@ def _normalize_pages_spec(pages_spec: Dict[Any, Any]) -> List[Dict[str, Any]]:
     ordered: List[Dict[str, Any]] = []
     for k in sorted(pages_spec.keys(), key=_to_int):
         v = pages_spec.get(k) or {}
-        ordered.append({
-            "apps": list(v.get("apps") or []),
-            "folders": list(v.get("folders") or []),
-        })
+        ordered.append(
+            {
+                "apps": list(v.get("apps") or []),
+                "folders": list(v.get("folders") or []),
+            }
+        )
     return ordered
+
+
+def _validate_folder_page_size(folder_page_size: int) -> None:
+    """Reject non-positive page sizes so the <=0 'unlimited' sentinel in
+    FolderItem.as_spec() cannot be reached through the public build path."""
+    if folder_page_size < 1:
+        raise ValueError(f"folder_page_size must be >= 1, got {folder_page_size}")
 
 
 def _resolve_dock(
@@ -378,7 +412,11 @@ def _add_auto_categorized_folders(
         target_page = 2
 
     assigned = _collect_assigned_apps(builder, config.dock, config.pins, config.folders)
-    remaining = [a for a in _list_apps_from_export(config.layout_export) if a and a not in assigned]
+    remaining = [
+        a
+        for a in _list_apps_from_export(config.layout_export)
+        if a and a not in assigned
+    ]
 
     buckets: Dict[str, List[str]] = {cat: [] for cat in config.auto_categories}
     for app_id in remaining:
@@ -403,6 +441,7 @@ def build_mobileconfig(
     all_apps_folder: Optional[Dict[str, Any]] = None,
     auto_categories: Optional[List[str]] = None,
     auto_categories_page: int = 2,
+    folder_page_size: int = 30,
 ) -> Dict[str, Any]:
     """Return a Configuration profile dict suitable for plistlib.dump().
 
@@ -411,9 +450,12 @@ def build_mobileconfig(
 
     Dock comes from `layout_export['dock']` when provided; otherwise, take
     the first N from plan['pins'] (N=dock_count, default 4).
-    Page 1 contains remaining pins, then folders (single page each).
+    Page 1 contains remaining pins, then folders. Folder contents are chunked
+    into sub-pages of folder_page_size apps each (default 30; use 9 for
+    iPhone 3x3 folder grids; must be >= 1).
     Optionally place all remaining apps into a single folder (all_apps_folder) on a target page.
     """
+    _validate_folder_page_size(folder_page_size)
     meta = profile_meta or ProfileMetadata()
     pins: List[str] = list(plan.get("pins") or [])
     folders: Dict[str, List[str]] = dict(plan.get("folders") or {})
@@ -422,7 +464,10 @@ def build_mobileconfig(
     dock = _resolve_dock(plan, layout_export, pins, dock_count)
 
     # Initialize builder and configure dock
-    builder = HomeScreenConfigBuilder(layout_export or {"dock": [], "pages": []})
+    builder = HomeScreenConfigBuilder(
+        layout_export or {"dock": [], "pages": []},
+        folder_page_size=folder_page_size,
+    )
     builder.set_dock(dock)
 
     # Build pages from specification or use defaults
@@ -446,14 +491,15 @@ def build_mobileconfig(
     # Auto-categorize remaining apps if enabled
     if auto_categories and layout_export:
         _add_auto_categorized_folders(
-            builder, AutoCategorizeConfig(
+            builder,
+            AutoCategorizeConfig(
                 auto_categories=auto_categories,
                 auto_categories_page=auto_categories_page,
                 layout_export=layout_export,
                 dock=dock,
                 pins=pins,
                 folders=folders,
-            )
+            ),
         )
 
     return builder.build_profile(
