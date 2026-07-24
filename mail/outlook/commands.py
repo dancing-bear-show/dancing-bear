@@ -407,8 +407,8 @@ def run_outlook_messages_search(args) -> int:
     msgs = client.search_messages(query=query, top=top, pages=pages, after=after, sender=sender, only_inbox=only_inbox)
 
     if as_json:
-        import json
-        print(json.dumps(msgs, indent=2))
+        from core.cli_output import emit_one
+        emit_one(msgs)
     else:
         for m in msgs:
             _print_message_result(m)

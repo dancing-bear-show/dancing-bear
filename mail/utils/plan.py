@@ -1,14 +1,13 @@
 """Plan output helpers shared across assistants."""
 from __future__ import annotations
 
-from typing import Optional
 
 
 def print_plan_summary(
     *,
     create: int,
-    update: Optional[int] = None,
-    delete: Optional[int] = None,
+    update: int | None = None,
+    delete: int | None = None,
     header: str = "Plan:",
 ) -> None:
     """Print a consistent plan summary line used by CLI tests."""

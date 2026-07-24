@@ -519,7 +519,7 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
 
 class TestReadLinesFile(unittest.TestCase):
     def test_reads_non_empty_non_comment_lines(self):
-        from phone.pipeline import _read_lines_file
+        from phone.helpers import read_lines_file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # nosec B108 - test-only temp file, not a security concern
             f.write("# comment\n")
             f.write("app1\n")
@@ -527,22 +527,22 @@ class TestReadLinesFile(unittest.TestCase):
             f.write("app2\n")
             f.write("# another comment\n")
             path = f.name
-        result = _read_lines_file(path)
+        result = read_lines_file(path)
         self.assertEqual(result, ["app1", "app2"])
 
     def test_returns_empty_for_none(self):
-        from phone.pipeline import _read_lines_file
-        self.assertEqual(_read_lines_file(None), [])
+        from phone.helpers import read_lines_file
+        self.assertEqual(read_lines_file(None), [])
 
     def test_returns_empty_for_nonexistent_file(self):
-        from phone.pipeline import _read_lines_file
-        self.assertEqual(_read_lines_file("/nonexistent/path.txt"), [])
+        from phone.helpers import read_lines_file
+        self.assertEqual(read_lines_file("/nonexistent/path.txt"), [])
 
     def test_empty_file_returns_empty(self):
-        from phone.pipeline import _read_lines_file
+        from phone.helpers import read_lines_file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # nosec B108 - test-only temp file, not a security concern
             path = f.name
-        result = _read_lines_file(path)
+        result = read_lines_file(path)
         self.assertEqual(result, [])
 
 
@@ -670,11 +670,11 @@ class TestIdentityVerifyNoLabelNoUdid(unittest.TestCase):
 
 class TestReadLinesFileError(unittest.TestCase):
     def test_read_error_returns_empty(self):
-        from phone.pipeline import _read_lines_file
+        from phone.helpers import read_lines_file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:  # nosec B108 - test-only temp file, not a security concern
             path = f.name
         with patch("pathlib.Path.read_text", side_effect=PermissionError("denied")):
-            result = _read_lines_file(path)
+            result = read_lines_file(path)
         self.assertEqual(result, [])
 
 

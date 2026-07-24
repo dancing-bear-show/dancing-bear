@@ -11,7 +11,6 @@ This CLI provides Gmail and Outlook mail management operations including:
 
 from __future__ import annotations
 
-from typing import Optional, List
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
@@ -1027,7 +1026,7 @@ def _add_common_args(parser) -> None:
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Mail Assistant CLI."""
     return app.run_with_assistant(
         assistant=assistant,

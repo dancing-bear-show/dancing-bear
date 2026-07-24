@@ -1,7 +1,7 @@
 """Convenience orchestration helpers for filters commands."""
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Type
 
 from ..context import MailContext
 from .consumers import (
@@ -47,7 +47,7 @@ def _run_filter_pipeline(
     consumer_cls: Type,
     processor_cls: Type,
     producer_factory: Callable[[Any], Any],
-    handle_error: Optional[Callable[[Any], int]] = None,
+    handle_error: Callable[[Any], int] | None = None,
 ) -> int:
     """Generic pipeline runner for filter commands.
 
@@ -56,7 +56,7 @@ def _run_filter_pipeline(
         consumer_cls: Consumer class to instantiate
         processor_cls: Processor class to instantiate
         producer_factory: Callable that takes payload and returns producer instance
-        handle_error: Optional custom error handler for envelope errors
+        handle_error: Optional callable to handle envelope errors; None uses default
 
     Returns:
         Exit code (0 for success, 1 for failure)
@@ -211,7 +211,7 @@ def run_filters_rm_from_token(args) -> int:
 
 
 def run_filters_list(args) -> int:
-    """List all filters."""
+    """list all filters."""
     from ..utils.cli_helpers import gmail_client_authenticated
 
     client = getattr(args, "_gmail_client", None) or gmail_client_authenticated(args)

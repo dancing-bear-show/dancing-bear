@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 from core.pipeline import Consumer
 
@@ -13,20 +12,20 @@ from ..yamlio import load_config
 
 @dataclass
 class LabelsPlanPayload:
-    desired_labels: List[dict]
-    existing_labels: List[dict]
+    desired_labels: list[dict]
+    existing_labels: list[dict]
     delete_missing: bool
 
 
 @dataclass
 class LabelsSyncPayload(LabelsPlanPayload):
-    desired_redirects: List[dict]
+    desired_redirects: list[dict]
     sweep_redirects: bool
 
 
 @dataclass
 class LabelsExportPayload:
-    labels: List[dict]
+    labels: list[dict]
     out_path: Path
 
 
@@ -93,7 +92,7 @@ def _load_labels_payload(context: MailContext, *, error_hint: str, allow_missing
     }
 
 
-def _load_desired(cfg: dict, *, key: str, error_hint: str, allow_missing: bool) -> List[dict]:
+def _load_desired(cfg: dict, *, key: str, error_hint: str, allow_missing: bool) -> list[dict]:
     data = cfg.get(key)
     if data is None:
         return []
@@ -101,7 +100,7 @@ def _load_desired(cfg: dict, *, key: str, error_hint: str, allow_missing: bool) 
         if allow_missing:
             return []
         raise ValueError(error_hint or f"Config missing '{key}' list.")
-    result: List[dict] = []
+    result: list[dict] = []
     for entry in data:
         if isinstance(entry, dict):
             result.append(entry)

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
 import time
 
 from core.pipeline import Producer, ResultEnvelope
@@ -140,7 +139,7 @@ class FiltersSyncProducer(Producer[ResultEnvelope[FiltersSyncResult]]):
             deleted += 1
         return deleted
 
-    def _build_action_ids(self, actions: Dict[str, object]) -> dict:
+    def _build_action_ids(self, actions: dict[str, object]) -> dict:
         add = list(actions.get("add") or [])
         remove = list(actions.get("remove") or [])
         act_ids: dict = {}
@@ -370,7 +369,7 @@ class FiltersRemoveTokenProducer(Producer[ResultEnvelope[FiltersRemoveTokenResul
         _produce_token_updates(self.client, result.payload.updates, self.dry_run)
 
 
-def _produce_token_updates(client: BaseProvider, updates: List[FilterTokenUpdate], dry_run: bool) -> None:
+def _produce_token_updates(client: BaseProvider, updates: list[FilterTokenUpdate], dry_run: bool) -> None:
     from ..utils.cli_helpers import preview_criteria as preview_crit
 
     changed = 0

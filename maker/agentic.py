@@ -1,22 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 from core.agentic import section as _section
 
-
-def _list_tools() -> List[str]:
-    root = Path(__file__).resolve().parent
-    tools: List[str] = []
-    for sub in sorted([p for p in root.iterdir() if p.is_dir()]):
-        for py in sorted(sub.glob('*.py')):
-            tools.append(str(py.relative_to(root)))
-    return tools
+FALLBACK_AGENTIC_HEADER: str = "agentic: maker\npurpose: Utility generators and print helpers"
 
 
 def build_agentic_capsule() -> str:
-    out: List[str] = []
+    from .pipeline import scan_tools
+
+    out: list[str] = []
     out.append("agentic: maker")
     out.append("purpose: Utility generators and print helpers")
     out.append("commands:")
@@ -24,7 +18,7 @@ def build_agentic_capsule() -> str:
     out.append("  - LLM domain map: ./bin/llm --app maker domain-map --stdout")
     out.append("  - example: python3 maker/card/gen_snug_variants.py --help")
     out.append("")
-    tools = _list_tools()
+    tools = scan_tools(Path(__file__).resolve().parent)
     if tools:
         out.append(_section("Tools", "\n".join(f"- maker/{t}" for t in tools)))
     # Simple flows (illustrative)
@@ -37,9 +31,11 @@ def build_agentic_capsule() -> str:
 
 
 def build_domain_map() -> str:
-    out: List[str] = []
+    from .pipeline import scan_tools
+
+    out: list[str] = []
     out.append("Top-Level\n- maker/card — card generators\n- maker/tp_rod — TPU rod generator\n- maker/print — printer helpers")
-    tools = _list_tools()
+    tools = scan_tools(Path(__file__).resolve().parent)
     if tools:
         out.append(_section("Tools", "\n".join(f"- maker/{t}" for t in tools)))
     return "\n".join([s for s in out if s])

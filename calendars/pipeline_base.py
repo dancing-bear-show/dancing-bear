@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.collections import dedupe
 from core.date_utils import DAY_MAP, MONTH_MAP, parse_month, to_iso_str
@@ -48,10 +48,10 @@ def check_service_required(service: Any, error_msg: str = ERR_SERVICE_REQUIRED) 
 @dataclass
 class GmailAuth:
     """Gmail authentication configuration."""
-    profile: Optional[str]
-    credentials: Optional[str]
-    token: Optional[str]
-    cache_dir: Optional[str]
+    profile: str | None
+    credentials: str | None
+    token: str | None
+    cache_dir: str | None
 
 
 class GmailServiceBuilder:
@@ -77,11 +77,11 @@ class DateWindowResolver:
 
     def resolve(
         self,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
         days_back: int = 30,
         days_forward: int = 180,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         """Resolve start/end ISO strings for a date window.
 
         Args:
@@ -100,9 +100,9 @@ class DateWindowResolver:
 
     def resolve_year_end(
         self,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
-    ) -> Tuple[str, str]:
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> tuple[str, str]:
         """Resolve window defaulting to end of current year."""
         today = self._today_factory()
         start = from_date or today.isoformat()
@@ -110,7 +110,7 @@ class DateWindowResolver:
         return f"{start}{DAY_START_TIME}", f"{end}{DAY_END_TIME}"
 
 
-def _default_event_key(ev: Dict[str, Any]) -> tuple:
+def _default_event_key(ev: dict[str, Any]) -> tuple:
     """Default key function for event deduplication."""
     return (
         ev.get("subject"),
@@ -123,7 +123,7 @@ def _default_event_key(ev: Dict[str, Any]) -> tuple:
     )
 
 
-def dedupe_events(events: List[Dict[str, Any]], key_fn=None) -> List[Dict[str, Any]]:
+def dedupe_events(events: list[dict[str, Any]], key_fn=None) -> list[dict[str, Any]]:
     """Remove duplicate events based on a key function.
 
     Args:

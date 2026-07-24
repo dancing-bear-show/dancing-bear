@@ -4,7 +4,6 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from dataclasses import dataclass
-from typing import List, Optional
 
 from core.http import HttpClient
 from core.constants import DEFAULT_REQUEST_TIMEOUT
@@ -27,7 +26,7 @@ class ScheduleItemParams:
     """Parameters for creating a schedule item."""
 
     subject: str
-    byday: List[str]
+    byday: list[str]
     start_time: str
     end_time: str
     location: str
@@ -51,12 +50,10 @@ def _make_schedule_item_from_params(params: ScheduleItemParams) -> ScheduleItem:
 
 def _fetch_html(url: str) -> str:
     """Fetch HTML content from URL."""
-    import requests as _requests  # noqa: PLC0415 - intentional lazy import
-
     try:
         return HttpClient("", timeout=DEFAULT_REQUEST_TIMEOUT).get(url).text
-    except _requests.exceptions.HTTPError as exc:
-        r = exc.response
+    except Exception as exc:  # nosec B110 - return page body from HTTP error response if available
+        r = getattr(exc, "response", None)
         return r.text if r is not None else ""
 
 
@@ -69,7 +66,7 @@ class WebParser(ScheduleParser):
     - Aurora Aquatics schedules
     """
 
-    def parse(self, url: str) -> List[ScheduleItem]:
+    def parse(self, url: str) -> list[ScheduleItem]:
         """Parse schedule items from supported website.
 
         Args:
@@ -101,7 +98,7 @@ class WebParser(ScheduleParser):
 class RichmondHillSkatingParser(ScheduleParser):
     """Parser for Richmond Hill skating schedules."""
 
-    def parse(self, url: str) -> List[ScheduleItem]:
+    def parse(self, url: str) -> list[ScheduleItem]:
         """Parse Richmond Hill skating schedule."""
         html = _fetch_html(url)
         try:
@@ -110,12 +107,12 @@ class RichmondHillSkatingParser(ScheduleParser):
         except ImportError:
             return self._parse_with_regex(html, url)
 
-    def _parse_with_bs4(self, html: str, url: str) -> List[ScheduleItem]:
+    def _parse_with_bs4(self, html: str, url: str) -> list[ScheduleItem]:
         """Parse using BeautifulSoup."""
         from bs4 import BeautifulSoup  # type: ignore
 
         soup = BeautifulSoup(html, 'html.parser')
-        out: List[ScheduleItem] = []
+        out: list[ScheduleItem] = []
 
         for p in soup.select('[data-name="accParent"]'):
             arena = (p.get_text(strip=True) or '').strip()
@@ -147,16 +144,16 @@ class RichmondHillSkatingParser(ScheduleParser):
                 return tr
         return None
 
-    def _extract_weekdays_from_cells(self, cells, weekday_set: set) -> List[str]:
+    def _extract_weekdays_from_cells(self, cells, weekday_set: set) -> list[str]:
         """Extract weekday names from table cells."""
-        days: List[str] = []
+        days: list[str] = []
         for td in cells:
             txt = (td.get_text(strip=True) or '').strip()
             if txt.lower() in weekday_set:
                 days.append(txt)
         return days
 
-    def _extract_day_headers(self, table, row, needed: int) -> List[str]:
+    def _extract_day_headers(self, table, row, needed: int) -> list[str]:
         """Extract day headers from table, inferring if needed."""
         weekday_set = {d.lower() for d in WEEKDAYS}
 
@@ -172,9 +169,9 @@ class RichmondHillSkatingParser(ScheduleParser):
         # Default to standard weekdays if still insufficient
         return days if len(days) >= needed else WEEKDAYS[:needed]
 
-    def _parse_time_cells(self, cells, days: List[str], location: str, url: str) -> List[ScheduleItem]:
+    def _parse_time_cells(self, cells, days: list[str], location: str, url: str) -> list[ScheduleItem]:
         """Parse time cells and create ScheduleItems."""
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
         for i, td in enumerate(cells):
             if i >= len(days):
                 continue
@@ -188,9 +185,9 @@ class RichmondHillSkatingParser(ScheduleParser):
                 )))
         return items
 
-    def _parse_with_regex(self, html: str, url: str) -> List[ScheduleItem]:
+    def _parse_with_regex(self, html: str, url: str) -> list[ScheduleItem]:
         """Parse using regex fallback."""
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
 
         for b in re.split(r'data-name="accParent"', html)[1:]:
             mname = re.search(r'>\s*([^<]+?)\s*</td>', b)
@@ -215,10 +212,10 @@ class RichmondHillSwimmingParser(ScheduleParser):
 
     SWIM_LABELS = (LEISURE_SWIM, 'Fun N Fit', f'Fun N Fit & {LEISURE_SWIM}')
 
-    def parse(self, url: str) -> List[ScheduleItem]:
+    def parse(self, url: str) -> list[ScheduleItem]:
         """Parse Richmond Hill swimming schedule."""
         html = _fetch_html(url)
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
 
         for b in re.split(r'data-name=\"accParent\"', html)[1:]:
             facility = self._extract_facility_name(b)
@@ -231,9 +228,9 @@ class RichmondHillSwimmingParser(ScheduleParser):
         m = re.search(r'>\s*([^<]+?)\s*</td>', block)
         return m.group(1).replace('&nbsp;', ' ').strip() if m else 'Pool'
 
-    def _parse_swim_block(self, block: str, facility: str, url: str) -> List[ScheduleItem]:
+    def _parse_swim_block(self, block: str, facility: str, url: str) -> list[ScheduleItem]:
         """Parse swim schedule from a single facility block."""
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
 
         for label in self.SWIM_LABELS:
             mpos = re.search(rf'<td[^>]*>\s*<strong>\s*{label}\s*</strong>\s*</td>', block, re.I | re.S)
@@ -255,10 +252,10 @@ class RichmondHillSwimmingParser(ScheduleParser):
 class AuroraAquaticsParser(ScheduleParser):
     """Parser for Aurora Aquatics schedules."""
 
-    def parse(self, url: str) -> List[ScheduleItem]:
+    def parse(self, url: str) -> list[ScheduleItem]:
         """Parse Aurora Aquatics schedule."""
         html = _fetch_html(url)
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
 
         for tbl in re.findall(r'<table[\s\S]*?</table>', html, re.I):
             if not re.search(r'Leisure\s*Swim', tbl, re.I):
@@ -273,7 +270,7 @@ class AuroraAquaticsParser(ScheduleParser):
 
         return items
 
-    def _extract_headers(self, table: str) -> List[str]:
+    def _extract_headers(self, table: str) -> list[str]:
         """Extract column headers from table."""
         header = re.search(r'<thead[\s\S]*?<tr[\s\S]*?>([\s\S]*?)</tr>[\s\S]*?</thead>', table, re.I)
         if header:
@@ -285,7 +282,7 @@ class AuroraAquaticsParser(ScheduleParser):
 
         return []
 
-    def _find_column_indices(self, headers: List[str]) -> tuple[Optional[int], Optional[int]]:
+    def _find_column_indices(self, headers: list[str]) -> tuple[int | None, int | None]:
         """Find indices for Day and Leisure columns."""
         day_idx = leisure_idx = None
         for i, h in enumerate(headers):
@@ -296,9 +293,9 @@ class AuroraAquaticsParser(ScheduleParser):
                 leisure_idx = i
         return day_idx, leisure_idx
 
-    def _parse_table_rows(self, table: str, day_idx: int, leisure_idx: int, url: str) -> List[ScheduleItem]:
+    def _parse_table_rows(self, table: str, day_idx: int, leisure_idx: int, url: str) -> list[ScheduleItem]:
         """Parse table rows and create ScheduleItems."""
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
         body = re.search(r'<tbody[\s\S]*?>([\s\S]*?)</tbody>', table, re.I)
         rows = re.findall(RE_TABLE_ROW, body.group(1), re.I) if body else re.findall(RE_TABLE_ROW, table, re.I)
 
@@ -319,6 +316,6 @@ class AuroraAquaticsParser(ScheduleParser):
         return items
 
 
-def parse_website(url: str) -> List[ScheduleItem]:
+def parse_website(url: str) -> list[ScheduleItem]:
     """Parse schedule from supported websites (backward compatibility)."""
     return WebParser().parse(url)

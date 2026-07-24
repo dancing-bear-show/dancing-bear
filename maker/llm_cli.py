@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Optional
 
 from core import llm_cli
 from core.textio import read_text
@@ -10,13 +9,16 @@ from core.textio import read_text
 LLM_DIR = Path(".llm")
 
 
+_AGENTIC_FALLBACK = "agentic: maker\npurpose: Utility generators and print helpers"
+
+
 def _agentic() -> str:
     try:
         from .agentic import build_agentic_capsule
 
         return build_agentic_capsule()
-    except Exception:
-        return "agentic: maker\npurpose: Utility generators and print helpers"
+    except Exception:  # nosec B110 - graceful fallback when agentic module unavailable
+        return _AGENTIC_FALLBACK
 
 
 def _domain_map() -> str:
@@ -24,7 +26,7 @@ def _domain_map() -> str:
         from .agentic import build_domain_map
 
         return build_domain_map()
-    except Exception:
+    except Exception:  # nosec B110 - graceful fallback when agentic module unavailable
         return "Domain Map not available"
 
 
@@ -45,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     return llm_cli.build_parser(CONFIG)
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     return llm_cli.run(CONFIG, argv)
 
 

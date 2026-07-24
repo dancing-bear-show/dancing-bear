@@ -1,7 +1,7 @@
 """Producers for signatures pipelines."""
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from core.pipeline import Producer, ResultEnvelope
 
@@ -23,7 +23,7 @@ class SignaturesExportProducer(Producer[ResultEnvelope[SignaturesExportResult]])
             return
 
         payload = result.payload
-        doc: Dict[str, Any] = {"signatures": {"gmail": payload.gmail_signatures, "ios": {}, "outlook": []}}
+        doc: dict[str, Any] = {"signatures": {"gmail": payload.gmail_signatures, "ios": {}, "outlook": []}}
         if payload.default_html:
             doc["signatures"]["default_html"] = payload.default_html
 

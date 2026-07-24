@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import csv
-from typing import List
 
 from .base import ScheduleParser
 from .model import ScheduleItem
@@ -11,7 +10,7 @@ from .model import ScheduleItem
 class CSVParser(ScheduleParser):
     """Parser for CSV schedule files."""
 
-    def parse(self, path: str) -> List[ScheduleItem]:
+    def parse(self, path: str) -> list[ScheduleItem]:
         """Parse schedule items from CSV file.
 
         Args:
@@ -20,7 +19,7 @@ class CSVParser(ScheduleParser):
         Returns:
             List of ScheduleItem objects
         """
-        items: List[ScheduleItem] = []
+        items: list[ScheduleItem] = []
         with open(path, newline='', encoding='utf-8') as fh:
             rd = csv.DictReader(fh)
             for raw in rd:

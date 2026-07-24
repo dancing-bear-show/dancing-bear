@@ -5,10 +5,8 @@ Provides heuristic folder/category assignment for iOS apps based on bundle ID pa
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 # Explicit Apple app mappings
-_APPLE_APPS: Dict[str, str] = {
+_APPLE_APPS: dict[str, str] = {
     "com.apple.mobileslideshow": "Media",  # Photos
     "com.apple.tv": "Media",
     "com.apple.podcasts": "Media",
@@ -35,7 +33,7 @@ _APPLE_APPS: Dict[str, str] = {
 }
 
 # Keyword patterns for classification
-_PATTERNS: Dict[str, List[str]] = {
+_PATTERNS: dict[str, list[str]] = {
     "Work": [
         "slack",
         "trello",

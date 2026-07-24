@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.pipeline import Consumer
 
@@ -19,7 +19,7 @@ class AutoProposePayload:
     out_path: Path
     days: int
     pages: int
-    protect: List[str] = field(default_factory=list)
+    protect: list[str] = field(default_factory=list)
     dry_run: bool = False
     log_path: str = "logs/auto_runs.jsonl"
 
@@ -28,7 +28,7 @@ class AutoProposePayload:
 class AutoSummaryPayload:
     """Payload for auto summary."""
 
-    proposal: Dict[str, Any]
+    proposal: dict[str, Any]
 
 
 @dataclass
@@ -36,8 +36,8 @@ class AutoApplyPayload:
     """Payload for auto apply."""
 
     context: MailContext
-    proposal: Dict[str, Any]
-    cutoff_days: Optional[int] = None
+    proposal: dict[str, Any]
+    cutoff_days: int | None = None
     batch_size: int = 500
     dry_run: bool = False
     log_path: str = "logs/auto_runs.jsonl"

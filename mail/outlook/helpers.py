@@ -1,10 +1,12 @@
 """Shared helpers for Outlook pipeline."""
 from __future__ import annotations
 
+import logging
 import os
-from typing import Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
+
+logger = logging.getLogger(__name__)
 
 
 def norm_label_name_outlook(name: str, mode: str = "join-dash") -> str:
@@ -24,8 +26,15 @@ OUTLOOK_COLOR_NAMES = {
 }
 
 
-def norm_label_color_outlook(color: Optional[dict]) -> Optional[dict]:
-    """Normalize a label color for Outlook."""
+def norm_label_color_outlook(color: dict | str | None) -> dict | None:
+    """Normalize a label color for Outlook.
+
+    Accepts a dict with {name: preset}, a string preset name, or None.
+    Hex color values are dropped (no Outlook mapping).
+    """
+    if isinstance(color, str):
+        name = color.strip()
+        return {"name": name} if name else None
     if not isinstance(color, dict):
         return None
     name = color.get("name")
@@ -34,7 +43,7 @@ def norm_label_color_outlook(color: Optional[dict]) -> Optional[dict]:
     return None
 
 
-def _find_outlook_account(cfg_path: Optional[str], acc_name: Optional[str]) -> Optional[dict]:
+def _find_outlook_account(cfg_path: str | None, acc_name: str | None) -> dict | None:
     """Load accounts config and find the best matching Outlook account."""
     if not cfg_path or not os.path.exists(cfg_path):
         return None
@@ -47,7 +56,7 @@ def _find_outlook_account(cfg_path: Optional[str], acc_name: Optional[str]) -> O
     return next((a for a in accts if (a.get("provider") or "").lower() == "outlook"), None)
 
 
-def resolve_outlook_args(args) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+def resolve_outlook_args(args) -> tuple[str | None, str | None, str | None, str | None]:
     """Resolve Outlook client credentials from args, env, and config files.
 
     Returns: (client_id, tenant, token_path, cache_dir)
@@ -88,12 +97,12 @@ def get_outlook_client(args):
     try:
         from ..outlook_api import OutlookClient
     except Exception as e:
-        print(f"Outlook features unavailable: {e}")
+        logger.error("Outlook features unavailable: %s", e)
         return None, 1
 
     client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
     if not client_id:
-        print("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
+        logger.error("Missing --client-id. Set MAIL_ASSISTANT_OUTLOOK_CLIENT_ID, or provide --accounts-config with an Outlook account.")
         return None, 2
 
     client = OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=cache_dir)

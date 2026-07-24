@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from core.pipeline import Consumer
 
@@ -19,10 +19,10 @@ _ERR_LABEL_PREFIX = "Invalid --label-prefix"
 
 @dataclass
 class FiltersBasePayload:
-    desired_filters: List[dict]
-    existing_filters: List[dict]
-    id_to_name: Dict[str, str]
-    name_to_id: Dict[str, str]
+    desired_filters: list[dict]
+    existing_filters: list[dict]
+    id_to_name: dict[str, str]
+    name_to_id: dict[str, str]
     delete_missing: bool
 
 
@@ -39,7 +39,7 @@ class FiltersSyncPayload(FiltersBasePayload):
 
 @dataclass
 class FiltersImpactPayload:
-    filters: List[dict]
+    filters: list[dict]
     days: int | None
     only_inbox: bool
     pages: int
@@ -48,14 +48,14 @@ class FiltersImpactPayload:
 
 @dataclass
 class FiltersExportPayload:
-    filters: List[dict]
-    id_to_name: Dict[str, str]
+    filters: list[dict]
+    id_to_name: dict[str, str]
     out_path: Path
 
 
 @dataclass
 class FiltersSweepPayload:
-    filters: List[dict]
+    filters: list[dict]
     sweep_config: SweepConfig
     producer_config: SweepProducerConfig
     client: object
@@ -63,7 +63,7 @@ class FiltersSweepPayload:
 
 @dataclass
 class FiltersSweepRangePayload:
-    filters: List[dict]
+    filters: list[dict]
     from_days: int
     to_days: int
     step_days: int
@@ -73,7 +73,7 @@ class FiltersSweepRangePayload:
 
 @dataclass
 class FiltersPrunePayload:
-    filters: List[dict]
+    filters: list[dict]
     days: int | None
     only_inbox: bool
     pages: int
@@ -83,8 +83,8 @@ class FiltersPrunePayload:
 
 @dataclass
 class FiltersAddForwardPayload:
-    filters: List[dict]
-    id_to_name: Dict[str, str]
+    filters: list[dict]
+    id_to_name: dict[str, str]
     label_prefix: str
     destination: str
     require_verified: bool
@@ -95,22 +95,22 @@ class FiltersAddForwardPayload:
 
 @dataclass
 class FiltersAddTokenPayload:
-    filters: List[dict]
-    id_to_name: Dict[str, str]
+    filters: list[dict]
+    id_to_name: dict[str, str]
     label_prefix: str
     needle: str
-    tokens: List[str]
+    tokens: list[str]
     dry_run: bool
     client: object
 
 
 @dataclass
 class FiltersRemoveTokenPayload:
-    filters: List[dict]
-    id_to_name: Dict[str, str]
+    filters: list[dict]
+    id_to_name: dict[str, str]
     label_prefix: str
     needle: str
-    tokens: List[str]
+    tokens: list[str]
     dry_run: bool
     client: object
 
@@ -432,7 +432,7 @@ def _load_filters_payload(context: MailContext, *, error_hint: str, allow_missin
     }
 
 
-def _load_desired_filters(doc: dict, *, error_hint: str, allow_missing: bool) -> List[dict]:
+def _load_desired_filters(doc: dict, *, error_hint: str, allow_missing: bool) -> list[dict]:
     raw = doc.get("filters")
     if raw is None:
         return []
@@ -440,7 +440,7 @@ def _load_desired_filters(doc: dict, *, error_hint: str, allow_missing: bool) ->
         if allow_missing:
             return []
         raise ValueError(error_hint)
-    desired: List[dict] = []
+    desired: list[dict] = []
     for entry in raw:
         if isinstance(entry, dict):
             desired.append(entry)

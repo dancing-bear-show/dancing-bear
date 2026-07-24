@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -15,7 +15,7 @@ from .consumers import (
 
 
 class _SafeDict(dict):
-    """Dict that returns placeholder for missing keys."""
+    """dict that returns placeholder for missing keys."""
 
     def __missing__(self, k):
         return "{" + k + "}"
@@ -31,7 +31,7 @@ def _inline_css(html: str) -> str:
         return html
 
 
-def _render_template(template_html: str, subs: Dict[str, str]) -> str:
+def _render_template(template_html: str, subs: dict[str, str]) -> str:
     """Render template with safe substitution."""
     try:
         return template_html.format_map(_SafeDict(**subs))
@@ -43,19 +43,19 @@ def _render_template(template_html: str, subs: Dict[str, str]) -> str:
 class SignaturesExportResult:
     """Result of signatures export."""
 
-    gmail_signatures: List[Dict[str, Any]] = field(default_factory=list)
-    default_html: Optional[str] = None
-    out_path: Optional[Path] = None
-    ios_asset_path: Optional[Path] = None
+    gmail_signatures: list[dict[str, Any]] = field(default_factory=list)
+    default_html: str | None = None
+    out_path: Path | None = None
+    ios_asset_path: Path | None = None
 
 
 @dataclass
 class SignaturesSyncResult:
     """Result of signatures sync."""
 
-    gmail_updates: List[str] = field(default_factory=list)
-    ios_asset_written: Optional[Path] = None
-    outlook_note_written: Optional[Path] = None
+    gmail_updates: list[str] = field(default_factory=list)
+    ios_asset_written: Path | None = None
+    outlook_note_written: Path | None = None
     dry_run: bool = False
 
 
@@ -63,7 +63,7 @@ class SignaturesSyncResult:
 class SignaturesNormalizeResult:
     """Result of signatures normalize."""
 
-    out_path: Optional[Path] = None
+    out_path: Path | None = None
     success: bool = True
 
 
@@ -107,7 +107,7 @@ class SignaturesExportProcessor(Processor[SignaturesExportPayload, ResultEnvelop
             )
 
 
-def _sync_primary_signature(client, current: Dict, default_html: str, payload, result: SignaturesSyncResult) -> None:
+def _sync_primary_signature(client, current: dict, default_html: str, payload, result: SignaturesSyncResult) -> None:
     """Apply default signature to primary send-as address."""
     for sa in current.values():
         if not sa.get("isPrimary"):
@@ -127,11 +127,11 @@ class _GmailSignatureState:
     """Current Gmail signature state for sync operations."""
 
     client: Any
-    current: Dict[str, Any]
-    default_html: Optional[str]
+    current: dict[str, Any]
+    default_html: str | None
 
 
-def _sync_desired_signatures(state: _GmailSignatureState, desired: List, payload: Any, result: SignaturesSyncResult) -> None:
+def _sync_desired_signatures(state: _GmailSignatureState, desired: list, payload: Any, result: SignaturesSyncResult) -> None:
     """Sync specific desired signatures."""
     for ent in desired:
         email = ent.get("sendAs")
@@ -149,7 +149,7 @@ def _sync_desired_signatures(state: _GmailSignatureState, desired: List, payload
             result.gmail_updates.append(f"Updated {email}")
 
 
-def _sync_gmail_signatures(payload, sigs: Dict, result: SignaturesSyncResult) -> None:
+def _sync_gmail_signatures(payload, sigs: dict, result: SignaturesSyncResult) -> None:
     """Sync signatures to Gmail."""
     default_html = sigs.get("default_html")
     try:
@@ -167,7 +167,7 @@ def _sync_gmail_signatures(payload, sigs: Dict, result: SignaturesSyncResult) ->
         pass
 
 
-def _write_ios_asset(default_html: Optional[str], sigs: Dict) -> Optional[Path]:
+def _write_ios_asset(default_html: str | None, sigs: dict) -> Path | None:
     """Write iOS signature asset if configured."""
     if default_html and sigs.get("ios") is not None:
         out = Path("signatures_assets/ios_signature.html")
@@ -177,7 +177,7 @@ def _write_ios_asset(default_html: Optional[str], sigs: Dict) -> Optional[Path]:
     return None
 
 
-def _write_outlook_note(default_html: Optional[str], sigs: Dict) -> Optional[Path]:
+def _write_outlook_note(default_html: str | None, sigs: dict) -> Path | None:
     """Write Outlook readme if signatures configured."""
     if sigs.get("outlook") or default_html:
         note = Path("signatures_assets/OUTLOOK_README.txt")

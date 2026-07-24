@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.pipeline import Consumer
 
@@ -25,19 +25,19 @@ class SignaturesSyncPayload:
     """Payload for signatures sync."""
 
     context: MailContext
-    config: Dict[str, Any]
+    config: dict[str, Any]
     dry_run: bool = False
-    send_as: Optional[str] = None
-    account_display_name: Optional[str] = None
+    send_as: str | None = None
+    account_display_name: str | None = None
 
 
 @dataclass
 class SignaturesNormalizePayload:
     """Payload for signatures normalize."""
 
-    config: Dict[str, Any]
+    config: dict[str, Any]
     out_html: Path
-    variables: Dict[str, str] = field(default_factory=dict)
+    variables: dict[str, str] = field(default_factory=dict)
 
 
 class SignaturesExportConsumer(Consumer[SignaturesExportPayload]):
@@ -64,8 +64,8 @@ class SignaturesSyncConsumer(Consumer[SignaturesSyncPayload]):
         context: MailContext,
         config_path: str,
         dry_run: bool = False,
-        send_as: Optional[str] = None,
-        account_display_name: Optional[str] = None,
+        send_as: str | None = None,
+        account_display_name: str | None = None,
     ):
         self._context = context
         self._config_path = config_path
@@ -87,7 +87,7 @@ class SignaturesSyncConsumer(Consumer[SignaturesSyncPayload]):
 class SignaturesNormalizeConsumer(Consumer[SignaturesNormalizePayload]):
     """Consume args to create normalize payload."""
 
-    def __init__(self, config_path: str, out_html: Path, variables: List[str]):
+    def __init__(self, config_path: str, out_html: Path, variables: list[str]):
         self._config_path = config_path
         self._out_html = out_html
         self._variables = variables

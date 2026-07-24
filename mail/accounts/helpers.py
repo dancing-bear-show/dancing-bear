@@ -1,7 +1,7 @@
 """Helper utilities for accounts commands."""
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Iterable
 
 from ..config_resolver import (
     default_gmail_credentials_path,
@@ -24,7 +24,7 @@ def load_accounts(path: str) -> list[dict]:
     return [a for a in accts if isinstance(a, dict)]
 
 
-def iter_accounts(accts: list[dict], names: Optional[str]) -> Iterable[dict]:
+def iter_accounts(accts: list[dict], names: str | None) -> Iterable[dict]:
     """Iterate over accounts, optionally filtering by comma-separated names."""
     allow = None
     if names:
@@ -33,6 +33,19 @@ def iter_accounts(accts: list[dict], names: Optional[str]) -> Iterable[dict]:
         if allow and a.get("name") not in allow:
             continue
         yield a
+
+
+def _outlook_client_kwargs(acc: dict) -> dict:
+    """Extract and validate Outlook client-construction kwargs from an account dict."""
+    client_id = acc.get("client_id") or acc.get("application_id") or acc.get("credentials")
+    if not client_id:
+        raise SystemExit(f"Outlook account {acc.get('name')} missing client_id")
+    return {
+        "client_id": client_id,
+        "tenant": acc.get("tenant") or "consumers",
+        "token_path": expand_path(acc.get("token")),
+        "cache_dir": acc.get("cache"),
+    }
 
 
 def build_client_for_account(acc: dict):
@@ -52,12 +65,7 @@ def build_client_for_account(acc: dict):
             from ..outlook_api import OutlookClient  # type: ignore
         except Exception as e:
             raise SystemExit(f"Outlook provider unavailable: {e}")
-        client_id = acc.get("client_id") or acc.get("application_id") or acc.get("credentials")
-        if not client_id:
-            raise SystemExit(f"Outlook account {acc.get('name')} missing client_id")
-        tenant = acc.get("tenant") or "consumers"
-        token_path = expand_path(acc.get("token"))
-        return OutlookClient(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=acc.get("cache"))
+        return OutlookClient(**_outlook_client_kwargs(acc))
     raise SystemExit(f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}")
 
 
@@ -83,10 +91,5 @@ def build_provider_for_account(acc: dict):
             from ..providers.outlook import OutlookProvider  # type: ignore
         except Exception as e:
             raise SystemExit(f"Outlook provider unavailable: {e}")
-        client_id = acc.get("client_id") or acc.get("application_id") or acc.get("credentials")
-        if not client_id:
-            raise SystemExit(f"Outlook account {acc.get('name')} missing client_id")
-        tenant = acc.get("tenant") or "consumers"
-        token_path = expand_path(acc.get("token"))
-        return OutlookProvider(client_id=client_id, tenant=tenant, token_path=token_path, cache_dir=acc.get("cache"))
+        return OutlookProvider(**_outlook_client_kwargs(acc))
     raise SystemExit(f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}")

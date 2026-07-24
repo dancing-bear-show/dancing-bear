@@ -8,9 +8,6 @@ operations. New mail-related pipelines should go in mail/outlook_pipelines/.
 from ._base import (
     dataclass,
     Any,
-    Dict,
-    List,
-    Optional,
     SafeProcessor,
     BaseProducer,
     RequestConsumer,
@@ -31,7 +28,7 @@ OutlookMailListRequestConsumer = RequestConsumer[OutlookMailListRequest]
 
 @dataclass
 class OutlookMailListResult:
-    messages: List[Dict[str, Any]]
+    messages: list[dict[str, Any]]
     folder: str
 
 
@@ -46,7 +43,7 @@ class OutlookMailListProcessor(SafeProcessor[OutlookMailListRequest, OutlookMail
 
 
 class OutlookMailListProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookMailListResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookMailListResult, diagnostics: dict[str, Any] | None) -> None:
         msgs = payload.messages
         if not msgs:
             print("No messages.")

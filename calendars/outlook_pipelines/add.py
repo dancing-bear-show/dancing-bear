@@ -5,11 +5,7 @@ from __future__ import annotations
 from ._base import (
     Any,
     dataclass,
-    Dict,
-    List,
-    Optional,
     Path,
-    Tuple,
     SafeProcessor,
     normalize_event,
     BaseProducer,
@@ -35,7 +31,7 @@ OutlookAddRequestConsumer = RequestConsumer[OutlookAddRequest]
 
 @dataclass
 class OutlookAddResult:
-    logs: List[str]
+    logs: list[str]
     created: int
     dry_run: bool
 
@@ -47,7 +43,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
     def _process_safe(self, payload: OutlookAddRequest) -> OutlookAddResult:
         items = load_events_config(payload.config_path, self._config_loader)
 
-        logs: List[str] = []
+        logs: list[str] = []
         created = 0
         for idx, ev in enumerate(items, start=1):
             if not isinstance(ev, dict):
@@ -57,7 +53,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
         return OutlookAddResult(logs=logs, created=created, dry_run=payload.dry_run)
 
-    def _process_event(self, idx: int, ev: Dict[str, Any], payload: OutlookAddRequest, logs: List[str]) -> int:
+    def _process_event(self, idx: int, ev: dict[str, Any], payload: OutlookAddRequest, logs: list[str]) -> int:
         nev = normalize_event(ev)
         subj = (nev.get("subject") or "").strip()
         if not subj:
@@ -73,7 +69,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
             return self._create_recurring(ctx, payload)
         return self._create_single(ctx, payload)
 
-    def _resolve_reminder(self, nev: Dict[str, Any], payload: OutlookAddRequest) -> Tuple[bool, Optional[int]]:
+    def _resolve_reminder(self, nev: dict[str, Any], payload: OutlookAddRequest) -> tuple[bool, int | None]:
         yaml_is_off = (nev.get("is_reminder_on") is False)
         rem_minutes = nev.get("reminder_minutes")
         no_rem = payload.force_no_reminder or yaml_is_off
@@ -152,7 +148,7 @@ class OutlookAddProcessor(SafeProcessor[OutlookAddRequest, OutlookAddResult]):
 
 
 class OutlookAddProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookAddResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookAddResult, diagnostics: dict[str, Any] | None) -> None:
         self.print_logs(payload.logs)
         suffix = " (dry-run)" if payload.dry_run else ""
         print(f"Planned {payload.created} events/series from config{suffix}")

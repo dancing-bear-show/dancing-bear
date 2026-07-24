@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple  # noqa: F401 - Tuple used in return type
 
 from ..providers.base import BaseProvider
 
@@ -26,9 +25,9 @@ def build_criteria_from_match(match: dict) -> dict:
 
 def build_gmail_query(
     match: dict,
-    days: Optional[int] = None,
+    days: int | None = None,
     only_inbox: bool = False,
-    older_than_days: Optional[int] = None,
+    older_than_days: int | None = None,
 ) -> str:
     parts = []
     m = match or {}
@@ -70,7 +69,7 @@ def _resolve_label_ids(client: BaseProvider, names: list, name_to_id: dict) -> l
     return ids
 
 
-def action_to_label_changes(client: BaseProvider, action: dict) -> Tuple[list[str], list[str]]:
+def action_to_label_changes(client: BaseProvider, action: dict) -> tuple[list[str], list[str]]:
     action = action or {}
     name_to_id = client.get_label_id_map()
     add_ids = _resolve_label_ids(client, action.get("add") or [], name_to_id)
@@ -88,7 +87,7 @@ _CATEGORY_MAP = {
 }
 
 
-def _map_category(name: str) -> Optional[str]:
+def _map_category(name: str) -> str | None:
     """Map a friendly category name to a Gmail system label, or None."""
     return _CATEGORY_MAP.get(name.strip().lower())
 

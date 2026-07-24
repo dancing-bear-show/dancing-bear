@@ -138,7 +138,7 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         result = sync.apply_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 0)
 
-    def test_dry_run_prints_message(self):
+    def test_dry_run_logs_message(self):
         events = [make_test_event(
             "evt1", "Meeting", "2024-01-15T09:00:00",
             location={"displayName": "Old Room"},
@@ -149,10 +149,10 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
             "location": "New Room",
             "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
         }]
-        with patch('sys.stdout', new_callable=StringIO) as mock_stdout:
+        with self.assertLogs("calendars.location_sync", level="INFO") as cm:
             result = sync.apply_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 1)
-        self.assertIn("[dry-run]", mock_stdout.getvalue())
+        self.assertTrue(any("[dry-run]" in msg for msg in cm.output))
 
     def test_apply_calls_update_location(self):
         events = [make_test_event(

@@ -6,19 +6,19 @@ parsers for Gmail scans.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, Sequence
 
 
 @dataclass
 class QueryParams:
     """Parameters for building Gmail queries."""
 
-    explicit: Optional[str] = None
-    from_text: Optional[str] = None
-    days: Optional[int] = None
+    explicit: str | None = None
+    from_text: str | None = None
+    days: int | None = None
     inbox_only: bool = False
-    include_terms: Optional[Union[str, Sequence[str]]] = None
-    phrase: Optional[str] = None
+    include_terms: str | Sequence[str] | None = None
+    phrase: str | None = None
 
 
 @dataclass
@@ -34,13 +34,13 @@ class GmailService:
     def authenticate(self) -> None:
         self.provider.authenticate()
 
-    def list_message_ids(self, *, query: str, max_pages: int, page_size: int) -> List[str]:
+    def list_message_ids(self, *, query: str, max_pages: int, page_size: int) -> list[str]:
         return self.provider.list_message_ids(query=query, max_pages=int(max_pages), page_size=int(page_size))
 
     def get_message_text(self, message_id: str) -> str:
         return self.provider.get_message_text(message_id)
 
-    def get_message(self, message_id: str):  # type: ignore[no-untyped-def]
+    def get_message(self, message_id: str) -> dict[str, Any]:
         """Return raw message object if provider supports it."""
         return self.provider.get_message(message_id)
 
@@ -55,7 +55,7 @@ class GmailService:
         """
         if params.explicit:
             return params.explicit
-        parts: List[str] = []
+        parts: list[str] = []
         if params.from_text:
             parts.append(f'from:"{params.from_text}"')
         if params.days is not None:
@@ -72,7 +72,7 @@ class GmailService:
         return " ".join(parts).strip()
 
     @staticmethod
-    def build_classes_query(*, from_text: Optional[str], days: int, inbox_only: bool, explicit: Optional[str]) -> str:
+    def build_classes_query(*, from_text: str | None, days: int, inbox_only: bool, explicit: str | None) -> str:
         return GmailService.build_query_from_params(QueryParams(
             explicit=explicit,
             from_text=from_text,
@@ -81,7 +81,7 @@ class GmailService:
         ))
 
     @staticmethod
-    def build_receipts_query(*, from_text: Optional[str], days: int, explicit: Optional[str]) -> str:
+    def build_receipts_query(*, from_text: str | None, days: int, explicit: str | None) -> str:
         tokens = '(Swimmer OR "Swim Kids" OR Preschool OR Bronze)'
         return GmailService.build_query_from_params(QueryParams(
             explicit=explicit,
@@ -92,7 +92,7 @@ class GmailService:
         ))
 
     @staticmethod
-    def build_activerh_query(*, days: int, explicit: Optional[str] = None, programs: Optional[List[str]] = None, from_text: Optional[str] = None) -> str:
+    def build_activerh_query(*, days: int, explicit: str | None = None, programs: list[str] | None = None, from_text: str | None = None) -> str:
         """Construct a broad ActiveRH receipt query (delegates to build_query)."""
         progs = programs or [
             "Swimmer", "Swim Kids", "Chess", "Sportball", "Culinary", "Preschool", "Bronze",

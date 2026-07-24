@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple, Optional, Dict
 
 from core.constants import credential_ini_paths, _config_roots
 
@@ -19,7 +18,7 @@ DEFAULT_OUTLOOK_TOKEN = os.path.join(_DEFAULT_CONFIG_DIR, "outlook_token.json")
 DEFAULT_OUTLOOK_FLOW = os.path.join(_DEFAULT_CONFIG_DIR, "msal_flow.json")
 
 
-def expand_path(path: Optional[str]) -> Optional[str]:
+def expand_path(path: str | None) -> str | None:
     if not path:
         return path
     return os.path.expanduser(path)
@@ -45,20 +44,20 @@ def default_outlook_flow_path() -> str:
 class ProfileSettings:
     """Settings for a mail profile to persist to INI configuration."""
 
-    profile: Optional[str] = None
-    credentials: Optional[str] = None
-    token: Optional[str] = None
-    outlook_client_id: Optional[str] = None
-    tenant: Optional[str] = None
-    outlook_token: Optional[str] = None
+    profile: str | None = None
+    credentials: str | None = None
+    token: str | None = None
+    outlook_client_id: str | None = None
+    tenant: str | None = None
+    outlook_token: str | None = None
 
 
-def _read_ini() -> Dict[str, Dict[str, str]]:
+def _read_ini() -> dict[str, dict[str, str]]:
     try:
         import configparser
     except Exception:
         return {}
-    merged_sections: Dict[str, Dict[str, str]] = {}
+    merged_sections: dict[str, dict[str, str]] = {}
     # Prefer legacy (hyphen) values first, then fill missing from preferred path
     for p in _INI_PATHS:
         if not os.path.exists(p):
@@ -117,9 +116,9 @@ def _write_ini(settings: ProfileSettings) -> None:
 
 def resolve_paths(
     *,
-    arg_credentials: Optional[str],
-    arg_token: Optional[str],
-) -> Tuple[str, str]:
+    arg_credentials: str | None,
+    arg_token: str | None,
+) -> tuple[str, str]:
     ini = _read_ini()
     # Use default section; profile-aware variant below
     sec = ini.get(_SECTION, {})
@@ -130,10 +129,10 @@ def resolve_paths(
 
 def resolve_paths_profile(
     *,
-    arg_credentials: Optional[str],
-    arg_token: Optional[str],
-    profile: Optional[str],
-) -> Tuple[str, str]:
+    arg_credentials: str | None,
+    arg_token: str | None,
+    profile: str | None,
+) -> tuple[str, str]:
     if profile:
         sec = _get_ini_section(profile)
         creds = arg_credentials or sec.get("credentials") or DEFAULT_GMAIL_CREDENTIALS
@@ -142,7 +141,7 @@ def resolve_paths_profile(
     return resolve_paths(arg_credentials=arg_credentials, arg_token=arg_token)
 
 
-def persist_if_provided(*, arg_credentials: Optional[str], arg_token: Optional[str], profile: Optional[str] = None) -> None:
+def persist_if_provided(*, arg_credentials: str | None, arg_token: str | None, profile: str | None = None) -> None:
     # Persist only when caller explicitly provided values (so we don't overwrite
     # ini with defaults).
     if arg_credentials or arg_token:
@@ -160,7 +159,7 @@ def persist_profile_settings(settings: ProfileSettings) -> None:
     _write_ini_from_settings(settings)
 
 
-def _get_ini_section(profile: Optional[str]) -> Dict[str, str]:
+def _get_ini_section(profile: str | None) -> dict[str, str]:
     ini = _read_ini()
     if profile:
         for prefix in (_SECTION, *_SECTION_ALIASES):
@@ -174,7 +173,7 @@ def _get_ini_section(profile: Optional[str]) -> Dict[str, str]:
     return {}
 
 
-def get_outlook_client_id(profile: Optional[str] = None) -> Optional[str]:
+def get_outlook_client_id(profile: str | None = None) -> str | None:
     """Return Outlook (Microsoft Graph) client_id from INI if present.
 
     Looks under section [mail] for key 'outlook_client_id' or
@@ -184,7 +183,7 @@ def get_outlook_client_id(profile: Optional[str] = None) -> Optional[str]:
     return sec.get("outlook_client_id") or sec.get("client_id")
 
 
-def get_outlook_client_id_for_profile(profile: str) -> Optional[str]:
+def get_outlook_client_id_for_profile(profile: str) -> str | None:
     """Return Outlook client_id only if a profile-specific section exists.
 
     Unlike get_outlook_client_id, never falls back to the default section,
@@ -198,12 +197,12 @@ def get_outlook_client_id_for_profile(profile: str) -> Optional[str]:
     return None
 
 
-def get_outlook_tenant(profile: Optional[str] = None) -> Optional[str]:
+def get_outlook_tenant(profile: str | None = None) -> str | None:
     sec = _get_ini_section(profile)
     return sec.get("tenant")
 
 
-def get_outlook_token_path(profile: Optional[str] = None) -> Optional[str]:
+def get_outlook_token_path(profile: str | None = None) -> str | None:
     sec = _get_ini_section(profile)
     # Allow storing outlook token cache path as 'outlook_token' or reuse generic 'token'
     token = sec.get("outlook_token") or sec.get("token") or DEFAULT_OUTLOOK_TOKEN

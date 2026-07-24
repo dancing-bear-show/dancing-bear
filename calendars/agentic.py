@@ -7,7 +7,6 @@ execute only lightweight parsing logic.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List, Tuple
 
 from core.agentic import (
     build_capsule as _build_capsule,
@@ -30,11 +29,11 @@ def _cli_tree() -> str:
     return _core_build_cli_tree(_get_parser())
 
 
-def _cli_path_exists(path: List[str]) -> bool:
+def _cli_path_exists(path: list[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
-def _outlook_add_flows(lines: List[str]) -> None:
+def _outlook_add_flows(lines: list[str]) -> None:
     if _cli_path_exists(["outlook", "add"]) or _cli_path_exists(["outlook", "add-recurring"]):
         lines.append("- Outlook add")
         if _cli_path_exists(["outlook", "add"]):
@@ -47,7 +46,7 @@ def _outlook_add_flows(lines: List[str]) -> None:
         lines.append("  - Verify plan: ./bin/calendar outlook verify-from-config --config schedules/plan.yaml")
 
 
-def _outlook_manage_flows(lines: List[str]) -> None:
+def _outlook_manage_flows(lines: list[str]) -> None:
     if _cli_path_exists(["outlook", "update-locations"]) and _cli_path_exists(["outlook", "apply-locations"]):
         lines.append("- Locations")
         lines.append("  - Update from Outlook: ./bin/calendar outlook update-locations --config schedules/plan.yaml")
@@ -69,7 +68,7 @@ def _outlook_manage_flows(lines: List[str]) -> None:
         lines.append("  - Share calendar: ./bin/calendar outlook calendar-share --calendar 'Your Family' --user someone@example.com --role reviewer")
 
 
-def _gmail_scan_flows(lines: List[str]) -> None:
+def _gmail_scan_flows(lines: list[str]) -> None:
     if _cli_path_exists(["gmail", "scan-classes"]) or _cli_path_exists(["gmail", "scan-receipts"]) or _cli_path_exists(["gmail", "scan-activerh"]):
         lines.append("- Gmail scan")
         if _cli_path_exists(["gmail", "scan-classes"]):
@@ -81,7 +80,7 @@ def _gmail_scan_flows(lines: List[str]) -> None:
 
 
 def _flow_map() -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     _outlook_add_flows(lines)
     _outlook_manage_flows(lines)
     _gmail_scan_flows(lines)
@@ -104,7 +103,7 @@ def build_agentic_capsule() -> str:
         "add: ./bin/calendar outlook add --help",
         "scan: ./bin/calendar gmail scan-classes --help",
     ]
-    sections: List[Tuple[str, str]] = []
+    sections: list[tuple[str, str]] = []
     tree = _cli_tree()
     if tree:
         sections.append(("CLI Tree", tree))
@@ -121,7 +120,7 @@ def build_agentic_capsule() -> str:
 
 def build_domain_map() -> str:
     """Construct a programmatic domain map for Calendar Assistant."""
-    out: List[str] = []
+    out: list[str] = []
     out.append("Top-Level\n- bin/ — wrappers (calendar, calendar-assistant, schedule-assistant)\n- out/ — curated artifacts and plans\n- .llm/ — agent context (shared at repo root)")
     tree = _cli_tree()
     if tree:

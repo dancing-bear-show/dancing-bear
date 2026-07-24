@@ -16,7 +16,7 @@ from pathlib import Path
 from core.http import HttpClient
 
 
-def upload_octoprint(url: str, api_key: str, file: Path, do_print: bool):
+def upload_octoprint(url: str, api_key: str, file: Path, do_print: bool) -> dict:
     # POST /api/files/local
     client = HttpClient(url, default_headers={"X-Api-Key": api_key}, timeout=60)
     with open(file, "rb") as fh:
@@ -26,7 +26,7 @@ def upload_octoprint(url: str, api_key: str, file: Path, do_print: bool):
     return r.json()
 
 
-def upload_moonraker(url: str, file: Path, do_print: bool):
+def upload_moonraker(url: str, file: Path, do_print: bool) -> dict[str, str]:
     # POST /server/files/upload
     client = HttpClient(url, timeout=60)
     with open(file, "rb") as fh:
@@ -40,7 +40,7 @@ def upload_moonraker(url: str, file: Path, do_print: bool):
     return {"status": "ok"}
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--type", choices=["octoprint", "moonraker"], default=os.getenv("PRINTER_TYPE", "octoprint"))
     ap.add_argument("--url", default=os.getenv("PRINTER_URL"), help="Base URL of printer service")
@@ -60,9 +60,10 @@ def main():
         info = upload_octoprint(args.url, args.api_key, args.file, args.do_print)
     else:
         info = upload_moonraker(args.url, args.file, args.do_print)
-    print("Upload complete:", info)
+    # Print only known-safe fields to avoid exposing raw API responses
+    status = info.get("status") or info.get("done") or "ok"
+    print("Upload complete:", status)
 
 
 if __name__ == "__main__":
     main()
-

@@ -4,12 +4,9 @@ from ._base import (
     Any,
     BaseProducer,
     DateWindowResolver,
-    Dict,
-    List,
     LocationSync,
     LOG_DRY_RUN,
     MSG_PREVIEW_COMPLETE,
-    Optional,
     Path,
     RequestConsumer,
     ResultEnvelope,
@@ -31,8 +28,8 @@ ENRICHABLE_SUBJECT_PREFIXES = ("public skating", "leisure swim", "fun n fit")
 class OutlookLocationsEnrichRequest:
     service: Any
     calendar: str
-    from_date: Optional[str]
-    to_date: Optional[str]
+    from_date: str | None
+    to_date: str | None
     dry_run: bool
 
 
@@ -57,7 +54,7 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
     def __init__(self, today_factory=None, enricher=None) -> None:
         self._window = DateWindowResolver(today_factory)
         self._enricher = enricher
-        self._logs: List[str] = []
+        self._logs: list[str] = []
 
     def _process_safe(self, payload: OutlookLocationsEnrichRequest) -> OutlookLocationsEnrichResult:
         check_service_required(payload.service)
@@ -86,9 +83,9 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
         updated = self._enrich_series(series, enricher, svc, cal_id, payload.dry_run)
         return OutlookLocationsEnrichResult(updated=updated, dry_run=payload.dry_run)
 
-    def _build_series_map(self, events: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    def _build_series_map(self, events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """Build map of series ID -> event for enrichable subjects."""
-        series: Dict[str, Dict[str, Any]] = {}
+        series: dict[str, dict[str, Any]] = {}
         for ev in events:
             sid = ev.get("seriesMasterId") or ev.get("id")
             if not sid or sid in series:
@@ -100,7 +97,7 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
 
     def _enrich_series(
         self,
-        series: Dict[str, Dict[str, Any]],
+        series: dict[str, dict[str, Any]],
         enricher,
         svc,
         cal_id: str,
@@ -135,7 +132,7 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
 
 
 class OutlookLocationsEnrichProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookLocationsEnrichResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookLocationsEnrichResult, diagnostics: dict[str, Any] | None) -> None:
         logs = (diagnostics or {}).get("logs") or []
         self.print_logs(logs)
         if payload.dry_run:
@@ -151,7 +148,7 @@ class OutlookLocationsEnrichProducer(BaseProducer):
 @dataclass
 class OutlookLocationsRequest:
     config_path: Path
-    calendar: Optional[str]
+    calendar: str | None
     dry_run: bool
     all_occurrences: bool = False
     service: Any = None
@@ -174,8 +171,7 @@ class OutlookLocationsUpdateProcessor(SafeProcessor[OutlookLocationsRequest, Out
         sync = LocationSync(payload.service)
         updated = sync.plan_from_config(items, calendar=payload.calendar, dry_run=payload.dry_run)
         if payload.dry_run:
-            msg = "Preview complete. No changes written."
-            return OutlookLocationsResult(message=msg)
+            return OutlookLocationsResult(message=MSG_PREVIEW_COMPLETE)
         from calendars.yamlio import dump_config
 
         if updated:
@@ -207,7 +203,7 @@ class OutlookLocationsApplyProcessor(SafeProcessor[OutlookLocationsRequest, Outl
 
 
 class OutlookLocationsProducer(BaseProducer):
-    def _produce_success(self, payload: OutlookLocationsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OutlookLocationsResult, diagnostics: dict[str, Any] | None) -> None:
         print(payload.message)
 
 

@@ -12,7 +12,6 @@ Design goals:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
 
@@ -26,12 +25,12 @@ class OutlookContext:
     from environment/profile when absent (matching existing behavior).
     """
 
-    client_id: Optional[str] = None
-    tenant: Optional[str] = None
-    token_path: Optional[str] = None
-    profile: Optional[str] = None
+    client_id: str | None = None
+    tenant: str | None = None
+    token_path: str | None = None
+    profile: str | None = None
 
-    def resolve(self) -> Tuple[Optional[str], str, Optional[str]]:
+    def resolve(self) -> tuple[str | None, str, str | None]:
         """Resolve effective (client_id, tenant, token_path) via shared auth helper."""
         client_id, tenant, token_path = resolve_outlook_credentials(
             self.profile,

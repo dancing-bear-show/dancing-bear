@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Sequence
 
 from core.date_utils import MONTH_MAP
 from core.text_utils import html_to_text  # noqa: F401 - re-exported for calendars.outlook.commands
@@ -50,7 +50,7 @@ class MetaParserConfig:
     date_range_pat: re.Pattern[str] = DATE_RANGE_PAT
     class_pat: re.Pattern[str] = CLASS_PAT
     loc_label_pat: re.Pattern[str] = LOC_LABEL_PAT
-    default_year: Optional[int] = None
+    default_year: int | None = None
 
     def __post_init__(self):
         """Set default facilities if not provided."""
@@ -58,7 +58,7 @@ class MetaParserConfig:
             object.__setattr__(self, "facilities", FACILITIES)
 
 
-def norm_time(hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
+def norm_time(hour: str, minute: str | None, ampm: str | None) -> str:
     hh = int(hour)
     mm = int(minute or 0)
     a = (ampm or "").replace(".", "").lower()
@@ -69,7 +69,7 @@ def norm_time(hour: str, minute: Optional[str], ampm: Optional[str]) -> str:
     return f"{hh:02d}:{mm:02d}"
 
 
-def _infer_location(text: str, cfg: "MetaParserConfig") -> Optional[str]:
+def _infer_location(text: str, cfg: "MetaParserConfig") -> str | None:
     """Extract location from text using label pattern or facility list."""
     loc_match = cfg.loc_label_pat.search(text)
     if loc_match:
@@ -80,7 +80,7 @@ def _infer_location(text: str, cfg: "MetaParserConfig") -> Optional[str]:
     return None
 
 
-def _infer_date_range(text: str, cfg: "MetaParserConfig") -> Optional[Dict[str, str]]:
+def _infer_date_range(text: str, cfg: "MetaParserConfig") -> dict[str, str] | None:
     """Extract date range from text. Returns dict or None."""
     date_match = cfg.date_range_pat.search(text)
     if not date_match:
@@ -99,8 +99,8 @@ def _infer_date_range(text: str, cfg: "MetaParserConfig") -> Optional[Dict[str, 
 
 def infer_meta_from_text(
     text: str,
-    config: Optional[MetaParserConfig] = None,
-) -> Dict[str, Any]:
+    config: "MetaParserConfig | None" = None,
+) -> dict[str, Any]:
     """Extract metadata from class schedule text.
 
     Args:
@@ -112,7 +112,7 @@ def infer_meta_from_text(
     """
     cfg = config or MetaParserConfig()
     safe_text = text or ""
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
 
     loc = _infer_location(safe_text, cfg)
     if loc:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 from core.pipeline import Processor, ResultEnvelope
@@ -32,12 +32,12 @@ from .helpers import norm_label_name_outlook
 class RuleContext:
     """Shared context for rule building operations."""
     client: Any
-    name_to_id: Dict[str, str]
-    folder_map: Dict[str, str]
+    name_to_id: dict[str, str]
+    folder_map: dict[str, str]
     move_to_folders: bool
 
     @classmethod
-    def for_plan(cls, name_to_id: Dict[str, str], folder_map: Dict[str, str], move_to_folders: bool) -> "RuleContext":
+    def for_plan(cls, name_to_id: dict[str, str], folder_map: dict[str, str], move_to_folders: bool) -> "RuleContext":
         """Create context for plan operations (no client needed)."""
         return cls(client=None, name_to_id=name_to_id, folder_map=folder_map, move_to_folders=move_to_folders)
 
@@ -47,9 +47,9 @@ class RuleContext:
 @dataclass
 class OutlookRulesListResult:
     """Result of rules list."""
-    rules: List[Dict[str, Any]] = field(default_factory=list)
-    id_to_name: Dict[str, str] = field(default_factory=dict)
-    folder_path_rev: Dict[str, str] = field(default_factory=dict)
+    rules: list[dict[str, Any]] = field(default_factory=list)
+    id_to_name: dict[str, str] = field(default_factory=dict)
+    folder_path_rev: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,7 +70,7 @@ class OutlookRulesSyncResult:
 class OutlookRulesPlanResult:
     """Result of rules plan."""
     would_create: int = 0
-    plan_items: List[str] = field(default_factory=list)
+    plan_items: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -88,7 +88,7 @@ class OutlookRulesSweepResult:
 @dataclass
 class OutlookCategoriesListResult:
     """Result of categories list."""
-    categories: List[Dict[str, Any]] = field(default_factory=list)
+    categories: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -146,7 +146,7 @@ def _canon_rule(rule: dict) -> str:
     })
 
 
-def _fetch_rules_with_resilience(client: Any) -> List[Dict[str, Any]]:
+def _fetch_rules_with_resilience(client: Any) -> list[dict[str, Any]]:
     """Fetch existing rules with auth error handling and cache fallback."""
     try:
         return client.list_filters()
@@ -161,12 +161,12 @@ def _fetch_rules_with_resilience(client: Any) -> List[Dict[str, Any]]:
             return []
 
 
-def _build_rule_criteria(match_spec: Dict[str, Any]) -> Dict[str, Any]:
+def _build_rule_criteria(match_spec: dict[str, Any]) -> dict[str, Any]:
     """Build criteria dict from match spec."""
     return {k: v for k, v in match_spec.items() if k in ("from", "to", "subject") and v}
 
 
-def _build_rule_action(action_spec: Dict[str, Any], ctx: RuleContext) -> Dict[str, Any]:
+def _build_rule_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
     """Build action dict from action spec."""
     action = {}
     add_labs = action_spec.get("add") or []
@@ -190,7 +190,7 @@ def _build_rule_action(action_spec: Dict[str, Any], ctx: RuleContext) -> Dict[st
     return action
 
 
-def _create_rule_key(criteria: Dict[str, Any], action: Dict[str, Any]) -> str:
+def _create_rule_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
     """Create canonical key for a rule."""
     return str({
         "from": criteria.get("from"),
@@ -202,7 +202,7 @@ def _create_rule_key(criteria: Dict[str, Any], action: Dict[str, Any]) -> str:
     })
 
 
-def _build_plan_action(action_spec: Dict[str, Any], ctx: RuleContext) -> Dict[str, Any]:
+def _build_plan_action(action_spec: dict[str, Any], ctx: RuleContext) -> dict[str, Any]:
     """Build action dict for plan (without creating folders)."""
     action = {}
     adds = action_spec.get("add") or []
@@ -223,7 +223,7 @@ def _build_plan_action(action_spec: Dict[str, Any], ctx: RuleContext) -> Dict[st
     return action
 
 
-def _format_plan_action(action: Dict[str, Any], folder_map: Dict[str, str]) -> Dict[str, Any]:
+def _format_plan_action(action: dict[str, Any], folder_map: dict[str, str]) -> dict[str, Any]:
     """Format action dict for plan display (resolve folder IDs to names)."""
     disp = dict(action)
     if action.get("moveToFolderId"):
@@ -232,7 +232,7 @@ def _format_plan_action(action: Dict[str, Any], folder_map: Dict[str, str]) -> D
     return disp
 
 
-def _build_search_query(match_spec: Dict[str, Any]) -> str:
+def _build_search_query(match_spec: dict[str, Any]) -> str:
     """Build search query from match spec."""
     qparts = []
     if match_spec.get("from"):
@@ -247,12 +247,12 @@ def _build_search_query(match_spec: Dict[str, Any]) -> str:
 
 
 def _resolve_destination_folder(
-    action_spec: Dict[str, Any],
+    action_spec: dict[str, Any],
     move_to_folders: bool,
-    folder_paths: Dict[str, str],
+    folder_paths: dict[str, str],
     client: Any,
     dry_run: bool,
-) -> Optional[str]:
+) -> str | None:
     """Resolve destination folder ID for sweep operation."""
     if action_spec.get("moveToFolder"):
         pth = str(action_spec.get("moveToFolder"))
@@ -401,11 +401,11 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
 
     def _create_desired_rules(
         self,
-        desired: List[Dict[str, Any]],
-        existing: Dict[str, Any],
+        desired: list[dict[str, Any]],
+        existing: dict[str, Any],
         ctx: RuleContext,
         dry_run: bool,
-    ) -> Tuple[int, set]:
+    ) -> tuple[int, set]:
         """Create rules from desired specs that don't exist.
 
         Returns:
@@ -438,7 +438,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         return created, desired_keys
 
     def _delete_missing_rules(
-        self, existing: Dict[str, Any], desired_keys: set, payload: OutlookRulesSyncPayload
+        self, existing: dict[str, Any], desired_keys: set, payload: OutlookRulesSyncPayload
     ) -> int:
         """Delete rules that are not in desired set.
 
@@ -499,7 +499,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
 
     def _fetch_existing_rules(
         self, client: Any, use_cache: bool, cache_ttl: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Fetch existing rules with fallback."""
         try:
             return client.list_filters(use_cache=use_cache, ttl=cache_ttl)
@@ -511,12 +511,12 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
 
     def _build_plan_items(
         self,
-        desired: List[Dict[str, Any]],
+        desired: list[dict[str, Any]],
         existing_keys: set,
-        name_to_id: Dict[str, str],
-        folder_map: Dict[str, str],
+        name_to_id: dict[str, str],
+        folder_map: dict[str, str],
         move_to_folders: bool,
-    ) -> List[str]:
+    ) -> list[str]:
         """Build plan items for rules that would be created."""
         plan_items = []
         ctx = RuleContext.for_plan(name_to_id, folder_map, move_to_folders)
@@ -594,8 +594,8 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
 
     def _process_sweep_rules(
         self,
-        desired: List[Dict[str, Any]],
-        folder_paths: Dict[str, str],
+        desired: list[dict[str, Any]],
+        folder_paths: dict[str, str],
         client: Any,
         payload: OutlookRulesSweepPayload,
     ) -> int:
@@ -624,7 +624,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
 
     def _search_messages(
         self, client: Any, query: str, payload: OutlookRulesSweepPayload
-    ) -> List[str]:
+    ) -> list[str]:
         """Search for messages matching query."""
         from core.outlook.mail import SearchParams
         try:
@@ -649,7 +649,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
             )
 
     def _move_messages(
-        self, client: Any, message_ids: List[str], dest_id: str, dry_run: bool
+        self, client: Any, message_ids: list[str], dest_id: str, dry_run: bool
     ) -> int:
         """Move messages to destination folder."""
         if dry_run:
@@ -773,7 +773,7 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
         return created, skipped
 
 
-def _entry_name(entry) -> Optional[str]:
+def _entry_name(entry) -> str | None:
     """Extract the name from a label entry (dict or str)."""
     if isinstance(entry, dict):
         return entry.get("name")
@@ -931,7 +931,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
             )
 
     def _create_events_from_config(
-        self, events: List[Dict[str, Any]], client: Any, no_reminder: bool
+        self, events: list[dict[str, Any]], client: Any, no_reminder: bool
     ) -> int:
         """Create events from config list."""
         created = 0
@@ -951,7 +951,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
 
         return created
 
-    def _create_recurring_event(self, ev: Dict[str, Any], client: Any, no_reminder: bool) -> bool:
+    def _create_recurring_event(self, ev: dict[str, Any], client: Any, no_reminder: bool) -> bool:
         """Create a recurring event from config dict."""
         try:
             client.create_recurring_event(RecurringEventCreationParams(
@@ -975,7 +975,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
         except Exception:  # nosec B110 - recurring event creation failure
             return False
 
-    def _create_single_event(self, ev: Dict[str, Any], client: Any, no_reminder: bool) -> bool:
+    def _create_single_event(self, ev: dict[str, Any], client: Any, no_reminder: bool) -> bool:
         """Create a single event from config dict."""
         start_iso = ev.get("start")
         end_iso = ev.get("end")

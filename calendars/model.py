@@ -5,10 +5,10 @@ shape used by Outlook operations. Keep dependency-light and focused.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
-def _coerce_str(v: Any) -> Optional[str]:
+def _coerce_str(v: Any) -> str | None:
     if v is None:
         return None
     s = str(v).strip()
@@ -23,7 +23,7 @@ def _tok_to_day_code(t: str, day_map: dict) -> str:
     return code or t[:2].upper()
 
 
-def _normalize_byday(v: Any) -> Optional[List[str]]:
+def _normalize_byday(v: Any) -> list[str] | None:
     if not v:
         return None
     # Accept ["MO","TU"], or comma/space separated variants, or full names
@@ -35,7 +35,7 @@ def _normalize_byday(v: Any) -> Optional[List[str]]:
         toks = [str(t).strip() for t in v if str(t).strip()]
     else:
         return None
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for t in toks:
         code = _tok_to_day_code(t, DAY_MAP)
@@ -45,7 +45,7 @@ def _normalize_byday(v: Any) -> Optional[List[str]]:
     return out or None
 
 
-def _normalize_range(ev: Dict[str, Any]) -> Optional[Dict[str, str]]:
+def _normalize_range(ev: dict[str, Any]) -> dict[str, str | None] | None:
     r = ev.get("range") or {}
     start_date = _coerce_str(r.get("start_date") or r.get("startDate")) or _coerce_str(
         ev.get("start_date") or ev.get("startDate")
@@ -56,7 +56,7 @@ def _normalize_range(ev: Dict[str, Any]) -> Optional[Dict[str, str]]:
     )
     if not (start_date or until):
         return None
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     if start_date:
         out["start_date"] = start_date
     if until:
@@ -64,7 +64,7 @@ def _normalize_range(ev: Dict[str, Any]) -> Optional[Dict[str, str]]:
     return out or None
 
 
-def _coerce_int(v: Any) -> Optional[int]:
+def _coerce_int(v: Any) -> int | None:
     """Coerce a value to int, returning None on failure."""
     if v is None:
         return None
@@ -74,7 +74,7 @@ def _coerce_int(v: Any) -> Optional[int]:
         return None
 
 
-def _normalize_exdates(raw: Any) -> Optional[List[str]]:
+def _normalize_exdates(raw: Any) -> list[str] | None:
     """Normalize exdates from list/tuple or comma-separated string."""
     if isinstance(raw, (list, tuple)):
         return [str(x).strip() for x in raw if str(x).strip()] or None
@@ -83,7 +83,7 @@ def _normalize_exdates(raw: Any) -> Optional[List[str]]:
     return None
 
 
-def _normalize_reminder_on(v: Any) -> Optional[bool]:
+def _normalize_reminder_on(v: Any) -> bool | None:
     """Coerce reminder on/off value to bool or None."""
     if isinstance(v, bool):
         return v
@@ -97,25 +97,25 @@ def _normalize_reminder_on(v: Any) -> Optional[bool]:
     return None
 
 
-def normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_event(ev: dict[str, Any]) -> dict[str, Any]:
     """Return a canonical event dict for plan/application.
 
     Canonical keys:
       - subject: str (required by most flows)
-      - calendar: Optional[str]
-      - tz: Optional[str]
-      - location: Optional[str]
-      - body_html: Optional[str]
-      - repeat: Optional[str] ('daily'|'weekly'|'monthly')
-      - interval: Optional[int]
-      - byday: Optional[List[str]]  # e.g., ['MO','WE']
-      - range: Optional[{'start_date': 'YYYY-MM-DD', 'until': 'YYYY-MM-DD'}]
-      - start_time: Optional[str]   # 'HH:MM' for recurring
-      - end_time: Optional[str]     # 'HH:MM' for recurring
-      - exdates: Optional[List[str]]
-      - start: Optional[str]        # ISO for single events
-      - end: Optional[str]
-      - count: Optional[int]
+      - calendar: str | None
+      - tz: str | None
+      - location: str | None
+      - body_html: str | None
+      - repeat: str | None ('daily'|'weekly'|'monthly')
+      - interval: int | None
+      - byday: list[str]  # e.g., ['MO','WE']
+      - range: {'start_date': 'YYYY-MM-DD', 'until': 'YYYY-MM-DD'} | None
+      - start_time: str | None   # 'HH:MM' for recurring
+      - end_time: str | None     # 'HH:MM' for recurring
+      - exdates: list[str]
+      - start: str | None        # ISO for single events
+      - end: str | None
+      - count: int | None
     Accepts legacy aliases and returns canonical names.
     """
     subject = _coerce_str(ev.get("subject"))
@@ -140,7 +140,7 @@ def normalize_event(ev: Dict[str, Any]) -> Dict[str, Any]:
     is_reminder_on = _normalize_reminder_on(rem_on_val)
     reminder_minutes = _coerce_int(ev.get("reminder_minutes") or ev.get("reminderMinutes") or ev.get("reminder-minutes"))
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "subject": subject,
         "calendar": calendar,
         "tz": tz,

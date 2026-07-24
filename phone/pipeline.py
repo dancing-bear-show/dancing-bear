@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.cli_output import emit_one
 from core.pipeline import (
@@ -15,11 +15,12 @@ from core.pipeline import (
     ResultEnvelope,
 )
 
-from .helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
+from .helpers import LayoutLoadError, load_layout, read_lines_file, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
+from .profile import ProfileMetadata
 
 
-def _collect_unique_app(app_id: str, seen: set, all_apps: List[str]) -> None:
+def _collect_unique_app(app_id: str, seen: set, all_apps: list[str]) -> None:
     """Add an app to the all_apps list if not already seen."""
     if app_id and app_id not in seen:
         seen.add(app_id)
@@ -27,8 +28,8 @@ def _collect_unique_app(app_id: str, seen: set, all_apps: List[str]) -> None:
 
 
 def _process_page_folders(
-    folders_in: List[Dict[str, Any]],
-) -> tuple[List[Dict[str, Any]], int]:
+    folders_in: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
     """Process folders from a page and return normalized folders list and count."""
     folders_out = []
     for f in folders_in:
@@ -39,12 +40,12 @@ def _process_page_folders(
 
 
 def _process_pages(
-    pages_in: List[Dict[str, Any]],
+    pages_in: list[dict[str, Any]],
     seen: set,
-    all_apps: List[str],
-) -> tuple[List[Dict[str, Any]], int]:
+    all_apps: list[str],
+) -> tuple[list[dict[str, Any]], int]:
     """Process pages and collect unique apps, returning normalized pages and folder count."""
-    pages_out: List[Dict[str, Any]] = []
+    pages_out: list[dict[str, Any]] = []
     folders_total = 0
 
     for p in pages_in:
@@ -63,9 +64,9 @@ def _process_pages(
 
 
 def _build_manifest_from_export(
-    exp: Dict[str, Any],
+    exp: dict[str, Any],
     export_path: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a manifest dict from raw export data.
 
     Args:
@@ -78,7 +79,7 @@ def _build_manifest_from_export(
     import os
 
     dock = list(exp.get("dock") or [])
-    all_apps: List[str] = []
+    all_apps: list[str] = []
     seen: set = set()
 
     # Process pages and collect apps
@@ -121,7 +122,7 @@ class BaseProducer(_CoreBaseProducer):
 
 @dataclass
 class ExportRequest:
-    backup: Optional[str]
+    backup: str | None
     out_path: Path
 
 
@@ -131,7 +132,7 @@ ExportRequestConsumer = RequestConsumer[ExportRequest]
 
 @dataclass
 class ExportResult:
-    document: Dict[str, Any]
+    document: dict[str, Any]
     out_path: Path
 
 
@@ -149,7 +150,7 @@ class ExportProcessor(SafeProcessor[ExportRequest, ExportResult]):
 
 class ExportProducer(BaseProducer):
     def _produce_success(
-        self, payload: ExportResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: ExportResult, diagnostics: dict[str, Any] | None
     ) -> None:
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote layout export to {payload.out_path}")
@@ -157,8 +158,8 @@ class ExportProducer(BaseProducer):
 
 @dataclass
 class PlanRequest:
-    layout: Optional[str]
-    backup: Optional[str]
+    layout: str | None
+    backup: str | None
     out_path: Path
 
 
@@ -167,7 +168,7 @@ PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 @dataclass
 class PlanResult:
-    document: Dict[str, Any]
+    document: dict[str, Any]
     out_path: Path
 
 
@@ -180,7 +181,7 @@ class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
 
 class PlanProducer(BaseProducer):
     def _produce_success(
-        self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: PlanResult, diagnostics: dict[str, Any] | None
     ) -> None:
         write_yaml(payload.document, payload.out_path)
         print(f"Wrote plan scaffold to {payload.out_path}")
@@ -189,8 +190,8 @@ class PlanProducer(BaseProducer):
 @dataclass
 class ChecklistRequest:
     plan_path: Path
-    layout: Optional[str]
-    backup: Optional[str]
+    layout: str | None
+    backup: str | None
     out_path: Path
 
 
@@ -199,7 +200,7 @@ ChecklistRequestConsumer = RequestConsumer[ChecklistRequest]
 
 @dataclass
 class ChecklistResult:
-    steps: List[str]
+    steps: list[str]
     out_path: Path
 
 
@@ -216,7 +217,7 @@ class ChecklistProcessor(SafeProcessor[ChecklistRequest, ChecklistResult]):
 
 class ChecklistProducer(BaseProducer):
     def _produce_success(
-        self, payload: ChecklistResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: ChecklistResult, diagnostics: dict[str, Any] | None
     ) -> None:
         out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -231,10 +232,10 @@ class ChecklistProducer(BaseProducer):
 
 @dataclass
 class UnusedRequest:
-    layout: Optional[str]
-    backup: Optional[str]
-    recent_path: Optional[str]
-    keep_path: Optional[str]
+    layout: str | None
+    backup: str | None
+    recent_path: str | None
+    keep_path: str | None
     limit: int = 50
     threshold: float = 0.8
     format: str = "text"  # "text" or "csv"
@@ -245,7 +246,7 @@ UnusedRequestConsumer = RequestConsumer[UnusedRequest]
 
 @dataclass
 class UnusedResult:
-    rows: List[tuple]  # (app_id, score, location)
+    rows: list[tuple]  # (app_id, score, location)
     format: str
 
 
@@ -254,8 +255,8 @@ class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
         from .layout import rank_unused_candidates
 
         layout = load_layout(payload.layout, payload.backup)
-        recent = _read_lines_file(payload.recent_path)
-        keep = _read_lines_file(payload.keep_path)
+        recent = read_lines_file(payload.recent_path)
+        keep = read_lines_file(payload.keep_path)
         rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
         rows = [r for r in rows if r[1] >= payload.threshold][: payload.limit]
 
@@ -264,7 +265,7 @@ class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
 
 class UnusedProducer(BaseProducer):
     def _produce_success(
-        self, payload: UnusedResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: UnusedResult, diagnostics: dict[str, Any] | None
     ) -> None:
         rows = payload.rows
         if payload.format == "csv":
@@ -285,10 +286,10 @@ class UnusedProducer(BaseProducer):
 
 @dataclass
 class PruneRequest:
-    layout: Optional[str]
-    backup: Optional[str]
-    recent_path: Optional[str]
-    keep_path: Optional[str]
+    layout: str | None
+    backup: str | None
+    recent_path: str | None
+    keep_path: str | None
     limit: int = 50
     threshold: float = 1.0
     mode: str = "offload"  # "offload" or "delete"
@@ -300,7 +301,7 @@ PruneRequestConsumer = RequestConsumer[PruneRequest]
 
 @dataclass
 class PruneResult:
-    lines: List[str]
+    lines: list[str]
     out_path: Path
 
 
@@ -309,8 +310,8 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
         from .layout import rank_unused_candidates
 
         layout = load_layout(payload.layout, payload.backup)
-        recent = _read_lines_file(payload.recent_path)
-        keep = _read_lines_file(payload.keep_path)
+        recent = read_lines_file(payload.recent_path)
+        keep = read_lines_file(payload.keep_path)
         rows = rank_unused_candidates(layout, recent_ids=recent, keep_ids=keep)
         rows = [r for r in rows if r[1] >= payload.threshold][: payload.limit]
 
@@ -336,7 +337,7 @@ class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
 
 class PruneProducer(BaseProducer):
     def _produce_success(
-        self, payload: PruneResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: PruneResult, diagnostics: dict[str, Any] | None
     ) -> None:
         out = payload.out_path
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -351,9 +352,9 @@ class PruneProducer(BaseProducer):
 
 @dataclass
 class AnalyzeRequest:
-    layout: Optional[str]
-    backup: Optional[str]
-    plan_path: Optional[str]
+    layout: str | None
+    backup: str | None
+    plan_path: str | None
     format: str = "text"  # "text" or "json"
 
 
@@ -362,7 +363,7 @@ AnalyzeRequestConsumer = RequestConsumer[AnalyzeRequest]
 
 @dataclass
 class AnalyzeResult:
-    metrics: Dict[str, Any]
+    metrics: dict[str, Any]
     format: str
 
 
@@ -384,7 +385,7 @@ class AnalyzeProcessor(SafeProcessor[AnalyzeRequest, AnalyzeResult]):
 
 class AnalyzeProducer(BaseProducer):
     def _produce_success(
-        self, payload: AnalyzeResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: AnalyzeResult, diagnostics: dict[str, Any] | None
     ) -> None:
         metrics = payload.metrics
 
@@ -426,8 +427,8 @@ class AnalyzeProducer(BaseProducer):
 
 @dataclass
 class ExportDeviceRequest:
-    udid: Optional[str]
-    ecid: Optional[str]
+    udid: str | None
+    ecid: str | None
     out_path: Path
 
 
@@ -436,7 +437,7 @@ ExportDeviceRequestConsumer = RequestConsumer[ExportDeviceRequest]
 
 @dataclass
 class ExportDeviceResult:
-    document: Dict[str, Any]
+    document: dict[str, Any]
     out_path: Path
 
 
@@ -459,7 +460,7 @@ class ExportDeviceProcessor(SafeProcessor[ExportDeviceRequest, ExportDeviceResul
 
 class ExportDeviceProducer(BaseProducer):
     def _produce_success(
-        self, payload: ExportDeviceResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: ExportDeviceResult, diagnostics: dict[str, Any] | None
     ) -> None:
         payload.out_path.parent.mkdir(parents=True, exist_ok=True)
         write_yaml(payload.document, payload.out_path)
@@ -468,8 +469,8 @@ class ExportDeviceProducer(BaseProducer):
 
 @dataclass
 class IconmapRequest:
-    udid: Optional[str]
-    ecid: Optional[str]
+    udid: str | None
+    ecid: str | None
     format: str  # "json" or "plist"
     out_path: Path
 
@@ -510,7 +511,7 @@ class IconmapProcessor(SafeProcessor[IconmapRequest, IconmapResult]):
 
 class IconmapProducer(BaseProducer):
     def _produce_success(
-        self, payload: IconmapResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: IconmapResult, diagnostics: dict[str, Any] | None
     ) -> None:
         payload.out_path.parent.mkdir(parents=True, exist_ok=True)
         payload.out_path.write_bytes(payload.data)
@@ -533,7 +534,7 @@ ManifestFromExportRequestConsumer = RequestConsumer[ManifestFromExportRequest]
 
 @dataclass
 class ManifestFromExportResult:
-    manifest: Dict[str, Any]
+    manifest: dict[str, Any]
     out_path: Path
 
 
@@ -557,7 +558,7 @@ class ManifestFromExportProcessor(
 
 class ManifestFromExportProducer(BaseProducer):
     def _produce_success(
-        self, payload: ManifestFromExportResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: ManifestFromExportResult, diagnostics: dict[str, Any] | None
     ) -> None:
         write_yaml(payload.manifest, payload.out_path)
         print(f"Wrote device layout manifest to {payload.out_path}")
@@ -565,8 +566,8 @@ class ManifestFromExportProducer(BaseProducer):
 
 @dataclass
 class ManifestFromDeviceRequest:
-    udid: Optional[str]
-    export_out: Optional[Path]
+    udid: str | None
+    export_out: Path | None
     out_path: Path
 
 
@@ -575,10 +576,10 @@ ManifestFromDeviceRequestConsumer = RequestConsumer[ManifestFromDeviceRequest]
 
 @dataclass
 class ManifestFromDeviceResult:
-    manifest: Dict[str, Any]
+    manifest: dict[str, Any]
     out_path: Path
-    export_out: Optional[Path]
-    export_document: Optional[Dict[str, Any]]
+    export_out: Path | None
+    export_document: dict[str, Any] | None
 
 
 class ManifestFromDeviceProcessor(
@@ -613,7 +614,7 @@ class ManifestFromDeviceProcessor(
 
 class ManifestFromDeviceProducer(BaseProducer):
     def _produce_success(
-        self, payload: ManifestFromDeviceResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: ManifestFromDeviceResult, diagnostics: dict[str, Any] | None
     ) -> None:
         # Write export if path specified or default
         if payload.export_document:
@@ -633,12 +634,12 @@ class ManifestFromDeviceProducer(BaseProducer):
 @dataclass
 class ManifestInstallRequest:
     manifest_path: Path
-    out_path: Optional[Path]
+    out_path: Path | None
     dry_run: bool
-    udid: Optional[str]
-    device_label: Optional[str]
-    creds_profile: Optional[str]
-    config: Optional[str]
+    udid: str | None
+    device_label: str | None
+    creds_profile: str | None
+    config: str | None
 
 
 ManifestInstallRequestConsumer = RequestConsumer[ManifestInstallRequest]
@@ -649,10 +650,10 @@ class ManifestInstallResult:
     profile_path: Path
     profile_bytes: bytes
     dry_run: bool
-    install_cmd: Optional[List[str]]
+    install_cmd: list[str] | None
 
 
-def _load_and_validate_manifest(manifest_path: Path) -> Dict[str, Any]:
+def _load_and_validate_manifest(manifest_path: Path) -> dict[str, Any]:
     """Load manifest from path and validate it's a dict."""
     try:
         man = read_yaml(manifest_path)
@@ -664,7 +665,7 @@ def _load_and_validate_manifest(manifest_path: Path) -> Dict[str, Any]:
     return man
 
 
-def _extract_plan_from_manifest(man: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_plan_from_manifest(man: dict[str, Any]) -> dict[str, Any]:
     """Extract or derive plan from manifest dict."""
     plan = man.get("plan") or {}
     if not plan and man.get("layout"):
@@ -675,7 +676,7 @@ def _extract_plan_from_manifest(man: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _determine_profile_path(
-    payload_path: Optional[Path], manifest: Dict[str, Any]
+    payload_path: Path | None, manifest: dict[str, Any]
 ) -> Path:
     """Determine output path for profile."""
     if payload_path:
@@ -687,9 +688,9 @@ def _determine_profile_path(
 
 def _build_install_command(
     payload: ManifestInstallRequest,
-    manifest: Dict[str, Any],
+    manifest: dict[str, Any],
     profile_path: Path,
-) -> Optional[List[str]]:
+) -> list[str] | None:
     """Build install command if not dry-run."""
     if payload.dry_run:
         return None
@@ -726,19 +727,20 @@ class ManifestInstallProcessor(
 ):
     def _process_safe(self, payload: ManifestInstallRequest) -> ManifestInstallResult:
         import plistlib
-        from .profile import ProfileMetadata, build_mobileconfig
+        from .profile import build_mobileconfig
 
         man = _load_and_validate_manifest(payload.manifest_path)
         plan = _extract_plan_from_manifest(man)
 
+        _defaults = ProfileMetadata()
         prof = man.get("profile") or {}
         profile_dict = build_mobileconfig(
             plan=plan,
             layout_export=None,
             profile_meta=ProfileMetadata(
-                top_identifier=prof.get("identifier", "com.example.profile"),
-                hs_identifier=prof.get("hs_identifier", "com.example.hslayout"),
-                display_name=prof.get("display_name", "Home Screen Layout"),
+                top_identifier=prof.get("identifier", _defaults.top_identifier),
+                hs_identifier=prof.get("hs_identifier", _defaults.hs_identifier),
+                display_name=prof.get("display_name", _defaults.display_name),
                 organization=prof.get("organization"),
             ),
             dock_count=4,
@@ -760,7 +762,7 @@ class ManifestInstallProcessor(
 
 class ManifestInstallProducer(BaseProducer):
     def _produce_success(
-        self, payload: ManifestInstallResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: ManifestInstallResult, diagnostics: dict[str, Any] | None
     ) -> None:
         import subprocess  # nosec B404
 
@@ -781,15 +783,15 @@ class ManifestInstallProducer(BaseProducer):
                 print("Error: ios-install-profile not found", file=sys.stderr)
 
 
-def _plan_from_layout(layout_obj: Dict[str, Any]) -> Dict[str, Any]:
+def _plan_from_layout(layout_obj: dict[str, Any]) -> dict[str, Any]:
     """Convert a layout object to a plan format."""
-    plan: Dict[str, Any] = {
+    plan: dict[str, Any] = {
         "dock": list(layout_obj.get("dock") or []),
         "pages": {},
         "folders": {},
     }
     pages = layout_obj.get("pages") or []
-    page_map: Dict[int, Dict[str, Any]] = {}
+    page_map: dict[int, dict[str, Any]] = {}
     for idx, p in enumerate(pages, start=1):
         apps = list(p.get("apps") or [])
         folders = []
@@ -810,13 +812,13 @@ def _plan_from_layout(layout_obj: Dict[str, Any]) -> Dict[str, Any]:
 
 @dataclass
 class IdentityVerifyRequest:
-    p12_path: Optional[str]
-    p12_pass: Optional[str]
-    creds_profile: Optional[str]
-    config: Optional[str]
-    device_label: Optional[str]
-    udid: Optional[str]
-    expected_org: Optional[str]
+    p12_path: str | None
+    p12_pass: str | None
+    creds_profile: str | None
+    config: str | None
+    device_label: str | None
+    udid: str | None
+    expected_org: str | None
 
 
 IdentityVerifyRequestConsumer = RequestConsumer[IdentityVerifyRequest]
@@ -827,10 +829,10 @@ class IdentityVerifyResult:
     p12_path: str
     cert_subject: str
     cert_issuer: str
-    udid: Optional[str]
-    supervised: Optional[str]
-    expected_org: Optional[str]
-    org_match: Optional[bool]
+    udid: str | None
+    supervised: str | None
+    expected_org: str | None
+    org_match: bool | None
 
 
 class IdentityVerifyProcessor(
@@ -882,7 +884,7 @@ class IdentityVerifyProcessor(
         supervised = get_device_supervision_status()
 
         # Check org match if expected
-        org_match: Optional[bool] = None
+        org_match: bool | None = None
         if payload.expected_org:
             org_match = (payload.expected_org in cert.subject) or (
                 payload.expected_org in cert.issuer
@@ -901,7 +903,7 @@ class IdentityVerifyProcessor(
 
 class IdentityVerifyProducer(BaseProducer):
     def _produce_success(
-        self, payload: IdentityVerifyResult, diagnostics: Optional[Dict[str, Any]]
+        self, payload: IdentityVerifyResult, diagnostics: dict[str, Any] | None
     ) -> None:
         print("Identity Verification Summary")
         print(f"- p12: {payload.p12_path}")
@@ -922,25 +924,3 @@ class IdentityVerifyProducer(BaseProducer):
         print(
             "- If they do not match, Prepare again under the correct Organization, or export the matching Supervision Identity."
         )
-
-
-# -----------------------------------------------------------------------------
-# Helper
-# -----------------------------------------------------------------------------
-
-
-def _read_lines_file(path: Optional[str]) -> List[str]:
-    """Read non-empty, non-comment lines from a file."""
-    if not path:
-        return []
-    p = Path(path).expanduser()
-    if not p.exists():
-        return []
-    try:
-        return [
-            ln.strip()
-            for ln in p.read_text(encoding="utf-8").splitlines()
-            if ln.strip() and not ln.strip().startswith("#")
-        ]
-    except Exception:
-        return []

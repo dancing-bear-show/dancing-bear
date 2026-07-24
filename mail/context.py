@@ -3,17 +3,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.context import AppContext
 
 
 @dataclass
 class MailContext(AppContext):
-    gmail_client: Optional[Any] = field(default=None, init=False)
+    gmail_client: Any | None = field(default=None, init=False)
 
     @classmethod
-    def from_args(cls, args: object, config: Optional[Dict[str, str]] = None) -> "MailContext":
+    def from_args(cls, args: object, config: dict[str, str] | None = None) -> "MailContext":
         return cls(root=Path.cwd(), config=config or {}, args=args)
 
     def get_gmail_client(self):

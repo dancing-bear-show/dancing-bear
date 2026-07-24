@@ -9,7 +9,6 @@ All processing is local-first with dry-run/plan-then-apply patterns.
 
 from __future__ import annotations
 
-from typing import Optional, List
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
@@ -70,15 +69,6 @@ def _lazy_agentic():
 
 # --- outlook group ---
 outlook_group = app.group("outlook", help="Outlook calendar operations")
-
-
-# Common outlook auth args as a helper
-def _outlook_args(cmd):
-    """Add common Outlook auth arguments to a command."""
-    cmd = outlook_group.argument("--client-id", help="Azure app (client) ID")(cmd)
-    cmd = outlook_group.argument("--tenant", default="consumers", help="AAD tenant")(cmd)
-    cmd = outlook_group.argument("--token", help="Path to token cache JSON")(cmd)
-    return cmd
 
 
 @outlook_group.command("add", help="Add a one-time event to a calendar")
@@ -392,7 +382,7 @@ def _add_profile_arg(parser) -> None:
     parser.add_argument("--profile", help="Credentials profile (INI section suffix)")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Calendar Assistant CLI."""
     return app.run_with_assistant(
         assistant=assistant,

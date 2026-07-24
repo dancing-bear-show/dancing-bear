@@ -2,7 +2,9 @@ import types
 import unittest
 from types import SimpleNamespace
 
-from tests.fixtures import capture_stdout, make_outlook_event, FakeCalendarService
+from tests.fixtures import capture_stdout
+from tests.calendars_tests.fixtures import make_outlook_event
+from tests.fakes import FakeCalendarService
 
 
 class TestDedupFlow(unittest.TestCase):

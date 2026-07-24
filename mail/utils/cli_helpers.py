@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Dict, Optional
 from ..providers.gmail import GmailProvider
 from ..config_resolver import resolve_paths_profile, persist_if_provided, get_outlook_client_id_for_profile
 
@@ -22,7 +21,7 @@ def gmail_provider_from_args(args):
     )
 
 
-def is_outlook_profile(profile: Optional[str]) -> bool:
+def is_outlook_profile(profile: str | None) -> bool:
     """Return True only for an explicit profile with Outlook credentials configured.
 
     Returns False when profile is None/empty or the profile section does not
@@ -74,12 +73,12 @@ def gmail_client_authenticated(args):
 
 
 def add_outlook_common_args(parser):
-    # Backward shim: kept for compatibility; prefer mail.cli.args
+    # deprecated: use mail.cli.args directly
     from ..cli.args import add_outlook_common_args as _impl
     return _impl(parser)
 
 
-def preview_criteria(criteria: Optional[Dict]) -> str:
+def preview_criteria(criteria: dict | None) -> str:
     """Return a concise preview of criteria for display.
 
     Shows from/to/subject if present; elides long query bodies.

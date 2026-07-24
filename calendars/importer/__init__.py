@@ -11,7 +11,6 @@ compatibility for the original functional API.
 from __future__ import annotations
 
 import os
-from typing import List, Optional
 
 # Public API - Data Model
 from .model import ScheduleItem
@@ -72,7 +71,7 @@ _EXT_PARSERS = {
 }
 
 
-def _get_parser_for_source(source: str, kind: Optional[str]) -> ScheduleParser:
+def _get_parser_for_source(source: str, kind: str | None) -> ScheduleParser:
     """Get appropriate parser for source based on kind or extension."""
     k = (kind or '').strip().lower()
 
@@ -89,7 +88,7 @@ def _get_parser_for_source(source: str, kind: Optional[str]) -> ScheduleParser:
     return parser_cls()
 
 
-def load_schedule(source: str, kind: Optional[str] = None) -> List[ScheduleItem]:
+def load_schedule(source: str, kind: str | None = None) -> list[ScheduleItem]:
     """Load schedule items from a source path/URL.
 
     Args:

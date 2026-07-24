@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Optional
 
 from ..utils.filters import build_gmail_query
 
 
-def select_message_id(args: argparse.Namespace, client) -> tuple[Optional[str], Optional[str]]:
+def select_message_id(args: argparse.Namespace, client) -> tuple[str | None, str | None]:
     """Return (message_id, thread_id) resolved from --id or --query/--latest."""
     mid = getattr(args, "id", None)
     if mid:
@@ -120,7 +119,7 @@ def _reply_show_plan(args, to_email: str, orig_subj: str) -> int:
     return 0
 
 
-def _reply_schedule(args, raw: bytes, thread_id: Optional[str], to_email: str, subject: str) -> int:
+def _reply_schedule(args, raw: bytes, thread_id: str | None, to_email: str, subject: str) -> int:
     """Schedule reply for later sending."""
     from ..scheduler import parse_send_at, parse_send_in, enqueue, ScheduledItem
     import base64
@@ -202,7 +201,7 @@ def _build_reply_body(args, client, mid: str) -> list[str]:
     return body_lines
 
 
-def _reply_execute(args, client, raw: bytes, thread_id: Optional[str], to_email: str) -> None:
+def _reply_execute(args, client, raw: bytes, thread_id: str | None, to_email: str) -> None:
     """Execute reply action (send, draft, or preview)."""
     if getattr(args, "apply", False):
         client.send_message_raw(raw, thread_id=thread_id)

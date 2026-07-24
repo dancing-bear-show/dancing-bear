@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
 
 from core.pipeline import Processor, ResultEnvelope
 
@@ -29,16 +28,16 @@ from .consumers import (
 
 @dataclass
 class FilterPlanEntry:
-    criteria: Dict
-    action_names: Dict[str, object]
+    criteria: dict
+    action_names: dict[str, object]
 
 
 @dataclass
 class FiltersPlanResult:
-    to_create: List[FilterPlanEntry]
-    to_delete: List[Dict]
+    to_create: list[FilterPlanEntry]
+    to_delete: list[dict]
     add_counts: Counter
-    id_to_name: Dict[str, str]
+    id_to_name: dict[str, str]
 
 
 class FiltersPlanProcessor(Processor[FiltersPlanPayload, ResultEnvelope[FiltersPlanResult]]):
@@ -46,7 +45,7 @@ class FiltersPlanProcessor(Processor[FiltersPlanPayload, ResultEnvelope[FiltersP
 
     def process(self, payload: FiltersPlanPayload) -> ResultEnvelope[FiltersPlanResult]:
         existing_map = {_canon_existing(f): f for f in payload.existing_filters}
-        desired_entries: List[Tuple[str, FilterPlanEntry]] = []
+        desired_entries: list[tuple[str, FilterPlanEntry]] = []
         desired_keys: set[str] = set()
         add_counter: Counter = Counter()
 
@@ -58,7 +57,7 @@ class FiltersPlanProcessor(Processor[FiltersPlanPayload, ResultEnvelope[FiltersP
                 add_counter[name] += 1
 
         to_create = [entry for key, entry in desired_entries if key not in existing_map]
-        to_delete: List[Dict] = []
+        to_delete: list[dict] = []
         if payload.delete_missing:
             extra_keys = set(existing_map.keys()) - desired_keys
             to_delete = [existing_map[k] for k in extra_keys]
@@ -74,8 +73,8 @@ class FiltersPlanProcessor(Processor[FiltersPlanPayload, ResultEnvelope[FiltersP
 
 @dataclass
 class FiltersSyncResult:
-    to_create: List[FilterPlanEntry]
-    to_delete: List[Dict]
+    to_create: list[FilterPlanEntry]
+    to_delete: list[dict]
 
 
 class FiltersSyncProcessor(Processor[FiltersSyncPayload, ResultEnvelope[FiltersSyncResult]]):
@@ -93,7 +92,7 @@ class FiltersSyncProcessor(Processor[FiltersSyncPayload, ResultEnvelope[FiltersS
                     },
                 )
 
-        desired_entries: List[tuple[str, FilterPlanEntry]] = []
+        desired_entries: list[tuple[str, FilterPlanEntry]] = []
         desired_keys: set[str] = set()
         for spec in payload.desired_filters:
             key, entry = _canon_desired_with_names(spec)
@@ -104,7 +103,7 @@ class FiltersSyncProcessor(Processor[FiltersSyncPayload, ResultEnvelope[FiltersS
             _canon_existing_with_names(f, payload.id_to_name): f for f in payload.existing_filters
         }
         to_create = [entry for key, entry in desired_entries if key not in existing_map]
-        to_delete: List[Dict] = []
+        to_delete: list[dict] = []
         if payload.delete_missing:
             extra_keys = set(existing_map.keys()) - desired_keys
             to_delete = [existing_map[k] for k in extra_keys]
@@ -123,7 +122,7 @@ class FilterImpactRecord:
 
 @dataclass
 class FiltersImpactResult:
-    records: List[FilterImpactRecord]
+    records: list[FilterImpactRecord]
     total: int
 
 
@@ -131,7 +130,7 @@ class FiltersImpactProcessor(Processor[FiltersImpactPayload, ResultEnvelope[Filt
     """Compute impact counts for desired filters."""
 
     def process(self, payload: FiltersImpactPayload) -> ResultEnvelope[FiltersImpactResult]:
-        records: List[FilterImpactRecord] = []
+        records: list[FilterImpactRecord] = []
         total = 0
         for spec in payload.filters:
             match = spec.get("match") or {}
@@ -148,7 +147,7 @@ class FiltersImpactProcessor(Processor[FiltersImpactPayload, ResultEnvelope[Filt
 
 @dataclass
 class FiltersExportResult:
-    filters: List[dict]
+    filters: list[dict]
     out_path: str
 
 
@@ -156,7 +155,7 @@ class FiltersExportProcessor(Processor[FiltersExportPayload, ResultEnvelope[Filt
     """Convert Gmail filters into DSL export format."""
 
     def process(self, payload: FiltersExportPayload) -> ResultEnvelope[FiltersExportResult]:
-        entries: List[dict] = []
+        entries: list[dict] = []
         for filt in payload.filters:
             entry: dict = {}
             criteria = self._export_criteria(filt.get("criteria") or {})
@@ -173,8 +172,8 @@ class FiltersExportProcessor(Processor[FiltersExportPayload, ResultEnvelope[Filt
             payload=FiltersExportResult(filters=entries, out_path=str(payload.out_path)),
         )
 
-    def _export_criteria(self, criteria: Dict) -> Dict:
-        out: Dict = {}
+    def _export_criteria(self, criteria: dict) -> dict:
+        out: dict = {}
         for key in ("from", "to", "subject", "query", "negatedQuery"):
             if criteria.get(key):
                 out[key] = criteria[key]
@@ -183,14 +182,14 @@ class FiltersExportProcessor(Processor[FiltersExportPayload, ResultEnvelope[Filt
         if criteria.get("excludeChats") is not None:
             out["excludeChats"] = bool(criteria.get("excludeChats"))
         if criteria.get("size") is not None:
-            size_entry: Dict[str, object] = {"bytes": int(criteria.get("size") or 0)}
+            size_entry: dict[str, object] = {"bytes": int(criteria.get("size") or 0)}
             if criteria.get("sizeComparison"):
                 size_entry["comparison"] = criteria.get("sizeComparison")
             out["size"] = size_entry
         return out
 
-    def _export_action(self, action: Dict, id_to_name: Dict[str, str]) -> Dict:
-        out: Dict = {}
+    def _export_action(self, action: dict, id_to_name: dict[str, str]) -> dict:
+        out: dict = {}
         add_names = _ids_to_names(action.get("addLabelIds"), id_to_name)
         if add_names:
             out["addLabels"] = add_names
@@ -214,7 +213,7 @@ class FiltersExportProcessor(Processor[FiltersExportPayload, ResultEnvelope[Filt
         return out
 
 
-def _canon_existing(filter_entry: Dict) -> str:
+def _canon_existing(filter_entry: dict) -> str:
     criteria = filter_entry.get("criteria", {}) or {}
     action = filter_entry.get("action", {}) or {}
     key = {
@@ -230,7 +229,7 @@ def _canon_existing(filter_entry: Dict) -> str:
     return str(key)
 
 
-def _canon_desired(spec: Dict, name_to_id: Dict[str, str]) -> Tuple[str, FilterPlanEntry]:
+def _canon_desired(spec: dict, name_to_id: dict[str, str]) -> tuple[str, FilterPlanEntry]:
     match = spec.get("match") or {}
     action = spec.get("action") or {}
     criteria = build_criteria_from_match(match)
@@ -266,11 +265,11 @@ def _canon_desired(spec: Dict, name_to_id: Dict[str, str]) -> Tuple[str, FilterP
     return key, entry
 
 
-def _map_label_name(name: str, name_to_id: Dict[str, str]) -> str:
+def _map_label_name(name: str, name_to_id: dict[str, str]) -> str:
     return name_to_id.get(name, name)
 
 
-def _canon_existing_with_names(filter_entry: Dict, id_to_name: Dict[str, str]) -> str:
+def _canon_existing_with_names(filter_entry: dict, id_to_name: dict[str, str]) -> str:
     criteria = filter_entry.get("criteria", {}) or {}
     action = filter_entry.get("action", {}) or {}
     add_names = [
@@ -292,7 +291,7 @@ def _canon_existing_with_names(filter_entry: Dict, id_to_name: Dict[str, str]) -
     return str(key)
 
 
-def _canon_desired_with_names(spec: Dict) -> tuple[str, FilterPlanEntry]:
+def _canon_desired_with_names(spec: dict) -> tuple[str, FilterPlanEntry]:
     criteria = build_criteria_from_match(spec.get("match") or {})
     action_names = _build_action_names(spec, include_categories=True)
     key = str(
@@ -310,14 +309,14 @@ def _canon_desired_with_names(spec: Dict) -> tuple[str, FilterPlanEntry]:
     return key, FilterPlanEntry(criteria=criteria, action_names=action_names)
 
 
-def _build_action_names(spec: Dict, *, include_categories: bool = False) -> Dict[str, object]:
+def _build_action_names(spec: dict, *, include_categories: bool = False) -> dict[str, object]:
     action = spec.get("action") or {}
     add = list(action.get("add") or [])
     if include_categories:
         add.extend(expand_categories(action))
     remove = list(action.get("remove") or [])
     forward = action.get("forward")
-    act: Dict[str, object] = {}
+    act: dict[str, object] = {}
     if add:
         act["add"] = add
     if remove:
@@ -327,7 +326,7 @@ def _build_action_names(spec: Dict, *, include_categories: bool = False) -> Dict
     return act
 
 
-def _find_unverified_forward(desired: List[Dict], verified: set[str]) -> str | None:
+def _find_unverified_forward(desired: list[dict], verified: set[str]) -> str | None:
     for spec in desired:
         if not isinstance(spec, dict):
             continue
@@ -338,8 +337,8 @@ def _find_unverified_forward(desired: List[Dict], verified: set[str]) -> str | N
     return None
 
 
-def _ids_to_names(ids: List[str] | None, id_to_name: Dict[str, str]) -> List[str]:
-    names: List[str] = []
+def _ids_to_names(ids: list[str] | None, id_to_name: dict[str, str]) -> list[str]:
+    names: list[str] = []
     for lid in ids or []:
         name = id_to_name.get(lid)
         if name:
@@ -358,13 +357,13 @@ class SweepConfig:
 @dataclass
 class FiltersSweepInstruction:
     query: str
-    add_label_ids: List[str]
-    remove_label_ids: List[str]
+    add_label_ids: list[str]
+    remove_label_ids: list[str]
 
 
 @dataclass
 class FiltersSweepResult:
-    instructions: List[FiltersSweepInstruction]
+    instructions: list[FiltersSweepInstruction]
 
 
 class FiltersSweepProcessor(Processor[FiltersSweepPayload, ResultEnvelope[FiltersSweepResult]]):
@@ -381,19 +380,19 @@ class FiltersSweepProcessor(Processor[FiltersSweepPayload, ResultEnvelope[Filter
 @dataclass
 class FiltersSweepWindowResult:
     label: str
-    instructions: List[FiltersSweepInstruction]
+    instructions: list[FiltersSweepInstruction]
 
 
 @dataclass
 class FiltersSweepRangeResult:
-    windows: List[FiltersSweepWindowResult]
+    windows: list[FiltersSweepWindowResult]
 
 
 class FiltersSweepRangeProcessor(Processor[FiltersSweepRangePayload, ResultEnvelope[FiltersSweepRangeResult]]):
     """Prepare sweep instructions for ranged windows."""
 
     def process(self, payload: FiltersSweepRangePayload) -> ResultEnvelope[FiltersSweepRangeResult]:
-        windows: List[FiltersSweepWindowResult] = []
+        windows: list[FiltersSweepWindowResult] = []
         cur = payload.from_days
         while cur < payload.to_days:
             newer = min(cur + payload.step_days, payload.to_days)
@@ -410,21 +409,21 @@ class FiltersSweepRangeProcessor(Processor[FiltersSweepRangePayload, ResultEnvel
 
 @dataclass
 class FilterPruneCandidate:
-    filter_obj: Dict
+    filter_obj: dict
     query: str
     is_empty: bool
 
 
 @dataclass
 class FiltersPruneResult:
-    candidates: List[FilterPruneCandidate]
+    candidates: list[FilterPruneCandidate]
 
 
 class FiltersPruneProcessor(Processor[FiltersPrunePayload, ResultEnvelope[FiltersPruneResult]]):
     """Determine filters that match zero messages."""
 
     def process(self, payload: FiltersPrunePayload) -> ResultEnvelope[FiltersPruneResult]:
-        candidates: List[FilterPruneCandidate] = []
+        candidates: list[FilterPruneCandidate] = []
         for filter_entry in payload.filters:
             criteria = filter_entry.get("criteria", {}) or {}
             query = build_gmail_query(criteria, days=payload.days, only_inbox=payload.only_inbox)
@@ -441,15 +440,15 @@ class FiltersPruneProcessor(Processor[FiltersPrunePayload, ResultEnvelope[Filter
 
 @dataclass
 class FilterForwardUpdate:
-    filter_obj: Dict
-    criteria: Dict
-    action: Dict
+    filter_obj: dict
+    criteria: dict
+    action: dict
     label_prefix: str
 
 
 @dataclass
 class FiltersAddForwardResult:
-    updates: List[FilterForwardUpdate]
+    updates: list[FilterForwardUpdate]
     destination: str
 
 
@@ -467,7 +466,7 @@ class FiltersAddForwardProcessor(Processor[FiltersAddForwardPayload, ResultEnvel
                 },
             )
 
-        updates: List[FilterForwardUpdate] = []
+        updates: list[FilterForwardUpdate] = []
         prefix = payload.label_prefix
 
         def matches_prefix(name: str) -> bool:
@@ -499,23 +498,23 @@ class FiltersAddForwardProcessor(Processor[FiltersAddForwardPayload, ResultEnvel
 
 @dataclass
 class FilterTokenUpdate:
-    filter_obj: Dict
-    criteria: Dict
-    action: Dict
+    filter_obj: dict
+    criteria: dict
+    action: dict
     new_from: str
     old_from: str
 
 
 @dataclass
 class FiltersAddTokenResult:
-    updates: List[FilterTokenUpdate]
+    updates: list[FilterTokenUpdate]
 
 
 class FiltersAddTokenProcessor(Processor[FiltersAddTokenPayload, ResultEnvelope[FiltersAddTokenResult]]):
     """Compute new 'from' clauses when adding tokens."""
 
     def process(self, payload: FiltersAddTokenPayload) -> ResultEnvelope[FiltersAddTokenResult]:
-        updates: List[FilterTokenUpdate] = []
+        updates: list[FilterTokenUpdate] = []
         matches = _matching_filters_for_token_ops(
             payload.filters,
             payload.id_to_name,
@@ -550,14 +549,14 @@ class FiltersAddTokenProcessor(Processor[FiltersAddTokenPayload, ResultEnvelope[
 
 @dataclass
 class FiltersRemoveTokenResult:
-    updates: List[FilterTokenUpdate]
+    updates: list[FilterTokenUpdate]
 
 
 class FiltersRemoveTokenProcessor(Processor[FiltersRemoveTokenPayload, ResultEnvelope[FiltersRemoveTokenResult]]):
     """Compute new 'from' clauses when removing tokens."""
 
     def process(self, payload: FiltersRemoveTokenPayload) -> ResultEnvelope[FiltersRemoveTokenResult]:
-        updates: List[FilterTokenUpdate] = []
+        updates: list[FilterTokenUpdate] = []
         tokens_to_remove = {tok.lower() for tok in payload.tokens}
         matches = _matching_filters_for_token_ops(
             payload.filters,
@@ -586,7 +585,7 @@ class FiltersRemoveTokenProcessor(Processor[FiltersRemoveTokenPayload, ResultEnv
 
 
 def _build_sweep_instruction(
-    spec: Dict,
+    spec: dict,
     client: object,
     config: SweepConfig,
 ) -> FiltersSweepInstruction:
@@ -613,13 +612,13 @@ def _build_sweep_instruction(
 
 
 def _matching_filters_for_token_ops(
-    filters: List[Dict],
-    id_to_name: Dict[str, str],
+    filters: list[dict],
+    id_to_name: dict[str, str],
     *,
     label_prefix: str,
     needle: str,
-) -> List[tuple[Dict, str]]:
-    matches: List[tuple[Dict, str]] = []
+) -> list[tuple[dict, str]]:
+    matches: list[tuple[dict, str]] = []
 
     def matches_prefix(name: str) -> bool:
         return name == label_prefix or name.startswith(label_prefix + "/")
@@ -638,5 +637,5 @@ def _matching_filters_for_token_ops(
     return matches
 
 
-def _split_or_clause(clause: str) -> List[str]:
+def _split_or_clause(clause: str) -> list[str]:
     return [part.strip() for part in clause.split("OR") if part.strip()]

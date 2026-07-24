@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
@@ -19,18 +19,18 @@ class LayoutLoadError(Exception):
         return self.message
 
 
-def write_yaml(data: Dict[str, Any], out_path: Path) -> None:
+def write_yaml(data: dict[str, Any], out_path: Path) -> None:
     _dump_yaml(str(out_path), data)
 
 
-def read_yaml(in_path: Path) -> Dict[str, Any]:
+def read_yaml(in_path: Path) -> dict[str, Any]:
     if not in_path.exists():
         raise FileNotFoundError(in_path)
     data = _load_yaml(str(in_path)) or {}
     return data
 
 
-def _layout_from_export(export: Dict[str, Any]) -> NormalizedLayout:
+def _layout_from_export(export: dict[str, Any]) -> NormalizedLayout:
     dock = export.get("dock") or []
     pages = []
     for p in export.get("pages") or []:
@@ -46,7 +46,7 @@ def _layout_from_export(export: Dict[str, Any]) -> NormalizedLayout:
 
 
 def load_layout(
-    layout_path: Optional[str], backup_path: Optional[str]
+    layout_path: str | None, backup_path: str | None
 ) -> NormalizedLayout:
     if layout_path:
         export = read_yaml(Path(layout_path).expanduser())
@@ -69,7 +69,7 @@ def load_layout(
     return normalize_iconstate(data)
 
 
-def read_lines_file(path: Optional[str]) -> List[str]:
+def read_lines_file(path: str | None) -> list[str]:
     if not path:
         return []
     p = Path(path).expanduser()

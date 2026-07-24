@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.pipeline import (
     BaseProducer,
@@ -22,9 +22,9 @@ from core.pipeline import (
 class AuthRequest:
     """Request for authentication."""
 
-    credentials: Optional[str] = None
-    token: Optional[str] = None
-    profile: Optional[str] = None
+    credentials: str | None = None
+    token: str | None = None
+    profile: str | None = None
     validate: bool = False
 
 
@@ -78,7 +78,7 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
 
 
 class AuthProducer(BaseProducer):
-    def _produce_success(self, payload: AuthResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: AuthResult, diagnostics: dict[str, Any] | None) -> None:
         print(payload.message)
 
 
@@ -91,11 +91,11 @@ class AuthProducer(BaseProducer):
 class BackupRequest:
     """Request for backup."""
 
-    out_dir: Optional[str] = None
-    credentials: Optional[str] = None
-    token: Optional[str] = None
-    cache: Optional[str] = None
-    profile: Optional[str] = None
+    out_dir: str | None = None
+    credentials: str | None = None
+    token: str | None = None
+    cache: str | None = None
+    profile: str | None = None
 
 
 @dataclass
@@ -160,7 +160,7 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
 
 
 class BackupProducer(BaseProducer):
-    def _produce_success(self, payload: BackupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: BackupResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Backup written to {payload.out_path}")
 
 
@@ -205,7 +205,7 @@ class CacheStatsProcessor(SafeProcessor[CacheStatsRequest, CacheStatsResult]):
 
 
 class CacheStatsProducer(BaseProducer):
-    def _produce_success(self, payload: CacheStatsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: CacheStatsResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Cache: {payload.path} files={payload.files} size={payload.size_bytes} bytes")
 
 
@@ -245,7 +245,7 @@ class CacheClearProcessor(SafeProcessor[CacheClearRequest, CacheClearResult]):
 
 
 class CacheClearProducer(BaseProducer):
-    def _produce_success(self, payload: CacheClearResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: CacheClearResult, diagnostics: dict[str, Any] | None) -> None:
         if payload.cleared:
             print(f"Cleared cache: {payload.path}")
         else:
@@ -298,7 +298,7 @@ class CachePruneProcessor(SafeProcessor[CachePruneRequest, CachePruneResult]):
 
 
 class CachePruneProducer(BaseProducer):
-    def _produce_success(self, payload: CachePruneResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: CachePruneResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Pruned {payload.removed} files older than {payload.days} days from {payload.path}")
 
 
@@ -312,7 +312,7 @@ class ConfigInspectRequest:
     """Request for config inspect."""
 
     path: str
-    section: Optional[str] = None
+    section: str | None = None
     only_mail: bool = False
 
 
@@ -321,14 +321,14 @@ class ConfigSection:
     """A config section with masked values."""
 
     name: str
-    items: List[tuple]
+    items: list[tuple]
 
 
 @dataclass
 class ConfigInspectResult:
     """Result from config inspect."""
 
-    sections: List[ConfigSection]
+    sections: list[ConfigSection]
 
 
 # Type alias using generic RequestConsumer from core.pipeline
@@ -366,7 +366,7 @@ class ConfigInspectProcessor(SafeProcessor[ConfigInspectRequest, ConfigInspectRe
 
 
 class ConfigInspectProducer(BaseProducer):
-    def _produce_success(self, payload: ConfigInspectResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: ConfigInspectResult, diagnostics: dict[str, Any] | None) -> None:
         for section in payload.sections:
             print(f"[{section.name}]")
             for k, v in section.items:
@@ -429,7 +429,7 @@ class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResul
 
 
 class DeriveLabelsProducer(BaseProducer):
-    def _produce_success(self, payload: DeriveLabelsResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: DeriveLabelsResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Derived labels -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
@@ -518,7 +518,7 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
 
 
 class DeriveFiltersProducer(BaseProducer):
-    def _produce_success(self, payload: DeriveFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: DeriveFiltersResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Derived filters -> gmail:{payload.gmail_path} outlook:{payload.outlook_path}")
 
 
@@ -553,7 +553,7 @@ class OptimizeFiltersResult:
     out_path: str
     original_count: int
     optimized_count: int
-    merged_groups: List[MergedGroup]
+    merged_groups: list[MergedGroup]
 
 
 # Type alias using generic RequestConsumer from core.pipeline
@@ -563,7 +563,7 @@ OptimizeFiltersRequestConsumer = RequestConsumer[OptimizeFiltersRequest]
 def _partition_rules_by_dest(rules: list) -> tuple:
     """Split filter rules into (groups_by_dest, passthrough) for merging."""
     from collections import defaultdict
-    groups: Dict[str, list] = defaultdict(list)
+    groups: dict[str, list] = defaultdict(list)
     passthrough = []
     for r in rules:
         if not isinstance(r, dict):
@@ -593,7 +593,7 @@ def _merge_group(dest: str, items: list) -> tuple:
     uniq = sorted(set(atoms))
     if not uniq:
         return None, None
-    rule: Dict[str, Any] = {
+    rule: dict[str, Any] = {
         "name": f"merged_{dest.replace('/', '_')}",
         "match": {"from": " OR ".join(uniq)},
         "action": {"add": [dest]},
@@ -645,7 +645,7 @@ class OptimizeFiltersProducer(BaseProducer):
     def __init__(self, preview: bool = False) -> None:
         self._preview = preview
 
-    def _produce_success(self, payload: OptimizeFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: OptimizeFiltersResult, diagnostics: dict[str, Any] | None) -> None:
         if self._preview and payload.merged_groups:
             print('Merged groups:')
             for g in sorted(payload.merged_groups, key=lambda x: -x.rules_merged):
@@ -675,16 +675,16 @@ class AuditFiltersResult:
     covered: int
     not_covered: int
     percentage: float
-    missing_samples: List[tuple]
+    missing_samples: list[tuple]
 
 
 # Type alias using generic RequestConsumer from core.pipeline
 AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
-def _build_dest_token_map(unified: list) -> Dict[str, set]:
+def _build_dest_token_map(unified: list) -> dict[str, set]:
     """Build mapping from destination label to set of from-tokens in the unified config."""
-    dest_to_tokens: Dict[str, set] = {}
+    dest_to_tokens: dict[str, set] = {}
     for f in unified:
         if not isinstance(f, dict):
             continue
@@ -698,7 +698,7 @@ def _build_dest_token_map(unified: list) -> Dict[str, set]:
     return dest_to_tokens
 
 
-def _extract_filter_from_addr(f: dict) -> Optional[str]:
+def _extract_filter_from_addr(f: dict) -> str | None:
     """Extract the normalized from-address from a filter entry, or None if not applicable."""
     c = f.get("criteria") or f.get("match") or {}
     if any(k in c for k in ("query", "negatedQuery", "size", "sizeComparison")):
@@ -708,7 +708,7 @@ def _extract_filter_from_addr(f: dict) -> Optional[str]:
     return str(c.get("from") or "").strip().lower() or None
 
 
-def _extract_filter_adds(f: dict) -> List[str]:
+def _extract_filter_adds(f: dict) -> list[str]:
     """Extract the add-labels/folder destinations from a filter action."""
     a = f.get("action") or {}
     adds = a.get("addLabels") or a.get("add") or []
@@ -722,11 +722,11 @@ def _token_matches(frm: str, toks: set) -> bool:
     return any(tok and (tok in frm or frm in tok) for tok in toks)
 
 
-def _score_exported_filters(exported: list, dest_to_tokens: Dict[str, set]) -> tuple:
+def _score_exported_filters(exported: list, dest_to_tokens: dict[str, set]) -> tuple:
     """Return (simple_total, covered, missing_samples) for exported filters vs unified token map."""
     simple_total = 0
     covered = 0
-    missing_samples: List[tuple] = []
+    missing_samples: list[tuple] = []
     for f in exported:
         if not isinstance(f, dict):
             continue
@@ -772,7 +772,7 @@ class AuditFiltersProducer(BaseProducer):
     def __init__(self, preview_missing: bool = False) -> None:
         self._preview_missing = preview_missing
 
-    def _produce_success(self, payload: AuditFiltersResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: AuditFiltersResult, diagnostics: dict[str, Any] | None) -> None:
         print(f"Simple Gmail rules: {payload.simple_total}")
         print(f"Covered by unified: {payload.covered}")
         print(f"Not unified: {payload.not_covered} ({payload.percentage:.1f}%)")
@@ -794,12 +794,12 @@ class EnvSetupRequest:
     venv_dir: str = ".venv"
     no_venv: bool = False
     skip_install: bool = False
-    profile: Optional[str] = None
-    credentials: Optional[str] = None
-    token: Optional[str] = None
-    outlook_client_id: Optional[str] = None
-    tenant: Optional[str] = None
-    outlook_token: Optional[str] = None
+    profile: str | None = None
+    credentials: str | None = None
+    token: str | None = None
+    outlook_client_id: str | None = None
+    tenant: str | None = None
+    outlook_token: str | None = None
     copy_gmail_example: bool = False
 
 
@@ -907,7 +907,7 @@ class EnvSetupProcessor(SafeProcessor[EnvSetupRequest, EnvSetupResult]):
 
 
 class EnvSetupProducer(BaseProducer):
-    def _produce_success(self, payload: EnvSetupResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: EnvSetupResult, diagnostics: dict[str, Any] | None) -> None:
         if payload.profile_saved:
             print("Persisted settings to ~/.config/credentials.ini")
         else:
