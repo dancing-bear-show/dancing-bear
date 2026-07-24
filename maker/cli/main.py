@@ -10,11 +10,11 @@ Commands:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 
+from ..agentic import FALLBACK_AGENTIC_HEADER
 from ..pipeline import (
     ToolCatalogProcessor,
     ToolCatalogProducer,
@@ -28,7 +28,7 @@ from ..pipeline import (
 
 assistant = BaseAssistant(
     "maker",
-    "agentic: maker\npurpose: Utility generators (cards, TPU rods) and printer helpers",
+    FALLBACK_AGENTIC_HEADER,
 )
 
 app = CLIApp(
@@ -42,11 +42,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _emit_agentic(fmt: str, compact: bool) -> int:
     try:
-        from ..agentic import build_agentic_capsule
+        from ..agentic import emit_agentic_context
 
-        print(build_agentic_capsule())
-    except Exception:
-        print("agentic: maker\npurpose: Utility generators and print helpers")
+        return emit_agentic_context()
+    except Exception:  # nosec B110 - graceful fallback when agentic module unavailable
+        print(FALLBACK_AGENTIC_HEADER)
     return 0
 
 
@@ -87,7 +87,7 @@ def cmd_print_send(args) -> int:
     return _run_tool("maker.print.send_to_printer")
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Maker CLI."""
     return app.run_with_assistant(
         assistant=assistant,

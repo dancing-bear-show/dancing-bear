@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .constants import COMMON_KEEP, FOLDERS, STOCK_MAYBE_UNUSED
 
-Item = Dict[str, Any]
+Item = dict[str, Any]
 
 
 @dataclass
 class NormalizedLayout:
-    dock: List[str]
-    pages: List[List[Item]]  # items: {kind: app|folder, id|name, apps?}
+    dock: list[str]
+    pages: list[list[Item]]  # items: {kind: app|folder, id|name, apps?}
 
 
-def _extract_bundle_id(item: Any) -> Optional[str]:
+def _extract_bundle_id(item: Any) -> str | None:
     """Extract bundle ID from an IconState item.
 
     Handles dict entries with ``bundleIdentifier`` or ``displayIdentifier`` fields,
@@ -33,7 +33,7 @@ def _extract_bundle_id(item: Any) -> Optional[str]:
     return None
 
 
-def _is_folder(item: Dict[str, Any]) -> bool:
+def _is_folder(item: dict[str, Any]) -> bool:
     return isinstance(item, dict) and ("iconLists" in item) and ("displayName" in item)
 
 
@@ -47,12 +47,12 @@ def _is_folder_item(item: Item) -> bool:
     return item.get("kind") == "folder"
 
 
-def _get_app_id(item: Item) -> Optional[str]:
+def _get_app_id(item: Item) -> str | None:
     """Get app ID from an app item, or None."""
     return item.get("id") if _is_app_item(item) else None
 
 
-def _get_folder_apps(item: Item) -> List[str]:
+def _get_folder_apps(item: Item) -> list[str]:
     """Get apps list from a folder item, or empty list."""
     return item.get("apps", []) if _is_folder_item(item) else []
 
@@ -62,9 +62,9 @@ def _get_folder_name(item: Item) -> str:
     return item.get("name", "Folder") if _is_folder_item(item) else ""
 
 
-def _flatten_folder_iconlists(folder_dict: Dict[str, Any]) -> List[str]:
+def _flatten_folder_iconlists(folder_dict: dict[str, Any]) -> list[str]:
     """Extract all bundle IDs from a folder's iconLists."""
-    apps: List[str] = []
+    apps: list[str] = []
     for page in folder_dict.get("iconLists") or []:
         if not isinstance(page, list):
             continue
@@ -75,12 +75,12 @@ def _flatten_folder_iconlists(folder_dict: Dict[str, Any]) -> List[str]:
     return apps
 
 
-def _extract_bundle_ids(items: List[Any]) -> List[str]:
+def _extract_bundle_ids(items: list[Any]) -> list[str]:
     """Extract bundle IDs from a list of items, filtering out invalid entries."""
     return [bid for it in items if (bid := _extract_bundle_id(it))]
 
 
-def _normalize_page_item(item: Any) -> Optional[Item]:
+def _normalize_page_item(item: Any) -> Item | None:
     """Convert a raw IconState item to a normalized item dict."""
     if _is_folder(item):
         return {
@@ -94,10 +94,10 @@ def _normalize_page_item(item: Any) -> Optional[Item]:
     return None
 
 
-def normalize_iconstate(data: Dict[str, Any]) -> NormalizedLayout:
+def normalize_iconstate(data: dict[str, Any]) -> NormalizedLayout:
     """Normalize raw IconState data into a NormalizedLayout."""
     dock = _extract_bundle_ids(data.get("buttonBar") or [])
-    pages: List[List[Item]] = []
+    pages: list[list[Item]] = []
     for page in data.get("iconLists") or []:
         if not isinstance(page, list):
             continue
@@ -106,9 +106,9 @@ def normalize_iconstate(data: Dict[str, Any]) -> NormalizedLayout:
     return NormalizedLayout(dock=dock, pages=pages)
 
 
-def to_yaml_export(layout: NormalizedLayout) -> Dict[str, Any]:
+def to_yaml_export(layout: NormalizedLayout) -> dict[str, Any]:
     """Export layout to a YAML-friendly dict."""
-    export: Dict[str, Any] = {
+    export: dict[str, Any] = {
         "#": [
             "Exported iOS Home Screen layout (apps + folders only).",
             "Widgets are omitted. Edit-friendly; not used to reapply directly.",
@@ -117,7 +117,7 @@ def to_yaml_export(layout: NormalizedLayout) -> Dict[str, Any]:
         "pages": [],
     }
     for page in layout.pages:
-        page_out: Dict[str, Any] = {"apps": [], "folders": []}
+        page_out: dict[str, Any] = {"apps": [], "folders": []}
         for it in page:
             if _is_app_item(it):
                 page_out["apps"].append(it["id"])
@@ -129,7 +129,7 @@ def to_yaml_export(layout: NormalizedLayout) -> Dict[str, Any]:
     return export
 
 
-def _collect_pinned_apps(layout: NormalizedLayout, max_pins: int = 12) -> List[str]:
+def _collect_pinned_apps(layout: NormalizedLayout, max_pins: int = 12) -> list[str]:
     """Collect pinned apps from dock and page 1."""
     pinned = list(dict.fromkeys(layout.dock))
     if not layout.pages:
@@ -143,9 +143,9 @@ def _collect_pinned_apps(layout: NormalizedLayout, max_pins: int = 12) -> List[s
     return pinned
 
 
-def _collect_all_app_ids(layout: NormalizedLayout) -> List[str]:
+def _collect_all_app_ids(layout: NormalizedLayout) -> list[str]:
     """Collect all app IDs from pages (not deduplicated)."""
-    all_ids: List[str] = []
+    all_ids: list[str] = []
     for page in layout.pages:
         for it in page:
             if _is_app_item(it):
@@ -155,7 +155,7 @@ def _collect_all_app_ids(layout: NormalizedLayout) -> List[str]:
     return all_ids
 
 
-def scaffold_plan(layout: NormalizedLayout) -> Dict[str, Any]:
+def scaffold_plan(layout: NormalizedLayout) -> dict[str, Any]:
     """Generate a scaffold plan from a layout."""
     pinned = _collect_pinned_apps(layout)
     all_app_ids = _collect_all_app_ids(layout)
@@ -173,10 +173,10 @@ def scaffold_plan(layout: NormalizedLayout) -> Dict[str, Any]:
 
 
 def _generate_folder_instructions(
-    folders: Dict[str, List[str]], pins: set, loc: Dict[str, str]
-) -> List[str]:
+    folders: dict[str, list[str]], pins: set, loc: dict[str, str]
+) -> list[str]:
     """Generate instructions for moving apps into folders."""
-    instructions: List[str] = []
+    instructions: list[str] = []
     for fname, apps in folders.items():
         if not apps:
             continue
@@ -201,13 +201,13 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _generate_page_instructions(
-    pages_spec: Dict[str, Any],
-    folder_page: Dict[str, int],
-    root_app_page: Dict[str, int],
-    loc: Dict[str, str],
-) -> List[str]:
+    pages_spec: dict[str, Any],
+    folder_page: dict[str, int],
+    root_app_page: dict[str, int],
+    loc: dict[str, str],
+) -> list[str]:
     """Generate instructions for page organization."""
-    instructions: List[str] = ["", "Page organization:"]
+    instructions: list[str] = ["", "Page organization:"]
     for page_key in sorted(pages_spec.keys(), key=_safe_int):
         target_page = _safe_int(page_key)
         if target_page == 0:
@@ -221,10 +221,10 @@ def _generate_page_instructions(
 
 
 def _folder_page_instructions(
-    spec: Dict, folder_page: Dict[str, int], target: int
-) -> List[str]:
+    spec: dict, folder_page: dict[str, int], target: int
+) -> list[str]:
     """Generate folder move instructions for a target page."""
-    result: List[str] = []
+    result: list[str] = []
     for fname in spec.get("folders") or []:
         curp = folder_page.get(fname)
         if curp is None:
@@ -237,10 +237,10 @@ def _folder_page_instructions(
 
 
 def _app_page_instructions(
-    spec: Dict, root_app_page: Dict[str, int], loc: Dict[str, str], target: int
-) -> List[str]:
+    spec: dict, root_app_page: dict[str, int], loc: dict[str, str], target: int
+) -> list[str]:
     """Generate app move instructions for a target page."""
-    result: List[str] = []
+    result: list[str] = []
     for app in spec.get("apps") or []:
         cur_root = root_app_page.get(app)
         if cur_root is None:
@@ -256,11 +256,11 @@ def _app_page_instructions(
     return result
 
 
-def checklist_from_plan(layout: NormalizedLayout, plan: Dict[str, Any]) -> List[str]:
+def checklist_from_plan(layout: NormalizedLayout, plan: dict[str, Any]) -> list[str]:
     """Generate a checklist of manual move instructions from a plan."""
     loc = compute_location_map(layout)
     pins = set(plan.get("pins") or [])
-    folders: Dict[str, List[str]] = plan.get("folders") or {}
+    folders: dict[str, list[str]] = plan.get("folders") or {}
 
     instructions = _generate_folder_instructions(folders, pins, loc)
 
@@ -275,15 +275,15 @@ def checklist_from_plan(layout: NormalizedLayout, plan: Dict[str, Any]) -> List[
     return instructions
 
 
-def _add_app_location(loc: Dict[str, str], bid: str, location: str) -> None:
+def _add_app_location(loc: dict[str, str], bid: str, location: str) -> None:
     """Add app to location map if not already present."""
     if bid and bid not in loc:
         loc[bid] = location
 
 
-def compute_location_map(layout: NormalizedLayout) -> Dict[str, str]:
+def compute_location_map(layout: NormalizedLayout) -> dict[str, str]:
     """Map bundle id -> location string (e.g., 'Page 2' or 'Page 3 > Work')."""
-    loc: Dict[str, str] = {}
+    loc: dict[str, str] = {}
     for pi, page in enumerate(layout.pages, start=1):
         page_loc = f"Page {pi}"
         for it in page:
@@ -309,7 +309,7 @@ def _iter_all_app_ids(layout: NormalizedLayout):
                 yield from (a for a in _get_folder_apps(it) if a)
 
 
-def list_all_apps(layout: NormalizedLayout) -> List[str]:
+def list_all_apps(layout: NormalizedLayout) -> list[str]:
     """Return a de-duplicated list of all bundle IDs in layout (dock + pages)."""
     seen: set = set()
     result = []
@@ -320,7 +320,7 @@ def list_all_apps(layout: NormalizedLayout) -> List[str]:
     return result
 
 
-def _parse_location(loc_str: str) -> Tuple[int, Optional[str]]:
+def _parse_location(loc_str: str) -> tuple[int, str | None]:
     """Parse a location string into (page_index, folder_name).
 
     Expected formats:
@@ -340,7 +340,7 @@ def _parse_location(loc_str: str) -> Tuple[int, Optional[str]]:
     return (page, folder)
 
 
-def _score_location(page_idx: int, folder: Optional[str]) -> float:
+def _score_location(page_idx: int, folder: str | None) -> float:
     """Score based on app location (page number and folder placement)."""
     score = 0.0
     if folder is None and page_idx == 1:
@@ -354,7 +354,7 @@ def _score_location(page_idx: int, folder: Optional[str]) -> float:
     return score
 
 
-def _score_membership(app: str, dock: List[str], recent: set, keep: set) -> float:
+def _score_membership(app: str, dock: list[str], recent: set, keep: set) -> float:
     """Score based on membership in dock, recent, and keep sets."""
     score = 0.0
     if app in keep:
@@ -371,7 +371,7 @@ def _score_membership(app: str, dock: List[str], recent: set, keep: set) -> floa
 
 
 def _compute_app_score(
-    app: str, layout: NormalizedLayout, loc: Dict[str, str], recent: set, keep: set
+    app: str, layout: NormalizedLayout, loc: dict[str, str], recent: set, keep: set
 ) -> float:
     """Compute unused likelihood score for an app."""
     where = loc.get(app, "")
@@ -384,9 +384,9 @@ def _compute_app_score(
 def rank_unused_candidates(
     layout: NormalizedLayout,
     *,
-    recent_ids: Optional[List[str]] = None,
-    keep_ids: Optional[List[str]] = None,
-) -> List[Tuple[str, float, str]]:
+    recent_ids: list[str] | None = None,
+    keep_ids: list[str] | None = None,
+) -> list[tuple[str, float, str]]:
     """Heuristically rank apps by 'likely unused' score (higher = more likely unused)."""
     recent = set(recent_ids or [])
     keep = set(keep_ids or [])
@@ -404,9 +404,9 @@ def rank_unused_candidates(
     return results
 
 
-def compute_folder_page_map(layout: NormalizedLayout) -> Dict[str, int]:
+def compute_folder_page_map(layout: NormalizedLayout) -> dict[str, int]:
     """Map folder name to the first page index where it appears."""
-    m: Dict[str, int] = {}
+    m: dict[str, int] = {}
     for pi, page in enumerate(layout.pages, start=1):
         for it in page:
             if _is_folder_item(it):
@@ -416,9 +416,9 @@ def compute_folder_page_map(layout: NormalizedLayout) -> Dict[str, int]:
     return m
 
 
-def compute_root_app_page_map(layout: NormalizedLayout) -> Dict[str, int]:
+def compute_root_app_page_map(layout: NormalizedLayout) -> dict[str, int]:
     """Map root-level app bundle id to page index (apps inside folders are excluded)."""
-    m: Dict[str, int] = {}
+    m: dict[str, int] = {}
     for pi, page in enumerate(layout.pages, start=1):
         for it in page:
             bid = _get_app_id(it)
@@ -427,10 +427,10 @@ def compute_root_app_page_map(layout: NormalizedLayout) -> Dict[str, int]:
     return m
 
 
-def _analyze_pages(layout: NormalizedLayout) -> Tuple[List[Dict], List[Dict], int]:
+def _analyze_pages(layout: NormalizedLayout) -> tuple[list[dict], list[dict], int]:
     """Analyze pages and return (pages_info, folder_details, total_root_apps)."""
-    pages_info: List[Dict[str, Any]] = []
-    folder_details: List[Dict[str, Any]] = []
+    pages_info: list[dict[str, Any]] = []
+    folder_details: list[dict[str, Any]] = []
     total_root_apps = 0
 
     for idx, page in enumerate(layout.pages, start=1):
@@ -460,23 +460,23 @@ def _analyze_pages(layout: NormalizedLayout) -> Tuple[List[Dict], List[Dict], in
     return pages_info, folder_details, total_root_apps
 
 
-def _count_app_occurrences(layout: NormalizedLayout) -> Dict[str, int]:
+def _count_app_occurrences(layout: NormalizedLayout) -> dict[str, int]:
     """Count occurrences of each app across dock, root apps, and folder apps."""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for app in _iter_all_app_ids(layout):
         counts[app] = counts.get(app, 0) + 1
     return counts
 
 
 def _generate_observations(
-    dock: List[str],
-    pages_info: List[Dict],
-    folder_details: List[Dict],
-    unique_apps: List[str],
-    plan: Optional[Dict[str, Any]],
-) -> List[str]:
+    dock: list[str],
+    pages_info: list[dict],
+    folder_details: list[dict],
+    unique_apps: list[str],
+    plan: dict[str, Any] | None,
+) -> list[str]:
     """Generate observations and suggestions about the layout."""
-    observations: List[str] = []
+    observations: list[str] = []
 
     if len(dock) < 4:
         observations.append(
@@ -494,7 +494,7 @@ def _generate_observations(
     return observations
 
 
-def _add_page_observations(pages_info: List[Dict], observations: List[str]) -> None:
+def _add_page_observations(pages_info: list[dict], observations: list[str]) -> None:
     """Add page-related observations."""
     max_items = max(p["items_total"] for p in pages_info)
     min_items = min(p["items_total"] for p in pages_info)
@@ -514,7 +514,7 @@ def _add_page_observations(pages_info: List[Dict], observations: List[str]) -> N
 
 
 def _add_folder_observations(
-    folder_details: List[Dict], observations: List[str]
+    folder_details: list[dict], observations: list[str]
 ) -> None:
     """Add folder-related observations."""
     tiny = [f for f in folder_details if f["app_count"] <= 2]
@@ -530,7 +530,7 @@ def _add_folder_observations(
 
 
 def _add_plan_observations(
-    plan: Dict[str, Any], unique_apps: List[str], observations: List[str]
+    plan: dict[str, Any], unique_apps: list[str], observations: list[str]
 ) -> None:
     """Add plan alignment observations."""
     pins = list(plan.get("pins") or [])
@@ -541,7 +541,7 @@ def _add_plan_observations(
                 f"Plan pins not found in layout: {len(missing_pins)} app(s). Install or adjust pins."
             )
 
-    pfolders: Dict[str, List[str]] = plan.get("folders") or {}
+    pfolders: dict[str, list[str]] = plan.get("folders") or {}
     empty_planned = [name for name, apps in pfolders.items() if not apps]
     if empty_planned:
         suffix = "…" if len(empty_planned) > 5 else ""
@@ -551,8 +551,8 @@ def _add_plan_observations(
 
 
 def analyze_layout(
-    layout: NormalizedLayout, plan: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    layout: NormalizedLayout, plan: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Return summary metrics and observations about a Home Screen layout."""
     dock = list(layout.dock or [])
     pages_info, folder_details, total_root_apps = _analyze_pages(layout)
@@ -585,9 +585,9 @@ def analyze_layout(
 def auto_folderize(
     layout: NormalizedLayout,
     *,
-    keep: Optional[List[str]] = None,
-    seed_folders: Optional[Dict[str, List[str]]] = None,
-) -> Dict[str, List[str]]:
+    keep: list[str] | None = None,
+    seed_folders: dict[str, list[str] | None] = None,
+) -> dict[str, list[str]]:
     """Return a folder -> apps mapping assigning all apps (except keep) to folders.
 
     Args:
@@ -601,7 +601,7 @@ def auto_folderize(
     from .classify import classify_app
 
     keep_set = set(keep or [])
-    folders: Dict[str, List[str]] = {
+    folders: dict[str, list[str]] = {
         k: list(v) for k, v in (seed_folders or {}).items()
     }
 
@@ -617,10 +617,10 @@ def auto_folderize(
 
 
 def distribute_folders_across_pages(
-    folder_names: List[str], *, per_page: int = 12, start_page: int = 2
-) -> Dict[int, Dict[str, List[str]]]:
+    folder_names: list[str], *, per_page: int = 12, start_page: int = 2
+) -> dict[int, dict[str, list[str]]]:
     """Return a pages mapping that places folders across pages, starting from start_page."""
-    pages: Dict[int, Dict[str, List[str]]] = {}
+    pages: dict[int, dict[str, list[str]]] = {}
     for i in range(0, len(folder_names), per_page):
         chunk = folder_names[i : i + per_page]
         pages[start_page + i // per_page] = {"apps": [], "folders": chunk}

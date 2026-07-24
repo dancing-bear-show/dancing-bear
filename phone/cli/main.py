@@ -19,6 +19,7 @@ from pathlib import Path
 
 from core.cli_framework import CLIApp
 from core.assistant import BaseAssistant
+from core.cli_output import emit_one
 from core.pipeline import run_pipeline
 
 from ..helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
@@ -320,25 +321,9 @@ def cmd_validate_layout(args) -> int:
         print(f"Error: invalid JSON in {layout_path}: {exc}", file=sys.stderr)
         return 2
 
-    device_apps: list[str] | None = None
-    device_layout_arg = getattr(args, "device_layout", None)
-    if device_layout_arg:
-        device_layout_path = Path(device_layout_arg)
-        if not device_layout_path.exists():
-            print(
-                f"Error: device-layout file not found: {device_layout_path}",
-                file=sys.stderr,
-            )
-            return 2
-        try:
-            device_layout = json.loads(device_layout_path.read_text())
-        except json.JSONDecodeError as exc:
-            print(
-                f"Error: invalid JSON in {device_layout_path}: {exc}", file=sys.stderr
-            )
-            return 2
-        # Flatten all bundle IDs from device layout
-        device_apps = _flatten_bundle_ids(device_layout)
+    device_apps, err_code = _load_optional_device_apps(getattr(args, "device_layout", None))
+    if err_code is not None:
+        return err_code
 
     issues = validate_layout_json(layout, device_apps=device_apps)
 
@@ -346,13 +331,43 @@ def cmd_validate_layout(args) -> int:
         print(f"OK: {layout_path} — no issues found")
         return 0
 
+    return _report_layout_issues(issues)
+
+
+def _load_optional_device_apps(
+    device_layout_arg: str | None,
+) -> tuple[list[str] | None, int | None]:
+    """Load device layout apps from path. Returns (apps, error_code).
+
+    On success, error_code is None. On failure, apps is None and error_code is set.
+    """
+    import json
+
+    if not device_layout_arg:
+        return None, None
+
+    device_layout_path = Path(device_layout_arg)
+    if not device_layout_path.exists():
+        print(
+            f"Error: device-layout file not found: {device_layout_path}",
+            file=sys.stderr,
+        )
+        return None, 2
+    try:
+        device_layout = json.loads(device_layout_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in {device_layout_path}: {exc}", file=sys.stderr)
+        return None, 2
+    return _flatten_bundle_ids(device_layout), None
+
+
+def _report_layout_issues(issues: list) -> int:
+    """Print layout validation issues and return exit code."""
     errors = [i for i in issues if i.level == "error"]
     warnings = [i for i in issues if i.level == "warning"]
-
     for issue in issues:
         prefix = "ERROR" if issue.level == "error" else "WARNING"
         print(f"{prefix}: {issue.message}")
-
     print(f"\n{len(errors)} error(s), {len(warnings)} warning(s)")
     return 1 if errors else 0
 
@@ -491,10 +506,12 @@ def cmd_auto_folders(args) -> int:
     # Write updated plan
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     write_yaml(plan, plan_path)
-    print(f"Updated plan with auto-folders → {plan_path}")
-    print(
-        f"Folders: {len(folders)} (non-empty: {sum(1 for a in folders.values() if a)})"
-    )
+    emit_one({
+        "status": "ok",
+        "plan": str(plan_path),
+        "folders_total": len(folders),
+        "folders_non_empty": sum(1 for a in folders.values() if a),
+    })
     return 0
 
 
@@ -833,7 +850,7 @@ def cmd_manifest_create(args) -> int:
     manifest = _build_manifest_dict(plan, args)
     out = Path(args.out)
     write_yaml(manifest, out)
-    print(f"Wrote manifest to {out}")
+    emit_one({"status": "ok", "manifest": str(out)})
     return 0
 
 

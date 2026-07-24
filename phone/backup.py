@@ -4,7 +4,7 @@ import sqlite3
 import plistlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -13,7 +13,7 @@ class IconStateFile:
     desc: str
 
 
-def find_latest_backup_dir(mobilesync_dir: Optional[Path] = None) -> Optional[Path]:
+def find_latest_backup_dir(mobilesync_dir: Path | None = None) -> Path | None:
     """Return the most recently modified Finder backup directory under MobileSync/Backup.
 
     On macOS, Finder stores device backups in:
@@ -40,7 +40,7 @@ def find_latest_backup_dir(mobilesync_dir: Optional[Path] = None) -> Optional[Pa
 
 
 def _manifest_select(
-    db_path: Path, sql: str, params: Tuple[Any, ...]
+    db_path: Path, sql: str, params: tuple[Any, ...]
 ) -> list[sqlite3.Row]:
     con = sqlite3.connect(str(db_path))
     try:
@@ -52,14 +52,14 @@ def _manifest_select(
         con.close()
 
 
-def find_iconstate_file(backup_dir: Path) -> Optional[IconStateFile]:
+def find_iconstate_file(backup_dir: Path) -> IconStateFile | None:
     """Locate an IconState plist file in the backup manifest and return its hashed path.
 
     We look for files in domain 'HomeDomain' with relativePath like 'Library/SpringBoard/IconState%'.
     Prefer IconState.plist over DesiredIconState variants.
     """
     manifest_db = backup_dir / "Manifest.db"
-    result: Optional[IconStateFile] = None
+    result: IconStateFile | None = None
     if manifest_db.exists():
         rows = _manifest_select(
             manifest_db,
@@ -96,6 +96,6 @@ def find_iconstate_file(backup_dir: Path) -> Optional[IconStateFile]:
     return result
 
 
-def load_plist(path: Path) -> Dict[str, Any]:
+def load_plist(path: Path) -> dict[str, Any]:
     with path.open("rb") as f:
         return plistlib.load(f)

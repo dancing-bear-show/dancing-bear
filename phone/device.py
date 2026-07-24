@@ -11,7 +11,7 @@ import subprocess  # nosec B404 - required for cfgutil (Apple Configurator CLI)
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.constants import credential_ini_paths
 
@@ -36,7 +36,7 @@ def find_cfgutil_path() -> str:
     )
 
 
-def _extract_ecid_from_parts(parts: List[str]) -> str:
+def _extract_ecid_from_parts(parts: list[str]) -> str:
     """Extract ECID value from line parts."""
     for i, tok in enumerate(parts):
         if not tok.startswith("ECID:"):
@@ -66,7 +66,7 @@ def map_udid_to_ecid(cfgutil: str, udid: str) -> str:
     return ""
 
 
-def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, Any]:
+def export_from_device(cfgutil: str, ecid: str | None = None) -> dict[str, Any]:
     """Export layout from device via cfgutil get-icon-layout."""
     import json as _json
     import plistlib as _plist
@@ -93,7 +93,7 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
             raise RuntimeError(f"Failed to parse plist or JSON from cfgutil: {e}")
 
     # Try to convert into our export shape via normalize_iconstate if compatible
-    export: Dict[str, Any] = {}
+    export: dict[str, Any] = {}
     try:
         layout = normalize_iconstate(data)
         export = to_yaml_export(layout)
@@ -104,14 +104,14 @@ def export_from_device(cfgutil: str, ecid: Optional[str] = None) -> Dict[str, An
     return export
 
 
-def _get_bundle_id(item: Any) -> Optional[str]:
+def _get_bundle_id(item: Any) -> str | None:
     """Extract bundle identifier from a dict item."""
     if not isinstance(item, dict):
         return None
     return item.get("bundleIdentifier") or item.get("displayIdentifier")
 
 
-def _extract_folder_apps(folder_items: List[Any]) -> List[str]:
+def _extract_folder_apps(folder_items: list[Any]) -> list[str]:
     """Extract app list from folder items."""
     apps = []
     for sub in folder_items[1:]:
@@ -122,7 +122,7 @@ def _extract_folder_apps(folder_items: List[Any]) -> List[str]:
     return apps
 
 
-def _parse_page_item(it: Any) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+def _parse_page_item(it: Any) -> tuple[str | None, dict[str, Any] | None]:
     """Parse a single page item into app or folder.
 
     Returns (app_id, folder_dict) where one will be None.
@@ -139,15 +139,15 @@ def _parse_page_item(it: Any) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
     return None, None
 
 
-def _parse_list_format(data: List) -> Dict[str, Any]:
+def _parse_list_format(data: list) -> dict[str, Any]:
     """Parse cfgutil JSON list format: [dock, page1, page2, ...]."""
     dock = [s for s in (data[0] or []) if isinstance(s, str)]
-    pages: List[Dict[str, Any]] = []
+    pages: list[dict[str, Any]] = []
 
     for page in data[1:]:
         if not isinstance(page, list):
             continue
-        page_out: Dict[str, Any] = {"apps": [], "folders": []}
+        page_out: dict[str, Any] = {"apps": [], "folders": []}
 
         for it in page:
             app_id, folder = _parse_page_item(it)
@@ -161,12 +161,12 @@ def _parse_list_format(data: List) -> Dict[str, Any]:
     return {"dock": dock, "pages": pages}
 
 
-def _parse_plist_format(data: Dict) -> Dict[str, Any]:
+def _parse_plist_format(data: dict) -> dict[str, Any]:
     """Parse cfgutil plist format with buttonBar/iconLists keys."""
     dock = [bid for it in (data.get("buttonBar") or []) if (bid := _get_bundle_id(it))]
-    pages: List[Dict[str, Any]] = []
+    pages: list[dict[str, Any]] = []
     for page in data.get("iconLists") or []:
-        page_out: Dict[str, Any] = {"apps": [], "folders": []}
+        page_out: dict[str, Any] = {"apps": [], "folders": []}
         for it in page or []:
             if isinstance(it, dict) and "iconLists" in it and "displayName" in it:
                 name = it.get("displayName") or "Folder"
@@ -182,7 +182,7 @@ def _parse_plist_format(data: Dict) -> Dict[str, Any]:
     return {"dock": dock, "pages": pages}
 
 
-def _fallback_parse(data: Any) -> Dict[str, Any]:
+def _fallback_parse(data: Any) -> dict[str, Any]:
     """Fallback parsing for cfgutil output when normalize_iconstate fails."""
     try:
         if isinstance(data, list) and data:
@@ -200,10 +200,10 @@ def _fallback_parse(data: Any) -> Dict[str, Any]:
 
 
 def read_credentials_ini(
-    explicit: Optional[str] = None,
-) -> Tuple[Optional[str], Dict[str, Dict[str, str]]]:
+    explicit: str | None = None,
+) -> tuple[str | None, dict[str, dict[str, str]]]:
     """Read credentials.ini and return (path, sections_dict)."""
-    candidates: List[str] = []
+    candidates: list[str] = []
     if explicit:
         candidates.append(explicit)
     candidates.extend(credential_ini_paths())
@@ -218,7 +218,7 @@ def read_credentials_ini(
     return None, {}
 
 
-def _first_value(section: Dict[str, str], keys: Tuple[str, ...]) -> Optional[str]:
+def _first_value(section: dict[str, str], keys: tuple[str, ...]) -> str | None:
     """Return first non-empty value from section for given keys."""
     for key in keys:
         if val := section.get(key):
@@ -227,11 +227,11 @@ def _first_value(section: Dict[str, str], keys: Tuple[str, ...]) -> Optional[str
 
 
 def resolve_p12_path(
-    explicit_path: Optional[str],
-    explicit_pass: Optional[str],
+    explicit_path: str | None,
+    explicit_pass: str | None,
     creds_profile: str,
-    ini: Dict[str, Dict[str, str]],
-) -> Tuple[Optional[str], Optional[str]]:
+    ini: dict[str, dict[str, str]],
+) -> tuple[str | None, str | None]:
     """Resolve p12 path and password from args or credentials.ini."""
     p12_path = explicit_path
     p12_pass = explicit_pass
@@ -255,7 +255,7 @@ class CertInfo:
     issuer: str
 
 
-def _extract_cert_pem(p12_path: str, p12_pass: Optional[str]) -> bytes:
+def _extract_cert_pem(p12_path: str, p12_pass: str | None) -> bytes:
     """Extract certificate PEM from p12 file, trying legacy mode first."""
     for use_legacy in [True, False]:
         try:
@@ -263,9 +263,11 @@ def _extract_cert_pem(p12_path: str, p12_pass: Optional[str]) -> bytes:
             if use_legacy:
                 cmd.append("-legacy")
             cmd.extend(["-in", p12_path, "-clcerts", "-nokeys"])
+            env = None
             if p12_pass:
-                cmd.extend(["-passin", f"pass:{p12_pass}"])
-            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL)  # nosec B603 - cmd built from trusted literals
+                env = {**os.environ, "_IOS_P12_PASS": p12_pass}
+                cmd.extend(["-passin", "env:_IOS_P12_PASS"])
+            return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, env=env)  # nosec B603 - cmd built from trusted literals; password via env not args
         except Exception:  # nosec B112 - try legacy/non-legacy openssl modes
             continue
     raise RuntimeError(f"Failed to extract certificate from {p12_path}")
@@ -284,7 +286,7 @@ def _x509_field(cert_pem: bytes, field: str) -> str:
         return ""
 
 
-def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> CertInfo:
+def extract_p12_cert_info(p12_path: str, p12_pass: str | None = None) -> CertInfo:
     """Extract certificate subject and issuer from a .p12 file using openssl.
 
     Raises:
@@ -301,7 +303,7 @@ def extract_p12_cert_info(p12_path: str, p12_pass: Optional[str] = None) -> Cert
     )
 
 
-def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optional[str]:
+def get_device_supervision_status(cfgutil_path: str | None = None) -> str | None:
     """Query device supervision status via cfgutil.
 
     Returns the supervision status string, or None if unavailable.
@@ -324,8 +326,8 @@ def get_device_supervision_status(cfgutil_path: Optional[str] = None) -> Optiona
 
 
 def resolve_udid_from_label(
-    label: str, cfg_path: Optional[str], _ini: Dict[str, Dict[str, str]]
-) -> Optional[str]:
+    label: str, cfg_path: str | None, _ini: dict[str, dict[str, str]]
+) -> str | None:
     """Resolve device UDID from a label using credentials.ini [ios_devices] section."""
     if not label or not cfg_path or not os.path.exists(cfg_path):
         return None

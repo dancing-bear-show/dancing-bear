@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
 from functools import lru_cache
-from typing import List, Tuple
 
 from core.agentic import (
     build_capsule as _build_capsule,
@@ -14,7 +14,7 @@ from core.agentic import (
 
 
 @lru_cache(maxsize=1)
-def _get_parser():
+def _get_parser() -> argparse.ArgumentParser | None:
     try:
         from . import __main__ as main_mod
 
@@ -27,12 +27,12 @@ def _cli_tree() -> str:
     return _core_build_cli_tree(_get_parser())
 
 
-def _cli_path_exists(path: List[str]) -> bool:
+def _cli_path_exists(path: list[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
 def _flow_map() -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     layout_cmds = [
         (
             "export-device",
@@ -98,7 +98,7 @@ def build_agentic_capsule() -> str:
         "plan: ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
         "checklist: ./bin/phone checklist --plan out/ios.plan.yaml",
     ]
-    sections: List[Tuple[str, str]] = []
+    sections: list[tuple[str, str]] = []
     tree = _cli_tree()
     if tree:
         sections.append(("CLI Tree", tree))
@@ -115,7 +115,7 @@ def build_agentic_capsule() -> str:
 
 def build_domain_map() -> str:
     """Programmatically build a minimal domain map for Phone Assistant."""
-    sections: List[str] = []
+    sections: list[str] = []
     sections.append(
         "Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout.py — normalization + plan scaffolds\n- phone/profile.py — .mobileconfig builders"
     )

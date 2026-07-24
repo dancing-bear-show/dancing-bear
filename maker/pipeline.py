@@ -4,8 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
+from core.cli_output import output
 from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 
 
@@ -18,6 +19,15 @@ class ToolSpec:
 
     def display_row(self) -> str:
         return f"- maker/{self.relative_path.as_posix()}"
+
+
+def scan_tools(root: Path) -> list[str]:
+    """Return relative posix paths of all *.py files under maker subdirectories."""
+    tools: list[str] = []
+    for sub in sorted(p for p in root.iterdir() if p.is_dir()):
+        for py in sorted(sub.glob("*.py")):
+            tools.append(py.relative_to(root).as_posix())
+    return tools
 
 
 # -----------------------------------------------------------------------------
@@ -40,7 +50,7 @@ ToolCatalogRequestConsumer = RequestConsumer[ToolCatalogRequest]
 class ToolCatalogResult:
     """Result from scanning for maker tools."""
 
-    specs: List[ToolSpec]
+    specs: list[ToolSpec]
     text: str
 
 
@@ -48,7 +58,7 @@ class ToolCatalogProcessor(SafeProcessor[ToolCatalogRequest, ToolCatalogResult])
     """Scan maker/ subdirectories and format catalog."""
 
     def _process_safe(self, payload: ToolCatalogRequest) -> ToolCatalogResult:
-        specs: List[ToolSpec] = []
+        specs: list[ToolSpec] = []
         for sub in sorted(payload.tools_root.iterdir()):
             if not sub.is_dir():
                 continue
@@ -70,8 +80,8 @@ class ToolCatalogProcessor(SafeProcessor[ToolCatalogRequest, ToolCatalogResult])
 class ToolCatalogProducer(BaseProducer):
     """Print tool catalog to stdout."""
 
-    def _produce_success(self, payload: ToolCatalogResult, diagnostics: Optional[Dict[str, Any]]) -> None:
-        print(payload.text)
+    def _produce_success(self, payload: ToolCatalogResult, diagnostics: dict[str, Any] | None) -> None:
+        output(payload.text)
 
 
 # -----------------------------------------------------------------------------
@@ -97,7 +107,7 @@ class ToolResult:
 
     module: str
     return_code: int
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ToolRunnerProcessor(SafeProcessor[ToolRequest, ToolResult]):
@@ -116,6 +126,6 @@ class ToolRunnerProcessor(SafeProcessor[ToolRequest, ToolResult]):
 class ToolResultProducer(BaseProducer):
     """Emit diagnostics for tool execution."""
 
-    def _produce_success(self, payload: ToolResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: ToolResult, diagnostics: dict[str, Any] | None) -> None:
         # Success case: tool ran without errors, nothing to print
         pass
