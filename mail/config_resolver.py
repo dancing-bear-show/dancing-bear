@@ -11,6 +11,7 @@ from core.constants import credential_ini_paths, _config_roots
 # Use shared credential paths from core.constants
 _INI_PATHS = credential_ini_paths()
 _SECTION = "mail"
+_SECTION_ALIASES = ("mail_assistant",)  # legacy section prefix still accepted
 _DEFAULT_CONFIG_DIR = _config_roots()[0]
 DEFAULT_GMAIL_CREDENTIALS = os.path.join(_DEFAULT_CONFIG_DIR, "credentials.json")
 DEFAULT_GMAIL_TOKEN = os.path.join(_DEFAULT_CONFIG_DIR, "token.json")
@@ -162,10 +163,15 @@ def persist_profile_settings(settings: ProfileSettings) -> None:
 def _get_ini_section(profile: Optional[str]) -> Dict[str, str]:
     ini = _read_ini()
     if profile:
-        sec = ini.get(f"{_SECTION}.{profile}")
+        for prefix in (_SECTION, *_SECTION_ALIASES):
+            sec = ini.get(f"{prefix}.{profile}")
+            if sec:
+                return sec
+    for prefix in (_SECTION, *_SECTION_ALIASES):
+        sec = ini.get(prefix)
         if sec:
             return sec
-    return ini.get(_SECTION, {})
+    return {}
 
 
 def get_outlook_client_id(profile: Optional[str] = None) -> Optional[str]:
@@ -179,16 +185,17 @@ def get_outlook_client_id(profile: Optional[str] = None) -> Optional[str]:
 
 
 def get_outlook_client_id_for_profile(profile: str) -> Optional[str]:
-    """Return Outlook client_id only if [mail.<profile>] section exists.
+    """Return Outlook client_id only if a profile-specific section exists.
 
-    Unlike get_outlook_client_id, never falls back to the default [mail]
-    section, so a mistyped or unknown profile name returns None.
+    Unlike get_outlook_client_id, never falls back to the default section,
+    so a mistyped or unknown profile name returns None.
     """
     ini = _read_ini()
-    sec = ini.get(f"{_SECTION}.{profile}")
-    if not sec:
-        return None
-    return sec.get("outlook_client_id") or sec.get("client_id")
+    for prefix in (_SECTION, *_SECTION_ALIASES):
+        sec = ini.get(f"{prefix}.{profile}")
+        if sec:
+            return sec.get("outlook_client_id") or sec.get("client_id")
+    return None
 
 
 def get_outlook_tenant(profile: Optional[str] = None) -> Optional[str]:
