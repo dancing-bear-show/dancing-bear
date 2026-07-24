@@ -10,7 +10,7 @@
     "canonical_config": "config/filters_unified.yaml"
   },
   "profiles": {
-    "source_ini": "~/.config/sre-utils/credentials.ini",
+    "source_ini": "~/.config/credentials.ini",
     "gmail_profile": "mail_assistant.gmail_personal",
     "outlook_profile": "mail_assistant.outlook_personal",
     "shared_profile": "mail_assistant.personal"
