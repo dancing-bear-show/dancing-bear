@@ -15,7 +15,7 @@ def _agentic() -> str:
 
     try:
         return build_agentic_capsule()
-    except Exception:
+    except Exception:  # nosec B110 - fall back to static capsule if build fails
         return (
             "agentic: phone\npurpose: Home Screen layout planning and manifest helpers"
         )

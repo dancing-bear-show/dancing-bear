@@ -567,7 +567,11 @@ def _sign_mobileconfig(
         result = subprocess.run(  # nosec B603 B607 - fixed openssl command
             ["openssl", "pkcs12", "-help"], capture_output=True, text=True
         )
-        legacy_flag = ["-legacy"] if "-legacy" in result.stderr else []
+        legacy_flag = ["-legacy"] if "-legacy" in (result.stdout + result.stderr) else []
+
+        import os
+
+        env = {**os.environ, "_IOS_P12_PASS": p12_pass}
 
         # Extract certificate
         subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
@@ -582,10 +586,11 @@ def _sign_mobileconfig(
                 "-out",
                 str(cert_pem),
                 "-passin",
-                f"pass:{p12_pass}",
+                "env:_IOS_P12_PASS",
             ],
             check=True,
             capture_output=True,
+            env=env,
         )
 
         # Extract private key
@@ -601,10 +606,11 @@ def _sign_mobileconfig(
                 "-out",
                 str(key_pem),
                 "-passin",
-                f"pass:{p12_pass}",
+                "env:_IOS_P12_PASS",
             ],
             check=True,
             capture_output=True,
+            env=env,
         )
 
         # Sign the profile

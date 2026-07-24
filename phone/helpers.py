@@ -81,5 +81,5 @@ def read_lines_file(path: Optional[str]) -> List[str]:
             for ln in p.read_text(encoding="utf-8").splitlines()
             if ln.strip() and not ln.strip().startswith("#")
         ]
-    except Exception:
+    except Exception:  # nosec B110 - return empty list on any read/encoding error
         return []
