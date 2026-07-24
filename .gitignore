@@ -49,6 +49,7 @@ node_modules/
 .config/
 /config/*
 !/config/*.example.yaml
+!/config/filters_unified.yaml
 
 # Local logs and OAuth flows (do not commit)
 logs/

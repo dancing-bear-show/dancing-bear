@@ -1,0 +1,264 @@
+# Unified filter/rule source of truth for Gmail and Outlook.
+#
+# Schema:
+#   match.from    — sender pattern (OR-separated domains or addresses)
+#   action.add    — label(s) to add (Gmail: label; Outlook: category hint)
+#   action.remove — label(s) to remove (Gmail: INBOX = skip inbox)
+#   action.forward — forward to this address
+#   action.moveToFolder — Outlook folder path (derived from add[] when omitted)
+#
+# Derive provider-specific configs:
+#   ./bin/mail-assistant filters derive --provider gmail   --out out/filters.gmail.from_unified.yaml
+#   ./bin/mail-assistant filters derive --provider outlook --out out/filters.outlook.from_unified.yaml
+
+filters:
+
+  # ── Finance ─────────────────────────────────────────────────────────────────
+
+  - match:
+      from: amex.ca OR email.americanexpress.com
+    action:
+      add:
+      - Finance/AmEx
+      remove:
+      - INBOX
+
+  - match:
+      from: bmo.com
+    action:
+      add:
+      - Finance/BMO
+      remove:
+      - INBOX
+
+  - match:
+      from: chase.com OR e.chase.com
+    action:
+      add:
+      - Finance/Chase
+      remove:
+      - INBOX
+
+  - match:
+      from: cointracker.io
+    action:
+      add:
+      - Finance/Crypto
+      remove:
+      - INBOX
+
+  - match:
+      from: e.etrade.com OR etrade.com OR etradefrommorganstanley.com
+    action:
+      add:
+      - Finance/ETrade
+      remove:
+      - INBOX
+
+  - match:
+      from: jpmorgan.com
+    action:
+      add:
+      - Finance/JPMorgan
+      remove:
+      - INBOX
+
+  - match:
+      from: better.com OR emails.better.com OR salliemae.com OR soslprospect.salliemae.com
+    action:
+      add:
+      - Finance/Loans
+      remove:
+      - INBOX
+
+  - match:
+      from: e.paypal.com OR paypal.ca OR paypal.com OR qtrade.ca OR questrade.com OR
+        wealthsimple.com OR robinhood.com OR venmo.com OR email.venmo.com
+    action:
+      add:
+      - Finance/Merchants
+      remove:
+      - INBOX
+
+  - match:
+      from: mails.santander.com.ar
+    action:
+      add:
+      - Finance/Santander
+      remove:
+      - INBOX
+
+  - match:
+      from: td.com
+    action:
+      add:
+      - Finance/TD
+      remove:
+      - INBOX
+
+  # ── Kids ────────────────────────────────────────────────────────────────────
+
+  - match:
+      from: wdswimrichmond@ses.iclasspro.com OR brightchamps.com OR team.brightchamps.com
+        OR orsc.ca OR treetoptrekking.com
+    action:
+      add:
+      - Kids/Activities
+      forward: vanesaecheveste@hotmail.com
+
+  - match:
+      from: schoolcashonline.com OR eurekamontessori.com OR benjipays-notifications.com
+    action:
+      add:
+      - Kids/School
+      forward: vanesaecheveste@hotmail.com
+
+  # ── Lists ───────────────────────────────────────────────────────────────────
+
+  - match:
+      from: amazon.ca OR amazon.com OR amazonmusic.com OR aliexpress.com OR deals.aliexpress.com
+    action:
+      add:
+      - Lists/Amazon
+      remove:
+      - INBOX
+
+  - match:
+      from: heifer.org OR giffords.org
+    action:
+      add:
+      - Lists/Charity
+      remove:
+      - INBOX
+
+  - match:
+      from: loccitane.com OR arcteryx.com OR underarmour.com OR altitude-sports.com
+        OR allbirds.com OR monos.ca OR clarks.com OR thelasthunt.com OR samsungusa.com
+        OR sheertex.com OR saxxunderwear.ca OR saxxunderwear.com OR email.fossil.com
+        OR e.shoppersdrugmart.ca OR promo.flexiroam.com OR audible.com OR programnews.airmiles.ca
+        OR bogsfootwear.ca OR emails.ugg.com OR flareaudio.com OR mail.dazn.com OR recycledfirefighter.com
+        OR email.pcoptimum.ca OR news.ftd.com OR ridgewallet.ca OR ihotoffers.com OR
+        aadvantageeshopping.com OR marketing.carters.com OR news.supermercadosdia.com.ar
+        OR emails.hertz.com OR marketing.mlbemail.com OR bellroy.com OR canadaluggagedepot.ca
+        OR americas.comm.dell.com OR woolly.clothing OR mgs.opentable.com OR e.gear.blizzard.com
+        OR cmail.bark.com OR samsonite.com OR email-caasco.com OR e.adobe.com OR g.shopifyemail.com
+        OR email.tangeroutletsusa.com OR backerupdate.com OR rickshawbags.com OR email.paramountplus.com
+        OR ar.email.samsung.com OR emails.ca.skechers.com OR e.daveandbusters.com OR
+        citizenwatch.com OR jungleoutlet.com OR m.massageaddict.ca OR photobucket.com
+        OR e.dsw.ca OR occu.org OR email.connectmiles.com OR email.eero.com OR offers.bayareanewsgroup.com
+        OR e.dji.com OR hensonshaving.com OR taxfyle.co OR neighborhoodalerts.com OR
+        partnernews.airmiles.ca OR wyrmwoodgaming.com OR e.kamalaharris.com OR email.rewardsnetwork.com
+        OR email.aadvantagecruises.com OR montagneweb-1.com.ar OR email.ibm.com OR baggu.com
+        OR tchicken.popeyeschicken.ca OR e.nofrills.ca OR esmiskin.com OR cscrewards.coldstonecreamery.com
+        OR email.legoland.com OR info.verbling.com OR email.gotransit.com OR grafana.com
+        OR email.alltrails.com OR con.sonos.com OR em.pcoptimum.ca OR e.crave.ca OR
+        us.umusic-online.com OR e.rogers.com OR info.la-z-boy.com OR newsletter.anycubic.com
+        OR club.splitsvillebowl.ca OR mail.marvel.com OR oldnavy.ca OR email.bose.com
+        OR woot.com OR yeti.com OR homedepot.ca OR trueclassictees.com OR patagonia.com
+        OR emails.wagjag.com OR s.kohls.com OR hankypanky.com OR vessi.com OR emails.rakuten.ca
+        OR timbuk2.com OR ikea.ca OR tilley.com OR email.stackcommerce.com OR r.groupon.com
+        OR airbnb.com OR ridge.com OR moneymakingmoves.com OR nerdwallet.com OR sharkninja.com
+        OR ca.e.sharkninja.com OR ninjakitchen.com OR bestbuy.ca OR virginhotels.com
+        OR urbanarmorgear.com OR uag.com OR malwarebytes.com OR peoplesjewellers.com
+        OR campaigns.cineplex.com OR ekster.com OR digital.costco.com OR crocs-email.com
+        OR email.jcpenney.com OR offers.jcpenney.com OR bartonwatchbands.com OR halifaxwatch.com
+        OR e.ray-ban.com OR e.walmart.ca OR hello.bombas.com OR email.etsy.com
+        OR e.lululemon.com OR mk.emna.katespadeoutlet.com OR email.mint.ca
+        OR ca2.bathandbodyworks.ca OR mkt.shoppersdrugmart.ca OR emails.reebok.com
+        OR dollarshaveclub.com OR alpakagear.com OR marketing.basspro.com
+        OR send.topodesigns.ca OR coldsteel.com OR e.xbox.com
+        OR pampersclub.pampers.com OR alienwarearena.com OR movies.fandango.com
+        OR e.crm.lego.com OR partnernews.bluerewards.ca OR rewardingyouropinions.ca
+    action:
+      add:
+      - Lists/Commercial
+      remove:
+      - INBOX
+
+  - match:
+      from: substack.com OR coursera.org OR nursingnetwork OR nursingnetworkmail.com
+        OR tldrnewsletter.com OR rom.on.ca OR stockstory.org OR mail.zillow.com OR anker.com
+        OR facebookmail.com OR message.fedex.com OR e-news.bmo.com OR wellnessliving.com
+        OR ur.rochester.edu OR wealthfrontmail.com OR info6.citi.com OR e.tsn.ca OR
+        messages.classmates.com OR 23andme.com OR redfin.com OR linkedin.com OR reddit.com
+        OR redditmail.com OR washingtonpost.com OR nextdoor.com OR e.newyorktimes.com
+        OR nytimes.com OR mail.futureparty.com OR e.economist.com OR dealnews.com
+        OR email.bayareanewsgroup.com OR news.bloomberg.com OR message.bloomberg.com
+        OR atlasobscura.com OR email.getthefuturist.com OR tn.com.ar
+        OR eb.notices.rochester.edu OR redflagdeals.com OR firstunitariantoronto.org
+    action:
+      add:
+      - Lists/Newsletters
+      remove:
+      - INBOX
+
+  - match:
+      from: e.bengsforsouthdakota.com OR harderforcongress.com OR list.moveon.org OR
+        aclu.org OR e.votevets.org OR nramedia.info.nra.org
+    action:
+      add:
+      - Lists/Political
+      remove:
+      - INBOX
+
+  - match:
+      from: dollarflightclub.com OR royalcaribbeanmarketing.com OR loyalty.ms.aa.com
+        OR mp1.tripadvisor.com
+    action:
+      add:
+      - Lists/Travel
+      remove:
+      - INBOX
+
+  # ── Personal ─────────────────────────────────────────────────────────────────
+
+  - match:
+      from: movatiathletic.com OR myiclubonline.com OR trainerize.com OR groupexpro.com
+    action:
+      add:
+      - Personal/Gym
+
+  - match:
+      from: janeapp.com OR swissmedical.com.ar OR secure-booker.com
+    action:
+      add:
+      - Personal/Medical
+      remove:
+      - INBOX
+
+  # ── Scouts ───────────────────────────────────────────────────────────────────
+
+  - match:
+      from: newmarket-rogerspstuesday-beavers@scoutstracker.ca
+    action:
+      add:
+      - Scouts/Beavers
+      forward: vanesaecheveste@hotmail.com
+
+  # ── Security ─────────────────────────────────────────────────────────────────
+
+  - match:
+      from: accountprotection.microsoft.com
+    action:
+      add:
+      - Security/Microsoft
+      remove:
+      - INBOX
+
+  - match:
+      from: mail.ring.com
+    action:
+      add:
+      - Security/Ring
+      remove:
+      - INBOX
+
+  # ── Tech ─────────────────────────────────────────────────────────────────────
+
+  - match:
+      from: nintendo.net OR accounts.nintendo.com
+    action:
+      add:
+      - Tech/Nintendo
+      remove:
+      - INBOX
