@@ -85,7 +85,9 @@ Create starter creds:
 - One-shot auth helper:
   - `./bin/mail-assistant-auth`
 
-Credentials path: `~/.config/credentials.ini` (or `$CREDENTIALS` env var, or `$XDG_CONFIG_HOME/credentials.ini`)
+Legacy paths also supported:
+- `~/.config/credentials.ini` (XDG fallback)
+- `~/.config/sreutils/credentials.ini`
 
 ## Mail Workflows (Gmail and Outlook)
 
