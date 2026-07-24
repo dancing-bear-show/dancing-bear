@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+#
+# Bootstrap local OpenTelemetry collector for Claude Code telemetry.
+# Uses a pure-Python OTLP HTTP receiver — no Docker required.
+#
+# Usage:
+#   ./bin/bootstrap-otel           # Full setup
+#   ./bin/bootstrap-otel --check   # Check current status
+#   ./bin/bootstrap-otel --stop    # Stop the collector
+#
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+DATA_DIR="${HOME}/.config/otel"
+SETTINGS_FILE="${HOME}/.claude/settings.json"
+ZSHRC="${HOME}/.zshrc"
+OTLP_ENDPOINT="http://localhost:4318"
+
+CHECK_ONLY=false
+STOP=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --check) CHECK_ONLY=true; shift ;;
+        --stop)  STOP=true; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+info()    { echo -e "${BLUE}→${NC} $*"; }
+success() { echo -e "${GREEN}✓${NC} $*"; }
+warn()    { echo -e "${YELLOW}⚠${NC} $*"; }
+error()   { echo -e "${RED}✗${NC} $*"; }
+
+check_status() {
+    echo ""
+    echo "OTel Collector Status"
+    echo "─────────────────────"
+
+    python3 -m telemetry.otel.collector --status --data-dir "$DATA_DIR"
+
+    echo ""
+    echo "Environment:"
+    if [[ "${CLAUDE_CODE_ENABLE_TELEMETRY:-}" == "1" ]]; then
+        success "  CLAUDE_CODE_ENABLE_TELEMETRY=1"
+    else
+        warn "  CLAUDE_CODE_ENABLE_TELEMETRY not set (restart shell or Claude Code)"
+    fi
+    if [[ "${OTEL_METRICS_EXPORTER:-}" == "otlp" ]]; then
+        success "  OTEL_METRICS_EXPORTER=otlp"
+    else
+        warn "  OTEL_METRICS_EXPORTER not set"
+    fi
+    echo ""
+}
+
+if $STOP; then
+    info "Stopping OTel collector..."
+    python3 -m telemetry.otel.collector --stop
+    exit 0
+fi
+
+if $CHECK_ONLY; then
+    check_status
+    exit 0
+fi
+
+echo ""
+echo -e "${BLUE}Bootstrap: OpenTelemetry Collector (Python)${NC}"
+echo "────────────────────────────────────────────"
+echo ""
+
+info "Checking Python..."
+if ! command -v python3 &>/dev/null; then
+    error "python3 not found. Install Python 3.11+"
+    exit 1
+fi
+PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+success "python3 found: ${PY_VERSION}"
+
+info "Creating data directory: $DATA_DIR"
+mkdir -p "$DATA_DIR"
+success "Data directory ready"
+
+info "Starting Python OTLP collector on port 4318..."
+python3 -m telemetry.otel.collector --daemon --data-dir "$DATA_DIR"
+sleep 1
+if python3 -m telemetry.otel.collector --status --data-dir "$DATA_DIR" | grep -q "running"; then
+    success "Collector started"
+else
+    error "Collector failed to start"
+    exit 1
+fi
+
+info "Updating ~/.claude/settings.json..."
+if [[ -f "$SETTINGS_FILE" ]]; then
+    python3 - <<EOF
+import json
+
+path = "${SETTINGS_FILE}"
+with open(path) as f:
+    settings = json.load(f)
+
+otel_env = {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4318/v1/metrics",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://localhost:4318/v1/logs",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://localhost:4318/v1/traces",
+    "OTEL_METRIC_EXPORT_INTERVAL": "60000",
+    "OTEL_LOGS_EXPORT_INTERVAL": "5000",
+}
+
+settings.setdefault("env", {}).update(otel_env)
+
+with open(path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+EOF
+    success "settings.json updated"
+else
+    warn "settings.json not found — add env vars manually"
+fi
+
+info "Checking ~/.zshrc..."
+ZSHRC_BLOCK='
+# ============================================================================
+# OpenTelemetry (local Python collector)
+# ============================================================================
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://localhost:4318/v1/metrics
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://localhost:4318/v1/logs
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+export OTEL_METRIC_EXPORT_INTERVAL=60000
+export OTEL_LOGS_EXPORT_INTERVAL=5000'
+
+if grep -q "CLAUDE_CODE_ENABLE_TELEMETRY" "$ZSHRC" 2>/dev/null; then
+    success ".zshrc already has OTel config"
+else
+    echo "$ZSHRC_BLOCK" >> "$ZSHRC"
+    success ".zshrc updated"
+fi
+
+info "Verifying pipeline with test span..."
+sleep 1
+if curl -s -X POST "${OTLP_ENDPOINT}/v1/traces" \
+    -H "Content-Type: application/json" \
+    -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"bootstrap-otel"}}]},"scopeSpans":[{"spans":[{"traceId":"aabbccddeeff00112233445566778899","spanId":"aabbccddee000001","name":"bootstrap.test","startTimeUnixNano":"1709123456000000000","endTimeUnixNano":"1709123457000000000"}]}]}]}' \
+    2>/dev/null | grep -q "partialSuccess"; then
+    success "Collector accepting spans"
+else
+    warn "Could not verify collector — it may still be starting up"
+fi
+
+echo ""
+echo -e "${GREEN}Setup complete!${NC}"
+echo ""
+echo "Next steps:"
+echo "  1. Restart Claude Code (or open a new terminal) to activate env vars"
+echo "  2. Watch data land:  tail -f ${DATA_DIR}/events.jsonl | jq '.'"
+echo "  3. Check status:     ./bin/bootstrap-otel --check"
+echo "  4. Stop collector:   ./bin/bootstrap-otel --stop"
