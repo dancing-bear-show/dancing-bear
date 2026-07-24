@@ -139,7 +139,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
 
     def _parse_single_receipt(
         self, text: str | None, calendar: str | None
-    ) -> dict[str, Any | None]:
+    ) -> dict[str, Any] | None:
         """Parse a single receipt message and return an event dict or None."""
         text = text or ""
         m_cls = _RECEIPT_CLS_PAT.search(text)
