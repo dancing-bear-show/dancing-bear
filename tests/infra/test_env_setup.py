@@ -29,7 +29,7 @@ class EnvSetupTests(unittest.TestCase):
             )
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = run_env_setup(args)
+                rc = run_env_setup(args)  # NOSONAR - SimpleNamespace is duck-type compatible with argparse.Namespace
             self.assertEqual(rc, 0)
             # Verify INI written
             import configparser

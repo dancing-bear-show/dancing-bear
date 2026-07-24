@@ -510,7 +510,7 @@ def _breakdown_by_day(sessions: list["SessionSummary"]) -> list[dict[str, object
     return rows
 
 
-def _print_cost_csv(rows: list[dict[str, object]], group_by: str) -> None:  # noqa: ARG001
+def _print_cost_csv(rows: list[dict[str, object]], _group_by: str) -> None:
     import csv
     import sys as _sys
 

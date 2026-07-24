@@ -801,7 +801,7 @@ class GmailCostExtractor(CostExtractor):
         ]
         return _process_order(self.client, order.order_id, msgs_tuple)
 
-    def run(self) -> int:
+    def run(self) -> int:  # NOSONAR - always returns 0; success-only tool, exit code reserved for subclasses
         """Run Gmail cost extraction (override to use write_costs_csv)."""
         self._authenticate()
         ids = self._fetch_message_ids()

@@ -145,7 +145,7 @@ class TestWebParser(unittest.TestCase):
     def test_handles_none_url(self):
         parser = WebParser()
         with self.assertRaises(NotImplementedError):
-            parser.parse(None)
+            parser.parse(None)  # NOSONAR - intentional None test for defensive handling
 
 
 class TestRichmondHillSkatingParser(unittest.TestCase):

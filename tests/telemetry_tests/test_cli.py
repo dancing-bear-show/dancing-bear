@@ -1,7 +1,7 @@
 """Tests for telemetry CLI commands."""
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from click.testing import CliRunner
 
 from telemetry.cli import (
