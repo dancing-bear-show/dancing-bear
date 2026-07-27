@@ -1,9 +1,11 @@
 """Pluggable dispatch strategies for workflow stage execution.
 
-Defines the StageDispatcher protocol and three implementations:
+Defines the StageDispatcher protocol and four implementations:
 - LocalDispatcher: runs invoke-mode CLI commands via subprocess
 - SkillDispatcher: writes dispatch JSON for Claude Code skill agents
-- CompositeDispatcher: routes invoke-only stages locally, others to skill
+- WorkerQueueDispatcher: enqueues stages as background jobs via worker/queue.py
+- CompositeDispatcher: routes invoke-only stages locally, worker_queue stages to
+  WorkerQueueDispatcher, and all others to SkillDispatcher
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import enum
 import json
 import logging
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -32,6 +35,7 @@ __all__ = [
     "LocalDispatcher",
     "SkillDispatcher",
     "StageDispatcher",
+    "WorkerQueueDispatcher",
 ]
 
 logger = logging.getLogger(__name__)
@@ -230,6 +234,81 @@ class SkillDispatcher:
 
 
 # ---------------------------------------------------------------------------
+# WorkerQueueDispatcher
+# ---------------------------------------------------------------------------
+
+
+class WorkerQueueDispatcher:
+    """Enqueues stages as background jobs via the worker file-based queue.
+
+    Each stage becomes a Job with type="workflow_stage" and a payload carrying
+    the workflow name, stage name, stage index, CLI commands, and any trigger
+    params. The dispatcher returns a 'pending' StageResult immediately — the
+    worker daemon processes the job asynchronously.
+    """
+
+    JOB_TYPE = "workflow_stage"
+
+    def __init__(
+        self,
+        workflow_name: str,
+        trigger_params: dict[str, str] | None = None,
+    ) -> None:
+        self._workflow_name = workflow_name
+        self._trigger_params = dict(trigger_params or {})
+
+    @staticmethod
+    def _sanitize_id_component(s: str) -> str:
+        """Keep only alphanumerics, hyphens, and underscores — safe as a filename component."""
+        import re
+        return re.sub(r"[^A-Za-z0-9_-]", "-", s)
+
+    def _make_job_id(self, stage: ResolvedStage) -> str:
+        # UUID suffix prevents collisions on workflow re-runs; sanitization
+        # ensures the full ID is safe as a filename in the queue pending/ dir.
+        safe_wf = self._sanitize_id_component(self._workflow_name)
+        safe_stage = self._sanitize_id_component(stage.spec.name)
+        return f"{safe_wf}-{safe_stage}-{stage.index}-{uuid.uuid4().hex[:8]}"
+
+    def dispatch(
+        self,
+        stage: ResolvedStage,
+        workspace_dir: Path,
+    ) -> StageResult:
+        from worker.queue import Job, enqueue  # lazy import — worker is optional
+
+        started_at = iso_now()
+        job_id = self._make_job_id(stage)
+        job = Job(
+            id=job_id,
+            type=self.JOB_TYPE,
+            payload={
+                "workflow_name": self._workflow_name,
+                "stage_name": stage.spec.name,
+                "stage_index": stage.index,
+                "script": stage.spec.script,
+                "cli_commands": list(stage.cli_commands),
+                "workspace_dir": str(workspace_dir),
+                "trigger_params": self._trigger_params,
+            },
+        )
+        enqueue(job)
+        logger.debug("Enqueued stage '%s' as job '%s'", stage.spec.name, job_id)
+
+        return make_stage_result(
+            stage, started_at, StageStatus.pending,
+            {"job_id": job_id, "job_type": self.JOB_TYPE}, [],
+        )
+
+    def dispatch_group(
+        self,
+        stages: list[ResolvedStage],
+        workspace_dir: Path,
+    ) -> dict[str, StageResult]:
+        return _dispatch_group_serial(self, stages, workspace_dir)
+
+
+# ---------------------------------------------------------------------------
 # CompositeDispatcher
 # ---------------------------------------------------------------------------
 
@@ -252,7 +331,7 @@ class CompositeDispatcher:
     ) -> None:
         self._local = LocalDispatcher()
         self._skill = SkillDispatcher(workflow_name)
-        self._worker_queue = _NoOpWorkerQueueDispatcher(trigger_params or {})
+        self._worker_queue = WorkerQueueDispatcher(workflow_name, trigger_params or {})
 
     def _needs_agent(self, stage: ResolvedStage) -> bool:
         """True if any output requires agent work (generate/template) or stage is validate/sub-workflow."""
@@ -269,10 +348,7 @@ class CompositeDispatcher:
         workspace_dir: Path,
     ) -> StageResult:
         if stage.spec.executor == "worker_queue":
-            # worker_queue is not supported in dancing-bear (no worker infrastructure).
-            # Route to skill dispatcher as a reasonable fallback so YAML with
-            # executor=worker_queue still produces a dispatch file for manual handling.
-            return self._skill.dispatch(stage, workspace_dir)
+            return self._worker_queue.dispatch(stage, workspace_dir)
         if stage.spec.executor == "inline":
             raise NotImplementedError(
                 f"stage '{stage.spec.name}' has executor='inline', which is only "
@@ -290,14 +366,3 @@ class CompositeDispatcher:
         workspace_dir: Path,
     ) -> dict[str, StageResult]:
         return _dispatch_group_serial(self, stages, workspace_dir)
-
-
-class _NoOpWorkerQueueDispatcher:
-    """Placeholder that carries trigger_params so CompositeDispatcher tests pass.
-
-    dancing-bear has no worker queue infrastructure; this keeps the API surface
-    compatible with tests that check CompositeDispatcher._worker_queue._trigger_params.
-    """
-
-    def __init__(self, trigger_params: dict[str, str]) -> None:
-        self._trigger_params = trigger_params
