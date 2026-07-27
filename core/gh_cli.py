@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
 import json
@@ -68,7 +66,10 @@ class GhCLI:
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh search prs failed")
             raise RuntimeError(err_msg)
-        return json.loads(res.stdout)
+        try:
+            return json.loads(res.stdout)
+        except Exception:  # nosec B110 - non-JSON gh search output returned as raw string
+            return res.stdout
 
     def api_with_headers(self, path: str) -> tuple[int, dict[str, str], str]:
         """Call gh api --include and return (status, headers, body).
@@ -207,7 +208,12 @@ class GhCLI:
                  automatically; do not include it in cmd.
 
         Returns raw stdout (typically JSON when --json flag is used).
+
+        Raises ValueError if cmd does not start with the ["pr", "list"] tokens,
+        so misuse fails clearly rather than as a confusing "gh pr list failed".
         """
+        if cmd[:2] != ["pr", "list"]:
+            raise ValueError('pr_list expects cmd to start with ["pr", "list", ...]')
         full_cmd = ["gh", *cmd]
         res = self._run(full_cmd, text=True, capture_output=True)
         if res.returncode != 0:

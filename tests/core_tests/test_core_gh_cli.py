@@ -212,6 +212,18 @@ class TestGhCLISearchPrs(unittest.TestCase):
         self.assertNotIn("--assignee", call_args)
         self.assertNotIn("None", call_args)
 
+    def test_search_prs_non_json_returns_raw(self):
+        """Test non-JSON search output is returned raw, not raised."""
+        mock_run = MagicMock(return_value=_proc(
+            returncode=0,
+            stdout="a warning line, not json"
+        ))
+        cli = GhCLI(run_func=mock_run)
+
+        result = cli.search_prs(author="@me")
+
+        self.assertEqual(result, "a warning line, not json")
+
     def test_search_prs_failure_raises_runtime_error(self):
         """Test that search failure raises RuntimeError."""
         mock_run = MagicMock(return_value=_proc(
@@ -541,6 +553,15 @@ class TestGhCLIPrList(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             cli.pr_list(["pr", "list"])
+
+    def test_pr_list_rejects_non_pr_list_cmd(self):
+        """Test that pr_list raises ValueError for a non-'pr list' command."""
+        mock_run = MagicMock()
+        cli = GhCLI(run_func=mock_run)
+
+        with self.assertRaises(ValueError):
+            cli.pr_list(["issue", "list"])
+        mock_run.assert_not_called()
 
 
 if __name__ == '__main__':
