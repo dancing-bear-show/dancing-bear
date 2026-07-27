@@ -95,7 +95,9 @@ stages:
             ]
           }
         If the file does not exist, write an empty array to
-        {workspace}/outputs/past-findings.json and exit 0.
+        {workspace}/outputs/past-findings.json and continue — do NOT exit.
+        Steps 3 and 4 must still run so known-concern-ids.json is produced
+        for the downstream cluster-gaps and propose-concerns stages.
 
       Step 2 — filter to the window:
         Keep only records where ts >= now - {window_days} days.
@@ -109,6 +111,8 @@ stages:
           concerns/reuse.md
           concerns/complexity.md
           concerns/workflow.md
+          concerns/workflow-stages.md
+          concerns/workflow-fanout.md
           concerns/workflow-fragments.md
           concerns/docs.md
           concerns/phone-layout.md
@@ -448,6 +452,8 @@ stages:
     writes_to:
       - outputs/update-summary.md
       - concerns/workflow.md
+      - concerns/workflow-stages.md
+      - concerns/workflow-fanout.md
       - concerns/workflow-fragments.md
       - concerns/correctness.md
       - concerns/tests.md

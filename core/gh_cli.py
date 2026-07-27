@@ -59,6 +59,8 @@ class GhCLI:
         ]
         # Example: author=@me, state=all, limit=5
         for k, v in kwargs.items():
+            if v is None:
+                continue  # omit None-valued flags — avoids passing the literal "None"
             k = str(k).replace("_", "-")
             cmd += [f"--{k}", str(v)]
         cmd += ["--json", "number,title,repository,createdAt,updatedAt,url"]

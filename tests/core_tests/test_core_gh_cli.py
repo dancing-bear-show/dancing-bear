@@ -197,6 +197,21 @@ class TestGhCLISearchPrs(unittest.TestCase):
         call_args = mock_run.call_args[0][0]
         self.assertIn("--review-requested", call_args)
 
+    def test_search_prs_skips_none_values(self):
+        """Test that None-valued kwargs are omitted, not passed as 'None'."""
+        mock_run = MagicMock(return_value=_proc(
+            returncode=0,
+            stdout='[]'
+        ))
+        cli = GhCLI(run_func=mock_run)
+
+        cli.search_prs(author="@me", assignee=None)
+
+        call_args = mock_run.call_args[0][0]
+        self.assertIn("--author", call_args)
+        self.assertNotIn("--assignee", call_args)
+        self.assertNotIn("None", call_args)
+
     def test_search_prs_failure_raises_runtime_error(self):
         """Test that search failure raises RuntimeError."""
         mock_run = MagicMock(return_value=_proc(
