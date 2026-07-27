@@ -38,6 +38,9 @@ phone/                    # iOS layout tooling
 whatsapp/                 # local-only ChatStorage search
 desk/                     # desktop/workspace tooling
 maker/                    # utility generators
+charts/                   # render time-series charts from JSON (line/bar/area/dual)
+diagrams/                 # Mermaid diagram generation (flowchart/sequence/gantt)
+workflow/                 # YAML DAG workflow engine (parse/compile/run/lint)
 bin/                      # entry wrappers and helper scripts
 core/                     # shared helpers
 tests/                    # lightweight unittest suite
@@ -136,6 +139,11 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 # Flows
 ./bin/llm flows --list
 ./bin/llm flows --id <flow_id> --format md
+
+# Visualization + orchestration
+./bin/charts render <spec.json>          # render a chart (also: grid, reshape)
+./bin/diagrams from-yaml <spec.yaml>     # Mermaid from YAML (also: render, validate, embed, telemetry)
+./bin/workflow run <workflow.yaml>       # run a YAML DAG (also: parse, compile, lint, list, status)
 ```
 
 ## Auto-Familiarization

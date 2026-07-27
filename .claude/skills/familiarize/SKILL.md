@@ -55,11 +55,17 @@ For CLI capabilities, use agentic schemas (never `--help`):
 Primary surfaces: `mail-assistant`, `calendar-assistant`, `schedule-assistant`, `phone-assistant`.
 Load only the wrapper(s) relevant to the current task.
 
+**Visualization + orchestration surfaces** (load when the task involves rendering or DAG orchestration):
+- `./bin/charts` — render time-series charts from JSON (`render`, `grid`, `reshape`)
+- `./bin/diagrams` — Mermaid diagrams (`from-yaml`, `render`, `validate`, `embed`, `telemetry`)
+- `./bin/workflow` — YAML DAG workflow engine (`parse`, `compile`, `run`, `lint`, `list`, `status`)
+
 ## After Familiarize
 
 You should know:
 - What the project does (unified personal-workflow CLIs: mail, calendar, schedule, phone, WhatsApp)
 - How to run CLIs (`./bin/<assistant> <subcommand> <flags>`)
+- Visualization + orchestration tooling (`charts`, `diagrams`, `workflow`)
 - Where to find patterns (`.llm/PATTERNS.md`)
 - Paths to skip (`.venv/`, `.git/`, `.cache/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`)
 - Available skills (`/familiarize`, `/dancing-bear-rules`, etc.)

@@ -1,7 +1,7 @@
-agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context.
+agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context. Visualization + orchestration wrappers (charts/diagrams/workflow) surface under --verbose.
 meta:
   name: assistants_familiarize
-  version: 3
+  version: 4
 steps:
   - run: ./bin/llm agentic --stdout
   - run: ./bin/llm --app calendar agentic --stdout || true

@@ -28,6 +28,9 @@ phone/                    # iOS layout tooling
 whatsapp/                 # local-only ChatStorage search
 desk/                     # desktop/workspace tooling
 maker/                    # utility generators
+charts/                   # render time-series charts from JSON (line/bar/area/dual)
+diagrams/                 # Mermaid diagram generation (flowchart/sequence/gantt)
+workflow/                 # YAML DAG workflow engine (parse/compile/run/lint)
 bin/                      # entry wrappers and helper scripts
 core/                     # shared helpers
 tests/                    # lightweight unittest suite
