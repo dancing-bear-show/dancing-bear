@@ -510,7 +510,7 @@ def cmd_auto_folders(args) -> int:
         "status": "ok",
         "plan": str(plan_path),
         "folders_total": len(folders),
-        "folders_non_empty": sum(1 for a in folders.values() if a),
+        "folders_nonempty": sum(1 for a in folders.values() if a),
     })
     return 0
 

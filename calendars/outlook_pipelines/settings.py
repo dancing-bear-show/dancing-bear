@@ -123,7 +123,7 @@ class OutlookSettingsProcessor(SafeProcessor[OutlookSettingsRequest, OutlookSett
 
         return OutlookSettingsResult(logs=logs, selected=selected, changed=changed, dry_run=payload.dry_run)
 
-    def _evaluate_config(self, defaults, rules, event: dict[str, Any]) -> dict[str, Any] | None:
+    def _evaluate_config(self, defaults, rules, event: dict[str, Any]) -> dict | None:
         subject = (event.get("subject") or "").strip()
         location = ((event.get("location") or {}).get("displayName") or "").strip()
         apply_set = None

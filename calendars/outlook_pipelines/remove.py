@@ -91,7 +91,7 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
         result = OutlookRemoveResult(plan=plan, apply=payload.apply, deleted=deleted_total, logs=logs)
         return result
 
-    def _resolve_window(self, event: dict[str, Any]) -> tuple[str, str | None] | None:
+    def _resolve_window(self, event: dict[str, Any]) -> tuple[str, str] | None:
         single_start = (event.get("start") or "").strip()
         single_end = (event.get("end") or "").strip()
         if single_start and single_end:

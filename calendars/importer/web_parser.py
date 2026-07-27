@@ -52,9 +52,11 @@ def _fetch_html(url: str) -> str:
     """Fetch HTML content from URL."""
     try:
         return HttpClient("", timeout=DEFAULT_REQUEST_TIMEOUT).get(url).text
-    except Exception as exc:  # nosec B110 - return page body from HTTP error response if available
+    except Exception as exc:
         r = getattr(exc, "response", None)
-        return r.text if r is not None else ""
+        if r is not None:
+            return r.text
+        raise
 
 
 class WebParser(ScheduleParser):

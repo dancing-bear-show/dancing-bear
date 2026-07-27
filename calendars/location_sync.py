@@ -1,14 +1,11 @@
 """Higher-level helpers for location sync (plan/apply)."""
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
 
 from .selection import compute_window, filter_events_by_day_time
 from .model import normalize_event
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -119,10 +116,10 @@ class LocationSync:
     def _apply_location_update(self, update: LocationUpdate) -> None:
         """Update a single event/series location (dry-run safe)."""
         if update.dry_run:
-            logger.info("[dry-run] would update %s '%s' -> '%s' (id=%s)", update.label, update.subj, update.yaml_loc, update.event_id)
+            print(f"[dry-run] would update {update.label} '{update.subj}' -> '{update.yaml_loc}' (id={update.event_id})")
         else:
             self.svc.update_event_location(event_id=update.event_id, calendar_name=update.cal_name, location_str=update.yaml_loc)
-            logger.info("Updated %s: %s -> %s", update.label, update.subj, update.yaml_loc)
+            print(f"Updated {update.label}: {update.subj} -> {update.yaml_loc}")
 
     def _apply_all_occurrences(
         self, matches: list[dict[str, Any]], subj: str, yaml_loc: str,

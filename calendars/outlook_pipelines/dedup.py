@@ -135,7 +135,7 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
             )
         return duplicates
 
-    def _key_for_event(self, event: dict[str, Any]) -> tuple[str, str, str, str | None]:
+    def _key_for_event(self, event: dict[str, Any]) -> tuple[str, str, str, str]:
         subject = (event.get("subject") or "").strip().lower()
         start = ((event.get("start") or {}).get("dateTime") or "")
         end = ((event.get("end") or {}).get("dateTime") or "")
@@ -154,7 +154,7 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         series_ids: list[str],
         masters: dict[str, list[dict[str, Any]]],
         payload: OutlookDedupRequest,
-    ) -> tuple[str, list[str | None]] | None:
+    ) -> tuple[str, list[str]] | None:
         sorted_sids = sorted(series_ids, key=lambda sid: self._created_at(sid, masters) or "Z")
         if not sorted_sids:
             return None
