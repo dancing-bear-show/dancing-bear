@@ -258,6 +258,40 @@ applicability by file type:
   # or, if the submodule is redundant, delete it rather than leaving dead code
   ```
 
+### new-cli-bypasses-cliapp
+- **severity**: major
+- **check**: Verify new CLI entry points build on `core/cli_framework.py`'s `CLIApp`
+  (decorator-based command registration) rather than constructing
+  `argparse.ArgumentParser` directly. CLIs on `CLIApp` get fuzzy "did you mean"
+  suggestions, an optional `--` separator, and auto-derived `--agentic` schema
+  support for free; hand-rolled parsers get none of this and drift silently.
+- **triggers**: New `*/cli/main.py`, `*/cli.py`, or similar entry-point files
+  that call `argparse.ArgumentParser(` directly instead of instantiating
+  `CLIApp(...)`; new domains added under `bin/` without a corresponding
+  `CLIApp`-based command module.
+- **example**: A new `foo/cli.py` with `parser = argparse.ArgumentParser(...)`
+  and manual `subparsers.add_parser(...)` calls — misses fuzzy typo suggestions,
+  requires `--` before flags, and has no `--agentic` support at all. Fix: use
+  `app = CLIApp("foo-assistant", "...")` and `@app.command(...)` decorators;
+  see `mail/cli/main.py` or `wifi/cli.py` for the canonical pattern.
+
+### new-cli-missing-agentic-wiring
+- **severity**: major
+- **check**: Verify new CLI entry points instantiate a `core.assistant.BaseAssistant`
+  and call `app.run_with_assistant(...)` (not bare `app.run(...)`) so `--agentic`,
+  `--agentic-format json`, `--agentic-compact`, and `--agentic-domain` all work.
+  A `CLIApp` alone does not wire agentic support — it must be connected explicitly.
+- **triggers**: New CLI entry-point files that call `app.run(argv)` or `app.main(argv)`
+  directly without a `BaseAssistant` instance; `CLIApp` usage with no import of
+  `core.assistant.BaseAssistant`.
+- **example**: `apple_music/cli.py` and `metals/cli/main.py` originally called
+  `app.run()` directly and had zero `--agentic` support despite using `CLIApp` —
+  agents had no way to introspect their command surface. Fix: `assistant =
+  BaseAssistant(app_id="foo", fallback_banner="...")` and
+  `app.run_with_assistant(assistant, emit_func=..., argv=argv)`. Minimal `emit_func`
+  is acceptable if no hand-authored capsule exists yet — the auto-schema path
+  (`--agentic-format json`) works from the live parser regardless.
+
 ### graceful-degradation-breaks-format-contract
 - **severity**: major
 - **check**: Verify that CLI graceful-degradation paths ("no data in window", "no metadata found") still emit a valid structured payload to stdout via `emit_rows(..., empty_msg=...)` when `--format json` or `--format csv` is active, rather than printing a human-readable note directly to stdout or emitting nothing at all.

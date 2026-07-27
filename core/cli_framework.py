@@ -10,6 +10,7 @@ Provides a declarative way to build CLI applications with:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import (
@@ -24,10 +25,64 @@ from typing import (
 
 from .cli_errors import CLIError, ExitCode, handle_error
 from .cli_output import OutputConfig, OutputFormat, OutputWriter
+from .cli_suggestions import suggest_command, suggest_flags
 
 
 T = TypeVar("T")
 CommandFunc = Callable[[argparse.Namespace], int]
+
+
+class _HelpfulArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser subclass that adds 'did you mean' suggestions on error."""
+
+    def error(self, message: str) -> None:  # type: ignore[override]
+        """Override error() to append ranked suggestions before exiting."""
+        suggestion_lines = self._suggestions_for_error(message)
+        if suggestion_lines:
+            self.print_usage(sys.stderr)
+            for line in suggestion_lines:
+                self.error_output(f"hint: {line}")
+        super().error(message)
+
+    def _suggestions_for_error(self, message: str) -> list[str]:
+        """Return ranked hint lines for a known argparse error message shape."""
+        if "invalid choice:" in message and "choose from" in message:
+            return self._suggest_for_invalid_choice(message)
+        if "unrecognized arguments" in message:
+            return self._suggest_for_unrecognized_flags(message)
+        return []
+
+    def _suggest_for_invalid_choice(self, message: str) -> list[str]:
+        """Suggest subcommands for an 'invalid choice' subcommand error."""
+        m = re.search(r"invalid choice:\s*'?([^',)]+)'?", message)
+        if not m:
+            return []
+        query = m.group(1).strip()
+        choices: list[str] = []
+        for act in self._actions:
+            if hasattr(act, "choices") and act.choices:
+                choices.extend(act.choices.keys() if hasattr(act.choices, "keys") else act.choices)
+        suggestions = suggest_command(query, choices)
+        if not suggestions:
+            return []
+        return [f"Did you mean: {', '.join(suggestions)}?"]
+
+    def _suggest_for_unrecognized_flags(self, message: str) -> list[str]:
+        """Suggest known flags for each unrecognized flag-like token."""
+        tokens = re.findall(r"(--?[\w-]+)", message)
+        all_flags: list[str] = []
+        for act in self._actions:
+            all_flags.extend(act.option_strings)
+        lines: list[str] = []
+        for token in tokens:
+            flag_suggestions = suggest_flags(token, all_flags)
+            if flag_suggestions:
+                lines.append(f"Unknown flag '{token}'. Did you mean: {', '.join(flag_suggestions)}?")
+        return lines
+
+    def error_output(self, msg: str) -> None:
+        """Print a hint line to stderr."""
+        print(f"{self.prog}: {msg}", file=sys.stderr)
 
 
 @dataclass
@@ -193,7 +248,7 @@ class CLIApp:
 
     def build_parser(self) -> argparse.ArgumentParser:
         """Build the argument parser."""
-        parser = argparse.ArgumentParser(
+        parser = _HelpfulArgumentParser(
             prog=self.name,
             description=self.description,
             epilog=self.epilog,
@@ -275,6 +330,32 @@ class CLIApp:
         for arg in cmd_def.arguments:
             parser.add_argument(*arg.name_or_flags, **arg.kwargs)
 
+    @staticmethod
+    def _normalize_argv(argv: Sequence[str]) -> list[str]:
+        """Strip stray bare '--' tokens that separate subcommand from its flags.
+
+        CLAUDE.md documents '-- ' as optional for CLIApp-based CLIs.  argparse
+        treats a bare '--' as "end of optional arguments", which is fine when
+        the subcommand comes before it.  The separator was historically used by
+        the workflow engine to split parent/child args; this method strips it so
+        callers can omit it without changing behavior.
+
+        Only removes a bare '--' that appears between a known token (subcommand)
+        and the remaining flags.  A '--' that ends the argv list is kept.
+        """
+        result: list[str] = []
+        argv_list = list(argv)
+        i = 0
+        while i < len(argv_list):
+            token = argv_list[i]
+            # Remove bare '--' that is not the last token
+            if token == "--" and i < len(argv_list) - 1:  # nosec B105 - not a password; '--' is the POSIX arg separator
+                i += 1
+                continue
+            result.append(token)
+            i += 1
+        return result
+
     def run_with_assistant(
         self,
         assistant: Any,
@@ -312,10 +393,11 @@ class CLIApp:
             post_build_hook(parser)
         assistant.add_agentic_flags(parser)
 
-        args = parser.parse_args(argv)
+        _argv = self._normalize_argv(argv if argv is not None else sys.argv[1:])
+        args = parser.parse_args(_argv)
 
         # Handle agentic output if requested
-        agentic_result = assistant.maybe_emit_agentic(args, emit_func=emit_func)
+        agentic_result = assistant.maybe_emit_agentic(args, emit_func=emit_func, parser=parser)
         if agentic_result is not None:
             return int(agentic_result)
 
@@ -348,7 +430,8 @@ class CLIApp:
         parser = self._parser
         if parser is None:
             parser = self.build_parser()
-        args = parser.parse_args(argv)
+        _argv = self._normalize_argv(argv if argv is not None else sys.argv[1:])
+        args = parser.parse_args(_argv)
 
         # Set up output writer
         output_format = OutputFormat(getattr(args, "output", "text"))

@@ -12,9 +12,16 @@ Use Existing Commands First
 ./bin/mail-assistant --help
 ./bin/calendar-assistant --help
 
-# Token‑efficient schemas
+# Token-efficient schemas (hand-authored capsule)
 ./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
 ./bin/llm agentic --stdout
+
+# Auto-derived schema from live parser (json = machine-readable, never drifts from --help)
+./bin/mail-assistant --agentic --agentic-format json
+./bin/mail-assistant --agentic --agentic-format json --agentic-compact
+./bin/mail-assistant --agentic --agentic-format json --agentic-domain labels
+# Works identically for all 11 domain CLIs (mail, calendar, schedule, resume, phone,
+# whatsapp, desk, wifi, maker, apple_music, metals)
 ```
 
 Agentic Shortcuts (LLM CLI)
