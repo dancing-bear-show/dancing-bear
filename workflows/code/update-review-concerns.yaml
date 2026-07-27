@@ -1,0 +1,465 @@
+# Scan past review runs and human PR feedback to propose new concern entries
+# for the code-review guide library.
+#
+# Sources:
+#   1. ~/.cache/claude/code-review-findings.ndjson  — structured findings from
+#      every previous code-review workflow run (concern_id, file, severity, PR)
+#   2. GitHub review threads + REST inline comments from merged PRs within the
+#      window — human and Copilot feedback that the workflow may have missed
+#
+# DAG:
+#   init
+#     |
+#   fetch-findings ─── fetch-review-threads   (parallel)
+#     \                        /
+#          cluster-gaps
+#               |
+#         propose-concerns
+#               |
+#           human-gate
+#               |
+#          update-guides
+
+name: update-review-concerns
+version: "1.0"
+description: >
+  Mines past code-review workflow runs and human/Copilot PR review threads to
+  discover recurring issues not covered by the existing concern library, then
+  proposes properly-formatted concern entries for human approval and appends
+  approved entries to the appropriate concerns/*.md file.
+
+  Two modes:
+    - pr_number set (e.g. "112"): scope to a single open or merged PR; any
+      pattern found even once is proposed (min_occurrences overridden to 1)
+    - pr_number blank: scan merged PR history within window_days
+
+  Run periodically (e.g. after every 10–20 PRs) to keep the concern library
+  current with real defects found in this codebase.
+
+metadata:
+  author: dancing-bear
+  created: "2026-06-05"
+
+trigger:
+  source: manual
+  params:
+    window_days: "30"    # how many days of merged PR history to scan
+    min_occurrences: "2" # minimum times a pattern must appear to be proposed
+    pr_number: ""        # optional: scope to a single PR (skips merged-PR list scan)
+    max_prs: "20"        # MODE B: cap on how many recent merged PRs to fetch comments for
+
+workspace_dir: "{work_dir}/update-review-concerns"
+
+stages:
+
+  # ============================================================================
+  # Bootstrap
+  # ============================================================================
+
+  - name: init
+    kind: gather
+    description: >
+      Bootstrap the workspace. Create output directories needed by later stages:
+        mkdir -p {workspace}/outputs
+        mkdir -p {workspace}/validation
+      Exit 0 immediately after.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash]
+      access: read-only
+    required: true
+    writes_to: []
+
+  # ============================================================================
+  # Group 1: Fetch both data sources in parallel
+  # ============================================================================
+
+  - name: fetch-findings
+    kind: gather
+    depends_on: [init]
+    description: >
+      Load structured findings from past code-review workflow runs.
+
+      Step 1 — read the findings log:
+        Path: ~/.cache/claude/code-review-findings.ndjson
+        Each line is a JSON record:
+          {
+            "ts": "...",
+            "pr_number": "...",
+            "repo": "...",
+            "total": N,
+            "findings": [
+              {"file": "...", "concern_id": "...", "severity": "...", "line": N},
+              ...
+            ]
+          }
+        If the file does not exist, write an empty array to
+        {workspace}/outputs/past-findings.json and continue — do NOT exit.
+        Steps 3 and 4 must still run so known-concern-ids.json is produced
+        for the downstream cluster-gaps and propose-concerns stages.
+
+      Step 2 — filter to the window:
+        Keep only records where ts >= now - {window_days} days.
+
+      Step 3 — load the existing concern library:
+        Read all guide files present in concerns/:
+          concerns/correctness.md
+          concerns/security.md
+          concerns/tests.md
+          concerns/patterns.md
+          concerns/reuse.md
+          concerns/complexity.md
+          concerns/workflow.md
+          concerns/workflow-stages.md
+          concerns/workflow-fanout.md
+          concerns/workflow-fragments.md
+          concerns/docs.md
+          concerns/phone-layout.md
+        Extract every concern_id (the `### <id>` headings under ## Concerns).
+        Write the full set of known concern_ids to
+        {workspace}/outputs/known-concern-ids.json as a JSON array.
+
+      Step 4 — write filtered findings:
+        Write the filtered records (within window) to
+        {workspace}/outputs/past-findings.json as a JSON array.
+        Include the full findings array from each record.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write, Grep]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/past-findings.json
+      - outputs/known-concern-ids.json
+
+  - name: fetch-review-threads
+    kind: gather
+    depends_on: [init]
+    description: >
+      Fetch human and Copilot review comments. Supports two modes.
+      All GitHub access uses the native `gh` CLI. Prefix commands with
+      `GITHUB_TOKEN=` if a stale token env var is present.
+
+      Step 0 — resolve owner/repo FIRST (before any command below):
+        Run once and export into shell variables so every later command can
+        reference $OWNER and $REPO:
+          NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+          OWNER=${NWO%%/*}
+          REPO=${NWO##*/}
+        Every gh command below uses $OWNER/$REPO — never the literal tokens.
+
+      MODE A — single PR (when pr_number param is non-empty, e.g. "112"):
+        Skip the merged-PR list entirely.
+        Fetch all three comment sources for that one PR:
+          # 1. GraphQL review threads (unresolved + resolved discussion threads)
+          gh api graphql -f query='
+            query($owner:String!,$name:String!,$pr:Int!){
+              repository(owner:$owner,name:$name){
+                pullRequest(number:$pr){
+                  reviewThreads(first:100){nodes{
+                    isResolved
+                    comments(first:50){nodes{author{login} body path line}}
+                  }}
+                }
+              }
+            }' -F owner="$OWNER" -F name="$REPO" -F pr=<PR>
+          # 2. REST inline (diff-line) comments — Copilot inline feedback lives here
+          gh api "repos/$OWNER/$REPO/pulls/<PR>/comments"
+          # 3. REST PR-level (conversation) comments — served by the issues endpoint;
+          #    tag these with is_pr_level=true and path=null when merging.
+          gh api "repos/$OWNER/$REPO/issues/<PR>/comments"
+        Write merged-prs.json as a single-element list with the PR's metadata
+        (use `gh pr view <PR> --json number,title,mergedAt` to get title).
+        Set min_occurrences threshold to 1 for this mode — a single PR is the
+        full universe, so patterns that appear even once are worth proposing.
+
+      MODE B — merged PR history (when pr_number param is blank):
+        Step 1 — list recently merged PRs:
+          gh pr list --state merged --limit 50 --json number,title,mergedAt
+          Filter to PRs merged within the last {window_days} days.
+          Write the filtered PR list (number, title, mergedAt) to
+          {workspace}/outputs/merged-prs.json.
+          If no PRs found, write [] and exit 0.
+        Step 2 — for each merged PR (up to {max_prs} most recent), fetch all
+        three sources with the same gh commands shown in MODE A (substituting
+        the PR number). Wrap each PR's fetch so a single failed call does NOT
+        abort the loop: on non-zero exit, log the skipped PR number to
+        {workspace}/outputs/skipped-prs.json and continue to the next PR.
+
+      Merge all sources into a flat list of comment objects, each with:
+        {
+          "pr_number": "...",
+          "pr_title": "...",
+          "merged_at": "...",       # null/empty for open PRs is fine
+          "comment_id": "...",
+          "author": "...",          # github login or "github-copilot[bot]"
+          "body": "...",            # the raw comment text
+          "path": "...",            # file path (null for PR-level comments)
+          "line": null | N,
+          "is_bot": true | false    # true if author contains "[bot]"
+        }
+
+      Skip comments with empty body. Include PR-level comments even without a
+      path — they may still describe a recurring code pattern.
+
+      Step 3 — write merged comment list:
+        Write to {workspace}/outputs/review-comments.json.
+        Include a top-level "total" field alongside "comments": [...].
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/merged-prs.json
+      - outputs/review-comments.json
+
+  # ============================================================================
+  # Group 2: Cluster gaps
+  # ============================================================================
+
+  - name: cluster-gaps
+    kind: execute
+    depends_on: [fetch-findings, fetch-review-threads]
+    reads_from: [fetch-findings, fetch-review-threads]
+    description: >
+      Identify recurring patterns across both sources that are NOT already
+      covered by an existing concern in the guide library.
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/past-findings.json
+        Read {workspace}/outputs/review-comments.json
+        Read {workspace}/outputs/known-concern-ids.json
+
+      Step 2 — findings analysis (structured source):
+        From past-findings.json, build a frequency table of concern_ids that
+        fired. Ignore these — they are already covered.
+
+        Look instead for findings whose concern_id is "unknown", blank, or
+        whose concern_id does NOT appear in known-concern-ids.json. These
+        represent issues the validator agents flagged outside the library.
+        Group by (file_pattern, description_theme) and count occurrences.
+
+      Step 3 — comment analysis (unstructured source):
+        From review-comments.json comments, cluster semantically similar
+        comments. Use keyword extraction and structural similarity:
+          - Comments mentioning the same code pattern (e.g. "missing type hint",
+            "bare except", "no assertion on mock") form a cluster.
+          - Comments from bot authors (is_bot: true) are weighted equally to
+            human comments — Copilot inline feedback is signal.
+          - Map each cluster to the file types of the paths involved
+            (.py → correctness/tests/patterns, .yaml → workflow, etc.).
+          - Check: does any existing concern_id in known-concern-ids.json
+            already describe this cluster? If yes, skip it — it's covered.
+          - Count the number of distinct PRs this cluster appears across
+            (not comment count — PR count avoids over-weighting noisy PRs).
+
+      Step 4 — filter by threshold:
+        If merged-prs.json contains exactly one PR (single-PR mode), use a
+        threshold of 1 regardless of the min_occurrences param — every pattern
+        found is worth proposing.
+        Otherwise keep only clusters that appear in >= {min_occurrences} distinct PRs.
+
+      Step 5 — write gap clusters:
+        Write {workspace}/outputs/gap-clusters.json:
+          [
+            {
+              "theme": "short description of the pattern",
+              "occurrences": N,           # distinct PR count
+              "pr_numbers": ["..."],
+              "file_types": [".py", ...],  # file extensions involved
+              "guide_file": "correctness.md",  # which guide file this belongs in
+              "example_comments": ["...", "..."],  # up to 3 representative quotes
+              "source": "findings | comments | both"
+            },
+            ...
+          ]
+
+        If no gaps meet the threshold, write [] and note it in a brief
+        {workspace}/outputs/cluster-summary.md.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/gap-clusters.json
+      - outputs/cluster-summary.md
+
+  # ============================================================================
+  # Group 3: Propose new concern entries
+  # ============================================================================
+
+  - name: propose-concerns
+    kind: execute
+    depends_on: [cluster-gaps]
+    reads_from: [cluster-gaps, fetch-findings]
+    description: >
+      For each gap cluster, draft a properly-formatted concern entry for the
+      appropriate guide file.
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/gap-clusters.json.
+        If the array is empty, write an empty array to
+        {workspace}/outputs/proposed-concerns.json and exit 0.
+
+        Read the target guide file for each cluster (the guide_file field from
+        gap-clusters.json), e.g. concerns/correctness.md.
+        Study the existing concern format — each entry follows:
+          ### <concern-id>
+          - **severity**: critical | major | minor
+          - **check**: One sentence describing what to verify.
+          - **triggers**: What in the diff activates this concern.
+          - **example**: Concrete code example showing the problem and fix.
+
+      Step 2 — for each cluster, draft a concern entry:
+        concern_id: kebab-case slug derived from the theme (must not collide
+          with any id in known-concern-ids.json — check before proposing).
+        severity: infer from impact:
+          - critical: data loss, security, silent wrong behavior
+          - major: test gaps, incorrect logic, missing error handling
+          - minor: style, naming, output format
+        check: one precise sentence describing what a reviewer should verify.
+        triggers: specific code patterns, imports, or diff signals that
+          activate this concern. Mirror the style of existing triggers in the
+          guide (keyword patterns, file globs, AST signals).
+        example: short concrete code snippet showing the bad pattern and,
+          where possible, the fix. Draw from example_comments in the cluster.
+
+        Write entries that are indistinguishable in quality and style from the
+        existing guide entries. Professional, neutral, imperative. No LLM tells.
+
+      Step 3 — write proposed concerns:
+        Write {workspace}/outputs/proposed-concerns.json:
+          [
+            {
+              "concern_id": "...",
+              "guide_file": "correctness.md",   # which file to append to
+              "severity": "major",
+              "check": "...",
+              "triggers": "...",
+              "example": "...",
+              "rationale": "...",   # why this belongs: evidence from clusters
+              "formatted_entry": "### <id>\n- **severity**: ...\n..."
+            },
+            ...
+          ]
+
+        Also write a human-readable summary to
+        {workspace}/outputs/proposed-concerns-summary.md:
+          One section per proposed concern: concern_id, target guide, severity,
+          rationale (citing PR numbers and example comments from the cluster),
+          and the formatted entry as a fenced markdown block.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/proposed-concerns.json
+      - outputs/proposed-concerns-summary.md
+
+  # ============================================================================
+  # Group 4: Human approval gate
+  # ============================================================================
+
+  - name: human-gate
+    kind: propose
+    depends_on: [propose-concerns]
+    reads_from: [propose-concerns]
+    description: >
+      Present proposed concern entries for human review before writing to guide
+      files.
+
+      Display {workspace}/outputs/proposed-concerns-summary.md in full.
+
+      Ask the user:
+        "The above concerns are proposed for addition to the guide library.
+         Review each entry and confirm which to accept.
+
+         Options:
+           - 'all'         — accept all proposed entries
+           - '1,3,5'       — accept by number (1-indexed list order)
+           - 'none'        — reject all; exit without changes
+           - Edit any entry before accepting by pasting the revised text
+
+         Which entries should be written to the guides?"
+
+      Write the user's selection to {workspace}/outputs/approved-concern-ids.json
+      as a JSON array of concern_ids that were approved.
+      If the user approves edits to an entry, update the formatted_entry in
+      {workspace}/outputs/proposed-concerns.json before passing downstream.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - outputs/approved-concern-ids.json
+
+  # ============================================================================
+  # Group 5: Write approved entries to guide files
+  # ============================================================================
+
+  - name: update-guides
+    kind: publish
+    depends_on: [human-gate]
+    reads_from: [human-gate, propose-concerns]
+    description: >
+      Append each approved concern entry to the appropriate guide file.
+
+      Step 1 — load inputs:
+        Read {workspace}/outputs/approved-concern-ids.json.
+        Read {workspace}/outputs/proposed-concerns.json.
+        If approved list is empty, print "No concerns approved — guides unchanged."
+        and exit 0.
+
+      Step 2 — for each approved concern:
+        Filter proposed-concerns.json to entries whose concern_id appears in
+        the approved list.
+        Group by guide_file.
+
+      Step 3 — append to guide files:
+        For each guide_file group:
+          Read the appropriate concerns/<guide>.md file.
+          Verify the concern_id does NOT already appear in the file
+          (guard against double-append on re-run). If it does, skip and warn.
+          Append the formatted_entry (from proposed-concerns.json) at the end
+          of the ## Concerns section — before any trailing ## sections if
+          present, otherwise at end of file.
+          Write the updated file back.
+
+      Step 4 — write a change summary:
+        Write {workspace}/outputs/update-summary.md:
+          List each appended concern: concern_id, guide_file, severity.
+          Note any skipped entries (already present).
+
+      Step 5 — print final status to stdout:
+        "Added N concern(s) to M guide file(s): <concern_id> → <guide_file>, ..."
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/update-summary.md
+      - concerns/workflow.md
+      - concerns/workflow-stages.md
+      - concerns/workflow-fanout.md
+      - concerns/workflow-fragments.md
+      - concerns/correctness.md
+      - concerns/tests.md
+      - concerns/patterns.md
+      - concerns/security.md
+      - concerns/reuse.md
+      - concerns/complexity.md
+      - concerns/phone-layout.md
+      - concerns/docs.md
