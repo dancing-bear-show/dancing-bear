@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
-from unittest.mock import MagicMock, patch
 from io import StringIO
+from unittest.mock import MagicMock, patch
 
 from calendars.location_sync import LocationSync, MatchCriteria
 from tests.calendars_tests.fixtures import FakeCalendarService
@@ -149,10 +150,11 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
             "location": "New Room",
             "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
         }]
-        with self.assertLogs("calendars.location_sync", level="INFO") as cm:
+        buf = StringIO()
+        with patch("sys.stdout", buf):
             result = sync.apply_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 1)
-        self.assertTrue(any("[dry-run]" in msg for msg in cm.output))
+        self.assertIn("[dry-run]", buf.getvalue())
 
     def test_apply_calls_update_location(self):
         events = [make_test_event(
