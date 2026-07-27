@@ -3,7 +3,8 @@
 Each handler is a callable: handler(job_dict) -> (success: bool, result_or_error: dict|str)
 
 Built-in handlers:
-- run_cli: run a repo bin command (allowlisted bin/ entries)
+- run_cli: run a repo bin command (allowlisted bin/ entries); accepts optional
+  ``cwd`` payload key to set working directory (defaults to repo root)
 - run_shell: run an allowlisted shell program; supports a ``script`` key to
   avoid quoting issues when embedding Python or multi-line scripts
 
@@ -85,15 +86,15 @@ def _execute_subprocess(cmd: list[str], env_overlay: dict, timeout: int, cwd: st
     }
 
 
-def _execute_command(cmd: list[str], env_overlay: dict, timeout: int) -> dict:  # pragma: no cover - subprocess execution
-    """Execute a repo-bin command from the repo root."""
-    return _execute_subprocess(cmd, env_overlay, timeout, cwd=str(_repo_root()))
+def _execute_command(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution
+    """Execute a repo-bin command, defaulting to repo root when cwd is not given."""
+    return _execute_subprocess(cmd, env_overlay, timeout, cwd=cwd or str(_repo_root()))
 
 
 def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no cover - subprocess execution
     """Run a repo bin command with args.
 
-    payload schema: {"cmd": ["bin_name_or_path", "arg1", ...], "env": {..}, "timeout": 300}
+    payload schema: {"cmd": ["bin_name_or_path", "arg1", ...], "env": {..}, "timeout": 300, "cwd": "/optional/path"}
     """
     payload = dict(job.get("payload") or {})
     cmd_list = list(payload.get("cmd") or [])
@@ -108,6 +109,7 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
     # Build command
     cmd = _build_command(prog, cmd_list)
     env_overlay = dict(payload.get("env") or {})
+    cwd = str(payload.get("cwd") or "").strip() or None
 
     try:
         timeout = int(payload.get("timeout") or 300)
@@ -115,7 +117,7 @@ def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no
         timeout = 300
 
     try:
-        out = _execute_command(cmd, env_overlay, timeout)
+        out = _execute_command(cmd, env_overlay, timeout, cwd=cwd)
         ok = (int(out.get("returncode", 1)) == 0)
         return (ok, out if ok else out.get("stderr") or out)
     except subprocess.TimeoutExpired:

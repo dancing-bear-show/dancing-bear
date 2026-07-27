@@ -137,6 +137,20 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
         cli_job = mock_cli.call_args[0][0]
         self.assertEqual(cli_job["payload"]["cwd"], "/tmp/ws")
 
+    def test_cwd_honoured_by_handle_run_cli(self) -> None:
+        """cwd from payload reaches _execute_subprocess, not just handle_workflow_stage."""
+        from worker.handlers import handle_run_cli
+        job = {"id": "t", "type": "run_cli", "payload": {
+            "cmd": ["./bin/worker", "status"],
+            "cwd": "/tmp/custom-cwd",
+        }}
+        with patch("worker.handlers._execute_subprocess", return_value={"returncode": 0, "stdout": "", "stderr": ""}) as mock_exec, \
+             patch("worker.handlers._is_allowed_bin", return_value=True), \
+             patch("worker.handlers._build_command", return_value=["./bin/worker", "status"]):
+            handle_run_cli(job)
+
+        self.assertEqual(mock_exec.call_args.kwargs.get("cwd"), "/tmp/custom-cwd")
+
 
 # ---------------------------------------------------------------------------
 # Error path
