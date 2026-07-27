@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 from mail.outlook_api import OutlookClient
 from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter, write_range_to_sheet as _write_range, pad_rows as _pad_rows  # noqa: F401
 
@@ -40,19 +41,17 @@ def _read_csv(path: str, metal: Optional[str] = None) -> List[Dict[str, str]]:
 
 
 def _list_worksheets(wb: WorkbookContext) -> List[str]:
-    import requests  # type: ignore
     url = f"{wb.base_url}/worksheets?$select=name"
-    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    r.raise_for_status()
+    r = HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
     data = r.json() or {}
     return [w.get("name", "") for w in (data.get("value") or []) if w.get("name")]
 
 
 def _get_used_range_values(wb: WorkbookContext, sheet: str) -> List[List[str]]:
-    import requests  # type: ignore
     url = f"{wb.sheet_url(sheet)}/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code >= 400:
+    try:
+        r = HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
+    except Exception:  # nosec B110 - return empty if sheet missing or error
         return []
     data = r.json() or {}
     return data.get("values") or []
@@ -115,34 +114,35 @@ def _poll_async_operation(
     client: OutlookClient, location: str, max_attempts: int = 60, delay: float = 1.5
 ) -> str:
     """Poll an async Graph operation until completion, return resource ID."""
-    import requests  # type: ignore
     import time
 
     for _ in range(max_attempts):
-        st = requests.get(location, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+        st = HttpClient(location, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("").json()
         if st.get("status") in ("succeeded", "completed"):
             if rid := st.get("resourceId"):
                 return rid
             if rloc := st.get("resourceLocation"):
-                it = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+                it = HttpClient(rloc, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("").json()
                 return it.get("id")
         time.sleep(delay)
     raise RuntimeError("Timed out waiting for async operation")
 
 
 def _copy_item(wb: WorkbookContext, new_name: str) -> WorkbookContext:
-    import requests  # type: ignore
-
-    meta = requests.get(f"{wb.client.GRAPH}/drives/{wb.drive_id}/items/{wb.item_id}", headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+    meta_url = f"{wb.client.GRAPH}/drives/{wb.drive_id}/items/{wb.item_id}"
+    meta = HttpClient(meta_url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("").json()
     parent_id = ((meta or {}).get("parentReference") or {}).get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
 
     copy_url = f"{wb.client.GRAPH}/drives/{wb.drive_id}/items/{wb.item_id}/copy"
-    resp = requests.post(copy_url, headers=wb.headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if resp.status_code not in (202, 200):
-        raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
+    try:
+        resp = HttpClient(copy_url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).post(
+            "", data=json.dumps(body)
+        )
+    except Exception as e:
+        raise RuntimeError(f"Copy failed: {e}") from e
 
     location = resp.headers.get("Location") or resp.headers.get("Operation-Location")
     if not location:
@@ -157,23 +157,26 @@ def _copy_item(wb: WorkbookContext, new_name: str) -> WorkbookContext:
 
 
 def _ensure_sheet(wb: WorkbookContext, sheet: str) -> Dict[str, str]:
-    import requests
-    import time  # type: ignore
+    import time
 
-    r = requests.get(wb.sheet_url(sheet), headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code < 300:
+    _hclient = HttpClient("", default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        r = HttpClient(wb.sheet_url(sheet), default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
         return r.json() or {}
+    except Exception:  # nosec B110 - sheet may be missing, fall through to add
+        pass
 
     # Add if missing, with simple retries for transient 5xx
+    add_url = f"{wb.base_url}/worksheets/add"
     for attempt in range(4):
-        rr = requests.post(f"{wb.base_url}/worksheets/add", headers=wb.headers(), data=json.dumps({"name": sheet}), timeout=DEFAULT_REQUEST_TIMEOUT)
-        if rr.status_code < 300:
+        try:
+            rr = _hclient.post(add_url, data=json.dumps({"name": sheet}))
             return rr.json() or {}
-        if rr.status_code >= 500:
-            time.sleep(2 + attempt)
-            continue
-        rr.raise_for_status()
-    rr.raise_for_status()
+        except Exception as exc:
+            if attempt < 3:
+                time.sleep(2 + attempt)
+                continue
+            raise exc
     return {}
 
 
@@ -186,22 +189,20 @@ def _add_chart(
     source_addr: str,
     placement: Optional[ChartPlacement] = None,
 ) -> None:
-    import requests  # type: ignore
-
     placement = placement or ChartPlacement()
+    _hclient = HttpClient("", default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     url = f"{wb.sheet_url(sheet)}/charts/add"
     body = {"type": chart_type, "sourceData": f"'{sheet}'!{source_addr}", "seriesBy": "Auto"}
-    r = requests.post(url, headers=wb.headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code >= 400:
+    try:
+        r = _hclient.post(url, data=json.dumps(body))
+    except Exception:  # nosec B110 - chart creation is best-effort
         return
 
     try:
         if cid := (r.json() or {}).get("id"):
-            requests.patch(
+            _hclient.patch(
                 wb.chart_url(sheet, cid),
-                headers=wb.headers(),
                 data=json.dumps({"top": placement.top, "left": placement.left, "width": placement.width, "height": placement.height}),
-                timeout=DEFAULT_REQUEST_TIMEOUT,
             )
     except Exception:
         pass  # nosec B110 - chart positioning is optional
@@ -215,31 +216,38 @@ def _to_values_all(recs: List[Dict[str, str]]) -> List[List[str]]:
     return rows
 
 def _set_sheet_position(wb: WorkbookContext, sheet: str, position: int) -> None:
-    import requests  # type: ignore
-    requests.patch(wb.sheet_url(sheet), headers=wb.headers(), data=json.dumps({"position": int(position)}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    HttpClient(wb.sheet_url(sheet), default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).patch(
+        "", data=json.dumps({"position": int(position)})
+    )
 
 
 def _set_sheet_visibility(wb: WorkbookContext, sheet: str, visible: bool) -> None:
-    import requests  # type: ignore
     vis = "Visible" if visible else "Hidden"
-    requests.patch(wb.sheet_url(sheet), headers=wb.headers(), data=json.dumps({"visibility": vis}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    HttpClient(wb.sheet_url(sheet), default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).patch(
+        "", data=json.dumps({"visibility": vis})
+    )
 
 
 def _write_filter_view(wb: WorkbookContext, all_sheet: str, out_sheet: str, metal: str) -> None:
     """Write a dynamic FILTER view on out_sheet that references 'all_sheet' and filters by metal."""
-    import requests  # type: ignore
-
+    _hclient = HttpClient("", default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     out_url = wb.sheet_url(out_sheet)
 
     # Clear, write header, write FILTER formula
-    requests.post(f"{out_url}/range(address='A1:Z100000')/clear", headers=wb.headers(), data=json.dumps({"applyTo": "contents"}), timeout=DEFAULT_REQUEST_TIMEOUT)
-    requests.patch(f"{out_url}/range(address='A1:F1')", headers=wb.headers(), data=json.dumps({"values": [["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]]}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        _hclient.post(f"{out_url}/range(address='A1:Z100000')/clear", data=json.dumps({"applyTo": "contents"}))
+    except Exception:  # nosec B110 - clear is best-effort
+        pass
+    _hclient.patch(f"{out_url}/range(address='A1:F1')", data=json.dumps({"values": [["date", "order_id", "vendor", "metal", "total_oz", "cost_per_oz"]]}))
     formula = f"=FILTER('{all_sheet}'!A2:F100000, '{all_sheet}'!D2:D100000=\"{metal}\")"
-    requests.patch(f"{out_url}/range(address='A2')", headers=wb.headers(), data=json.dumps({"values": [[formula]]}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    _hclient.patch(f"{out_url}/range(address='A2')", data=json.dumps({"values": [[formula]]}))
 
     # Autofit and freeze header
-    requests.post(f"{out_url}/range(address='{out_sheet}!A:F')/format/autofitColumns", headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    requests.post(f"{out_url}/freezePanes/freeze", headers=wb.headers(), data=json.dumps({"top": 1, "left": 0}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        _hclient.post(f"{out_url}/range(address='{out_sheet}!A:F')/format/autofitColumns")
+        _hclient.post(f"{out_url}/freezePanes/freeze", data=json.dumps({"top": 1, "left": 0}))
+    except Exception:  # nosec B110 - formatting is best-effort
+        pass
 
 
 def _sumif_formula(sheet: str, match_col: str, match_val: str, sum_col: str) -> str:
@@ -425,7 +433,6 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     Returns dict of ISO date -> close price. Forward-fills gaps and back-fills
     the initial window to the first available value so a continuous series is produced.
     """
-    import requests  # type: ignore
     from datetime import datetime, timezone
 
     def to_unix(d: str) -> int:
@@ -436,8 +443,8 @@ def _fetch_yahoo_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     # Add one day to include end
     p2 = to_unix(end_date) + 24 * 3600
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={p1}&period2={p2}&interval=1d"
-    r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
     try:
+        r = HttpClient(url, timeout=DEFAULT_REQUEST_TIMEOUT).get("")
         data = r.json() or {}
     except Exception:
         data = {}

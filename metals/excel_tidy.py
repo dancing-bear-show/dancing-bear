@@ -6,61 +6,76 @@ from typing import Dict, List, Optional
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 from mail.outlook_api import OutlookClient
 from .workbook import WorkbookContext
 
 
 def _list_sheets(wb: WorkbookContext) -> List[Dict[str, str]]:
-    import requests  # type: ignore
     url = f"{wb.base_url}/worksheets?$select=id,name,position,visibility"
-    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    r.raise_for_status()
+    r = HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
     return (r.json() or {}).get("value", [])
 
 
 def _delete_sheet(wb: WorkbookContext, name: str) -> None:
-    import requests  # type: ignore
-    requests.delete(wb.sheet_url(name), headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        HttpClient(wb.sheet_url(name), default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).delete("")
+    except Exception:  # nosec B110 - delete is best-effort
+        pass
 
 
 def _list_charts(wb: WorkbookContext, sheet: str) -> List[Dict[str, str]]:
-    import requests  # type: ignore
     url = f"{wb.sheet_url(sheet)}/charts?$select=id,name"
-    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code >= 400:
+    try:
+        r = HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
+    except Exception:  # nosec B110 - return empty on error
         return []
     return (r.json() or {}).get("value", [])
 
 
 def _set_chart_title(wb: WorkbookContext, sheet: str, chart_id: str, title: str) -> None:
-    import requests  # type: ignore
     url = f"{wb.chart_url(sheet, chart_id)}/title"
-    requests.patch(url, headers=wb.headers(), data=json.dumps({"text": title, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).patch(
+            "", data=json.dumps({"text": title, "visible": True})
+        )
+    except Exception:  # nosec B110 - chart title update is best-effort
+        pass
 
 
 def _set_axis_titles(wb: WorkbookContext, sheet: str, chart_id: str, category: Optional[str], value: Optional[str]) -> None:
-    import requests  # type: ignore
     base = f"{wb.chart_url(sheet, chart_id)}/axes"
+    _hclient = HttpClient("", default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     if category:
-        requests.patch(f"{base}/categoryAxis/title", headers=wb.headers(), data=json.dumps({"text": category, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
+        try:
+            _hclient.patch(f"{base}/categoryAxis/title", data=json.dumps({"text": category, "visible": True}))
+        except Exception:  # nosec B110 - axis title update is best-effort
+            pass
     if value:
-        requests.patch(f"{base}/valueAxis/title", headers=wb.headers(), data=json.dumps({"text": value, "visible": True}), timeout=DEFAULT_REQUEST_TIMEOUT)
+        try:
+            _hclient.patch(f"{base}/valueAxis/title", data=json.dumps({"text": value, "visible": True}))
+        except Exception:  # nosec B110 - axis title update is best-effort
+            pass
 
 
 def _used_rows(wb: WorkbookContext, sheet: str) -> int:
-    import requests  # type: ignore
     url = f"{wb.sheet_url(sheet)}/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code >= 400:
+    try:
+        r = HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
+    except Exception:  # nosec B110 - return 0 on error
         return 0
     vals = (r.json() or {}).get('values') or []
     return len(vals)
 
 
 def _set_chart_data(wb: WorkbookContext, sheet: str, chart_id: str, addr: str) -> None:
-    import requests  # type: ignore
     url = f"{wb.chart_url(sheet, chart_id)}/setData"
-    requests.post(url, headers=wb.headers(), data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        HttpClient(url, default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT).post(
+            "", data=json.dumps({"sourceData": f"'{sheet}'!{addr}", "seriesBy": "Auto"})
+        )
+    except Exception:  # nosec B110 - chart data update is best-effort
+        pass
 
 
 def _tidy_default_sheets(wb: WorkbookContext, allowed: set) -> None:

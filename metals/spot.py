@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 
 # HTTP retry constants
 _MAX_RETRIES = 6
@@ -48,21 +49,13 @@ def _to_unix_timestamp(date_str: str) -> int:
 
 def _http_get_with_retry(url: str, headers: Optional[Dict[str, str]] = None) -> Dict:
     """Fetch URL with exponential backoff for 429/5xx errors."""
-    import requests
-    import time as _t
-
-    data = {}
-    for attempt in range(_MAX_RETRIES):
-        try:
-            r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT, headers=headers)
-            if r.status_code == 429 or r.status_code >= 500:
-                _t.sleep(_INITIAL_BACKOFF + attempt * 2)
-                continue
-            data = r.json() or {}
-            break
-        except Exception:  # nosec B112 - retry on transient errors
-            _t.sleep(_RETRY_SLEEP_BASE + attempt)
-    return data
+    try:
+        r = HttpClient(url, timeout=DEFAULT_REQUEST_TIMEOUT, retries=_MAX_RETRIES).get(
+            "", headers=headers
+        )
+        return r.json() or {}
+    except Exception:  # nosec B110 - return empty on transient errors
+        return {}
 
 
 def _parse_yahoo_response(data: Dict) -> Dict[str, float]:
@@ -164,13 +157,9 @@ def _fetch_stooq_series(symbol: str, start_date: str, end_date: str) -> Dict[str
     symbol examples: 'xagusd' (silver spot USD), 'usdcad' (FX).
     Returns dict date->close with forward/back-fill over the requested window.
     """
-    import requests  # lazy import
-
     url = f"https://stooq.com/q/d/l/?s={symbol.lower()}&i=d"
     try:
-        r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
-        if r.status_code >= 400:
-            return {}
+        r = HttpClient(url, timeout=DEFAULT_REQUEST_TIMEOUT).get("")
         text = r.text or ""
     except Exception:  # nosec B110 - return empty on fetch error
         return {}
