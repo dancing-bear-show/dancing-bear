@@ -1,7 +1,6 @@
 """OTEL collector lifecycle subcommands for bin/telemetry."""
 from __future__ import annotations
 
-import argparse
 import collections
 import json
 import os
@@ -142,14 +141,6 @@ def _parse_otlp_event(line: str) -> dict[str, object] | None:
         return None
 
 
-def positive_int(value: str) -> int:
-    """Parse an argparse int argument, requiring it to be >= 1."""
-    ivalue = int(value)
-    if ivalue < 1:
-        raise argparse.ArgumentTypeError(f"{value!r} is not >= 1")
-    return ivalue
-
-
 def _print_docker_containers(env: dict[str, str]) -> None:
     """Print otel-collector container state via docker ps."""
     try:
@@ -191,54 +182,6 @@ def _print_data_files() -> None:
             console.print(f"  {fname}: [dim]not found[/]")
 
 
-def collector_status() -> int:
-    """Show collector container state and data file sizes."""
-    _print_docker_containers(_docker_env())
-    _print_data_files()
-    return 0
-
-
-def collector_start() -> int:
-    """Start the OTEL collector via docker-compose."""
-    if not _COMPOSE_PATH.exists():
-        _err_console.print(f"[red]docker-compose.otel.yaml not found at {_COMPOSE_PATH}[/]")
-        return 1
-
-    env = _docker_env()
-    result = _run_compose(["up", "-d"], env)
-    if result is None:
-        return 1
-
-    if result.returncode != 0:
-        _err_console.print(f"[red]Failed to start collector:[/]\n{result.stderr}")
-        return 1
-
-    console.print("[green]Collector started.[/]")
-    if result.stdout:
-        console.print(result.stdout.strip())
-    return 0
-
-
-def collector_stop() -> int:
-    """Stop the OTEL collector via docker-compose."""
-    if not _COMPOSE_PATH.exists():
-        console.print(f"[yellow]docker-compose.otel.yaml not found at {_COMPOSE_PATH} — nothing to stop.[/]")
-    else:
-        env = _docker_env()
-        result = _run_compose(["down"], env)
-        if result is None:
-            return 1
-
-        if result.returncode != 0:
-            _err_console.print(
-                f"[red]docker-compose down failed (exit {result.returncode}):[/] {result.stderr.strip() or 'no output'}"
-            )
-            return 1
-
-        console.print("[green]Stopped.[/]")
-    return 0
-
-
 _EVENTS_HEADERS = ["timestamp", "body", "attributes"]
 
 
@@ -266,35 +209,3 @@ def _parse_event_lines(tail_lines: list[str]) -> tuple[list[dict[str, object]], 
     return rows, skipped
 
 
-def collector_events(limit: int, fmt: str) -> int:
-    """Tail recent events from the OTEL events.jsonl file."""
-    events_file = _OTEL_DATA_DIR / _EVENTS_FILE
-
-    if not events_file.exists():
-        _emit_no_events(fmt, "No events file found. Start the collector and run a session first.")
-        return 0
-
-    try:
-        with events_file.open(encoding="utf-8") as fp:
-            tail_lines = list(collections.deque(
-                (ln.rstrip("\n") for ln in fp),
-                maxlen=limit,
-            ))
-    except OSError as exc:
-        _err_console.print(f"[red]Cannot read events file: {exc}[/]")
-        return 1
-
-    if not tail_lines:
-        _emit_no_events(fmt, "Events file is empty.")
-        return 0
-
-    rows, skipped = _parse_event_lines(tail_lines)
-
-    if skipped:
-        _err_console.print(f"[dim]Skipped {skipped} malformed line(s).[/]")
-
-    if not rows:
-        _emit_no_events(fmt, "No parseable events found.")
-        return 0
-
-    return emit_rows(rows, fmt=fmt, headers=_EVENTS_HEADERS)

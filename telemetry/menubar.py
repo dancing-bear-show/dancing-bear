@@ -89,9 +89,7 @@ from telemetry._menubar_config import (
 from telemetry._menubar_display import (
     _BLOCK_CHARS,  # noqa: F401
     _BLOCK_LEVELS,  # noqa: F401
-    _SPARKLINE_HOURS,  # noqa: F401
     _age_str,  # noqa: F401
-    _human_bytes,  # noqa: F401
     _model_short,  # noqa: F401
     _rate_str,  # noqa: F401
     _sparkline,  # noqa: F401

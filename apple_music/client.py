@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Dict, Iterable, List, Optional
 
 from core.http import HttpClient
-
-LOG = logging.getLogger(__name__)
 
 
 class AppleMusicError(RuntimeError):

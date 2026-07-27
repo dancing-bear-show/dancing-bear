@@ -141,20 +141,3 @@ class ChartPlacement:
     top: int = 10
     width: int = 600
     height: int = 360
-
-
-@dataclass
-class SheetContext:
-    """Context for operations on a specific worksheet."""
-
-    wb: WorkbookContext
-    sheet: str
-
-    @property
-    def url(self) -> str:
-        """Return URL for this worksheet."""
-        return self.wb.sheet_url(self.sheet)
-
-    def chart_url(self, chart_id: str) -> str:
-        """Return URL for a chart in this sheet."""
-        return self.wb.chart_url(self.sheet, chart_id)

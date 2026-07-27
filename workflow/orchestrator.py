@@ -15,7 +15,6 @@ from typing import Any
 
 from workflow._fileutil import atomic_write_json
 from workflow._timeutil import iso_now
-from workflow.dispatch import build_group_dispatch
 from workflow.dispatchers import (
     CompositeDispatcher,
     StageDispatcher,
@@ -195,18 +194,6 @@ class WorkflowOrchestrator:
     def status(self) -> StageStatus:
         """Overall workflow status based on stage results."""
         return self._status
-
-    def get_group_dispatch(self, group_index: int) -> list[dict[str, Any]]:
-        """Get dispatch instructions for a parallel group."""
-        if group_index >= len(self._manifest.parallel_groups):
-            return []
-        group = self._manifest.parallel_groups[group_index]
-        return build_group_dispatch(
-            group,
-            self._stages_by_name,
-            self._manifest.definition.name,
-            self._workspace_dir,
-        )
 
     # -- Private helpers ------------------------------------------------------
 

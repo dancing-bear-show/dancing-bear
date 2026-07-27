@@ -389,25 +389,6 @@ class TranscriptProvider:
         if 0.0 <= offset < num_slots * 3600:
             totals["hourly_costs"][min(int(offset / 3600), num_slots - 1)] += cost
 
-    def _process_windowed_file(
-        self,
-        jsonl_file: Path,
-        since: datetime,
-        bucket_start: datetime,
-        num_slots: int,
-        totals: dict,
-    ) -> None:
-        """Process one JSONL file's windowed events into totals (mutates totals)."""
-        file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
-        if file_ts < since:
-            return
-        windowed = self._windowed_events(jsonl_file, since)
-        if not windowed:
-            return
-        totals["sessions"] += 1
-        for e in windowed:
-            self._accumulate_windowed_event(e, bucket_start, num_slots, totals)
-
     def get_windowed_totals(self, since: datetime) -> dict[str, object]:
         """Sum costs and tokens for api_request events whose timestamp >= since.
 

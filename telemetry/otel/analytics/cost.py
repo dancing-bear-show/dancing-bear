@@ -419,52 +419,6 @@ def _accumulate_cost_datapoints(
         daily_calls[date_str] += 1
 
 
-def get_daily_cost_from_metric(
-    data_dir: OTLPDataDir | None = None, since: str | None = None
-) -> list[DailyCost]:
-    """Aggregate authoritative billed cost by date from the cost.usage metric.
-
-    Unlike ``get_daily_costs()``, which recomputes cost locally from raw token
-    counts and MODEL_PRICING, this function sums the ``claude_code.cost.usage``
-    metric directly — the authoritative figure emitted by Claude Code itself.
-
-    Args:
-        data_dir: Optional OTLPDataDir. If None, uses environment default.
-        since: Optional time window string (e.g., '7d', '24h').
-
-    Returns:
-        List of DailyCost sorted by date ascending. Token fields are always 0.
-    """
-    if data_dir is None:
-        data_dir = OTLPDataDir.from_env()
-
-    reader = OTLPReader(data_dir)
-    records = reader.read_metrics()
-
-    since_dt = parse_time_window(since) if since else None
-
-    daily_cost: dict[str, float] = defaultdict(float)
-    daily_calls: dict[str, int] = defaultdict(int)
-
-    for record in records:
-        for metric in record.metrics:
-            if metric.name == METRIC_COST_USAGE:
-                _accumulate_cost_datapoints(metric.data_points, since_dt, daily_cost, daily_calls)
-
-    return [
-        DailyCost(
-            date=date_str,
-            api_calls=daily_calls[date_str],
-            cost=cost,
-            input_tokens=0,
-            output_tokens=0,
-            cache_creation_tokens=0,
-            cache_read_tokens=0,
-        )
-        for date_str, cost in sorted(daily_cost.items())
-    ]
-
-
 def get_model_performance(
     data_dir: OTLPDataDir | None = None, since: str | None = None
 ) -> list[ModelPerformance]:
