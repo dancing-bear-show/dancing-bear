@@ -4,7 +4,8 @@ Defines the StageDispatcher protocol and four implementations:
 - LocalDispatcher: runs invoke-mode CLI commands via subprocess
 - SkillDispatcher: writes dispatch JSON for Claude Code skill agents
 - WorkerQueueDispatcher: enqueues stages as background jobs via worker/queue.py
-- CompositeDispatcher: routes invoke-only stages locally, others to skill
+- CompositeDispatcher: routes invoke-only stages locally, worker_queue stages to
+  WorkerQueueDispatcher, and all others to SkillDispatcher
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import enum
 import json
 import logging
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -256,7 +258,11 @@ class WorkerQueueDispatcher:
         self._trigger_params = trigger_params or {}
 
     def _make_job_id(self, stage: ResolvedStage) -> str:
-        return f"{self._workflow_name}-{stage.spec.name}-{stage.index}"
+        # UUID suffix prevents collisions on workflow re-runs and avoids
+        # path-unsafe characters from workflow/stage names reaching the queue dir.
+        safe_wf = self._workflow_name.replace("/", "-").replace("..", "")
+        safe_stage = stage.spec.name.replace("/", "-").replace("..", "")
+        return f"{safe_wf}-{safe_stage}-{stage.index}-{uuid.uuid4().hex[:8]}"
 
     def dispatch(
         self,
@@ -274,6 +280,7 @@ class WorkerQueueDispatcher:
                 "workflow_name": self._workflow_name,
                 "stage_name": stage.spec.name,
                 "stage_index": stage.index,
+                "script": stage.spec.script,
                 "cli_commands": list(stage.cli_commands),
                 "workspace_dir": str(workspace_dir),
                 "trigger_params": self._trigger_params,

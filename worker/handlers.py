@@ -301,3 +301,40 @@ def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: 
 
 # Export optional handler (registered under a separate key)
 REGISTRY["run_shell"] = handle_run_shell
+
+
+def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
+    """Execute a workflow stage dispatched by WorkerQueueDispatcher.
+
+    Runs the stage's ``script`` payload key via handle_run_shell, falling back
+    to ``cli_commands`` via handle_run_cli when no script is present.
+
+    payload schema::
+
+        {
+            "workflow_name": str,
+            "stage_name": str,
+            "stage_index": int,
+            "script": str,          # non-empty for executor=worker_queue stages
+            "cli_commands": [...],  # derived from invoke-mode outputs
+            "workspace_dir": str,
+            "trigger_params": {...},
+        }
+    """
+    payload = dict(job.get("payload") or {})
+    script = str(payload.get("script") or "").strip()
+    if script:
+        shell_job = dict(job)
+        shell_job["payload"] = {**payload, "script": script}
+        return handle_run_shell(shell_job)
+
+    cli_commands = list(payload.get("cli_commands") or [])
+    if cli_commands:
+        cli_job = dict(job)
+        cli_job["payload"] = {**payload, "cmd": cli_commands[0].split()}
+        return handle_run_cli(cli_job)
+
+    return (False, "workflow_stage job has neither script nor cli_commands")
+
+
+REGISTRY["workflow_stage"] = handle_workflow_stage

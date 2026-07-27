@@ -491,6 +491,7 @@ class TestWorkerQueueDispatcherEnqueuesJob(unittest.TestCase):
             self.assertEqual(job.payload["stage_name"], "queue-stage")
             self.assertEqual(job.payload["stage_index"], 2)
             self.assertEqual(job.payload["workflow_name"], "my-workflow")
+            self.assertIn("script", job.payload)
 
 
 class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
@@ -576,6 +577,18 @@ class TestWorkerQueueDispatcherDispatchGroup(unittest.TestCase):
 
             for result in results.values():
                 self.assertEqual(result.status, StageStatus.pending)
+
+
+class TestWorkerQueueDispatcherHandlerRegistered(unittest.TestCase):
+    """workflow_stage handler must be present in worker.handlers.REGISTRY."""
+
+    def test_workflow_stage_in_registry(self) -> None:
+        from worker.handlers import REGISTRY
+        self.assertIn(WorkerQueueDispatcher.JOB_TYPE, REGISTRY)
+
+    def test_registry_handler_is_callable(self) -> None:
+        from worker.handlers import REGISTRY
+        self.assertTrue(callable(REGISTRY[WorkerQueueDispatcher.JOB_TYPE]))
 
 
 # ---------------------------------------------------------------------------
