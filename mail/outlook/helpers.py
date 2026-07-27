@@ -28,7 +28,8 @@ def norm_label_color_outlook(color: dict | str | None) -> dict | None:
     """Normalize a label color for Outlook.
 
     Accepts a dict with {name: preset}, a string preset name, or None.
-    Hex color values are dropped (no Outlook mapping).
+    A non-empty string is returned as {"name": <string>}; hex values must
+    be filtered by the caller before passing here.
     """
     if isinstance(color, str):
         name = color.strip()

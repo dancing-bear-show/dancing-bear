@@ -154,7 +154,7 @@ class OutlookDedupProcessor(SafeProcessor[OutlookDedupRequest, OutlookDedupResul
         series_ids: list[str],
         masters: dict[str, list[dict[str, Any]]],
         payload: OutlookDedupRequest,
-    ) -> tuple[str, list[str | None]] | None:
+    ) -> tuple[str, list[str]] | None:
         sorted_sids = sorted(series_ids, key=lambda sid: self._created_at(sid, masters) or "Z")
         if not sorted_sids:
             return None

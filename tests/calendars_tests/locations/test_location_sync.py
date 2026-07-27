@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import unittest
 from io import StringIO
 from unittest.mock import MagicMock, patch
