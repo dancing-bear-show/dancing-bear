@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Sequence
 
 from .mermaid import GanttBuilder, PieBuilder
 
@@ -21,7 +20,7 @@ def _format_tokens(n: int) -> str:
     return str(n)
 
 
-def _load_telemetry(days: int) -> tuple[list[Any], Callable[..., float], Callable[..., str]]:
+def _load_telemetry(days: int):
     """Load session stats and helpers from the telemetry module."""
     from datetime import datetime, timezone
 
@@ -40,7 +39,7 @@ def _load_telemetry(days: int) -> tuple[list[Any], Callable[..., float], Callabl
     return sessions, compute_cost, model_tier
 
 
-def _session_cost(s: Any, compute_cost: Callable[..., float]) -> float:
+def _session_cost(s, compute_cost) -> float:
     if not s.model:
         return 0.0
     return compute_cost(
@@ -52,7 +51,7 @@ def _session_cost(s: Any, compute_cost: Callable[..., float]) -> float:
 # ── Telemetry diagram renderers ───────────────────────────────────────────────
 
 
-def _render_cost_pie(sessions: list[Any], days: int, compute_cost: Callable[..., float], model_tier: Callable[..., str]) -> str:
+def _render_cost_pie(sessions, days, compute_cost, model_tier) -> str:
     tier_cost: dict[str, float] = {"opus": 0.0, "sonnet": 0.0, "haiku": 0.0}
     for s in sessions:
         if s.model:
@@ -65,7 +64,7 @@ def _render_cost_pie(sessions: list[Any], days: int, compute_cost: Callable[...,
     return pie.render()
 
 
-def _render_token_pie(sessions: list[Any], days: int, model_tier: Callable[..., str]) -> str:
+def _render_token_pie(sessions, days, model_tier) -> str:
     tier_tokens: dict[str, int] = {"opus": 0, "sonnet": 0, "haiku": 0}
     for s in sessions:
         if s.model:
@@ -78,7 +77,7 @@ def _render_token_pie(sessions: list[Any], days: int, model_tier: Callable[..., 
     return pie.render()
 
 
-def _render_timeline(sessions: list[Any], days: int, compute_cost: Callable[..., float], model_tier: Callable[..., str]) -> str:
+def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
     gantt = GanttBuilder(f"Sessions (last {days}d)", date_format="YYYY-MM-DD")
     by_date: dict[str, list] = {}
     for s in sessions:
@@ -116,7 +115,7 @@ def _read_input(input_path: str | None, label: str = "diagram.mmd") -> str | Non
             return None
     else:
         if sys.stdin.isatty():
-            print("Error: No input file specified and stdin is empty", file=sys.stderr)
+            print(f"Error: No input file specified and stdin is empty", file=sys.stderr)
             print(f"Usage: diagrams <command> --input {label}", file=sys.stderr)
             return None
         return sys.stdin.read()
@@ -242,10 +241,10 @@ def _convert_yaml_spec(spec: dict) -> tuple[str | None, int]:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
-def cmd_telemetry(args: argparse.Namespace) -> int:
+def cmd_telemetry(args) -> int:
     sessions, compute_cost, model_tier = _load_telemetry(args.days)
     if not sessions:
-        print(NO_SESSIONS, file=sys.stderr)
+        print(NO_SESSIONS)
         return 1
 
     renderers = {
@@ -255,15 +254,15 @@ def cmd_telemetry(args: argparse.Namespace) -> int:
     }
     renderer = renderers.get(args.type)
     if not renderer:
-        print(f"Unknown diagram type: {args.type}", file=sys.stderr)
+        print(f"Unknown diagram type: {args.type}")
         return 1
     print(renderer())
     return 0
 
 
-def cmd_render(args: argparse.Namespace) -> int:
+def cmd_render(args) -> int:
     """Render a .mmd file to PNG/SVG/PDF via mmdc."""
-    mermaid_text = _read_input(args.input)
+    mermaid_text = _read_input(args.input, "diagram.mmd")
     if mermaid_text is None:
         return 1
     if not _validate_non_empty(mermaid_text):
@@ -297,9 +296,9 @@ def cmd_render(args: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_validate(args: argparse.Namespace) -> int:
+def cmd_validate(args) -> int:
     """Validate mermaid syntax via mmdc."""
-    mermaid_text = _read_input(args.input)
+    mermaid_text = _read_input(args.input, "diagram.mmd")
     if mermaid_text is None:
         return 1
     if not _validate_non_empty(mermaid_text):
@@ -322,9 +321,9 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
 
-def cmd_embed(args: argparse.Namespace) -> int:
+def cmd_embed(args) -> int:
     """Output mermaid wrapped in a ```mermaid code fence."""
-    content = _read_input(args.input)
+    content = _read_input(args.input, "diagram.mmd")
     if content is None:
         return 1
     if not _validate_non_empty(content):
@@ -349,22 +348,22 @@ def cmd_embed(args: argparse.Namespace) -> int:
     return _write_output(embedded, output_path, success_msg)
 
 
-def _check_builder() -> bool:
-    """Return True if FlowchartBuilder works; print failure and return False otherwise."""
+def cmd_health(args) -> int:
+    """Check mmdc is installed and working."""
+    skip_render = getattr(args, "skip_render", False)
+
+    # Check builder
     try:
         from .mermaid import FlowchartBuilder
         diagram = FlowchartBuilder().node("A", "Start").node("B", "End").edge("A", "B").render()
         if "flowchart" not in diagram:
             raise RuntimeError("Builder produced invalid output")
         print("builder ok", file=sys.stderr)
-        return True
     except Exception as e:
         print(f"builder FAILED: {e}", file=sys.stderr)
-        return False
+        return 1
 
-
-def _check_text_renderer() -> bool:
-    """Return True if TextRenderer works; print failure and return False otherwise."""
+    # Check text renderer
     try:
         from .mermaid import FlowchartBuilder
         from .renderers import TextRenderer
@@ -373,48 +372,34 @@ def _check_text_renderer() -> bool:
         if not text:
             raise RuntimeError("Text renderer returned empty output")
         print("text renderer ok", file=sys.stderr)
-        return True
     except Exception as e:
         print(f"text renderer FAILED: {e}", file=sys.stderr)
-        return False
+        return 1
 
+    if skip_render:
+        print("local renderer: skipped", file=sys.stderr)
+        return 0
 
-def _check_local_renderer(timeout: int = 30) -> bool:
-    """Return True if LocalRenderer works; print failure and return False otherwise."""
+    # Check local renderer
     try:
         from .renderers import LocalRenderer, LocalRendererError
         if not LocalRenderer.is_available():
             raise LocalRendererError(
                 "mmdc not installed. Run: npm install -g @mermaid-js/mermaid-cli"
             )
-        renderer = LocalRenderer(timeout=timeout)
+        renderer = LocalRenderer(timeout=30)
         svg_bytes = renderer.render("flowchart LR\n    A-->B", "svg")
         if not svg_bytes or b"<svg" not in svg_bytes:
             raise RuntimeError("Local renderer returned invalid SVG")
         print("local renderer ok", file=sys.stderr)
-        return True
     except Exception as e:
         print(f"local renderer FAILED: {e}", file=sys.stderr)
-        return False
-
-
-def cmd_health(args: argparse.Namespace) -> int:
-    """Check mmdc is installed and working."""
-    skip_render = getattr(args, "skip_render", False)
-
-    if not _check_builder():
         return 1
-    if not _check_text_renderer():
-        return 1
-    if skip_render:
-        print("local renderer: skipped", file=sys.stderr)
-        return 0
-    if not _check_local_renderer():
-        return 1
+
     return 0
 
 
-def cmd_from_yaml(args: argparse.Namespace) -> int:
+def cmd_from_yaml(args) -> int:
     """Generate .mmd from a YAML spec (flowchart and sequence types)."""
     yaml_content = _read_input(args.input, "spec.yaml")
     if yaml_content is None:

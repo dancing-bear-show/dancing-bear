@@ -6,6 +6,8 @@ LocalRenderer: renders via local mmdc CLI (requires @mermaid-js/mermaid-cli).
 
 from __future__ import annotations
 
+import sys
+
 
 class TextRenderer:
     """Render Mermaid diagrams as plain text or embedded code fences.
@@ -120,7 +122,7 @@ class LocalRenderer:
     def _run(self, cmd: list[str]) -> None:
         import subprocess
         try:
-            result = subprocess.run(  # nosec B603 - cmd is built from validated mmdc_path + controlled flags only
+            result = subprocess.run(
                 cmd,
                 capture_output=True,
                 timeout=self.timeout,
@@ -173,13 +175,6 @@ class LocalRenderer:
         Raises:
             LocalRendererError: If rendering fails.
         """
-        _SUPPORTED_FORMATS = {"svg", "png", "pdf"}
-        if output_format not in _SUPPORTED_FORMATS:
-            raise ValueError(
-                f"Unsupported format {output_format!r}. "
-                f"Choose one of: {', '.join(sorted(_SUPPORTED_FORMATS))}"
-            )
-
         import pathlib
         import tempfile
 

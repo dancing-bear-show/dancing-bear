@@ -10,14 +10,16 @@ from pathlib import Path
 
 def _require_matplotlib() -> None:
     try:
-        from charts.renderer import _require_matplotlib as _check
-        _check()
-    except ImportError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        import matplotlib  # noqa: F401
+    except ImportError:
+        print(
+            "error: matplotlib is not installed. Run: pip install matplotlib",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
 
 
-def _apply_cli_overrides(cfg: object, output_path: str | None, theme: str | None, svg: bool) -> object:
+def _apply_cli_overrides(cfg, output_path: str | None, theme: str | None, svg: bool):
     """Apply CLI output/theme/svg overrides to a GridConfig."""
     from charts.config import GridConfig
 
@@ -103,7 +105,7 @@ def _build_series_map(
     return series_map
 
 
-def _load_panel_specs(cfg: object, json_to_spec_fn: object) -> list[object]:
+def _load_panel_specs(cfg, json_to_spec_fn):
     """Read and parse JSON for each panel; exit on the first I/O or parse error."""
     stdin_content: str | None = None
     if any(p.input == "-" for p in cfg.panels):

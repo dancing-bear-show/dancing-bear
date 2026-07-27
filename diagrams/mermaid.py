@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-_INDENT_END = "    end"
-
 
 class FlowchartBuilder:
     """Build Mermaid flowchart diagrams with a fluent API.
@@ -86,42 +84,6 @@ class FlowchartBuilder:
         self._subgraphs.append((sub_id, label, [body] if body else []))
         return self
 
-    def _subgraph_node_ids(self) -> set[str]:
-        """Collect node IDs that belong to any subgraph (non-legacy items)."""
-        ids: set[str] = set()
-        for _, _, items in self._subgraphs:
-            for item in items:
-                if not item.startswith("    "):
-                    ids.add(item)
-        return ids
-
-    def _render_subgraph_item(self, item: str, lines: list[str]) -> None:
-        """Append a single subgraph item (raw line or node lookup) to lines."""
-        if item.startswith("    "):
-            lines.append(item)  # raw body line (legacy)
-            return
-        for nid, nlabel, nshape in self._nodes:
-            if nid == item:
-                left, right = self.SHAPES.get(nshape, ("[", "]"))
-                lines.append(f"        {nid}{left}{nlabel}{right}")
-                break
-
-    def _render_subgraphs(self, lines: list[str]) -> None:
-        """Append subgraph blocks to lines."""
-        for sub_id, label, node_ids_or_body in self._subgraphs:
-            lines.append(f'    subgraph {sub_id}["{label}"]')
-            for item in node_ids_or_body:
-                self._render_subgraph_item(item, lines)
-            lines.append(_INDENT_END)
-
-    def _render_edges(self, lines: list[str]) -> None:
-        """Append edge lines to lines."""
-        for src, dst, label, arrow in self._edges:
-            if label:
-                lines.append(f"    {src} {arrow}|{label}| {dst}")
-            else:
-                lines.append(f"    {src} {arrow} {dst}")
-
     def render(self) -> str:
         """Render the flowchart as Mermaid markdown text."""
         lines: list[str] = []
@@ -133,14 +95,43 @@ class FlowchartBuilder:
 
         lines.append(f"flowchart {self._direction}")
 
-        subgraph_ids = self._subgraph_node_ids()
+        # Nodes not in any subgraph
+        subgraph_node_ids: set[str] = set()
+        for _, _, node_ids_or_body in self._subgraphs:
+            # If items look like raw mermaid lines (legacy), skip id tracking
+            for item in node_ids_or_body:
+                if not item.startswith("    "):
+                    subgraph_node_ids.add(item)
+
         for node_id, label, shape in self._nodes:
-            if node_id not in subgraph_ids:
+            if node_id not in subgraph_node_ids:
                 left, right = self.SHAPES.get(shape, ("[", "]"))
                 lines.append(f"    {node_id}{left}{label}{right}")
 
-        self._render_subgraphs(lines)
-        self._render_edges(lines)
+        # Subgraphs
+        for sub_id, label, node_ids_or_body in self._subgraphs:
+            lines.append(f'    subgraph {sub_id}["{label}"]')
+            for item in node_ids_or_body:
+                if item.startswith("    "):
+                    # Raw body line (legacy)
+                    lines.append(item)
+                else:
+                    # Node id — look up and render
+                    for nid, nlabel, nshape in self._nodes:
+                        if nid == item:
+                            left, right = self.SHAPES.get(nshape, ("[", "]"))
+                            lines.append(f"        {nid}{left}{nlabel}{right}")
+                            break
+            lines.append("    end")
+
+        # Edges
+        for src, dst, label, arrow in self._edges:
+            if label:
+                lines.append(f"    {src} {arrow}|{label}| {dst}")
+            else:
+                lines.append(f"    {src} {arrow} {dst}")
+
+        # Style directives
         lines.extend(self._styles)
 
         return "\n".join(lines)
@@ -188,16 +179,12 @@ class SequenceDiagramBuilder:
         deactivate: bool = False,
     ) -> SequenceDiagramBuilder:
         """Add a message between participants."""
-        # For activation, Mermaid's +/- shorthand goes before the destination:
-        #   "A->>+B: msg" activates B (receiver) — correct for requests.
-        # For deactivation on a response, the notation "A-->>-B: msg" would
-        # deactivate B (the destination), not A (the sender/source). The
-        # docstring for response() says it deactivates the *sender*, so we emit
-        # a separate "deactivate {src}" directive after the message line instead.
-        suffix = "+"  if activate else ""
+        suffix = ""
+        if activate:
+            suffix = "+"
+        elif deactivate:
+            suffix = "-"
         self._steps.append(f"    {src}{arrow}{suffix}{dst}: {text}")
-        if deactivate:
-            self._steps.append(f"    deactivate {src}")
         return self
 
     def request(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
@@ -232,7 +219,7 @@ class SequenceDiagramBuilder:
         """Add a loop block."""
         self._steps.append(f"    loop {label}")
         self._steps.extend(f"        {s}" for s in body)
-        self._steps.append(_INDENT_END)
+        self._steps.append("    end")
         return self
 
     def alt(
@@ -248,7 +235,7 @@ class SequenceDiagramBuilder:
         if else_body:
             self._steps.append(f"    else {else_label}")
             self._steps.extend(f"        {s}" for s in else_body)
-        self._steps.append(_INDENT_END)
+        self._steps.append("    end")
         return self
 
     def render(self) -> str:

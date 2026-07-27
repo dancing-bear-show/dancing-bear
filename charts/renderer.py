@@ -76,12 +76,13 @@ def render_chart(
 
 def _normalize_axes_grid(axes: object, rows: int, cols: int) -> list[list[object]]:
     """Normalise matplotlib axes output to a 2-D list regardless of grid shape."""
+    import numpy as np
     if rows == 1 and cols == 1:
         return [[axes]]
     if rows == 1:
         return [list(axes)]  # type: ignore[arg-type]
     if cols == 1:
-        return [[row] for row in axes]  # type: ignore[union-attr]
+        return [[row] for row in axes]
     return [list(row) for row in axes]  # type: ignore[union-attr]
 
 
@@ -204,15 +205,15 @@ def _parse_iso_to_datetime(value: str) -> datetime.datetime:
     try:
         dt = datetime.datetime.fromisoformat(value)
         if dt.tzinfo is not None:
-            # Intentionally strip tzinfo: matplotlib expects naive UTC datetimes for axis comparisons
             dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
         return dt
-    except ValueError:  # nosec B110 - intentional fallback: if not ISO datetime, try date-only below
+    except ValueError:
         pass
     return datetime.datetime.combine(datetime.date.fromisoformat(value), datetime.time.min)
 
 
 def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[object], bool]:
+    import numpy as np
     unique_raw = list(dict.fromkeys(
         str(row[x_field]) for s in series for row in s.data
     ))
@@ -223,13 +224,13 @@ def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[object
     try:
         parsed = [_parse_iso_to_datetime(v) for v in unique_raw]
         return sorted(parsed), True
-    except ValueError:  # nosec B110 - intentional fallback: values are not datetime strings; try numeric
+    except ValueError:
         pass
 
     try:
         nums = [float(v) for v in unique_raw]
         return sorted(nums), False
-    except ValueError:  # nosec B110 - intentional fallback: values are not numeric; fall back to string sort
+    except ValueError:
         pass
 
     return sorted(unique_raw), False
@@ -360,7 +361,7 @@ def _x_key(v: object) -> str:
         return datetime.datetime.combine(v, datetime.time.min).isoformat()
     try:
         return _parse_iso_to_datetime(str(v)).isoformat()
-    except ValueError:  # nosec B110 - intentional fallback: not a datetime string; try numeric
+    except ValueError:
         pass
     try:
         f = float(str(v))

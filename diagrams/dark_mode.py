@@ -91,7 +91,7 @@ def _is_timeline(source: str) -> bool:
         if in_frontmatter:
             continue
         first_token = stripped.split(None, 1)[0]
-        return first_token == "timeline"  # nosec B105 - not a password; comparing diagram-type keyword
+        return first_token == "timeline"
     return False
 
 
