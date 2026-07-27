@@ -241,6 +241,14 @@ ASSISTANT_AGENTIC_EXTENDED_CMDS = [
     "./bin/llm --app whatsapp agentic --stdout",
 ]
 
+# Standalone visualization + orchestration wrappers (own argparse CLIs, not llm --app
+# routes, so discovered via --help rather than agentic schemas).
+ASSISTANT_VIZ_ORCHESTRATION_CMDS = [
+    "./bin/charts --help",
+    "./bin/diagrams --help",
+    "./bin/workflow --help",
+]
+
 _APP_MODULES = {
     "calendar": "calendars.llm_cli",
     "schedule": "schedule.llm_cli",
@@ -298,23 +306,24 @@ def _default_policies() -> str:
 
 
 def _familiar_content(verbose: bool, compact: bool = False) -> str:
-    # Version history: v1=initial, v2=calendar/schedule cmds, v3=--compact flag
+    # Version history: v1=initial, v2=calendar/schedule cmds, v3=--compact flag,
+    # v4=charts/diagrams/workflow viz+orchestration wrappers (verbose)
     if compact:
         return (
             "agent_note: Read-only familiarization. Open heavy files only when needed.\n"
             "meta:\n"
             "  name: assistants_familiarize\n"
-            "  version: 3\n"
+            "  version: 4\n"
             "skip_paths: [.venv/, .git/, .cache/, maker/, _disasm/, out/, _out/, backups/]\n"
             "heavy_files: [README.md, AGENTS.md, config/*.yaml, out/**]\n"
             "steps:\n"
             "  - run: ./bin/llm agentic --stdout\n"
         )
     base = (
-        "agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context.\n"
+        "agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context. Visualization + orchestration wrappers (charts/diagrams/workflow) surface under --verbose.\n"
         "meta:\n"
         "  name: assistants_familiarize\n"
-        "  version: 3\n"
+        "  version: 4\n"
         "steps:\n"
     )
     steps = ["  - run: ./bin/llm agentic --stdout"]
@@ -322,6 +331,8 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
         steps.append(f"  - run: {cmd} || true")
     if verbose:
         for cmd in ASSISTANT_AGENTIC_EXTENDED_CMDS:
+            steps.append(f"  - run: {cmd} || true")
+        for cmd in ASSISTANT_VIZ_ORCHESTRATION_CMDS:
             steps.append(f"  - run: {cmd} || true")
         steps.extend(
             [
