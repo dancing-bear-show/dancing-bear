@@ -26,7 +26,6 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 
-from telemetry.otel._constants import METRIC_COST_USAGE
 from telemetry.otel.analytics.perf import (
     _build_session_perf_objects,
     _calc_p95,

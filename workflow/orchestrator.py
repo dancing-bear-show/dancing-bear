@@ -11,7 +11,6 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any
 
 from workflow._fileutil import atomic_write_json
 from workflow._timeutil import iso_now
