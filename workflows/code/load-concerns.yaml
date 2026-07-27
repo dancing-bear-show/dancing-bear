@@ -20,13 +20,14 @@ description: >
   can write defensively from the start rather than catching issues in post-review.
 
   Guide selection:
-    - file_paths contains .py  → correctness.md, tests.md (if test files), patterns.md
+    - file_paths contains .py  → correctness.md, security.md, patterns.md, reuse.md, complexity.md (+ tests.md if test files)
     - file_paths contains .yaml → workflow.md, workflow-fragments.md, patterns.md
     - file_paths contains SKILL.md → workflow.md, workflow-fragments.md, patterns.md, docs.md
+    - task_type = "feature"    → correctness.md, patterns.md, security.md, reuse.md
     - task_type = "test"       → tests.md, correctness.md
     - task_type = "security"   → security.md, correctness.md
     - task_type = "docs"       → docs.md
-    - task_type = "refactor"   → patterns.md, correctness.md
+    - task_type = "refactor"   → patterns.md, correctness.md, reuse.md, complexity.md
     - always include           → patterns.md
 
   Output: {workspace}/outputs/concerns.md — a compact hint sheet with concern IDs,
@@ -59,15 +60,16 @@ stages:
       Determine which guide files are relevant based on task_type and file_paths params.
 
       Rules (apply all that match, deduplicate):
-        - file_paths contains ".py" (and not test_) → correctness.md, patterns.md
+        - file_paths contains ".py" (and not test_) → correctness.md, security.md, patterns.md, reuse.md, complexity.md
         - file_paths contains "test_" or "/tests/"  → tests.md, correctness.md
         - file_paths contains ".yaml" or ".yml"     → workflow.md, workflow-fragments.md, patterns.md
         - file_paths contains "SKILL.md"            → workflow.md, workflow-fragments.md, patterns.md, docs.md
         - file_paths contains iOS layout files      → phone-layout.md
+        - task_type == "feature"                    → correctness.md, patterns.md, security.md, reuse.md
         - task_type == "test"                       → tests.md, correctness.md
         - task_type == "security"                   → security.md, correctness.md
         - task_type == "docs"                       → docs.md
-        - task_type == "refactor"                   → patterns.md, correctness.md
+        - task_type == "refactor"                   → patterns.md, correctness.md, reuse.md, complexity.md
         - task_type == "workflow"                   → workflow.md, workflow-fragments.md, patterns.md
         - always include                            → patterns.md
 

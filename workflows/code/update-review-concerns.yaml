@@ -46,6 +46,7 @@ trigger:
     window_days: "30"    # how many days of merged PR history to scan
     min_occurrences: "2" # minimum times a pattern must appear to be proposed
     pr_number: ""        # optional: scope to a single PR (skips merged-PR list scan)
+    max_prs: "20"        # MODE B: cap on how many recent merged PRs to fetch comments for
 
 workspace_dir: "{work_dir}/update-review-concerns"
 
@@ -137,10 +138,18 @@ stages:
       All GitHub access uses the native `gh` CLI. Prefix commands with
       `GITHUB_TOKEN=` if a stale token env var is present.
 
+      Step 0 — resolve owner/repo FIRST (before any command below):
+        Run once and export into shell variables so every later command can
+        reference $OWNER and $REPO:
+          NWO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+          OWNER=${NWO%%/*}
+          REPO=${NWO##*/}
+        Every gh command below uses $OWNER/$REPO — never the literal tokens.
+
       MODE A — single PR (when pr_number param is non-empty, e.g. "112"):
         Skip the merged-PR list entirely.
-        Fetch both comment sources for that one PR:
-          # GraphQL review threads (unresolved + resolved discussion threads)
+        Fetch all three comment sources for that one PR:
+          # 1. GraphQL review threads (unresolved + resolved discussion threads)
           gh api graphql -f query='
             query($owner:String!,$name:String!,$pr:Int!){
               repository(owner:$owner,name:$name){
@@ -151,9 +160,12 @@ stages:
                   }}
                 }
               }
-            }' -F owner={owner} -F name={repo} -F pr=<PR>
-          # REST inline comments (Copilot inline feedback appears ONLY here)
-          gh api repos/{owner}/{repo}/pulls/<PR>/comments
+            }' -F owner="$OWNER" -F name="$REPO" -F pr=<PR>
+          # 2. REST inline (diff-line) comments — Copilot inline feedback lives here
+          gh api "repos/$OWNER/$REPO/pulls/<PR>/comments"
+          # 3. REST PR-level (conversation) comments — served by the issues endpoint;
+          #    tag these with is_pr_level=true and path=null when merging.
+          gh api "repos/$OWNER/$REPO/issues/<PR>/comments"
         Write merged-prs.json as a single-element list with the PR's metadata
         (use `gh pr view <PR> --json number,title,mergedAt` to get title).
         Set min_occurrences threshold to 1 for this mode — a single PR is the
@@ -166,13 +178,13 @@ stages:
           Write the filtered PR list (number, title, mergedAt) to
           {workspace}/outputs/merged-prs.json.
           If no PRs found, write [] and exit 0.
-        Step 2 — for each merged PR (up to 20 most recent), fetch both sources
-        with the same two gh commands shown in MODE A (substituting the PR number).
+        Step 2 — for each merged PR (up to {max_prs} most recent), fetch all
+        three sources with the same gh commands shown in MODE A (substituting
+        the PR number). Wrap each PR's fetch so a single failed call does NOT
+        abort the loop: on non-zero exit, log the skipped PR number to
+        {workspace}/outputs/skipped-prs.json and continue to the next PR.
 
-      Owner/repo: resolve once via `gh repo view --json nameWithOwner -q .nameWithOwner`
-      (splits on "/" into {owner} and {repo}) so the workflow is repo-agnostic.
-
-      Merge both sources into a flat list of comment objects, each with:
+      Merge all sources into a flat list of comment objects, each with:
         {
           "pr_number": "...",
           "pr_title": "...",
@@ -281,7 +293,7 @@ stages:
   - name: propose-concerns
     kind: execute
     depends_on: [cluster-gaps]
-    reads_from: [cluster-gaps]
+    reads_from: [cluster-gaps, fetch-findings]
     description: >
       For each gap cluster, draft a properly-formatted concern entry for the
       appropriate guide file.
@@ -441,4 +453,7 @@ stages:
       - concerns/tests.md
       - concerns/patterns.md
       - concerns/security.md
+      - concerns/reuse.md
+      - concerns/complexity.md
+      - concerns/phone-layout.md
       - concerns/docs.md

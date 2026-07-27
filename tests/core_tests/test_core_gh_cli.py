@@ -254,7 +254,7 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
         self.assertEqual(headers["X-Custom"], "value")
 
     def test_api_with_headers_failure(self):
-        """Test API call that fails returns status=0 and masked body."""
+        """Test API call that fails returns status=-1 and masked body."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="Not authenticated"
@@ -263,8 +263,9 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
 
         status, headers, body = cli.api_with_headers("/user")
 
-        # Fix #2: failure path now returns 0 (not returncode) to avoid conflating process exit with HTTP status
-        self.assertEqual(status, 0)
+        # Process failure returns -1, distinct from the success-path status=0
+        # default (used when a response has no parseable HTTP/ status line).
+        self.assertEqual(status, -1)
         self.assertEqual(headers, {})
         # mask_text does not redact plain strings like "Not authenticated"
         self.assertIn("Not authenticated", body)

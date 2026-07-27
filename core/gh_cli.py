@@ -69,11 +69,18 @@ class GhCLI:
         return json.loads(res.stdout)
 
     def api_with_headers(self, path: str) -> tuple[int, dict[str, str], str]:
-        """Call gh api --include and return (status, headers, body)."""
+        """Call gh api --include and return (status, headers, body).
+
+        status is the parsed HTTP status code on success (0 if no status line
+        was present), or -1 when the gh process itself failed. The body is
+        masked on the failure path.
+        """
         cmd = ["gh", "api", "--include", path]
         res = self._run(cmd, text=True, capture_output=True)
         if res.returncode != 0:
-            return (0, {}, mask_text(res.stdout or res.stderr or ""))
+            # -1 signals process failure, distinct from the success-path status=0
+            # default used when no HTTP/ status line is parsed.
+            return (-1, {}, mask_text(res.stdout or res.stderr or ""))
         raw = res.stdout
         header_text, _, body = raw.partition("\r\n\r\n")
         if not body:
@@ -114,7 +121,7 @@ class GhCLI:
             with _tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as tf:
                 tf.write(query)
                 return tf.name
-        except Exception:  # nosec B110 - fall back to inline query when tempfile creation fails
+        except Exception:  # nosec B110 - tempfile create/write failure falls back to inline query
             return None
 
     @staticmethod
