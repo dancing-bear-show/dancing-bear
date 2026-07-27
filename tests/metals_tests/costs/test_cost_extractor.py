@@ -4,9 +4,29 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
+import requests
+
 from metals.cost_extractor import CostExtractor, MessageInfo, OrderData
 from metals.outlook_costs import OutlookCostExtractor, OutputRowsContext
 from tests.metals_tests.fixtures import make_message_info
+
+
+# Migrated code routes HTTP through HttpClient -> requests.Session.request, so tests
+# patch that single seam. A >=400 status raises via raise_for_status so the migrated
+# try/except error paths fire the way the old status_code checks did.
+_SESSION_SEAM = "requests.sessions.Session.request"
+
+
+def _make_resp(status=200, json_data=None):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = json_data if json_data is not None else {}
+    r.headers = {}
+    if status >= 400:
+        r.raise_for_status.side_effect = requests.exceptions.HTTPError(str(status))
+    else:
+        r.raise_for_status.return_value = None
+    return r
 
 
 class MockCostExtractor(CostExtractor):
@@ -157,19 +177,16 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
         extractor.client.GRAPH = "https://graph.microsoft.com/v1.0"
         extractor.client._headers_search.return_value = {}
 
-        with patch('requests.get') as mock_get:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
+        with patch(_SESSION_SEAM) as mock_req:
+            mock_req.return_value = _make_resp(200, {
                 'value': [{'id': 'msg1'}, {'id': 'msg2'}],
                 '@odata.nextLink': None
-            }
-            mock_get.return_value = mock_response
+            })
 
             ids = extractor._fetch_ids_for_query('test query')
 
             self.assertEqual(ids, ['msg1', 'msg2'])
-            mock_get.assert_called_once()
+            mock_req.assert_called_once()
 
     def test_fetch_ids_for_query_follows_pagination(self):
         """Test _fetch_ids_for_query follows pagination links."""
@@ -178,29 +195,22 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
         extractor.client.GRAPH = "https://graph.microsoft.com/v1.0"
         extractor.client._headers_search.return_value = {}
 
-        with patch('requests.get') as mock_get:
-            # First page
-            resp1 = MagicMock()
-            resp1.status_code = 200
-            resp1.json.return_value = {
-                'value': [{'id': 'msg1'}],
-                '@odata.nextLink': 'https://next-page'
-            }
-
-            # Second page
-            resp2 = MagicMock()
-            resp2.status_code = 200
-            resp2.json.return_value = {
-                'value': [{'id': 'msg2'}],
-                '@odata.nextLink': None
-            }
-
-            mock_get.side_effect = [resp1, resp2]
+        with patch(_SESSION_SEAM) as mock_req:
+            mock_req.side_effect = [
+                _make_resp(200, {
+                    'value': [{'id': 'msg1'}],
+                    '@odata.nextLink': 'https://next-page'
+                }),
+                _make_resp(200, {
+                    'value': [{'id': 'msg2'}],
+                    '@odata.nextLink': None
+                }),
+            ]
 
             ids = extractor._fetch_ids_for_query('test query')
 
             self.assertEqual(ids, ['msg1', 'msg2'])
-            self.assertEqual(mock_get.call_count, 2)
+            self.assertEqual(mock_req.call_count, 2)
 
     def test_fetch_ids_for_query_stops_on_error(self):
         """Test _fetch_ids_for_query stops on HTTP error."""
@@ -209,10 +219,8 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
         extractor.client.GRAPH = "https://graph.microsoft.com/v1.0"
         extractor.client._headers_search.return_value = {}
 
-        with patch('requests.get') as mock_get:
-            mock_response = MagicMock()
-            mock_response.status_code = 400
-            mock_get.return_value = mock_response
+        with patch(_SESSION_SEAM) as mock_req:
+            mock_req.return_value = _make_resp(400)
 
             ids = extractor._fetch_ids_for_query('test query')
 
@@ -262,13 +270,8 @@ class TestOutlookCostExtractorHelpers(unittest.TestCase):
         extractor.client._headers_search.return_value = {}
         extractor.client.search_inbox_messages.side_effect = Exception("Error")
 
-        with patch('requests.get') as mock_get:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                'value': [{'id': 'msg1'}]
-            }
-            mock_get.return_value = mock_response
+        with patch(_SESSION_SEAM) as mock_req:
+            mock_req.return_value = _make_resp(200, {'value': [{'id': 'msg1'}]})
 
             ids = extractor._search_confirmation_messages('PO123')
 

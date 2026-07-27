@@ -7,6 +7,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from tests.fixtures import TempDirMixin
 
 from core.text_utils import html_to_text
@@ -25,6 +27,25 @@ from metals.outlook_costs import (
     _try_upgrade_to_confirmation,
     _RCM_QUERIES,
 )
+
+
+# HTTP requests are routed through HttpClient -> requests.Session.request, so tests
+# patch that single seam. A >=400 status must raise via raise_for_status so the
+# migrated try/except error paths fire the way the old status_code checks did.
+_SESSION_SEAM = "requests.sessions.Session.request"
+
+
+def _make_resp(status=200, json_data=None, text=""):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = json_data if json_data is not None else {}
+    r.text = text
+    r.headers = {}
+    if status >= 400:
+        r.raise_for_status.side_effect = requests.exceptions.HTTPError(str(status))
+    else:
+        r.raise_for_status.return_value = None
+    return r
 
 
 class TestClassifySubject(unittest.TestCase):
@@ -664,61 +685,56 @@ class TestRcmQueries(unittest.TestCase):
 class TestFetchRcmMessageIds(unittest.TestCase):
     """Tests for _fetch_rcm_message_ids function."""
 
-    @patch("requests.get")
-    def test_fetches_and_deduplicates_ids(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_fetches_and_deduplicates_ids(self, mock_req):
         """Test fetches IDs from multiple queries and deduplicates."""
         mock_cli = MagicMock()
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli._headers_search.return_value = {"Authorization": "Bearer token"}
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
+        mock_req.return_value = _make_resp(200, {
             "value": [{"id": "msg-1"}, {"id": "msg-2"}],
             "@odata.nextLink": None,
-        }
-        mock_get.return_value = mock_response
+        })
 
         result = _fetch_rcm_message_ids(mock_cli)
         self.assertIsInstance(result, list)
-        self.assertGreaterEqual(mock_get.call_count, len(_RCM_QUERIES))
+        self.assertGreaterEqual(mock_req.call_count, len(_RCM_QUERIES))
 
-    @patch("requests.get")
-    def test_handles_api_error(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_api_error(self, mock_req):
         """Test handles API errors gracefully."""
         mock_cli = MagicMock()
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli._headers_search.return_value = {}
 
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_get.return_value = mock_response
+        mock_req.return_value = _make_resp(400)
 
         result = _fetch_rcm_message_ids(mock_cli)
         self.assertEqual(result, [])
 
-    @patch("requests.get")
-    def test_follows_pagination(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_follows_pagination(self, mock_req):
         """Test follows pagination links."""
         mock_cli = MagicMock()
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli._headers_search.return_value = {}
 
         responses = [
-            MagicMock(status_code=200, json=MagicMock(return_value={
+            _make_resp(200, {
                 "value": [{"id": "msg-1"}],
                 "@odata.nextLink": "https://next-page",
-            })),
-            MagicMock(status_code=200, json=MagicMock(return_value={
+            }),
+            _make_resp(200, {
                 "value": [{"id": "msg-2"}],
                 "@odata.nextLink": None,
-            })),
-            MagicMock(status_code=200, json=MagicMock(return_value={
+            }),
+            _make_resp(200, {
                 "value": [],
                 "@odata.nextLink": None,
-            })),
+            }),
         ]
-        mock_get.side_effect = responses * len(_RCM_QUERIES)
+        mock_req.side_effect = responses * len(_RCM_QUERIES)
 
         result = _fetch_rcm_message_ids(mock_cli)
         self.assertIn("msg-1", result)
@@ -782,18 +798,15 @@ class TestFilterAndGroupByOrder(unittest.TestCase):
 class TestTryUpgradeToConfirmation(unittest.TestCase):
     """Tests for _try_upgrade_to_confirmation function."""
 
-    @patch("requests.get")
-    def test_returns_original_when_no_confirmation_found(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_returns_original_when_no_confirmation_found(self, mock_req):
         """Test returns original record when no confirmation found."""
         mock_cli = MagicMock()
         mock_cli.search_inbox_messages.return_value = []
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli._headers_search.return_value = {}
 
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"value": []})
-        )
+        mock_req.return_value = _make_resp(200, {"value": []})
         rec = {"id": "msg-1", "cat": "shipping", "sub": "Shipping", "body": "", "recv": ""}
         result = _try_upgrade_to_confirmation(mock_cli, "PO123", rec)
         self.assertEqual(result, rec)
@@ -817,18 +830,15 @@ class TestTryUpgradeToConfirmation(unittest.TestCase):
         self.assertEqual(result["cat"], "confirmation")
         self.assertIn("Confirmation", result["sub"])
 
-    @patch("requests.get")
-    def test_handles_search_exception(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_search_exception(self, mock_req):
         """Test handles exception during inbox search."""
         mock_cli = MagicMock()
         mock_cli.search_inbox_messages.side_effect = Exception("API error")
         mock_cli.GRAPH = "https://graph.microsoft.com/v1.0"
         mock_cli._headers_search.return_value = {}
 
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=MagicMock(return_value={"value": []})
-        )
+        mock_req.return_value = _make_resp(200, {"value": []})
         rec = {"id": "msg-1", "cat": "shipping"}
         result = _try_upgrade_to_confirmation(mock_cli, "PO123", rec)
         self.assertEqual(result, rec)
