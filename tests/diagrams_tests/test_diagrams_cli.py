@@ -62,11 +62,15 @@ class TestRenderTokenPie(unittest.TestCase):
 
 class TestRenderTimeline(unittest.TestCase):
     def test_renders_gantt(self):
-        sessions = [_make_session()]
+        # Use the fixture date from _make_session's default start parameter so
+        # the assertion is derived from the fixture, not duplicated as a literal.
+        fixture_start = "2026-04-16T10:00:00Z"
+        expected_date = fixture_start[:10]  # "2026-04-16"
+        sessions = [_make_session(start=fixture_start)]
         result = _render_timeline(sessions, 7, compute_cost, model_tier)
         self.assertIn("gantt", result)
         self.assertIn("dateFormat YYYY-MM-DD", result)
-        self.assertIn("2026-04-16", result)
+        self.assertIn(expected_date, result)
 
     def test_duration_in_days(self):
         sessions = [_make_session()]

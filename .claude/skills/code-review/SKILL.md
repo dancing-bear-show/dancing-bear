@@ -38,33 +38,36 @@ the current branch if `pr_number` is omitted.
 ## DAG Overview
 
 ```
-G0: fetch-pr-context      (researcher)
-      git diff, changed files, PR description, commit history
+G0:  init                     (inline)
+G1:  fetch-pr-context         (researcher)
+G2:  concern-sweep-dispatch   (inline)
+G3:  concern-sweep × N        (haiku-reviewer, parallel — one per guide)
+     review-consolidated      (inline, parallel with concern-sweep)
+G4:  concern-sweep-merge      (inline)
+G5:  enumerate-targets        (researcher)
+G6:  validate-concerns × N    (unit-validator, parallel)
+     cross-unit-check         (cross-unit-validator, parallel with validate-concerns)
+G7:  consolidate              (doc-writer)
+G8:  fact-check-findings      (fact-checker)
+G9:  human-gate               (propose, human_gate: true)
+G10: post-comments            (code-writer)
+```
 
-G1: concern-sweep         (reviewer)
-      load relevant concerns/ files based on diff file types
-      filter concerns against actual diff
-      output: active concern list
-
-G2: enumerate-targets     (researcher)
-      cross concern list with diff
-      output: manifest of {file, concern_id, scope} pairs
-
-G3: validate-* × N        (unit-validator, parallel)
-    cross-unit-check       (cross-unit-validator, parallel with validate-* in G3)
-      each validator receives guide entry + file + scope
-
-G4: consolidate           (doc-writer)
-      merge findings, de-duplicate, prioritize
-
-G5: fact-check-findings   (fact-checker)
-      verify line numbers exist, claims accurate, no contradictions
-
-G6: human-gate            (propose, human_gate: true)
-      show consolidated findings; approve, edit, or discard
-
-G7: post-comments         (code-writer)
-      post all findings as a single consolidated GitHub PR comment
+```mermaid
+flowchart TD
+    A[init] --> B[fetch-pr-context]
+    B --> C[concern-sweep-dispatch]
+    C --> D["concern-sweep × N\none agent per guide"]
+    D --> E[concern-sweep-merge]
+    E --> F[enumerate-targets]
+    F --> G["validate-concerns\nunit-validator × N"]
+    F --> H[cross-unit-check]
+    G --> I[consolidate]
+    H --> I
+    I --> J[fact-check-findings]
+    J --> K{human-gate}
+    K -->|approved| L[post-comments]
+    K -->|discard| M[done]
 ```
 
 ## Review Guides
@@ -82,7 +85,7 @@ by the actual changes, so validators only spend time on relevant checks.
 | `concerns/patterns.md` | any diff (all file types) |
 | `concerns/reuse.md` | diff contains `.py` files |
 | `concerns/complexity.md` | diff contains `.py` files |
-| `concerns/workflow.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md` | diff contains `.yaml`/`.yml` or `SKILL.md` files |
+| `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md` | diff contains `.yaml`/`.yml` or `SKILL.md` files |
 | `concerns/docs.md` | diff contains `.md`, `README`, or `SKILL.md` files |
 
 ## CLI Quick Reference

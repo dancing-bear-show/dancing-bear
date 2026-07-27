@@ -41,10 +41,11 @@ You are an analysis agent for dancing-bear. You review code and report findings.
 
 | Diff contains | Load these guides |
 |---------------|------------------|
-| `.py` files | `correctness.md`, `security.md`, `patterns.md`, `reuse.md`, `complexity.md` |
-| Test files | `tests.md`, `reuse.md` |
-| Workflow `.yaml` | `concerns/workflow.md`, `concerns/workflow-fragments.md` |
-| Any PR | `patterns.md` (hardcoded paths always apply) |
+| `.py` files | `correctness.md`, `security.md`, `patterns.md`, `reuse.md`, `complexity.md`, `tests.md` |
+| Test files (`tests/**/*.py`) | `tests.md`, `reuse.md` (also covered by the `.py` row) |
+| `.yaml`/`.yml` files | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md`, `patterns.md` |
+| `SKILL.md` files | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md`, `patterns.md`, `docs.md` |
+| Any PR | `patterns.md` (`pr-desc-title-mismatch`, `hardcoded-absolute-path` always apply) |
 
 All guides live at: `concerns/`
 

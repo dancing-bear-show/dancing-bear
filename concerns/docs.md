@@ -82,3 +82,49 @@ doc file. Load alongside `patterns.md` for changes that also touch source files.
   still lists only mail, calendar, and schedule — agents calling `./bin/llm domain-map`
   will not discover the new entry point. Run `./bin/llm derive-all --out-dir .llm
   --include-generated` to regenerate derived context files.
+
+### skill-missing-readme
+- **severity**: minor
+- **check**: Verify that any new skill added under `.claude/skills/` that backs a multi-stage workflow includes a `README.md`. Simple single-file skills (`SKILL.md` only) do not require one.
+- **triggers**: A PR adds a `.claude/skills/<name>/SKILL.md` alongside a corresponding workflow YAML, with no `README.md`; the SKILL.md describes a DAG with 4+ stages but no README explains the pipeline.
+- **example**: PR adds `.claude/skills/some-audit/SKILL.md` referencing a workflow YAML (8 stages) with no README — operators have no pipeline overview. Add a README with: invocation example, per-guide concern table (if applicable), and output format.
+
+### unsourced-quantitative-claim
+- **severity**: minor
+- **check**: Verify that quantitative percentage or count claims in documentation cite a stable source-of-truth artifact — a query, a dashboard, or a referenced report — so the figure can be updated when the underlying data changes.
+- **triggers**: New or modified `.md` files that introduce a specific percentage (e.g. "4%", "~30%"), count ("detected in 1,200 sessions"), or rate claim without an inline citation, footnote, or link to the source query or dashboard; SKILL.md or README files that describe system behavior using concrete numbers with no audit trail.
+- **example**: A SKILL.md adds "This concern is detected in approximately 4% of sessions" with no link to the query that produced that number — if session patterns shift, the figure becomes misleading with no mechanism for a reviewer to notice. Fix: add a parenthetical source (`(source: telemetry query, 2026-Q1)`) or link to a dashboard panel, or rephrase as a qualitative observation if no stable source exists.
+
+### product-name-capitalization
+- **severity**: minor
+- **check**: Verify docstrings, comments, and prose use the correct capitalization for product and service names — miscased brand names appear in grep results and tool output, making them harder to search and inconsistent with official branding.
+- **triggers**: `.py`, `.md`, or `.yaml` files with docstrings, inline comments, log strings, or help text containing miscased product names: "Github" (→ "GitHub"), "Pagerduty" (→ "PagerDuty"), "Openssl" (→ "OpenSSL"). Lowercase forms in CLI identifiers, import paths, and module names are correct and should not be flagged.
+- **example**:
+  ```python
+  # bad — miscased brand names in prose/docstrings
+  """Fetches calendar events from Gmail via the Google API."""  # Gmail is correct
+  """Syncs labels from outlook."""  # Outlook is the product name
+
+  # good
+  """Fetches calendar events via the Google Calendar API."""
+  """Syncs labels from Outlook."""
+  ```
+  Correct forms: GitHub, Gmail, Outlook, Google Calendar, Google Drive. Run `grep -rn 'Github\|Pagerduty' mail/ calendars/` before committing.
+
+### changelog-format
+- **severity**: minor
+- **check**: Verify that `CHANGELOG.md` entries (if the project maintains one) follow a consistent convention: a top-level `Unreleased` section, entries grouped under `Added`, `Changed`, `Fixed`, `Removed`, `Tests`, or `Docs` sub-headings, and entry text uses backticks for file paths, CLIs, and module names. Flag entries that omit a group heading entirely or place new entries outside the `Unreleased` section.
+- **triggers**: PRs that add features, fix bugs, or make user-facing changes (new CLIs, new config options, behavior changes) without a corresponding `CHANGELOG.md` entry in `Unreleased`. Skip for refactors, test-only, and docs-only PRs with no user-visible behavior change.
+- **example**: A PR adds a new `./bin/calendar` subcommand but `CHANGELOG.md` shows no new entry under `Unreleased` — flag it. Fix: add an entry under `Added` in the `Unreleased` section.
+
+### heading-hierarchy-skip
+- **severity**: minor
+- **check**: Verify that Markdown documents do not skip heading levels — every `####` (h4) must be nested under an `###` (h3), and every `###` under an `##` (h2). Skipped levels break accessibility and table-of-contents rendering. Flag any heading where the depth jumps by more than one relative to its nearest ancestor heading.
+- **triggers**: `.md` files in `concerns/`, `.llm/`, or `.claude/` where an `####` or lower heading appears directly under an `##` or `#` with no intervening level; PRs that add or restructure Markdown documents with multi-level heading jumps. Skip inside fenced code blocks.
+- **example**: A document has `## Overview` followed directly by `#### Details` (skipping h3) — TOC entries are misindented. Fix: change `#### Details` → `### Details`.
+
+### template-variable-dropped
+- **severity**: minor
+- **check**: Verify that template or config files preserve all declared `{{VARIABLE}}` or `{placeholder}` tokens. When restructuring or regenerating a template, confirm that every placeholder present before the change still exists after it. Missing placeholders silently produce documents where required fields are rendered as blank or omitted.
+- **triggers**: A PR modifies a template file and the diff removes one or more `{{...}}` or `{...}` placeholder tokens; diff shows a template variable present in the `-` lines but absent from the `+` lines.
+- **example**: A config template had `profile: {{PROFILE_NAME}}` in its header; after a restructure the line was dropped — any rendering pipeline that substitutes `{{PROFILE_NAME}}` now silently omits the profile row. Fix: restore the missing placeholder.

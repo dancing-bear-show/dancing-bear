@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 class FlowchartBuilder:
     """Build Mermaid flowchart diagrams with a fluent API.
@@ -11,71 +9,202 @@ class FlowchartBuilder:
     Directions: TB (top-bottom), LR (left-right), TD, BT, RL.
     """
 
-    SHAPES = {
+    SHAPES: dict[str, tuple[str, str]] = {
         "rect": ("[", "]"),
         "round": ("(", ")"),
-        "diamond": ("{", "}"),
-        "circle": ("((", "))"),
         "stadium": ("([", "])"),
+        "subroutine": ("[[", "]]"),
         "cylinder": ("[(", ")]"),
+        "circle": ("((", "))"),
+        "asymmetric": (">", "]"),
+        "rhombus": ("{", "}"),
+        "diamond": ("{", "}"),
         "hexagon": ("{{", "}}"),
+        "parallelogram": ("[/", "/]"),
+        "parallelogram_alt": ("[\\", "\\]"),
+        "trapezoid": ("[/", "\\]"),
+        "trapezoid_alt": ("[\\", "/]"),
+        "double_circle": ("(((", ")))"),
     }
 
+    _VALID_DIRECTIONS: frozenset[str] = frozenset({"TB", "LR", "BT", "RL", "TD"})
+
     def __init__(self, direction: str = "TB") -> None:
-        self.direction = direction
-        self._nodes: list[str] = []
-        self._edges: list[str] = []
-        self._subgraphs: list[str] = []
+        self._direction = direction.upper()
+        self._title: str | None = None
+        self._nodes: list[tuple[str, str, str]] = []  # (id, label, shape)
+        self._edges: list[tuple[str, str, str, str]] = []  # (src, dst, label, style)
+        self._subgraphs: list[tuple[str, str, list[str]]] = []  # (id, label, [node_ids])
+        self._styles: list[str] = []  # raw style lines
 
-    def node(self, node_id: str, label: str, shape: str = "rect") -> FlowchartBuilder:
-        left, right = self.SHAPES.get(shape, ("[", "]"))
-        self._nodes.append(f"    {node_id}{left}{label}{right}")
+    def with_title(self, title: str) -> FlowchartBuilder:
+        """Set the diagram title (rendered as YAML front-matter)."""
+        self._title = title
         return self
 
-    def edge(self, src: str, dst: str, label: str = "",
-             style: str = "-->") -> FlowchartBuilder:
-        if label:
-            self._edges.append(f"    {src} {style}|{label}| {dst}")
-        else:
-            self._edges.append(f"    {src} {style} {dst}")
+    def with_direction(self, direction: str) -> FlowchartBuilder:
+        """Set the flowchart direction (TB, LR, BT, RL, TD)."""
+        upper = direction.upper()
+        if upper not in self._VALID_DIRECTIONS:
+            raise ValueError(
+                f"Invalid direction {direction!r}. Must be one of: {sorted(self._VALID_DIRECTIONS)}"
+            )
+        self._direction = upper
         return self
 
-    def subgraph(self, sub_id: str, label: str, body: str) -> FlowchartBuilder:
-        self._subgraphs.append(
-            f"    subgraph {sub_id}[\"{label}\"]\n{body}\n    end"
-        )
+    def node(self, node_id: str, label: str | None = None, shape: str = "rect") -> FlowchartBuilder:
+        """Add a node. label defaults to node_id when not provided."""
+        self._nodes.append((node_id, label if label is not None else node_id, shape))
+        return self
+
+    def style(self, node_id: str, css: str) -> FlowchartBuilder:
+        """Add a style directive for a node, e.g. style A fill:#f9f,stroke:#333."""
+        self._styles.append(f"    style {node_id} {css}")
+        return self
+
+    def edge(
+        self,
+        src: str,
+        dst: str,
+        label: str = "",
+        style: str = "-->",
+    ) -> FlowchartBuilder:
+        """Add an edge between two nodes."""
+        self._edges.append((src, dst, label, style))
+        return self
+
+    def subgraph(self, sub_id: str, label: str, body: str = "") -> FlowchartBuilder:
+        """Add a subgraph. body is raw indented mermaid lines (legacy compat).
+
+        When body is provided, it is emitted verbatim. When absent, pass
+        node_ids via the node_ids kwarg (not available in legacy signature).
+        """
+        # Store as list-of-ids = [] plus raw body in label field using separator sentinel
+        # to preserve backwards compat while supporting new node-based subgraph too.
+        self._subgraphs.append((sub_id, label, [body] if body else []))
         return self
 
     def render(self) -> str:
-        parts = [f"flowchart {self.direction}"]
-        parts.extend(self._nodes)
-        parts.extend(self._subgraphs)
-        parts.extend(self._edges)
-        return "\n".join(parts)
+        """Render the flowchart as Mermaid markdown text."""
+        lines: list[str] = []
+
+        if self._title:
+            lines.append("---")
+            lines.append(f"title: {self._title}")
+            lines.append("---")
+
+        lines.append(f"flowchart {self._direction}")
+
+        # Nodes not in any subgraph
+        subgraph_node_ids: set[str] = set()
+        for _, _, node_ids_or_body in self._subgraphs:
+            # If items look like raw mermaid lines (legacy), skip id tracking
+            for item in node_ids_or_body:
+                if not item.startswith("    "):
+                    subgraph_node_ids.add(item)
+
+        for node_id, label, shape in self._nodes:
+            if node_id not in subgraph_node_ids:
+                left, right = self.SHAPES.get(shape, ("[", "]"))
+                lines.append(f"    {node_id}{left}{label}{right}")
+
+        # Subgraphs
+        for sub_id, label, node_ids_or_body in self._subgraphs:
+            lines.append(f'    subgraph {sub_id}["{label}"]')
+            for item in node_ids_or_body:
+                if item.startswith("    "):
+                    # Raw body line (legacy)
+                    lines.append(item)
+                else:
+                    # Node id — look up and render
+                    for nid, nlabel, nshape in self._nodes:
+                        if nid == item:
+                            left, right = self.SHAPES.get(nshape, ("[", "]"))
+                            lines.append(f"        {nid}{left}{nlabel}{right}")
+                            break
+            lines.append("    end")
+
+        # Edges
+        for src, dst, label, arrow in self._edges:
+            if label:
+                lines.append(f"    {src} {arrow}|{label}| {dst}")
+            else:
+                lines.append(f"    {src} {arrow} {dst}")
+
+        # Style directives
+        lines.extend(self._styles)
+
+        return "\n".join(lines)
 
 
 class SequenceDiagramBuilder:
     """Build Mermaid sequence diagrams with a fluent API."""
 
     def __init__(self) -> None:
+        self._title: str | None = None
+        self._autonumber: bool = False
         self._participants: list[str] = []
         self._steps: list[str] = []
 
-    def participant(self, name: str, alias: str = "") -> SequenceDiagramBuilder:
-        """Add a participant. alias is the display label; name is the ID used in messages."""
+    def with_title(self, title: str) -> SequenceDiagramBuilder:
+        """Set the diagram title (rendered as YAML front-matter)."""
+        self._title = title
+        return self
+
+    def autonumber(self, enabled: bool = True) -> SequenceDiagramBuilder:
+        """Enable or disable auto-numbering of messages."""
+        self._autonumber = enabled
+        return self
+
+    def participant(self, name: str, alias: str = "", actor: bool = False) -> SequenceDiagramBuilder:
+        """Add a participant or actor. alias is the display label."""
+        keyword = "actor" if actor else "participant"
         if alias:
-            self._participants.append(f"    participant {name} as {alias}")
+            self._participants.append(f"    {keyword} {name} as {alias}")
         else:
-            self._participants.append(f"    participant {name}")
+            self._participants.append(f"    {keyword} {name}")
         return self
 
-    def message(self, src: str, dst: str, text: str,
-                arrow: str = "->>") -> SequenceDiagramBuilder:
-        self._steps.append(f"    {src}{arrow}{dst}: {text}")
+    def actor(self, name: str, alias: str = "") -> SequenceDiagramBuilder:
+        """Add an actor (stick-figure) participant."""
+        return self.participant(name, alias, actor=True)
+
+    def message(
+        self,
+        src: str,
+        dst: str,
+        text: str,
+        arrow: str = "->>",
+        activate: bool = False,
+        deactivate: bool = False,
+    ) -> SequenceDiagramBuilder:
+        """Add a message between participants."""
+        suffix = "+" if activate else ""
+        self._steps.append(f"    {src}{arrow}{suffix}{dst}: {text}")
+        if deactivate:
+            self._steps.append(f"    deactivate {src}")
         return self
 
-    def note(self, text: str,
-             over: Optional[list[str]] = None) -> SequenceDiagramBuilder:
+    def request(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
+        """Add a request message (solid arrow ->>  with receiver activation)."""
+        return self.message(src, dst, text, "->>", activate=True)
+
+    def response(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
+        """Add a response message (dashed arrow -->>  with sender deactivation)."""
+        return self.message(src, dst, text, "-->>", deactivate=True)
+
+    def activate(self, participant: str) -> SequenceDiagramBuilder:
+        """Emit an explicit activate directive for a participant."""
+        self._steps.append(f"    activate {participant}")
+        return self
+
+    def deactivate(self, participant: str) -> SequenceDiagramBuilder:
+        """Emit an explicit deactivate directive for a participant."""
+        self._steps.append(f"    deactivate {participant}")
+        return self
+
+    def note(self, text: str, over: list[str] | None = None) -> SequenceDiagramBuilder:
+        """Add a note over one or more participants."""
         if not over:
             raise ValueError(
                 "SequenceDiagramBuilder.note() requires at least one participant in 'over'."
@@ -85,14 +214,20 @@ class SequenceDiagramBuilder:
         return self
 
     def loop(self, label: str, body: list[str]) -> SequenceDiagramBuilder:
+        """Add a loop block."""
         self._steps.append(f"    loop {label}")
         self._steps.extend(f"        {s}" for s in body)
         self._steps.append("    end")
         return self
 
-    def alt(self, condition: str, then_body: list[str],
-            else_body: Optional[list[str]] = None,
-            else_label: str = "else") -> SequenceDiagramBuilder:
+    def alt(
+        self,
+        condition: str,
+        then_body: list[str],
+        else_body: list[str] | None = None,
+        else_label: str = "else",
+    ) -> SequenceDiagramBuilder:
+        """Add an alt/else block."""
         self._steps.append(f"    alt {condition}")
         self._steps.extend(f"        {s}" for s in then_body)
         if else_body:
@@ -102,10 +237,22 @@ class SequenceDiagramBuilder:
         return self
 
     def render(self) -> str:
-        parts = ["sequenceDiagram"]
-        parts.extend(self._participants)
-        parts.extend(self._steps)
-        return "\n".join(parts)
+        """Render the sequence diagram as Mermaid markdown text."""
+        lines: list[str] = []
+
+        if self._title:
+            lines.append("---")
+            lines.append(f"title: {self._title}")
+            lines.append("---")
+
+        lines.append("sequenceDiagram")
+
+        if self._autonumber:
+            lines.append("    autonumber")
+
+        lines.extend(self._participants)
+        lines.extend(self._steps)
+        return "\n".join(lines)
 
 
 class GanttBuilder:

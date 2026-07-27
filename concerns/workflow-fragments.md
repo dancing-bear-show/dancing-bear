@@ -92,3 +92,85 @@ concerns live in `workflow.md`.
   this PR wires the agent into a third workflow — the header now understates blast
   radius. Fix: update the `Used by:` annotation in the same commit that adds the
   new reference.
+
+### sub-workflow-field-not-copied-in-include
+- **severity**: critical
+- **check**: Verify that when a fragment workflow containing a `kind: sub-workflow` stage is inlined, the `sub_workflow`, `executor`, and `script` fields are copied into the new `StageSpec`. Any inlining code that constructs a `StageSpec(...)` without forwarding these fields silently loses the sub-workflow path.
+- **triggers**: Fragment workflow YAML files containing stages with `kind: sub-workflow`; diff changes to include-processing code that constructs new `StageSpec` instances from existing ones; new fields added to `StageSpec` in models without a corresponding addition to all `StageSpec(...)` construction sites.
+- **example**: A fragment declares a stage with `kind: sub-workflow` and `sub_workflow: workflows/inner.yaml`. After inlining, the new `StageSpec` has `sub_workflow=""` because the inline code omitted the field — the orchestrator sees an empty sub-workflow path and cannot route the stage. Fix: copy `sub_workflow`, `executor`, and `script` in every `StageSpec(...)` construction site that creates stages from existing specs.
+
+### fragment-param-not-declared-in-parent
+- **severity**: major
+- **check**: Verify that every `{param}` placeholder referenced in an included fragment is declared in the including workflow's `trigger.params` block.
+- **triggers**: Workflow YAML files with an `include:` block that pull in shared fragments; fragment files whose stage descriptions contain `{param}` substitution tokens; parent workflow `trigger.params` blocks that omit params used by included fragments.
+- **example**: A shared fragment references `{projects_dir}` in its stage description, but the including workflow's `trigger.params` declares only `team` and `window` — `{projects_dir}` is rendered literally, producing a broken shell command or a nonsensical prompt. Fix: add `projects_dir` to the parent's `trigger.params` with a sensible default.
+
+### fragment-used-by-list-stale
+- **severity**: minor
+- **check**: Verify that a fragment's header `Used by:` list names every workflow that includes it — a stale list understates blast radius and causes editors to miss callers when making breaking changes to the fragment.
+- **triggers**: Shared fragment YAML files with a header comment containing `Used by:` or `Callers:`; a PR diff that adds a new `include:` of an existing fragment in one workflow but does not update the fragment's header comment; fragments whose `Used by:` list does not match a grep for the fragment name across all workflow files.
+- **example**: A fragment header says `# Used by: flow-a, flow-b`. This PR wires the fragment into two additional workflows without updating the header. An engineer editing the fragment to fix a bug checks the two listed callers, validates the change, and merges — silently breaking the two unlisted callers. Fix: update the `Used by:` list in the same commit that adds a new include.
+
+### skill-role-dispatch-table-stale
+- **severity**: major
+- **check**: Verify that when a new agent role is introduced, both the SKILL.md role dispatch table and any Python dispatcher's `KNOWN_ROLES` list are updated in the same PR — an undocumented or unregistered role causes runtime warnings for every stage that uses it.
+- **triggers**: Workflow YAML files or fragments that use a `role:` value not present in the adjacent SKILL.md's role-to-subagent-type table; diff changes to `SKILL.md` that add a new row to the role dispatch table without a corresponding change to the dispatcher's known-roles registry; new `role:` values in `agent:` blocks that do not appear in the registry.
+- **example**: A fragment introduces `agent: {role: critic}` in a new stage, and the SKILL.md is updated to document it — but the dispatcher's `KNOWN_ROLES` still doesn't include `'critic'`. Every workflow run emits a warning: `Unknown agent role 'critic' — stage may not be routed correctly`. Fix: add `'critic'` to `KNOWN_ROLES` in the same commit that adds the role to SKILL.md.
+
+### write-stage-missing-write-tool
+- **severity**: critical
+- **check**: Verify that every stage whose description requires writing an output file includes `Write` in its `tools` list and does not declare `access: read-only` — an agent without the Write tool cannot produce the required artifact, causing silent downstream failures.
+- **triggers**: Workflow YAML stages whose description says 'write', 'record', 'emit', or 'produce a file' but whose `tools` list omits `Write`; stages with `access: read-only` whose `writes_to` list is non-empty or whose description requires writing structured output; stages where `access: read-only` contradicts the stage's `writes_to` declarations.
+- **example**: A `capture-decision` stage writes `validation/decision.json` but is declared `access: read-only` with `tools: [Read, Grep]`. The agent cannot call the Write tool — it either fails silently or exits without producing the file. A downstream stage that reads `decision.json` then finds no input and stalls. Fix: set `access: read-write` and add `Write` to `tools` for any stage with a non-empty `writes_to` list.
+
+### cross-workflow-constant-drift
+- **severity**: major
+- **check**: Verify that logical constants shared across related workflows (folder names, output file names, label keys) are defined in exactly one place — typically a params default or a fragment — and not hardcoded differently in dependent workflows.
+- **triggers**: Workflow YAML files that reference each other via `depends_on` or parameter passing; string literals for folder names, path prefixes, or external resource locations that appear in more than one workflow file; validator workflows that hard-code expected values that should match producer defaults.
+- **example**: A producer workflow sets `output_folder: "generated-outputs"` but a consuming workflow still passes `--params output_folder="generated/outputs"` (different separator) — end-to-end runs fail the consumer. Fix: declare the canonical value in one workflow's params default and reference it everywhere; update docs and validators in the same commit.
+
+### dag-comment-skip-no-when-guard
+- **severity**: major
+- **check**: Verify that every stage described in a DAG comment as skipped under a specific mode or flag has a corresponding `when:` guard that enforces the skip — a comment alone does not prevent the stage from running.
+- **triggers**: Workflow YAML files where a header comment, group comment, or stage description says a stage is skipped for a given mode (e.g. "runs only for full mode", "skipped when dry_run=true") but the stage definition has no `when:` field; stages relying on their own instructions to short-circuit rather than on a declarative guard.
+- **example**: A DAG comment reads "execute-apply is skipped when dry_run=true" but the stage has no `when:` guard — the stage still runs and relies on its own instructions to detect `dry_run`. If the agent misses that instruction, a destructive operation executes on a dry-run invocation. Fix: add `when: '"{dry_run}" does not contain "true"'` to the stage so the engine enforces the skip declaratively.
+
+### critical-stage-required-false
+- **severity**: major
+- **check**: Verify that stages producing the primary workflow deliverable and review-gate/human-gate stages are not marked `required: false` — a failed optional stage lets the workflow report success with no output, and a failed optional gate stage does not halt execution.
+- **triggers**: Workflow YAML stages with `required: false` whose name or `writes_to` list contains the primary report, artifact, or output of the workflow (e.g. `render`, `publish`, `write-report`, `emit-results`); stages depended upon by a human-gate or final-publish step but marked optional; stages named `review-gate`, `human-gate`, `approval-gate`, or similar that are in the critical path to `publish` but carry `required: false`.
+- **example**: The `render` stage that produces `outputs/report.md` is marked `required: false` — if rendering fails, the workflow exits 0 with no report and no indication of failure. Also: `review-gate` is in the critical path to `publish`, but is marked `required: false` — a gate failure does not block publishing. Fix: remove `required: false` (the default is required) for any stage whose output is the declared purpose of the workflow.
+
+### include-block-placement-inside-stages
+- **severity**: critical
+- **check**: Verify that `include:` is a top-level YAML key (sibling of `stages:`, `name:`, `trigger:`, etc.) and never nested inside the `stages:` list. Placing `include:` as an element inside `stages:` produces an invalid YAML parse error that prevents the workflow from compiling.
+- **triggers**: Any workflow YAML with an `include:` block; authoring patterns that attempt to interleave includes between stages at specific points in the DAG by indenting `include:` under `stages:`; multi-phase workflows where the author tries to place one include per phase inside the `stages:` list.
+- **example**: An author tries to insert a fragment include between stages by placing it inside the `stages:` list with two-space indentation under `stages:`. The YAML parser rejects the file. Fix: move all `include:` entries to a single top-level `include:` key at the bottom of the file, after the `stages:` block. All includes — even those that logically belong to different phases — must be consolidated into this single list.
+
+### multiple-includes-missing-params
+- **severity**: major
+- **check**: Verify that when the same fragment is included multiple times with different prefixes (e.g., multiple phases in a workflow), each include carries a `params:` map supplying the instance-specific values. Without per-include `params:`, all copies fall back to the same `trigger.params` values.
+- **triggers**: Multi-phase workflow YAMLs that include the same fragment multiple times with different prefixes where each instance needs different param values (e.g., `pr_title`, `test_cmd`); a `trigger.params` block with a single value for a param that should vary per instance; fragment includes that omit `params:` when the fragment consumes params that vary per instance.
+- **example**: A three-phase workflow includes the same PR-creation fragment three times (prefix pr1–pr3) but each include omits `params:`. All three instances read `{pr_title}` from `trigger.params` and open PRs with the same title. Fix: add a `params:` map to each include entry with the instance-specific values. `include.params` values override `trigger.params` for the stages injected by that include only; the parent `trigger.params` remain the fallback for any token not covered.
+
+### include-params-per-instance-override
+- **severity**: major
+- **check**: When the same fragment is included multiple times with different prefixes and each instance needs different param values, use `params:` on each include entry. `include.params` values override `trigger.params` for the stages injected by that specific include only. Tokens resolved by `include.params` are substituted during include expansion — they never reach the trigger-param linter, so a missing `include.params` key surfaces as an "undeclared trigger param" warning rather than a silent substitution failure.
+- **triggers**: Same fragment included multiple times with different prefixes where each instance needs different param values; multi-phase workflows where `trigger.params` carries only one value for a param that should vary per phase; include entries with no `params:` block when the fragment description references tokens that differ across instances.
+- **example**:
+  ```yaml
+  include:
+    - path: workflows/shared/create-pr.yaml
+      prefix: pr1
+      depends_on: [phase1-corrections]
+      params:
+        pr_title: "feat(mail): add label sync subcommand"
+        test_cmd: "python3 -m unittest discover tests/mail_tests/ -v"
+    - path: workflows/shared/create-pr.yaml
+      prefix: pr2
+      depends_on: [phase2-corrections]
+      params:
+        pr_title: "feat(calendar): add event filter subcommand"
+        test_cmd: "python3 -m unittest discover tests/calendar_tests/ -v"
+  ```
+  Without `params:`, both instances use the same `pr_title` from `trigger.params`. With `params:`, each instance gets its own title. The parent `trigger.params` values remain the fallback for any token not covered by `include.params`.

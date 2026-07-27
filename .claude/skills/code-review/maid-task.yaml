@@ -1,0 +1,107 @@
+# maid-task.yaml — periodic review guide refresh chore.
+#
+# Declarative definition of a claude-maid chore that keeps the concern
+# library in concerns/ current by scanning recent PR review threads for
+# new repeated patterns.
+#
+# To activate: append the entry under `chores:` in ~/.claude/claude-maid.json.
+#
+# Firing cadence: `every` is in prompt-submission cycles (not wall-clock
+# minutes). `cooldown_min: 10080` (7 days) enforces once-per-week ceiling.
+# `when: has_diff` restricts firing to sessions with an active diff.
+
+name: refresh-review-guide
+action: teammate
+subagent_type: code-writer
+model: sonnet
+every: 1
+cooldown_min: 10080   # 7 days — once-per-week ceiling
+when: has_diff        # only fire when repo work is ongoing
+command: |
+  Refresh the concern guides in concerns/ from recent PR review threads.
+
+  ## Goal
+
+  Keep the concern library current by detecting repeated patterns in the last
+  14 days of Copilot review threads. Add only patterns seen in 3+ PRs — do not
+  add one-off findings. Never remove or modify existing concerns without explicit
+  human instruction.
+
+  ## Step 1 — fetch recent PRs
+
+  List merged and open PRs from the last 14 days:
+    gh pr list --state all --limit 30 --json number,reviewComments \
+      > /tmp/review-guide-refresh/pr-list.json
+
+  ## Step 2 — fetch review threads
+
+  For each PR in pr-list.json that has reviewComments > 0:
+    gh api repos/:owner/:repo/pulls/<pr_number>/comments \
+      >> /tmp/review-guide-refresh/all-threads.json
+
+  Write a combined file at /tmp/review-guide-refresh/all-threads.json.
+  Create /tmp/review-guide-refresh/ before writing.
+
+  ## Step 3 — identify new patterns
+
+  Read all-threads.json and group comments by topic. A "new pattern" must:
+    - Appear in 3 or more distinct PRs (not 3 comments on one PR)
+    - Not already have a matching concern in any concerns/ file (check by
+      topic, not just by id)
+    - Have a clear, actionable fix expressible as a one-sentence check
+
+  Write candidate new concerns to /tmp/review-guide-refresh/candidates.json:
+    [
+      {
+        "id": "kebab-case-slug",
+        "check": "imperative sentence",
+        "triggers": "what in the diff makes it relevant",
+        "severity": "critical|major|minor",
+        "category": "correctness|security|tests|patterns|workflow",
+        "pr_count": N,
+        "example_prs": [N, N, N]
+      },
+      ...
+    ]
+
+  If no new patterns meet the threshold, write an empty array and stop —
+  do not modify any guide files.
+
+  ## Step 4 — append to the appropriate guide file
+
+  For each candidate in candidates.json, determine the target guide file by
+  its `category` field:
+    correctness → concerns/correctness.md
+    security    → concerns/security.md
+    tests       → concerns/tests.md
+    patterns    → concerns/patterns.md
+    workflow    → concerns/workflow.md, concerns/workflow-stages.md
+
+  Read the target file and append the new concern using the same format:
+
+    ### <id>
+    - **severity**: <severity>
+    - **check**: <check>
+    - **triggers**: <triggers>
+    - **example**: <one concrete before/after example>
+
+  Preserve all existing concerns verbatim. Append only.
+
+  ## Step 5 — commit
+
+  If any guide file was modified:
+    git add concerns/
+    git commit -m "chore(code-review): refresh concern guides from recent PR patterns
+
+    Added N concern(s) seen in 3+ PRs over the last 14 days.
+
+    Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+
+  If no changes were needed, exit without committing.
+
+  ## Rules
+
+  - Never add a concern seen in fewer than 3 distinct PRs.
+  - Never remove or modify existing concerns.
+  - Never commit changes to files other than concerns/ files.
+  - Clean up /tmp/review-guide-refresh/ after the commit.

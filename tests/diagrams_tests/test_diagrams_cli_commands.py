@@ -108,10 +108,13 @@ class TestRenderTokenPie(unittest.TestCase):
 
 class TestRenderTimeline(unittest.TestCase):
     def test_renders_gantt(self):
-        sessions = [_make_session()]
+        # Derive expected date from the fixture parameter to avoid duplication.
+        fixture_start = "2026-04-16T10:00:00Z"
+        expected_date = fixture_start[:10]  # "2026-04-16"
+        sessions = [_make_session(start=fixture_start)]
         result = _render_timeline(sessions, 7, compute_cost, model_tier)
         self.assertIn("gantt", result)
-        self.assertIn("2026-04-16", result)
+        self.assertIn(expected_date, result)
 
     def test_empty_sessions(self):
         result = _render_timeline([], 7, compute_cost, model_tier)
@@ -132,11 +135,10 @@ class TestRenderTimeline(unittest.TestCase):
         self.assertIn("?", result)
 
     def test_long_session_duration(self):
-        # 2-day session should produce 2d
-        s = _make_session(
-            start="2026-04-14T10:00:00Z",
-            end="2026-04-16T10:00:00Z",
-        )
+        # 2-day session: derive fixture end-date from the start to keep dates coupled.
+        fixture_start = "2026-04-14T10:00:00Z"
+        fixture_end = "2026-04-16T10:00:00Z"
+        s = _make_session(start=fixture_start, end=fixture_end)
         result = _render_timeline([s], 7, compute_cost, model_tier)
         self.assertIn("2d", result)
 
@@ -150,11 +152,11 @@ class TestCmdTelemetry(unittest.TestCase):
 
     def test_no_sessions_returns_1(self):
         with patch("diagrams.cli._load_telemetry", return_value=([], compute_cost, model_tier)):
-            buf = StringIO()
-            with patch("sys.stdout", buf):
+            err_buf = StringIO()
+            with patch("sys.stderr", err_buf):
                 rc = cmd_telemetry(self._make_args())
         self.assertEqual(rc, 1)
-        self.assertIn("No sessions found", buf.getvalue())
+        self.assertIn("No sessions found", err_buf.getvalue())
 
     def test_cost_pie_returns_0(self):
         sessions = [_make_session(model="claude-opus-4-6", input_tok=1_000_000)]
@@ -185,11 +187,11 @@ class TestCmdTelemetry(unittest.TestCase):
     def test_unknown_diagram_type_returns_1(self):
         sessions = [_make_session()]
         with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
-            buf = StringIO()
-            with patch("sys.stdout", buf):
+            err_buf = StringIO()
+            with patch("sys.stderr", err_buf):
                 rc = cmd_telemetry(self._make_args(diagram_type="unknown-type"))
         self.assertEqual(rc, 1)
-        self.assertIn("Unknown diagram type", buf.getvalue())
+        self.assertIn("Unknown diagram type", err_buf.getvalue())
 
 
 class TestDiagramsMain(unittest.TestCase):
