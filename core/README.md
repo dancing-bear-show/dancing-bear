@@ -14,6 +14,9 @@ Modules:
 - `assistant.py` — base assistant flags + capsule emit helper.
 - `assistant_cli.py` — assistant dispatcher entry point.
 - `llm_cli.py` — LLM CLI helpers (inventory, familiar, flows, policies).
+- `http.py` — `HttpClient`: thin requests-based HTTP client with retry, timeouts, and secret masking.
+- `secrets.py` — secret redaction helpers (`mask_text`, `mask_headers`, `mask_url`) and output masking.
+- `gh_cli.py` — `GhCLI`: thin wrapper around the `gh` CLI for JSON-friendly calls (api/graphql/pr view/list/search), with error masking.
 
 Assistants should compose these pieces instead of rebuilding bespoke plumbing so that CLI
 shims stay thin and domain logic stays easy to test.
