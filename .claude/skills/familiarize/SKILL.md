@@ -57,8 +57,10 @@ Load only the wrapper(s) relevant to the current task.
 
 **Visualization + orchestration surfaces** (load when the task involves rendering or DAG orchestration):
 - `./bin/charts` — render time-series charts from JSON (`render`, `grid`, `reshape`)
-- `./bin/diagrams` — Mermaid diagrams (`from-yaml`, `render`, `validate`, `embed`, `telemetry`)
+- `./bin/diagrams` — Mermaid diagrams (`from-yaml`, `render`, `validate`, `embed`, `telemetry` cost/token pies)
 - `./bin/workflow` — YAML DAG workflow engine (`parse`, `compile`, `run`, `lint`, `list`, `status`)
+
+These three are standalone argparse CLIs, not `llm --app` routes, so they have **no agentic schema** — discover them with `<wrapper> --help` (the one exception to the "never `--help`" rule above; `llm familiar --verbose` surfaces them the same way).
 
 ## After Familiarize
 
