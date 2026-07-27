@@ -101,14 +101,32 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
         mock_cli.assert_called_once()
         self.assertTrue(ok)
 
-    def test_first_cli_command_split_into_cmd(self) -> None:
-        job = _make_job({"cli_commands": ["./bin/worker status --json"]})
+    def test_first_cli_command_split_with_shlex(self) -> None:
+        job = _make_job({"cli_commands": ['./bin/worker status --query "some query"']})
 
         with patch("worker.handlers.handle_run_cli", return_value=(True, {})) as mock_cli:
             handle_workflow_stage(job)
 
-        cli_job = mock_cli.call_args[0][0]
-        self.assertEqual(cli_job["payload"]["cmd"], ["./bin/worker", "status", "--json"])
+        cli_job = mock_cli.call_args_list[0][0][0]
+        self.assertEqual(cli_job["payload"]["cmd"], ["./bin/worker", "status", "--query", "some query"])
+
+    def test_all_cli_commands_executed(self) -> None:
+        job = _make_job({"cli_commands": ["./bin/worker status", "./bin/worker counts"]})
+
+        with patch("worker.handlers.handle_run_cli", return_value=(True, {})) as mock_cli:
+            ok, _ = handle_workflow_stage(job)
+
+        self.assertEqual(mock_cli.call_count, 2)
+        self.assertTrue(ok)
+
+    def test_cli_stops_on_first_failure(self) -> None:
+        job = _make_job({"cli_commands": ["./bin/worker status", "./bin/worker counts"]})
+
+        with patch("worker.handlers.handle_run_cli", side_effect=[(False, "err"), (True, {})]) as mock_cli:
+            ok, _ = handle_workflow_stage(job)
+
+        self.assertFalse(ok)
+        self.assertEqual(mock_cli.call_count, 1)
 
     def test_workspace_dir_set_as_cwd_for_cli(self) -> None:
         job = _make_job({"cli_commands": ["./bin/worker status"], "workspace_dir": "/tmp/ws"})

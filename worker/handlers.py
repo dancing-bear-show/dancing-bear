@@ -335,12 +335,19 @@ def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
 
     cli_commands = list(payload.get("cli_commands") or [])
     if cli_commands:
-        cli_job = dict(job)
-        cli_payload = {**payload, "cmd": cli_commands[0].split()}
-        if workspace_dir:
-            cli_payload["cwd"] = workspace_dir
-        cli_job["payload"] = cli_payload
-        return handle_run_cli(cli_job)
+        import shlex
+        results = []
+        for raw_cmd in cli_commands:
+            cli_job = dict(job)
+            cli_payload = {**payload, "cmd": shlex.split(raw_cmd)}
+            if workspace_dir:
+                cli_payload["cwd"] = workspace_dir
+            cli_job["payload"] = cli_payload
+            ok, result = handle_run_cli(cli_job)
+            results.append(result)
+            if not ok:
+                return (False, result)
+        return (True, results)
 
     return (False, "workflow_stage job has neither script nor cli_commands")
 

@@ -257,11 +257,17 @@ class WorkerQueueDispatcher:
         self._workflow_name = workflow_name
         self._trigger_params = dict(trigger_params or {})
 
+    @staticmethod
+    def _sanitize_id_component(s: str) -> str:
+        """Keep only alphanumerics, hyphens, and underscores — safe as a filename component."""
+        import re
+        return re.sub(r"[^A-Za-z0-9_-]", "-", s)
+
     def _make_job_id(self, stage: ResolvedStage) -> str:
-        # UUID suffix prevents collisions on workflow re-runs and avoids
-        # path-unsafe characters from workflow/stage names reaching the queue dir.
-        safe_wf = self._workflow_name.replace("/", "-").replace("..", "")
-        safe_stage = stage.spec.name.replace("/", "-").replace("..", "")
+        # UUID suffix prevents collisions on workflow re-runs; sanitization
+        # ensures the full ID is safe as a filename in the queue pending/ dir.
+        safe_wf = self._sanitize_id_component(self._workflow_name)
+        safe_stage = self._sanitize_id_component(stage.spec.name)
         return f"{safe_wf}-{safe_stage}-{stage.index}-{uuid.uuid4().hex[:8]}"
 
     def dispatch(

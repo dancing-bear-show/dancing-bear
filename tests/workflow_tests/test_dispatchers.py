@@ -522,6 +522,21 @@ class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
             self.assertIn("job_id", result.data)
             self.assertIn("queue-stage", result.data["job_id"])
 
+    def test_job_id_contains_only_safe_characters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            spec = make_stage_spec(name="stage/with:unsafe chars")
+            stage = make_resolved_stage(spec=spec, index=0)
+            dispatcher = WorkerQueueDispatcher("wf/with:unsafe")
+
+            with patch("worker.queue.enqueue") as mock_enqueue:
+                dispatcher.dispatch(stage, tmp_path)
+
+            mock_enqueue.assert_called_once()
+            job_id = mock_enqueue.call_args[0][0].id
+            import re
+            self.assertRegex(job_id, r'^[A-Za-z0-9_\-]+$')
+
 
 class TestWorkerQueueDispatcherTriggerParams(unittest.TestCase):
     """trigger_params are stored and threaded into the job payload."""
