@@ -165,7 +165,7 @@ class GhCLI:
         import os as _os
         try:
             _os.unlink(path)
-        except OSError:
+        except OSError:  # nosec B110 - best-effort cleanup; the temp file may already be gone
             pass
 
     # ---------------- Convenience wrappers ----------------
