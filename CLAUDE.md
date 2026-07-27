@@ -188,6 +188,10 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 
 **Subagent-level**: When spawning an Agent that writes code, use `isolation: "worktree"` so the subagent works in its own isolated copy of the repo. This prevents the subagent's edits from colliding with the parent session's working directory. Read-only agents (research, search, exploration) do not need isolation.
 
+**CRITICAL — isolated worktrees do not auto-merge back**: Files written by a subagent with `isolation: "worktree"` live in its own ephemeral worktree branch and are **never automatically copied back to the parent branch**. After an isolated agent completes, you must explicitly copy its output files into the correct branch worktree before staging and committing. Always verify the agent's result is in the right place with `git status` on the target branch worktree before committing.
+
+**Which worktree to commit to**: Identify the correct worktree with `git worktree list` before making any edits or commits. The session worktree (`wf_*`) may be sparse (few files). The branch you want to commit to may live in a different named worktree. Always check — never assume the main checkout is on your feature branch.
+
 **If launched without `-w`**: Call `EnterWorktree` before your first file edit. Skip only for read-only requests (explain, search, explore).
 
 **Git safety**:
@@ -196,6 +200,8 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 - Never `git add -A` or `git add .` — stage specific files by name
 - Never `git reset --hard`, `git clean -f`, `git checkout .` without explicit approval
 - Before opening a PR, rename the ephemeral worktree branch to a conventional name: `feat/`, `fix/`, `chore/`, `docs/`
+- After any subagent fan-out, run `git status` in **both** the subagent worktree and the target branch worktree to confirm files landed where intended
+- Never commit to the main checkout without first verifying `git branch --show-current` matches your feature branch
 
 **Parallel sessions** (tmux): Use `claude --tmux` to open a new pane with its own worktree, or split manually (`Ctrl-b %` / `Ctrl-b "`) and run `claude` in each pane. Each session is fully isolated — separate directory, branch, and context.
 
@@ -234,6 +240,8 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 | `ci-fixer-opus` | Opus | Escalate from ci-fixer when CI failures resist Sonnet-level diagnosis |
 
 **Spawn teammates** for multi-file changes, test writing, code review, research. Use `isolation: "worktree"` for agents that write code (`code-writer`, `tester`, `ci-fixer`). Read-only agents (`reviewer`, `researcher`, `Explore`, `Plan`, `fact-checker`, validators) do not need isolation.
+
+**After isolated agents finish**: copy their output files from their worktree into the correct feature-branch worktree, verify with `git status`, then commit. Isolated agent edits never merge back automatically.
 
 Do inline for single-line fixes, quick reads, git operations.
 
