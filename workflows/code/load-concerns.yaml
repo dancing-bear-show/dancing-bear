@@ -1,0 +1,183 @@
+# Load a focused concern subset from the review guide library based on task context.
+#
+# Use at the start of a code-writer or tester session to get a targeted cheat sheet
+# of known anti-patterns relevant to the work being done, rather than loading all
+# concerns upfront.
+#
+# DAG:
+#   select-guides (inline — pick guides based on file_types/task_type)
+#       |
+#   extract-concerns (inline — filter to relevant concern IDs + summaries)
+#       |
+#   emit-hints (inline — write focused hint sheet to workspace)
+
+name: load-concerns
+version: "1.0"
+description: >
+  Loads a focused subset of the code-review concern library relevant to the
+  current task. Takes task context (task_type, file_paths) and outputs a
+  concise hint sheet — typically 5-20 concerns — so code-writers and testers
+  can write defensively from the start rather than catching issues in post-review.
+
+  Guide selection:
+    - file_paths contains .py  → correctness.md, tests.md (if test files), patterns.md
+    - file_paths contains .yaml → workflow.md, workflow-fragments.md, patterns.md
+    - file_paths contains SKILL.md → workflow.md, workflow-fragments.md, patterns.md, docs.md
+    - task_type = "test"       → tests.md, correctness.md
+    - task_type = "security"   → security.md, correctness.md
+    - task_type = "docs"       → docs.md
+    - task_type = "refactor"   → patterns.md, correctness.md
+    - always include           → patterns.md
+
+  Output: {workspace}/outputs/concerns.md — a compact hint sheet with concern IDs,
+  severities, one-line checks, and a trigger condition. Suitable for injection into
+  an agent's working context.
+
+metadata:
+  author: dancing-bear
+  created: "2026-06-11"
+
+trigger:
+  source: manual
+  params:
+    task_type: ""      # "feature" | "test" | "refactor" | "docs" | "security" | "workflow" — hint for guide selection
+    file_paths: ""     # space or comma-separated list of files being changed (extensions drive guide selection)
+    max_concerns: "20" # max concerns to include in the hint sheet (default 20, sorted critical-first)
+
+workspace_dir: "{work_dir}/load-concerns"
+
+stages:
+
+  # ============================================================================
+  # Stage 1: select-guides — pick which guide files apply
+  # ============================================================================
+
+  - name: select-guides
+    kind: execute
+    executor: inline
+    description: >
+      Determine which guide files are relevant based on task_type and file_paths params.
+
+      Rules (apply all that match, deduplicate):
+        - file_paths contains ".py" (and not test_) → correctness.md, patterns.md
+        - file_paths contains "test_" or "/tests/"  → tests.md, correctness.md
+        - file_paths contains ".yaml" or ".yml"     → workflow.md, workflow-fragments.md, patterns.md
+        - file_paths contains "SKILL.md"            → workflow.md, workflow-fragments.md, patterns.md, docs.md
+        - file_paths contains iOS layout files      → phone-layout.md
+        - task_type == "test"                       → tests.md, correctness.md
+        - task_type == "security"                   → security.md, correctness.md
+        - task_type == "docs"                       → docs.md
+        - task_type == "refactor"                   → patterns.md, correctness.md
+        - task_type == "workflow"                   → workflow.md, workflow-fragments.md, patterns.md
+        - always include                            → patterns.md
+
+      If no file_paths and no task_type, default to: correctness.md, patterns.md
+
+      Write {workspace}/outputs/selected-guides.json (path resolves to outputs/ automatically):
+        {"guides": ["correctness.md", "patterns.md", ...]}
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Write]
+      access: read-write
+    required: true
+    writes_to:
+      - selected-guides.json
+
+  # ============================================================================
+  # Stage 2: extract-concerns — filter concern entries from selected guides
+  # ============================================================================
+
+  - name: extract-concerns
+    kind: execute
+    depends_on: [select-guides]
+    reads_from: [select-guides]
+    description: >
+      Read each guide file listed in {workspace}/outputs/selected-guides.json and
+      extract concern entries relevant to the task context.
+
+      For each guide in selected-guides.json["guides"]:
+        Read concerns/<guide_file>
+
+      Extract every ### <concern-id> block. For each concern, parse:
+        - concern_id (the ### heading)
+        - severity (critical | major | minor | info)
+        - check (one-line summary of what to verify)
+        - triggers (when this concern applies)
+
+      Filter: keep only concerns whose "triggers" description matches the task
+      context (file_paths, task_type). When in doubt, include rather than exclude.
+      Always include concerns with severity=critical regardless of trigger match.
+
+      Sort: critical first, then major, then minor.
+      Truncate to max_concerns={max_concerns} total entries.
+
+      Write {workspace}/outputs/concerns.json:
+        [
+          {
+            "concern_id": "wrong-cli-flags",
+            "severity": "critical",
+            "guide": "workflow.md",
+            "check": "one-line check description",
+            "triggers": "trigger condition"
+          },
+          ...
+        ]
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - concerns.json
+
+  # ============================================================================
+  # Stage 3: emit-hints — render concern list as a compact markdown hint sheet
+  # ============================================================================
+
+  - name: emit-hints
+    kind: execute
+    depends_on: [extract-concerns]
+    reads_from: [extract-concerns]
+    description: >
+      Read {workspace}/outputs/concerns.json and render a compact hint sheet.
+
+      Format as markdown, suitable for injection into an agent prompt:
+
+        ## Known Concern Hints ({N} concerns from {guide_list})
+
+        | ID | Severity | Check |
+        |----|----------|-------|
+        | wrong-cli-flags | critical | Verify every ./bin/ invocation uses flags that exist on that CLI |
+        | ... | ... | ... |
+
+        ### Critical Concerns (fix before committing)
+        For each critical concern, one short paragraph with:
+          - What to check
+          - A one-line example of the violation
+
+        ### Major/Minor Concerns (avoid if possible)
+        Bullet list: `concern-id` — one-line check
+
+      Write to {workspace}/outputs/concerns.md
+
+      Also write {workspace}/outputs/hint-summary.json:
+        {
+          "total_concerns": N,
+          "critical_count": N,
+          "major_count": N,
+          "minor_count": N,
+          "guides_loaded": ["patterns.md", ...],
+          "task_type": "{task_type}",
+          "file_paths": "{file_paths}"
+        }
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - concerns.md
+      - hint-summary.json
