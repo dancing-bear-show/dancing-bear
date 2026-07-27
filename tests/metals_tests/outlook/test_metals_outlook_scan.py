@@ -11,6 +11,20 @@ from metals.outlook_scan import (
 )
 
 
+# HTTP requests are routed through HttpClient -> requests.Session.request, so tests
+# patch that single seam.
+_SESSION_SEAM = "requests.sessions.Session.request"
+
+
+def _make_resp(status=200, json_data=None):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = json_data if json_data is not None else {}
+    r.headers = {}
+    r.raise_for_status.return_value = None
+    return r
+
+
 class TestQueries(unittest.TestCase):
     """Tests for QUERIES constant."""
 
@@ -119,9 +133,8 @@ class TestRun(unittest.TestCase):
         # Mock the _headers_search method
         mock_client._headers_search.return_value = {"Authorization": "Bearer token"}
 
-        with patch("requests.get") as mock_get:
-            mock_get.return_value.json.return_value = {"value": []}
-            mock_get.return_value.raise_for_status = MagicMock()
+        with patch(_SESSION_SEAM) as mock_req:
+            mock_req.return_value = _make_resp(200, {"value": []})
 
             result = run(
                 profile="test",

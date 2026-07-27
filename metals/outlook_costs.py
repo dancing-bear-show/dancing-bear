@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 from core.text_utils import html_to_text
 from mail.outlook_api import OutlookClient
 
@@ -94,14 +95,14 @@ class OutlookCostExtractor(CostExtractor):
 
     def _fetch_ids_for_query(self, query: str) -> List[str]:
         """Fetch message IDs for a single search query."""
-        import requests
         base = f"{self.client.GRAPH}/me/messages"
         url = base + '?' + '&'.join([f'$search="{query}"', '$top=50'])
         ids: List[str] = []
 
         for _ in range(3):
-            r = requests.get(url, headers=self.client._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
-            if r.status_code >= 400:
+            try:
+                r = HttpClient(url, default_headers=self.client._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
+            except Exception:  # nosec B110 - skip on error
                 break
 
             data = r.json() or {}
@@ -184,8 +185,6 @@ class OutlookCostExtractor(CostExtractor):
 
     def _search_confirmation_messages(self, order_id: str) -> List[str]:
         """Search for confirmation messages for an order ID."""
-        import requests as _req
-
         # Try using client search first
         from core.outlook.mail import SearchParams
         q = f'"Confirmation for order number {order_id}"'
@@ -200,12 +199,12 @@ class OutlookCostExtractor(CostExtractor):
 
         # Fallback to direct API call
         url = f"{self.client.GRAPH}/me/messages?$search=\"Confirmation for order number {order_id}\"&$top=10"
-        r = _req.get(url, headers=self.client._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
-        if r.status_code < 400:
+        try:
+            r = HttpClient(url, default_headers=self.client._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
             data = r.json() or {}
             return [m.get('id') for m in (data.get('value') or []) if m.get('id')]
-
-        return []
+        except Exception:  # nosec B110 - return empty on error
+            return []
 
     def _select_confirmation_message(self, ids: List[str]) -> str:
         """Select the best confirmation message from a list of IDs."""

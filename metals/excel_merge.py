@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 from mail.outlook_api import OutlookClient
 from .workbook import WorkbookContext, read_csv_rows as _read_csv, write_range_to_sheet as _write_range_wb, col_letter as _col_letter  # noqa: F401
 
@@ -46,12 +47,11 @@ def _records_to_values(headers: List[str], recs: List[Dict[str, str]]) -> List[L
 
 
 def _get_used_range_values(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> List[List[str]]:
-    import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     url = f"{base}/worksheets('{sheet}')/usedRange(valuesOnly=true)?$select=values"
-    r = requests.get(url, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if r.status_code >= 400:
-        # If sheet doesn't exist, return empty
+    try:
+        r = HttpClient(url, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
+    except Exception:  # nosec B110 - return empty if sheet missing or error
         return []
     data = r.json() or {}
     return data.get("values") or []
@@ -59,16 +59,15 @@ def _get_used_range_values(client: OutlookClient, drive_id: str, item_id: str, s
 
 def _poll_copy_monitor(client: OutlookClient, loc: str, drive_id: str) -> Tuple[str, str]:
     """Poll a copy monitor URL until completion. Returns (drive_id, item_id)."""
-    import requests  # type: ignore
     for _ in range(60):
-        st = requests.get(loc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+        st = HttpClient(loc, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("").json()
         if st.get("status") in ("succeeded", "completed"):
             rid = st.get("resourceId")
             if rid:
                 return drive_id, rid
             rloc = st.get("resourceLocation")
             if rloc:
-                item = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+                item = HttpClient(rloc, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("").json()
                 return drive_id, item.get("id")
         time.sleep(1.5)
     raise RuntimeError("Timed out waiting for copy to complete")
@@ -77,16 +76,19 @@ def _poll_copy_monitor(client: OutlookClient, loc: str, drive_id: str) -> Tuple[
 def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str) -> Tuple[str, str]:
     """Copy the source drive item to the same parent with a new name.
     Returns (new_drive_id, new_item_id)."""
-    import requests  # type: ignore
-    meta = requests.get(f"{client.GRAPH}/drives/{drive_id}/items/{item_id}", headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+    meta_url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}"
+    meta = HttpClient(meta_url, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).get("").json()
     parent_id = ((meta or {}).get("parentReference") or {}).get("id")
     body = {"name": new_name}
     if parent_id:
         body["parentReference"] = {"id": parent_id}
     copy_url = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/copy"
-    resp = requests.post(copy_url, headers=client._headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
-    if resp.status_code not in (202, 200):
-        raise RuntimeError(f"Copy failed: {resp.status_code} {resp.text}")
+    try:
+        resp = HttpClient(copy_url, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).post(
+            "", data=json.dumps(body)
+        )
+    except Exception as e:
+        raise RuntimeError(f"Copy failed: {e}") from e
     loc = resp.headers.get("Location") or resp.headers.get("Operation-Location")
     if not loc:
         try:
@@ -98,11 +100,15 @@ def _copy_item(client: OutlookClient, drive_id: str, item_id: str, new_name: str
 
 
 def _ensure_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str) -> None:
-    import requests  # type: ignore
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
     # Try to add; if exists, just continue
     add_url = f"{base}/worksheets/add"
-    requests.post(add_url, headers=client._headers(), data=json.dumps({"name": sheet}), timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        HttpClient(add_url, default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).post(
+            "", data=json.dumps({"name": sheet})
+        )
+    except Exception:  # nosec B110 - sheet may already exist
+        pass
 
 
 def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:

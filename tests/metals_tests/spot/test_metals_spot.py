@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import requests
+
 from metals.spot import (
     _auto_start_date,
     _fetch_stooq_series,
@@ -18,6 +20,25 @@ from metals.spot import (
     run,
     main,
 )
+
+
+# HTTP requests are routed through HttpClient -> requests.Session.request, so tests
+# patch that single seam. A >=400 status must raise via raise_for_status so the
+# migrated try/except error paths fire the way the old status_code checks did.
+_SESSION_SEAM = "requests.sessions.Session.request"
+
+
+def _make_resp(status=200, json_data=None, text=""):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = json_data if json_data is not None else {}
+    r.text = text
+    r.headers = {}
+    if status >= 400:
+        r.raise_for_status.side_effect = requests.exceptions.HTTPError(str(status))
+    else:
+        r.raise_for_status.return_value = None
+    return r
 
 
 class TestTodayIso(unittest.TestCase):
@@ -39,12 +60,10 @@ class TestTodayIso(unittest.TestCase):
 class TestFetchYahooSeries(unittest.TestCase):
     """Tests for _fetch_yahoo_series function."""
 
-    @patch("requests.get")
-    def test_parses_valid_response(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_parses_valid_response(self, mock_req):
         """Test parsing a valid Yahoo Finance response."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
+        mock_req.return_value = _make_resp(200, {
             "chart": {
                 "result": [{
                     "timestamp": [1704067200, 1704153600],  # 2024-01-01, 2024-01-02 UTC
@@ -55,8 +74,7 @@ class TestFetchYahooSeries(unittest.TestCase):
                     }
                 }]
             }
-        }
-        mock_get.return_value = mock_response
+        })
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-02")
         self.assertIn("2024-01-01", result)
@@ -64,13 +82,11 @@ class TestFetchYahooSeries(unittest.TestCase):
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.5)
 
-    @patch("requests.get")
-    def test_forward_fills_gaps(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_forward_fills_gaps(self, mock_req):
         """Test forward-fill behavior for missing days."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
         # Only return data for first day, skip second
-        mock_response.json.return_value = {
+        mock_req.return_value = _make_resp(200, {
             "chart": {
                 "result": [{
                     "timestamp": [1704067200],  # 2024-01-01 only
@@ -81,21 +97,18 @@ class TestFetchYahooSeries(unittest.TestCase):
                     }
                 }]
             }
-        }
-        mock_get.return_value = mock_response
+        })
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-03")
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.0)  # forward-filled
         self.assertEqual(result["2024-01-03"], 25.0)  # forward-filled
 
-    @patch("requests.get")
-    def test_back_fills_initial_gap(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_back_fills_initial_gap(self, mock_req):
         """Test back-fill behavior for initial missing days."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
         # Data starts on 2024-01-03, but window starts on 2024-01-01
-        mock_response.json.return_value = {
+        mock_req.return_value = _make_resp(200, {
             "chart": {
                 "result": [{
                     "timestamp": [1704240000],  # 2024-01-03
@@ -106,42 +119,33 @@ class TestFetchYahooSeries(unittest.TestCase):
                     }
                 }]
             }
-        }
-        mock_get.return_value = mock_response
+        })
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-03")
         self.assertEqual(result["2024-01-01"], 26.0)  # back-filled
         self.assertEqual(result["2024-01-02"], 26.0)  # back-filled
         self.assertEqual(result["2024-01-03"], 26.0)
 
-    @patch("requests.get")
-    def test_handles_empty_response(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_empty_response(self, mock_req):
         """Test handling of empty response."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {}
-        mock_get.return_value = mock_response
+        mock_req.return_value = _make_resp(200, {})
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-02")
         self.assertEqual(result, {})
 
-    @patch("requests.get")
-    def test_handles_malformed_json(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_malformed_json(self, mock_req):
         """Test handling of malformed JSON structure."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"chart": {"result": []}}
-        mock_get.return_value = mock_response
+        mock_req.return_value = _make_resp(200, {"chart": {"result": []}})
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-02")
         self.assertEqual(result, {})
 
-    @patch("requests.get")
-    def test_handles_none_close_values(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_none_close_values(self, mock_req):
         """Test handling of None values in close prices."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
+        mock_req.return_value = _make_resp(200, {
             "chart": {
                 "result": [{
                     "timestamp": [1704067200, 1704153600],
@@ -152,63 +156,52 @@ class TestFetchYahooSeries(unittest.TestCase):
                     }
                 }]
             }
-        }
-        mock_get.return_value = mock_response
+        })
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-02")
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.0)  # forward-filled from 01
 
-    @patch("requests.get")
-    @patch("time.sleep", return_value=None)  # Skip actual sleep
-    def test_retries_on_429(self, mock_sleep, mock_get):
-        """Test retry behavior on HTTP 429."""
-        fail_response = MagicMock()
-        fail_response.status_code = 429
-
-        success_response = MagicMock()
-        success_response.status_code = 200
-        success_response.json.return_value = {
+    @patch("time.sleep", return_value=None)  # Skip actual retry backoff sleeps
+    @patch(_SESSION_SEAM)
+    def test_retries_on_429(self, mock_req, mock_sleep):
+        """Test retry behavior on HTTP 429 (retried inside HttpClient)."""
+        success = _make_resp(200, {
             "chart": {
                 "result": [{
                     "timestamp": [1704067200],
                     "indicators": {"quote": [{"close": [25.0]}]}
                 }]
             }
-        }
-        mock_get.side_effect = [fail_response, success_response]
+        })
+        mock_req.side_effect = [_make_resp(429), success]
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-01")
         self.assertEqual(result["2024-01-01"], 25.0)
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_req.call_count, 2)
 
-    @patch("requests.get")
     @patch("time.sleep", return_value=None)
-    def test_retries_on_5xx(self, mock_sleep, mock_get):
-        """Test retry behavior on HTTP 5xx errors."""
-        fail_response = MagicMock()
-        fail_response.status_code = 503
-
-        success_response = MagicMock()
-        success_response.status_code = 200
-        success_response.json.return_value = {
+    @patch(_SESSION_SEAM)
+    def test_retries_on_5xx(self, mock_req, mock_sleep):
+        """Test retry behavior on HTTP 5xx errors (retried inside HttpClient)."""
+        success = _make_resp(200, {
             "chart": {
                 "result": [{
                     "timestamp": [1704067200],
                     "indicators": {"quote": [{"close": [25.0]}]}
                 }]
             }
-        }
-        mock_get.side_effect = [fail_response, success_response]
+        })
+        mock_req.side_effect = [_make_resp(503), success]
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-01")
         self.assertEqual(result["2024-01-01"], 25.0)
 
-    @patch("requests.get")
     @patch("time.sleep", return_value=None)
-    def test_handles_request_exception(self, mock_sleep, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_request_exception(self, mock_req, mock_sleep):
         """Test handling of request exceptions."""
-        mock_get.side_effect = Exception("Network error")
+        mock_req.side_effect = Exception("Network error")
 
         result = _fetch_yahoo_series("XAGUSD=X", "2024-01-01", "2024-01-01")
         self.assertEqual(result, {})
@@ -217,147 +210,121 @@ class TestFetchYahooSeries(unittest.TestCase):
 class TestFetchStooqSeries(unittest.TestCase):
     """Tests for _fetch_stooq_series function."""
 
-    @patch("requests.get")
-    def test_parses_valid_csv(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_parses_valid_csv(self, mock_req):
         """Test parsing a valid Stooq CSV response."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = (
+        mock_req.return_value = _make_resp(200, text=(
             "Date,Open,High,Low,Close\n"
             "2024-01-01,24.5,25.5,24.0,25.0\n"
             "2024-01-02,25.0,26.0,24.8,25.5\n"
-        )
-        mock_get.return_value = mock_response
+        ))
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-02")
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.5)
 
-    @patch("requests.get")
-    def test_forward_fills_gaps(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_forward_fills_gaps(self, mock_req):
         """Test forward-fill for missing days."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = (
+        mock_req.return_value = _make_resp(200, text=(
             "Date,Open,High,Low,Close\n"
             "2024-01-01,24.5,25.5,24.0,25.0\n"
             # 2024-01-02 is missing (weekend or holiday)
             "2024-01-03,25.2,26.0,25.0,25.8\n"
-        )
-        mock_get.return_value = mock_response
+        ))
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-03")
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.0)  # forward-filled
         self.assertEqual(result["2024-01-03"], 25.8)
 
-    @patch("requests.get")
-    def test_back_fills_initial_gap(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_back_fills_initial_gap(self, mock_req):
         """Test back-fill for initial missing days."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
         # Data starts on 2024-01-03, but window starts on 2024-01-01
-        mock_response.text = (
+        mock_req.return_value = _make_resp(200, text=(
             "Date,Open,High,Low,Close\n"
             "2024-01-03,25.2,26.0,25.0,25.8\n"
-        )
-        mock_get.return_value = mock_response
+        ))
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-03")
         self.assertEqual(result["2024-01-01"], 25.8)  # back-filled
         self.assertEqual(result["2024-01-02"], 25.8)  # back-filled
         self.assertEqual(result["2024-01-03"], 25.8)
 
-    @patch("requests.get")
-    def test_handles_http_error(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_http_error(self, mock_req):
         """Test handling of HTTP errors."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_get.return_value = mock_response
+        mock_req.return_value = _make_resp(404)
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-02")
         self.assertEqual(result, {})
 
-    @patch("requests.get")
-    def test_handles_empty_response(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_empty_response(self, mock_req):
         """Test handling of empty response."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = ""
-        mock_get.return_value = mock_response
+        mock_req.return_value = _make_resp(200, text="")
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-02")
         self.assertEqual(result, {})
 
-    @patch("requests.get")
-    def test_handles_malformed_csv(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_malformed_csv(self, mock_req):
         """Test handling of malformed CSV."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = "Not a valid CSV response"
-        mock_get.return_value = mock_response
+        mock_req.return_value = _make_resp(200, text="Not a valid CSV response")
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-02")
         self.assertEqual(result, {})
 
-    @patch("requests.get")
-    def test_handles_incomplete_rows(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_incomplete_rows(self, mock_req):
         """Test handling of CSV with incomplete rows."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = (
+        mock_req.return_value = _make_resp(200, text=(
             "Date,Open,High,Low,Close\n"
             "2024-01-01,24.5,25.5,24.0,25.0\n"
             "2024-01-02,25.0\n"  # incomplete row
             "2024-01-03,25.2,26.0,25.0,25.8\n"
-        )
-        mock_get.return_value = mock_response
+        ))
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-03")
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.0)  # forward-filled (row skipped)
         self.assertEqual(result["2024-01-03"], 25.8)
 
-    @patch("requests.get")
-    def test_handles_invalid_close_value(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_invalid_close_value(self, mock_req):
         """Test handling of non-numeric close values."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = (
+        mock_req.return_value = _make_resp(200, text=(
             "Date,Open,High,Low,Close\n"
             "2024-01-01,24.5,25.5,24.0,25.0\n"
             "2024-01-02,25.0,26.0,24.8,N/A\n"  # invalid close
             "2024-01-03,25.2,26.0,25.0,25.8\n"
-        )
-        mock_get.return_value = mock_response
+        ))
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-03")
         self.assertEqual(result["2024-01-01"], 25.0)
         self.assertEqual(result["2024-01-02"], 25.0)  # forward-filled
         self.assertEqual(result["2024-01-03"], 25.8)
 
-    @patch("requests.get")
-    def test_handles_request_exception(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_handles_request_exception(self, mock_req):
         """Test handling of request exceptions."""
-        mock_get.side_effect = Exception("Network error")
+        mock_req.side_effect = Exception("Network error")
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-02")
         self.assertEqual(result, {})
 
-    @patch("requests.get")
-    def test_slices_to_window(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_slices_to_window(self, mock_req):
         """Test that only data within the window is returned."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
         # Response includes data outside the requested window
-        mock_response.text = (
+        mock_req.return_value = _make_resp(200, text=(
             "Date,Open,High,Low,Close\n"
             "2023-12-31,24.0,24.5,23.5,24.2\n"
             "2024-01-01,24.5,25.5,24.0,25.0\n"
             "2024-01-02,25.0,26.0,24.8,25.5\n"
             "2024-01-03,25.5,26.5,25.0,26.0\n"
-        )
-        mock_get.return_value = mock_response
+        ))
 
         result = _fetch_stooq_series("xagusd", "2024-01-01", "2024-01-02")
         self.assertNotIn("2023-12-31", result)

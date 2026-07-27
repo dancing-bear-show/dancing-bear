@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from metals.excel_all import (
     _col_letter,
     _read_csv,
@@ -32,6 +34,30 @@ from metals.excel_all import (
     _summary_row,
 )
 from metals.workbook import WorkbookContext
+
+
+# HTTP requests are routed through HttpClient -> requests.Session.request, so tests
+# patch that single seam. A >=400 status must raise via raise_for_status so the
+# migrated try/except error paths fire the way the old status_code checks did.
+_SESSION_SEAM = "requests.sessions.Session.request"
+
+
+def _make_resp(status=200, json_data=None, text="", headers=None):
+    r = MagicMock()
+    r.status_code = status
+    r.json.return_value = json_data if json_data is not None else {}
+    r.text = text
+    r.headers = headers if headers is not None else {}
+    if status >= 400:
+        r.raise_for_status.side_effect = requests.exceptions.HTTPError(str(status))
+    else:
+        r.raise_for_status.return_value = None
+    return r
+
+
+def _calls_for(mock_req, method):
+    """Filter Session.request call_args_list to calls for a specific HTTP method."""
+    return [c for c in mock_req.call_args_list if c.args and c.args[0] == method]
 
 
 def _make_wb(client=None):
@@ -273,47 +299,50 @@ class TestBuildSummaryValues(unittest.TestCase):
 class TestSetSheetPosition(unittest.TestCase):
     """Tests for _set_sheet_position function."""
 
-    @patch("requests.patch")
-    def test_calls_patch_with_position(self, mock_patch):
+    @patch(_SESSION_SEAM)
+    def test_calls_patch_with_position(self, mock_req):
         """Test calls PATCH with correct position."""
         client = MagicMock()
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client._headers.return_value = {"Authorization": "Bearer token"}
+        mock_req.return_value = _make_resp(200)
 
         _set_sheet_position(_make_wb(client), "Sheet1", 2)
 
-        mock_patch.assert_called_once()
-        call_args = mock_patch.call_args
-        self.assertIn("worksheets('Sheet1')", call_args[0][0])
-        self.assertIn('"position": 2', call_args[1]["data"])
+        self.assertEqual(len(_calls_for(mock_req, "PATCH")), 1)
+        call = _calls_for(mock_req, "PATCH")[0]
+        self.assertIn("worksheets('Sheet1')", call.args[1])
+        self.assertIn('"position": 2', call.kwargs["data"])
 
 
 class TestSetSheetVisibility(unittest.TestCase):
     """Tests for _set_sheet_visibility function."""
 
-    @patch("requests.patch")
-    def test_sets_visible(self, mock_patch):
+    @patch(_SESSION_SEAM)
+    def test_sets_visible(self, mock_req):
         """Test sets visibility to Visible."""
         client = MagicMock()
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client._headers.return_value = {}
+        mock_req.return_value = _make_resp(200)
 
         _set_sheet_visibility(_make_wb(client), "Sheet1", True)
 
-        call_args = mock_patch.call_args
-        self.assertIn('"visibility": "Visible"', call_args[1]["data"])
+        call = _calls_for(mock_req, "PATCH")[0]
+        self.assertIn('"visibility": "Visible"', call.kwargs["data"])
 
-    @patch("requests.patch")
-    def test_sets_hidden(self, mock_patch):
+    @patch(_SESSION_SEAM)
+    def test_sets_hidden(self, mock_req):
         """Test sets visibility to Hidden."""
         client = MagicMock()
         client.GRAPH = "https://graph.microsoft.com/v1.0"
         client._headers.return_value = {}
+        mock_req.return_value = _make_resp(200)
 
         _set_sheet_visibility(_make_wb(client), "Sheet1", False)
 
-        call_args = mock_patch.call_args
-        self.assertIn('"visibility": "Hidden"', call_args[1]["data"])
+        call = _calls_for(mock_req, "PATCH")[0]
+        self.assertIn('"visibility": "Hidden"', call.kwargs["data"])
 
 
 class TestFillDateGaps(unittest.TestCase):
@@ -350,27 +379,19 @@ class TestFillDateGaps(unittest.TestCase):
 class TestListWorksheets(unittest.TestCase):
     """Tests for _list_worksheets function."""
 
-    @patch("requests.get")
-    def test_returns_worksheet_names(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_returns_worksheet_names(self, mock_req):
         """Test returns list of worksheet names."""
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"value": [{"name": "Sheet1"}, {"name": "Sheet2"}]},
-            raise_for_status=lambda: None,
-        )
+        mock_req.return_value = _make_resp(200, {"value": [{"name": "Sheet1"}, {"name": "Sheet2"}]})
 
         result = _list_worksheets(_make_wb())
 
         self.assertEqual(result, ["Sheet1", "Sheet2"])
 
-    @patch("requests.get")
-    def test_filters_empty_names(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_filters_empty_names(self, mock_req):
         """Test filters out worksheets with empty names."""
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"value": [{"name": "Sheet1"}, {"name": ""}, {"name": None}]},
-            raise_for_status=lambda: None,
-        )
+        mock_req.return_value = _make_resp(200, {"value": [{"name": "Sheet1"}, {"name": ""}, {"name": None}]})
 
         result = _list_worksheets(_make_wb())
 
@@ -380,22 +401,19 @@ class TestListWorksheets(unittest.TestCase):
 class TestGetUsedRangeValues(unittest.TestCase):
     """Tests for _get_used_range_values function."""
 
-    @patch("requests.get")
-    def test_returns_values_on_success(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_returns_values_on_success(self, mock_req):
         """Test returns values from used range."""
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"values": [["A1", "B1"], ["A2", "B2"]]},
-        )
+        mock_req.return_value = _make_resp(200, {"values": [["A1", "B1"], ["A2", "B2"]]})
 
         result = _get_used_range_values(_make_wb(), "Sheet1")
 
         self.assertEqual(result, [["A1", "B1"], ["A2", "B2"]])
 
-    @patch("requests.get")
-    def test_returns_empty_on_error(self, mock_get):
+    @patch(_SESSION_SEAM)
+    def test_returns_empty_on_error(self, mock_req):
         """Test returns empty list on 4xx error."""
-        mock_get.return_value = MagicMock(status_code=404)
+        mock_req.return_value = _make_resp(404)
 
         result = _get_used_range_values(_make_wb(), "Sheet1")
 
@@ -405,89 +423,76 @@ class TestGetUsedRangeValues(unittest.TestCase):
 class TestEnsureSheet(unittest.TestCase):
     """Tests for _ensure_sheet function."""
 
-    @patch("requests.post")
-    @patch("requests.get")
-    def test_returns_existing_sheet(self, mock_get, mock_post):
+    @patch(_SESSION_SEAM)
+    def test_returns_existing_sheet(self, mock_req):
         """Test returns existing sheet without creating."""
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"id": "sheet123", "name": "Sheet1"},
-        )
+        mock_req.return_value = _make_resp(200, {"id": "sheet123", "name": "Sheet1"})
 
         result = _ensure_sheet(_make_wb(), "Sheet1")
 
         self.assertEqual(result["name"], "Sheet1")
-        mock_post.assert_not_called()
+        self.assertEqual(_calls_for(mock_req, "POST"), [])
 
-    @patch("requests.post")
-    @patch("requests.get")
-    def test_creates_missing_sheet(self, mock_get, mock_post):
+    @patch(_SESSION_SEAM)
+    def test_creates_missing_sheet(self, mock_req):
         """Test creates sheet when not found."""
-        mock_get.return_value = MagicMock(status_code=404)
-        mock_post.return_value = MagicMock(
-            status_code=201,
-            json=lambda: {"id": "new_sheet", "name": "NewSheet"},
-        )
+        mock_req.side_effect = [
+            _make_resp(404),
+            _make_resp(201, {"id": "new_sheet", "name": "NewSheet"}),
+        ]
 
         result = _ensure_sheet(_make_wb(), "NewSheet")
 
         self.assertEqual(result["name"], "NewSheet")
-        mock_post.assert_called_once()
+        self.assertEqual(len(_calls_for(mock_req, "POST")), 1)
 
 
 class TestWriteRange(unittest.TestCase):
     """Tests for _write_range function."""
 
-    @patch("requests.post")
-    @patch("requests.patch")
-    def test_clears_and_writes_values(self, mock_patch, mock_post):
+    @patch(_SESSION_SEAM)
+    def test_clears_and_writes_values(self, mock_req):
         """Test clears range and writes values."""
-        mock_post.return_value = MagicMock(status_code=200, json=lambda: {})
-        mock_patch.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
+        mock_req.return_value = _make_resp(200, {})
 
         values = [["A", "B"], ["1", "2"]]
         _write_range(_make_wb(), "Sheet1", values)
 
-        # Should call clear, patch (write), and table add
-        self.assertGreater(mock_post.call_count, 0)
-        self.assertGreater(mock_patch.call_count, 0)
+        # Should call clear (POST), patch (write), and table add (POST)
+        self.assertGreater(len(_calls_for(mock_req, "POST")), 0)
+        self.assertGreater(len(_calls_for(mock_req, "PATCH")), 0)
 
-    @patch("requests.post")
-    @patch("requests.patch")
-    def test_handles_empty_values(self, mock_patch, mock_post):
+    @patch(_SESSION_SEAM)
+    def test_handles_empty_values(self, mock_req):
         """Test handles empty values - only clears."""
-        mock_post.return_value = MagicMock(status_code=200)
+        mock_req.return_value = _make_resp(200)
 
         _write_range(_make_wb(), "Sheet1", [])
 
         # Should still call clear
-        self.assertEqual(mock_post.call_count, 1)
-        mock_patch.assert_not_called()
+        self.assertEqual(len(_calls_for(mock_req, "POST")), 1)
+        self.assertEqual(_calls_for(mock_req, "PATCH"), [])
 
 
 class TestAddChart(unittest.TestCase):
     """Tests for _add_chart function."""
 
-    @patch("requests.patch")
-    @patch("requests.post")
-    def test_creates_chart(self, mock_post, mock_patch):
+    @patch(_SESSION_SEAM)
+    def test_creates_chart(self, mock_req):
         """Test creates chart with correct parameters."""
-        mock_post.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"id": "chart123"},
-        )
-        mock_patch.return_value = MagicMock(status_code=200)
+        mock_req.return_value = _make_resp(200, {"id": "chart123"})
 
         _add_chart(_make_wb(), "Sheet1", "Line", "A1:B10")
 
-        mock_post.assert_called_once()
-        call_data = json.loads(mock_post.call_args[1]["data"])
+        self.assertEqual(len(_calls_for(mock_req, "POST")), 1)
+        call = _calls_for(mock_req, "POST")[0]
+        call_data = json.loads(call.kwargs["data"])
         self.assertEqual(call_data["type"], "Line")
 
-    @patch("requests.post")
-    def test_handles_chart_error(self, mock_post):
+    @patch(_SESSION_SEAM)
+    def test_handles_chart_error(self, mock_req):
         """Test handles chart creation error gracefully."""
-        mock_post.return_value = MagicMock(status_code=400)
+        mock_req.return_value = _make_resp(400)
 
         # Should not raise
         _add_chart(_make_wb(), "Sheet1", "Line", "A1:B10")
@@ -496,20 +501,19 @@ class TestAddChart(unittest.TestCase):
 class TestWriteFilterView(unittest.TestCase):
     """Tests for _write_filter_view function."""
 
-    @patch("requests.post")
-    @patch("requests.patch")
-    def test_writes_filter_formula(self, mock_patch, mock_post):
+    @patch(_SESSION_SEAM)
+    def test_writes_filter_formula(self, mock_req):
         """Test writes FILTER formula to sheet."""
-        mock_post.return_value = MagicMock(status_code=200)
-        mock_patch.return_value = MagicMock(status_code=200)
+        mock_req.return_value = _make_resp(200)
 
         _write_filter_view(_make_wb(), "All", "Gold", "gold")
 
         # Should write header and formula
-        self.assertGreater(mock_patch.call_count, 0)
+        patch_calls = _calls_for(mock_req, "PATCH")
+        self.assertGreater(len(patch_calls), 0)
         # Check formula contains FILTER
-        for call in mock_patch.call_args_list:
-            data = call[1].get("data", "{}")
+        for call in patch_calls:
+            data = call.kwargs.get("data", "{}")
             if "FILTER" in data:
                 self.assertIn("gold", data)
                 break
@@ -635,12 +639,10 @@ class TestPollAsyncOperation(unittest.TestCase):
     """Tests for _poll_async_operation function."""
 
     @patch("time.sleep")
-    @patch("requests.get")
-    def test_returns_resource_id_on_success(self, mock_get, mock_sleep):
+    @patch(_SESSION_SEAM)
+    def test_returns_resource_id_on_success(self, mock_req, mock_sleep):
         """Test returns resourceId when operation succeeds."""
-        mock_get.return_value = MagicMock(
-            json=lambda: {"status": "succeeded", "resourceId": "new_item_123"}
-        )
+        mock_req.return_value = _make_resp(200, {"status": "succeeded", "resourceId": "new_item_123"})
         client = MagicMock()
         client._headers.return_value = {}
 
@@ -649,12 +651,12 @@ class TestPollAsyncOperation(unittest.TestCase):
         self.assertEqual(result, "new_item_123")
 
     @patch("time.sleep")
-    @patch("requests.get")
-    def test_follows_resource_location(self, mock_get, mock_sleep):
+    @patch(_SESSION_SEAM)
+    def test_follows_resource_location(self, mock_req, mock_sleep):
         """Test follows resourceLocation to get ID."""
-        mock_get.side_effect = [
-            MagicMock(json=lambda: {"status": "completed", "resourceLocation": "http://resource/url"}),
-            MagicMock(json=lambda: {"id": "item_from_location"}),
+        mock_req.side_effect = [
+            _make_resp(200, {"status": "completed", "resourceLocation": "http://resource/url"}),
+            _make_resp(200, {"id": "item_from_location"}),
         ]
         client = MagicMock()
         client._headers.return_value = {}
@@ -664,10 +666,10 @@ class TestPollAsyncOperation(unittest.TestCase):
         self.assertEqual(result, "item_from_location")
 
     @patch("time.sleep")
-    @patch("requests.get")
-    def test_raises_on_timeout(self, mock_get, mock_sleep):
+    @patch(_SESSION_SEAM)
+    def test_raises_on_timeout(self, mock_req, mock_sleep):
         """Test raises RuntimeError on timeout."""
-        mock_get.return_value = MagicMock(json=lambda: {"status": "inProgress"})
+        mock_req.return_value = _make_resp(200, {"status": "inProgress"})
         client = MagicMock()
         client._headers.return_value = {}
 

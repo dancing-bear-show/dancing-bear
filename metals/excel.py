@@ -19,18 +19,22 @@ from typing import List, Optional
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 from mail.outlook_api import OutlookClient
 from .workbook import col_letter as _col_letter, read_csv_rows as _read_csv
 
 
 def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str, values: List[List[str]]) -> None:
     import json
-    import requests  # type: ignore
 
     base = f"{client.GRAPH}/drives/{drive_id}/items/{item_id}/workbook"
+    _client = HttpClient("", default_headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     # Clear a large range first to avoid stale content
     clear_url = f"{base}/worksheets('{sheet}')/range(address='A1:Z10000')/clear"
-    requests.post(clear_url, headers=client._headers(), json={"applyTo": "contents"}, timeout=DEFAULT_REQUEST_TIMEOUT)
+    try:
+        _client.post(clear_url, json={"applyTo": "contents"})
+    except Exception:  # nosec B110 - clear is best-effort
+        pass
 
     if not values:
         return
@@ -40,11 +44,10 @@ def _write_sheet(client: OutlookClient, drive_id: str, item_id: str, sheet: str,
     addr = f"A1:{end_col}{rows}"
     url = f"{base}/worksheets('{sheet}')/range(address='{addr}')"
     body = {"values": values}
-    res = requests.patch(url, headers=client._headers(), data=json.dumps(body), timeout=DEFAULT_REQUEST_TIMEOUT)
     try:
-        res.raise_for_status()
+        _client.patch(url, data=json.dumps(body))
     except Exception as e:
-        raise RuntimeError(f"Failed to write sheet {sheet}: {res.status_code} {res.text}") from e
+        raise RuntimeError(f"Failed to write sheet {sheet}: {e}") from e
 
 
 def main(argv: Optional[List[str]] = None) -> int:

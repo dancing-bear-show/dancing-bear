@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
+from core.http import HttpClient
 from mail.outlook_api import OutlookClient
 
 
@@ -37,7 +38,6 @@ QUERIES: List[Tuple[str, str]] = [
 
 def _search_all_folders(cli: OutlookClient, q: str, params: ScanParams) -> List[str]:
     """Search all folders via Graph $search."""
-    import requests  # lazy import
     base = f"{cli.GRAPH}/me/messages"
     url_params = [f"$search=\"{q}\"", f"$top={int(params.top)}"]
     if params.days and int(params.days) > 0:
@@ -47,8 +47,7 @@ def _search_all_folders(cli: OutlookClient, q: str, params: ScanParams) -> List[
     nxt: str | None = base + "?" + "&".join(url_params)
     ids: List[str] = []
     for _ in range(max(1, int(params.pages))):
-        r = requests.get(nxt, headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
-        r.raise_for_status()
+        r = HttpClient(nxt, default_headers=cli._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT).get("")
         data = r.json()
         for m in data.get("value", []):
             mid = m.get("id")

@@ -5,6 +5,7 @@ import csv
 from dataclasses import dataclass
 from typing import Dict, List
 
+from core.http import HttpClient
 from mail.outlook_api import OutlookClient
 
 
@@ -40,16 +41,17 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
     best-effort (errors silently ignored).
     """
     import json as _json
-    import requests  # type: ignore
     from core.constants import DEFAULT_REQUEST_TIMEOUT
 
+    _client = HttpClient("", default_headers=wb.headers(), timeout=DEFAULT_REQUEST_TIMEOUT)
     sheet_url = wb.sheet_url(sheet)
-    requests.post(
-        f"{sheet_url}/range(address='A1:Z100000')/clear",
-        headers=wb.headers(),
-        data=_json.dumps({"applyTo": "contents"}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
+    try:
+        _client.post(
+            f"{sheet_url}/range(address='A1:Z100000')/clear",
+            data=_json.dumps({"applyTo": "contents"}),
+        )
+    except Exception:  # nosec B110 - clear is best-effort
+        pass
     if not values:
         return
 
@@ -61,46 +63,40 @@ def write_range_to_sheet(wb: "WorkbookContext", sheet: str, values: List[List[st
     end_col = col_letter(cols)
     addr = f"A1:{end_col}{rows}"
 
-    r = requests.patch(
-        f"{sheet_url}/range(address='{addr}')",
-        headers=wb.headers(),
-        data=_json.dumps({"values": padded}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    if r.status_code >= 400:
-        raise RuntimeError(f"Failed writing sheet {sheet}: {r.status_code} {r.text}")
+    try:
+        _client.patch(
+            f"{sheet_url}/range(address='{addr}')",
+            data=_json.dumps({"values": padded}),
+        )
+    except Exception as e:
+        raise RuntimeError(f"Failed writing sheet {sheet}: {e}") from e
 
     # Add table (best-effort): POST to workbook-level tables/add with sheet-qualified
     # address (e.g. "Sheet1!A1:D5") as required by the Graph API /workbook/tables/add endpoint.
-    tadd = requests.post(
-        f"{wb.base_url}/tables/add",
-        headers=wb.headers(),
-        data=_json.dumps({"address": f"'{sheet.replace(chr(39), chr(39)*2)}'!{addr}", "hasHeaders": True}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
     try:
+        tadd = _client.post(
+            f"{wb.base_url}/tables/add",
+            data=_json.dumps({"address": f"'{sheet.replace(chr(39), chr(39)*2)}'!{addr}", "hasHeaders": True}),
+        )
         if tid := (tadd.json() or {}).get("id"):
-            requests.patch(
+            _client.patch(
                 f"{wb.base_url}/tables/{tid}",
-                headers=wb.headers(),
                 data=_json.dumps({"style": "TableStyleMedium2"}),
-                timeout=DEFAULT_REQUEST_TIMEOUT,
             )
     except Exception:
         pass  # nosec B110 - table styling is optional
 
     # Autofit columns and freeze header row
-    requests.post(
-        f"{sheet_url}/range(address='A:{end_col}')/format/autofitColumns",
-        headers=wb.headers(),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
-    requests.post(
-        f"{sheet_url}/freezePanes/freeze",
-        headers=wb.headers(),
-        data=_json.dumps({"top": 1, "left": 0}),
-        timeout=DEFAULT_REQUEST_TIMEOUT,
-    )
+    try:
+        _client.post(
+            f"{sheet_url}/range(address='A:{end_col}')/format/autofitColumns",
+        )
+        _client.post(
+            f"{sheet_url}/freezePanes/freeze",
+            data=_json.dumps({"top": 1, "left": 0}),
+        )
+    except Exception:  # nosec B110 - formatting is best-effort
+        pass
 
 
 @dataclass
