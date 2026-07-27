@@ -255,7 +255,7 @@ class WorkerQueueDispatcher:
         trigger_params: dict[str, str] | None = None,
     ) -> None:
         self._workflow_name = workflow_name
-        self._trigger_params = trigger_params or {}
+        self._trigger_params = dict(trigger_params or {})
 
     def _make_job_id(self, stage: ResolvedStage) -> str:
         # UUID suffix prevents collisions on workflow re-runs and avoids

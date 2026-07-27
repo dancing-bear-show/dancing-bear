@@ -322,16 +322,24 @@ def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
         }
     """
     payload = dict(job.get("payload") or {})
+    workspace_dir = str(payload.get("workspace_dir") or "").strip() or None
+
     script = str(payload.get("script") or "").strip()
     if script:
         shell_job = dict(job)
-        shell_job["payload"] = {**payload, "script": script}
+        shell_payload = {**payload, "script": script}
+        if workspace_dir:
+            shell_payload["cwd"] = workspace_dir
+        shell_job["payload"] = shell_payload
         return handle_run_shell(shell_job)
 
     cli_commands = list(payload.get("cli_commands") or [])
     if cli_commands:
         cli_job = dict(job)
-        cli_job["payload"] = {**payload, "cmd": cli_commands[0].split()}
+        cli_payload = {**payload, "cmd": cli_commands[0].split()}
+        if workspace_dir:
+            cli_payload["cwd"] = workspace_dir
+        cli_job["payload"] = cli_payload
         return handle_run_cli(cli_job)
 
     return (False, "workflow_stage job has neither script nor cli_commands")
