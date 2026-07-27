@@ -126,7 +126,7 @@ class MessagesSearchProducer(BaseProducer):
         candidates = payload.candidates
 
         if self._output_json:
-            print(_json.dumps([c.__dict__ for c in candidates], ensure_ascii=False, indent=2))
+            print(_json.dumps([c.__dict__ for c in candidates], ensure_ascii=False, indent=2, default=str))
         else:
             for c in candidates:
                 print(f"{c.id}\t{c.subject}\t{c.from_header}\t{c.snippet}")
