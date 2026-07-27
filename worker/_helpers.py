@@ -1,7 +1,7 @@
 """Internal helpers for the worker module.
 
-Self-contained replacements for sreutils.constants, sreutils.core.fileutil,
-sreutils.core.timeutil, sreutils.core.perf_logging, and sreutils.core.paths.
+Self-contained implementations of constants, file I/O, time utilities,
+performance logging, and path resolution helpers.
 No external dependencies beyond stdlib.
 """
 
