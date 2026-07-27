@@ -13,6 +13,7 @@ Tests cover:
 """
 from __future__ import annotations
 
+import subprocess
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -29,9 +30,9 @@ class TestGhCLIInit(unittest.TestCase):
     """Test GhCLI initialization."""
 
     def test_init_default_run_func(self):
-        """Test that default run function is set."""
+        """Test that default run function is subprocess.run."""
         cli = GhCLI()
-        self.assertIsNotNone(cli._run)
+        self.assertIs(cli._run, subprocess.run)
 
     def test_init_custom_run_func(self):
         """Test that custom run function is used."""
@@ -253,17 +254,20 @@ class TestGhCLIApiWithHeaders(unittest.TestCase):
         self.assertEqual(headers["X-Custom"], "value")
 
     def test_api_with_headers_failure(self):
-        """Test API call that fails."""
+        """Test API call that fails returns status=0 and masked body."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="Not authenticated"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        status, headers, _ = cli.api_with_headers("/user")
+        status, headers, body = cli.api_with_headers("/user")
 
-        self.assertEqual(status, 1)  # returncode
+        # Fix #2: failure path now returns 0 (not returncode) to avoid conflating process exit with HTTP status
+        self.assertEqual(status, 0)
         self.assertEqual(headers, {})
+        # mask_text does not redact plain strings like "Not authenticated"
+        self.assertIn("Not authenticated", body)
 
     def test_api_with_headers_status_parse_error(self):
         """Test handling of malformed HTTP status line."""
@@ -288,7 +292,7 @@ class TestGhCLIGraphql(unittest.TestCase):
     """Test graphql() method."""
 
     def test_graphql_success(self):
-        """Test successful GraphQL query."""
+        """Test successful GraphQL query uses tempfile transport."""
         mock_run = MagicMock(return_value=_proc(
             returncode=0,
             stdout='{"data": {"viewer": {"login": "testuser"}}}'
@@ -299,6 +303,12 @@ class TestGhCLIGraphql(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result["data"]["viewer"]["login"], "testuser")
+        # Happy path must use -F query=@<tmpfile> (not inline -f)
+        call_args = mock_run.call_args[0][0]
+        self.assertTrue(
+            any(str(a).startswith("query=@") for a in call_args),
+            f"Expected 'query=@<tmpfile>' arg in call_args but got: {call_args}",
+        )
 
     def test_graphql_with_variables(self):
         """Test GraphQL query with variables."""
@@ -319,6 +329,25 @@ class TestGhCLIGraphql(unittest.TestCase):
         self.assertIn("owner=test-org", call_args)
         self.assertIn("name=test-repo", call_args)
 
+    def test_graphql_null_variables_skipped(self):
+        """Test that None-valued variables are omitted from the gh call."""
+        mock_run = MagicMock(return_value=_proc(
+            returncode=0,
+            stdout='{"data": {}}'
+        ))
+        cli = GhCLI(run_func=mock_run)
+
+        cli.graphql("query { x }", variables={"owner": "test-org", "nullvar": None})
+
+        call_args = mock_run.call_args[0][0]
+        # owner=test-org must be present
+        self.assertIn("owner=test-org", call_args)
+        # nullvar must NOT appear — gh CLI would pass "None" as a string otherwise
+        self.assertFalse(
+            any("nullvar" in str(a) for a in call_args),
+            f"nullvar should be omitted from call_args but found in: {call_args}",
+        )
+
     def test_graphql_failure_returns_none(self):
         """Test that GraphQL failure returns None."""
         mock_run = MagicMock(return_value=_proc(
@@ -332,17 +361,18 @@ class TestGhCLIGraphql(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_graphql_failure_with_debug(self):
-        """Test GraphQL failure with debug flag prints error."""
+        """Test GraphQL failure with debug flag prints error to stderr."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="GraphQL error message"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        with patch('sys.stderr'):
+        with patch('sys.stderr') as mock_stderr:
             result = cli.graphql("query { invalid }", debug=True)
 
         self.assertIsNone(result)
+        mock_stderr.write.assert_called()
 
     def test_graphql_parse_error(self):
         """Test handling of invalid JSON response."""
@@ -358,17 +388,18 @@ class TestGhCLIGraphql(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_graphql_parse_error_with_debug(self):
-        """Test handling of invalid JSON response with debug."""
+        """Test handling of invalid JSON response with debug prints to stderr."""
         mock_run = MagicMock(return_value=_proc(
             returncode=0,
             stdout="not valid json"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        with patch('sys.stderr'):
+        with patch('sys.stderr') as mock_stderr:
             result = cli.graphql("query { test }", debug=True)
 
         self.assertIsNone(result)
+        mock_stderr.write.assert_called()
 
     @patch('tempfile.NamedTemporaryFile')
     def test_graphql_tempfile_failure_fallback(self, mock_tempfile):
@@ -387,6 +418,10 @@ class TestGhCLIGraphql(unittest.TestCase):
         call_args = mock_run.call_args[0][0]
         # Should use -f (inline) instead of -F with @file
         self.assertIn("-f", call_args)
+        self.assertFalse(
+            any(str(a).startswith("query=@") for a in call_args),
+            f"Fallback should NOT use query=@<tmpfile> but got: {call_args}",
+        )
 
 
 class TestGhCLIPrView(unittest.TestCase):
@@ -464,7 +499,7 @@ class TestGhCLIPrList(unittest.TestCase):
     """Test pr_list() method."""
 
     def test_pr_list_success(self):
-        """Test successful PR list."""
+        """Test successful PR list with full command verification."""
         mock_run = MagicMock(return_value=_proc(
             returncode=0,
             stdout='[{"number": 1}, {"number": 2}]'
@@ -475,9 +510,10 @@ class TestGhCLIPrList(unittest.TestCase):
 
         self.assertIn("[", result)
         call_args = mock_run.call_args[0][0]
-        self.assertEqual(call_args[0], "gh")
-        self.assertEqual(call_args[1], "pr")
-        self.assertEqual(call_args[2], "list")
+        self.assertEqual(
+            call_args,
+            ["gh", "pr", "list", "--state", "all", "--json", "number"],
+        )
 
     def test_pr_list_failure_raises_runtime_error(self):
         """Test that PR list failure raises RuntimeError."""

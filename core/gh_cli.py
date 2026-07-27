@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from typing import Any
 
 from core.secrets import mask_text
@@ -15,7 +16,7 @@ __all__ = ["GhCLI"]
 
 class GhCLI:
     """Thin wrapper around the `gh` CLI for JSON-friendly calls."""
-    def __init__(self, run_func=None):
+    def __init__(self, run_func: Callable[..., Any] | None = None) -> None:
         """Create a GhCLI that uses the provided run function (for tests)."""
         self._run = run_func or subprocess.run
 
@@ -45,10 +46,10 @@ class GhCLI:
             raise RuntimeError(err_msg)
         try:
             return json.loads(res.stdout)
-        except Exception:
+        except Exception:  # nosec B110 - non-JSON gh api output returned as raw string
             return res.stdout
 
-    def search_prs(self, **kwargs) -> Any:
+    def search_prs(self, **kwargs: Any) -> Any:
         """Call `gh search prs` with kwargs mapped to flags and return JSON."""
         # kwargs are raw flags passed through, caller composes
         cmd = [
@@ -72,7 +73,7 @@ class GhCLI:
         cmd = ["gh", "api", "--include", path]
         res = self._run(cmd, text=True, capture_output=True)
         if res.returncode != 0:
-            return (res.returncode, {}, res.stdout or res.stderr)
+            return (0, {}, mask_text(res.stdout or res.stderr or ""))
         raw = res.stdout
         header_text, _, body = raw.partition("\r\n\r\n")
         if not body:
@@ -83,7 +84,7 @@ class GhCLI:
             if line.upper().startswith("HTTP/"):
                 try:
                     status = int(line.split()[1])
-                except Exception:
+                except Exception:  # nosec B110 - malformed HTTP status line falls back to status=0
                     status = 0
                 continue
             if ":" in line:
@@ -96,10 +97,11 @@ class GhCLI:
 
         Uses a temp file for the query payload to avoid shell quoting/newline issues.
         """
-        qfile_path = self._write_query_tempfile(query)
-        cmd = self._build_graphql_cmd(query, qfile_path, variables)
-        res = self._run(cmd, text=True, capture_output=True)
+        qfile_path = None
         try:
+            qfile_path = self._write_query_tempfile(query)
+            cmd = self._build_graphql_cmd(query, qfile_path, variables)
+            res = self._run(cmd, text=True, capture_output=True)
             return self._parse_graphql_result(res, debug)
         finally:
             self._cleanup_tempfile(qfile_path)
@@ -112,7 +114,7 @@ class GhCLI:
             with _tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as tf:
                 tf.write(query)
                 return tf.name
-        except Exception:
+        except Exception:  # nosec B110 - fall back to inline query when tempfile creation fails
             return None
 
     @staticmethod
@@ -134,7 +136,7 @@ class GhCLI:
         return cmd
 
     @staticmethod
-    def _parse_graphql_result(res: Any, debug: bool) -> Any:
+    def _parse_graphql_result(res: subprocess.CompletedProcess[str], debug: bool) -> Any:
         """Parse the subprocess result from a GraphQL call."""
         if res.returncode != 0:
             if debug:
@@ -143,7 +145,7 @@ class GhCLI:
             return None
         try:
             return json.loads(res.stdout or "{}")
-        except Exception:
+        except Exception:  # nosec B110 - return None on malformed GraphQL JSON
             if debug:
                 print("Failed to parse gh api graphql output", file=sys.stderr)
             return None
@@ -183,7 +185,7 @@ class GhCLI:
         if fields:
             try:
                 return json.loads(res.stdout)
-            except Exception:
+            except Exception:  # nosec B110 - non-JSON pr view output returned as raw string
                 return res.stdout
         return res.stdout
 
@@ -191,7 +193,9 @@ class GhCLI:
         """Execute gh pr list command and return raw output.
 
         Args:
-            cmd: Full gh command as list starting with ["pr", "list", ...]
+            cmd: Command tokens starting with the gh subcommand (NOT "gh"), e.g.
+                 ["pr", "list", "--state", "open"]. The leading "gh" is prepended
+                 automatically; do not include it in cmd.
 
         Returns raw stdout (typically JSON when --json flag is used).
         """
