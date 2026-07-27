@@ -506,10 +506,12 @@ def cmd_auto_folders(args) -> int:
     # Write updated plan
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     write_yaml(plan, plan_path)
-    print(f"Updated plan with auto-folders → {plan_path}")
-    print(
-        f"Folders: {len(folders)} (non-empty: {sum(1 for a in folders.values() if a)})"
-    )
+    emit_one({
+        "status": "ok",
+        "plan": str(plan_path),
+        "folders_total": len(folders),
+        "folders_nonempty": sum(1 for a in folders.values() if a),
+    })
     return 0
 
 
