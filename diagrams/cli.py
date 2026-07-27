@@ -244,7 +244,7 @@ def _convert_yaml_spec(spec: dict) -> tuple[str | None, int]:
 def cmd_telemetry(args) -> int:
     sessions, compute_cost, model_tier = _load_telemetry(args.days)
     if not sessions:
-        print(NO_SESSIONS)
+        print(NO_SESSIONS, file=sys.stderr)
         return 1
 
     renderers = {
@@ -254,7 +254,7 @@ def cmd_telemetry(args) -> int:
     }
     renderer = renderers.get(args.type)
     if not renderer:
-        print(f"Unknown diagram type: {args.type}")
+        print(f"Unknown diagram type: {args.type}", file=sys.stderr)
         return 1
     print(renderer())
     return 0

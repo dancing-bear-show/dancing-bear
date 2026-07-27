@@ -183,6 +183,9 @@ class LocalRenderer:
             from .dark_mode import apply_dark_mode_fixes
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
+        if output_format not in {"svg", "png", "pdf"}:
+            raise ValueError(f"Unsupported format {output_format!r}")
+
         with tempfile.TemporaryDirectory() as tmpdir:
             inp = pathlib.Path(tmpdir) / "input.mmd"
             out = pathlib.Path(tmpdir) / f"output.{output_format}"

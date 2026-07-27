@@ -179,12 +179,10 @@ class SequenceDiagramBuilder:
         deactivate: bool = False,
     ) -> SequenceDiagramBuilder:
         """Add a message between participants."""
-        suffix = ""
-        if activate:
-            suffix = "+"
-        elif deactivate:
-            suffix = "-"
+        suffix = "+" if activate else ""
         self._steps.append(f"    {src}{arrow}{suffix}{dst}: {text}")
+        if deactivate:
+            self._steps.append(f"    deactivate {src}")
         return self
 
     def request(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
