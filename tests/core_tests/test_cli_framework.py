@@ -23,6 +23,7 @@ from core.cli_output import (
 )
 from core.cli_framework import (
     CLIApp,
+    _HelpfulArgumentParser,
     quick_cli,
 )
 from core.cli_args import (
@@ -272,6 +273,93 @@ class TestCLIApp(unittest.TestCase):
         app = quick_cli("quick-test", "Quick test app")
         self.assertIsInstance(app, CLIApp)
         self.assertEqual(app.name, "quick-test")
+
+
+class TestNormalizeArgv(unittest.TestCase):
+    """Test CLIApp._normalize_argv() '--' separator handling."""
+
+    def test_no_separator_unchanged(self):
+        argv = ["search", "--contains", "test"]
+        self.assertEqual(CLIApp._normalize_argv(argv), argv)
+
+    def test_strips_first_bare_separator(self):
+        argv = ["search", "--", "--contains", "test"]
+        self.assertEqual(
+            CLIApp._normalize_argv(argv), ["search", "--contains", "test"]
+        )
+
+    def test_trailing_separator_preserved(self):
+        argv = ["search", "--contains", "test", "--"]
+        self.assertEqual(CLIApp._normalize_argv(argv), argv)
+
+    def test_only_first_separator_stripped_second_preserved(self):
+        # The first '--' is the optional subcommand/flag separator; a second
+        # '--' still guards a positional value that looks like a flag.
+        argv = ["cmd", "--", "--opt", "--", "--literal-value"]
+        self.assertEqual(
+            CLIApp._normalize_argv(argv),
+            ["cmd", "--opt", "--", "--literal-value"],
+        )
+
+    def test_empty_argv(self):
+        self.assertEqual(CLIApp._normalize_argv([]), [])
+
+    def test_single_trailing_separator_preserved(self):
+        # A lone '--' with nothing after it carries no separator information
+        # here and is left untouched, same as any other trailing '--'.
+        self.assertEqual(CLIApp._normalize_argv(["--"]), ["--"])
+
+
+class TestHelpfulArgumentParser(unittest.TestCase):
+    """Test _HelpfulArgumentParser's 'did you mean' suggestions on error."""
+
+    def _make_parser(self):
+        parser = _HelpfulArgumentParser(prog="test-app", add_help=False)
+        parser.add_argument(
+            "--agentic-format", choices=["text", "yaml", "json"], default="text"
+        )
+        sub = parser.add_subparsers(dest="command")
+        sub.add_parser("search")
+        sub.add_parser("send")
+        return parser
+
+    def test_invalid_subcommand_suggests_closest_match(self):
+        parser = self._make_parser()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["serch"])
+        output = stderr.getvalue()
+        self.assertIn("Did you mean: search", output)
+
+    def test_invalid_subcommand_usage_not_duplicated(self):
+        parser = self._make_parser()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["serch"])
+        output = stderr.getvalue()
+        self.assertEqual(output.count("usage:"), 1)
+
+    def test_invalid_flag_choice_does_not_suggest_subcommands(self):
+        # Regression: an invalid --agentic-format choice must not be compared
+        # against subcommand names (they share the "invalid choice" message).
+        parser = self._make_parser()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["--agentic-format", "xml"])
+        output = stderr.getvalue()
+        self.assertNotIn("Did you mean: search", output)
+        self.assertNotIn("Did you mean: send", output)
+
+    def test_unrecognized_flag_suggests_similar_flag(self):
+        # A non-prefix typo (extra trailing 't') so argparse's own prefix
+        # matching doesn't silently resolve it to --agentic-format first.
+        parser = self._make_parser()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["search", "--agentic-formatt", "json"])
+        output = stderr.getvalue()
+        self.assertIn("Did you mean", output)
+        self.assertIn("--agentic-format", output)
 
 
 class TestArgumentHelpers(unittest.TestCase):

@@ -36,12 +36,13 @@ class _HelpfulArgumentParser(argparse.ArgumentParser):
     """ArgumentParser subclass that adds 'did you mean' suggestions on error."""
 
     def error(self, message: str) -> None:  # type: ignore[override]
-        """Override error() to append ranked suggestions before exiting."""
-        suggestion_lines = self._suggestions_for_error(message)
-        if suggestion_lines:
-            self.print_usage(sys.stderr)
-            for line in suggestion_lines:
-                self.error_output(f"hint: {line}")
+        """Override error() to append ranked suggestions before exiting.
+
+        Usage is not printed here — super().error() prints usage itself
+        before the message, so printing it twice would duplicate output.
+        """
+        for line in self._suggestions_for_error(message):
+            self.error_output(f"hint: {line}")
         super().error(message)
 
     def _suggestions_for_error(self, message: str) -> list[str]:
@@ -52,16 +53,25 @@ class _HelpfulArgumentParser(argparse.ArgumentParser):
             return self._suggest_for_unrecognized_flags(message)
         return []
 
+    def _subparsers_choices(self) -> list[str]:
+        """Return the subcommand names registered via add_subparsers(), if any."""
+        for act in self._actions:
+            if isinstance(act, argparse._SubParsersAction):
+                return list(act.choices.keys())
+        return []
+
     def _suggest_for_invalid_choice(self, message: str) -> list[str]:
-        """Suggest subcommands for an 'invalid choice' subcommand error."""
+        """Suggest subcommands for an 'invalid choice' subcommand error.
+
+        Restricted to the parser's subparsers action so an invalid subcommand
+        is never compared against unrelated flag `choices=` values (e.g.
+        --agentic-format's text/yaml/json).
+        """
         m = re.search(r"invalid choice:\s*'?([^',)]+)'?", message)
         if not m:
             return []
         query = m.group(1).strip()
-        choices: list[str] = []
-        for act in self._actions:
-            if hasattr(act, "choices") and act.choices:
-                choices.extend(act.choices.keys() if hasattr(act.choices, "keys") else act.choices)
+        choices = self._subparsers_choices()
         suggestions = suggest_command(query, choices)
         if not suggestions:
             return []
@@ -332,29 +342,28 @@ class CLIApp:
 
     @staticmethod
     def _normalize_argv(argv: Sequence[str]) -> list[str]:
-        """Strip stray bare '--' tokens that separate subcommand from its flags.
+        """Strip a single leading '--' used as the optional subcommand/flag separator.
 
-        CLAUDE.md documents '-- ' as optional for CLIApp-based CLIs.  argparse
-        treats a bare '--' as "end of optional arguments", which is fine when
-        the subcommand comes before it.  The separator was historically used by
-        the workflow engine to split parent/child args; this method strips it so
-        callers can omit it without changing behavior.
+        CLAUDE.md documents '--' as optional (not required) for CLIApp-based
+        CLIs: ``foo bar -- --flag value`` and ``foo bar --flag value`` should
+        behave identically. This strips only the *first* bare '--' token so
+        that pattern works without a required separator.
 
-        Only removes a bare '--' that appears between a known token (subcommand)
-        and the remaining flags.  A '--' that ends the argv list is kept.
+        A '--' is preserved everywhere else, since POSIX '--' also means "end
+        of options, treat the rest as positional" — e.g. a later '--' guarding
+        a positional value that itself starts with '-' (``foo bar --config --
+        --literal-value``) must not be stripped, or that value would be
+        misparsed as an unrecognized flag. A trailing '--' (nothing follows)
+        carries no such information here and is also left untouched.
         """
-        result: list[str] = []
         argv_list = list(argv)
-        i = 0
-        while i < len(argv_list):
-            token = argv_list[i]
-            # Remove bare '--' that is not the last token
-            if token == "--" and i < len(argv_list) - 1:  # nosec B105 - not a password; '--' is the POSIX arg separator
-                i += 1
-                continue
-            result.append(token)
-            i += 1
-        return result
+        try:
+            idx = argv_list.index("--")  # nosec B105 - not a password; '--' is the POSIX arg separator
+        except ValueError:
+            return argv_list
+        if idx == len(argv_list) - 1:
+            return argv_list
+        return argv_list[:idx] + argv_list[idx + 1:]
 
     def run_with_assistant(
         self,
