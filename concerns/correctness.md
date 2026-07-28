@@ -290,3 +290,39 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
     cd {repo_path} && git checkout {base_branch} && git pull
   ```
   If the target repo uses `main` (or any non-`master` default), the hardcoded checkout fails and the workflow stops mid-run.
+
+### mixed-import-style-same-module
+- **severity**: minor
+- **check**: Verify a single module is not imported both as `import X` / `import X as m` and via `from X import Y` in the same file — pick one style per module and use it consistently.
+- **triggers**: A `.py` file containing both `import core.http` (or `import core.http as http_mod`) and `from core.http import HttpClient` for the same module; test files that import a module under test multiple ways across different test functions.
+- **example**: `tests/core_tests/test_http.py` uses `from core.http import HttpClient` in some test functions and `import core.http as http_mod` in others within the same file — readers can't tell at a glance which name refers to the module vs. the class, and mocking/patching targets become inconsistent (`core.http.HttpClient` vs. `HttpClient`). Fix: pick one style for the whole file — typically `from core.http import HttpClient` for direct use, or `import core.http as http_mod` only when patching module-level attributes (e.g. `importlib.reload(http_mod)`).
+
+### httpclient-base-url-drops-query-string
+- **severity**: critical
+- **check**: Verify that callers of the shared `HttpClient` do not pass a full URL (including a query string) to the constructor and then an empty path to `.get()`/`.post()` — `HttpClient._build_url()` always discards any query string on `base_url` (it only builds the query from the `params` argument), so this is a guaranteed silent drop, not something that depends on concatenation logic.
+- **triggers**: `HttpClient(url)` where `url` contains a `?`; `.get("")` or `.get("/")` calls immediately following construction with a full URL; call sites migrated from raw `requests.get(full_url)` to `HttpClient` without splitting the URL into base + path + params.
+- **example**: `HttpClient(f"https://api.example.com/v1/resource?key={api_key}").get("")` — `_build_url()` reads only `urlsplit(self.base_url).path`, never `.query`, so `?key=...` is always silently discarded regardless of how the path/params are combined. Fix: `HttpClient("https://api.example.com").get("/v1/resource", params={"key": api_key})` — pass the query string via the `params` argument, not baked into the base URL.
+
+### print-to-logger-silences-cli-output
+- **severity**: major
+- **check**: Verify that replacing `print()` with `logger.info()`/`logger.debug()` in a CLI-facing code path does not silently suppress user-visible output — check whether `logging.basicConfig()` (or equivalent handler/level setup) is configured anywhere in the CLI's execution path. Without it, Python's root logger defaults to `WARNING`, so `INFO`/`DEBUG` calls are suppressed; `logger.warning()`/`logger.error()` still emit, so the risk is specific to info/debug-level calls, not logging in general.
+- **triggers**: Diffs that replace `print(` with `logger.info(`/`logger.debug(` inside `run()` methods, CLI output helpers, or any code path whose output the user is expected to see; modules that call `logging.getLogger(__name__)` without a corresponding `logging.basicConfig()` call reachable from the CLI entry point.
+- **example**: A CLI's `run()` method is refactored from `print(f"Synced {n} labels")` to `logger.info(f"Synced {n} labels")` — since no `logging.basicConfig()` is called anywhere in the process, the root logger's default `WARNING` level suppresses the `INFO` call and the message never appears. The command appears to succeed with no output. Fix: keep `print()` for user-facing CLI output; reserve `logging.info`/`.debug` for diagnostic output that is explicitly configured with a handler and level, or verify `logging.basicConfig(level=logging.INFO)` is set before the log call can run.
+
+### false-optional-return-type
+- **severity**: minor
+- **check**: Verify that `Optional`/`| None` and `Union` return-type annotations reflect branches the function body actually produces — an annotation broader than the real behavior (e.g. `dict[str, Any | None]` when no value is ever `None`) forces every caller to add dead null-checks and obscures the function's real contract.
+- **triggers**: Return type annotations containing `| None` or `Optional[` where no `return None` (or return of a variable that can be `None`) appears on any code path in the function body; `list[str | None]`, `tuple[str, str | None]` and similar container-of-optional annotations where every element actually assigned is non-None.
+- **example**: `def parse_header(raw: str) -> dict[str, Any | None]:` where every dict value assigned in the body is a concrete string or int, never `None` — callers write `if value is not None:` guards that can never be false. Fix: narrow the annotation to `dict[str, Any]` (or the concrete value type) so it matches actual behavior; this is the inverse problem of `inaccurate-type-annotations` in patterns.md, which covers annotations that are too *wide* in element type, not falsely nullable.
+
+### unpaginated-gh-api-call
+- **severity**: major
+- **check**: Verify that `gh api` calls (in shell scripts, workflow YAML, or Python subprocess invocations) against list endpoints (PRs, issues, comments, runs) include `--paginate`, or an explicit `per_page`/`page` loop — GitHub's REST API defaults to 30 items per page and silently returns only the first page otherwise.
+- **triggers**: `gh api repos/.../pulls` or similar list-returning endpoints invoked without `--paginate`; workflow YAML stages or scripts that collect PR/issue/comment data via `gh api` and feed it into aggregation or reporting logic without a pagination flag.
+- **example**: `gh api repos/org/repo/pulls/123/comments` on a PR with 45 review comments returns only the first 30 — a report built from this silently under-counts findings with no error. Fix: `gh api repos/org/repo/pulls/123/comments --paginate`.
+
+### abstract-method-ellipsis-body
+- **severity**: minor
+- **check**: Verify that abstract method bodies use `...` consistently with the rest of the codebase's convention (or switch to `raise NotImplementedError` if that is the established convention) — mixing both styles for the same kind of stub within one file or module is what triggers review noise, not the choice of `...` itself.
+- **triggers**: `@abstractmethod` definitions where the body is `...` in some methods and `raise NotImplementedError` (or `pass`) in sibling methods of the same class or module.
+- **example**: A new abstract base class defines five methods with `...` bodies while an existing sibling base class in the same module uses `raise NotImplementedError("...")` — pick one convention per module and apply it to all abstract stubs added in the same diff.
