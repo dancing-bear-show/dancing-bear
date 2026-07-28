@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 
 from .client import AppleMusicClient, AppleMusicError
@@ -35,6 +36,11 @@ app = CLIApp(
     "apple-music-assistant",
     "Apple Music assistant CLI for playlist management.",
     add_common_args=True,
+)
+
+_assistant = BaseAssistant(
+    "apple-music-assistant",
+    "agentic: apple-music-assistant\npurpose: Apple Music playlist management",
 )
 
 
@@ -602,4 +608,8 @@ def cmd_dedupe(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    return app.run(argv)
+    return app.run_with_assistant(
+        _assistant,
+        emit_func=lambda fmt, compact: (print(_assistant.fallback_banner) or 0),
+        argv=argv,
+    )

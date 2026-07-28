@@ -7,6 +7,7 @@ from __future__ import annotations
 import sys
 from typing import List, Optional
 
+from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 
 from .. import APP_ID, PURPOSE
@@ -15,6 +16,11 @@ app = CLIApp(
     APP_ID,
     f"{PURPOSE}",
     epilog="Use --help on subcommands for details.",
+)
+
+_assistant = BaseAssistant(
+    APP_ID,
+    f"agentic: {APP_ID}\npurpose: {PURPOSE}",
 )
 
 
@@ -182,7 +188,11 @@ def cmd_scan(args) -> int:
 # ============================================================================
 
 def main(argv: Optional[List[str]] = None) -> int:
-    return app.run(argv)
+    return app.run_with_assistant(
+        _assistant,
+        emit_func=lambda fmt, compact: (print(_assistant.fallback_banner) or 0),
+        argv=argv,
+    )
 
 
 if __name__ == "__main__":
