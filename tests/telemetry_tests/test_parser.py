@@ -1,11 +1,14 @@
 """Tests for telemetry parser and pricing."""
 
 import json
+import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
-from telemetry.parser import parse_session, _parse_ts
+from telemetry.parser import iter_session_files, parse_session, _parse_ts
 from telemetry.pricing import compute_cost, model_tier
 
 
@@ -134,6 +137,21 @@ class TestParseSession(unittest.TestCase):
         stats = parse_session(path)
         self.assertEqual(stats.events, 0)
 
+    def test_blank_lines_skipped(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        path = Path(td.name) / "blank.jsonl"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"type":"assistant","timestamp":"2026-04-16T10:00:00Z",'
+                    '"message":{"model":"m","usage":{"input_tokens":10,"output_tokens":5},"content":[]}}\n')
+            f.write("\n")
+            f.write("   \n")
+            f.write('{"type":"assistant","timestamp":"2026-04-16T10:01:00Z",'
+                    '"message":{"model":"m","usage":{"input_tokens":20,"output_tokens":10},"content":[]}}\n')
+        stats = parse_session(path)
+        self.assertEqual(stats.events, 2)
+        self.assertEqual(stats.input_tokens, 30)
+
     def test_time_range(self):
         path = self._write_jsonl([
             {"type": "assistant", "timestamp": "2026-04-16T10:00:00Z",
@@ -143,6 +161,41 @@ class TestParseSession(unittest.TestCase):
         ])
         stats = parse_session(path)
         self.assertAlmostEqual(stats.duration_seconds, 1800.0, places=0)
+
+
+class TestIterSessionFiles(unittest.TestCase):
+    def test_missing_projects_dir_yields_nothing(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        missing = Path(td.name) / "does-not-exist"
+        with mock.patch("telemetry.parser.PROJECTS_DIR", missing):
+            self.assertEqual(list(iter_session_files()), [])
+
+    def test_yields_recent_files_skips_old_and_non_jsonl(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        projects_dir = Path(td.name)
+        proj = projects_dir / "proj-a"
+        proj.mkdir()
+
+        recent = proj / "recent.jsonl"
+        recent.write_text("{}\n", encoding="utf-8")
+
+        old = proj / "old.jsonl"
+        old.write_text("{}\n", encoding="utf-8")
+        old_ts = (datetime.now(tz=timezone.utc) - timedelta(days=30)).timestamp()
+        os.utime(old, (old_ts, old_ts))
+
+        not_jsonl = proj / "notes.txt"
+        not_jsonl.write_text("ignore me", encoding="utf-8")
+
+        stray_file = projects_dir / "not-a-project.txt"
+        stray_file.write_text("ignore me too", encoding="utf-8")
+
+        with mock.patch("telemetry.parser.PROJECTS_DIR", projects_dir):
+            found = list(iter_session_files(days=7))
+
+        self.assertEqual(found, [recent])
 
 
 class TestPricing(unittest.TestCase):
