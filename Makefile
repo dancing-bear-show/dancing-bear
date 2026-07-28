@@ -3,7 +3,7 @@ VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check
+.PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check deadcode
 
 venv:
 	$(PYTHON) -m venv $(VENV)
@@ -85,3 +85,7 @@ bin-wrappers:
 
 bin-wrappers-check:
 	@$(PYTHON) bin/_gen_wrappers.py --check
+
+deadcode: venv
+	@$(PIP) install -q -e ".[dev]"
+	@$(PY) -m vulture --config pyproject.toml

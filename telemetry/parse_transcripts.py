@@ -105,11 +105,6 @@ def _find_jsonl_files(projects_dir: Path, since_dt: datetime | None) -> list[Pat
     return files
 
 
-def _extract_session_id(record: dict[str, object]) -> str | None:
-    val = record.get("sessionId") or record.get("session_id")
-    return str(val) if val is not None else None
-
-
 def _extract_tool_preview(raw_input: object) -> str:
     """Serialize raw_input to a truncated string preview for indexing."""
     try:

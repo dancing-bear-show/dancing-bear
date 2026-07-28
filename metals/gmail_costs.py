@@ -516,21 +516,6 @@ def _fetch_message_ids(client: GmailClient) -> List[str]:
     return list(dict.fromkeys(ids))
 
 
-def _group_messages_by_order(client: GmailClient, ids: List[str]) -> Dict[str, List[Tuple[str, int, str, str]]]:
-    """Group messages by order ID. Returns {order_id: [(msg_id, recv_ms, subject, from_header), ...]}."""
-    by_order: Dict[str, List[Tuple[str, int, str, str]]] = {}
-    for mid in ids:
-        msg = client.get_message(mid, fmt='full')
-        hdrs = GmailClient.headers_to_dict(msg)
-        subject = hdrs.get('subject', '')
-        text = client.get_message_text(mid)
-        m = _ORDER_PAT.search(subject) or _ORDER_PAT.search(text) or _COSTCO_ORDER_PAT.search(subject)
-        oid = m.group(1) if m else mid
-        recv_ms = int(msg.get('internalDate') or 0)
-        by_order.setdefault(oid, []).append((mid, recv_ms, subject or '', hdrs.get('from', '')))
-    return by_order
-
-
 def _compute_line_costs(
     final_qty: Dict[Tuple[str, float], float],
     price_hits: Dict[Tuple[str, float], List[Tuple[float, str]]],

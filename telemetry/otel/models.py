@@ -281,10 +281,6 @@ class OTLPMetricsRecord:
         all_times = [dp.timestamp for metric in self.metrics for dp in metric.data_points]
         return min(all_times) if all_times else None
 
-    def latest_timestamp(self) -> datetime | None:
-        """Get the latest timestamp from all data points."""
-        all_times = [dp.timestamp for metric in self.metrics for dp in metric.data_points]
-        return max(all_times) if all_times else None
 
 
 @dataclass(frozen=True)
@@ -379,11 +375,6 @@ class OTLPSpan:
     def start_timestamp(self) -> datetime:
         """Convert start_time_unix_nano to a datetime."""
         return nano_to_datetime(self.start_time_unix_nano)
-
-    @property
-    def end_timestamp(self) -> datetime:
-        """Convert end_time_unix_nano to a datetime."""
-        return nano_to_datetime(self.end_time_unix_nano)
 
     @property
     def duration_ms(self) -> float:

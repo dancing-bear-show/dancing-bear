@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
@@ -123,36 +121,3 @@ def _build_sessions_table(all_sessions: list[SessionSummary], since_label: str) 
         )
     return table
 
-
-def _sessions_from_transcripts(
-    since_dt: datetime,
-    since_label: str,
-    fmt: str,
-    limit: int,
-    errors_only: bool,
-    projects_dir: str | None,
-) -> None:
-    """Render sessions from transcript data.
-
-    *since_dt* must already be parsed — parsing is the caller's responsibility
-    so a malformed ``--since`` can be classified as a usage error without
-    masking unrelated ValueErrors raised downstream.
-    """
-    from core.cli_output import emit_one
-    from telemetry.providers.transcript import TranscriptProvider
-
-    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
-    all_sessions = provider.get_sessions(since=since_dt)
-    all_sessions = [s for s in all_sessions if s.total_events > 0 or s.total_cost > 0]
-    if errors_only:
-        all_sessions = [s for s in all_sessions if s.agents]
-    all_sessions.sort(key=lambda s: s.total_cost, reverse=True)
-    if limit > 0:
-        all_sessions = all_sessions[:limit]
-    if fmt == "json":
-        emit_one(_sessions_json_payload(all_sessions), fmt="json")
-        return
-    if not all_sessions:
-        console.print("[dim]No sessions found.[/]")
-        return
-    console.print(_build_sessions_table(all_sessions, since_label))

@@ -22,9 +22,8 @@ from .docx_styles import (
     _format_phone_display,
     _format_link_display,
 )
-from .docx_sections import BulletRenderer, HeaderRenderer
+from .docx_sections import BulletRenderer
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS  # re-export
-from .render_config import HeaderLineConfig, BulletConfig
 
 
 SECTION_SYNONYMS = {
@@ -54,55 +53,6 @@ def _bold_keywords(paragraph, text: str, keywords: List[str]):
 def _add_bullet_line(doc, text: str, *, keywords: List[str] | None = None, glyph: str = "•"):
     renderer = BulletRenderer(doc)
     return renderer.add_bullet_line(text, keywords=keywords, glyph=glyph)
-
-
-def _add_plain_bullet(doc, text: str, keywords: List[str] | None = None):
-    return _add_bullet_line(doc, text, keywords=keywords, glyph="•")
-
-
-def _add_bullets(
-    doc,
-    items: List[str],
-    *,
-    keywords: List[str] | None = None,
-    cfg: BulletConfig | None = None,
-):
-    c = cfg or BulletConfig()
-    renderer = BulletRenderer(doc)
-    renderer.add_bullets(items, keywords=keywords, plain=c.plain, glyph=c.glyph, list_style=c.list_style)
-
-
-def _render_group_title(doc, title: str, sec: Dict[str, Any] | None = None):
-    renderer = HeaderRenderer(doc)
-    return renderer.add_group_title(title, sec)
-
-
-def _add_header_line(
-    doc,
-    cfg: HeaderLineConfig | None = None,
-    *,
-    sec: Dict[str, Any] | None = None,
-):
-    c = cfg or HeaderLineConfig()
-    renderer = HeaderRenderer(doc)
-    return renderer.add_header_line(
-        title_text=c.title_text, company_text=c.company_text,
-        loc_text=c.loc_text, span_text=c.span_text,
-        sec=sec, style=c.style,
-    )
-
-
-def _add_named_bullet(
-    doc,
-    name_text: str,
-    desc_text: str,
-    *,
-    sec: Dict[str, Any] | None = None,
-    cfg: BulletConfig | None = None,
-):
-    c = cfg or BulletConfig()
-    renderer = BulletRenderer(doc)
-    return renderer.add_named_bullet(name_text, desc_text, sec=sec, glyph=c.glyph, sep=c.sep)
 
 
 def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> int:

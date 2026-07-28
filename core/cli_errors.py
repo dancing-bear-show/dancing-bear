@@ -7,7 +7,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Optional, NoReturn
+from typing import Optional
 
 
 class ExitCode(IntEnum):
@@ -19,7 +19,6 @@ class ExitCode(IntEnum):
     AUTH_ERROR = 4
     NETWORK_ERROR = 5
     NOT_FOUND = 6
-    PERMISSION_DENIED = 7
     INTERRUPTED = 130  # Standard for Ctrl+C
 
 
@@ -90,17 +89,3 @@ def handle_error(error: Exception, verbose: bool = False) -> int:
         import traceback
         traceback.print_exc()
     return ExitCode.ERROR
-
-
-def die(message: str, code: ExitCode = ExitCode.ERROR, hint: Optional[str] = None) -> NoReturn:
-    """Print error message and exit.
-
-    Args:
-        message: Error message to print.
-        code: Exit code to use.
-        hint: Optional hint for fixing the error.
-    """
-    print(f"Error: {message}", file=sys.stderr)
-    if hint:
-        print(f"Hint: {hint}", file=sys.stderr)
-    sys.exit(code)

@@ -414,35 +414,6 @@ def requeue_error(
     return new_path
 
 
-def requeue_all_errors(
-    *,
-    root: Path = QUEUE_ROOT,
-    delay_sec: int = 0,
-    reset_attempts: bool = False,
-    new_max_attempts: int | None = None,
-    limit: int | None = None,
-) -> list[Path]:
-    """Requeue up to ``limit`` error jobs back to pending/.
-
-    Returns a list of new pending job paths.
-    """
-    items = list_error(root=root)
-    if limit is not None:
-        items = items[: int(limit)]
-    out: list[Path] = []
-    for p, _ in items:
-        out.append(
-            requeue_error(
-                p,
-                delay_sec=delay_sec,
-                root=root,
-                reset_attempts=reset_attempts,
-                new_max_attempts=new_max_attempts,
-            )
-        )
-    return out
-
-
 def status(root: Path = QUEUE_ROOT) -> dict[str, object]:
     """Compute a queue status summary for visibility/monitoring.
 

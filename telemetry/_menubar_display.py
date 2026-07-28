@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-_SPARKLINE_HOURS = 12
 _BLOCK_CHARS = " ▁▂▃▄▅▆▇█"  # index 0 = space (zero)
 _BLOCK_LEVELS = len(_BLOCK_CHARS) - 1  # 8 non-zero levels
 
@@ -40,15 +39,6 @@ def _window_since_impl(seconds: int | None) -> datetime:
         )
         return local_midnight.astimezone(timezone.utc)
     return datetime.now(timezone.utc) - timedelta(seconds=seconds)
-
-
-def _human_bytes(n: int) -> str:
-    value: float = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1024:
-            return f"{value:.1f} {unit}"
-        value /= 1024
-    return f"{value:.1f} TB"
 
 
 def _age_str(age_secs: float) -> str:

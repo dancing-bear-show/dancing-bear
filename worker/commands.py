@@ -92,17 +92,6 @@ class JobContext:
         )
 
 
-@dataclass
-class JobResult:
-    """Result of job processing."""
-
-    success: bool
-    output: object
-    duration_ms: int
-    error_msg: str | None = None
-    exit_code: int = 0
-
-
 # ============================================================================
 # Outcome dispatch
 # ============================================================================

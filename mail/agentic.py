@@ -411,38 +411,3 @@ def _build_flows_index() -> str:
         lines.append(f"- {f['id']}: {f.get('title','')} [{tags}]")
     return "\n".join(lines)
 
-
-def render_flow(flow: dict[str, Any], fmt: str = 'md') -> str:
-    """Render a single flow in md|yaml|json."""
-    fmt = (fmt or 'md').lower()
-    if fmt == 'json':
-        try:
-            import json as _json
-            return _json.dumps(flow, indent=2)
-        except Exception:  # nosec B110 - fallback to other format
-            pass
-    if fmt == 'yaml':
-        try:
-            import yaml as _yaml  # type: ignore
-            return _yaml.safe_dump(flow, sort_keys=False)
-        except Exception:  # nosec B110 - fallback to md format
-            pass
-    # md
-    lines = [f"# {flow.get('title', flow.get('id'))}"]
-    lines.append(f"id: {flow.get('id')}")
-    if flow.get('tags'):
-        lines.append(f"tags: {', '.join(flow['tags'])}")
-    if flow.get('notes'):
-        lines.append("")
-        lines.append(f"note: {flow['notes']}")
-    if flow.get('preconditions'):
-        lines.append("")
-        lines.append("preconditions:")
-        for p in flow['preconditions']:
-            lines.append(f"- {p}")
-    if flow.get('commands'):
-        lines.append("")
-        lines.append("commands:")
-        for c in flow['commands']:
-            lines.append(f"- {c}")
-    return "\n".join(lines)

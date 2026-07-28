@@ -31,6 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest==9.1.1",
+  "vulture==2.16",
 ]
 # Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
 # Keep as optional but not recommended for security-sensitive use
@@ -52,6 +53,43 @@ apple-music-assistant = "apple_music.__main__:main"
 apple-music-user-token = "apple_music.user_token_cli:main"
 wifi-assistant = "wifi.__main__:main"
 wifi = "wifi.__main__:main"
+
+[tool.vulture]
+paths = [
+  "apple_music", "bin", "calendars", "charts", "core", "desk", "diagrams",
+  "mail", "metals", "phone", "resume", "schedule", "telemetry", "tests",
+  "whatsapp", "wifi", "worker", "workflow",
+]
+min_confidence = 60
+exclude = [
+  # Pure dataclass/enum schema modules populated by parsers via
+  # dict-unpacking or Enum(value_str) construction: every field reads as
+  # "unused" to vulture even though the schema is fully consumed at
+  # runtime. Field-level false positives here vastly outnumber any real
+  # dead code, so these files are reviewed by hand instead.
+  "workflow/models.py", "telemetry/otel/models.py",
+]
+ignore_decorators = [
+  # Click CLI dispatch: framework invokes by registry, not direct call.
+  "@*.command", "@*.group",
+]
+ignore_names = [
+  # argparse/registry CLI dispatch: called via set_defaults(func=...) or an
+  # assistant registry, never invoked directly by name.
+  "cmd_*", "register",
+  # Textual TUI framework callbacks/attrs: dispatched via reflection by the
+  # Textual runtime, not called directly in this codebase.
+  "compose", "on_mount", "action_*", "on_*_selected", "cursor_type",
+  "display", "BINDINGS", "CSS", "TITLE",
+  # http.server.BaseHTTPRequestHandler overrides: invoked by the base
+  # class's request-handling loop, not called directly.
+  "do_GET", "do_POST", "log_message",
+  # python-docx property setters: assignment triggers the docx library's
+  # XML serialization; the "read" happens inside the library, not here.
+  "left_indent", "right_indent", "first_line_indent", "hanging_indent",
+  "space_before", "space_after", "bottom_margin", "top_margin",
+  "left_margin", "right_margin", "autofit",
+]
 
 [tool.setuptools]
 package-dir = {"" = "."}

@@ -72,15 +72,6 @@ class GmailService:
         return " ".join(parts).strip()
 
     @staticmethod
-    def build_classes_query(*, from_text: str | None, days: int, inbox_only: bool, explicit: str | None) -> str:
-        return GmailService.build_query_from_params(QueryParams(
-            explicit=explicit,
-            from_text=from_text,
-            days=days,
-            inbox_only=inbox_only,
-        ))
-
-    @staticmethod
     def build_receipts_query(*, from_text: str | None, days: int, explicit: str | None) -> str:
         tokens = '(Swimmer OR "Swim Kids" OR Preschool OR Bronze)'
         return GmailService.build_query_from_params(QueryParams(
