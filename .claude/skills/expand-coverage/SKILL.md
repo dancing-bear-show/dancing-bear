@@ -20,17 +20,15 @@ Find coverage gaps, write tests, and verify improvement.
 ## Step 1: Identify Gaps
 
 ```bash
-# Coverage gaps on changed files only (fastest)
-./bin/test-gaps --only-changed --format table
+# Full coverage report (all domains)
+make cov
 
-# Full gap analysis
-./bin/test-gaps --format table
+# Coverage for a specific domain
+PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -q
+python3 -m coverage report -m --include="<domain>/*"
 
-# Per-file coverage from qlty
-./bin/qlty file-coverage -- --project dancing-bear --format yaml
-
-# Run tests with coverage for a specific domain
-python3 -m unittest tests/<domain>/ --cov=<domain> --cov-report=term-missing -x
+# Lint-level complexity/smell signals (not coverage, but flags files needing tests)
+~/.qlty/bin/qlty check <domain>/
 ```
 
 ## Step 2: Prioritize
@@ -76,16 +74,14 @@ Task(subagent_type="tester", prompt="Write tests for <domain>/<module>.py target
 
 ```bash
 # Run new tests
-python3 -m unittest tests/<domain>/test_new.py -x -v
+python3 -m unittest tests.<domain>.test_new -v
 
 # Check coverage improved
-python3 -m unittest tests/<domain>/ --cov=<domain> --cov-report=term-missing -x
-
-# Verify no test gaps remain
-./bin/test-gaps --only-changed --fail-on-gaps
+PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -q
+python3 -m coverage report -m --include="<domain>/*"
 
 # Full suite (no regressions)
-python3 -m unittest tests/ -m "" -x
+make test
 ```
 
 ## Step 5: Report
