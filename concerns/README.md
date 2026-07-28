@@ -4,7 +4,7 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 
 | File | Domain | Concerns |
 |------|--------|----------|
-| correctness.md | Python correctness, type safety, logic errors | ~30 |
+| correctness.md | Python correctness, type safety, logic errors | ~36 |
 | security.md | Security vulnerabilities, credential handling, input validation | ~4 |
 | tests.md | Test quality, coverage, fixture patterns (unittest) | ~19 |
 | patterns.md | Code patterns, CLI framework, lazy imports, plan/apply safety | ~27 |
