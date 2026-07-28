@@ -533,7 +533,6 @@ class TestGetCurrentSessionId(TempProjectsDirMixin, unittest.TestCase):
     def test_returns_most_recently_modified_session(self):
         pdir = self.project_dir()
         _write_jsonl(pdir, "sess-a.jsonl", [make_assistant_record()])
-        time.sleep(0.01)
         f2 = _write_jsonl(pdir, "sess-b.jsonl", [make_assistant_record()])
         # Ensure sess-b has a strictly later mtime
         os.utime(f2, (time.time() + 10, time.time() + 10))
