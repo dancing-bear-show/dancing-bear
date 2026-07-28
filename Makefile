@@ -87,5 +87,5 @@ bin-wrappers-check:
 	@$(PYTHON) bin/_gen_wrappers.py --check
 
 deadcode: venv
-	@$(PIP) install -q vulture==2.16
+	@$(PIP) install -q -e ".[dev]"
 	@$(PY) -m vulture --config pyproject.toml
