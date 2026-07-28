@@ -128,8 +128,8 @@ class TestSequenceDiagramBuilderAutonumber(unittest.TestCase):
     def test_autonumber_appears_after_sequencediagram(self):
         out = SequenceDiagramBuilder().autonumber().render()
         lines = out.splitlines()
-        seq_idx = next(i for i, l in enumerate(lines) if "sequenceDiagram" in l)
-        auto_idx = next(i for i, l in enumerate(lines) if "autonumber" in l)
+        seq_idx = next(i for i, line in enumerate(lines) if "sequenceDiagram" in line)
+        auto_idx = next(i for i, line in enumerate(lines) if "autonumber" in line)
         self.assertGreater(auto_idx, seq_idx)
 
     def test_autonumber_false_disables(self):

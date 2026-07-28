@@ -6,8 +6,6 @@ LocalRenderer: renders via local mmdc CLI (requires @mermaid-js/mermaid-cli).
 
 from __future__ import annotations
 
-import sys
-
 
 class TextRenderer:
     """Render Mermaid diagrams as plain text or embedded code fences.
@@ -122,7 +120,7 @@ class LocalRenderer:
     def _run(self, cmd: list[str]) -> None:
         import subprocess
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607 - mmdc_path resolved via shutil.which or validated on construction
                 cmd,
                 capture_output=True,
                 timeout=self.timeout,
