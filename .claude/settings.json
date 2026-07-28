@@ -1,0 +1,28 @@
+{
+  "worktree": {
+    "bgIsolation": "worktree"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport subprocess, json, os, time, uuid\nresult = subprocess.run(['git', 'worktree', 'list', '--porcelain'], capture_output=True, text=True)\nmain = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()\ncwd = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()\nworktrees = [l.split()[1] for l in result.stdout.splitlines() if l.startswith('worktree ')]\nif cwd == main:\n    msg = {'systemMessage': 'ACTION REQUIRED: No worktree detected. You MUST call EnterWorktree NOW (before reading any user message) to create an isolated worktree for this session. Do not wait — call EnterWorktree immediately as your very first action.'}\nelse:\n    marker = os.path.join(cwd, '.claude', '.session-owner')\n    my_id = str(uuid.uuid4())\n    stale = None\n    if os.path.exists(marker):\n        try:\n            with open(marker) as f:\n                prev = json.load(f)\n            stale = prev\n        except Exception:\n            pass\n    os.makedirs(os.path.dirname(marker), exist_ok=True)\n    with open(marker, 'w') as f:\n        json.dump({'session_id': my_id, 'claimed_at': time.time()}, f)\n    if stale:\n        msg = {'systemMessage': 'WARNING: This worktree directory already had an active session marker from a prior/other session (claimed at ' + str(stale.get('claimed_at')) + '). It may have been reused/recycled out from under another session. If you see unexpected branch/commit state, do not assume it is yours — check git reflog before committing or resetting anything. This session has re-claimed the marker.'}\n    else:\n        msg = {'systemMessage': 'Already in a worktree session — claimed ownership marker, no action needed.'}\nprint(json.dumps(msg))\n\""
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/name-worktree.sh",
+            "statusMessage": "Naming worktree..."
+          }
+        ]
+      }
+    ]
+  }
+}
