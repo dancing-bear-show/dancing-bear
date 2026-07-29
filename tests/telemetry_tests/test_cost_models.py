@@ -151,8 +151,8 @@ class TestCostMetricsTotalBillableTokens(unittest.TestCase):
 
 class TestCostMetricsCacheSavingsPercent(unittest.TestCase):
     def test_cache_savings_percent_normal(self):
-        # billable = 400+200+50 = 650, cache_read = 500, total = 1150
-        # expected = 500/1150 * 100
+        # billable tokens total 650; cache reads 500; grand total 1150.
+        # expected percent is the cache-read share of that grand total.
         cm = _make_cost_metrics(
             total_input_tokens=400,
             total_output_tokens=200,
@@ -195,18 +195,24 @@ class TestSessionPerfMutableDefaults(unittest.TestCase):
     def test_error_status_codes_independent_instances(self):
         sp1 = SessionPerf()
         sp2 = SessionPerf()
-        # SessionPerf is frozen so we verify they are distinct objects
+        # Distinct objects, and mutating one must not leak into the other.
         self.assertIsNot(sp1.error_status_codes, sp2.error_status_codes)
+        sp1.error_status_codes["500"] = 1
+        self.assertNotIn("500", sp2.error_status_codes)
 
     def test_model_mix_independent_instances(self):
         sp1 = SessionPerf()
         sp2 = SessionPerf()
         self.assertIsNot(sp1.model_mix, sp2.model_mix)
+        sp1.model_mix["claude-sonnet"] = 1
+        self.assertNotIn("claude-sonnet", sp2.model_mix)
 
     def test_tool_usage_independent_instances(self):
         sp1 = SessionPerf()
         sp2 = SessionPerf()
         self.assertIsNot(sp1.tool_usage, sp2.tool_usage)
+        sp1.tool_usage["Bash"] = 1
+        self.assertNotIn("Bash", sp2.tool_usage)
 
 
 class TestCostMetricsMutableDefaults(unittest.TestCase):
@@ -214,11 +220,15 @@ class TestCostMetricsMutableDefaults(unittest.TestCase):
         cm1 = _make_cost_metrics()
         cm2 = _make_cost_metrics()
         self.assertIsNot(cm1.by_session, cm2.by_session)
+        cm1.by_session.append(_make_session_cost())
+        self.assertEqual(cm2.by_session, [])
 
     def test_by_model_independent_instances(self):
         cm1 = _make_cost_metrics()
         cm2 = _make_cost_metrics()
         self.assertIsNot(cm1.by_model, cm2.by_model)
+        cm1.by_model.append(_make_model_cost())
+        self.assertEqual(cm2.by_model, [])
 
 
 class TestSessionClusterMutableDefault(unittest.TestCase):
@@ -226,6 +236,8 @@ class TestSessionClusterMutableDefault(unittest.TestCase):
         sc1 = SessionCluster(session_id="a", cluster_id=0, cluster_label="low-cost")
         sc2 = SessionCluster(session_id="b", cluster_id=1, cluster_label="high-cost")
         self.assertIsNot(sc1.features, sc2.features)
+        sc1.features["cost"] = 5.0
+        self.assertNotIn("cost", sc2.features)
 
 
 class TestDailyCostConstruction(unittest.TestCase):
@@ -241,7 +253,7 @@ class TestDailyCostConstruction(unittest.TestCase):
         )
         self.assertEqual(dc.date, "2026-04-16")
         self.assertEqual(dc.api_calls, 5)
-        self.assertAlmostEqual(dc.cost, 0.02, places=6)
+        self.assertEqual(dc.cost, 0.02)
         self.assertEqual(dc.cache_read_tokens, 50)
 
 
@@ -257,7 +269,7 @@ class TestToolErrorSummaryConstruction(unittest.TestCase):
         )
         self.assertEqual(tes.tool_name, "Bash")
         self.assertEqual(tes.failures, 4)
-        self.assertAlmostEqual(tes.failure_rate, 0.2, places=5)
+        self.assertEqual(tes.failure_rate, 0.2)
         self.assertEqual(tes.sessions_affected, 3)
 
 
@@ -276,7 +288,7 @@ class TestModelPerformanceConstruction(unittest.TestCase):
         )
         self.assertEqual(mp.model_name, "claude-haiku")
         self.assertEqual(mp.error_count, 2)
-        self.assertAlmostEqual(mp.p95_latency_ms, 500.0, places=5)
+        self.assertEqual(mp.p95_latency_ms, 500.0)
 
 
 class TestPromptMetricsConstruction(unittest.TestCase):
@@ -296,7 +308,7 @@ class TestPromptMetricsConstruction(unittest.TestCase):
         )
         self.assertEqual(pm.prompt_id, "p1")
         self.assertEqual(pm.prompt_length, 512)
-        self.assertAlmostEqual(pm.duration_ms, 1200.0, places=5)
+        self.assertEqual(pm.duration_ms, 1200.0)
 
     def test_timestamp_can_be_none(self):
         pm = PromptMetrics(
@@ -326,7 +338,7 @@ class TestSessionHealthScoreConstruction(unittest.TestCase):
             grade="B",
         )
         self.assertEqual(shs.session_id, "s1")
-        self.assertAlmostEqual(shs.score, 0.85, places=5)
+        self.assertEqual(shs.score, 0.85)
         self.assertEqual(shs.grade, "B")
 
 
@@ -372,7 +384,7 @@ class TestAnomalyFlagConstruction(unittest.TestCase):
             z_score=8.0,
         )
         self.assertEqual(af.metric, "cost")
-        self.assertAlmostEqual(af.z_score, 8.0, places=5)
+        self.assertEqual(af.z_score, 8.0)
 
 
 class TestSessionClusterConstruction(unittest.TestCase):
