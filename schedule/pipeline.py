@@ -8,18 +8,21 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from core.auth import build_outlook_service
+from core.date_utils import to_iso_str as _to_iso_str
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
+from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME
+
+_ERR_NO_PLAN_EVENTS = "Invalid plan: no events found"
 
 
-def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, dict]]:
+def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, Any]]:
     from calendars.importer import load_schedule
     from calendars.model import normalize_event
 
     items = load_schedule(source, kind)
-    events: List[Dict[str, dict]] = []
+    events: List[Dict[str, Any]] = []
     for it in items:
-        ev: Dict[str, dict] = {
+        ev: Dict[str, Any] = {
             "subject": getattr(it, "subject", None),
             "start": getattr(it, "start_iso", None),
             "end": getattr(it, "end_iso", None),
@@ -55,20 +58,21 @@ PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 @dataclass
 class PlanResult:
-    document: Dict[str, dict]
+    document: Dict[str, Any]
     out_path: Path
 
 
 class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
     """Generate a plan from schedule sources with automatic error handling."""
 
-    def __init__(self, loader: Callable[[str, Optional[str]], List[Dict[str, dict]]] = _events_from_source) -> None:
+    def __init__(self, loader: Callable[[str, Optional[str]], List[Dict[str, Any]]] = _events_from_source) -> None:
         self._loader = loader
 
     def _process_safe(self, payload: PlanRequest) -> PlanResult:
-        all_events: List[Dict[str, dict]] = []
+        all_events: List[Dict[str, Any]] = []
         for src in payload.sources:
             all_events.extend(self._loader(src, payload.kind))
+        plan: Dict[str, Any]
         if not all_events:
             plan = {
                 "#": "Add events under the 'events' key. Use subject, repeat/byday or start/end.",
@@ -143,22 +147,6 @@ def _norm_dt_minute(s: Optional[str]) -> Optional[str]:
         return dt.strftime(FMT_DATETIME)
     except Exception:
         return None
-
-
-def _to_iso_str(v: Any) -> Optional[str]:
-    """Best-effort convert date/datetime-like values to ISO string."""
-    if v is None:
-        return None
-    if isinstance(v, str):
-        return v
-    try:
-        if isinstance(v, _dt.datetime):
-            return v.strftime(FMT_DATETIME_SEC)
-        if isinstance(v, _dt.date):
-            return v.strftime(FMT_DAY_START)
-    except Exception:  # nosec B110 - datetime format failure
-        pass
-    return str(v)
 
 
 def _weekday_code_to_py(d: str) -> Optional[int]:
@@ -556,8 +544,8 @@ class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
     def _process_safe(self, payload: VerifyRequest) -> VerifyResult:
         # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
-        if err:
-            raise ValueError(err)
+        if err or events is None:
+            raise ValueError(err or _ERR_NO_PLAN_EVENTS)
         if not payload.calendar:
             raise ValueError("--calendar is required")
         if not (payload.from_date and payload.to_date):
@@ -870,8 +858,8 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
     def _process_safe(self, payload: SyncRequest) -> SyncResult:
         # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
-        if err:
-            raise ValueError(err)
+        if err or events is None:
+            raise ValueError(err or _ERR_NO_PLAN_EVENTS)
         if not payload.calendar:
             raise ValueError("--calendar is required")
         if not (payload.from_date and payload.to_date):
@@ -976,25 +964,28 @@ class ApplyResult:
     lines: List[str]
 
 
+def _build_apply_dry_run_lines(events: List[Dict[str, Any]], calendar_name: Optional[str]) -> List[str]:
+    """Build preview lines for an apply dry-run."""
+    suffix = f" to calendar '{calendar_name}'" if calendar_name else ""
+    lines = [f"[DRY-RUN] Would apply {len(events)} events{suffix}"]
+    for i, ev in enumerate(events, start=1):
+        subj = ev.get("subject")
+        rep = ev.get("repeat") or "one-off"
+        lines.append(f"  - {i}. {subj} ({rep})")
+    lines.append("Pass --apply to perform changes.")
+    return lines
+
+
 class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
     """Apply events from a plan to a calendar with automatic error handling."""
 
     def _process_safe(self, payload: ApplyRequest) -> ApplyResult:
         events, err = _load_plan_events(payload.plan_path)
-        if err:
-            raise ValueError(err)
-        do_apply = bool(payload.apply)
+        if err or events is None:
+            raise ValueError(err or _ERR_NO_PLAN_EVENTS)
         calendar_name = payload.calendar
-        if not do_apply:
-            lines = [
-                f"[DRY-RUN] Would apply {len(events)} events" + (f" to calendar '{calendar_name}'" if calendar_name else ""),
-            ]
-            for i, ev in enumerate(events or [], start=1):
-                subj = ev.get("subject")
-                rep = ev.get("repeat") or "one-off"
-                lines.append(f"  - {i}. {subj} ({rep})")
-            lines.append("Pass --apply to perform changes.")
-            return ApplyResult(lines=lines)
+        if not payload.apply:
+            return ApplyResult(lines=_build_apply_dry_run_lines(events, calendar_name))
 
         provider = payload.provider or "outlook"
         lines = [
@@ -1008,7 +999,7 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
         if err:
             raise RuntimeError(err)
 
-        rc, logs = _apply_outlook_events(events or [], calendar_name=calendar_name, service=svc)
+        rc, logs = _apply_outlook_events(events, calendar_name=calendar_name, service=svc)
         lines.extend(logs)
         if rc != 0:
             raise RuntimeError("\n".join(logs))

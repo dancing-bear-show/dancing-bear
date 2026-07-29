@@ -1,26 +1,25 @@
 """Agentic capsule builders for the WhatsApp Assistant CLI."""
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import List, Tuple
 
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _build_cli_tree,
+    cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _cli_path_exists,
     section as _section,
 )
 from .meta import APP_ID, PURPOSE
 
 
-@lru_cache(maxsize=1)
-def _get_parser():
-    try:
-        from . import __main__ as main_mod
+def _load_parser():
+    from . import __main__ as main_mod
 
-        return main_mod.build_parser()
-    except Exception:
-        return None
+    return main_mod.build_parser()
+
+
+_get_parser = _cached_parser_loader(_load_parser)
 
 
 def _cli_tree() -> str:
