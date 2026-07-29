@@ -160,9 +160,10 @@ class TestPrintNoInfrastructureMessage(unittest.TestCase):
 
 class TestRequireOtelInfrastructure(unittest.TestCase):
     def test_returns_normally_when_infrastructure_present(self):
-        with patch("telemetry.otel.health.check_otel_infrastructure", return_value=True):
+        with patch("telemetry.otel.health.check_otel_infrastructure", return_value=True) as mock_check:
             # Should not raise
             require_otel_infrastructure()
+        mock_check.assert_called_once()
 
     def test_raises_system_exit_when_infrastructure_missing(self):
         with patch("telemetry.otel.health.check_otel_infrastructure", return_value=False):
