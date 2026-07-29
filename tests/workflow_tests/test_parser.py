@@ -1,4 +1,9 @@
-"""Tests for workflow.parser — YAML loading and validation."""
+"""Tests for workflow.parser — YAML loading and validation.
+
+Split versions of these tests live in:
+  - test_parser_core.py   (parse, defaults, validation errors, edge cases, malformed sub-structures)
+  - test_parser_fanout.py (fan_out, executor, sub_workflow, DAG shapes)
+"""
 
 from __future__ import annotations
 
