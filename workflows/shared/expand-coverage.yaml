@@ -107,14 +107,14 @@ stages:
                  "Write tests for {src_path} targeting {min_coverage}%+ coverage. "
                  "Read tests/<domain>/conftest.py first for available factories. "
                  "Follow project conventions: make_* factories (no manual dicts), "
-                 "@pytest.mark.parametrize for multi-scenario cases, specific assertions "
-                 "(assertEqual/assertIn, not assertTrue), patch at the call site. "
-                 "After writing tests, run: python3 -m unittest discover -x -q {test_path} -x -q and fix any failures."
+                 "subTest() loops for multi-scenario cases (unittest has no @parametrize), "
+                 "specific assertions (assertEqual/assertIn, not assertTrue), patch at the call site. "
+                 "After writing tests, run: python3 -m unittest discover -s {test_path} -q and fix any failures."
                )
              )
 
         4. After the tester agent returns, verify the tests pass:
-             python3 -m unittest discover -x -q {test_path} -x -q
+             python3 -m unittest discover -s {test_path} -q
 
            If the command exits non-zero: read the error, fix the specific failure,
            and re-run. Up to 2 fix cycles per file.
@@ -161,7 +161,7 @@ stages:
         files are still below threshold, and report them in the output JSON.
 
       Step 2 — run the test suite for the target path:
-        python3 -m unittest discover -x -q {test_path} -x -q
+        python3 -m unittest discover -s {test_path} -q
 
         Must exit 0. If it fails: read the error, identify the root cause,
         and record it — do not attempt further fixes in this stage (that would

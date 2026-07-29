@@ -139,11 +139,12 @@ stages:
         For each test file under {test_path}: grep for manual dict
         construction {...} that should use make_* factories.
         Flag assertTrue(x is not None) that should be assertIsNotNone(x).
-        Flag missing @pytest.mark.parametrize where 3+ near-identical test
-        functions exist.
+        Flag missing subTest() loops where 3+ near-identical test
+        functions exist (unittest has no @parametrize — use subTest).
 
       Step 2 — Coverage gaps:
-         --only-changed --format table
+        PYTHONPATH=. python3 -m coverage run -m unittest discover -s {test_path} -q
+        python3 -m coverage report -m --include="{source_root}*"
         Flag any source file under {source_root} with no corresponding
         test file (critical).
         Flag any source file with coverage < 80% (minor).

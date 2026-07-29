@@ -69,7 +69,7 @@ trigger:
     source_root: ""
     test_path: "tests/"
     pr_title: "chore(coverage): uplift uncovered lines + consolidate test helpers"
-    test_cmd: "pytest tests/ -x -q"
+    test_cmd: "python3 -m unittest discover -s tests/ -q"
 
 workspace_dir: "{work_dir}/coverage-uplift"
 
@@ -163,21 +163,24 @@ stages:
 
   - name: gap-scan
     kind: gather
-    depends_on: [init]
+    depends_on: [init, coverage-discover]
+    reads_from: [coverage-discover]
     description: >
-      Run the test-gaps CLI to identify source files with no test coverage
-      at all, and cross-reference with domain structure.
+      Identify source files with no test coverage at all (0% in the
+      coverage-discover baseline counts as "no test file"), and flag files
+      that also appear in the current diff as higher priority.
 
-      Step 1 — full gap scan:
-        ./bin/test-gaps --format json
-
-        Filter results to files under {source_root}.
+      Step 1 — full gap scan (derived from the coverage.py baseline):
+        Read {workspace}/analysis/coverage-baseline.json (from coverage-discover).
+        Any file with coverage == 0 has no effective test file — treat it as
+        a gap. Filter to files under {source_root}.
 
       Step 2 — changed-files gap scan (if a diff is available):
-        ./bin/test-gaps --only-changed --format json
+        git diff origin/main...HEAD --name-only -- '*.py' | grep '^{source_root}'
 
-        If this returns results, annotate those files as "priority: high"
-        in the output (changed files with gaps are higher risk).
+        Cross-reference against the Step 1 gap list. Files that appear in
+        both are annotated "priority: high" (changed files with gaps are
+        higher risk).
 
       Step 3 — write results:
         Write {workspace}/analysis/gap-report.json:
@@ -498,12 +501,12 @@ stages:
            b. Read existing test file (if any) — never overwrite passing tests.
            c. Write or extend tests following project conventions:
                 - make_* factories from conftest — never manual dict construction
-                - @pytest.mark.parametrize for multi-scenario cases
+                - subTest() loops for multi-scenario cases (unittest has no @parametrize)
                 - Specific assertions (assertEqual, assertIn, assertIsInstance)
                 - run_cli_with_capture for CLI subcommand tests
                 - Patch at the call site (where it is used), not where defined
                 - No assertTrue(x is not None) — use assertIsNotNone(x)
-           d. After each file: pytest tests/<domain>/ -x -q
+           d. After each file: python3 -m unittest discover -s tests/<domain> -q
               Fix import errors or assertion failures before the next file.
 
         6. Write per-domain summary to {workspace}/coverage/<domain>-summary.md:
@@ -536,16 +539,16 @@ stages:
     depends_on: [expand-coverage-domains]
     reads_from: [expand-coverage-domains]
     description: >
-      Run pytest for every domain that was touched in expand-coverage-domains
-      and confirm all tests pass.
+      Run the test suite for every domain that was touched in
+      expand-coverage-domains and confirm all tests pass.
 
       Step 1 — identify touched domains:
         Read all files matching {workspace}/coverage/*-summary.md.
         Extract domain names from filenames (e.g., aws-summary.md → aws).
 
-      Step 2 — per-domain pytest:
+      Step 2 — per-domain test run:
         For each domain:
-          pytest tests/<domain>/ -x -q
+          python3 -m unittest discover -s tests/<domain> -q
 
         Fix failures:
           - Missing factory: add make_* to tests/<domain>/conftest.py
@@ -557,16 +560,16 @@ stages:
         Up to 3 fix cycles per domain. If still failing: mark domain as FAIL
         in the results and document the blocker — do not abort other domains.
 
-      Step 3 — run ruff on all changed files:
-        ruff check  tests/
+      Step 3 — run qlty on all changed files in touched domains:
+        ~/.qlty/bin/qlty check tests/<domain>/ <domain>/
 
         Fix any lint errors before proceeding.
 
       Step 4 — write consolidated report to
         {workspace}/validation/domain-test-results.md:
-          | Domain | Tests Added | Lint | Pytest | Notes |
-          |--------|------------|------|--------|-------|
-          | aws    | +12        | PASS | PASS   |       |
+          | Domain | Tests Added | Lint | Tests | Notes |
+          |--------|------------|------|-------|-------|
+          | aws    | +12        | PASS | PASS  |       |
           | ...    |            |      |        |       |
     agent:
       role: code-writer
@@ -595,8 +598,8 @@ stages:
           - Tests use make_* factories — no manual dict/object construction
           - Assertions are specific: assertEqual, assertIn, assertIsInstance,
             assertIsNotNone — never assertTrue(x is not None) or assertTrue(len > 0)
-          - @pytest.mark.parametrize used where 3+ similar cases exist in
-            the same test method
+          - subTest() used where 3+ similar cases exist in the same test
+            method (unittest has no @parametrize)
           - No test that only asserts "does not raise" with no content check
           - run_cli_with_capture used for CLI tests, not subprocess.run
 
@@ -651,7 +654,7 @@ stages:
 
       For each critical finding:
         - Apply the fix described in the "fix" field
-        - Re-run pytest tests/<domain>/ -x -q for the affected domain
+        - Re-run python3 -m unittest discover -s tests/<domain> -q for the affected domain
         - Confirm green before moving to the next finding
 
       For each minor finding:
@@ -659,7 +662,7 @@ stages:
         - Skip only if the fix would require restructuring more than one file;
           note the justification in corrections-applied.md
 
-      After all fixes: run ruff check  tests/ and fix any new
+      After all fixes: run ~/.qlty/bin/qlty check tests/ and fix any new
       lint issues introduced.
 
       Write {workspace}/validation/corrections-applied.md:
