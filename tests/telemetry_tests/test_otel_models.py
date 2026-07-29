@@ -142,8 +142,11 @@ class TestOTLPValueAsFloat(unittest.TestCase):
         self.assertAlmostEqual(v.as_float(), 1.0)
 
     def test_bool_value_false(self):
+        # True->1.0 and False->0.0 together confirm the bool branch is exercised
+        # (False->0.0 alone could pass even if the bool branch were absent, since 0.0 is also the default)
         v = OTLPValue(bool_value=False)
         self.assertAlmostEqual(v.as_float(), 0.0)
+        self.assertAlmostEqual(OTLPValue(bool_value=True).as_float(), 1.0)
 
     def test_all_none_returns_zero(self):
         v = OTLPValue()
@@ -297,12 +300,16 @@ class TestMetricDataPointTimestampProperties(unittest.TestCase):
 
     def test_timestamp_is_datetime(self):
         self.assertIsInstance(self.dp.timestamp, datetime)
+        # Ground-truth literal: nano_to_datetime(1_700_000_000_000_000_000) -> 2023-11-14T22:13:20Z
+        self.assertEqual(self.dp.timestamp, datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc))
 
     def test_timestamp_is_utc(self):
         self.assertEqual(self.dp.timestamp.tzinfo, timezone.utc)
 
     def test_start_timestamp_is_datetime(self):
         self.assertIsInstance(self.dp.start_timestamp, datetime)
+        # Ground-truth literal: nano_to_datetime(1_699_900_000_000_000_000) -> 2023-11-13T18:26:40Z
+        self.assertEqual(self.dp.start_timestamp, datetime(2023, 11, 13, 18, 26, 40, tzinfo=timezone.utc))
 
     def test_start_timestamp_is_utc(self):
         self.assertEqual(self.dp.start_timestamp.tzinfo, timezone.utc)
@@ -461,6 +468,14 @@ class TestOTLPMetricsRecordFromDict(unittest.TestCase):
         self.assertEqual(rec.metrics, [])
         self.assertEqual(rec.scope_name, "")
 
+    def test_empty_scope_metrics_list_is_guarded(self):
+        """resourceMetrics present but scopeMetrics=[] must not IndexError; yields empty record."""
+        rec = OTLPMetricsRecord.from_dict(
+            {"resourceMetrics": [{"resource": {}, "scopeMetrics": []}]}
+        )
+        self.assertEqual(rec.metrics, [])
+        self.assertEqual(rec.scope_name, "")
+
 
 class TestOTLPMetricsRecordMetricsByName(unittest.TestCase):
 
@@ -476,10 +491,12 @@ class TestOTLPMetricsRecordMetricsByName(unittest.TestCase):
         found = self.rec.metrics_by_name("http.requests")
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0].name, "http.requests")
+        self.assertNotIn("app.cpu.usage", [m.name for m in found])
 
     def test_glob_prefix(self):
         found = self.rec.metrics_by_name("app.*")
         self.assertEqual(len(found), 2)
+        self.assertEqual(sorted(m.name for m in found), ["app.cpu.usage", "app.mem.usage"])
 
     def test_no_match_returns_empty_list(self):
         found = self.rec.metrics_by_name("nonexistent.*")
@@ -499,9 +516,8 @@ class TestOTLPMetricsRecordEarliestTimestamp(unittest.TestCase):
         ts = rec.earliest_timestamp()
         self.assertIsNotNone(ts)
         self.assertIsInstance(ts, datetime)
-        # Should be the earlier timestamp
-        from telemetry.timeutil import nano_to_datetime
-        self.assertEqual(ts, nano_to_datetime(earlier_ns))
+        # Ground-truth literal: nano_to_datetime(1_699_000_000_000_000_000) -> 2023-11-03T08:26:40Z
+        self.assertEqual(ts, datetime(2023, 11, 3, 8, 26, 40, tzinfo=timezone.utc))
 
     def test_no_data_points_returns_none(self):
         metrics = [_sum_metric_dict(name="empty", data_points=[])]
@@ -591,6 +607,8 @@ class TestOTLPEventTimestampAndGetAttr(unittest.TestCase):
         ts = self.event.timestamp
         self.assertIsInstance(ts, datetime)
         self.assertEqual(ts.tzinfo, timezone.utc)
+        # Ground-truth literal: nano_to_datetime(1_700_000_000_000_000_000) -> 2023-11-14T22:13:20Z
+        self.assertEqual(ts, datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc))
 
     def test_get_attr_found(self):
         self.assertEqual(self.event.get_attr("severity"), "WARN")
@@ -668,6 +686,20 @@ class TestOTLPEventsRecordFromDict(unittest.TestCase):
         self.assertEqual(rec.log_records, [])
         self.assertEqual(rec.scope_name, "")
 
+    def test_empty_scope_logs_list_currently_raises(self):
+        """Explicit scopeLogs=[] currently raises IndexError.
+
+        Unlike OTLPMetricsRecord / OTLPSpansRecord (which use `... or [{}]`),
+        OTLPEventsRecord.from_dict uses `.get("scopeLogs", [{}])[0]`, so an
+        explicitly-empty scopeLogs list is not guarded. This test documents the
+        current behavior; if the source is later hardened to `... or [{}]`, change
+        this to assert an empty record instead.
+        """
+        with self.assertRaises(IndexError):
+            OTLPEventsRecord.from_dict(
+                {"resourceLogs": [{"resource": {}, "scopeLogs": []}]}
+            )
+
 
 # ---------------------------------------------------------------------------
 # OTLPSpan
@@ -740,6 +772,8 @@ class TestOTLPSpanProperties(unittest.TestCase):
         ts = self.span.start_timestamp
         self.assertIsInstance(ts, datetime)
         self.assertEqual(ts.tzinfo, timezone.utc)
+        # Ground-truth literal: nano_to_datetime(1_700_000_000_000_000_000) -> 2023-11-14T22:13:20Z
+        self.assertEqual(ts, datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc))
 
     def test_get_attr_found(self):
         self.assertEqual(self.span.get_attr("db.system"), "postgres")
