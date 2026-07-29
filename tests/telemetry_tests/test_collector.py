@@ -14,19 +14,6 @@ from unittest.mock import patch
 from rich.console import Console
 
 import telemetry.collector as collector
-from telemetry.collector import (
-    _EVENTS_HEADERS,
-    _decode_otlp_value,
-    _docker_env,
-    _emit_no_events,
-    _parse_event_lines,
-    _parse_otlp_event,
-    _print_container_details,
-    _print_data_files,
-    _print_docker_containers,
-    _print_port_bindings,
-    _run_compose,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -71,70 +58,70 @@ class _ConsoleCapture:
 
 
 # ===========================================================================
-# 1. _decode_otlp_value
+# 1. collector._decode_otlp_value
 # ===========================================================================
 
 class TestDecodeOtlpValue(unittest.TestCase):
 
     def test_string_value(self):
-        self.assertEqual(_decode_otlp_value({"stringValue": "hello"}), "hello")
+        self.assertEqual(collector._decode_otlp_value({"stringValue": "hello"}), "hello")
 
     def test_int_value(self):
-        result = _decode_otlp_value({"intValue": "42"})
+        result = collector._decode_otlp_value({"intValue": "42"})
         self.assertEqual(result, 42)
         self.assertIsInstance(result, int)
 
     def test_double_value(self):
-        result = _decode_otlp_value({"doubleValue": "3.14"})
+        result = collector._decode_otlp_value({"doubleValue": "3.14"})
         self.assertAlmostEqual(result, 3.14, places=5)
         self.assertIsInstance(result, float)
 
     def test_bool_value_true(self):
-        result = _decode_otlp_value({"boolValue": True})
+        result = collector._decode_otlp_value({"boolValue": True})
         self.assertIs(result, True)
         self.assertIsInstance(result, bool)
 
     def test_bool_value_false(self):
-        result = _decode_otlp_value({"boolValue": False})
+        result = collector._decode_otlp_value({"boolValue": False})
         self.assertIs(result, False)
 
     def test_non_dict_returned_as_is(self):
-        self.assertEqual(_decode_otlp_value("plain string"), "plain string")
-        self.assertEqual(_decode_otlp_value(99), 99)
-        self.assertIsNone(_decode_otlp_value(None))
+        self.assertEqual(collector._decode_otlp_value("plain string"), "plain string")
+        self.assertEqual(collector._decode_otlp_value(99), 99)
+        self.assertIsNone(collector._decode_otlp_value(None))
 
     def test_dict_with_no_known_keys_returned_as_is(self):
         d = {"unknownKey": "value"}
-        self.assertIs(_decode_otlp_value(d), d)
+        self.assertIs(collector._decode_otlp_value(d), d)
 
     def test_int_value_non_numeric_string_falls_back(self):
         # int("not-a-number") raises ValueError — should fall back to returning raw value
-        result = _decode_otlp_value({"intValue": "not-a-number"})
+        result = collector._decode_otlp_value({"intValue": "not-a-number"})
         self.assertEqual(result, "not-a-number")
 
     def test_double_value_non_numeric_string_falls_back(self):
-        result = _decode_otlp_value({"doubleValue": "not-a-float"})
+        result = collector._decode_otlp_value({"doubleValue": "not-a-float"})
         self.assertEqual(result, "not-a-float")
 
     def test_int_value_none_falls_back(self):
         # int(None) raises TypeError
-        result = _decode_otlp_value({"intValue": None})
+        result = collector._decode_otlp_value({"intValue": None})
         self.assertIsNone(result)
 
     def test_string_value_coercion_of_number(self):
         # str(123) succeeds → "123"
-        result = _decode_otlp_value({"stringValue": 123})
+        result = collector._decode_otlp_value({"stringValue": 123})
         self.assertEqual(result, "123")
         self.assertIsInstance(result, str)
 
     def test_first_matching_key_wins(self):
         # Only one OTLP type should be decoded; stringValue is checked first
         d = {"stringValue": "first", "intValue": "999"}
-        self.assertEqual(_decode_otlp_value(d), "first")
+        self.assertEqual(collector._decode_otlp_value(d), "first")
 
 
 # ===========================================================================
-# 2. _parse_otlp_event
+# 2. collector._parse_otlp_event
 # ===========================================================================
 
 # Known: 1_000_000_000 ns = 1970-01-01 00:00:01 UTC
@@ -169,97 +156,97 @@ def _make_record(
 class TestParseOtlpEvent(unittest.TestCase):
 
     def test_valid_line_returns_dict(self):
-        result = _parse_otlp_event(_make_record())
+        result = collector._parse_otlp_event(_make_record())
         self.assertIsNotNone(result)
         self.assertEqual(result["timestamp"], _DT_TS)
         self.assertEqual(result["body"], "test body")
         self.assertIsInstance(result["attributes"], dict)
 
     def test_timestamp_formatting_known_value(self):
-        result = _parse_otlp_event(_make_record(time_unix_nano=_ONE_SECOND_NS))
+        result = collector._parse_otlp_event(_make_record(time_unix_nano=_ONE_SECOND_NS))
         self.assertIsNotNone(result)
         self.assertEqual(result["timestamp"], _ONE_SECOND_TS)
 
     def test_invalid_json_returns_none(self):
-        self.assertIsNone(_parse_otlp_event("not valid json {{{"))
+        self.assertIsNone(collector._parse_otlp_event("not valid json {{{"))
 
     def test_zero_time_unix_nano_returns_none(self):
-        self.assertIsNone(_parse_otlp_event(_make_record(time_unix_nano=0)))
+        self.assertIsNone(collector._parse_otlp_event(_make_record(time_unix_nano=0)))
 
     def test_missing_time_unix_nano_returns_none(self):
-        self.assertIsNone(_parse_otlp_event(_make_record(time_unix_nano=None)))
+        self.assertIsNone(collector._parse_otlp_event(_make_record(time_unix_nano=None)))
 
     def test_zero_string_time_unix_nano_returns_none(self):
         # "0" casts to int 0 → treated as missing
-        self.assertIsNone(_parse_otlp_event(_make_record(time_unix_nano="0")))
+        self.assertIsNone(collector._parse_otlp_event(_make_record(time_unix_nano="0")))
 
     def test_missing_body_string_value_returns_none(self):
         # body present but no stringValue
         record = {"timeUnixNano": _DT_NS, "body": {"intValue": 42}}
         line = json.dumps({"resourceLogs": [{"scopeLogs": [{"logRecords": [record]}]}]})
-        self.assertIsNone(_parse_otlp_event(line))
+        self.assertIsNone(collector._parse_otlp_event(line))
 
     def test_null_body_returns_none(self):
-        self.assertIsNone(_parse_otlp_event(_make_record(body_value=None)))
+        self.assertIsNone(collector._parse_otlp_event(_make_record(body_value=None)))
 
     def test_missing_resource_logs_returns_none(self):
-        self.assertIsNone(_parse_otlp_event(json.dumps({})))
+        self.assertIsNone(collector._parse_otlp_event(json.dumps({})))
 
     def test_empty_resource_logs_list_returns_none(self):
-        self.assertIsNone(_parse_otlp_event(json.dumps({"resourceLogs": []})))
+        self.assertIsNone(collector._parse_otlp_event(json.dumps({"resourceLogs": []})))
 
     def test_empty_scope_logs_list_returns_none(self):
         line = json.dumps({"resourceLogs": [{"scopeLogs": []}]})
-        self.assertIsNone(_parse_otlp_event(line))
+        self.assertIsNone(collector._parse_otlp_event(line))
 
     def test_empty_log_records_list_returns_none(self):
         line = json.dumps({"resourceLogs": [{"scopeLogs": [{"logRecords": []}]}]})
-        self.assertIsNone(_parse_otlp_event(line))
+        self.assertIsNone(collector._parse_otlp_event(line))
 
     def test_attributes_decoded_correctly(self):
         attrs = [
             {"key": "service.name", "value": {"stringValue": "my-service"}},
             {"key": "http.status_code", "value": {"intValue": "200"}},
         ]
-        result = _parse_otlp_event(_make_record(attributes=attrs))
+        result = collector._parse_otlp_event(_make_record(attributes=attrs))
         self.assertIsNotNone(result)
         self.assertEqual(result["attributes"]["service.name"], "my-service")
         self.assertEqual(result["attributes"]["http.status_code"], 200)
 
     def test_empty_attributes_list(self):
-        result = _parse_otlp_event(_make_record(attributes=[]))
+        result = collector._parse_otlp_event(_make_record(attributes=[]))
         self.assertIsNotNone(result)
         self.assertEqual(result["attributes"], {})
 
     def test_none_record_type_returns_none(self):
         # logRecords contains a non-dict (IndexError/TypeError swallowed)
         line = json.dumps({"resourceLogs": [{"scopeLogs": [{"logRecords": None}]}]})
-        self.assertIsNone(_parse_otlp_event(line))
+        self.assertIsNone(collector._parse_otlp_event(line))
 
 
 # ===========================================================================
-# 3. _parse_event_lines
+# 3. collector._parse_event_lines
 # ===========================================================================
 
 class TestParseEventLines(unittest.TestCase):
 
     def test_empty_input(self):
-        rows, skipped = _parse_event_lines([])
+        rows, skipped = collector._parse_event_lines([])
         self.assertEqual(rows, [])
         self.assertEqual(skipped, 0)
 
     def test_blank_and_whitespace_lines_not_counted_as_skipped(self):
-        rows, skipped = _parse_event_lines(["", "   ", "\t"])
+        rows, skipped = collector._parse_event_lines(["", "   ", "\t"])
         self.assertEqual(rows, [])
         self.assertEqual(skipped, 0)
 
     def test_valid_line_counted_in_rows(self):
-        rows, skipped = _parse_event_lines([_make_record()])
+        rows, skipped = collector._parse_event_lines([_make_record()])
         self.assertEqual(len(rows), 1)
         self.assertEqual(skipped, 0)
 
     def test_invalid_line_counted_in_skipped(self):
-        rows, skipped = _parse_event_lines(["not valid json"])
+        rows, skipped = collector._parse_event_lines(["not valid json"])
         self.assertEqual(rows, [])
         self.assertEqual(skipped, 1)
 
@@ -272,55 +259,55 @@ class TestParseEventLines(unittest.TestCase):
             _make_record(time_unix_nano=_ONE_SECOND_NS),  # valid
             "{not json",            # invalid → skipped
         ]
-        rows, skipped = _parse_event_lines(lines)
+        rows, skipped = collector._parse_event_lines(lines)
         self.assertEqual(len(rows), 2)
         self.assertEqual(skipped, 2)
 
     def test_all_valid(self):
         lines = [_make_record(time_unix_nano=_DT_NS + i * 1_000_000_000) for i in range(5)]
-        rows, skipped = _parse_event_lines(lines)
+        rows, skipped = collector._parse_event_lines(lines)
         self.assertEqual(len(rows), 5)
         self.assertEqual(skipped, 0)
 
 
 # ===========================================================================
-# 4. _emit_no_events
+# 4. collector._emit_no_events
 # ===========================================================================
 
 class TestEmitNoEvents(unittest.TestCase):
 
     def test_json_fmt_calls_emit_rows(self):
         with patch("telemetry.collector.emit_rows") as mock_emit:
-            _emit_no_events("json", "some message")
-            mock_emit.assert_called_once_with([], fmt="json", headers=_EVENTS_HEADERS)
+            collector._emit_no_events("json", "some message")
+            mock_emit.assert_called_once_with([], fmt="json", headers=collector._EVENTS_HEADERS)
 
     def test_table_fmt_prints_dim_message(self):
         with _ConsoleCapture() as cap:
-            _emit_no_events("table", "No events found")
+            collector._emit_no_events("table", "No events found")
         # The message should appear in output (markup stripped since markup=False)
         self.assertIn("No events found", cap.out)
 
     def test_non_json_fmt_prints_message(self):
         with _ConsoleCapture() as cap:
-            _emit_no_events("csv", "nothing here")
+            collector._emit_no_events("csv", "nothing here")
         self.assertIn("nothing here", cap.out)
 
     def test_json_fmt_does_not_print_to_console(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.emit_rows"):
-                _emit_no_events("json", "should not appear")
+                collector._emit_no_events("json", "should not appear")
         self.assertNotIn("should not appear", cap.out)
 
 
 # ===========================================================================
-# 5. _docker_env
+# 5. collector._docker_env
 # ===========================================================================
 
 class TestDockerEnv(unittest.TestCase):
 
     def test_docker_host_already_set_is_preserved(self):
         with patch.dict(os.environ, {"DOCKER_HOST": "tcp://existing:2376"}, clear=False):
-            env = _docker_env()
+            env = collector._docker_env()
         self.assertEqual(env["DOCKER_HOST"], "tcp://existing:2376")
 
     def test_socket_exists_sets_docker_host(self):
@@ -332,7 +319,7 @@ class TestDockerEnv(unittest.TestCase):
                 env_copy = {k: v for k, v in os.environ.items() if k != "DOCKER_HOST"}
                 with patch.dict(os.environ, env_copy, clear=True):
                     with patch.object(collector, "_DOCKER_SOCKET", fake_sock):
-                        env = _docker_env()
+                        env = collector._docker_env()
         self.assertEqual(env.get("DOCKER_HOST"), f"unix://{fake_sock}")
 
     def test_socket_missing_docker_host_not_set(self):
@@ -341,19 +328,21 @@ class TestDockerEnv(unittest.TestCase):
             env_copy = {k: v for k, v in os.environ.items() if k != "DOCKER_HOST"}
             with patch.dict(os.environ, env_copy, clear=True):
                 with patch.object(collector, "_DOCKER_SOCKET", missing_sock):
-                    env = _docker_env()
+                    env = collector._docker_env()
         self.assertNotIn("DOCKER_HOST", env)
 
     def test_returns_copy_not_original(self):
         with patch.dict(os.environ, {"DOCKER_HOST": "unix:///test.sock"}, clear=False):
-            env = _docker_env()
+            env = collector._docker_env()
+            # mutate the returned dict inside the patched context
             env["DOCKER_HOST"] = "mutated"
-        # os.environ should be unchanged
-        self.assertNotEqual(os.environ.get("DOCKER_HOST"), "mutated")
+            # os.environ must NOT reflect the mutation — env is a copy, not a reference
+            self.assertNotEqual(os.environ.get("DOCKER_HOST"), "mutated")
+            self.assertEqual(os.environ.get("DOCKER_HOST"), "unix:///test.sock")
 
 
 # ===========================================================================
-# 6. _run_compose
+# 6. collector._run_compose
 # ===========================================================================
 
 class TestRunCompose(unittest.TestCase):
@@ -361,7 +350,7 @@ class TestRunCompose(unittest.TestCase):
     def test_success_on_first_try(self):
         expected = _cp(returncode=0, stdout="done")
         with patch("telemetry.collector.subprocess.run", return_value=expected) as mock_run:
-            result = _run_compose(["up", "-d"], env={})
+            result = collector._run_compose(["up", "-d"], env={})
         self.assertIs(result, expected)
         self.assertEqual(mock_run.call_count, 1)
         # First arg of first call should be a list starting with "docker-compose"
@@ -372,7 +361,7 @@ class TestRunCompose(unittest.TestCase):
         plugin_result = _cp(returncode=0, stdout="plugin ok")
         side_effects = [FileNotFoundError(), plugin_result]
         with patch("telemetry.collector.subprocess.run", side_effect=side_effects) as mock_run:
-            result = _run_compose(["up", "-d"], env={})
+            result = collector._run_compose(["up", "-d"], env={})
         self.assertIs(result, plugin_result)
         self.assertEqual(mock_run.call_count, 2)
         # Second call should use "docker" + "compose"
@@ -383,7 +372,7 @@ class TestRunCompose(unittest.TestCase):
     def test_both_forms_not_found_prints_error_and_returns_none(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=FileNotFoundError()):
-                result = _run_compose(["up", "-d"], env={})
+                result = collector._run_compose(["up", "-d"], env={})
         self.assertIsNone(result)
         self.assertIn("docker-compose not found", cap.err)
 
@@ -394,13 +383,13 @@ class TestRunCompose(unittest.TestCase):
                 "telemetry.collector.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="docker-compose", timeout=60),
             ):
-                result = _run_compose(["up", "-d"], env={})
+                result = collector._run_compose(["up", "-d"], env={})
         self.assertIsNone(result)
         self.assertIn("timed out", cap.err)
 
     def test_tail_args_passed_through(self):
         with patch("telemetry.collector.subprocess.run", return_value=_cp()) as mock_run:
-            _run_compose(["logs", "--tail", "100"], env={})
+            collector._run_compose(["logs", "--tail", "100"], env={})
         cmd = mock_run.call_args[0][0]
         self.assertIn("logs", cmd)
         self.assertIn("--tail", cmd)
@@ -408,7 +397,7 @@ class TestRunCompose(unittest.TestCase):
 
 
 # ===========================================================================
-# 7. _print_port_bindings
+# 7. collector._print_port_bindings
 # ===========================================================================
 
 class TestPrintPortBindings(unittest.TestCase):
@@ -419,7 +408,7 @@ class TestPrintPortBindings(unittest.TestCase):
         })
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertIn("4317/tcp", cap.out)
         self.assertIn("127.0.0.1:4317", cap.out)
 
@@ -429,7 +418,7 @@ class TestPrintPortBindings(unittest.TestCase):
         })
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertIn("0.0.0.0:8080", cap.out)
 
     def test_host_port_defaults_to_question_mark(self):
@@ -438,25 +427,25 @@ class TestPrintPortBindings(unittest.TestCase):
         })
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertIn("0.0.0.0:?", cap.out)
 
     def test_non_zero_returncode_no_output(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(returncode=1, stderr="error")):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_empty_stdout_no_output(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="")):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_invalid_json_stdout_no_crash(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="not json")):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_timeout_no_crash(self):
@@ -465,7 +454,7 @@ class TestPrintPortBindings(unittest.TestCase):
                 "telemetry.collector.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=10),
             ):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_empty_bindings_list_for_port(self):
@@ -473,19 +462,19 @@ class TestPrintPortBindings(unittest.TestCase):
         ports_json = json.dumps({"4317/tcp": None})
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
     def test_empty_list_bindings_for_port(self):
         ports_json = json.dumps({"4317/tcp": []})
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ports_json)):
-                _print_port_bindings("abc123def456", env={})
+                collector._print_port_bindings("abc123def456", env={})
         self.assertEqual(cap.out.strip(), "")
 
 
 # ===========================================================================
-# 8. _print_container_details
+# 8. collector._print_container_details
 # ===========================================================================
 
 class TestPrintContainerDetails(unittest.TestCase):
@@ -499,7 +488,7 @@ class TestPrintContainerDetails(unittest.TestCase):
         ]
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
-                _print_container_details("abc123def456", env={})
+                collector._print_container_details("abc123def456", env={})
         # lines 3-7 should appear; lines 1-2 should not
         self.assertIn("line7", cap.out)
         self.assertIn("line3", cap.out)
@@ -514,7 +503,7 @@ class TestPrintContainerDetails(unittest.TestCase):
         ]
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
-                _print_container_details("abc123def456", env={})
+                collector._print_container_details("abc123def456", env={})
         self.assertIn("stdout-line", cap.out)
         self.assertIn("stderr-line", cap.out)
 
@@ -525,7 +514,7 @@ class TestPrintContainerDetails(unittest.TestCase):
         ]
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
-                _print_container_details("abc123def456", env={})
+                collector._print_container_details("abc123def456", env={})
         self.assertNotIn("last 5 log lines", cap.out)
 
     def test_timeout_on_logs_no_crash(self):
@@ -535,7 +524,7 @@ class TestPrintContainerDetails(unittest.TestCase):
         ]
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
-                _print_container_details("abc123def456", env={})
+                collector._print_container_details("abc123def456", env={})
         # Should not raise; output may be empty or have port section
         self.assertNotIn("last 5 log lines", cap.out)
 
@@ -544,13 +533,13 @@ class TestPrintContainerDetails(unittest.TestCase):
         side_effects = [_cp(stdout="{}"), _cp(stdout=logs_stdout)]
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=side_effects):
-                _print_container_details("abc123def456", env={})
+                collector._print_container_details("abc123def456", env={})
         for line in ["a", "b", "c", "d", "e"]:
             self.assertIn(line, cap.out)
 
 
 # ===========================================================================
-# 9. _print_docker_containers
+# 9. collector._print_docker_containers
 # ===========================================================================
 
 class TestPrintDockerContainers(unittest.TestCase):
@@ -558,7 +547,7 @@ class TestPrintDockerContainers(unittest.TestCase):
     def test_docker_not_installed_prints_error(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", side_effect=FileNotFoundError()):
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         self.assertIn("docker not found", cap.err)
 
     def test_timeout_prints_error(self):
@@ -567,31 +556,31 @@ class TestPrintDockerContainers(unittest.TestCase):
                 "telemetry.collector.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="docker", timeout=10),
             ):
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         self.assertIn("timed out", cap.err)
 
     def test_non_zero_returncode_prints_stderr(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(returncode=1, stderr="permission denied")):
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         self.assertIn("permission denied", cap.err)
 
     def test_non_zero_returncode_unknown_error_fallback(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(returncode=1, stderr="")):
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         self.assertIn("unknown error", cap.err)
 
     def test_empty_stdout_prints_not_running(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="")):
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         self.assertIn("Collector not running", cap.out)
 
     def test_whitespace_only_stdout_prints_not_running(self):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout="   \n")):
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         self.assertIn("Collector not running", cap.out)
 
     def test_valid_container_line_calls_print_details(self):
@@ -600,7 +589,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         with _ConsoleCapture() as cap:
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
-                    _print_docker_containers(env={})
+                    collector._print_docker_containers(env={})
         mock_details.assert_called_once_with(valid_id, {})
         self.assertIn("otel-collector", cap.out)
 
@@ -610,7 +599,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         with _ConsoleCapture():
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
-                    _print_docker_containers(env={})
+                    collector._print_docker_containers(env={})
         mock_details.assert_not_called()
 
     def test_uppercase_hex_not_matched_by_regex(self):
@@ -619,7 +608,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         ps_stdout = f"{upper_id}\tUp 2 hours\totel-collector\n"
         with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
             with patch("telemetry.collector._print_container_details") as mock_details:
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         mock_details.assert_not_called()
 
     def test_too_short_hex_id_skipped(self):
@@ -627,7 +616,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         ps_stdout = f"{short_id}\tUp\totel-collector\n"
         with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
             with patch("telemetry.collector._print_container_details") as mock_details:
-                _print_docker_containers(env={})
+                collector._print_docker_containers(env={})
         mock_details.assert_not_called()
 
     def test_valid_64_char_id_accepted(self):
@@ -636,7 +625,7 @@ class TestPrintDockerContainers(unittest.TestCase):
         with _ConsoleCapture():
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
-                    _print_docker_containers(env={})
+                    collector._print_docker_containers(env={})
         mock_details.assert_called_once_with(long_id, {})
 
     def test_multiple_containers_all_processed(self):
@@ -646,12 +635,12 @@ class TestPrintDockerContainers(unittest.TestCase):
         with _ConsoleCapture():
             with patch("telemetry.collector.subprocess.run", return_value=_cp(stdout=ps_stdout)):
                 with patch("telemetry.collector._print_container_details") as mock_details:
-                    _print_docker_containers(env={})
+                    collector._print_docker_containers(env={})
         self.assertEqual(mock_details.call_count, 2)
 
 
 # ===========================================================================
-# 10. _print_data_files
+# 10. collector._print_data_files
 # ===========================================================================
 
 class TestPrintDataFiles(unittest.TestCase):
@@ -664,7 +653,7 @@ class TestPrintDataFiles(unittest.TestCase):
             (data_dir / "spans.jsonl").write_text("z" * 300, encoding="utf-8")
             with _ConsoleCapture() as cap:
                 with patch.object(collector, "_OTEL_DATA_DIR", data_dir):
-                    _print_data_files()
+                    collector._print_data_files()
         self.assertIn("events.jsonl", cap.out)
         self.assertIn("metrics.jsonl", cap.out)
         self.assertIn("spans.jsonl", cap.out)
@@ -680,7 +669,7 @@ class TestPrintDataFiles(unittest.TestCase):
             (data_dir / "events.jsonl").write_text("hello", encoding="utf-8")
             with _ConsoleCapture() as cap:
                 with patch.object(collector, "_OTEL_DATA_DIR", data_dir):
-                    _print_data_files()
+                    collector._print_data_files()
         self.assertIn("events.jsonl", cap.out)
         self.assertIn("not found", cap.out)
         # metrics and spans not created → should say not found
@@ -693,7 +682,7 @@ class TestPrintDataFiles(unittest.TestCase):
             data_dir = Path(td)
             with _ConsoleCapture() as cap:
                 with patch.object(collector, "_OTEL_DATA_DIR", data_dir):
-                    _print_data_files()
+                    collector._print_data_files()
         out = cap.out
         for fname in ("events.jsonl", "metrics.jsonl", "spans.jsonl"):
             lines = [line for line in out.splitlines() if fname in line]
@@ -709,7 +698,7 @@ class TestPrintDataFiles(unittest.TestCase):
             (data_dir / "events.jsonl").write_bytes(b"x" * 1234)
             with _ConsoleCapture() as cap:
                 with patch.object(collector, "_OTEL_DATA_DIR", data_dir):
-                    _print_data_files()
+                    collector._print_data_files()
         self.assertIn("1,234", cap.out)
 
     def test_data_files_header_printed(self):
@@ -717,7 +706,7 @@ class TestPrintDataFiles(unittest.TestCase):
             data_dir = Path(td)
             with _ConsoleCapture() as cap:
                 with patch.object(collector, "_OTEL_DATA_DIR", data_dir):
-                    _print_data_files()
+                    collector._print_data_files()
         self.assertIn("Data files", cap.out)
 
 
