@@ -61,7 +61,8 @@ stages:
       Step 1 — identify domain directories.
         The relevant source domains are:
           mail  calendars  schedule  resume  phone  whatsapp  desk
-          maker  charts  diagrams  workflow  core
+          maker  charts  diagrams  workflow  core  metals  wifi
+          apple_music  telemetry  worker
         Never include bin/ — those are public entry-point wrappers.
         If {domains} is not "*", restrict to the comma-separated list provided.
 
@@ -156,8 +157,11 @@ stages:
 
         split-tests-by-class
           — Test file: each TestCase class goes to its own file. Shared
-            setUp / fixtures move to <domain>_tests/conftest_helpers.py
+            setUp / fixtures move to <domain>_tests/shared_fixtures.py
             (or are added to tests/fixtures.py if they are truly global).
+            This repo uses unittest, not pytest — do not use conftest.py
+            naming; shared_fixtures.py is imported explicitly, not
+            auto-discovered.
 
         extract-helpers
           — Test file: large factories, fixtures, or setUp helpers that are
@@ -299,22 +303,33 @@ stages:
           - Preserve all module-level docstrings and __all__ declarations.
 
         For extract-package:
-          - Create the package directory alongside the original file.
-          - Move the original file's content to __init__.py inside the package,
-            then split out submodules per the proposed siblings.
-          - Keep the original filename as a re-export shim pointing to the
-            new package: from .<pkg> import *  # noqa: F401, F403
+          - A directory and a file of the same name cannot coexist, so the
+            original file must be removed as part of this conversion (this is
+            the one strategy that does not keep the original filename as a
+            sibling shim — parent-package imports are preserved instead).
+          - Create package directory <module>/ (same name as the original
+            file, minus .py) in place of the original file.
+          - Move the original file's content into <module>/__init__.py,
+            then split out submodules inside <module>/ per the proposed
+            siblings.
+          - Delete the original <module>.py file.
+          - <module>/__init__.py re-exports every symbol the original file
+            exposed: from .<sibling> import ClassName, function_name  # noqa: F401
+            This makes `from <parent_package>.<module> import X` continue to
+            resolve exactly as it did before, since <module> is now a package.
 
         For split-tests-by-class:
-          - Create one test file per TestCase class in the same test directory.
+          - Create one test file per TestCase class in the same test directory
+            (the domain's actual test directory — see Step 1 note below).
           - Move shared setUp / class-level fixtures to
-            tests/<domain>_tests/conftest_helpers.py and import from there.
+            <test_dir>/shared_fixtures.py and import from there explicitly
+            (this repo uses unittest, not pytest — no conftest.py autodiscovery).
           - Keep the original test file but replace its body with imports of
             all the split classes so `python3 -m unittest <original>` still works.
 
         For extract-helpers:
           - Extract non-test helper functions and fixtures to
-            tests/<domain>_tests/helpers.py.
+            <test_dir>/helpers.py (the domain's actual test directory).
           - Add `from .helpers import *` at the top of the original test file.
 
         After splitting each file:
@@ -368,14 +383,17 @@ stages:
         Extract domain names from filenames (e.g., mail-splits.md -> mail).
 
       Step 2 — per-domain test run:
-        For each touched domain, determine the test directory:
+        For each touched domain, determine the test directory (record it —
+        later stages reuse this exact path, do not re-derive it differently):
           - Check if tests/<domain>_tests/ exists: ls tests/<domain>_tests/
           - If not, check tests/<domain>/
           - If neither, check for tests/test_<domain>*.py at the top level.
           - If no test directory or files found, skip and note "no tests for <domain>".
 
-        Run per-domain discovery:
-          python3 -m unittest discover -s tests/<domain>_tests/ -p "test_*.py" -q 2>&1
+        Run per-domain discovery using the test directory found above
+        (substitute the actual resolved path, e.g. tests/<domain>/ or the
+        flat top-level file glob — do NOT assume tests/<domain>_tests/):
+          python3 -m unittest discover -s <resolved_test_dir> -p "test_*.py" -q 2>&1
 
         Fix failures up to 3 cycles per domain:
           - Import error: the re-export shim is missing an import or has a
@@ -435,10 +453,22 @@ stages:
       Step 2 — smoke-import each new module:
         For each new sibling file created:
           python3 -c "import <module_path>" 2>&1
-        For each rewritten re-export shim:
-          python3 -c "import <module_path>; dir(<module_path>)" 2>&1
-          Confirm that the symbols exported by the shim match those originally
-          in the file (grep the pre-split symbol list from plan.md).
+        For each rewritten re-export shim, verify full export parity — do NOT
+        rely on plan.md's top-level symbol list, since discover-candidates
+        only captured the first 40 class/def names as a planning hint, not a
+        complete export inventory:
+          a. Get the complete pre-split symbol set from git history (the
+             original file content before decompose-domains touched it):
+               git show HEAD:<module_path> | grep -n "^class \|^def "
+             This lists every top-level class/function, not just the first 40.
+          b. Get the shim's actual exported symbols:
+               python3 -c "import <module_path>; print([n for n in dir(<module_path>) if not n.startswith('_')])"
+          c. Diff the two sets. Any pre-split symbol missing from the shim's
+             dir() output is a broken export — fix the shim's import list.
+
+      Step 2b — also verify __all__ if the original file declared one:
+        If the pre-split file defined __all__, confirm the shim's __all__
+        (or its transitively re-exported __all__) contains the same names.
 
       Step 3 — check downstream importers:
         For each original file that was split, grep the codebase for existing
@@ -528,7 +558,11 @@ stages:
         For each domain marked FAIL in test-results.md:
           - Read the failure output and the relevant source/test files.
           - Apply the minimal fix (usually a missing re-export or wrong import path).
-          - Re-run: python3 -m unittest discover -s tests/<domain>_tests/ -q 2>&1
+          - Re-run using the "Test Dir" column recorded for this domain in
+            test-results.md (do NOT assume tests/<domain>_tests/ — reuse the
+            exact path verify-tests resolved, e.g. tests/<domain>/ or a flat
+            top-level file glob):
+              python3 -m unittest discover -s <test_dir_from_table> -q 2>&1
           - Up to 2 additional fix cycles per domain.
 
       Step 4 — update telemetry:
