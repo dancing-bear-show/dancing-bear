@@ -19,13 +19,16 @@ from telemetry.otel.retention import PruneResult, TelemetryPruner
 # ---------------------------------------------------------------------------
 
 _NOW = datetime(2026, 7, 29, 12, 0, 0, tzinfo=timezone.utc)
-_NOW_NANO = int(_NOW.timestamp() * 1_000_000_000)
+# Integer arithmetic to avoid float rounding at nanosecond precision.
+# _NOW has no microseconds, so whole-seconds * 1e9 is exact via int multiply.
+_NOW_SECS = int(_NOW.timestamp())
+_NOW_NANO = _NOW_SECS * 1_000_000_000 + _NOW.microsecond * 1_000
 
 # 5 days ago in nanoseconds — within a 30-day keep window
-_RECENT_NANO = int((_NOW.timestamp() - 5 * 86400) * 1_000_000_000)
+_RECENT_NANO = (_NOW_SECS - 5 * 86400) * 1_000_000_000
 
 # 40 days ago in nanoseconds — outside a 30-day keep window
-_OLD_NANO = int((_NOW.timestamp() - 40 * 86400) * 1_000_000_000)
+_OLD_NANO = (_NOW_SECS - 40 * 86400) * 1_000_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -505,8 +508,12 @@ class TestBytesAfterDryRunVsActual(unittest.TestCase):
             self.assertEqual(actual_result.bytes_after, events_path.stat().st_size)
 
     @patch("telemetry.otel.retention.now_utc", return_value=_NOW)
-    def test_dry_and_actual_bytes_after_are_plausible_and_differ(self, _mock_now):
-        """Dry-run estimate and actual file size are both non-negative and non-zero."""
+    def test_dry_and_actual_bytes_after_match_and_are_plausible(self, _mock_now):
+        """Dry-run estimate and actual file size are both non-zero and equal to each other.
+
+        The dry-run estimates bytes_after as sum(len(json.dumps(r)) + 1 for r in kept_records),
+        which matches the exact byte count written by _write_records. Both paths should agree.
+        """
         with tempfile.TemporaryDirectory() as td:
             events_path = Path(td) / "events.jsonl"
             _write_jsonl(events_path, [
@@ -527,7 +534,9 @@ class TestBytesAfterDryRunVsActual(unittest.TestCase):
             ])
             actual_result = pruner.prune("events", dry_run=False)
             self.assertGreater(actual_result.bytes_after, 0)
-            # Both paths produced plausible non-negative results
+            # Dry-run estimate must exactly match the real file size — same json.dumps path
+            self.assertEqual(dry_result.bytes_after, actual_result.bytes_after)
+            # Both paths produced plausible non-negative removed counts
             self.assertGreaterEqual(dry_result.bytes_removed, 0)
             self.assertGreaterEqual(actual_result.bytes_removed, 0)
 
