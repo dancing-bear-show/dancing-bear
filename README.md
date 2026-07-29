@@ -64,6 +64,52 @@ claude  # then ask: "What can this project do?"
 
 Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
+## Architecture
+
+```mermaid
+---
+title: Dancing Bear Architecture
+---
+flowchart TB
+    user([You - CLI or Claude Code])
+    assistant[./bin/assistant]
+    bins[bin/* wrappers]
+    mail[mail/]
+    calendars[calendars/]
+    schedule[schedule/]
+    resume[resume/]
+    phone[phone/]
+    whatsapp[whatsapp/]
+    other[wifi/, metals/, apple_music/, desk/, maker/]
+    core[core/ - shared helpers, CLI framework]
+    workflow[workflow/ - YAML DAG engine]
+    providers[Gmail, Outlook, iOS, local APIs]
+    user -->|dispatch| assistant
+    assistant --> bins
+    bins --> mail
+    bins --> calendars
+    bins --> schedule
+    bins --> resume
+    bins --> phone
+    bins --> whatsapp
+    bins --> other
+    mail --> core
+    calendars --> core
+    schedule --> core
+    resume --> core
+    phone --> core
+    whatsapp --> core
+    mail --> providers
+    calendars --> providers
+    schedule --> providers
+    phone --> providers
+    workflow -->|orchestrates| bins
+```
+
+Every domain CLI shares the same `core/` framework and follows the same plan/dry-run/apply
+safety pattern before touching a real provider. See [GETTING_STARTED.md](GETTING_STARTED.md)
+for that flow in detail.
+
 ## Credentials and Profiles
 
 Prefer profiles in `~/.config/credentials.ini` and avoid passing tokens on the CLI.

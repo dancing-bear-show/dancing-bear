@@ -253,6 +253,30 @@ Every command that modifies data has a safe preview mode:
 ./bin/mail labels sync --config labels.yaml
 ```
 
+```mermaid
+---
+title: Safe by Default -- Plan, Dry-Run, Apply
+---
+sequenceDiagram
+    autonumber
+    participant U as You
+    participant C as CLI
+    participant S as Source of Truth (YAML)
+    participant P as Provider (Gmail/Outlook/iOS)
+    U->>+C: plan
+    C->>S: read desired state
+    C->>P: read current state
+    C-->>U: diff: additions / changes / removals
+    deactivate C
+    U->>+C: apply --dry-run
+    C-->>U: simulated result, no writes
+    deactivate C
+    U->>+C: apply
+    C->>P: write changes
+    C-->>U: confirmation
+    deactivate C
+```
+
 ### 2. YAML as Source of Truth
 
 Your configuration lives in YAML files. The tools read these and sync state:
