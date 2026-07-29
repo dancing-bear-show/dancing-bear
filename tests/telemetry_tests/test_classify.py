@@ -1,5 +1,7 @@
 """Tests for telemetry/classify.py — ClassifyEngine."""
 
+import copy
+import itertools
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -12,7 +14,7 @@ from telemetry.models import SessionEvent
 # ---------------------------------------------------------------------------
 
 _BASE_TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-_seq = [0]
+_counter = itertools.count(1)
 
 
 def _evt(
@@ -25,11 +27,10 @@ def _evt(
     offset_seconds: float = 0.0,
 ) -> SessionEvent:
     """Build a SessionEvent with sensible defaults, auto-incrementing sequence."""
-    _seq[0] += 1
     return SessionEvent(
         timestamp=_BASE_TS + timedelta(seconds=offset_seconds),
         event_type=event_type,
-        sequence=_seq[0],
+        sequence=next(_counter),
         session_id="test-session",
         tool_name=tool_name,
         tool_input=tool_input,
@@ -41,7 +42,8 @@ def _evt(
 
 def reset_seq():
     """Reset the auto-incrementing sequence counter before each test class."""
-    _seq[0] = 0
+    global _counter
+    _counter = itertools.count(1)
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +90,7 @@ class TestFirstPassFailedTool(unittest.TestCase):
 
     def test_failed_tool_use_short_circuits_bash_rules(self):
         """Even if bash rules would otherwise fire, failure takes priority."""
-        rules = dict(BASH_RULES)
+        rules = copy.deepcopy(BASH_RULES)
         engine = ClassifyEngine(rules)
         evt = _evt(
             tool_name="Bash",
@@ -105,6 +107,7 @@ class TestFirstPassFailedTool(unittest.TestCase):
         self.engine.classify([evt])
         # Should NOT be avoidable/failed-tool — default classification applies
         self.assertNotEqual(evt.waste_reason, "failed-tool")
+        self.assertEqual(evt.classification, "neutral")
 
     def test_non_tool_use_event_skipped(self):
         evt = _evt(tool_name="Read", event_type="api_request", success=False)
@@ -195,7 +198,8 @@ class TestRedundantRead(unittest.TestCase):
     def test_no_file_path_not_redundant(self):
         evt = _evt(tool_name="Read", tool_input={})
         self.engine.classify([evt])
-        self.assertNotEqual(evt.classification, "avoidable")
+        self.assertEqual(evt.classification, "neutral")
+        self.assertIsNone(evt.waste_reason)
 
     def test_no_prior_read_not_redundant(self):
         evt = _evt(tool_name="Read", tool_input={"file_path": "/foo/bar.py"})
@@ -265,6 +269,20 @@ class TestRedundantRead(unittest.TestCase):
         # e_api is not tool_use, so it's skipped; no prior Read → not redundant
         self.assertNotEqual(e_read.waste_reason, "redundant-read")
 
+    def test_delta_equal_window_is_redundant(self):
+        """delta == window_seconds is redundant (source uses <=)."""
+        rules = {"avoidable": {"redundant-read": {
+            "enabled": True,
+            "window_seconds": 60,
+            "lookback_events": 10,
+        }}}
+        engine = ClassifyEngine(rules)
+        e1 = _evt(tool_name="Read", tool_input={"file_path": "/foo/bar.py"}, offset_seconds=0)
+        e2 = _evt(tool_name="Read", tool_input={"file_path": "/foo/bar.py"}, offset_seconds=60)
+        engine.classify([e1, e2])
+        self.assertEqual(e2.classification, "avoidable")
+        self.assertEqual(e2.waste_reason, "redundant-read")
+
 
 # ===========================================================================
 # First pass — _is_rapid_re_edit
@@ -291,12 +309,13 @@ class TestRapidReEdit(unittest.TestCase):
 
     def test_multiedit_and_notebookedit_trigger(self):
         for tool in ("MultiEdit", "NotebookEdit"):
-            reset_seq()
-            e1 = _evt(tool_name=tool, tool_input={"file_path": "/foo.py"}, offset_seconds=0)
-            e2 = _evt(tool_name=tool, tool_input={"file_path": "/foo.py"}, offset_seconds=5)
-            engine = ClassifyEngine(self.rules)
-            engine.classify([e1, e2])
-            self.assertEqual(e2.waste_reason, "rapid-re-edit", f"Expected rapid-re-edit for {tool}")
+            with self.subTest(tool=tool):
+                reset_seq()
+                e1 = _evt(tool_name=tool, tool_input={"file_path": "/foo.py"}, offset_seconds=0)
+                e2 = _evt(tool_name=tool, tool_input={"file_path": "/foo.py"}, offset_seconds=5)
+                engine = ClassifyEngine(self.rules)
+                engine.classify([e1, e2])
+                self.assertEqual(e2.waste_reason, "rapid-re-edit", f"Expected rapid-re-edit for {tool}")
 
     def test_different_file_not_rapid_re_edit(self):
         e1 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=0)
@@ -360,6 +379,37 @@ class TestRapidReEdit(unittest.TestCase):
         engine.classify([e_read, e_edit])
         # e_read is not an edit tool → skipped; no prior Edit → not rapid-re-edit
         self.assertNotEqual(e_edit.waste_reason, "rapid-re-edit")
+
+    def test_delta_equal_window_is_rapid_re_edit(self):
+        """delta == window_seconds fires (source uses <=)."""
+        rules = {"avoidable": {"rapid-re-edit": {
+            "enabled": True,
+            "window_seconds": 30,
+            "lookback_events": 5,
+            "min_gap_seconds": 0,
+        }}}
+        engine = ClassifyEngine(rules)
+        e1 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=0)
+        e2 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=30)
+        engine.classify([e1, e2])
+        self.assertEqual(e2.classification, "avoidable")
+        self.assertEqual(e2.waste_reason, "rapid-re-edit")
+
+    def test_delta_equal_min_gap_still_fires(self):
+        """delta == min_gap_seconds is NOT skipped (source uses <), and delta <= window_seconds fires."""
+        rules = {"avoidable": {"rapid-re-edit": {
+            "enabled": True,
+            "window_seconds": 30,
+            "lookback_events": 5,
+            "min_gap_seconds": 10,
+        }}}
+        engine = ClassifyEngine(rules)
+        e1 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=0)
+        e2 = _evt(tool_name="Edit", tool_input={"file_path": "/foo.py"}, offset_seconds=10)
+        engine.classify([e1, e2])
+        # delta=10, min_gap_seconds=10: 10 < 10 is False so not skipped; 10 <= 30 so fires
+        self.assertEqual(e2.classification, "avoidable")
+        self.assertEqual(e2.waste_reason, "rapid-re-edit")
 
 
 # ===========================================================================
@@ -589,7 +639,13 @@ class TestClassifyAbandonedSearch(unittest.TestCase):
             self.assertEqual(e.waste_reason, "abandoned-search")
 
     def test_avoidable_classification_not_overridden(self):
-        """Events already classified 'avoidable' must NOT be overridden."""
+        """Events already classified 'avoidable' must NOT be overridden.
+
+        evts[0] is the first read with no prior — it is correctly marked
+        abandoned-search by the second pass (review/abandoned-search). evts[1]
+        and evts[2] are avoidable/redundant-read from the first pass and must
+        not be changed to review by the second pass.
+        """
         evts = [
             _evt(tool_name="Read", tool_input={"file_path": "/foo.py"},
                  offset_seconds=0),
@@ -605,9 +661,14 @@ class TestClassifyAbandonedSearch(unittest.TestCase):
         }
         engine = ClassifyEngine(redundant_rules)
         engine.classify(evts)
+        # evts[0] has no prior read, so first pass leaves it neutral; second pass marks it abandoned-search
+        self.assertEqual(evts[0].classification, "review")
+        self.assertEqual(evts[0].waste_reason, "abandoned-search")
         # evts[1] and evts[2] are avoidable/redundant-read — must not be changed to review
         self.assertEqual(evts[1].classification, "avoidable")
         self.assertEqual(evts[1].waste_reason, "redundant-read")
+        self.assertEqual(evts[2].classification, "avoidable")
+        self.assertEqual(evts[2].waste_reason, "redundant-read")
 
     def test_neutral_classification_can_be_overridden(self):
         """Events currently classified 'neutral' should be upgraded to 'review'."""
@@ -650,6 +711,51 @@ class TestClassifyAbandonedSearch(unittest.TestCase):
         engine.classify(evts)
         for e in evts:
             self.assertEqual(e.waste_reason, "abandoned-search")
+
+    def test_productive_classification_not_overridden(self):
+        """abandoned-search only overwrites None/neutral; productive stays productive."""
+        custom_rules = {
+            "custom_rules": [
+                {"tool": "Read", "classification": "productive", "reason": "custom-read"},
+            ],
+            "review": {
+                "abandoned-search": {"enabled": True, "consecutive_reads": 3},
+            },
+        }
+        engine = ClassifyEngine(custom_rules)
+        evts = [
+            _evt(tool_name="Read", offset_seconds=0),
+            _evt(tool_name="Read", offset_seconds=5),
+            _evt(tool_name="Read", offset_seconds=10),
+        ]
+        engine.classify(evts)
+        for e in evts:
+            self.assertEqual(e.classification, "productive")
+            self.assertEqual(e.waste_reason, "custom-read")
+
+    def test_short_run_then_long_run_backtrack(self):
+        """Exercises the i = run_start + 1 backtrack path.
+
+        Run of 1 (below threshold=2) backtracks by one; after a Bash,
+        two consecutive Reads form a qualifying run and are marked abandoned-search.
+        """
+        rules = self._make_rules(consecutive_reads=2)
+        engine = ClassifyEngine(rules)
+        evts = [
+            _evt(tool_name="Read", offset_seconds=0),
+            _evt(tool_name="Bash", offset_seconds=5),
+            _evt(tool_name="Read", offset_seconds=10),
+            _evt(tool_name="Read", offset_seconds=15),
+        ]
+        engine.classify(evts)
+        # First Read: run of 1, below threshold of 2, not marked
+        self.assertNotEqual(evts[0].waste_reason, "abandoned-search")
+        # Bash: not a search tool, stays as-is
+        # Last two Reads: run of 2 >= threshold, no write follows → abandoned-search
+        self.assertEqual(evts[2].classification, "review")
+        self.assertEqual(evts[2].waste_reason, "abandoned-search")
+        self.assertEqual(evts[3].classification, "review")
+        self.assertEqual(evts[3].waste_reason, "abandoned-search")
 
 
 # ===========================================================================
@@ -700,18 +806,19 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
     def test_exempt_agent_types_skipped(self):
         for agent_type in ("reviewer", "researcher", "Explore", "fact-checker",
                            "unit-validator", "cross-unit-validator", "claude-code-guide"):
-            reset_seq()
-            rules = self._make_rules()
-            engine = ClassifyEngine(rules)
-            evts = [
-                _evt(tool_name="Agent", tool_input={"subagent_type": agent_type}, offset_seconds=0),
-                _evt(tool_name="Read", offset_seconds=10),
-            ]
-            engine.classify(evts)
-            self.assertNotEqual(
-                evts[0].waste_reason, "fruitless-agent",
-                f"Expected {agent_type} to be exempt from fruitless-agent"
-            )
+            with self.subTest(agent_type=agent_type):
+                reset_seq()
+                rules = self._make_rules()
+                engine = ClassifyEngine(rules)
+                evts = [
+                    _evt(tool_name="Agent", tool_input={"subagent_type": agent_type}, offset_seconds=0),
+                    _evt(tool_name="Read", offset_seconds=10),
+                ]
+                engine.classify(evts)
+                self.assertNotEqual(
+                    evts[0].waste_reason, "fruitless-agent",
+                    f"Expected {agent_type} to be exempt from fruitless-agent"
+                )
 
     def test_custom_exempt_types_honored(self):
         rules = self._make_rules(exempt_agent_types=["my-special-agent"])
@@ -721,6 +828,8 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
         ]
         engine.classify(evts)
         self.assertNotEqual(evts[0].waste_reason, "fruitless-agent")
+        self.assertEqual(evts[0].classification, "productive")
+        self.assertIsNone(evts[0].waste_reason)
 
     def test_write_outside_event_count_window_not_counted(self):
         """Write just past lookforward_events boundary should NOT count."""
@@ -743,7 +852,7 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
         engine = ClassifyEngine(rules)
         evts = [
             _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0),
-            _evt(tool_name="Edit", offset_seconds=10),  # delta=10 > window_seconds=5
+            _evt(tool_name="Edit", offset_seconds=10),  # Edit is 10s after the Agent, past the 5s window
         ]
         engine.classify(evts)
         self.assertEqual(evts[0].waste_reason, "fruitless-agent")
@@ -796,18 +905,50 @@ class TestClassifyFruitlessAgent(unittest.TestCase):
 
     def test_write_tools_multiedit_notebookedit_count(self):
         for write_tool in ("Write", "MultiEdit", "NotebookEdit"):
-            reset_seq()
-            rules = self._make_rules()
-            engine = ClassifyEngine(rules)
-            evts = [
-                _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0),
-                _evt(tool_name=write_tool, offset_seconds=10),
-            ]
-            engine.classify(evts)
-            self.assertNotEqual(
-                evts[0].waste_reason, "fruitless-agent",
-                f"Expected {write_tool} to count as a write tool"
-            )
+            with self.subTest(write_tool=write_tool):
+                reset_seq()
+                rules = self._make_rules()
+                engine = ClassifyEngine(rules)
+                evts = [
+                    _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0),
+                    _evt(tool_name=write_tool, offset_seconds=10),
+                ]
+                engine.classify(evts)
+                self.assertNotEqual(
+                    evts[0].waste_reason, "fruitless-agent",
+                    f"Expected {write_tool} to count as a write tool"
+                )
+
+    def test_neutral_classification_not_overridden(self):
+        """fruitless-agent only overwrites None/productive; neutral stays neutral."""
+        custom_rules = {
+            "custom_rules": [
+                {"tool": "Agent", "classification": "neutral", "reason": "custom-agent"},
+            ],
+            "review": {
+                "fruitless-agent": {"enabled": True, "window_seconds": 300, "lookforward_events": 10},
+            },
+        }
+        engine = ClassifyEngine(custom_rules)
+        evts = [
+            _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0),
+        ]
+        engine.classify(evts)
+        self.assertEqual(evts[0].classification, "neutral")
+        self.assertEqual(evts[0].waste_reason, "custom-agent")
+
+    def test_write_at_exactly_lookforward_boundary_is_found(self):
+        """Write check runs before count increment, so the write at the last allowed position is found."""
+        rules = self._make_rules(window_seconds=3600, lookforward_events=2)
+        engine = ClassifyEngine(rules)
+        evts = [
+            _evt(tool_name="Agent", tool_input={"subagent_type": "code-writer"}, offset_seconds=0),
+            _evt(tool_name="Read", offset_seconds=10),
+            _evt(tool_name="Edit", offset_seconds=20),
+        ]
+        engine.classify(evts)
+        # Edit is at the 2nd tool position; the write-check runs before break, so it is found
+        self.assertNotEqual(evts[0].waste_reason, "fruitless-agent")
 
 
 # ===========================================================================
