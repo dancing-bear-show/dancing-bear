@@ -213,7 +213,7 @@ class TestAccountsListProcessor(unittest.TestCase):
         envelope = processor.process(request)
 
         self.assertTrue(envelope.ok())
-        self.assertEqual(envelope.payload.accounts[0].name, "<noname>")
+        self.assertEqual(envelope.payload.accounts[0].name, "account")
         self.assertEqual(envelope.payload.accounts[0].provider, "")
 
     @patch("mail.accounts.helpers.load_accounts")

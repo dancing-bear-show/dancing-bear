@@ -5,11 +5,32 @@ import tempfile
 import unittest
 import datetime as _dt
 from contextlib import redirect_stdout
+from datetime import timedelta, timezone
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
+
+def _rel_date(days: int = 0) -> str:
+    """Return a date string relative to today (UTC)."""
+    return (_dt.datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _rel_iso(days: int = 0, hour: int = 17, minute: int = 0) -> str:
+    """Return a datetime ISO string (with +00:00) relative to today (UTC)."""
+    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
+    base = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return base.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _rel_created(days: int = 0) -> str:
+    """Return a datetime ISO string (with Z suffix) relative to today (UTC)."""
+    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
+    base = base.replace(hour=0, minute=0, second=0, microsecond=0)
+    return base.strftime("%Y-%m-%dT%H:%M:%SZ")
+
 from tests.fixtures import write_yaml
+from tests.calendars_tests.fixtures import make_outlook_event
 
 from core.pipeline import ResultEnvelope
 from calendars.pipeline import (
@@ -101,6 +122,8 @@ Location: Elgin West""",
         env = processor.process(GmailReceiptsRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(len(env.payload.document["events"]), 1)  # type: ignore[union-attr]
+        svc.list_message_ids.assert_called_once()
+        svc.get_message_text.assert_called_once_with("m1")
 
     def test_scan_classes_processor_and_producer(self):
         text = """Location: Elgin West
@@ -122,6 +145,8 @@ Monday from 5:00 pm to 5:30 pm"""
         env = processor.process(GmailScanClassesRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(len(env.payload.events), 1)  # type: ignore[union-attr]
+        svc.list_message_ids.assert_called_once()
+        svc.get_message_text.assert_called_once_with("m1")
         buf = io.StringIO()
         with redirect_stdout(buf):
             GmailScanClassesProducer().produce(env)
@@ -185,6 +210,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailMailListProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailMailListRequestConsumer(request).consume())
         self.assertTrue(env.ok())
+        svc.list_message_ids.assert_called_once()
+        svc.get_message_text.assert_called_once_with("m1")
         buf = io.StringIO()
         with redirect_stdout(buf):
             GmailMailListProducer().produce(env)
@@ -227,6 +254,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
         processor = GmailSweepTopProcessor(service_builder=lambda _auth: svc)
         env = processor.process(GmailSweepTopRequestConsumer(request).consume())
         self.assertTrue(env.ok())
+        svc.list_message_ids.assert_called_once()
+        self.assertEqual(svc.get_message.call_count, 2)
         buf = io.StringIO()
         with redirect_stdout(buf):
             GmailSweepTopProducer().produce(env)
@@ -296,17 +325,13 @@ Tuesday from 6:00 pm to 6:30 pm"""
             tf_path = Path(tf.name)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            {
-                "subject": "Swim",
-                "start": {"dateTime": "2025-01-06T17:00:00"},
-                "end": {"dateTime": "2025-01-06T17:30:00"},
-                "type": "singleInstance",
-            }
+            make_outlook_event("Swim", "2025-01-06T17:00:00", "2025-01-06T17:30:00", event_type="singleInstance"),
         ]
         request = OutlookVerifyRequest(config_path=tf_path, calendar=None, service=svc)
         env = OutlookVerifyProcessor().process(OutlookVerifyRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.duplicates, 1)  # type: ignore[union-attr]
+        svc.list_events_in_range.assert_called_once()
 
     def test_outlook_verify_producer_prints_logs(self):
         buf = io.StringIO()
@@ -339,6 +364,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
         env = OutlookAddProcessor().process(OutlookAddRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.created, 2)  # type: ignore[union-attr]
+        svc.create_event.assert_called_once()
+        svc.create_recurring_event.assert_called_once()
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookAddProducer().produce(env)
@@ -348,20 +375,21 @@ Tuesday from 6:00 pm to 6:30 pm"""
         svc = MagicMock()
         svc.find_calendar_id.return_value = "cal-1"
         svc.list_calendar_view.return_value = [
-            _make_occurrence("Soccer", "A", "2025-01-06T17:00:00+00:00", "2025-01-06T17:30:00+00:00", "2024-01-01T00:00:00Z"),
-            _make_occurrence("Soccer", "B", "2025-01-13T17:00:00+00:00", "2025-01-13T17:30:00+00:00", "2024-06-01T00:00:00Z"),
+            _make_occurrence("Soccer", "A", _rel_iso(7), _rel_iso(7, 17, 30), _rel_created(-180)),
+            _make_occurrence("Soccer", "B", _rel_iso(14), _rel_iso(14, 17, 30), _rel_created(-90)),
         ]
         request = OutlookDedupRequest(
             service=svc,
             calendar="Family",
-            from_date="2025-01-01",
-            to_date="2025-02-01",
+            from_date=_rel_date(0),
+            to_date=_rel_date(30),
         )
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertEqual(len(env.payload.duplicates), 1)  # type: ignore[union-attr]
         dup = env.payload.duplicates[0]  # type: ignore[union-attr]
         self.assertEqual(dup.keep, "A")
+        svc.list_calendar_view.assert_called_once()
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookDedupProducer().produce(env)
@@ -372,15 +400,15 @@ Tuesday from 6:00 pm to 6:30 pm"""
     def test_outlook_dedup_processor_apply(self):
         svc = MagicMock()
         svc.list_calendar_view.return_value = [
-            _make_occurrence("Swim", "S1", "2025-02-03T18:00:00+00:00", "2025-02-03T18:30:00+00:00", "2024-01-01T00:00:00Z"),
-            _make_occurrence("Swim", "S2", "2025-02-10T18:00:00+00:00", "2025-02-10T18:30:00+00:00", "2024-03-01T00:00:00Z"),
+            _make_occurrence("Swim", "S1", _rel_iso(7, 18, 0), _rel_iso(7, 18, 30), _rel_created(-180)),
+            _make_occurrence("Swim", "S2", _rel_iso(14, 18, 0), _rel_iso(14, 18, 30), _rel_created(-90)),
         ]
         svc.delete_event_by_id.return_value = True
         request = OutlookDedupRequest(
             service=svc,
             apply=True,
-            from_date="2025-02-01",
-            to_date="2025-02-28",
+            from_date=_rel_date(0),
+            to_date=_rel_date(30),
         )
         env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
         self.assertTrue(env.ok())
@@ -432,6 +460,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         self.assertEqual(first.series_ids, ["S1"])
         second = env.payload.plan[1]  # type: ignore[union-attr]
         self.assertEqual(second.event_ids, ["E1"])
+        self.assertEqual(svc.list_events_in_range.call_count, 2)
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookRemoveProducer().produce(env)
@@ -505,6 +534,8 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         self.assertTrue(env.ok())
         self.assertTrue(env.payload.dry_run)  # type: ignore[union-attr]
+        svc.get_calendar_id_by_name.assert_called_once_with("Family")
+        svc.list_events_in_range.assert_called_once()
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookRemindersProducer().produce(env)
@@ -617,6 +648,7 @@ Tuesday from 6:00 pm to 6:30 pm"""
         )
         env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
         self.assertTrue(env.ok())
+        svc.list_events_in_range.assert_called_once()
         buf = io.StringIO()
         with redirect_stdout(buf):
             OutlookSettingsProducer().produce(env)

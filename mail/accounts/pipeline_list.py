@@ -21,6 +21,8 @@ from .pipeline_auth import (
 )
 
 
+_DEFAULT_ACCOUNT_NAME = "account"
+
 # -----------------------------------------------------------------------------
 # List accounts pipeline
 # -----------------------------------------------------------------------------
@@ -62,7 +64,7 @@ class AccountsListProcessor(SafeProcessor[AccountsListRequest, AccountsListResul
         return AccountsListResult(
             accounts=[
                 AccountInfo(
-                    name=a.get("name", "<noname>"),
+                    name=a.get("name", _DEFAULT_ACCOUNT_NAME),
                     provider=a.get("provider", ""),
                     credentials=a.get("credentials", ""),
                     token=a.get("token", ""),

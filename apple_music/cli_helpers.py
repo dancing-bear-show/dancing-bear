@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .client import AppleMusicClient
 from .config import DEFAULT_PROFILE, load_profile
 
+logger = logging.getLogger(__name__)
 
-@dataclass
+
+@dataclass(frozen=True)
 class PlaylistCreationConfig:
     """Configuration for creating a playlist from seed tracks."""
 
@@ -40,18 +41,6 @@ def _resolve_tokens(args) -> tuple[str | None, str | None]:
         or profile_cfg.get("user_token")
     )
     return developer_token, user_token
-
-
-def _get_client(args) -> AppleMusicClient:
-    """Create an AppleMusicClient from args."""
-    developer_token, user_token = _resolve_tokens(args)
-    if not developer_token:
-        print("Missing developer token. Provide --developer-token or set developer_token in credentials.ini.", file=sys.stderr)
-        raise SystemExit(2)
-    if not user_token:
-        print("Missing user token. Provide --user-token or set user_token in credentials.ini.", file=sys.stderr)
-        raise SystemExit(2)
-    return AppleMusicClient(developer_token, user_token)
 
 
 def _output_json(args, payload: dict) -> int:

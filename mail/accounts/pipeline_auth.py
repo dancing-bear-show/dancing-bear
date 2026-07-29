@@ -60,7 +60,8 @@ def canonicalize_filter(f: dict[str, Any]) -> str:
     """Canonical string representation of a filter for comparison."""
     crit = f.get("criteria") or f.get("match") or {}
     act = f.get("action") or {}
-    add_ids = act.get("addLabelIds") or act.get("add") or []
+    _raw_ids = act.get("addLabelIds") or act.get("add") or []
+    add_ids: list = _raw_ids if isinstance(_raw_ids, list) else []
     return str({
         "from": crit.get("from"),
         "to": crit.get("to"),

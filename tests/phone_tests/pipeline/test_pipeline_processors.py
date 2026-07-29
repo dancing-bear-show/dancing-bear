@@ -65,7 +65,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config=None,
         )
         man = {"device": {}}
-        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
+        out_path = Path("test.mobileconfig")  # sentinel path, never written to disk in this test
         cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--udid", cmd)
         self.assertIn("test-udid", cmd)
@@ -82,7 +82,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config=None,
         )
         man = {"device": {}}
-        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
+        out_path = Path("test.mobileconfig")  # sentinel path, never written to disk in this test
         cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--device-label", cmd)
         self.assertIn("my-device", cmd)
@@ -99,7 +99,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config="/etc/config.yaml",
         )
         man = {"device": {}}
-        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
+        out_path = Path("test.mobileconfig")  # sentinel path, never written to disk in this test
         cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--creds-profile", cmd)
         self.assertIn("ios_layout", cmd)
@@ -118,7 +118,7 @@ class TestBuildInstallCmd(unittest.TestCase):
             config=None,
         )
         man = {"device": {"udid": "from-manifest-udid"}}
-        out_path = Path("/tmp/test.mobileconfig")  # nosec B108 - test-only temp file, not a security concern
+        out_path = Path("test.mobileconfig")  # sentinel path, never written to disk in this test
         cmd = _build_install_command(payload, man, out_path)
         self.assertIn("--udid", cmd)
         self.assertIn("from-manifest-udid", cmd)
@@ -271,7 +271,7 @@ class TestIdentityVerifyProcessorBranches(unittest.TestCase):
         from phone.device import CertInfo
         mock_cert = CertInfo(subject="CN=TestOrg", issuer="CN=TestIssuer")
         with (
-            patch("phone.device.read_credentials_ini", return_value=(Path("/tmp/creds.ini"), {})),  # nosec B108 - test-only temp file, not a security concern
+            patch("phone.device.read_credentials_ini", return_value=(Path("creds.ini"), {})),  # sentinel path, never accessed in this test
             patch("phone.device.resolve_p12_path", return_value=("/path/to/cert.p12", "pass")),  # nosec B106
             patch("phone.device.extract_p12_cert_info", return_value=mock_cert),
             patch("phone.device.get_device_supervision_status", return_value="true"),

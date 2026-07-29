@@ -110,7 +110,7 @@ def _sign_mobileconfig(
         env = {**os.environ, "_IOS_P12_PASS": p12_pass}
 
         # Extract certificate
-        subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
+        subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path; mitigations: list-form args (no shell), check=True raises on failure, password passed via env var not argv
             [
                 "openssl",
                 "pkcs12",
@@ -130,7 +130,7 @@ def _sign_mobileconfig(
         )
 
         # Extract private key
-        subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path
+        subprocess.run(  # nosec B603 B607 - openssl with user-provided p12 path; mitigations: list-form args (no shell), check=True raises on failure, password passed via env var not argv
             [
                 "openssl",
                 "pkcs12",

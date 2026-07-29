@@ -7,6 +7,7 @@ import datetime
 from charts.theme import ChartTheme
 from charts.types.bar import BarChartSpec
 from charts.renderer_line_area import (
+    _parse_iso_to_datetime,
     _parse_x_values,
     _series_color,
 )
@@ -18,7 +19,6 @@ def _x_key(v: object) -> str:
     if isinstance(v, datetime.date):
         return datetime.datetime.combine(v, datetime.time.min).isoformat()
     try:
-        from charts.renderer_line_area import _parse_iso_to_datetime
         return _parse_iso_to_datetime(str(v)).isoformat()
     except ValueError:
         pass

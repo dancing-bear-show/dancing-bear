@@ -12,7 +12,7 @@ import sys
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 
-from .client import AppleMusicClient, AppleMusicError  # noqa: F401 — AppleMusicClient kept here for mock-patch compatibility
+from .client import AppleMusicClient, AppleMusicError  # noqa: F401 — AppleMusicClient for mock-patch compat; AppleMusicError used in cmd_create except clause
 from .cli_helpers import (  # noqa: F401
     PlaylistCreationConfig,
     _output_json,
@@ -53,7 +53,11 @@ _assistant = BaseAssistant(
 
 
 def _get_client(args) -> AppleMusicClient:
-    """Create an AppleMusicClient from args."""
+    """Create an AppleMusicClient from args.
+
+    Defined here (not delegated to cli_helpers) so tests can mock-patch
+    apple_music.cli.AppleMusicClient without affecting the helpers module.
+    """
     developer_token, user_token = _resolve_tokens(args)
     if not developer_token:
         print("Missing developer token. Provide --developer-token or set developer_token in credentials.ini.", file=sys.stderr)

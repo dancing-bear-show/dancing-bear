@@ -301,7 +301,8 @@ def _create_from_seeds(
     """Helper to create a playlist from seed tracks."""
     store = config.storefront
     if not store:
-        store = client.ping().get("data", [{}])[0].get("id")
+        data = client.ping().get("data") or [{}]
+        store = data[0].get("id")
     seeds_copy = list(seeds)
     rng = random.Random(config.shuffle_seed)  # nosec B311 - non-security shuffle for playlist ordering
     rng.shuffle(seeds_copy)

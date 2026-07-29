@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from core.llm_cli import LlmConfig
 
 from core.textio import read_text as _read_text
 
@@ -122,7 +125,7 @@ def _build_policies_builder(policies_fallback: str | None) -> Callable[[], str]:
     return builder
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainLlmConfig:
     """Configuration for creating domain-specific LLM modules.
 
@@ -141,8 +144,8 @@ class DomainLlmConfig:
 
 def make_domain_llm_module(
     config: DomainLlmConfig | None = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> "LlmConfig":
     """Factory to create an LlmConfig for a domain module with minimal boilerplate.
 
     Args:

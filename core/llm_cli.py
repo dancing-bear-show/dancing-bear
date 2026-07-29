@@ -17,6 +17,8 @@ from core.llm_builders import (  # noqa: F401
     DEFAULT_INVENTORY_FILENAME,
     DEFAULT_POLICIES_FILENAME,
     DomainLlmConfig,
+    _DEFAULT_POLICIES_YAML,
+    _DOMAIN_MAP_UNAVAILABLE,
     _build_agentic_builder,
     _build_domain_map_builder,
     _build_familiar_compact_builder,
@@ -75,15 +77,6 @@ from core.llm_domain import (  # noqa: F401
 # ---------------------------------------------------------------------------
 # Locals (LlmConfig must be defined here — llm_builders back-imports it)
 # ---------------------------------------------------------------------------
-
-_DOMAIN_MAP_UNAVAILABLE = "Domain Map not available"
-_DEFAULT_POLICIES_YAML = (
-    "policies:\n"
-    "  style:\n"
-    "    - Keep CLI stable; prefer plan→apply\n"
-    "  tests:\n"
-    "    - Add lightweight unittest for new CLI surfaces\n"
-)
 
 
 @dataclass

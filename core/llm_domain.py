@@ -13,11 +13,20 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable
 
 from core.textio import read_text as _read_text, write_text as _write_text
+from core.llm_builders import (
+    DEFAULT_AGENTIC_FILENAME,
+    DEFAULT_DOMAIN_MAP_FILENAME,
+    DEFAULT_FAMILIAR_FILENAME,
+    DEFAULT_INVENTORY_FILENAME,
+    DEFAULT_POLICIES_FILENAME,
+    _DOMAIN_MAP_UNAVAILABLE,
+    _DEFAULT_POLICIES_YAML,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -75,30 +84,14 @@ _APP_MODULES = {
     "wifi": "wifi.llm_cli",
 }
 
-_DOMAIN_MAP_UNAVAILABLE = "Domain Map not available"
-_DEFAULT_POLICIES_YAML = (
-    "policies:\n"
-    "  style:\n"
-    "    - Keep CLI stable; prefer plan→apply\n"
-    "  tests:\n"
-    "    - Add lightweight unittest for new CLI surfaces\n"
-)
-
-# Default filenames for LLM outputs (mirrors llm_cli.py defaults)
-DEFAULT_AGENTIC_FILENAME = "AGENTIC.md"
-DEFAULT_DOMAIN_MAP_FILENAME = "DOMAIN_MAP.md"
-DEFAULT_INVENTORY_FILENAME = "INVENTORY.md"
-DEFAULT_FAMILIAR_FILENAME = "familiarize.yaml"
-DEFAULT_POLICIES_FILENAME = "PR_POLICIES.yaml"
-
 
 # ---------------------------------------------------------------------------
 # App-arg extraction and dispatch
 # ---------------------------------------------------------------------------
 
-def _extract_app_arg(argv: List[str]) -> Tuple[Optional[str], List[str]]:
-    app: Optional[str] = None
-    cleaned: List[str] = []
+def _extract_app_arg(argv: list[str]) -> tuple[str | None, list[str]]:
+    app: str | None = None
+    cleaned: list[str] = []
     skip_next = False
     for idx, arg in enumerate(argv):
         if skip_next:
@@ -117,11 +110,11 @@ def _extract_app_arg(argv: List[str]) -> Tuple[Optional[str], List[str]]:
     return app, cleaned
 
 
-def _run_app_cli(app: str, argv: List[str]) -> int:
+def _run_app_cli(app: str, argv: list[str]) -> int:
     module_name = _APP_MODULES.get(app)
     if not module_name:
         available = ", ".join(sorted(_APP_MODULES.keys()))
-        print(f"Unknown app '{app}'. Available apps: {available}")
+        print(f"Unknown app '{app}'. Available apps: {available}", file=sys.stderr)
         return 2
     module = importlib.import_module(module_name)
     if hasattr(module, "main"):
@@ -140,7 +133,9 @@ def _mail_agentic_capsule(compact: bool = False) -> str:
     try:
         from mail.agentic import build_agentic_capsule
         return build_agentic_capsule(compact=compact)
-    except Exception:
+    except Exception as exc:  # nosec B110 - fallback on import/build failure
+        import logging
+        logging.getLogger(__name__).warning("_mail_agentic_capsule failed: %s", exc)
         return "agentic: mail\n(pending capsule)"
 
 
@@ -152,11 +147,13 @@ def _mail_domain_map() -> str:
         return _DOMAIN_MAP_UNAVAILABLE
 
 
-def _mail_flows() -> List[Dict[str, Any]]:
+def _mail_flows() -> list[dict[str, Any]]:
     try:
         from mail.agentic import build_flows
         return build_flows()
-    except Exception:
+    except Exception as exc:  # nosec B110 - fallback on import/build failure
+        import logging
+        logging.getLogger(__name__).warning("_mail_flows failed: %s", exc)
         return []
 
 
@@ -216,9 +213,9 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
 # Staleness / dependency stats helpers
 # ---------------------------------------------------------------------------
 
-def _parse_sla_env() -> dict:
+def _parse_sla_env() -> dict[str, int]:
     env = os.environ.get("LLM_SLA", "")
-    overrides: dict = {}
+    overrides: dict[str, int] = {}
     for part in env.replace(";", ",").split(","):
         if ":" not in part:
             continue
@@ -230,10 +227,10 @@ def _parse_sla_env() -> dict:
     return overrides
 
 
-def _split_list(value: Optional[str]) -> List[str]:
+def _split_list(value: str | None) -> list[str]:
     if not value:
         return []
-    parts: List[str] = []
+    parts: list[str] = []
     for raw in value.replace(";", ",").split(","):
         entry = raw.strip()
         if entry:
@@ -241,7 +238,7 @@ def _split_list(value: Optional[str]) -> List[str]:
     return parts
 
 
-def _collect_excludes() -> set:
+def _collect_excludes() -> set[str]:
     excludes = set(DEFAULT_SKIP_DIRS)
     env_val = os.environ.get("LLM_EXCLUDE")
     if env_val:
@@ -249,10 +246,10 @@ def _collect_excludes() -> set:
     return excludes
 
 
-def _iter_candidate_dirs(root: Path, include: Optional[Iterable[str]] = None) -> List[Tuple[str, Path]]:
+def _iter_candidate_dirs(root: Path, include: Iterable[str] | None = None) -> list[tuple[str, Path]]:
     include_set = {name.strip() for name in include or [] if name.strip()}
     excludes = _collect_excludes()
-    entries: List[Tuple[str, Path]] = []
+    entries: list[tuple[str, Path]] = []
     for child in sorted(root.iterdir(), key=lambda p: p.name):
         if not child.is_dir():
             continue
@@ -276,9 +273,9 @@ def _latest_mtime(path: Path) -> float:
     return latest
 
 
-def _collect_stale_stats(root: Path, include: Optional[List[str]], limit: int) -> List[Dict[str, object]]:
+def _collect_stale_stats(root: Path, include: list[str] | None, limit: int) -> list[dict[str, object]]:
     now = time.time()
-    stats: List[Dict[str, object]] = []
+    stats: list[dict[str, object]] = []
     for name, path in _iter_candidate_dirs(root, include):
         try:
             latest = _latest_mtime(path)
@@ -289,7 +286,7 @@ def _collect_stale_stats(root: Path, include: Optional[List[str]], limit: int) -
             {
                 "area": name,
                 "staleness_days": round(days, 2),
-                "latest_ts": datetime.fromtimestamp(latest).isoformat(timespec="seconds"),
+                "latest_ts": datetime.fromtimestamp(latest, tz=timezone.utc).isoformat(timespec="seconds"),
             }
         )
     stats.sort(key=lambda entry: entry["staleness_days"], reverse=True)
@@ -298,8 +295,8 @@ def _collect_stale_stats(root: Path, include: Optional[List[str]], limit: int) -
     return stats
 
 
-def _collect_dep_stats(root: Path, limit: int, order: str) -> List[Dict[str, int]]:
-    stats: List[Dict[str, int]] = []
+def _collect_dep_stats(root: Path, limit: int, order: str) -> list[dict[str, int]]:
+    stats: list[dict[str, int]] = []
     for name, path in _iter_candidate_dirs(root):
         py_files = 0
         try:
@@ -329,7 +326,7 @@ def _status_for_area(area: str, days: float, overrides: dict) -> str:
     return "STALE" if threshold is not None and days > threshold else "OK"
 
 
-def _fail_on_stale(stats: List[Dict[str, object]], overrides: dict) -> bool:
+def _fail_on_stale(stats: list[dict[str, object]], overrides: dict) -> bool:
     for entry in stats:
         area = entry["area"]
         days = float(entry["staleness_days"])
@@ -343,7 +340,7 @@ def _fail_on_stale(stats: List[Dict[str, object]], overrides: dict) -> bool:
 # Emit helper
 # ---------------------------------------------------------------------------
 
-def _emit_content(content: str, write_path: Optional[str], stdout: bool) -> None:
+def _emit_content(content: str, write_path: str | None, stdout: bool) -> None:
     if write_path:
         target = Path(write_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -424,7 +421,7 @@ def _build_repo_parser() -> argparse.ArgumentParser:
 # Command handlers
 # ---------------------------------------------------------------------------
 
-def _handle_inventory(args, llm_dir: Path) -> int:
+def _handle_inventory(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle inventory command."""
     if getattr(args, "format", "md") == "json":
         data = {
@@ -445,7 +442,7 @@ def _handle_inventory(args, llm_dir: Path) -> int:
     return 0
 
 
-def _handle_familiar(args, llm_dir: Path) -> int:
+def _handle_familiar(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle familiar command."""
     content = _familiar_content(
         verbose=getattr(args, "verbose", False),
@@ -459,7 +456,7 @@ def _handle_familiar(args, llm_dir: Path) -> int:
     return 0
 
 
-def _handle_policies(args, llm_dir: Path) -> int:
+def _handle_policies(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle policies command."""
     target = Path(args.write or (llm_dir / DEFAULT_POLICIES_FILENAME))
     content = _read_text(target) or _default_policies()
@@ -470,7 +467,7 @@ def _handle_policies(args, llm_dir: Path) -> int:
     return 0
 
 
-def _handle_agentic(args, llm_dir: Path) -> int:
+def _handle_agentic(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle agentic command."""
     compact = getattr(args, "compact", False)
     content = _mail_agentic_capsule(compact=compact)
@@ -482,7 +479,7 @@ def _handle_agentic(args, llm_dir: Path) -> int:
     return 0
 
 
-def _handle_domain_map(args, llm_dir: Path) -> int:
+def _handle_domain_map(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle domain-map command."""
     content = _mail_domain_map()
     target = Path(args.write or (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME))
@@ -493,7 +490,7 @@ def _handle_domain_map(args, llm_dir: Path) -> int:
     return 0
 
 
-def _render_flow_content(flow: Dict[str, Any], fmt: str) -> str:
+def _render_flow_content(flow: dict[str, Any], fmt: str) -> str:
     """Render a single flow dict to string in the requested format."""
     if fmt == "json":
         return json.dumps(flow, indent=2)
@@ -508,7 +505,7 @@ def _render_flow_content(flow: Dict[str, Any], fmt: str) -> str:
     )
 
 
-def _handle_flows(args, _llm_dir: Path) -> int:
+def _handle_flows(args: argparse.Namespace, _llm_dir: Path) -> int:
     """Handle flows command."""
     flows = _mail_flows()
     if args.tags:
@@ -531,7 +528,7 @@ def _handle_flows(args, _llm_dir: Path) -> int:
     return 0
 
 
-def _handle_derive_all(args, llm_dir: Path) -> int:
+def _handle_derive_all(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle derive-all command."""
     outputs = [
         (llm_dir / DEFAULT_AGENTIC_FILENAME, _mail_agentic_capsule()),
@@ -554,7 +551,7 @@ def _handle_derive_all(args, llm_dir: Path) -> int:
     return 0
 
 
-def _handle_deps(args, _llm_dir: Path) -> int:
+def _handle_deps(args: argparse.Namespace, _llm_dir: Path) -> int:
     """Handle deps command."""
     entries = _collect_dep_stats(Path(args.root), args.limit, args.order)
     if args.format == "json":
@@ -574,7 +571,7 @@ def _handle_deps(args, _llm_dir: Path) -> int:
     return 0
 
 
-def _stale_text_line(entry: Dict, overrides: Dict, with_status: bool, with_priority: bool) -> str:
+def _stale_text_line(entry: dict, overrides: dict, with_status: bool, with_priority: bool) -> str:
     """Format a single stale entry as a text line."""
     status = _status_for_area(entry["area"], entry["staleness_days"], overrides) if with_status else ""
     priority = f"\tpriority={int(round(entry['staleness_days']))}" if with_priority else ""
@@ -584,14 +581,14 @@ def _stale_text_line(entry: Dict, overrides: Dict, with_status: bool, with_prior
     return line + priority
 
 
-def _stale_md_row(entry: Dict, overrides: Dict, with_priority: bool) -> str:
+def _stale_md_row(entry: dict, overrides: dict, with_priority: bool) -> str:
     """Format a single stale entry as a markdown table row."""
     status = _status_for_area(entry["area"], entry["staleness_days"], overrides)
     priority = int(round(entry["staleness_days"])) if with_priority else ""
     return f"| {entry['area']} | {entry['staleness_days']} | {status} | {priority} |"
 
 
-def _handle_stale(args, _llm_dir: Path) -> int:
+def _handle_stale(args: argparse.Namespace, _llm_dir: Path) -> int:
     """Handle stale command."""
     overrides = _parse_sla_env()
     include = _split_list(getattr(args, "include", None))
@@ -614,7 +611,16 @@ def _handle_stale(args, _llm_dir: Path) -> int:
     return 0
 
 
-def _handle_check(args, _llm_dir: Path) -> int:
+def _aggregate_values(values: list, agg: str) -> float:
+    """Aggregate a list of numeric values using the specified aggregation method."""
+    if agg == "min":
+        return min(values)
+    if agg == "avg":
+        return sum(values) / len(values)
+    return max(values)
+
+
+def _handle_check(args: argparse.Namespace, _llm_dir: Path) -> int:
     """Handle check command."""
     overrides = _parse_sla_env()
     if not overrides:
@@ -626,13 +632,7 @@ def _handle_check(args, _llm_dir: Path) -> int:
 
     if root_limit is not None and stats:
         values = [entry["staleness_days"] for entry in stats]
-        if args.agg == "min":
-            agg_value = min(values)
-        elif args.agg == "avg":
-            agg_value = sum(values) / len(values)
-        else:
-            agg_value = max(values)
-        if agg_value > root_limit:
+        if _aggregate_values(values, args.agg) > root_limit:
             return 2
 
     for area, limit in overrides.items():
@@ -646,7 +646,7 @@ def _handle_check(args, _llm_dir: Path) -> int:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for LLM CLI.
 
     Args:

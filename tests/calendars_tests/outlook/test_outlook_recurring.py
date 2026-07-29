@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import argparse
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from io import StringIO
+
+
+def _past_date(days: int = 180) -> str:
+    """Return a date string N days in the past."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _future_date(days: int = 180) -> str:
+    """Return a date string N days in the future."""
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
 class TestRunOutlookAddRecurring(unittest.TestCase):
@@ -18,7 +29,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
             "start_time": "09:00",
             "end_time": "10:00",
             "repeat": "weekly",
-            "range_start": "2024-01-01",
+            "range_start": _past_date(180),
             "until": None,
             "count": None,
             "byday": None,
@@ -45,7 +56,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
 
     def test_weekly_requires_byday(self):
         from calendars.outlook.commands import run_outlook_add_recurring
-        args = self._make_args(repeat="weekly", until="2024-12-31", byday=None)
+        args = self._make_args(repeat="weekly", until=_future_date(180), byday=None)
         with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             result = run_outlook_add_recurring(args)
         self.assertEqual(result, 2)
@@ -59,7 +70,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
         mock_pipeline.return_value = 0
         args = self._make_args(
             repeat="weekly",
-            until="2024-12-31",
+            until=_future_date(180),
             byday="MO,WE,FR",
         )
         result = run_outlook_add_recurring(args)
@@ -73,7 +84,7 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
     def test_returns_1_when_service_fails(self, mock_build_svc):
         from calendars.outlook.commands import run_outlook_add_recurring
         mock_build_svc.return_value = None
-        args = self._make_args(repeat="daily", until="2024-12-31")
+        args = self._make_args(repeat="daily", until=_future_date(180))
         result = run_outlook_add_recurring(args)
         self.assertEqual(result, 1)
 
