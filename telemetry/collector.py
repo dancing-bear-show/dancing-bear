@@ -50,11 +50,11 @@ def _run_compose(tail: list[str], env: dict[str, str]) -> subprocess.CompletedPr
     """Run docker-compose or fall back to the docker compose plugin form."""
     cmd = [_COMPOSE_STANDALONE, "-f", str(_COMPOSE_PATH), "-p", _COMPOSE_PROJECT] + tail
     try:
-        return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=_COMPOSE_TIMEOUT_S)
+        return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=_COMPOSE_TIMEOUT_S)  # nosec B603 B607 - fixed docker-compose invocation, no shell
     except FileNotFoundError:
         cmd[0:1] = _COMPOSE_PLUGIN
         try:
-            return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=_COMPOSE_TIMEOUT_S)
+            return subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=_COMPOSE_TIMEOUT_S)  # nosec B603 B607 - fixed docker compose plugin invocation, no shell
         except FileNotFoundError:
             _err_console.print(f"[red]{_COMPOSE_NOT_FOUND_MSG}[/]")
             return None
@@ -66,7 +66,7 @@ def _run_compose(tail: list[str], env: dict[str, str]) -> subprocess.CompletedPr
 def _print_port_bindings(cid: str, env: dict[str, str]) -> None:
     """Print port bindings for a container from docker inspect."""
     try:
-        inspect = subprocess.run(
+        inspect = subprocess.run(  # nosec B603 B607 - fixed docker inspect invocation; cid comes from docker ps output
             ["docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", cid],
             env=env, capture_output=True, text=True, timeout=_DOCKER_CMD_TIMEOUT_S,
         )
@@ -80,7 +80,7 @@ def _print_port_bindings(cid: str, env: dict[str, str]) -> None:
         return
     for port, bindings in (ports or {}).items():
         for b in (bindings or []):
-            console.print(f"  [dim]{port}[/] → {b.get('HostIp', '0.0.0.0')}:{b.get('HostPort', '?')}")
+            console.print(f"  [dim]{port}[/] → {b.get('HostIp', '0.0.0.0')}:{b.get('HostPort', '?')}")  # nosec B104 - display default, not a socket bind
 
 
 def _print_container_details(cid: str, env: dict[str, str]) -> None:
@@ -88,7 +88,7 @@ def _print_container_details(cid: str, env: dict[str, str]) -> None:
     _print_port_bindings(cid, env)
 
     try:
-        logs = subprocess.run(
+        logs = subprocess.run(  # nosec B603 B607 - fixed docker logs invocation; cid comes from docker ps output
             ["docker", "logs", "--tail", "5", cid],
             env=env, capture_output=True, text=True, timeout=_DOCKER_CMD_TIMEOUT_S,
         )
@@ -143,7 +143,7 @@ def _parse_otlp_event(line: str) -> dict[str, object] | None:
 def _print_docker_containers(env: dict[str, str]) -> None:
     """Print otel-collector container state via docker ps."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607 - fixed docker ps invocation, no shell
             ["docker", "ps", "-a", "--filter", "name=otel-collector", "--format", "{{.ID}}\t{{.Status}}\t{{.Names}}"],
             env=env, capture_output=True, text=True, timeout=_DOCKER_CMD_TIMEOUT_S,
         )

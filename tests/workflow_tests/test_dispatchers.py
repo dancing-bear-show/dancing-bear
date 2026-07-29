@@ -534,7 +534,6 @@ class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
 
             mock_enqueue.assert_called_once()
             job_id = mock_enqueue.call_args[0][0].id
-            import re
             self.assertRegex(job_id, r'^[A-Za-z0-9_\-]+$')
 
 

@@ -76,7 +76,6 @@ def render_chart(
 
 def _normalize_axes_grid(axes: object, rows: int, cols: int) -> list[list[object]]:
     """Normalise matplotlib axes output to a 2-D list regardless of grid shape."""
-    import numpy as np
     if rows == 1 and cols == 1:
         return [[axes]]
     if rows == 1:
@@ -213,7 +212,6 @@ def _parse_iso_to_datetime(value: str) -> datetime.datetime:
 
 
 def _parse_x_values(series: list[SeriesSpec], x_field: str) -> tuple[list[object], bool]:
-    import numpy as np
     unique_raw = list(dict.fromkeys(
         str(row[x_field]) for s in series for row in s.data
     ))

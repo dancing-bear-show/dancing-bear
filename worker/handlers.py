@@ -305,6 +305,35 @@ def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: 
 REGISTRY["run_shell"] = handle_run_shell
 
 
+def _dispatch_workflow_stage_script(job: dict[str, object], payload: dict[str, object], script: str, workspace_dir: str | None) -> tuple[bool, object]:
+    shell_job = dict(job)
+    shell_payload = {**payload, "script": script}
+    if workspace_dir:
+        shell_payload["cwd"] = workspace_dir
+    shell_job["payload"] = shell_payload
+    return handle_run_shell(shell_job)
+
+
+def _dispatch_workflow_stage_cli_commands(
+    job: dict[str, object], payload: dict[str, object], cli_commands: list[str], workspace_dir: str | None
+) -> tuple[bool, object]:
+    import shlex
+    results = []
+    for raw_cmd in cli_commands:
+        cli_job = dict(job)
+        cli_payload = {**payload, "cmd": shlex.split(raw_cmd)}
+        if workspace_dir:
+            cli_payload["cwd"] = workspace_dir
+        cli_job["payload"] = cli_payload
+        ok, result = handle_run_cli(cli_job)
+        results.append(result)
+        # Partial results from earlier successful commands are intentionally discarded on
+        # first failure — parity with original inline logic; tuple contract returns one result.
+        if not ok:
+            return (False, result)
+    return (True, results)
+
+
 def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
     """Execute a workflow stage dispatched by WorkerQueueDispatcher.
 
@@ -328,28 +357,11 @@ def handle_workflow_stage(job: dict[str, object]) -> tuple[bool, object]:
 
     script = str(payload.get("script") or "").strip()
     if script:
-        shell_job = dict(job)
-        shell_payload = {**payload, "script": script}
-        if workspace_dir:
-            shell_payload["cwd"] = workspace_dir
-        shell_job["payload"] = shell_payload
-        return handle_run_shell(shell_job)
+        return _dispatch_workflow_stage_script(job, payload, script, workspace_dir)
 
     cli_commands = list(payload.get("cli_commands") or [])
     if cli_commands:
-        import shlex
-        results = []
-        for raw_cmd in cli_commands:
-            cli_job = dict(job)
-            cli_payload = {**payload, "cmd": shlex.split(raw_cmd)}
-            if workspace_dir:
-                cli_payload["cwd"] = workspace_dir
-            cli_job["payload"] = cli_payload
-            ok, result = handle_run_cli(cli_job)
-            results.append(result)
-            if not ok:
-                return (False, result)
-        return (True, results)
+        return _dispatch_workflow_stage_cli_commands(job, payload, cli_commands, workspace_dir)
 
     return (False, "workflow_stage job has neither script nor cli_commands")
 

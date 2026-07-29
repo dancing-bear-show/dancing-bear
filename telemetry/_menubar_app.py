@@ -793,7 +793,7 @@ class TelemetryMenubarApp(_AppBase):  # pragma: no cover
                 pass
         try:
             import subprocess as _sp
-            _sp.run(["pbcopy"], input=text.encode(), check=False)
+            _sp.run(["pbcopy"], input=text.encode(), check=False)  # nosec B603 B607 - fixed macOS system utility, no dynamic args
         except Exception:  # nosec B110 - pbcopy failure is non-fatal; clipboard update is best-effort
             pass
 

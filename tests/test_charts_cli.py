@@ -6,7 +6,6 @@ matplotlib is never imported; render_chart and render_grid are patched.
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from io import StringIO

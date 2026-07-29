@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
 
 from .mermaid import GanttBuilder, PieBuilder
 
 DAYS_HELP = "Lookback days (default: 7)"
 NO_SESSIONS = "No sessions found."
+_DEFAULT_MMD_LABEL = "diagram.mmd"
 
 
 def _format_tokens(n: int) -> str:
@@ -101,7 +101,7 @@ def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
 # ── Shared I/O helpers ────────────────────────────────────────────────────────
 
 
-def _read_input(input_path: str | None, label: str = "diagram.mmd") -> str | None:
+def _read_input(input_path: str | None, label: str = _DEFAULT_MMD_LABEL) -> str | None:
     """Read content from a file or stdin. Returns None and prints to stderr on error."""
     if input_path:
         try:
@@ -115,7 +115,7 @@ def _read_input(input_path: str | None, label: str = "diagram.mmd") -> str | Non
             return None
     else:
         if sys.stdin.isatty():
-            print(f"Error: No input file specified and stdin is empty", file=sys.stderr)
+            print("Error: No input file specified and stdin is empty", file=sys.stderr)
             print(f"Usage: diagrams <command> --input {label}", file=sys.stderr)
             return None
         return sys.stdin.read()
@@ -262,7 +262,7 @@ def cmd_telemetry(args) -> int:
 
 def cmd_render(args) -> int:
     """Render a .mmd file to PNG/SVG/PDF via mmdc."""
-    mermaid_text = _read_input(args.input, "diagram.mmd")
+    mermaid_text = _read_input(args.input, _DEFAULT_MMD_LABEL)
     if mermaid_text is None:
         return 1
     if not _validate_non_empty(mermaid_text):
@@ -298,7 +298,7 @@ def cmd_render(args) -> int:
 
 def cmd_validate(args) -> int:
     """Validate mermaid syntax via mmdc."""
-    mermaid_text = _read_input(args.input, "diagram.mmd")
+    mermaid_text = _read_input(args.input, _DEFAULT_MMD_LABEL)
     if mermaid_text is None:
         return 1
     if not _validate_non_empty(mermaid_text):
@@ -323,7 +323,7 @@ def cmd_validate(args) -> int:
 
 def cmd_embed(args) -> int:
     """Output mermaid wrapped in a ```mermaid code fence."""
-    content = _read_input(args.input, "diagram.mmd")
+    content = _read_input(args.input, _DEFAULT_MMD_LABEL)
     if content is None:
         return 1
     if not _validate_non_empty(content):

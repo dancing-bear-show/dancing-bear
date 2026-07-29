@@ -38,7 +38,7 @@ _WINDOW_SECS: dict[str, int] = {
 }
 _MAX_ATTR_LEN = 64
 _METRIC_COST = METRIC_COST_USAGE
-_METRIC_TOKEN_USAGE = "claude_code.token.usage"
+_METRIC_TOKEN_USAGE = "claude_code.token.usage"  # nosec B105 - OTel metric name, not a secret
 
 
 # ── Output dataclasses ─────────────────────────────────────────────────────────
@@ -368,13 +368,13 @@ def _accumulate_token_metric(
     counters: dict[str, int],
 ) -> None:
     """Accumulate a single token metric into counters by token_type."""
-    if token_type == "input":
+    if token_type == "input":  # nosec B105 - token-type discriminator, not a secret
         counters["input"] += value
-    elif token_type == "output":
+    elif token_type == "output":  # nosec B105 - token-type discriminator, not a secret
         counters["output"] += value
-    elif token_type == "cacheRead":
+    elif token_type == "cacheRead":  # nosec B105 - token-type discriminator, not a secret
         counters["cacheRead"] += value
-    elif token_type == "cacheCreation":
+    elif token_type == "cacheCreation":  # nosec B105 - token-type discriminator, not a secret
         counters["cacheCreation"] += value
 
 

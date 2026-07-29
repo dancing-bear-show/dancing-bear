@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+_END = "    end"
+
 
 class FlowchartBuilder:
     """Build Mermaid flowchart diagrams with a fluent API.
@@ -76,13 +78,61 @@ class FlowchartBuilder:
     def subgraph(self, sub_id: str, label: str, body: str = "") -> FlowchartBuilder:
         """Add a subgraph. body is raw indented mermaid lines (legacy compat).
 
-        When body is provided, it is emitted verbatim. When absent, pass
-        node_ids via the node_ids kwarg (not available in legacy signature).
+        When body starts with an indent (4+ spaces), it is emitted verbatim.
+        Otherwise it is treated as a node id, looked up in nodes added via
+        .node(), and rendered nested inside the subgraph block.
         """
         # Store as list-of-ids = [] plus raw body in label field using separator sentinel
         # to preserve backwards compat while supporting new node-based subgraph too.
         self._subgraphs.append((sub_id, label, [body] if body else []))
         return self
+
+    def _subgraph_node_ids(self) -> set[str]:
+        """Collect node ids referenced by subgraphs (legacy raw body lines are skipped)."""
+        ids: set[str] = set()
+        for _, _, node_ids_or_body in self._subgraphs:
+            for item in node_ids_or_body:
+                if not item.startswith("    "):
+                    ids.add(item)
+        return ids
+
+    def _render_node(self, node_id: str, label: str, shape: str, indent: str = "    ") -> str:
+        left, right = self.SHAPES.get(shape, ("[", "]"))
+        return f"{indent}{node_id}{left}{label}{right}"
+
+    def _render_top_level_nodes(self, subgraph_node_ids: set[str]) -> list[str]:
+        return [
+            self._render_node(node_id, label, shape)
+            for node_id, label, shape in self._nodes
+            if node_id not in subgraph_node_ids
+        ]
+
+    def _render_subgraph_item(self, item: str) -> str:
+        """Render one subgraph body item: a raw legacy line, or a lookup by node id."""
+        if item.startswith("    "):
+            return item
+        for nid, nlabel, nshape in self._nodes:
+            if nid == item:
+                return self._render_node(nid, nlabel, nshape, indent="        ")
+        raise ValueError(f"subgraph references unknown node id {item!r}")
+
+    def _render_subgraphs(self) -> list[str]:
+        lines: list[str] = []
+        for sub_id, label, node_ids_or_body in self._subgraphs:
+            lines.append(f'    subgraph {sub_id}["{label}"]')
+            for item in node_ids_or_body:
+                lines.append(self._render_subgraph_item(item))
+            lines.append(_END)
+        return lines
+
+    def _render_edges(self) -> list[str]:
+        lines = []
+        for src, dst, label, arrow in self._edges:
+            if label:
+                lines.append(f"    {src} {arrow}|{label}| {dst}")
+            else:
+                lines.append(f"    {src} {arrow} {dst}")
+        return lines
 
     def render(self) -> str:
         """Render the flowchart as Mermaid markdown text."""
@@ -94,44 +144,9 @@ class FlowchartBuilder:
             lines.append("---")
 
         lines.append(f"flowchart {self._direction}")
-
-        # Nodes not in any subgraph
-        subgraph_node_ids: set[str] = set()
-        for _, _, node_ids_or_body in self._subgraphs:
-            # If items look like raw mermaid lines (legacy), skip id tracking
-            for item in node_ids_or_body:
-                if not item.startswith("    "):
-                    subgraph_node_ids.add(item)
-
-        for node_id, label, shape in self._nodes:
-            if node_id not in subgraph_node_ids:
-                left, right = self.SHAPES.get(shape, ("[", "]"))
-                lines.append(f"    {node_id}{left}{label}{right}")
-
-        # Subgraphs
-        for sub_id, label, node_ids_or_body in self._subgraphs:
-            lines.append(f'    subgraph {sub_id}["{label}"]')
-            for item in node_ids_or_body:
-                if item.startswith("    "):
-                    # Raw body line (legacy)
-                    lines.append(item)
-                else:
-                    # Node id — look up and render
-                    for nid, nlabel, nshape in self._nodes:
-                        if nid == item:
-                            left, right = self.SHAPES.get(nshape, ("[", "]"))
-                            lines.append(f"        {nid}{left}{nlabel}{right}")
-                            break
-            lines.append("    end")
-
-        # Edges
-        for src, dst, label, arrow in self._edges:
-            if label:
-                lines.append(f"    {src} {arrow}|{label}| {dst}")
-            else:
-                lines.append(f"    {src} {arrow} {dst}")
-
-        # Style directives
+        lines.extend(self._render_top_level_nodes(self._subgraph_node_ids()))
+        lines.extend(self._render_subgraphs())
+        lines.extend(self._render_edges())
         lines.extend(self._styles)
 
         return "\n".join(lines)
@@ -217,7 +232,7 @@ class SequenceDiagramBuilder:
         """Add a loop block."""
         self._steps.append(f"    loop {label}")
         self._steps.extend(f"        {s}" for s in body)
-        self._steps.append("    end")
+        self._steps.append(_END)
         return self
 
     def alt(
@@ -233,7 +248,7 @@ class SequenceDiagramBuilder:
         if else_body:
             self._steps.append(f"    else {else_label}")
             self._steps.extend(f"        {s}" for s in else_body)
-        self._steps.append("    end")
+        self._steps.append(_END)
         return self
 
     def render(self) -> str:

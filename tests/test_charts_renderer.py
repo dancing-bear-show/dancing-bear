@@ -187,7 +187,7 @@ class TestSplitDualSeries(unittest.TestCase):
         s1 = self._make_series("requests", y_axis="right")
         s2 = self._make_series("errors")
         spec = self._make_spec([s1, s2], left_names=["requests"], right_names=[])
-        left, right = _split_dual_series(spec)
+        left, _ = _split_dual_series(spec)
         # requests lands on left because of name list; errors has no assignment → also left
         left_names = [s.name for s in left]
         self.assertIn("requests", left_names)

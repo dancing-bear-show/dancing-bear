@@ -57,13 +57,13 @@ class TestHandleWorkflowStageScriptPath(unittest.TestCase):
         self.assertEqual(shell_job["payload"]["script"], "echo hello")
 
     def test_workspace_dir_set_as_cwd_for_script(self) -> None:
-        job = _make_job({"script": "echo hi", "workspace_dir": "/tmp/ws"})
+        job = _make_job({"script": "echo hi", "workspace_dir": "/tmp/ws"})  # nosec B108 - test string only
 
         with patch("worker.handlers.handle_run_shell", return_value=(True, {})) as mock_shell:
             handle_workflow_stage(job)
 
         shell_job = mock_shell.call_args[0][0]
-        self.assertEqual(shell_job["payload"]["cwd"], "/tmp/ws")
+        self.assertEqual(shell_job["payload"]["cwd"], "/tmp/ws")  # nosec B108 - test string only
 
     def test_cwd_not_set_when_workspace_dir_empty(self) -> None:
         job = _make_job({"script": "echo hi", "workspace_dir": ""})
@@ -129,27 +129,27 @@ class TestHandleWorkflowStageCLIPath(unittest.TestCase):
         self.assertEqual(mock_cli.call_count, 1)
 
     def test_workspace_dir_set_as_cwd_for_cli(self) -> None:
-        job = _make_job({"cli_commands": ["./bin/worker status"], "workspace_dir": "/tmp/ws"})
+        job = _make_job({"cli_commands": ["./bin/worker status"], "workspace_dir": "/tmp/ws"})  # nosec B108 - test string only
 
         with patch("worker.handlers.handle_run_cli", return_value=(True, {})) as mock_cli:
             handle_workflow_stage(job)
 
         cli_job = mock_cli.call_args[0][0]
-        self.assertEqual(cli_job["payload"]["cwd"], "/tmp/ws")
+        self.assertEqual(cli_job["payload"]["cwd"], "/tmp/ws")  # nosec B108 - test string only
 
     def test_cwd_honoured_by_handle_run_cli(self) -> None:
         """cwd from payload reaches _execute_subprocess, not just handle_workflow_stage."""
         from worker.handlers import handle_run_cli
         job = {"id": "t", "type": "run_cli", "payload": {
             "cmd": ["./bin/worker", "status"],
-            "cwd": "/tmp/custom-cwd",
+            "cwd": "/tmp/custom-cwd",  # nosec B108 - test string only
         }}
         with patch("worker.handlers._execute_subprocess", return_value={"returncode": 0, "stdout": "", "stderr": ""}) as mock_exec, \
              patch("worker.handlers._is_allowed_bin", return_value=True), \
              patch("worker.handlers._build_command", return_value=["./bin/worker", "status"]):
             handle_run_cli(job)
 
-        self.assertEqual(mock_exec.call_args.kwargs.get("cwd"), "/tmp/custom-cwd")
+        self.assertEqual(mock_exec.call_args.kwargs.get("cwd"), "/tmp/custom-cwd")  # nosec B108 - test string only
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ class TestHandleWorkflowStageErrors(unittest.TestCase):
 
     def test_missing_both_returns_false(self) -> None:
         job = _make_job({})
-        ok, msg = handle_workflow_stage(job)
+        ok, _ = handle_workflow_stage(job)
         self.assertFalse(ok)
 
     def test_missing_both_error_message(self) -> None:

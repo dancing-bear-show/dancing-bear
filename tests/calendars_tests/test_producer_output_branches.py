@@ -94,7 +94,7 @@ class TestGmailServiceBuildActiveRHQueryDefault(unittest.TestCase):
         # Without explicit programs, defaults include Swimmer, Chess, etc.
         # Result must be a non-empty string
         self.assertIsInstance(result, str)
-        self.assertTrue(len(result) > 0)
+        self.assertGreater(len(result), 0)
 
     def test_build_activerh_query_with_explicit_programs(self):
         from calendars.gmail_service import GmailService
@@ -463,10 +463,10 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
 
     def test_ensure_client_authenticates_when_client_id_present(self):
         from calendars.context import OutlookContext
-        ctx = OutlookContext(client_id="fake-id", tenant="consumers", token_path="/tmp/token.json")
+        ctx = OutlookContext(client_id="fake-id", tenant="consumers", token_path="/tmp/token.json")  # nosec B106 B108 - test string only
         fake_client = MagicMock()
         fake_client_cls = MagicMock(return_value=fake_client)
-        with patch("calendars.context.resolve_outlook_credentials", return_value=("fake-id", "consumers", "/tmp/token.json")):
+        with patch("calendars.context.resolve_outlook_credentials", return_value=("fake-id", "consumers", "/tmp/token.json")):  # nosec B108 - test string only
             with patch.dict("sys.modules", {"mail.outlook_api": MagicMock(OutlookClient=fake_client_cls)}):
                 result = ctx.ensure_client()
         fake_client.authenticate.assert_called_once()
@@ -476,7 +476,7 @@ class TestOutlookContextEnsureClient(unittest.TestCase):
         from calendars.context import OutlookContext
         ctx = OutlookContext(client_id="some-id", tenant=None)
         with patch("calendars.context.resolve_outlook_credentials", return_value=("some-id", None, None)):
-            client_id, tenant, token_path = ctx.resolve()
+            _, tenant, _ = ctx.resolve()
         self.assertEqual(tenant, "consumers")
 
 
@@ -541,7 +541,7 @@ class TestLocationSyncResolveEventLocationNone(unittest.TestCase):
             calendar=None,
         )
         self.assertIsNotNone(result)
-        nev, yaml_loc, cal_name = result
+        _, yaml_loc, _ = result
         self.assertEqual(yaml_loc, "Room 1")
 
 
@@ -580,16 +580,16 @@ class TestGmailServiceBuilderWithExplicitClass(unittest.TestCase):
 
     def test_build_passes_custom_service_cls(self):
         from calendars.pipeline_base import GmailServiceBuilder, GmailAuth
-        CustomSvc = MagicMock()
+        custom_svc = MagicMock()
         auth = GmailAuth(profile=None, credentials=None, token=None, cache_dir=None)
         with patch("calendars.pipeline_base._build_gmail_service", return_value="fake_svc") as mock_build:
-            result = GmailServiceBuilder.build(auth, service_cls=CustomSvc)
+            result = GmailServiceBuilder.build(auth, service_cls=custom_svc)
         mock_build.assert_called_once_with(
             profile=None,
             cache_dir=None,
             credentials_path=None,
             token_path=None,
-            service_cls=CustomSvc,
+            service_cls=custom_svc,
         )
         self.assertEqual(result, "fake_svc")
 
