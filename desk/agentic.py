@@ -1,25 +1,24 @@
 """Agentic capsule builders for the Desk Assistant CLI."""
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import List, Tuple
 
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
+    cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _core_cli_path_exists,
     section as _section,
 )
 
 
-@lru_cache(maxsize=1)
-def _get_parser():
-    try:
-        from . import cli as cli_mod
+def _load_parser():
+    from . import cli as cli_mod
 
-        return cli_mod.build_parser()
-    except Exception:
-        return None
+    return cli_mod.build_parser()
+
+
+_get_parser = _cached_parser_loader(_load_parser)
 
 
 def _cli_tree() -> str:

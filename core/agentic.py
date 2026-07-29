@@ -1,8 +1,9 @@
 """Common helpers for building agentic capsules across assistants."""
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 # argparse is optional at import time; type checking only.
 try:  # pragma: no cover - best effort typing
@@ -107,3 +108,22 @@ def list_subcommands(parser: Optional[ArgumentParser]) -> List[str]:
     if not act:
         return []
     return sorted(getattr(act, "choices", {}).keys())
+
+
+def cached_parser_loader(load_parser: Callable[[], ArgumentParser]) -> Callable[[], Optional[ArgumentParser]]:
+    """Wrap a parser-building callable with the standard try/except/cache shape.
+
+    `load_parser` does the module-specific import and returns a built parser,
+    raising if the CLI module can't be imported. The returned callable caches
+    its result for the process lifetime (mirroring the previous per-module
+    `@lru_cache(maxsize=1)` pattern) and returns None on any failure.
+    """
+
+    @lru_cache(maxsize=1)
+    def _get_parser() -> Optional[ArgumentParser]:
+        try:
+            return load_parser()
+        except Exception:
+            return None
+
+    return _get_parser

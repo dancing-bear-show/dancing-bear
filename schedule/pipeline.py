@@ -8,8 +8,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from core.auth import build_outlook_service
+from core.date_utils import to_iso_str as _to_iso_str
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME, FMT_DATETIME_SEC
+from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME
 
 
 def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, dict]]:
@@ -143,22 +144,6 @@ def _norm_dt_minute(s: Optional[str]) -> Optional[str]:
         return dt.strftime(FMT_DATETIME)
     except Exception:
         return None
-
-
-def _to_iso_str(v: Any) -> Optional[str]:
-    """Best-effort convert date/datetime-like values to ISO string."""
-    if v is None:
-        return None
-    if isinstance(v, str):
-        return v
-    try:
-        if isinstance(v, _dt.datetime):
-            return v.strftime(FMT_DATETIME_SEC)
-        if isinstance(v, _dt.date):
-            return v.strftime(FMT_DAY_START)
-    except Exception:  # nosec B110 - datetime format failure
-        pass
-    return str(v)
 
 
 def _weekday_code_to_py(d: str) -> Optional[int]:
