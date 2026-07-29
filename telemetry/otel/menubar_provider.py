@@ -3,423 +3,80 @@
 Reads all rotation files (metrics*.jsonl, events*.jsonl) within the requested
 time window, skipping files whose mtime predates the cutoff to keep I/O bounded.
 Returns frozen dataclasses ready for menubar rendering.
+
+Dataclasses and zero-constructors live in menubar_dataclasses.py.
+Parsing/accumulation helpers and constants live in menubar_parsers.py.
 """
 
 from __future__ import annotations
 
 import collections
 import time
-from collections.abc import Iterator
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 
-from core.fileutil import find_rotated_files, iter_jsonl_file
-from telemetry.otel._constants import METRIC_COST_USAGE
+from telemetry.otel.menubar_dataclasses import (
+    CodeImpact,
+    HookHealth,
+    MetaStats,
+    OtelDisplayData,
+    OtelModels,
+    OtelUsage,
+    SessionPatterns,
+    Skills,
+    ToolActivity,
+    _unavailable,
+    _zero_code_impact,  # noqa: F401 — re-exported for backwards compat
+    _zero_hook_health,  # noqa: F401 — re-exported for backwards compat
+    _zero_meta,  # noqa: F401 — re-exported for backwards compat
+    _zero_models,  # noqa: F401 — re-exported for backwards compat
+    _zero_session_patterns,  # noqa: F401 — re-exported for backwards compat
+    _zero_skills,  # noqa: F401 — re-exported for backwards compat
+    _zero_tool_activity,  # noqa: F401 — re-exported for backwards compat
+    _zero_usage,  # noqa: F401 — re-exported for backwards compat
+)
+from telemetry.otel.menubar_parsers import (
+    _COLLECTOR_STALE_SECS,
+    _DEFAULT_TAIL_LINES,  # noqa: F401 — re-exported for backwards compat
+    _MAX_ATTR_LEN,  # noqa: F401 — re-exported for backwards compat
+    _METRIC_COST,
+    _METRIC_TOKEN_USAGE,
+    _TAIL_LINES_BY_WINDOW,  # noqa: F401 — re-exported for backwards compat
+    _WINDOW_24H_SECS,  # noqa: F401 — re-exported for backwards compat
+    _WINDOW_7D_SECS,
+    _WINDOW_SECS,
+    _accumulate_compaction_events,
+    _accumulate_cost_metric,
+    _accumulate_datapoint,
+    _accumulate_loc_metrics,
+    _accumulate_token_metric,
+    _is_event_success,  # noqa: F401 — re-exported for backwards compat
+    _iter_log_records,
+    _iter_metric_datapoints,
+    _parse_attrs,
+    _parse_nano_ts,
+    _process_tool_result_event,
+    _read_rotated_jsonl,
+    _safe_float,
+    _safe_int,
+    _top_n,
+    _trunc,
+)
 from telemetry.otel.reader import EVENTS_FILE, METRICS_FILE, OTLPDataDir
 
-# ── Constants ──────────────────────────────────────────────────────────────────
-
-_COLLECTOR_STALE_SECS = 600
-_DEFAULT_TAIL_LINES = 5000
-_TAIL_LINES_BY_WINDOW: dict[str, int] = {
-    "1h": 500,
-    "24h": 5000,
-    "7d": 35_000,
-    "30d": 150_000,
-}
-_WINDOW_24H_SECS = 86400
-_WINDOW_7D_SECS = 604_800
-_WINDOW_SECS: dict[str, int] = {
-    "1h": 3600,
-    "24h": 86400,
-    "7d": 604_800,
-    "30d": 2_592_000,
-}
-_MAX_ATTR_LEN = 64
-_METRIC_COST = METRIC_COST_USAGE
-_METRIC_TOKEN_USAGE = "claude_code.token.usage"  # nosec B105 - OTel metric name, not a secret
-
-
-# ── Output dataclasses ─────────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class OtelUsage:
-    """Token and cost summary for the selected window (default: 24h).
-
-    Field names use the ``_24h`` suffix for compatibility; the actual
-    aggregation period is whatever window was passed to
-    :meth:`OtelMenubarProvider.get_display_data`. ``cost_7d`` is always
-    a 7-day reference cost regardless of the selected window.
-    """
-
-    cost_24h: float
-    cost_7d: float
-    input_tokens_24h: int
-    output_tokens_24h: int
-    cache_read_tokens_24h: int
-    cache_creation_tokens_24h: int
-    total_tokens_24h: int
-    active_hours_24h: float
-    model_cost_breakdown: list[tuple[str, float]]  # top 3 by cost
-
-
-@dataclass(frozen=True)
-class OtelModels:
-    """Per-model cost and token breakdown for the selected window (default: 24h)."""
-
-    model_rows: list[tuple[str, float, int]]  # (model, cost_24h, total_tokens_24h) top 4
-
-
-@dataclass(frozen=True)
-class MetaStats:
-    """Derived efficiency ratios."""
-
-    cost_per_active_hour: float  # 0.0 if active_hours == 0
-    cost_per_loc_added: float    # 0.0 if lines_added == 0
-    cost_per_commit: float       # 0.0 if commits == 0
-    cache_hit_rate_pct: float    # 0.0 if no cache tokens
-    total_tokens_24h: int
-
-
-@dataclass(frozen=True)
-class HookHealth:
-    """Hook execution health for the selected window (default: 24h)."""
-
-    hooks_fired_today: int
-    avg_hook_latency_ms: float
-    blocking_count: int
-    error_count: int
-    hook_names: list[str]  # top 3 by count
-
-
-@dataclass(frozen=True)
-class ToolActivity:
-    """Tool call statistics for the selected window (default: 24h)."""
-
-    tool_calls_today: int
-    accept_rate_pct: float
-    top_tools: list[tuple[str, int]]  # top 4
-    tool_error_count: int
-    bash_error_rate_pct: float
-    avg_input_bytes: float
-    avg_output_bytes: float
-
-
-@dataclass(frozen=True)
-class CodeImpact:
-    """Code change and compaction stats for the selected window (default: 24h)."""
-
-    lines_added_today: int
-    lines_removed_today: int
-    top_languages: list[tuple[str, int]]  # top 3 by code_edit_tool.decision count
-    commits_today: int
-    compaction_count: int
-    tokens_saved_by_compaction: int
-
-
-@dataclass(frozen=True)
-class Skills:
-    """Skill invocation stats for the selected window (default: 24h)."""
-
-    top_skills: list[tuple[str, int]]  # top 4
-    skills_invoked_today: int
-
-
-@dataclass(frozen=True)
-class SessionPatterns:
-    """Session-level usage patterns for the selected window (default: 24h)."""
-
-    prompts_today: int
-    model_mix: list[tuple[str, int]]  # top 3
-    agent_call_pct: float
-    effort_mix: dict[str, int]
-
-
-@dataclass(frozen=True)
-class OtelDisplayData:
-    """All display data for the menubar, produced by OtelMenubarProvider."""
-
-    available: bool
-    collected_at: datetime
-    otel_usage: OtelUsage
-    otel_models: OtelModels
-    meta_stats: MetaStats
-    hook_health: HookHealth
-    tool_activity: ToolActivity
-    code_impact: CodeImpact
-    skills: Skills
-    session_patterns: SessionPatterns
-
-
-# ── Internal helpers ───────────────────────────────────────────────────────────
-
-
-def _read_rotated_jsonl(base_path: Path, cutoff: float) -> list[dict[str, object]]:
-    """Read all rotation files for *base_path*, returning records with timestamps >= cutoff.
-
-    Skips any rotated file whose mtime predates ``cutoff`` by more than 1 hour (clock-skew
-    grace), since such files can only contain older records.
-    """
-    result: list[dict[str, object]] = []
-    for fpath in find_rotated_files(base_path):
-        try:
-            if fpath.stat().st_mtime < cutoff - 3600:
-                continue
-        except OSError:
-            continue
-        try:
-            result.extend(iter_jsonl_file(fpath, tolerant=True))
-        except OSError:
-            continue
-    return result
-
-
-def _parse_attrs(attr_list: list[dict[str, object]]) -> dict[str, object]:
-    """Flatten an OTLP attribute list into {key: value}."""
-    out: dict[str, object] = {}
-    for attr in attr_list:
-        key = attr.get("key", "")
-        val = attr.get("value", {})
-        if not isinstance(val, dict):
-            out[key] = None
-            continue
-        if "stringValue" in val:
-            out[key] = val["stringValue"]
-        elif "intValue" in val:
-            out[key] = val["intValue"]
-        elif "doubleValue" in val:
-            out[key] = val["doubleValue"]
-        elif "boolValue" in val:
-            out[key] = val["boolValue"]
-        else:
-            out[key] = None
-    return out
-
-
-def _safe_float(v: object) -> float:
-    """Coerce v to float, returning 0.0 on failure."""
-    if isinstance(v, bool):
-        return 0.0
-    try:
-        return float(v)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _safe_int(v: object) -> int:
-    """Coerce v to int, returning 0 on failure."""
-    if isinstance(v, bool):
-        return 0
-    try:
-        return int(float(v))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return 0
-
-
-def _zero_usage() -> OtelUsage:
-    return OtelUsage(
-        cost_24h=0.0, cost_7d=0.0,
-        input_tokens_24h=0, output_tokens_24h=0,
-        cache_read_tokens_24h=0, cache_creation_tokens_24h=0,
-        total_tokens_24h=0, active_hours_24h=0.0,
-        model_cost_breakdown=[],
-    )
-
-
-def _zero_models() -> OtelModels:
-    return OtelModels(model_rows=[])
-
-
-def _zero_meta(total_tokens: int = 0) -> MetaStats:
-    return MetaStats(
-        cost_per_active_hour=0.0,
-        cost_per_loc_added=0.0,
-        cost_per_commit=0.0,
-        cache_hit_rate_pct=0.0,
-        total_tokens_24h=total_tokens,
-    )
-
-
-def _zero_hook_health() -> HookHealth:
-    return HookHealth(hooks_fired_today=0, avg_hook_latency_ms=0.0, blocking_count=0, error_count=0, hook_names=[])
-
-
-def _zero_tool_activity() -> ToolActivity:
-    return ToolActivity(tool_calls_today=0, accept_rate_pct=0.0, top_tools=[], tool_error_count=0, bash_error_rate_pct=0.0, avg_input_bytes=0.0, avg_output_bytes=0.0)
-
-
-def _zero_code_impact() -> CodeImpact:
-    return CodeImpact(lines_added_today=0, lines_removed_today=0, top_languages=[], commits_today=0, compaction_count=0, tokens_saved_by_compaction=0)
-
-
-def _zero_skills() -> Skills:
-    return Skills(top_skills=[], skills_invoked_today=0)
-
-
-def _zero_session_patterns() -> SessionPatterns:
-    return SessionPatterns(prompts_today=0, model_mix=[], agent_call_pct=0.0, effort_mix={})
-
-
-def _parse_nano_ts(value: object) -> int:
-    """Parse a timeUnixNano field to int, returning 0 on malformed input."""
-    try:
-        return int(value or 0)
-    except (ValueError, TypeError):
-        return 0
-
-
-def _trunc(s: object, n: int = _MAX_ATTR_LEN) -> str:
-    """Truncate any attribute value to *n* chars to bound memory usage."""
-    return str(s)[:n] if s is not None else ""
-
-
-def _top_n(counts: dict[str, int | float], n: int) -> list[tuple[str, int | float]]:
-    """Return the top *n* items from *counts* sorted by value descending."""
-    return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:n]
-
-
-def _is_event_success(attrs: dict[str, object]) -> bool:
-    """Return True unless the *success* attribute is explicitly falsy."""
-    v = attrs.get("success", "true")
-    return str(v).lower() not in ("false", "0", "no")
-
-
-def _iter_log_records(raw_objs: list[dict[str, object]]) -> Iterator[dict[str, object]]:
-    """Yield every logRecord dict from a list of decoded OTLP resourceLogs objects."""
-    for obj in raw_objs:
-        for rl in obj.get("resourceLogs", []):
-            for sl in rl.get("scopeLogs", []):
-                yield from sl.get("logRecords", [])
-
-
-def _unavailable() -> OtelDisplayData:
-    """Return an OtelDisplayData indicating the collector is unavailable."""
-    return OtelDisplayData(
-        available=False,
-        collected_at=datetime.now(tz=timezone.utc),
-        otel_usage=_zero_usage(),
-        otel_models=_zero_models(),
-        meta_stats=_zero_meta(),
-        hook_health=_zero_hook_health(),
-        tool_activity=_zero_tool_activity(),
-        code_impact=_zero_code_impact(),
-        skills=_zero_skills(),
-        session_patterns=_zero_session_patterns(),
-    )
-
-
-# ── Parsing helpers ────────────────────────────────────────────────────────────
-
-
-def _accumulate_datapoint(
-    dp: dict[str, object],
-    name: str,
-    cutoff: float,
-    out: list[tuple[str, float, dict[str, object]]],
-) -> None:
-    """Append (name, value, attrs) to *out* if the datapoint timestamp >= cutoff."""
-    ts_nano = _parse_nano_ts(dp.get("timeUnixNano", 0))
-    if ts_nano / 1e9 < cutoff:
-        return
-    value = _safe_float(dp.get("asDouble", dp.get("asInt", 0)))
-    raw_attrs = dp.get("attributes", [])
-    attrs = _parse_attrs(raw_attrs if isinstance(raw_attrs, list) else [])
-    out.append((name, value, attrs))
-
-
-def _accumulate_loc_metrics(
-    metrics_24h: list[tuple[str, float, dict[str, object]]],
-    counters: dict[str, object],
-) -> None:
-    """Accumulate LOC/commit/language metrics from metrics_24h into counters."""
-    lang_counts: dict[str, int] = counters["lang_counts"]  # type: ignore[assignment]
-    for name, value, attrs in metrics_24h:
-        if name == "claude_code.lines_of_code.count":
-            loc_type = str(attrs.get("type", ""))
-            v = _safe_int(value)
-            if loc_type == "added":
-                counters["lines_added"] = int(counters["lines_added"]) + v  # type: ignore[arg-type]
-            elif loc_type == "removed":
-                counters["lines_removed"] = int(counters["lines_removed"]) + v  # type: ignore[arg-type]
-        elif name == "claude_code.commit.count":
-            counters["commits_today"] = int(counters["commits_today"]) + _safe_int(value)  # type: ignore[arg-type]
-        elif name == "claude_code.code_edit_tool.decision":
-            lang_counts[_trunc(attrs.get("language", "unknown"))] += _safe_int(value)
-
-
-def _accumulate_compaction_events(
-    events_24h: list[tuple[str, float, dict[str, object]]],
-    counters: dict[str, object],
-) -> None:
-    """Accumulate compaction event counts and token savings into counters."""
-    for event_type, _ts, attrs in events_24h:
-        if event_type == "claude_code.compaction":
-            counters["compaction_count"] = int(counters["compaction_count"]) + 1  # type: ignore[arg-type]
-            pre = _safe_int(attrs.get("pre_tokens", 0))
-            post = _safe_int(attrs.get("post_tokens", 0))
-            counters["tokens_saved"] = int(counters["tokens_saved"]) + max(0, pre - post)  # type: ignore[arg-type]
-
-
-def _accumulate_token_metric(
-    token_type: str,
-    value: int,
-    counters: dict[str, int],
-) -> None:
-    """Accumulate a single token metric into counters by token_type."""
-    if token_type == "input":  # nosec B105 - token-type discriminator, not a secret
-        counters["input"] += value
-    elif token_type == "output":  # nosec B105 - token-type discriminator, not a secret
-        counters["output"] += value
-    elif token_type == "cacheRead":  # nosec B105 - token-type discriminator, not a secret
-        counters["cacheRead"] += value
-    elif token_type == "cacheCreation":  # nosec B105 - token-type discriminator, not a secret
-        counters["cacheCreation"] += value
-
-
-def _process_tool_result_event(
-    attrs: dict[str, object],
-    state: dict[str, object],
-) -> None:
-    """Update mutable *state* counters for a single tool_result event."""
-    tool_name = _trunc(attrs.get("tool_name", "unknown"))
-    is_success = _is_event_success(attrs)
-    if not is_success:
-        state["tool_errors"] = state["tool_errors"] + 1  # type: ignore[operator]
-    if tool_name.lower() == "bash":
-        state["bash_calls"] = state["bash_calls"] + 1  # type: ignore[operator]
-        if not is_success:
-            state["bash_errors"] = state["bash_errors"] + 1  # type: ignore[operator]
-    state["total_input_bytes"] = state["total_input_bytes"] + _safe_float(attrs.get("tool_input_size_bytes", 0))  # type: ignore[operator]
-    state["total_output_bytes"] = state["total_output_bytes"] + _safe_float(attrs.get("tool_result_size_bytes", 0))  # type: ignore[operator]
-
-
-def _accumulate_cost_metric(
-    value: float,
-    attrs: dict[str, object],
-    cost_holder: list[float],
-    model_cost: dict[str, float],
-) -> None:
-    """Accumulate a cost metric into cost_holder[0] and model_cost breakdown."""
-    cost_holder[0] += _safe_float(value)
-    model = _trunc(attrs.get("model", "unknown"))
-    model_cost[model] += _safe_float(value)
-
-
-def _iter_metric_datapoints(
-    raw: dict[str, object],
-) -> Iterator[tuple[str, dict[str, object]]]:
-    """Yield (metric_name, datapoint_dict) pairs from a single raw metrics JSONL record."""
-    for rm in raw.get("resourceMetrics", []):
-        for sm in rm.get("scopeMetrics", []):
-            for metric in sm.get("metrics", []):
-                name = metric.get("name", "")
-                gauge = metric.get("gauge", {})
-                sum_data = metric.get("sum", {})
-                data_points = gauge.get("dataPoints") or sum_data.get("dataPoints", [])
-                for dp in data_points:
-                    yield name, dp
+__all__ = [
+    # dataclasses
+    "CodeImpact",
+    "HookHealth",
+    "MetaStats",
+    "OtelDisplayData",
+    "OtelModels",
+    "OtelUsage",
+    "SessionPatterns",
+    "Skills",
+    "ToolActivity",
+    # provider
+    "OtelMenubarProvider",
+]
 
 
 # ── Provider ───────────────────────────────────────────────────────────────────

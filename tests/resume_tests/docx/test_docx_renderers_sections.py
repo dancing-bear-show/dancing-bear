@@ -1,0 +1,282 @@
+"""Section-specific docx renderer tests: Summary, Skills, Experience, Education, Technologies."""
+from __future__ import annotations
+import unittest
+from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
+
+
+@mock_docx_modules
+class TestSummarySectionRenderer(unittest.TestCase):
+    """Tests for SummarySectionRenderer."""
+
+    def _get_renderer(self):
+        from resume.docx_sections import SummarySectionRenderer
+        return make_fake_renderer(SummarySectionRenderer)
+
+    def test_render_string_summary(self):
+        """Test rendering string summary."""
+        renderer, doc = self._get_renderer()
+        data = {"summary": "Experienced software engineer with 10 years of experience."}
+        renderer.render(data)
+        self.assertEqual(len(doc.paragraphs), 1)
+
+    def test_render_list_summary(self):
+        """Test rendering list summary."""
+        renderer, doc = self._get_renderer()
+        data = {"summary": ["Point 1", "Point 2", "Point 3"]}
+        renderer.render(data)
+        self.assertEqual(len(doc.paragraphs), 3)
+
+    def test_render_bulleted_string(self):
+        """Test rendering bulleted string summary."""
+        renderer, doc = self._get_renderer()
+        data = {"summary": "First point. Second point. Third point."}
+        renderer.render(data, sec={"bulleted": True})
+        self.assertEqual(len(doc.paragraphs), 3)
+
+    def test_render_with_keywords(self):
+        """Test rendering with keyword highlighting."""
+        renderer, doc = self._get_renderer()
+        data = {"summary": "Expert in Python and JavaScript development."}
+        renderer.render(data, keywords=["Python", "JavaScript"])
+        self.assertEqual(len(doc.paragraphs), 1)
+
+    def test_normalize_list_items_dicts(self):
+        """Test normalizing list items from dicts."""
+        renderer, _ = self._get_renderer()
+        items = [
+            {"text": "Item 1"},
+            {"line": "Item 2"},
+            {"desc": "Item 3"},
+        ]
+        result = renderer._normalize_list_items(items)
+        self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
+
+    def test_normalize_list_items_strings(self):
+        """Test normalizing list items from strings."""
+        renderer, _ = self._get_renderer()
+        items = ["Item 1", "Item 2", "Item 3"]
+        result = renderer._normalize_list_items(items)
+        self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
+
+
+@mock_docx_modules
+class TestSkillsSectionRenderer(unittest.TestCase):
+    """Tests for SkillsSectionRenderer."""
+
+    def _get_renderer(self):
+        from resume.docx_sections import SkillsSectionRenderer
+        return make_fake_renderer(SkillsSectionRenderer)
+
+    def test_render_flat_skills(self):
+        """Test rendering flat skills list."""
+        renderer, doc = self._get_renderer()
+        data = {"skills": ["Python", "JavaScript", "Go"]}
+        renderer.render(data)
+        self.assertGreater(len(doc.paragraphs), 0)
+
+    def test_render_skills_groups(self):
+        """Test rendering skills groups."""
+        renderer, doc = self._get_renderer()
+        data = {"skills_groups": [
+            {"title": "Languages", "items": ["Python", "Go"]},
+            {"title": "Frameworks", "items": ["Django", "Flask"]},
+        ]}
+        renderer.render(data)
+        self.assertGreater(len(doc.paragraphs), 0)
+
+    def test_normalize_group_items_strings(self):
+        """Test normalizing group items from strings."""
+        renderer, _ = self._get_renderer()
+        items = ["Python", "JavaScript", "Go"]
+        result = renderer._normalize_group_items(items, False, " — ")
+        self.assertEqual(result, ["Python", "JavaScript", "Go"])
+
+    def test_normalize_group_items_dicts(self):
+        """Test normalizing group items from dicts."""
+        renderer, _ = self._get_renderer()
+        items = [
+            {"name": "Python", "desc": "Expert"},
+            {"title": "Go", "description": "Intermediate"},
+        ]
+        result = renderer._normalize_group_items(items, True, " — ")
+        self.assertEqual(len(result), 2)
+        self.assertIn("Python — Expert", result)
+
+
+@mock_docx_modules
+class TestExperienceSectionRenderer(unittest.TestCase):
+    """Tests for ExperienceSectionRenderer."""
+
+    def _get_renderer(self):
+        from resume.docx_sections import ExperienceSectionRenderer
+        return make_fake_renderer(ExperienceSectionRenderer)
+
+    def test_render_experience(self):
+        """Test rendering experience entries."""
+        renderer, doc = self._get_renderer()
+        data = {"experience": [
+            {
+                "title": "Senior Engineer",
+                "company": "Tech Corp",
+                "start": "2020",
+                "end": "Present",
+                "bullets": ["Led team of 5", "Shipped product"],
+            }
+        ]}
+        renderer.render(data)
+        self.assertGreater(len(doc.paragraphs), 0)
+
+    def test_format_date_span_start_end(self):
+        """Test formatting date span with start and end."""
+        renderer, _ = self._get_renderer()
+        e = {"start": "2020", "end": "2024"}
+        result = renderer._format_date_span(e)
+        self.assertEqual(result, "2020 – 2024")
+
+    def test_format_date_span_start_only(self):
+        """Test formatting date span with start only."""
+        renderer, _ = self._get_renderer()
+        e = {"start": "2020"}
+        result = renderer._format_date_span(e)
+        self.assertEqual(result, "2020 – Present")
+
+    def test_format_date_span_end_only(self):
+        """Test formatting date span with end only."""
+        renderer, _ = self._get_renderer()
+        e = {"end": "2024"}
+        result = renderer._format_date_span(e)
+        self.assertEqual(result, "2024")
+
+    def test_normalize_present(self):
+        """Test normalizing present variants."""
+        renderer, _ = self._get_renderer()
+        self.assertEqual(renderer._normalize_present("present"), "Present")
+        self.assertEqual(renderer._normalize_present("current"), "Present")
+        self.assertEqual(renderer._normalize_present("now"), "Present")
+        self.assertEqual(renderer._normalize_present("2024"), "2024")
+
+    def test_calculate_bullet_limit_no_recency(self):
+        """Test bullet limit without recency rules."""
+        renderer, _ = self._get_renderer()
+        result = renderer._calculate_bullet_limit(0, 10, 0, 5, 3)
+        self.assertEqual(result, 10)
+
+    def test_calculate_bullet_limit_recent_role(self):
+        """Test bullet limit for recent roles."""
+        renderer, _ = self._get_renderer()
+        result = renderer._calculate_bullet_limit(0, 10, 2, 5, 3)
+        self.assertEqual(result, 5)
+
+    def test_calculate_bullet_limit_prior_role(self):
+        """Test bullet limit for prior roles."""
+        renderer, _ = self._get_renderer()
+        result = renderer._calculate_bullet_limit(2, 10, 2, 5, 3)
+        self.assertEqual(result, 3)
+
+    def test_normalize_bullets_strings(self):
+        """Test normalizing bullet strings."""
+        renderer, _ = self._get_renderer()
+        bullets = ["Point 1", "Point 2", "Point 3"]
+        result = renderer._normalize_bullets(bullets, 10)
+        self.assertEqual(len(result), 3)
+
+    def test_normalize_bullets_dicts(self):
+        """Test normalizing bullet dicts."""
+        renderer, _ = self._get_renderer()
+        bullets = [
+            {"text": "Point 1"},
+            {"line": "Point 2"},
+            {"name": "Point 3"},
+        ]
+        result = renderer._normalize_bullets(bullets, 10)
+        self.assertEqual(len(result), 3)
+
+    def test_normalize_bullets_limit(self):
+        """Test bullet limit enforcement."""
+        renderer, _ = self._get_renderer()
+        bullets = ["Point 1", "Point 2", "Point 3", "Point 4", "Point 5"]
+        result = renderer._normalize_bullets(bullets, 3)
+        self.assertEqual(len(result), 3)
+
+
+@mock_docx_modules
+class TestEducationSectionRenderer(unittest.TestCase):
+    """Tests for EducationSectionRenderer."""
+
+    def _get_renderer(self):
+        from resume.docx_sections import EducationSectionRenderer
+        return make_fake_renderer(EducationSectionRenderer)
+
+    def test_render_education(self):
+        """Test rendering education entries."""
+        renderer, doc = self._get_renderer()
+        data = {"education": [
+            {
+                "degree": "B.S. Computer Science",
+                "institution": "MIT",
+                "year": "2020",
+            },
+            {
+                "degree": "M.S. Data Science",
+                "institution": "Stanford",
+                "year": "2022",
+            },
+        ]}
+        renderer.render(data)
+        self.assertEqual(len(doc.paragraphs), 2)
+
+    def test_render_education_empty(self):
+        """Test rendering with no education."""
+        renderer, doc = self._get_renderer()
+        data = {"education": []}
+        renderer.render(data)
+        self.assertEqual(len(doc.paragraphs), 0)
+
+
+@mock_docx_modules
+class TestTechnologiesSectionRenderer(unittest.TestCase):
+    """Tests for TechnologiesSectionRenderer."""
+
+    def _get_renderer(self):
+        from resume.docx_sections import TechnologiesSectionRenderer
+        return make_fake_renderer(TechnologiesSectionRenderer)
+
+    def test_render_technologies(self):
+        """Test rendering technologies."""
+        renderer, doc = self._get_renderer()
+        data = {"technologies": ["Docker", "Kubernetes", "AWS"]}
+        renderer.render(data)
+        self.assertGreater(len(doc.paragraphs), 0)
+
+    def test_collect_tech_items_list(self):
+        """Test collecting tech items from list."""
+        renderer, _ = self._get_renderer()
+        data = {"technologies": ["Docker", "K8s"]}
+        result = renderer._collect_tech_items(data, None)
+        self.assertEqual(result, ["Docker", "K8s"])
+
+    def test_collect_tech_items_dicts(self):
+        """Test collecting tech items from dicts."""
+        renderer, _ = self._get_renderer()
+        data = {"technologies": [
+            {"name": "Docker"},
+            {"title": "Kubernetes"},
+        ]}
+        result = renderer._collect_tech_items(data, None)
+        self.assertEqual(len(result), 2)
+
+    def test_fallback_to_skills_groups(self):
+        """Test fallback to skills_groups for tech items."""
+        renderer, _ = self._get_renderer()
+        data = {
+            "technologies": [],
+            "skills_groups": [
+                {"title": "Technologies", "items": ["Docker", "K8s"]},
+            ],
+        }
+        result = renderer._collect_tech_items(data, None)
+        self.assertEqual(result, ["Docker", "K8s"])
+
+
+if __name__ == "__main__":
+    unittest.main()

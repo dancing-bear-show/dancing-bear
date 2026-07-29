@@ -1,36 +1,82 @@
-"""Shared LLM CLI helpers (inventory, familiar, flows, policies)."""
+"""Shared LLM CLI helpers — thin shim over core.llm_builders and core.llm_domain."""
 
 from __future__ import annotations
 
 import argparse
-import importlib
-import json
-import os
-import sys
-import time
 from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Sequence
 
-from core.textio import read_text as _read_text, write_text as _write_text
-
-# Default filenames for LLM outputs
-DEFAULT_AGENTIC_FILENAME = "AGENTIC.md"
-DEFAULT_DOMAIN_MAP_FILENAME = "DOMAIN_MAP.md"
-DEFAULT_INVENTORY_FILENAME = "INVENTORY.md"
-DEFAULT_FAMILIAR_FILENAME = "familiarize.yaml"
-DEFAULT_POLICIES_FILENAME = "PR_POLICIES.yaml"
-
-# Fallback messages
-_DOMAIN_MAP_UNAVAILABLE = "Domain Map not available"
-_DEFAULT_POLICIES_YAML = (
-    "policies:\n"
-    "  style:\n"
-    "    - Keep CLI stable; prefer plan→apply\n"
-    "  tests:\n"
-    "    - Add lightweight unittest for new CLI surfaces\n"
+# ---------------------------------------------------------------------------
+# Re-exports from core.llm_builders
+# (llm_builders imports LlmConfig from here lazily, so no circular import)
+# ---------------------------------------------------------------------------
+from core.llm_builders import (  # noqa: F401
+    DEFAULT_AGENTIC_FILENAME,
+    DEFAULT_DOMAIN_MAP_FILENAME,
+    DEFAULT_FAMILIAR_FILENAME,
+    DEFAULT_INVENTORY_FILENAME,
+    DEFAULT_POLICIES_FILENAME,
+    DomainLlmConfig,
+    _DEFAULT_POLICIES_YAML,
+    _DOMAIN_MAP_UNAVAILABLE,
+    _build_agentic_builder,
+    _build_domain_map_builder,
+    _build_familiar_compact_builder,
+    _build_familiar_extended_builder,
+    _build_inventory_builder,
+    _build_policies_builder,
+    make_domain_llm_module,
 )
+
+# ---------------------------------------------------------------------------
+# Re-exports from core.llm_domain
+# (llm_domain imports run from here lazily, so no circular import)
+# ---------------------------------------------------------------------------
+from core.llm_domain import (  # noqa: F401
+    ASSISTANT_AGENTIC_CORE_CMDS,
+    ASSISTANT_AGENTIC_EXTENDED_CMDS,
+    ASSISTANT_VIZ_ORCHESTRATION_CMDS,
+    DEFAULT_SLA_DAYS,
+    DEFAULT_SKIP_DIRS,
+    _APP_MODULES,
+    _build_repo_parser,
+    _collect_dep_stats,
+    _collect_excludes,
+    _collect_stale_stats,
+    _default_inventory,
+    _default_policies,
+    _emit_content,
+    _extract_app_arg,
+    _fail_on_stale,
+    _familiar_content,
+    _handle_agentic,
+    _handle_check,
+    _handle_deps,
+    _handle_derive_all,
+    _handle_domain_map,
+    _handle_familiar,
+    _handle_flows,
+    _handle_inventory,
+    _handle_policies,
+    _handle_stale,
+    _iter_candidate_dirs,
+    _latest_mtime,
+    _mail_agentic_capsule,
+    _mail_domain_map,
+    _mail_flows,
+    _parse_sla_env,
+    _render_flow_content,
+    _run_app_cli,
+    _split_list,
+    _stale_md_row,
+    _stale_text_line,
+    _status_for_area,
+    main,
+)
+
+# ---------------------------------------------------------------------------
+# Locals (LlmConfig must be defined here — llm_builders back-imports it)
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -38,11 +84,11 @@ class LlmConfig:
     prog: str
     description: str
     agentic: Callable[[], str]
-    domain_map: Optional[Callable[[], str]] = None
-    inventory: Optional[Callable[[], str]] = None
-    familiar_compact: Optional[Callable[[], str]] = None
-    familiar_extended: Optional[Callable[[], str]] = None
-    policies: Optional[Callable[[], str]] = None
+    domain_map: Callable[[], str] | None = None
+    inventory: Callable[[], str] | None = None
+    familiar_compact: Callable[[], str] | None = None
+    familiar_extended: Callable[[], str] | None = None
+    policies: Callable[[], str] | None = None
     agentic_filename: str = DEFAULT_AGENTIC_FILENAME
     domain_map_filename: str = DEFAULT_DOMAIN_MAP_FILENAME
     inventory_filename: str = DEFAULT_INVENTORY_FILENAME
@@ -69,554 +115,64 @@ def make_app_llm_config(**kwargs) -> LlmConfig:
     return LlmConfig(**kwargs)
 
 
-def _build_agentic_builder(agentic_module: str, app_id: str, purpose: str) -> Callable[[], str]:
-    """Create agentic capsule builder for a domain module."""
-    def builder() -> str:
-        try:
-            mod = importlib.import_module(agentic_module)
-            return mod.build_agentic_capsule()
-        except Exception:  # nosec B110 - fallback on import/build failure
-            return f"agentic: {app_id}\npurpose: {purpose}"
-    return builder
+# ---------------------------------------------------------------------------
+# App-level helpers (used by per-domain LLM modules via their own llm_cli.py)
+# ---------------------------------------------------------------------------
 
 
-def _build_domain_map_builder(agentic_module: str) -> Callable[[], str]:
-    """Create domain map builder for a domain module."""
-    def builder() -> str:
-        try:
-            mod = importlib.import_module(agentic_module)
-            return mod.build_domain_map()
-        except Exception:  # nosec B110 - fallback on import/build failure
-            return _DOMAIN_MAP_UNAVAILABLE
-    return builder
-
-
-def _build_inventory_builder(app_title: str) -> Callable[[], str]:
-    """Create inventory builder for a domain module."""
-    llm_dir = Path(".llm")
-    def builder() -> str:
-        return (
-            _read_text(llm_dir / "INVENTORY.md")
-            or f"# LLM Agent Inventory ({app_title})\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
-        )
-    return builder
-
-
-def _build_familiar_compact_builder(
-    app_id: str, familiar_compact_steps: Optional[List[str]]
-) -> Callable[[], str]:
-    """Create compact familiarization builder for a domain module."""
-    llm_dir = Path(".llm")
-    def builder() -> str:
-        if familiar_compact_steps:
-            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_compact_steps)
-            return (
-                f"meta:\n"
-                f"  name: {app_id}_familiarize\n"
-                f"  version: 1\n"
-                f"steps:\n{steps}\n"
-            )
-        return (
-            _read_text(llm_dir / "familiarize.yaml")
-            or f"meta:\n  name: {app_id}_familiarize\n  version: 1\nsteps:\n  - run: ./bin/{app_id} --help\n"
-        )
-    return builder
-
-
-def _build_familiar_extended_builder(
-    app_id: str,
-    familiar_extended_steps: Optional[List[str]],
-    compact_builder: Callable[[], str],
-) -> Callable[[], str]:
-    """Create extended familiarization builder for a domain module."""
-    def builder() -> str:
-        if familiar_extended_steps:
-            steps = "\n".join(f"  - run: {cmd}" for cmd in familiar_extended_steps)
-            return (
-                f"meta:\n"
-                f"  name: {app_id}_familiarize\n"
-                f"  version: 1\n"
-                f"steps:\n{steps}\n"
-            )
-        return compact_builder()
-    return builder
-
-
-def _build_policies_builder(policies_fallback: Optional[str]) -> Callable[[], str]:
-    """Create policies builder for a domain module."""
-    llm_dir = Path(".llm")
-    def builder() -> str:
-        return (
-            _read_text(llm_dir / "PR_POLICIES.yaml")
-            or policies_fallback
-            or _DEFAULT_POLICIES_YAML
-        )
-    return builder
-
-
-@dataclass
-class DomainLlmConfig:
-    """Configuration for creating domain-specific LLM modules.
-
-    Groups identity fields (app_id, app_title, purpose, agentic_module)
-    with optional customization (familiar steps, policies fallback).
-    """
-
-    app_id: str
-    app_title: str
-    purpose: str
-    agentic_module: str
-    familiar_compact_steps: Optional[List[str]] = None
-    familiar_extended_steps: Optional[List[str]] = None
-    policies_fallback: Optional[str] = None
-
-
-def make_domain_llm_module(
-    config: Optional[DomainLlmConfig] = None,
-    **kwargs,
-) -> LlmConfig:
-    """Factory to create an LlmConfig for a domain module with minimal boilerplate.
-
-    Args:
-        config: DomainLlmConfig with all domain settings.
-                For convenience, keyword arguments are also accepted
-                and forwarded to DomainLlmConfig().
-
-    Returns:
-        LlmConfig ready for use with build_parser() and run()
-    """
-    if config is None:
-        config = DomainLlmConfig(**kwargs)
-
-    agentic_builder = _build_agentic_builder(config.agentic_module, config.app_id, config.purpose)
-    domain_map_builder = _build_domain_map_builder(config.agentic_module)
-    inventory_builder = _build_inventory_builder(config.app_title)
-    compact_builder = _build_familiar_compact_builder(config.app_id, config.familiar_compact_steps)
-    extended_builder = _build_familiar_extended_builder(config.app_id, config.familiar_extended_steps, compact_builder)
-    policies_builder = _build_policies_builder(config.policies_fallback)
-
-    return LlmConfig(
-        prog=f"llm-{config.app_id}",
-        description=f"{config.app_title} Assistant LLM utilities (inventory, familiar, policies, agentic, domain-map)",
-        agentic=agentic_builder,
-        domain_map=domain_map_builder,
-        inventory=inventory_builder,
-        familiar_compact=compact_builder,
-        familiar_extended=extended_builder,
-        policies=policies_builder,
-        agentic_filename=f"AGENTIC_{config.app_id.upper()}.md",
-        domain_map_filename=f"DOMAIN_MAP_{config.app_id.upper()}.md",
-    )
-
-
-DEFAULT_SKIP_DIRS = {
-    "backups",
-    "_disasm",
-    "out",
-    "_out",
-    ".git",
-    ".hg",
-    ".svn",
-    ".venv",
-    "node_modules",
-    "dist",
-    "build",
-    "logs",
-    "reports",
-    "personal_assistants.egg-info",
-}
-DEFAULT_SLA_DAYS = 90
-
-ASSISTANT_AGENTIC_CORE_CMDS = [
-    "./bin/llm --app calendar agentic --stdout",
-    "./bin/llm --app schedule agentic --stdout",
-]
-
-ASSISTANT_AGENTIC_EXTENDED_CMDS = [
-    "./bin/llm --app resume agentic --stdout",
-    "./bin/llm --app desk agentic --stdout",
-    "./bin/llm --app maker agentic --stdout",
-    "./bin/llm --app phone agentic --stdout",
-    "./bin/llm --app wifi agentic --stdout",
-    "./bin/llm --app whatsapp agentic --stdout",
-]
-
-# Standalone visualization + orchestration wrappers (own argparse CLIs, not llm --app
-# routes, so discovered via --help rather than agentic schemas).
-ASSISTANT_VIZ_ORCHESTRATION_CMDS = [
-    "./bin/charts --help",
-    "./bin/diagrams --help",
-    "./bin/workflow --help",
-]
-
-_APP_MODULES = {
-    "calendar": "calendars.llm_cli",
-    "schedule": "schedule.llm_cli",
-    "resume": "resume.llm_cli",
-    "desk": "desk.llm_cli",
-    "maker": "maker.llm_cli",
-    "phone": "phone.llm_cli",
-    "whatsapp": "whatsapp.llm_cli",
-    "mail": "mail.llm_cli",
-    "wifi": "wifi.llm_cli",
-}
-
-
-def _extract_app_arg(argv: List[str]) -> Tuple[Optional[str], List[str]]:
-    app: Optional[str] = None
-    cleaned: List[str] = []
-    skip_next = False
-    for idx, arg in enumerate(argv):
-        if skip_next:
-            skip_next = False
-            continue
-        if arg in ("--app", "-a"):
-            if idx + 1 >= len(argv):
-                raise ValueError("Missing value for --app")
-            app = argv[idx + 1]
-            skip_next = True
-            continue
-        if arg.startswith("--app="):
-            app = arg.split("=", 1)[1]
-            continue
-        cleaned.append(arg)
-    return app, cleaned
-
-
-def _run_app_cli(app: str, argv: List[str]) -> int:
-    module_name = _APP_MODULES.get(app)
-    if not module_name:
-        available = ", ".join(sorted(_APP_MODULES.keys()))
-        print(f"Unknown app '{app}'. Available apps: {available}")
-        return 2
-    module = importlib.import_module(module_name)
-    if hasattr(module, "main"):
-        return module.main(argv)
-    if hasattr(module, "CONFIG"):
-        return run(module.CONFIG, argv)  # type: ignore[attr-defined]
-    raise RuntimeError(f"App module {module_name} missing an entry point")
-
-
-def _default_inventory() -> str:
-    return "# LLM Agent Inventory\n\n(see .llm/INVENTORY.md)\n"
-
-
-def _default_policies() -> str:
-    return _DEFAULT_POLICIES_YAML
-
-
-def _familiar_content(verbose: bool, compact: bool = False) -> str:
-    # Version history: v1=initial, v2=calendar/schedule cmds, v3=--compact flag,
-    # v4=charts/diagrams/workflow viz+orchestration wrappers (verbose)
-    if compact:
-        return (
-            "agent_note: Read-only familiarization. Open heavy files only when needed.\n"
-            "meta:\n"
-            "  name: assistants_familiarize\n"
-            "  version: 4\n"
-            "skip_paths: [.venv/, .git/, .cache/, maker/, _disasm/, out/, _out/, backups/]\n"
-            "heavy_files: [README.md, AGENTS.md, config/*.yaml, out/**]\n"
-            "steps:\n"
-            "  - run: ./bin/llm agentic --stdout\n"
-        )
-    base = (
-        "agent_note: Familiarization is read-only; fast path loads core LLM + calendar/schedule capsules (skim .llm context files). Use --verbose or per-app agentic for deeper context. Visualization + orchestration wrappers (charts/diagrams/workflow) surface under --verbose.\n"
-        "meta:\n"
-        "  name: assistants_familiarize\n"
-        "  version: 4\n"
-        "steps:\n"
-    )
-    steps = ["  - run: ./bin/llm agentic --stdout"]
-    for cmd in ASSISTANT_AGENTIC_CORE_CMDS:
-        steps.append(f"  - run: {cmd} || true")
-    if verbose:
-        for cmd in ASSISTANT_AGENTIC_EXTENDED_CMDS:
-            steps.append(f"  - run: {cmd} || true")
-        for cmd in ASSISTANT_VIZ_ORCHESTRATION_CMDS:
-            steps.append(f"  - run: {cmd} || true")
-        steps.extend(
-            [
-                "  - run: ./bin/mail-assistant config inspect --only-mail || true",
-                "  - run: ./bin/mail-assistant workflows from-unified --config config/filters_unified.yaml || true",
-            ]
-        )
-    return base + "\n".join(steps) + "\n"
-
-
-def _build_repo_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="llm", description="Unified LLM utilities")
-    sp = p.add_subparsers(dest="cmd", required=True)
-
-    inv = sp.add_parser("inventory", help="Generate .llm/INVENTORY.md")
-    inv.add_argument("--write", help="Write path (default .llm/INVENTORY.md)")
-    inv.add_argument("--stdout", action="store_true")
-    inv.add_argument("--format", choices=["md", "json"], default="md")
-
-    fam = sp.add_parser("familiar", help="Show/write familiarization capsule")
-    fam.add_argument("--write", help="Write path (default .llm/familiarize.yaml)")
-    fam.add_argument("--stdout", action="store_true")
-    fam.add_argument("--verbose", action="store_true")
-    fam.add_argument("--compact", action="store_true", help="Minimal output for token efficiency")
-
-    pol = sp.add_parser("policies", help="Show/write PR policies capsule")
-    pol.add_argument("--write", help="Write path (default .llm/PR_POLICIES.yaml)")
-    pol.add_argument("--stdout", action="store_true")
-
-    agent = sp.add_parser("agentic", help="Show/write aggregated agentic capsule")
-    agent.add_argument("--write", help="Write path (default .llm/AGENTIC.md)")
-    agent.add_argument("--stdout", action="store_true")
-    agent.add_argument("--compact", action="store_true", help="Emit a more compact capsule")
-
-    dmap = sp.add_parser("domain-map", help="Show/write domain map")
-    dmap.add_argument("--write", help="Write path (default .llm/DOMAIN_MAP.md)")
-    dmap.add_argument("--stdout", action="store_true")
-
-    flows = sp.add_parser("flows", help="List or display flows")
-    flows.add_argument("--list", action="store_true")
-    flows.add_argument("--id")
-    flows.add_argument("--tags")
-    flows.add_argument("--format", choices=["md", "yaml", "json"], default="md")
-    flows.add_argument("--write")
-    flows.add_argument("--stdout", action="store_true")
-
-    derive = sp.add_parser("derive-all", help="Generate .llm artifacts")
-    derive.add_argument("--out-dir", default=".llm")
-    derive.add_argument("--include-generated", action="store_true")
-    derive.add_argument("--stdout", action="store_true")
-
-    deps = sp.add_parser("deps", help="Approximate dependencies by area")
-    deps.add_argument("--root", default=".")
-    deps.add_argument("--limit", type=int, default=10)
-    deps.add_argument("--order", choices=["asc", "desc"], default="desc")
-    deps.add_argument("--format", choices=["table", "text", "json"], default="table")
-
-    stale = sp.add_parser("stale", help="Approximate staleness by area or file")
-    stale.add_argument("--root", default=".")
-    stale.add_argument("--limit", type=int, default=10)
-    stale.add_argument("--format", choices=["table", "text", "json"], default="table")
-    stale.add_argument("--include", help="Comma-separated area names to include")
-    stale.add_argument("--with-status", action="store_true")
-    stale.add_argument("--with-priority", action="store_true")
-    stale.add_argument("--fail-on-stale", action="store_true")
-
-    chk = sp.add_parser("check", help="CI helper for staleness (passes/fails based on SLA)")
-    chk.add_argument("--root", default=".")
-    chk.add_argument("--limit", type=int, default=10)
-    chk.add_argument("--agg", choices=["max", "min", "avg"], default="max")
-
-    return p
-
-
-def _mail_agentic_capsule(compact: bool = False) -> str:
-    try:
-        from mail.agentic import build_agentic_capsule
-
-        return build_agentic_capsule(compact=compact)
-    except Exception:
-        return "agentic: mail\n(pending capsule)"
-
-
-def _mail_domain_map() -> str:
-    try:
-        from mail.agentic import build_domain_map
-
-        return build_domain_map()
-    except Exception:  # nosec B110 - fallback on import/build failure
-        return _DOMAIN_MAP_UNAVAILABLE
-
-
-def _mail_flows() -> List[Dict[str, any]]:
-    try:
-        from mail.agentic import build_flows
-
-        return build_flows()
-    except Exception:
-        return []
-
-
-def _parse_sla_env() -> dict:
-    env = os.environ.get("LLM_SLA", "")
-    overrides: dict = {}
-    for part in env.replace(";", ",").split(","):
-        if ":" not in part:
-            continue
-        key, value = part.split(":", 1)
-        try:
-            overrides[key.strip()] = int(value.strip())
-        except ValueError:
-            continue
-    return overrides
-
-
-def _split_list(value: Optional[str]) -> List[str]:
-    if not value:
-        return []
-    parts: List[str] = []
-    for raw in value.replace(";", ",").split(","):
-        entry = raw.strip()
-        if entry:
-            parts.append(entry)
-    return parts
-
-
-def _collect_excludes() -> set:
-    excludes = set(DEFAULT_SKIP_DIRS)
-    env_val = os.environ.get("LLM_EXCLUDE")
-    if env_val:
-        excludes.update(_split_list(env_val))
-    return excludes
-
-
-def _iter_candidate_dirs(root: Path, include: Optional[Iterable[str]] = None) -> List[Tuple[str, Path]]:
-    include_set = {name.strip() for name in include or [] if name.strip()}
-    excludes = _collect_excludes()
-    entries: List[Tuple[str, Path]] = []
-    for child in sorted(root.iterdir(), key=lambda p: p.name):
-        if not child.is_dir():
-            continue
-        name = child.name
-        if include_set:
-            if name not in include_set:
-                continue
-        elif name in excludes:
-            continue
-        entries.append((name, child))
-    return entries
-
-
-def _latest_mtime(path: Path) -> float:
-    latest = path.stat().st_mtime
-    for sub in path.rglob("*"):
-        try:
-            latest = max(latest, sub.stat().st_mtime)
-        except Exception:  # nosec B112 - skip inaccessible files (permissions, broken symlinks)
-            continue
-    return latest
-
-
-def _collect_stale_stats(root: Path, include: Optional[List[str]], limit: int) -> List[Dict[str, object]]:
-    now = time.time()
-    stats: List[Dict[str, object]] = []
-    for name, path in _iter_candidate_dirs(root, include):
-        try:
-            latest = _latest_mtime(path)
-        except OSError:
-            continue
-        days = max(0.0, (now - latest) / 86400.0)
-        stats.append(
-            {
-                "area": name,
-                "staleness_days": round(days, 2),
-                "latest_ts": datetime.fromtimestamp(latest).isoformat(timespec="seconds"),
-            }
-        )
-    stats.sort(key=lambda entry: entry["staleness_days"], reverse=True)
-    if limit > 0:
-        stats = stats[:limit]
-    return stats
-
-
-def _collect_dep_stats(root: Path, limit: int, order: str) -> List[Dict[str, int]]:
-    stats: List[Dict[str, int]] = []
-    for name, path in _iter_candidate_dirs(root):
-        py_files = 0
-        try:
-            for _ in path.rglob("*.py"):
-                py_files += 1
-        except OSError:
-            continue
-        dependencies = py_files
-        dependents = max(0, py_files // 2)
-        stats.append(
-            {
-                "area": name,
-                "dependencies": dependencies,
-                "dependents": dependents,
-                "combined": dependencies + dependents,
-            }
-        )
-    reverse = order == "desc"
-    stats.sort(key=lambda entry: entry["combined"], reverse=reverse)
-    if limit > 0:
-        stats = stats[:limit]
-    return stats
-
-
-def _status_for_area(area: str, days: float, overrides: dict) -> str:
-    threshold = overrides.get(area, overrides.get("Root", DEFAULT_SLA_DAYS))
-    return "STALE" if threshold is not None and days > threshold else "OK"
-
-
-def _fail_on_stale(stats: List[Dict[str, object]], overrides: dict) -> bool:
-    for entry in stats:
-        area = entry["area"]
-        days = float(entry["staleness_days"])
-        threshold = overrides.get(area, overrides.get("Root", DEFAULT_SLA_DAYS))
-        if threshold is not None and days > threshold:
-            return True
-    return False
-
-
-def _emit_content(content: str, write_path: Optional[str], stdout: bool) -> None:
-    if write_path:
-        target = Path(write_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-    if stdout or not write_path:
-        print(content)
-
-
-def _safe_call(builder: Optional[Callable[[], str]], fallback: str) -> str:
+def _safe_call(builder: Callable[[], str] | None, fallback: str) -> str:
     if builder is None:
         return fallback
     try:
         text = builder()
-    except Exception as exc:
+    except Exception as exc:  # nosec B110 - surface fallback instead of crashing
         return fallback or f"(error generating content: {exc})"
     return text or fallback
 
 
-def _make_emit_command_handler(builder: Optional[Callable[[], str]], fallback: str) -> Callable:
-    """Create a handler function for emit commands (agentic, domain-map, etc.).
+def _make_emit_command_handler(
+    builder: Callable[[], str] | None, fallback: str
+) -> Callable:
+    """Create a handler function for emit commands (agentic, domain-map, etc.)."""
 
-    Args:
-        builder: Function to build the content.
-        fallback: Fallback content if builder fails.
-
-    Returns:
-        Handler function for argparse.
-    """
     def _run(args):
         content = _safe_call(builder, fallback)
         _emit_content(content, getattr(args, "write", None), getattr(args, "stdout", False))
         return 0
+
     return _run
 
 
 def _make_familiar_handler(config: LlmConfig) -> Callable:
-    """Create handler for familiar command.
+    """Create handler for the familiar command."""
 
-    Args:
-        config: LlmConfig with familiar builders.
-
-    Returns:
-        Handler function for argparse.
-    """
     def _run_familiar(args):
         verbose = bool(getattr(args, "verbose", False))
-        builder = config.familiar_extended if verbose and config.familiar_extended else config.familiar_compact
-        fallback = "meta:\n  name: familiar\n  version: 1\nsteps:\n  - run: ./bin/llm agentic --stdout\n"
+        builder = (
+            config.familiar_extended
+            if verbose and config.familiar_extended
+            else config.familiar_compact
+        )
+        fallback = (
+            "meta:\n  name: familiar\n  version: 1\n"
+            "steps:\n  - run: ./bin/llm agentic --stdout\n"
+        )
         content = _safe_call(builder, fallback)
         _emit_content(content, getattr(args, "write", None), getattr(args, "stdout", False))
         return 0
+
     return _run_familiar
 
 
-def _collect_derive_outputs(config: "LlmConfig") -> List[Tuple[str, str]]:
+def _collect_derive_outputs(config: LlmConfig) -> list[tuple[str, str]]:
     """Collect (filename, content) pairs from config builders."""
-    outputs: List[Tuple[str, str]] = []
+    outputs: list[tuple[str, str]] = []
 
-    def _add(filename: Optional[str], builder: Optional[Callable[[], str]], fallback: str = "") -> None:
+    def _add(
+        filename: str | None,
+        builder: Callable[[], str] | None,
+        fallback: str = "",
+    ) -> None:
         if not filename or not builder:
             return
         content = _safe_call(builder, fallback)
@@ -631,15 +187,17 @@ def _collect_derive_outputs(config: "LlmConfig") -> List[Tuple[str, str]]:
     _add(config.policies_filename, config.policies, _default_policies())
 
     if hasattr(config, "extra_generators"):
-        extra: Sequence[Tuple[str, Callable[[], str]]] = getattr(config, "extra_generators")
+        extra: Sequence[tuple[str, Callable[[], str]]] = getattr(config, "extra_generators")
         for fname, builder in extra:
             _add(fname, builder)
 
     return outputs
 
 
-def _make_derive_handler(config: "LlmConfig") -> Callable:
-    """Create handler for derive-all command."""
+def _make_derive_handler(config: LlmConfig) -> Callable:
+    """Create handler for the derive-all command."""
+    from pathlib import Path
+
     def _run_derive(args):
         outputs = _collect_derive_outputs(config)
 
@@ -651,10 +209,13 @@ def _make_derive_handler(config: "LlmConfig") -> Callable:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
 
-        summary_lines = ["Generated:"] + ([f"- {f}" for f, _ in outputs] if outputs else ["- (none)"])
+        summary_lines = (
+            ["Generated:"] + ([f"- {f}" for f, _ in outputs] if outputs else ["- (none)"])
+        )
         if getattr(args, "stdout", False) or not getattr(args, "include_generated", False):
             print("\n".join(summary_lines))
         return 0
+
     return _run_derive
 
 
@@ -662,18 +223,10 @@ def _add_emit_subcommand(
     subparsers,
     name: str,
     help_text: str,
-    builder: Optional[Callable[[], str]],
+    builder: Callable[[], str] | None,
     fallback: str,
 ) -> None:
-    """Add an emit-style subcommand to parser.
-
-    Args:
-        subparsers: Subparser object from add_subparsers().
-        name: Command name.
-        help_text: Help text for command.
-        builder: Function to build content.
-        fallback: Fallback content if builder fails.
-    """
+    """Add an emit-style subcommand to a parser."""
     cmd = subparsers.add_parser(name, help=help_text)
     cmd.add_argument("--write", help="Write output path")
     cmd.add_argument("--stdout", action="store_true", help="Print to stdout")
@@ -684,23 +237,36 @@ def _build_app_parser(config: LlmConfig) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=config.prog, description=config.description)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # Add emit-style commands
-    _add_emit_subcommand(sub, "agentic", "Emit the agentic capsule", config.agentic, "agentic: (not available)")
-    _add_emit_subcommand(sub, "domain-map", "Emit domain map", config.domain_map, _DOMAIN_MAP_UNAVAILABLE)
-    _add_emit_subcommand(sub, "inventory", "Emit LLM inventory", config.inventory, "# LLM Agent Inventory\n\n(no data)")
-    _add_emit_subcommand(sub, "policies", "Emit PR/testing policies", config.policies, _default_policies())
+    _add_emit_subcommand(
+        sub, "agentic", "Emit the agentic capsule", config.agentic, "agentic: (not available)"
+    )
+    _add_emit_subcommand(
+        sub, "domain-map", "Emit domain map", config.domain_map, _DOMAIN_MAP_UNAVAILABLE
+    )
+    _add_emit_subcommand(
+        sub,
+        "inventory",
+        "Emit LLM inventory",
+        config.inventory,
+        "# LLM Agent Inventory\n\n(no data)",
+    )
+    _add_emit_subcommand(
+        sub, "policies", "Emit PR/testing policies", config.policies, _default_policies()
+    )
 
-    # Add familiar command
     fam = sub.add_parser("familiar", help="Emit familiarization capsule")
     fam.add_argument("--write", help="Write output path")
     fam.add_argument("--stdout", action="store_true", help="Print to stdout")
     fam.add_argument("--verbose", action="store_true", help="Include extended steps")
     fam.set_defaults(func=_make_familiar_handler(config))
 
-    # Add derive-all command
     derive = sub.add_parser("derive-all", help="Generate agentic + domain map artifacts")
-    derive.add_argument("--out-dir", default=".llm", help="Directory for generated files (default .llm)")
-    derive.add_argument("--include-generated", action="store_true", help="Write artifacts to --out-dir")
+    derive.add_argument(
+        "--out-dir", default=".llm", help="Directory for generated files (default .llm)"
+    )
+    derive.add_argument(
+        "--include-generated", action="store_true", help="Write artifacts to --out-dir"
+    )
     derive.add_argument("--stdout", action="store_true", help="Print summary to stdout")
     derive.set_defaults(func=_make_derive_handler(config))
 
@@ -711,7 +277,7 @@ def build_parser(config: LlmConfig) -> argparse.ArgumentParser:
     return _build_app_parser(config)
 
 
-def run(config: LlmConfig, argv: Optional[List[str]] = None) -> int:
+def run(config: LlmConfig, argv: list[str] | None = None) -> int:
     parser = build_parser(config)
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
@@ -719,262 +285,3 @@ def run(config: LlmConfig, argv: Optional[List[str]] = None) -> int:
         parser.print_help()
         return 0
     return int(func(args))
-
-
-def _handle_inventory(args, llm_dir: Path) -> int:
-    """Handle inventory command."""
-    if getattr(args, "format", "md") == "json":
-        data = {
-            "wrappers": ["bin/mail-assistant"],
-            "areas": ["mail", "calendar"],
-            "mail_groups": ["labels", "filters", "messages"],
-        }
-        print(json.dumps(data, indent=2))
-        return 0
-    content = _default_inventory()
-    if not content:
-        return 1
-    target = Path(args.write or (llm_dir / DEFAULT_INVENTORY_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
-    return 0
-
-
-def _handle_familiar(args, llm_dir: Path) -> int:
-    """Handle familiar command."""
-    content = _familiar_content(
-        verbose=getattr(args, "verbose", False),
-        compact=getattr(args, "compact", False),
-    )
-    target = Path(args.write or (llm_dir / DEFAULT_FAMILIAR_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
-    return 0
-
-
-def _handle_policies(args, llm_dir: Path) -> int:
-    """Handle policies command."""
-    target = Path(args.write or (llm_dir / DEFAULT_POLICIES_FILENAME))
-    content = _read_text(target) or _default_policies()
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
-    return 0
-
-
-def _handle_agentic(args, llm_dir: Path) -> int:
-    """Handle agentic command."""
-    compact = getattr(args, "compact", False)
-    content = _mail_agentic_capsule(compact=compact)
-    target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
-    return 0
-
-
-def _handle_domain_map(args, llm_dir: Path) -> int:
-    """Handle domain-map command."""
-    content = _mail_domain_map()
-    target = Path(args.write or (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
-    return 0
-
-
-def _render_flow_content(flow: Dict[str, Any], fmt: str) -> str:
-    """Render a single flow dict to string in the requested format."""
-    if fmt == "json":
-        return json.dumps(flow, indent=2)
-    if fmt == "yaml":
-        import yaml  # type: ignore
-        return yaml.safe_dump(flow, sort_keys=False)
-    return (
-        f"id: {flow.get('id')}\n"
-        f"title: {flow.get('title')}\n"
-        f"tags: {', '.join(flow.get('tags') or [])}\n"
-        + "\n".join(flow.get("commands") or [])
-    )
-
-
-def _handle_flows(args, _llm_dir: Path) -> int:
-    """Handle flows command."""
-    flows = _mail_flows()
-    if args.tags:
-        tags = {t.strip() for t in args.tags.split(",") if t.strip()}
-        flows = [f for f in flows if tags.issubset(set(f.get("tags") or []))]
-
-    if args.list:
-        lines = [f"- {f.get('id')} ({', '.join(f.get('tags') or [])})" for f in flows] or ["(no flows)"]
-        content = "\n".join(lines)
-    elif args.id:
-        flow = next((f for f in flows if f.get("id") == args.id), None)
-        content = _render_flow_content(flow, args.format) if flow else "(flow not found)"
-    else:
-        content = "(no flows)"
-
-    if args.write:
-        _write_text(Path(args.write), content)
-    if args.stdout or not args.write:
-        print(content)
-    return 0
-
-
-def _handle_derive_all(args, llm_dir: Path) -> int:
-    """Handle derive-all command."""
-    outputs = [
-        (llm_dir / DEFAULT_AGENTIC_FILENAME, _mail_agentic_capsule()),
-        (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME, _mail_domain_map()),
-        (llm_dir / DEFAULT_INVENTORY_FILENAME, _default_inventory()),
-        (llm_dir / DEFAULT_FAMILIAR_FILENAME, _familiar_content(verbose=False)),
-        (llm_dir / DEFAULT_POLICIES_FILENAME, _default_policies()),
-    ]
-    if getattr(args, "include_generated", False):
-        out_dir = Path(getattr(args, "out_dir", ".llm") or ".llm")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for target, content in outputs:
-            target_path = out_dir / target.name
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text(content, encoding="utf-8")
-    if getattr(args, "stdout", False):
-        print("Generated:")
-        for target, _ in outputs:
-            print(f"- {target}")
-    return 0
-
-
-def _handle_deps(args, _llm_dir: Path) -> int:
-    """Handle deps command."""
-    entries = _collect_dep_stats(Path(args.root), args.limit, args.order)
-    if args.format == "json":
-        print(json.dumps(entries, indent=2))
-    elif args.format == "text":
-        lines = [
-            f"{e['area']}\t{e['dependencies']}\t{e['dependents']}\t{e['combined']}" for e in entries
-        ] or ["(no data)"]
-        print("\n".join(lines))
-    else:
-        header = ["| Area | Dependencies | Dependents | Combined |", "| --- | --- | --- | --- |"]
-        rows = [f"| {e['area']} | {e['dependencies']} | {e['dependents']} | {e['combined']} |" for e in entries]
-        print("\n".join(header + rows))
-    return 0
-
-
-def _stale_text_line(entry: Dict, overrides: Dict, with_status: bool, with_priority: bool) -> str:
-    """Format a single stale entry as a text line."""
-    status = _status_for_area(entry["area"], entry["staleness_days"], overrides) if with_status else ""
-    priority = f"\tpriority={int(round(entry['staleness_days']))}" if with_priority else ""
-    line = f"{entry['area']}\t{entry['staleness_days']}d"
-    if status:
-        line += f"\t{status}"
-    return line + priority
-
-
-def _stale_md_row(entry: Dict, overrides: Dict, with_priority: bool) -> str:
-    """Format a single stale entry as a markdown table row."""
-    status = _status_for_area(entry["area"], entry["staleness_days"], overrides)
-    priority = int(round(entry["staleness_days"])) if with_priority else ""
-    return f"| {entry['area']} | {entry['staleness_days']} | {status} | {priority} |"
-
-
-def _handle_stale(args, _llm_dir: Path) -> int:
-    """Handle stale command."""
-    overrides = _parse_sla_env()
-    include = _split_list(getattr(args, "include", None))
-    entries = _collect_stale_stats(Path(args.root), include, args.limit)
-    with_status = getattr(args, "with_status", False)
-    with_priority = getattr(args, "with_priority", False)
-
-    if args.format == "json":
-        print(json.dumps(entries, indent=2))
-    elif args.format == "text":
-        for entry in entries:
-            print(_stale_text_line(entry, overrides, with_status, with_priority))
-    else:
-        header = ["| Area | Days | Status | Priority |", "| --- | --- | --- | --- |"]
-        rows = [_stale_md_row(entry, overrides, with_priority) for entry in entries]
-        print("\n".join(header + rows))
-
-    if getattr(args, "fail_on_stale", False) and _fail_on_stale(entries, overrides):
-        return 2
-    return 0
-
-
-def _handle_check(args, _llm_dir: Path) -> int:
-    """Handle check command."""
-    overrides = _parse_sla_env()
-    if not overrides:
-        return 0
-
-    stats = _collect_stale_stats(Path(args.root), list(overrides.keys()), args.limit)
-    area_map = {entry["area"]: entry["staleness_days"] for entry in stats}
-    root_limit = overrides.pop("Root", None)
-
-    if root_limit is not None and stats:
-        values = [entry["staleness_days"] for entry in stats]
-        if args.agg == "min":
-            agg_value = min(values)
-        elif args.agg == "avg":
-            agg_value = sum(values) / len(values)
-        else:
-            agg_value = max(values)
-        if agg_value > root_limit:
-            return 2
-
-    for area, limit in overrides.items():
-        days = area_map.get(area)
-        if days is not None and limit is not None and days > limit:
-            return 2
-    return 0
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    """Main entry point for LLM CLI.
-
-    Args:
-        argv: Command-line arguments (defaults to sys.argv[1:]).
-
-    Returns:
-        Exit code (0 for success, non-zero for errors).
-    """
-    raw_args = list(argv) if argv is not None else sys.argv[1:]
-    try:
-        app, remaining = _extract_app_arg(raw_args)
-    except ValueError as exc:
-        print(str(exc))
-        return 2
-
-    if app and app != "mail":
-        return _run_app_cli(app, remaining)
-
-    args = _build_repo_parser().parse_args(remaining)
-    root = Path.cwd()
-    llm_dir = root / ".llm"
-
-    # Command dispatch table
-    handlers = {
-        "inventory": _handle_inventory,
-        "familiar": _handle_familiar,
-        "policies": _handle_policies,
-        "agentic": _handle_agentic,
-        "domain-map": _handle_domain_map,
-        "flows": _handle_flows,
-        "derive-all": _handle_derive_all,
-        "deps": _handle_deps,
-        "stale": _handle_stale,
-        "check": _handle_check,
-    }
-
-    handler = handlers.get(args.cmd)
-    if handler:
-        return handler(args, llm_dir)
-
-    return 2

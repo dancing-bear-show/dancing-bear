@@ -70,7 +70,7 @@ class PhonePipelineTests(TestCase):
         self.layout = NormalizedLayout(dock=["app1"], pages=[[{"kind": "app", "id": "app2"}]])
 
     def test_export_processor_success(self):
-        with patch("phone.pipeline.load_layout", return_value=self.layout):
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout):
             request = ExportRequest(backup=None, out_path=Path("out.yaml"))
             env = ExportProcessor().process(ExportRequestConsumer(request).consume())
         self.assertTrue(env.ok())
@@ -78,7 +78,7 @@ class PhonePipelineTests(TestCase):
 
     def test_export_processor_failure(self):
         err = LayoutLoadError(code=2, message="no backup")
-        with patch("phone.pipeline.load_layout", side_effect=err):
+        with patch("phone.pipeline_export.load_layout", side_effect=err):
             request = ExportRequest(backup=None, out_path=Path("out.yaml"))
             env = ExportProcessor().process(ExportRequestConsumer(request).consume())
         self.assertFalse(env.ok())
@@ -94,7 +94,7 @@ class PhonePipelineTests(TestCase):
             self.assertIn("Wrote layout export", buf.getvalue())
 
     def test_plan_processor_generates_plan(self):
-        with patch("phone.pipeline.load_layout", return_value=self.layout):
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout):
             request = PlanRequest(layout=None, backup=None, out_path=Path("plan.yaml"))
             env = PlanProcessor().process(PlanRequestConsumer(request).consume())
         self.assertTrue(env.ok())
@@ -110,8 +110,8 @@ class PhonePipelineTests(TestCase):
 
     def test_checklist_processor(self):
         plan_data = {"pins": [], "folders": {"Work": ["app2"]}}
-        with patch("phone.pipeline.load_layout", return_value=self.layout), patch(
-            "phone.pipeline.read_yaml", return_value=plan_data
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout), patch(
+            "phone.pipeline_export.read_yaml", return_value=plan_data
         ):
             req = ChecklistRequest(
                 plan_path=Path("plan.yaml"),
@@ -137,7 +137,7 @@ class PhonePipelineTests(TestCase):
     # -------------------------------------------------------------------------
 
     def test_unused_processor_success(self):
-        with patch("phone.pipeline.load_layout", return_value=self.layout):
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout):
             request = UnusedRequest(
                 layout=None,
                 backup=None,
@@ -153,7 +153,7 @@ class PhonePipelineTests(TestCase):
 
     def test_unused_processor_failure(self):
         err = LayoutLoadError(code=2, message="no backup")
-        with patch("phone.pipeline.load_layout", side_effect=err):
+        with patch("phone.pipeline_export.load_layout", side_effect=err):
             request = UnusedRequest(
                 layout=None,
                 backup=None,
@@ -190,7 +190,7 @@ class PhonePipelineTests(TestCase):
     # -------------------------------------------------------------------------
 
     def test_prune_processor_success(self):
-        with patch("phone.pipeline.load_layout", return_value=self.layout):
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout):
             request = PruneRequest(
                 layout=None,
                 backup=None,
@@ -207,7 +207,7 @@ class PhonePipelineTests(TestCase):
         self.assertIn("OFFLOAD", env.payload.lines[0])  # type: ignore[union-attr]
 
     def test_prune_processor_delete_mode(self):
-        with patch("phone.pipeline.load_layout", return_value=self.layout):
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout):
             request = PruneRequest(
                 layout=None,
                 backup=None,
@@ -239,7 +239,7 @@ class PhonePipelineTests(TestCase):
     # -------------------------------------------------------------------------
 
     def test_analyze_processor_success(self):
-        with patch("phone.pipeline.load_layout", return_value=self.layout):
+        with patch("phone.pipeline_export.load_layout", return_value=self.layout):
             request = AnalyzeRequest(
                 layout=None,
                 backup=None,
@@ -253,7 +253,7 @@ class PhonePipelineTests(TestCase):
 
     def test_analyze_processor_failure(self):
         err = LayoutLoadError(code=2, message="no backup")
-        with patch("phone.pipeline.load_layout", side_effect=err):
+        with patch("phone.pipeline_export.load_layout", side_effect=err):
             request = AnalyzeRequest(
                 layout=None,
                 backup=None,

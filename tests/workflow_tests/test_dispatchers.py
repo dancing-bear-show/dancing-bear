@@ -1,4 +1,9 @@
-"""Tests for workflow.dispatchers — LocalDispatcher, SkillDispatcher, WorkerQueueDispatcher, CompositeDispatcher."""
+"""Tests for workflow.dispatchers — LocalDispatcher, SkillDispatcher, WorkerQueueDispatcher, CompositeDispatcher.
+
+Split versions of these tests live in:
+  - test_dispatchers_local.py  (LocalDispatcher)
+  - test_dispatchers_skill.py  (SkillDispatcher, WorkerQueueDispatcher, CompositeDispatcher)
+"""
 
 from __future__ import annotations
 
@@ -28,10 +33,6 @@ from tests.workflow_tests.helpers.factories import (
     make_stage_result,
     make_stage_spec,
 )
-
-# ---------------------------------------------------------------------------
-# LocalDispatcher
-# ---------------------------------------------------------------------------
 
 
 class TestLocalDispatcherInvokeSuccess(unittest.TestCase):
