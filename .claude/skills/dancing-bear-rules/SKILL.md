@@ -80,3 +80,7 @@ For CLI schemas (prefer over `--help`):
 ./bin/<tool> --agentic --agentic-format yaml --agentic-compact
 ./bin/llm agentic --stdout
 ```
+
+## 11. Writing Standards
+
+Follow `.claude/WRITING_GUIDE.md` for commit messages, PR descriptions, docs, comments, and CLI output. Key rule: professional, neutral, fact-based language — no drama, no hype. Reusable doc templates (RFC, troubleshooting, PR response) live in `templates/`.
