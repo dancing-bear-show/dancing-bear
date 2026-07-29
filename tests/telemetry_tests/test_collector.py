@@ -56,8 +56,10 @@ class _ConsoleCapture:
         return self
 
     def __exit__(self, *_):
-        self._p1.stop()
-        self._p2.stop()
+        try:
+            self._p1.stop()
+        finally:
+            self._p2.stop()
 
     @property
     def out(self) -> str:
@@ -150,9 +152,9 @@ def _make_record(
     *,
     time_unix_nano: int | str | None = _DT_NS,
     body_value: str | None = "test body",
-    attributes: list | None = None,
+    attributes: list[dict[str, object]] | None = None,
 ) -> str:
-    record: dict = {}
+    record: dict[str, object] = {}
     if time_unix_nano is not None:
         record["timeUnixNano"] = time_unix_nano
     if body_value is not None:
