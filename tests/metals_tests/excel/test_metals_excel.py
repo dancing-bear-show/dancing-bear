@@ -166,5 +166,99 @@ class TestWriteSheet(unittest.TestCase):
         self.assertIn("A1:E2", call_args[0][0])
 
 
+class TestMainExcel(unittest.TestCase):
+    """Tests for the main() entry point in metals/excel.py (lines 51-85)."""
+
+    @patch("metals.excel._write_sheet")
+    @patch("metals.excel._read_csv")
+    @patch("metals.excel.OutlookClient")
+    @patch("metals.excel.resolve_outlook_credentials")
+    def test_main_writes_both_sheets(
+        self, mock_creds, mock_client_cls, mock_read_csv, mock_write_sheet
+    ):
+        """Test main() reads both CSVs and writes both sheets."""
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_read_csv.return_value = [["date", "order_id"], ["2024-01-01", "1"]]
+
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as sf, \
+             tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as gf:
+            from metals.excel import main
+            rc = main([
+                "--drive-id", "drive-id",
+                "--item-id", "item-id",
+                "--silver-csv", sf.name,
+                "--silver-sheet", "Silver",
+                "--gold-csv", gf.name,
+                "--gold-sheet", "Gold",
+            ])
+
+        self.assertEqual(rc, 0)
+        mock_client.authenticate.assert_called_once()
+        self.assertEqual(mock_write_sheet.call_count, 2)
+
+    @patch("metals.excel._write_sheet")
+    @patch("metals.excel._read_csv")
+    @patch("metals.excel.OutlookClient")
+    @patch("metals.excel.resolve_outlook_credentials")
+    def test_main_skips_missing_csv_args(
+        self, mock_creds, mock_client_cls, mock_read_csv, mock_write_sheet
+    ):
+        """Test main() skips writing a sheet when CSV/sheet args not provided."""
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_client_cls.return_value = MagicMock()
+
+        from metals.excel import main
+        rc = main([
+            "--drive-id", "drive-id",
+            "--item-id", "item-id",
+            # No --silver-csv / --silver-sheet / --gold-csv / --gold-sheet
+        ])
+        self.assertEqual(rc, 0)
+        # Neither CSV provided → neither sheet written
+        mock_write_sheet.assert_not_called()
+        mock_read_csv.assert_not_called()
+
+    @patch("metals.excel._write_sheet")
+    @patch("metals.excel._read_csv")
+    @patch("metals.excel.OutlookClient")
+    @patch("metals.excel.resolve_outlook_credentials")
+    def test_main_writes_only_silver_when_gold_missing(
+        self, mock_creds, mock_client_cls, mock_read_csv, mock_write_sheet
+    ):
+        """Test main() writes only the silver sheet when gold args are absent."""
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_client_cls.return_value = MagicMock()
+        mock_read_csv.return_value = [["date"], ["2024-01-01"]]
+
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as sf:
+            from metals.excel import main
+            rc = main([
+                "--drive-id", "drive-id",
+                "--item-id", "item-id",
+                "--silver-csv", sf.name,
+                "--silver-sheet", "Silver",
+            ])
+
+        self.assertEqual(rc, 0)
+        # Only one write (Silver)
+        self.assertEqual(mock_write_sheet.call_count, 1)
+        call_sheet = mock_write_sheet.call_args[0][3]
+        self.assertEqual(call_sheet, "Silver")
+
+    @patch("metals.excel.resolve_outlook_credentials")
+    def test_main_exits_without_client_id(self, mock_creds):
+        """Test main() raises SystemExit when no client_id is configured."""
+        mock_creds.return_value = (None, None, None)
+
+        from metals.excel import main
+        with self.assertRaises(SystemExit):
+            main([
+                "--drive-id", "x",
+                "--item-id", "y",
+            ])
+
+
 if __name__ == "__main__":
     unittest.main()
