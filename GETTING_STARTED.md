@@ -268,10 +268,10 @@ sequenceDiagram
     C->>P: read current state
     C-->>U: diff: additions / changes / removals
     deactivate C
-    U->>+C: apply --dry-run
+    U->>+C: sync --dry-run
     C-->>U: simulated result, no writes
     deactivate C
-    U->>+C: apply
+    U->>+C: sync
     C->>P: write changes
     C-->>U: confirmation
     deactivate C

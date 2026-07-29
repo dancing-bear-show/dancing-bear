@@ -80,12 +80,19 @@ flowchart TB
     resume[resume/]
     phone[phone/]
     whatsapp[whatsapp/]
-    other[wifi/, metals/, apple_music/, desk/, maker/]
+    other[wifi/, metals/, apple_music/, maker/]
     core[core/ - shared helpers, CLI framework]
     workflow[workflow/ - YAML DAG engine]
     providers[Gmail, Outlook, iOS, local APIs]
     user -->|dispatch| assistant
-    assistant --> bins
+    user -->|direct| bins
+    assistant --> mail
+    assistant --> calendars
+    assistant --> schedule
+    assistant --> resume
+    assistant --> phone
+    assistant --> whatsapp
+    assistant --> other
     bins --> mail
     bins --> calendars
     bins --> schedule
@@ -106,9 +113,11 @@ flowchart TB
     workflow -->|orchestrates| bins
 ```
 
-Every domain CLI shares the same `core/` framework and follows the same plan/dry-run/apply
-safety pattern before touching a real provider. See [GETTING_STARTED.md](GETTING_STARTED.md)
-for that flow in detail.
+`./bin/assistant <app>` and the standalone `bin/*` wrappers (e.g. `./bin/mail`) are two
+independent entry points that both import the same domain module directly — `assistant`
+does not route through the wrappers. Every domain CLI shares the same `core/` framework
+and follows the same plan/dry-run/apply safety pattern before touching a real provider.
+See [GETTING_STARTED.md](GETTING_STARTED.md) for that flow in detail.
 
 ## Workflows
 
