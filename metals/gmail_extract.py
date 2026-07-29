@@ -7,6 +7,7 @@ ounces of gold and silver from message bodies using simple heuristics.
 Usage (defaults to profile=gmail_personal):
   python -m metals.gmail_extract [--profile gmail_personal] [--days 365]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,16 +23,22 @@ from .extractors import OzAccumulator
 
 # Compiled patterns for amount extraction
 # [^\n]{0,60}? matches up to 60 non-newline chars (simplified from negative lookahead)
-_PAT_FRAC_GE = re.compile(r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")
-_PAT_OZ_GE = re.compile(r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")
-_PAT_G_GE = re.compile(r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?")  # nosec
+_PAT_FRAC_GE = re.compile(
+    r"(?i)\b(\d+)\s*/\s*(\d+)\s*oz\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?"
+)
+_PAT_OZ_GE = re.compile(
+    r"(?i)(?<!/)\b(\d+(?:\.\d+)?)\s*oz\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?"
+)
+_PAT_G_GE = re.compile(
+    r"(?i)\b(\d+(?:\.\d+)?)\s*(g|gram|grams)\b[^\n]{0,60}?\b(gold|silver)\b(?:[^\n]*?\bx\s*(\d+))?"
+)  # nosec
 
 
 def _extract_frac_amounts(ln: str, acc: OzAccumulator) -> None:
     for m in _PAT_FRAC_GE.finditer(ln):
         num = float(m.group(1))
         den = float(m.group(2) or 1)
-        metal = (m.group(3) or '').lower()
+        metal = (m.group(3) or "").lower()
         qty = float(m.group(4) or 1)
         oz_unit = num / max(den, 1.0)
         acc.add(metal, oz_unit, qty, (metal, round(oz_unit, 6), qty))
@@ -40,7 +47,7 @@ def _extract_frac_amounts(ln: str, acc: OzAccumulator) -> None:
 def _extract_oz_amounts(ln: str, acc: OzAccumulator) -> None:
     for m in _PAT_OZ_GE.finditer(ln):
         wt = float(m.group(1))
-        metal = (m.group(2) or '').lower()
+        metal = (m.group(2) or "").lower()
         qty = float(m.group(3) or 1)
         acc.add(metal, wt, qty, (metal, round(wt, 6), qty))
 
@@ -48,13 +55,13 @@ def _extract_oz_amounts(ln: str, acc: OzAccumulator) -> None:
 def _extract_gram_amounts(ln: str, acc: OzAccumulator) -> None:
     for m in _PAT_G_GE.finditer(ln):
         wt_g = float(m.group(1))
-        metal = (m.group(3) or '').lower()
+        metal = (m.group(3) or "").lower()
         qty = float(m.group(4) or 1)
         oz_unit = wt_g / G_PER_OZ
         acc.add(metal, oz_unit, qty, (metal, round(oz_unit, 6), qty))
 
 
-def _extract_amounts(text: str) -> Tuple[float, float]:
+def _extract_amounts(text: str | None) -> Tuple[float, float]:
     t = (text or "").replace("\u2013", "-").replace("\u2014", "-")
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     acc = OzAccumulator()
@@ -71,12 +78,12 @@ _GE_QUERIES = [
     'from:noreply@td.com subject:"TD Precious Metals"',
     'from:TDPreciousMetals@tdsecurities.com "Your order has arrived"',
     'from:orderstatus@costco.ca subject:"Your Costco.ca Order Number"',
-    '(from:email.mint.ca OR from:mint.ca OR from:royalcanadianmint.ca) (order OR confirmation OR receipt OR shipped OR invoice)',
+    "(from:email.mint.ca OR from:mint.ca OR from:royalcanadianmint.ca) (order OR confirmation OR receipt OR shipped OR invoice)",
 ]
 
 
 def _ge_get_order_id(subject: str, text: str) -> str | None:
-    m = _GE_ORDER_PAT.search(subject or '') or _GE_ORDER_PAT.search(text or '')
+    m = _GE_ORDER_PAT.search(subject or "") or _GE_ORDER_PAT.search(text or "")
     return m.group(1) if m else None
 
 
@@ -84,12 +91,12 @@ def _ge_build_order_map(client: GmailClient, cand_ids: list) -> dict:
     """Build order_id -> (mid, recv_ms) map choosing latest message per order."""
     order_map: dict[str, tuple[str, int]] = {}
     for mid in cand_ids:
-        msg = client.get_message(mid, fmt='full')
+        msg = client.get_message(mid, fmt="full")
         hdrs = GmailClient.headers_to_dict(msg)
-        sub = hdrs.get('subject', '')
+        sub = hdrs.get("subject", "")
         text = client.get_message_text(mid)
         oid = _ge_get_order_id(sub, text) or mid
-        recv_ms = int(msg.get('internalDate') or 0)
+        recv_ms = int(msg.get("internalDate") or 0)
         cur = order_map.get(oid)
         if not cur or recv_ms > cur[1]:
             order_map[oid] = (mid, recv_ms)
@@ -97,7 +104,9 @@ def _ge_build_order_map(client: GmailClient, cand_ids: list) -> dict:
 
 
 def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa: ARG001 - days reserved for future use
-    cred, tok = resolve_paths_profile(arg_credentials=None, arg_token=None, profile=profile)
+    cred, tok = resolve_paths_profile(
+        arg_credentials=None, arg_token=None, profile=profile
+    )
     client = GmailClient(credentials_path=cred, token_path=tok, cache_dir=".cache")
     client.authenticate()
 
@@ -131,11 +140,16 @@ def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Extract gold/silver totals from Gmail order emails")
+    p = argparse.ArgumentParser(
+        description="Extract gold/silver totals from Gmail order emails"
+    )
     p.add_argument("--profile", default="gmail_personal")
     p.add_argument("--days", type=int, default=365)
     args = p.parse_args(argv)
-    return run(profile=getattr(args, "profile", "gmail_personal"), days=getattr(args, "days", 365))
+    return run(
+        profile=getattr(args, "profile", "gmail_personal"),
+        days=getattr(args, "days", 365),
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -10,25 +10,6 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-
-def _rel_date(days: int = 0) -> str:
-    """Return a date string relative to today (UTC)."""
-    return (_dt.datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
-
-
-def _rel_iso(days: int = 0, hour: int = 17, minute: int = 0) -> str:
-    """Return a datetime ISO string (with +00:00) relative to today (UTC)."""
-    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
-    base = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    return base.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-
-
-def _rel_created(days: int = 0) -> str:
-    """Return a datetime ISO string (with Z suffix) relative to today (UTC)."""
-    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
-    base = base.replace(hour=0, minute=0, second=0, microsecond=0)
-    return base.strftime("%Y-%m-%dT%H:%M:%SZ")
-
 from tests.fixtures import write_yaml
 from tests.calendars_tests.fixtures import make_outlook_event
 
@@ -78,6 +59,25 @@ from calendars.pipeline import (
     OutlookSettingsRequest,
     OutlookSettingsRequestConsumer,
 )
+
+
+def _rel_date(days: int = 0) -> str:
+    """Return a date string relative to today (UTC)."""
+    return (_dt.datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _rel_iso(days: int = 0, hour: int = 17, minute: int = 0) -> str:
+    """Return a datetime ISO string (with +00:00) relative to today (UTC)."""
+    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
+    base = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return base.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _rel_created(days: int = 0) -> str:
+    """Return a datetime ISO string (with Z suffix) relative to today (UTC)."""
+    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
+    base = base.replace(hour=0, minute=0, second=0, microsecond=0)
+    return base.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _make_occurrence(subject, series_id, start_iso, end_iso, created, location=None):
@@ -190,7 +190,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             calendar=None,
             out_path=None,
         )
-        processor = GmailScanClassesProcessor(service_builder=lambda _auth: (_ for _ in ()).throw(RuntimeError("boom")))
+        processor = GmailScanClassesProcessor(
+            service_builder=lambda _auth: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
         env = processor.process(GmailScanClassesRequestConsumer(request).consume())
         self.assertFalse(env.ok())
 
@@ -237,7 +239,11 @@ Tuesday from 6:00 pm to 6:30 pm"""
         svc = MagicMock()
         svc.list_message_ids.return_value = ["m1", "m2"]
         svc.get_message.side_effect = [
-            {"payload": {"headers": [{"name": "From", "value": "User <u@example.com>"}]}},
+            {
+                "payload": {
+                    "headers": [{"name": "From", "value": "User <u@example.com>"}]
+                }
+            },
             {"from": "foo@example.com"},
         ]
         request = GmailSweepTopRequest(
@@ -290,7 +296,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             calendar=None,
             out_path=Path("plan.yaml"),
         )
-        processor = GmailReceiptsProcessor(service_builder=lambda _auth: (_ for _ in ()).throw(RuntimeError("boom")))
+        processor = GmailReceiptsProcessor(
+            service_builder=lambda _auth: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
         env = processor.process(GmailReceiptsRequestConsumer(request).consume())
         self.assertFalse(env.ok())
         self.assertIn("boom", env.diagnostics["message"])
@@ -321,14 +329,22 @@ Tuesday from 6:00 pm to 6:30 pm"""
         }
         with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml") as tf:
             import yaml
+
             yaml.safe_dump(cfg, tf)
             tf_path = Path(tf.name)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            make_outlook_event("Swim", "2025-01-06T17:00:00", "2025-01-06T17:30:00", event_type="singleInstance"),
+            make_outlook_event(
+                "Swim",
+                "2025-01-06T17:00:00",
+                "2025-01-06T17:30:00",
+                event_type="singleInstance",
+            ),
         ]
         request = OutlookVerifyRequest(config_path=tf_path, calendar=None, service=svc)
-        env = OutlookVerifyProcessor().process(OutlookVerifyRequestConsumer(request).consume())
+        env = OutlookVerifyProcessor().process(
+            OutlookVerifyRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.duplicates, 1)  # type: ignore[union-attr]
         svc.list_events_in_range.assert_called_once()
@@ -344,12 +360,24 @@ Tuesday from 6:00 pm to 6:30 pm"""
     def test_outlook_add_processor_and_producer(self):
         cfg = {
             "events": [
-                {"subject": "Meet", "start": "2025-01-01T10:00:00", "end": "2025-01-01T11:00:00"},
-                {"subject": "Series", "repeat": "weekly", "byday": ["MO"], "start_time": "10:00", "end_time": "11:00", "range": {"start_date": "2025-01-01", "until": "2025-02-01"}},
+                {
+                    "subject": "Meet",
+                    "start": "2025-01-01T10:00:00",
+                    "end": "2025-01-01T11:00:00",
+                },
+                {
+                    "subject": "Series",
+                    "repeat": "weekly",
+                    "byday": ["MO"],
+                    "start_time": "10:00",
+                    "end_time": "11:00",
+                    "range": {"start_date": "2025-01-01", "until": "2025-02-01"},
+                },
             ]
         }
         with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml") as tf:
             import yaml
+
             yaml.safe_dump(cfg, tf)
             tf_path = Path(tf.name)
         svc = MagicMock()
@@ -361,7 +389,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             force_no_reminder=False,
             service=svc,
         )
-        env = OutlookAddProcessor().process(OutlookAddRequestConsumer(request).consume())
+        env = OutlookAddProcessor().process(
+            OutlookAddRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.created, 2)  # type: ignore[union-attr]
         svc.create_event.assert_called_once()
@@ -375,8 +405,12 @@ Tuesday from 6:00 pm to 6:30 pm"""
         svc = MagicMock()
         svc.find_calendar_id.return_value = "cal-1"
         svc.list_calendar_view.return_value = [
-            _make_occurrence("Soccer", "A", _rel_iso(7), _rel_iso(7, 17, 30), _rel_created(-180)),
-            _make_occurrence("Soccer", "B", _rel_iso(14), _rel_iso(14, 17, 30), _rel_created(-90)),
+            _make_occurrence(
+                "Soccer", "A", _rel_iso(7), _rel_iso(7, 17, 30), _rel_created(-180)
+            ),
+            _make_occurrence(
+                "Soccer", "B", _rel_iso(14), _rel_iso(14, 17, 30), _rel_created(-90)
+            ),
         ]
         request = OutlookDedupRequest(
             service=svc,
@@ -384,7 +418,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             from_date=_rel_date(0),
             to_date=_rel_date(30),
         )
-        env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
+        env = OutlookDedupProcessor().process(
+            OutlookDedupRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         self.assertEqual(len(env.payload.duplicates), 1)  # type: ignore[union-attr]
         dup = env.payload.duplicates[0]  # type: ignore[union-attr]
@@ -400,8 +436,20 @@ Tuesday from 6:00 pm to 6:30 pm"""
     def test_outlook_dedup_processor_apply(self):
         svc = MagicMock()
         svc.list_calendar_view.return_value = [
-            _make_occurrence("Swim", "S1", _rel_iso(7, 18, 0), _rel_iso(7, 18, 30), _rel_created(-180)),
-            _make_occurrence("Swim", "S2", _rel_iso(14, 18, 0), _rel_iso(14, 18, 30), _rel_created(-90)),
+            _make_occurrence(
+                "Swim",
+                "S1",
+                _rel_iso(7, 18, 0),
+                _rel_iso(7, 18, 30),
+                _rel_created(-180),
+            ),
+            _make_occurrence(
+                "Swim",
+                "S2",
+                _rel_iso(14, 18, 0),
+                _rel_iso(14, 18, 30),
+                _rel_created(-90),
+            ),
         ]
         svc.delete_event_by_id.return_value = True
         request = OutlookDedupRequest(
@@ -410,7 +458,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             from_date=_rel_date(0),
             to_date=_rel_date(30),
         )
-        env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
+        env = OutlookDedupProcessor().process(
+            OutlookDedupRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         self.assertTrue(env.payload.apply)  # type: ignore[union-attr]
         self.assertEqual(env.payload.deleted, 1)  # type: ignore[union-attr]
@@ -426,24 +476,45 @@ Tuesday from 6:00 pm to 6:30 pm"""
         svc = MagicMock()
         svc.list_calendar_view.side_effect = RuntimeError("boom")
         request = OutlookDedupRequest(service=svc)
-        env = OutlookDedupProcessor().process(OutlookDedupRequestConsumer(request).consume())
+        env = OutlookDedupProcessor().process(
+            OutlookDedupRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
 
     def test_outlook_remove_processor_plan_and_producer(self):
         cfg = {
             "events": [
-                {"subject": "Series", "repeat": "weekly", "byday": ["MO"], "start_time": "10:00", "end_time": "11:00", "range": {"start_date": "2025-01-01", "until": "2025-01-31"}},
-                {"subject": "OneOff", "start": "2025-02-01T12:00:00", "end": "2025-02-01T13:00:00"},
+                {
+                    "subject": "Series",
+                    "repeat": "weekly",
+                    "byday": ["MO"],
+                    "start_time": "10:00",
+                    "end_time": "11:00",
+                    "range": {"start_date": "2025-01-01", "until": "2025-01-31"},
+                },
+                {
+                    "subject": "OneOff",
+                    "start": "2025-02-01T12:00:00",
+                    "end": "2025-02-01T13:00:00",
+                },
             ]
         }
         cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.side_effect = [
             [
-                {"seriesMasterId": "S1", "start": {"dateTime": "2025-01-06T10:00:00"}, "end": {"dateTime": "2025-01-06T11:00:00"}},
+                {
+                    "seriesMasterId": "S1",
+                    "start": {"dateTime": "2025-01-06T10:00:00"},
+                    "end": {"dateTime": "2025-01-06T11:00:00"},
+                },
             ],
             [
-                {"id": "E1", "start": {"dateTime": "2025-02-01T12:00:00"}, "end": {"dateTime": "2025-02-01T13:00:00"}},
+                {
+                    "id": "E1",
+                    "start": {"dateTime": "2025-02-01T12:00:00"},
+                    "end": {"dateTime": "2025-02-01T13:00:00"},
+                },
             ],
         ]
         request = OutlookRemoveRequest(
@@ -453,7 +524,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             apply=False,
             service=svc,
         )
-        env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
+        env = OutlookRemoveProcessor().process(
+            OutlookRemoveRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         self.assertEqual(len(env.payload.plan), 2)  # type: ignore[union-attr]
         first = env.payload.plan[0]  # type: ignore[union-attr]
@@ -471,13 +544,24 @@ Tuesday from 6:00 pm to 6:30 pm"""
     def test_outlook_remove_processor_apply(self):
         cfg = {
             "events": [
-                {"subject": "Series", "repeat": "weekly", "byday": ["MO"], "start_time": "10:00", "end_time": "11:00", "range": {"start_date": "2025-01-01", "until": "2025-01-31"}},
+                {
+                    "subject": "Series",
+                    "repeat": "weekly",
+                    "byday": ["MO"],
+                    "start_time": "10:00",
+                    "end_time": "11:00",
+                    "range": {"start_date": "2025-01-01", "until": "2025-01-31"},
+                },
             ]
         }
         cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            {"seriesMasterId": "S1", "start": {"dateTime": "2025-01-06T10:00:00"}, "end": {"dateTime": "2025-01-06T11:00:00"}},
+            {
+                "seriesMasterId": "S1",
+                "start": {"dateTime": "2025-01-06T10:00:00"},
+                "end": {"dateTime": "2025-01-06T11:00:00"},
+            },
         ]
         svc.delete_event_by_id.return_value = True
         request = OutlookRemoveRequest(
@@ -487,7 +571,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             apply=True,
             service=svc,
         )
-        env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
+        env = OutlookRemoveProcessor().process(
+            OutlookRemoveRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         self.assertEqual(env.payload.deleted, 1)  # type: ignore[union-attr]
         svc.delete_event_by_id.assert_called_once_with("S1")
@@ -508,7 +594,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             apply=False,
             service=svc,
         )
-        env = OutlookRemoveProcessor().process(OutlookRemoveRequestConsumer(request).consume())
+        env = OutlookRemoveProcessor().process(
+            OutlookRemoveRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
 
     def test_outlook_reminders_processor_dry_run(self):
@@ -526,12 +614,12 @@ Tuesday from 6:00 pm to 6:30 pm"""
             to_date="2025-02-01",
             dry_run=True,
             all_occurrences=True,
-             set_off=True,
-             minutes=None,
+            set_off=True,
+            minutes=None,
         )
-        env = OutlookRemindersProcessor(today_factory=lambda: _dt.date(2025, 1, 5)).process(
-            OutlookRemindersRequestConsumer(request).consume()
-        )
+        env = OutlookRemindersProcessor(
+            today_factory=lambda: _dt.date(2025, 1, 5)
+        ).process(OutlookRemindersRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertTrue(env.payload.dry_run)  # type: ignore[union-attr]
         svc.get_calendar_id_by_name.assert_called_once_with("Family")
@@ -561,18 +649,23 @@ Tuesday from 6:00 pm to 6:30 pm"""
             set_off=True,
             minutes=None,
         )
-        env = OutlookRemindersProcessor(today_factory=lambda: _dt.date(2025, 1, 5)).process(
-            OutlookRemindersRequestConsumer(request).consume()
-        )
+        env = OutlookRemindersProcessor(
+            today_factory=lambda: _dt.date(2025, 1, 5)
+        ).process(OutlookRemindersRequestConsumer(request).consume())
         self.assertTrue(env.ok())
         self.assertFalse(env.payload.dry_run)  # type: ignore[union-attr]
         self.assertEqual(env.payload.updated, 2)  # type: ignore[union-attr]
         from calendars.outlook_service import UpdateEventReminderRequest
+
         svc.update_event_reminder.assert_any_call(
-            UpdateEventReminderRequest(event_id="S1", calendar_id=None, calendar_name=None, is_on=False)
+            UpdateEventReminderRequest(
+                event_id="S1", calendar_id=None, calendar_name=None, is_on=False
+            )
         )
         svc.update_event_reminder.assert_any_call(
-            UpdateEventReminderRequest(event_id="E1", calendar_id=None, calendar_name=None, is_on=False)
+            UpdateEventReminderRequest(
+                event_id="E1", calendar_id=None, calendar_name=None, is_on=False
+            )
         )
         buf = io.StringIO()
         with redirect_stdout(buf):
@@ -592,7 +685,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             set_off=True,
             minutes=None,
         )
-        env = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
+        env = OutlookRemindersProcessor().process(
+            OutlookRemindersRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
 
     def test_outlook_reminders_processor_set_minutes(self):
@@ -611,9 +706,12 @@ Tuesday from 6:00 pm to 6:30 pm"""
             set_off=False,
             minutes=15,
         )
-        env = OutlookRemindersProcessor().process(OutlookRemindersRequestConsumer(request).consume())
+        env = OutlookRemindersProcessor().process(
+            OutlookRemindersRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         from calendars.outlook_service import UpdateEventReminderRequest
+
         svc.update_event_reminder.assert_called_once_with(
             UpdateEventReminderRequest(
                 event_id="S1",
@@ -629,14 +727,21 @@ Tuesday from 6:00 pm to 6:30 pm"""
             "settings": {
                 "defaults": {"show_as": "busy"},
                 "rules": [
-                    {"match": {"subject_contains": ["Swim"]}, "set": {"categories": ["Kids"], "reminder_minutes": 10}}
+                    {
+                        "match": {"subject_contains": ["Swim"]},
+                        "set": {"categories": ["Kids"], "reminder_minutes": 10},
+                    }
                 ],
             }
         }
         cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            {"id": "E1", "subject": "Swim Practice", "location": {"displayName": "Pool"}},
+            {
+                "id": "E1",
+                "subject": "Swim Practice",
+                "location": {"displayName": "Pool"},
+            },
         ]
         request = OutlookSettingsRequest(
             config_path=cfg_path,
@@ -646,7 +751,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             dry_run=True,
             service=svc,
         )
-        env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
+        env = OutlookSettingsProcessor().process(
+            OutlookSettingsRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         svc.list_events_in_range.assert_called_once()
         buf = io.StringIO()
@@ -670,7 +777,11 @@ Tuesday from 6:00 pm to 6:30 pm"""
         cfg_path = write_yaml(cfg)
         svc = MagicMock()
         svc.list_events_in_range.return_value = [
-            {"id": "E2", "subject": "Hockey", "location": {"displayName": "Community Arena"}},
+            {
+                "id": "E2",
+                "subject": "Hockey",
+                "location": {"displayName": "Community Arena"},
+            },
         ]
         request = OutlookSettingsRequest(
             config_path=cfg_path,
@@ -680,9 +791,12 @@ Tuesday from 6:00 pm to 6:30 pm"""
             dry_run=False,
             service=svc,
         )
-        env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
+        env = OutlookSettingsProcessor().process(
+            OutlookSettingsRequestConsumer(request).consume()
+        )
         self.assertTrue(env.ok())
         from calendars.outlook_service import EventSettingsPatch
+
         svc.update_event_settings.assert_called_once_with(
             EventSettingsPatch(
                 event_id="E2",
@@ -710,7 +824,9 @@ Tuesday from 6:00 pm to 6:30 pm"""
             dry_run=False,
             service=svc,
         )
-        env = OutlookSettingsProcessor().process(OutlookSettingsRequestConsumer(request).consume())
+        env = OutlookSettingsProcessor().process(
+            OutlookSettingsRequestConsumer(request).consume()
+        )
         self.assertFalse(env.ok())
 
 
