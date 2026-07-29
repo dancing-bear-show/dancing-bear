@@ -339,16 +339,18 @@ class OTLPEventsRecord:
         """Parse an OTLPEventsRecord from a dict.
 
         Handles both OTLP format (with resourceLogs wrapper) and simplified
-        format (direct resource/scopeLogs).
+        format (direct resource/scopeLogs). The inner ``scopeLogs`` list is
+        guarded with ``or [{}]`` so an empty-but-present list yields an empty
+        scope instead of an IndexError.
         """
         resource_logs = d.get("resourceLogs")
         if resource_logs is not None:
             resource_log = resource_logs[0] if resource_logs else {}
             resource_dict = resource_log.get("resource", {})
-            scope_logs = resource_log.get("scopeLogs", [{}])[0]
+            scope_logs = (resource_log.get("scopeLogs") or [{}])[0]
         else:
             resource_dict = d.get("resource", {})
-            scope_logs = d.get("scopeLogs", [{}])[0]
+            scope_logs = (d.get("scopeLogs") or [{}])[0]
 
         scope_attrs = scope_logs.get("scope", {})
         log_records = scope_logs.get("logRecords", [])
