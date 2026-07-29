@@ -119,7 +119,7 @@ def create_pr(base, title, body, dry_run):
 # Copilot review threads
 # ---------------------------------------------------------------------------
 
-COPILOT_BOT = "copilot-pull-request-reviewer[bot]"
+COPILOT_BOT = "copilot-pull-request-reviewer"
 
 REVIEW_THREADS_QUERY = """
 {{
