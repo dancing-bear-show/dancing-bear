@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
+import unittest.mock as mock
 
 from telemetry.otel.reader import (
     EVENTS_FILE,
@@ -190,7 +190,7 @@ class TestOTLPReaderRotatedFiles(unittest.TestCase):
         (self.tmppath / (METRICS_FILE + ".1")).write_text(rotated_content, encoding="utf-8")
         reader = self._make_reader()
         total = reader.data_dir_size()
-        self.assertGreaterEqual(total, len(primary_content.encode()) + len(rotated_content.encode()))
+        self.assertEqual(total, len(primary_content.encode()) + len(rotated_content.encode()))
 
 
 class TestOTLPReaderSizes(unittest.TestCase):

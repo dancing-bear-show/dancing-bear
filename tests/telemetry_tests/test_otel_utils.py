@@ -2,7 +2,7 @@
 
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest import mock
+import unittest.mock as mock
 
 from telemetry.otel.utils import parse_time_window
 
