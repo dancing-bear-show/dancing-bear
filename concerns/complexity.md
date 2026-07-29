@@ -70,3 +70,21 @@ Load this guide when the diff contains `.py` files.
   `logger.debug("Fetching %d items from API", len(items))`. Exception: `print()`
   in CLI command handlers is acceptable when it is the intended human-readable
   output and no structured format flag is in play.
+
+### file-too-large
+- **severity**: minor
+- **check**: Verify that no single source file grows beyond ~800 lines
+  without a clear justification (e.g. a generated file, a large but flat
+  data/schema table, or a CLI wiring module with many thin subcommand
+  handlers). Large files are a proxy for mixed responsibilities and make
+  review, testing, and navigation harder.
+- **triggers**: A modified `.py` file that crosses ~800 lines total, or a
+  diff that adds 200+ lines to a file already over ~600 lines; a file that
+  mixes multiple unrelated classes/concerns (e.g. parsing + I/O + CLI
+  wiring in one module).
+- **example**: A provider module that started as a thin API client grows to
+  900+ lines after accumulating parsing helpers, retry logic, and CLI
+  formatting in the same file. Fix: split by responsibility — extract
+  parsing/formatting helpers into a sibling module, keep the provider class
+  focused on API calls, and re-export from `__init__.py` if needed to avoid
+  breaking call sites.
