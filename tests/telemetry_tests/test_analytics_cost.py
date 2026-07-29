@@ -203,23 +203,23 @@ class TestGetModelPricing(unittest.TestCase):
 
     def test_exact_match_sonnet_4_6(self):
         result = get_model_pricing("claude-sonnet-4-6")
-        self.assertEqual(result, MODEL_PRICING["claude-sonnet-4-6"])
+        self.assertEqual(result, (3.0, 15.0))
 
     def test_exact_match_opus_4_5(self):
         result = get_model_pricing("claude-opus-4-5")
-        self.assertEqual(result, MODEL_PRICING["claude-opus-4-5"])
+        self.assertEqual(result, (5.0, 25.0))
 
     def test_exact_match_haiku_4_5(self):
         result = get_model_pricing("claude-haiku-4-5")
-        self.assertEqual(result, MODEL_PRICING["claude-haiku-4-5"])
+        self.assertEqual(result, (1.0, 5.0))
 
     def test_exact_match_fable(self):
         result = get_model_pricing("claude-fable-5")
-        self.assertEqual(result, MODEL_PRICING["claude-fable-5"])
+        self.assertEqual(result, (10.0, 50.0))
 
     def test_exact_match_mythos(self):
         result = get_model_pricing("claude-mythos-5")
-        self.assertEqual(result, MODEL_PRICING["claude-mythos-5"])
+        self.assertEqual(result, (10.0, 50.0))
 
     def test_sonnet_5_substring_takes_priority_over_generic_sonnet(self):
         # A hypothetical unlisted sonnet-5 variant should use introductory pricing
@@ -230,11 +230,11 @@ class TestGetModelPricing(unittest.TestCase):
 
     def test_opus_1m_combo(self):
         result = get_model_pricing("claude-opus-4-6-1m-variant")
-        self.assertEqual(result, MODEL_PRICING["claude-opus-4-7-1m"])
+        self.assertEqual(result, (5.0, 25.0))
 
     def test_sonnet_1m_combo(self):
         result = get_model_pricing("some-sonnet-1m-extended-context")
-        self.assertEqual(result, MODEL_PRICING["claude-sonnet-4-6-1m"])
+        self.assertEqual(result, (3.0, 15.0))
 
     def test_mythos_substring(self):
         result = get_model_pricing("anthropic.claude-mythos-5-variant")
@@ -615,6 +615,8 @@ class TestBuildSessionCosts(unittest.TestCase):
         haiku_cost = (100_000 * 1.0 / 1_000_000) + (50_000 * 5.0 / 1_000_000)
         sonnet_cost = (200_000 * 3.0 / 1_000_000) + (100_000 * 15.0 / 1_000_000)
         self.assertAlmostEqual(costs[0].cost, haiku_cost + sonnet_cost, places=6)
+        # input 300_000, output 150_000 -> efficiency_ratio = 150_000 / 300_000 = 0.5
+        self.assertAlmostEqual(costs[0].efficiency_ratio, 0.5, places=6)
 
 
 # ---------------------------------------------------------------------------
@@ -827,6 +829,10 @@ class TestGetAllCosts(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_cache_savings_estimated(self, mock_reader_cls):
         # Cache reads reduce effective input cost
+        # Fixture: input=800_000, cache_read=200_000, output=500, model=claude-sonnet-4-6
+        # total_cost = (800_000*3.0 + 500*15.0 + 200_000*3.0*0.1) / 1_000_000 = 2.4675
+        # input_ratio = 800_000 / (800_000 + 200_000) = 0.8
+        # cache_savings = 2.4675 * (1 - 0.8) * 0.9 = 0.44415
         record = self._make_simple_record(
             input_tokens=800_000,
             cache_read_tokens=200_000,
@@ -834,8 +840,7 @@ class TestGetAllCosts(unittest.TestCase):
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
         result = get_all_costs(data_dir=OTLPDataDir.default())
-        # cache_savings > 0 when there are cache reads
-        self.assertGreater(result.total_cache_savings, 0.0)
+        self.assertAlmostEqual(result.total_cache_savings, 0.44415, places=4)
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_since_cutoff_filters_events(self, mock_reader_cls):
@@ -927,6 +932,7 @@ class TestGetDailyCosts(unittest.TestCase):
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_sorted_by_date_ascending(self, mock_reader_cls):
+        # Feed events in reverse order (later date first) so sorting is actually exercised
         dt1 = _utc(2026, 7, 3)
         dt2 = _utc(2026, 7, 1)
         r1 = _make_events_record([_make_api_request_event("s1", dt=dt1)])
@@ -935,7 +941,7 @@ class TestGetDailyCosts(unittest.TestCase):
         from telemetry.otel.reader import OTLPDataDir
         result = get_daily_costs(data_dir=OTLPDataDir.default())
         dates = [d.date for d in result]
-        self.assertEqual(dates, sorted(dates))
+        self.assertEqual(dates, ['2026-07-01', '2026-07-03'])
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_same_day_requests_summed(self, mock_reader_cls):
@@ -959,16 +965,16 @@ class TestGetDailyCosts(unittest.TestCase):
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_since_string_filters_events(self, mock_reader_cls):
-        # Use "365d" window — all 2026 events should pass
+        # Use "99999d" window — always includes 2026 fixture regardless of wall-clock
         dt_recent = _utc(2026, 7, 1)
         record = _make_events_record([
             _make_api_request_event("s1", dt=dt_recent),
         ])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
-        result = get_daily_costs(data_dir=OTLPDataDir.default(), since="365d")
-        # With a 365d window from ~2026-07-29, the 2026-07-01 event is within range
+        result = get_daily_costs(data_dir=OTLPDataDir.default(), since="99999d")
         self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].date, "2026-07-01")
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPDataDir")
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
@@ -1043,6 +1049,7 @@ class TestGetModelPerformance(unittest.TestCase):
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_sorted_by_model_name(self, mock_reader_cls):
+        # Feed models in reverse-sorted order (sonnet before haiku) to exercise sort
         record = _make_events_record([
             _make_api_request_event("s1", model="claude-sonnet-4-6"),
             _make_api_request_event("s1", model="claude-haiku-4-5"),
@@ -1051,7 +1058,7 @@ class TestGetModelPerformance(unittest.TestCase):
         from telemetry.otel.reader import OTLPDataDir
         result = get_model_performance(data_dir=OTLPDataDir.default())
         model_names = [p.model_name for p in result]
-        self.assertEqual(model_names, sorted(model_names))
+        self.assertEqual(model_names, ['claude-haiku-4-5', 'claude-sonnet-4-6'])
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_error_rate_zero_when_no_errors(self, mock_reader_cls):
@@ -1066,21 +1073,23 @@ class TestGetModelPerformance(unittest.TestCase):
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_error_attribution_proportional(self, mock_reader_cls):
-        # Session with 1 api call per model + 1 error — error attributed proportionally
+        # Session s1 with 2 api calls for the SAME model (claude-haiku-4-5) + 1 error.
+        # proportion = 2/2 = 1.0, round(1 * 1.0) = 1, so exactly 1 error is attributed.
         e1 = _make_api_request_event("s1", model="claude-haiku-4-5", dt=_utc(2026, 7, 1, 9))
-        e2 = _make_api_request_event("s1", model="claude-sonnet-4-6", dt=_utc(2026, 7, 1, 10))
+        e2 = _make_api_request_event("s1", model="claude-haiku-4-5", dt=_utc(2026, 7, 1, 10))
         err = _make_error_event("s1")
         record = _make_events_record([e1, e2, err])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
         result = get_model_performance(data_dir=OTLPDataDir.default())
-        # Total errors = 1, each model got 1 of 2 calls (50%), so each should get ~0.5 rounded to 1
-        total_errors = sum(p.error_count for p in result)
-        # round(1 * 0.5) = 0 or 1 depending on rounding; total should be bounded
-        self.assertGreaterEqual(total_errors, 0)
-        # Check error_rate uses max(api_calls, 1) — no ZeroDivisionError
-        for perf in result:
-            self.assertGreaterEqual(perf.error_rate, 0.0)
+        # Exactly one ModelPerformance result for claude-haiku-4-5
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].model_name, "claude-haiku-4-5")
+        # 2 api calls, 1 error attributed deterministically
+        self.assertEqual(result[0].api_calls, 2)
+        self.assertEqual(result[0].error_count, 1)
+        # error_rate is one error over two calls, i.e. one half
+        self.assertAlmostEqual(result[0].error_rate, 0.5, places=6)
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_empty_api_calls_no_divide_by_zero(self, mock_reader_cls):
@@ -1090,6 +1099,17 @@ class TestGetModelPerformance(unittest.TestCase):
         from telemetry.otel.reader import OTLPDataDir
         result = get_model_performance(data_dir=OTLPDataDir.default())
         # No division error
+        self.assertEqual(result, [])
+
+    @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
+    def test_errors_without_api_requests_returns_empty(self, mock_reader_cls):
+        # Session has api_error events but ZERO api_request events.
+        # model_mix is empty so the attribution guard (perf.model_mix) is falsy —
+        # no errors attributed, model_data stays empty, result is [].
+        record = _make_events_record([_make_error_event("s1")])
+        mock_reader_cls.return_value.read_events.return_value = [record]
+        from telemetry.otel.reader import OTLPDataDir
+        result = get_model_performance(data_dir=OTLPDataDir.default())
         self.assertEqual(result, [])
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
@@ -1113,14 +1133,16 @@ class TestGetModelPerformance(unittest.TestCase):
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_since_string_parsing(self, mock_reader_cls):
-        # "365d" should not raise — parse_time_window handles it
+        # "99999d" window always includes 2026 fixture regardless of wall-clock
         record = _make_events_record([
             _make_api_request_event("s1", model="claude-haiku-4-5", dt=_utc(2026, 7, 15)),
         ])
         mock_reader_cls.return_value.read_events.return_value = [record]
         from telemetry.otel.reader import OTLPDataDir
-        result = get_model_performance(data_dir=OTLPDataDir.default(), since="365d")
+        result = get_model_performance(data_dir=OTLPDataDir.default(), since="99999d")
         self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].model_name, "claude-haiku-4-5")
+        self.assertEqual(result[0].api_calls, 1)
 
     @mock.patch("telemetry.otel.analytics.cost.OTLPReader")
     def test_no_duration_ms_skipped_in_latencies(self, mock_reader_cls):
