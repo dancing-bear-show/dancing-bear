@@ -5,4 +5,5 @@ from tests.mail_tests.test_config_cli_derive import *  # noqa: F401, F403  # NOS
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

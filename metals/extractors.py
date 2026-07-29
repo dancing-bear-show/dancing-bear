@@ -2,6 +2,7 @@
 
 Core parsing patterns for extracting gold/silver amounts from order emails.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from .constants import (
 @dataclass
 class MetalsAmount:
     """Extracted metals amounts."""
+
     gold_oz: float = 0.0
     silver_oz: float = 0.0
 
@@ -35,6 +37,7 @@ class MetalsAmount:
 @dataclass
 class OrderExtraction:
     """Extracted order with metals amounts."""
+
     order_id: str
     message_id: str
     gold_oz: float
@@ -57,6 +60,7 @@ def extract_order_id(subject: str, text: str) -> str | None:
 @dataclass
 class OzAccumulator:
     """Mutable accumulator for gold/silver ounce totals with dedup tracking."""
+
     gold_oz: float = 0.0
     silver_oz: float = 0.0
     seen: Optional[set] = None
@@ -65,8 +69,12 @@ class OzAccumulator:
         if self.seen is None:
             self.seen = set()
 
-    def add(self, metal: str, oz_unit: float, qty: float, key: Tuple[str, float, float]) -> None:
+    def add(
+        self, metal: str, oz_unit: float, qty: float, key: Tuple[str, float, float]
+    ) -> None:
         """Accumulate oz totals if key not already seen."""
+        if self.seen is None:
+            self.seen = set()
         if key in self.seen:
             return
         self.seen.add(key)

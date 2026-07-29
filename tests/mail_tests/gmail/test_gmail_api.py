@@ -5,4 +5,5 @@ from tests.mail_tests.gmail.test_gmail_client_ops import *  # noqa: F401, F403  
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

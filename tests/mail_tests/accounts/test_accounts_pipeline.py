@@ -5,4 +5,5 @@ from tests.mail_tests.accounts.test_accounts_producers import *  # noqa: F401, F
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

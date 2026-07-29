@@ -5,4 +5,5 @@ from tests.mail_tests.filters.test_filters_sync_plan import *  # noqa: F401, F40
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

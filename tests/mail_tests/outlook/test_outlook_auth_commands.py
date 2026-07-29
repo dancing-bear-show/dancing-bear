@@ -5,4 +5,5 @@ from tests.mail_tests.outlook.test_outlook_auth_validate import *  # noqa: F401,
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()
