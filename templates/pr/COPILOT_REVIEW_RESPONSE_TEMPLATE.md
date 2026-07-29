@@ -4,9 +4,9 @@
 > - Summary: X=fixed, Y=verified correct, Z=acknowledged/deferred
 > - Tables: Replace X/Y counts, delete unused categories
 > - Coverage: X=before%, Y=after%, Z=delta, W=new code%
-> - Example: `3 issues fixed, 2 verified correct, 1 acknowledged`
+> - Example: `3 issues fixed, 2 verified correct, 1 acknowledged/deferred`
 
-**Summary:** X issues fixed, Y verified correct, Z acknowledged
+**Summary:** X issues fixed, Y verified correct, Z acknowledged/deferred
 
 ### Changes by Category
 

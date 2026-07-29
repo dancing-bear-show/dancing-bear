@@ -47,9 +47,9 @@ LLM-generated prose is recognizable and it undermines credibility. When readers 
 
 Format: `<type>(<scope>): <subject>`
 
-**Types**: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`
+**Types**: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `ci`
 
-**Scope**: primary changed domain (`mail`, `calendar`, `schedule`, `resume`, `phone`, `whatsapp`, `workflow`, `core`, etc.). For cross-cutting changes use the most-affected domain or `core`. Never use a file name, ticket number, or adjective as scope.
+**Scope**: primary changed domain (`mail`, `calendar`, `schedule`, `resume`, `phone`, `whatsapp`, `wifi`, `workflow`, `core`, etc.). For cross-cutting changes use the most-affected domain or `core`. Never use a file name, ticket number, or adjective as scope.
 
 **Rules**:
 - Subject line under 72 characters
