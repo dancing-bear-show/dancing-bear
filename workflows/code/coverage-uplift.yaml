@@ -176,7 +176,7 @@ stages:
         a gap. Filter to files under {source_root}.
 
       Step 2 — changed-files gap scan (if a diff is available):
-        git diff origin/main...HEAD --name-only -- '{source_root}*.py'
+        git diff origin/main...HEAD --name-only -- '*.py' | grep '^{source_root}'
 
         Cross-reference against the Step 1 gap list. Files that appear in
         both are annotated "priority: high" (changed files with gaps are

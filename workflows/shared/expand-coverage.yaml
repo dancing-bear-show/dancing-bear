@@ -114,7 +114,7 @@ stages:
              )
 
         4. After the tester agent returns, verify the tests pass:
-             python3 -m unittest discover -x -q {test_path} -x -q
+             python3 -m unittest discover -s {test_path} -q
 
            If the command exits non-zero: read the error, fix the specific failure,
            and re-run. Up to 2 fix cycles per file.
@@ -161,7 +161,7 @@ stages:
         files are still below threshold, and report them in the output JSON.
 
       Step 2 — run the test suite for the target path:
-        python3 -m unittest discover -x -q {test_path} -x -q
+        python3 -m unittest discover -s {test_path} -q
 
         Must exit 0. If it fails: read the error, identify the root cause,
         and record it — do not attempt further fixes in this stage (that would
