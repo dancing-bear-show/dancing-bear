@@ -232,5 +232,58 @@ class TestSequenceDiagramBuilderChaining(unittest.TestCase):
         self.assertIn("deactivate C", out)
 
 
+class TestFlowchartBuilderSubgraph(unittest.TestCase):
+    def test_subgraph_with_known_node_id_renders_node_inside_block(self):
+        """A node added via .node() and referenced in a subgraph renders inside the block."""
+        builder = FlowchartBuilder()
+        builder.node("A", "Start")
+        builder.node("B", "End")
+        builder._subgraphs.append(("sg1", "Group", ["A"]))
+        out = builder.render()
+        self.assertIn('subgraph sg1["Group"]', out)
+        # Node A must appear inside the subgraph block with 8-space indent
+        self.assertIn("        A[Start]", out)
+        # Node A must NOT appear at the top level (4-space indent)
+        lines = out.splitlines()
+        top_level_node_lines = [ln for ln in lines if ln == "    A[Start]"]
+        self.assertEqual(top_level_node_lines, [])
+        # Node B is not in the subgraph, so it should appear at the top level
+        self.assertIn("    B[End]", out)
+
+    def test_subgraph_with_raw_body_string_renders_verbatim(self):
+        """Legacy raw body string is emitted verbatim inside the subgraph block."""
+        out = (
+            FlowchartBuilder()
+            .subgraph("sg2", "Legacy Group", body="    A[Custom]")
+            .render()
+        )
+        self.assertIn('subgraph sg2["Legacy Group"]', out)
+        # Raw body line must appear verbatim inside the subgraph block
+        self.assertIn("    A[Custom]", out)
+
+    def test_subgraph_with_unknown_node_id_raises_value_error(self):
+        """Referencing a node id not added via .node() raises ValueError."""
+        builder = FlowchartBuilder()
+        builder.node("A", "Start")
+        builder._subgraphs.append(("sg3", "Bad Group", ["UNKNOWN_NODE"]))
+        with self.assertRaises(ValueError):
+            builder.render()
+
+    def test_subgraph_node_not_duplicated_at_top_level(self):
+        """A node inside a subgraph is excluded from the top-level node list."""
+        builder = FlowchartBuilder()
+        builder.node("X", "Inside")
+        builder.node("Y", "Outside")
+        builder._subgraphs.append(("sgX", "Container", ["X"]))
+        out = builder.render()
+        lines = out.splitlines()
+        # X is in the subgraph body with 8-space indent
+        self.assertIn("        X[Inside]", lines)
+        # X must NOT appear as a standalone top-level line (4-space indent only)
+        self.assertNotIn("    X[Inside]", lines)
+        # Y stays at the top level
+        self.assertIn("    Y[Outside]", lines)
+
+
 if __name__ == "__main__":
     unittest.main()

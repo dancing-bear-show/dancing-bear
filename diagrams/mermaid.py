@@ -78,8 +78,9 @@ class FlowchartBuilder:
     def subgraph(self, sub_id: str, label: str, body: str = "") -> FlowchartBuilder:
         """Add a subgraph. body is raw indented mermaid lines (legacy compat).
 
-        When body is provided, it is emitted verbatim. When absent, pass
-        node_ids via the node_ids kwarg (not available in legacy signature).
+        When body starts with an indent (4+ spaces), it is emitted verbatim.
+        Otherwise it is treated as a node id, looked up in nodes added via
+        .node(), and rendered nested inside the subgraph block.
         """
         # Store as list-of-ids = [] plus raw body in label field using separator sentinel
         # to preserve backwards compat while supporting new node-based subgraph too.
@@ -106,23 +107,21 @@ class FlowchartBuilder:
             if node_id not in subgraph_node_ids
         ]
 
-    def _render_subgraph_item(self, item: str) -> str | None:
+    def _render_subgraph_item(self, item: str) -> str:
         """Render one subgraph body item: a raw legacy line, or a lookup by node id."""
         if item.startswith("    "):
             return item
         for nid, nlabel, nshape in self._nodes:
             if nid == item:
                 return self._render_node(nid, nlabel, nshape, indent="        ")
-        return None
+        raise ValueError(f"subgraph references unknown node id {item!r}")
 
     def _render_subgraphs(self) -> list[str]:
         lines: list[str] = []
         for sub_id, label, node_ids_or_body in self._subgraphs:
             lines.append(f'    subgraph {sub_id}["{label}"]')
             for item in node_ids_or_body:
-                rendered = self._render_subgraph_item(item)
-                if rendered is not None:
-                    lines.append(rendered)
+                lines.append(self._render_subgraph_item(item))
             lines.append(_END)
         return lines
 

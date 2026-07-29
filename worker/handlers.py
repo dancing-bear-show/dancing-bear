@@ -305,7 +305,7 @@ def handle_run_shell(job: dict[str, object]) -> tuple[bool, object]:  # pragma: 
 REGISTRY["run_shell"] = handle_run_shell
 
 
-def _dispatch_workflow_stage_script(job: dict, payload: dict, script: str, workspace_dir: str | None) -> tuple[bool, object]:
+def _dispatch_workflow_stage_script(job: dict[str, object], payload: dict[str, object], script: str, workspace_dir: str | None) -> tuple[bool, object]:
     shell_job = dict(job)
     shell_payload = {**payload, "script": script}
     if workspace_dir:
@@ -315,7 +315,7 @@ def _dispatch_workflow_stage_script(job: dict, payload: dict, script: str, works
 
 
 def _dispatch_workflow_stage_cli_commands(
-    job: dict, payload: dict, cli_commands: list, workspace_dir: str | None
+    job: dict[str, object], payload: dict[str, object], cli_commands: list[str], workspace_dir: str | None
 ) -> tuple[bool, object]:
     import shlex
     results = []
@@ -327,6 +327,8 @@ def _dispatch_workflow_stage_cli_commands(
         cli_job["payload"] = cli_payload
         ok, result = handle_run_cli(cli_job)
         results.append(result)
+        # Partial results from earlier successful commands are intentionally discarded on
+        # first failure — parity with original inline logic; tuple contract returns one result.
         if not ok:
             return (False, result)
     return (True, results)
