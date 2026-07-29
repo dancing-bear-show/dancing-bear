@@ -196,6 +196,8 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 
 **Session-level**: Always launch with `claude -w` to auto-create a worktree. Each session gets its own branch and working directory under `.claude/worktrees/`, preventing sessions from clobbering each other.
 
+**Make it the default**: add `alias claude='claude -w'` to `~/.zshrc` so `-w` doesn't need to be typed (or remembered) on every launch.
+
 **Subagent-level**: When spawning an Agent that writes code, use `isolation: "worktree"` so the subagent works in its own isolated copy of the repo. This prevents the subagent's edits from colliding with the parent session's working directory. Read-only agents (research, search, exploration) do not need isolation.
 
 **CRITICAL — isolated worktrees do not auto-merge back**: Files written by a subagent with `isolation: "worktree"` live in its own ephemeral worktree branch and are **never automatically copied back to the parent branch**. After an isolated agent completes, you must explicitly copy its output files into the correct branch worktree before staging and committing. Always verify the agent's result is in the right place with `git status` on the target branch worktree before committing.
