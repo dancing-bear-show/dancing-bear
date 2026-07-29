@@ -5,9 +5,8 @@
 *.swp
 *.tmp
 
-# Per-worktree session/naming markers (harness-local, not project state)
+# Per-worktree session marker (harness-local, not project state)
 .claude/.session-owner
-.claude/.worktree-named
 
 # Python bytecode / cache
 __pycache__/

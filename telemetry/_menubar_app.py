@@ -45,7 +45,6 @@ from telemetry._menubar_config import (
     _any_otel_sections_enabled,
     _config_to_text,
     _icon_template_vars,
-    _IconTemplate,
     _load_config,
     _parse_config_text,
     _save_config,
@@ -56,6 +55,19 @@ from telemetry._menubar_display import (
     _rate_str,
     _sparkline,
     _window_since_impl,
+)
+
+# Re-export helpers that were split into sibling modules.
+# Downstream importers (menubar.py) continue to pull these from _menubar_app.
+from telemetry._menubar_budget import (  # noqa: F401
+    _budget_score,
+    _safe_float,
+    _safe_int,
+)
+from telemetry._menubar_renderers import (  # noqa: F401
+    _icon_substitutions,
+    _icon_token_stream,
+    _render_icon_plain,
 )
 
 _CLAUDE_DIR = Path.home() / ".claude"
@@ -114,83 +126,11 @@ def _window_since(seconds: int | None) -> datetime:
     return _window_since_impl(seconds)
 
 
-def _budget_score(spend_mtd: float, monthly_budget: float) -> int:
-    """Map month-to-date spend vs budget onto a 1–10 scale."""
-    if monthly_budget <= 0:
-        return 1
-    return max(1, min(10, round(spend_mtd / monthly_budget * 10)))
-
-
-def _safe_float(value: object, default: float) -> float:
-    """Coerce arbitrary JSON-decoded values to float; fall back to default."""
-    if isinstance(value, bool):
-        return default
-    try:
-        return float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_int(value: object, default: int) -> int:
-    """Coerce arbitrary JSON-decoded values to int; fall back to default."""
-    try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return default
-
-
 def _project_short(s: SessionSummary) -> str:
     if not s.project_path:
         return s.session_id[:8]
     parts = [p for p in s.project_path.split("/") if p]
     return parts[-1][:28] if parts else s.session_id[:8]
-
-
-def _icon_substitutions(
-    icon_ctx: dict[str, dict], mtd_cost: float, score: int, otel_cost_1d: float = 0.0
-) -> dict[str, str]:
-    """Build substitution mapping for the icon template."""
-    h1 = icon_ctx.get("1h", {}) or {}
-    d1 = icon_ctx.get("1d", {}) or {}
-    tok = h1.get("input_tokens", 0) + h1.get("output_tokens", 0)
-    return {
-        "score": str(score),
-        "1h_spend": f"${h1.get('cost', 0.0):.2f}",
-        "1d_spend": f"${d1.get('cost', 0.0):.2f}",
-        "mtd_spend": f"${mtd_cost:.2f}",
-        "tokens_1h": _format_tokens(tok),
-        "otel_1d": f"${otel_cost_1d:.2f}",
-    }
-
-
-def _render_icon_plain(
-    template: str, icon_ctx: dict[str, dict], mtd_cost: float, score: int,
-    otel_cost_1d: float = 0.0,
-) -> str:
-    """Render template as plain text. Unknown $vars pass through literally."""
-    values = _icon_substitutions(icon_ctx, mtd_cost, score, otel_cost_1d)
-    return _IconTemplate(template).safe_substitute(values)
-
-
-def _icon_token_stream(template: str) -> list[tuple[str, str]]:
-    """Split a template into (kind, text) tokens."""
-    tokens: list[tuple[str, str]] = []
-    pos = 0
-    for m in _IconTemplate.pattern.finditer(template):
-        if m.start() > pos:
-            tokens.append(("lit", template[pos:m.start()]))
-        if m.group("escaped") is not None:
-            tokens.append(("lit", "$"))
-        elif m.group("invalid") is not None:
-            tokens.append(("lit", m.group(0)))
-        elif m.group("braced") is not None:
-            tokens.append(("braced", m.group("braced")))
-        else:
-            tokens.append(("var", m.group("named")))
-        pos = m.end()
-    if pos < len(template):
-        tokens.append(("lit", template[pos:]))
-    return tokens
 
 
 class TelemetryMenubarApp(_AppBase):  # pragma: no cover

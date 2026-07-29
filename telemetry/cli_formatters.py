@@ -166,6 +166,26 @@ def _print_agents_json(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRo
     )
 
 
+def _print_agents_csv(rows: list["AgentTokenRow"]) -> None:
+    import csv as csv_mod
+    import io
+
+    buf = io.StringIO()
+    writer = csv_mod.writer(buf)
+    writer.writerow([
+        "agent", "calls", "input_tokens", "output_tokens",
+        "cache_read_tokens", "cache_write_tokens", "models", "est_cost",
+    ])
+    for r in rows:
+        writer.writerow([
+            r.agent, r.calls, r.input_tokens, r.output_tokens,
+            r.cache_read_tokens, r.cache_write_tokens,
+            ";".join(r.models), round(r.est_cost, 6),
+        ])
+    from rich.console import Console
+    Console().print(buf.getvalue(), end="")
+
+
 def _build_agents_table(all_rows: list["AgentTokenRow"], rows: list["AgentTokenRow"], since: str) -> Table:
     table = Table(show_header=True, header_style="bold", title=f"Agent usage ({since})", show_footer=True)
     table.add_column("Agent", style="cyan", no_wrap=True, footer="TOTAL")
