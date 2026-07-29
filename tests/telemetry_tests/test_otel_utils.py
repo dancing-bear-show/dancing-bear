@@ -44,6 +44,7 @@ class TestParseTimeWindowValid(unittest.TestCase):
             result = parse_time_window("30")
         self.assertIsInstance(result, datetime)
         self.assertIsNotNone(result)
+        self.assertEqual(result, frozen - timedelta(minutes=30))
 
     def test_result_is_datetime(self):
         frozen = self._frozen_now()

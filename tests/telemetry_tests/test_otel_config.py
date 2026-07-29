@@ -19,7 +19,7 @@ class TestDataTypeRetention(unittest.TestCase):
 
     def test_frozen(self):
         r = DataTypeRetention(keep_days=7)
-        with self.assertRaises(Exception):
+        with self.assertRaises(AttributeError):
             r.keep_days = 99  # type: ignore[misc]
 
 
