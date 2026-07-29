@@ -123,7 +123,7 @@ def cached_parser_loader(load_parser: Callable[[], ArgumentParser]) -> Callable[
     def _get_parser() -> Optional[ArgumentParser]:
         try:
             return load_parser()
-        except Exception:
+        except Exception:  # nosec B110 - best-effort; CLI module may be unavailable/broken, callers treat None as "no CLI tree"
             return None
 
     return _get_parser
