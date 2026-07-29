@@ -54,7 +54,7 @@ def _extract_gram_amounts(ln: str, acc: OzAccumulator) -> None:
         acc.add(metal, oz_unit, qty, (metal, round(oz_unit, 6), qty))
 
 
-def _extract_amounts(text: str) -> Tuple[float, float]:
+def _extract_amounts(text: str | None) -> Tuple[float, float]:
     t = (text or "").replace("\u2013", "-").replace("\u2014", "-")
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
     acc = OzAccumulator()

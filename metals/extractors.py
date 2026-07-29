@@ -43,7 +43,7 @@ class OrderExtraction:
     date_ms: int = 0
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text: str | None) -> str:
     """Normalize text for parsing (replace unicode dashes, etc.)."""
     return (text or "").replace("\u2013", "-").replace("\u2014", "-")
 

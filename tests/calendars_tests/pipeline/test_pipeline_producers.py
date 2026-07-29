@@ -10,25 +10,6 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-
-def _rel_date(days: int = 0) -> str:
-    """Return a date string relative to today (UTC)."""
-    return (_dt.datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
-
-
-def _rel_iso(days: int = 0, hour: int = 17, minute: int = 0) -> str:
-    """Return a datetime ISO string (with +00:00) relative to today (UTC)."""
-    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
-    base = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    return base.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-
-
-def _rel_created(days: int = 0) -> str:
-    """Return a datetime ISO string (with Z suffix) relative to today (UTC)."""
-    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
-    base = base.replace(hour=0, minute=0, second=0, microsecond=0)
-    return base.strftime("%Y-%m-%dT%H:%M:%SZ")
-
 from tests.fixtures import write_yaml
 from tests.calendars_tests.fixtures import make_outlook_event
 
@@ -78,6 +59,25 @@ from calendars.pipeline import (
     OutlookSettingsRequest,
     OutlookSettingsRequestConsumer,
 )
+
+
+def _rel_date(days: int = 0) -> str:
+    """Return a date string relative to today (UTC)."""
+    return (_dt.datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")
+
+
+def _rel_iso(days: int = 0, hour: int = 17, minute: int = 0) -> str:
+    """Return a datetime ISO string (with +00:00) relative to today (UTC)."""
+    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
+    base = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return base.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _rel_created(days: int = 0) -> str:
+    """Return a datetime ISO string (with Z suffix) relative to today (UTC)."""
+    base = _dt.datetime.now(timezone.utc) + timedelta(days=days)
+    base = base.replace(hour=0, minute=0, second=0, microsecond=0)
+    return base.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _make_occurrence(subject, series_id, start_iso, end_iso, created, location=None):
