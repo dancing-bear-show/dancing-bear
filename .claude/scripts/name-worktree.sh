@@ -17,7 +17,14 @@ print('-'.join(random.sample(words, 3)))
 
 [ -z "$NAME" ] && echo "$WPATH" && exit 0
 
-cd "$WPATH" || exit 1
+# The worktree directory may not exist on disk yet at hook-fire time (e.g.
+# WorktreeCreate firing before `git worktree add` finishes). Falling through
+# with `exit 1` here prints nothing to stdout, which the harness reports as
+# "hook succeeded but returned no worktree path" — always echo $WPATH first.
+if ! cd "$WPATH" 2>/dev/null; then
+  echo "$WPATH"
+  exit 0
+fi
 CURRENT=$(git branch --show-current)
 
 # WorktreeCreate can fire more than once against the same worktree directory
