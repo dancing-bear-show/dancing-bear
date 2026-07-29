@@ -686,19 +686,13 @@ class TestOTLPEventsRecordFromDict(unittest.TestCase):
         self.assertEqual(rec.log_records, [])
         self.assertEqual(rec.scope_name, "")
 
-    def test_empty_scope_logs_list_currently_raises(self):
-        """Explicit scopeLogs=[] currently raises IndexError.
-
-        Unlike OTLPMetricsRecord / OTLPSpansRecord (which use `... or [{}]`),
-        OTLPEventsRecord.from_dict uses `.get("scopeLogs", [{}])[0]`, so an
-        explicitly-empty scopeLogs list is not guarded. This test documents the
-        current behavior; if the source is later hardened to `... or [{}]`, change
-        this to assert an empty record instead.
-        """
-        with self.assertRaises(IndexError):
-            OTLPEventsRecord.from_dict(
-                {"resourceLogs": [{"resource": {}, "scopeLogs": []}]}
-            )
+    def test_otlp_wrapper_empty_scope_logs_list_is_guarded(self):
+        """resourceLogs present but scopeLogs=[] must not IndexError; yields empty record."""
+        rec = OTLPEventsRecord.from_dict(
+            {"resourceLogs": [{"resource": {}, "scopeLogs": []}]}
+        )
+        self.assertEqual(rec.log_records, [])
+        self.assertEqual(rec.scope_name, "")
 
 
 # ---------------------------------------------------------------------------
