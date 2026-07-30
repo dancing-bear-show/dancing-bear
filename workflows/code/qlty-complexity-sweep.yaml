@@ -64,7 +64,7 @@ stages:
       (count = N)"), at or above {complexity_floor}.
 
       Step 1 — run the scan:
-        ~/.qlty/bin/qlty smells --all --json > /tmp/qlty-smells.json
+        ~/.qlty/bin/qlty smells --all --json > {workspace}/outputs/qlty-smells.json
 
       Step 2 — filter and sort:
         Parse the JSON array. Keep entries where ruleKey == "file-complexity"
@@ -84,7 +84,7 @@ stages:
           grep -n "^class \|^def " <file> | head -40
         Also record line_count via wc -l.
 
-      Step 5 — write {workspace}/analysis/candidates.json:
+      Step 5 — write {workspace}/outputs/analysis/candidates.json:
         {
           "complexity_floor": {complexity_floor},
           "scanned_at": "<ISO-8601 timestamp>",
@@ -111,11 +111,11 @@ stages:
       - name: candidates
         mode: generate
         description: >
-          candidates.json written to {workspace}/analysis/ with the
+          candidates.json written to {workspace}/outputs/analysis/ with the
           complexity-ranked candidate list grouped by source directory.
     required: true
     writes_to:
-      - analysis/candidates.json
+      - outputs/analysis/candidates.json
 
   # ===========================================================================
   # G1: Plan splits — decide strategy per file, group by directory, risk-assess
@@ -126,10 +126,10 @@ stages:
     depends_on: [discover-candidates]
     reads_from: [discover-candidates]
     description: >
-      Read analysis/candidates.json. For each candidate file decide a split
-      strategy, group candidates into directory batches, and write the
-      execution plan. Present the plan for human approval before any files
-      are modified.
+      Read {workspace}/outputs/analysis/candidates.json. For each candidate
+      file decide a split strategy, group candidates into directory batches,
+      and write the execution plan. Present the plan for human approval
+      before any files are modified.
 
       Split strategies (apply the first that fits):
 
@@ -171,7 +171,7 @@ stages:
         for decompose-groups. Files in the same directory are handled by
         the same agent to avoid import conflicts within that package.
 
-      Write {workspace}/design/plan.md:
+      Write {workspace}/outputs/design/plan.md:
 
         ## Qlty Complexity Sweep Plan
         Candidates: <total> files at or above complexity {complexity_floor}
@@ -190,7 +190,7 @@ stages:
         Any files under bin/, or imported from many call sites — flag these
         for extra import validation attention.
 
-      Write {workspace}/design/domain-groups.json:
+      Write {workspace}/outputs/design/domain-groups.json:
         {
           "items": [
             {
@@ -226,8 +226,8 @@ stages:
     human_gate: true
     required: true
     writes_to:
-      - design/plan.md
-      - design/domain-groups.json
+      - outputs/design/plan.md
+      - outputs/design/domain-groups.json
 
   # ===========================================================================
   # G2: Decompose groups — parallel fan-out, one code-writer per directory group
@@ -239,15 +239,15 @@ stages:
     reads_from: [plan-splits]
     description: >
       Fan out: spawn one code-writer agent per group listed in
-      {workspace}/design/domain-groups.json. All group agents run in
+      {workspace}/outputs/design/domain-groups.json. All group agents run in
       parallel, each with isolation:worktree.
 
       Each agent handles all files for its assigned {group}.
 
       Step 1 — read the approved plan:
-        Read {workspace}/design/plan.md for the group's section.
-        Read {workspace}/design/domain-groups.json for the file list and
-        strategies for this group.
+        Read {workspace}/outputs/design/plan.md for the group's section.
+        Read {workspace}/outputs/design/domain-groups.json for the file list
+        and strategies for this group.
 
       Step 2 — for each file in this group's "files" list:
 
@@ -400,8 +400,8 @@ stages:
       Step 1 — collect all split artifacts:
         Read {workspace}/outputs/*-splits.md to enumerate every file that was
         created or modified.
-        Also read {workspace}/design/domain-groups.json for the full list of
-        original files and their proposed siblings.
+        Also read {workspace}/outputs/design/domain-groups.json for the full
+        list of original files and their proposed siblings.
 
       Step 2 — smoke-import each new module:
         For each new sibling file created:
@@ -438,9 +438,10 @@ stages:
       Step 5 — re-run the complexity scan to confirm improvement:
         ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
           python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value'], i['location']['path']) for i in d if i['ruleKey']=='file-complexity']" | sort -rn
-        Compare against analysis/candidates.json: confirm every split
-        original file's new complexity (if it still appears at all) is
-        lower than its pre-split value, and ideally below {complexity_floor}.
+        Compare against {workspace}/outputs/analysis/candidates.json:
+        confirm every split original file's new complexity (if it still
+        appears at all) is lower than its pre-split value, and ideally
+        below {complexity_floor}.
 
       Step 6 — write {workspace}/validation/import-check.json:
         {
@@ -626,7 +627,7 @@ stages:
       to proceed.
 
       Read and display:
-        {workspace}/design/plan.md                         — approved split plan
+        {workspace}/outputs/design/plan.md                  — approved split plan
         {workspace}/validation/test-results.md             — per-group test outcomes
         {workspace}/validation/import-check.json           — import + complexity validation
         {workspace}/validation/corrections-applied.md      — what was fixed

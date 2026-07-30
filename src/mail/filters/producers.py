@@ -21,6 +21,7 @@ from .processors import (
     FiltersImpactResult,
     FiltersExportResult,
 )
+from .processors_sweep import FiltersAddForwardResult
 from .producers_sweep import (  # noqa: F401
     SweepProducerConfig,
     FiltersSweepProducer,
@@ -164,14 +165,14 @@ class FiltersImpactProducer(Producer[ResultEnvelope[FiltersImpactResult]]):
         print(f"Total impacted: {payload.total}")
 
 
-class FiltersAddForwardProducer(Producer[ResultEnvelope]):
+class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]]):
     """Apply forward actions to matching filters."""
 
     def __init__(self, client: BaseProvider, *, dry_run: bool = False):
         self.client = client
         self.dry_run = dry_run
 
-    def produce(self, result: ResultEnvelope) -> None:
+    def produce(self, result: ResultEnvelope[FiltersAddForwardResult]) -> None:
         if not result.ok() or not result.payload:
             diagnostics = (result.diagnostics or {}).get("message")
             print(diagnostics if diagnostics else "Filters add-forward failed.")

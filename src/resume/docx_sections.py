@@ -21,7 +21,6 @@ from .docx_sections_list import (  # noqa: F401
     TechnologiesSectionRenderer,
 )
 from .docx_sections_exp import (  # noqa: F401
-    _ExperienceRenderOpts,
     EducationSectionRenderer,
     ExperienceSectionRenderer,
 )

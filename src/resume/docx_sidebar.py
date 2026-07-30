@@ -11,9 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from .docx_sidebar_cells import (  # noqa: F401
-    _add_indented_run,
     _remove_cell_borders,
-    _render_edu_meta,
     _render_main_section_heading,
     _render_sidebar_section,
     _set_cell_shading,
