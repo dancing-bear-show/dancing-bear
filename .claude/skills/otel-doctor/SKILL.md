@@ -28,7 +28,7 @@ No params required.
 
 ## Workflow Stages
 
-1. **diagnose** — run 5 checks in order, stop at the first failure: Colima running → Docker daemon reachable → this repo's otel-collector container up (including port-collision detection) → OTEL_*/CLAUDE_CODE_ENABLE_TELEMETRY env vars set in the current shell → data actually flowing to `~/.config/otel/*.jsonl`.
+1. **diagnose** — run 5 checks in order, stop at the first failure: Colima running → Docker daemon reachable → this repo's otel-collector container up (including port-collision detection) → OTEL_*/CLAUDE_CODE_ENABLE_TELEMETRY env vars set in the current shell → data actually flowing to the resolved data directory (`~/.config/otel/*.jsonl` by default — but resolves `TELEMETRY_DATA_DIR` and `OTEL_DATA_DIR` first, since they're two independent overrides for the CLI reader vs. the compose bind mount, respectively).
 2. **propose-fix** [human gate] — proposes exactly one fix for the first failing check. Never proposes stopping or reconfiguring another project's container to resolve a port collision — always rebinds this repo's `docker-compose.otel.yaml` instead.
 3. **apply-fix** — runs the approved command or edit (e.g. `colima start`, `docker compose -f docker-compose.otel.yaml up -d`, rebinding ports, adding the env var block to `~/.zshrc`).
 4. **verify** — re-runs the same 5 checks to confirm progress.

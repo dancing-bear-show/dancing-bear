@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr
@@ -135,19 +136,36 @@ class TestPrintNoInfrastructureMessage(unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("docker compose -f docker-compose.otel.yaml up -d", output)
 
-    def test_message_specifies_grpc_protocol_and_concrete_endpoint(self):
+    def test_message_specifies_grpc_protocol_and_concrete_endpoint_default(self):
         """Regression test: the endpoint hint must name the gRPC protocol and
         a concrete port, not just vaguely say "matching the collector's port"
         (that ambiguity let a user configure the HTTP port for a gRPC client).
+        Explicitly clears OTEL_GRPC_PORT so the default (4327) is deterministic
+        regardless of the test runner's ambient environment.
         """
         buf = io.StringIO()
-        with redirect_stderr(buf):
-            _print_no_infrastructure_message(Path("/some/path"))
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OTEL_GRPC_PORT", None)
+            with redirect_stderr(buf):
+                _print_no_infrastructure_message(Path("/some/path"))
         output = buf.getvalue()
         self.assertIn("OTEL_EXPORTER_OTLP_PROTOCOL=grpc", output)
         self.assertIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4327", output)
         self.assertIn("gRPC", output)
         self.assertNotIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4328", output)
+
+    def test_message_reflects_otel_grpc_port_override(self):
+        """The printed endpoint must track OTEL_GRPC_PORT when the caller's
+        shell has it set — otherwise the copy/paste instructions are wrong
+        for anyone using a non-default port.
+        """
+        buf = io.StringIO()
+        with patch.dict(os.environ, {"OTEL_GRPC_PORT": "5555"}):
+            with redirect_stderr(buf):
+                _print_no_infrastructure_message(Path("/some/path"))
+        output = buf.getvalue()
+        self.assertIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:5555", output)
+        self.assertNotIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4327", output)
 
     def test_message_written_to_stderr_not_stdout(self):
         stdout_buf = io.StringIO()

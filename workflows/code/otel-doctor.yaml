@@ -4,8 +4,11 @@ description: >
   Diagnose why this repo's local OTel telemetry pipeline isn't working and
   fix the first failing layer. Checks five things in order — Colima VM,
   Docker daemon, this repo's otel-collector container, OTEL_* env vars in
-  the current shell, and whether data is actually flowing to
-  ~/.config/otel/*.jsonl — and stops at the first failure, since later
+  the current shell, and whether data is actually flowing to the resolved
+  data directory (~/.config/otel/*.jsonl by default, or wherever
+  TELEMETRY_DATA_DIR / docker-compose.otel.yaml's OTEL_DATA_DIR point if
+  either is overridden — check both, they're separate vars that must be
+  kept in sync manually) — and stops at the first failure, since later
   checks are usually unreachable/irrelevant until the earlier one clears.
 
   Stage dependency graph:
@@ -84,11 +87,20 @@ stages:
         gRPC port.
 
       Check 5 — is data actually flowing?
-        ls -la ~/.config/otel/*.jsonl
-        Failure signal: no metrics.jsonl/events.jsonl/spans.jsonl even
-        though checks 1-4 all pass. Note this is expected immediately after
-        setup — nothing has exported data yet — and is not itself a bug to
-        "fix", just a state to report.
+        Resolve the actual data directory first — do not assume the
+        default. Check for TELEMETRY_DATA_DIR (what the telemetry CLI
+        reads: `env | grep TELEMETRY_DATA_DIR`) and cross-reference
+        OTEL_DATA_DIR (what docker-compose.otel.yaml's bind mount reads —
+        Read the file's volumes section, or `env | grep OTEL_DATA_DIR`).
+        These are two independent variables that both default to
+        ~/.config/otel — if only one is overridden, the CLI and the
+        container are writing/reading different directories, which alone
+        can explain "no data" even though nothing else is wrong.
+        Then run: ls -la <resolved_dir>/*.jsonl
+        Failure signal: no metrics.jsonl/events.jsonl/spans.jsonl in the
+        resolved directory even though checks 1-4 all pass. Note this is
+        expected immediately after setup — nothing has exported data yet —
+        and is not itself a bug to "fix", just a state to report.
 
       Write {workspace}/analysis/diagnosis.json:
         {
