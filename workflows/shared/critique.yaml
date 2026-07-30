@@ -148,11 +148,18 @@ stages:
       {workspace}/outputs/writeback-result.md noting "No revisions applied —
       original file at {target} left unchanged." Exit 0.
 
-      Otherwise: read {workspace}/context/target.md, strip the leading
-      "# Critique Target: {target}" heading line and the surrounding fenced
-      code block markers (the wrapper prepare-target added — the caller's
-      real file has no such heading), and write the remaining content back
-      to {target} verbatim, overwriting it in place.
+      Otherwise: before writing back, verify {target} is a safe repo-relative
+      path — it must not be absolute (must not start with "/") and must not
+      contain a ".." path segment. If either check fails, write
+      {workspace}/outputs/writeback-result.md noting "Writeback refused —
+      {target} is not a safe repo-relative path" and leave every file
+      unchanged. Exit 0.
+
+      If the path is safe: read {workspace}/context/target.md, strip the
+      leading "# Critique Target: {target}" heading line and the surrounding
+      fenced code block markers (the wrapper prepare-target added — the
+      caller's real file has no such heading), and write the remaining
+      content back to {target} verbatim, overwriting it in place.
 
       Write {workspace}/outputs/writeback-result.md:
         "Revisions written back to {target}. See revisions-applied.md for

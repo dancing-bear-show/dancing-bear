@@ -486,9 +486,12 @@ stages:
     depends_on: [propose-concerns]
     reads_from: [propose-concerns]
     description: >
-      Present {workspace}/outputs/proposed-concerns-summary.md in full (skip
-      this prompt only if propose-concerns wrote an empty array — note that
-      and continue automatically).
+      Present {workspace}/outputs/proposed-concerns-summary.md in full. If
+      propose-concerns wrote an empty array, note "No concerns proposed —
+      no changes to concern guides are required" in the presented summary;
+      the gate still pauses for the operator (human_gate stages always wait
+      for human input, there is no engine-level auto-skip), but the expected
+      response in this case is simply 'none'.
 
       Ask the user:
         "The above concerns are proposed for addition to concerns/*.md based
