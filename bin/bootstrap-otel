@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 #
 # Bootstrap local OpenTelemetry collector for Claude Code telemetry.
-# Uses a pure-Python OTLP HTTP receiver — no Docker required.
+# Uses Docker (via docker-compose.otel.yaml) — Colima or Docker Desktop required.
 #
 # Usage:
-#   ./bin/bootstrap-otel           # Full setup
+#   ./bin/bootstrap-otel           # Start the Docker collector
 #   ./bin/bootstrap-otel --check   # Check current status
-#   ./bin/bootstrap-otel --stop    # Stop the collector
+#   ./bin/bootstrap-otel --stop    # Stop the Docker collector
+#
+# Env var note:
+#   The five vars below must be set in the shell that STARTS the claude process.
+#   A common gotcha: tmux panes retain the environment snapshot from when the
+#   tmux server started. Exporting vars in a running pane does NOT propagate to
+#   an already-running claude process in that pane. The vars only apply to
+#   processes started after the export. Fix: run `tmux kill-server` and open a
+#   fresh session (or re-export in every existing pane before relaunching claude).
 #
 set -euo pipefail
 
@@ -17,12 +25,9 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$SCRIPT_DIR"
 
-DATA_DIR="${HOME}/.config/otel"
-SETTINGS_FILE="${HOME}/.claude/settings.json"
-ZSHRC="${HOME}/.zshrc"
-OTLP_ENDPOINT="http://localhost:4318"
+GRPC_PORT="${OTEL_GRPC_PORT:-4327}"
+COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.otel.yaml"
 
 CHECK_ONLY=false
 STOP=false
@@ -40,31 +45,74 @@ success() { echo -e "${GREEN}✓${NC} $*"; }
 warn()    { echo -e "${YELLOW}⚠${NC} $*"; }
 error()   { echo -e "${RED}✗${NC} $*"; }
 
+check_docker() {
+    if ! command -v docker &>/dev/null; then
+        error "docker not found. Install Docker Desktop or Colima."
+        return 1
+    fi
+    if ! docker info &>/dev/null 2>&1; then
+        error "Docker daemon is not reachable. Start Colima (colima start) or Docker Desktop."
+        return 1
+    fi
+    return 0
+}
+
 check_status() {
     echo ""
     echo "OTel Collector Status"
     echo "─────────────────────"
 
-    python3 -m telemetry.otel.collector --status --data-dir "$DATA_DIR"
+    if ! command -v docker &>/dev/null; then
+        warn "docker not found"
+    elif ! docker info &>/dev/null 2>&1; then
+        warn "Docker daemon not reachable (Colima stopped?)"
+    else
+        # Check whether this repo's collector container is running
+        if docker compose -f "$COMPOSE_FILE" ps --status running 2>/dev/null | grep -q "otel-collector"; then
+            success "Docker collector container is running"
+        else
+            warn "Docker collector container is NOT running (run: ./bin/bootstrap-otel)"
+        fi
+    fi
 
     echo ""
     echo "Environment:"
     if [[ "${CLAUDE_CODE_ENABLE_TELEMETRY:-}" == "1" ]]; then
         success "  CLAUDE_CODE_ENABLE_TELEMETRY=1"
     else
-        warn "  CLAUDE_CODE_ENABLE_TELEMETRY not set (restart shell or Claude Code)"
+        warn "  CLAUDE_CODE_ENABLE_TELEMETRY not set (required)"
     fi
     if [[ "${OTEL_METRICS_EXPORTER:-}" == "otlp" ]]; then
         success "  OTEL_METRICS_EXPORTER=otlp"
     else
-        warn "  OTEL_METRICS_EXPORTER not set"
+        warn "  OTEL_METRICS_EXPORTER not set or not 'otlp'"
+    fi
+    if [[ "${OTEL_LOGS_EXPORTER:-}" == "otlp" ]]; then
+        success "  OTEL_LOGS_EXPORTER=otlp"
+    else
+        warn "  OTEL_LOGS_EXPORTER not set or not 'otlp'"
+    fi
+    if [[ "${OTEL_EXPORTER_OTLP_PROTOCOL:-}" == "grpc" ]]; then
+        success "  OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
+    else
+        warn "  OTEL_EXPORTER_OTLP_PROTOCOL not set or not 'grpc' (must be grpc, not http/protobuf)"
+    fi
+    local expected_endpoint="http://localhost:${GRPC_PORT}"
+    if [[ "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" == "$expected_endpoint" ]]; then
+        success "  OTEL_EXPORTER_OTLP_ENDPOINT=${expected_endpoint}"
+    else
+        warn "  OTEL_EXPORTER_OTLP_ENDPOINT not set or incorrect (expected: ${expected_endpoint})"
     fi
     echo ""
 }
 
 if $STOP; then
-    info "Stopping OTel collector..."
-    python3 -m telemetry.otel.collector --stop
+    info "Stopping OTel collector (this repo only)..."
+    if ! check_docker; then
+        exit 1
+    fi
+    docker compose -f "$COMPOSE_FILE" down
+    success "Collector stopped"
     exit 0
 fi
 
@@ -74,102 +122,39 @@ if $CHECK_ONLY; then
 fi
 
 echo ""
-echo -e "${BLUE}Bootstrap: OpenTelemetry Collector (Python)${NC}"
+echo -e "${BLUE}Bootstrap: OpenTelemetry Collector (Docker)${NC}"
 echo "────────────────────────────────────────────"
 echo ""
 
-info "Checking Python..."
-if ! command -v python3 &>/dev/null; then
-    error "python3 not found. Install Python 3.11+"
+info "Checking Docker..."
+if ! check_docker; then
     exit 1
 fi
-PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-success "python3 found: ${PY_VERSION}"
+success "Docker daemon reachable"
 
-info "Creating data directory: $DATA_DIR"
-mkdir -p "$DATA_DIR"
-success "Data directory ready"
-
-info "Starting Python OTLP collector on port 4318..."
-python3 -m telemetry.otel.collector --daemon --data-dir "$DATA_DIR"
-sleep 1
-if python3 -m telemetry.otel.collector --status --data-dir "$DATA_DIR" | grep -q "running"; then
-    success "Collector started"
-else
-    error "Collector failed to start"
-    exit 1
-fi
-
-info "Updating ~/.claude/settings.json..."
-if [[ -f "$SETTINGS_FILE" ]]; then
-    python3 - <<EOF
-import json
-
-path = "${SETTINGS_FILE}"
-with open(path) as f:
-    settings = json.load(f)
-
-otel_env = {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-    "OTEL_METRICS_EXPORTER": "otlp",
-    "OTEL_LOGS_EXPORTER": "otlp",
-    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://localhost:4318/v1/metrics",
-    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://localhost:4318/v1/logs",
-    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://localhost:4318/v1/traces",
-    "OTEL_METRIC_EXPORT_INTERVAL": "60000",
-    "OTEL_LOGS_EXPORT_INTERVAL": "5000",
-}
-
-settings.setdefault("env", {}).update(otel_env)
-
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
-EOF
-    success "settings.json updated"
-else
-    warn "settings.json not found — add env vars manually"
-fi
-
-info "Checking ~/.zshrc..."
-ZSHRC_BLOCK='
-# ============================================================================
-# OpenTelemetry (local Python collector)
-# ============================================================================
-export CLAUDE_CODE_ENABLE_TELEMETRY=1
-export OTEL_METRICS_EXPORTER=otlp
-export OTEL_LOGS_EXPORTER=otlp
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-export OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://localhost:4318/v1/metrics
-export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://localhost:4318/v1/logs
-export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
-export OTEL_METRIC_EXPORT_INTERVAL=60000
-export OTEL_LOGS_EXPORT_INTERVAL=5000'
-
-if grep -q "CLAUDE_CODE_ENABLE_TELEMETRY" "$ZSHRC" 2>/dev/null; then
-    success ".zshrc already has OTel config"
-else
-    echo "$ZSHRC_BLOCK" >> "$ZSHRC"
-    success ".zshrc updated"
-fi
-
-info "Verifying pipeline with test span..."
-sleep 1
-if curl -s -X POST "${OTLP_ENDPOINT}/v1/traces" \
-    -H "Content-Type: application/json" \
-    -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"bootstrap-otel"}}]},"scopeSpans":[{"spans":[{"traceId":"aabbccddeeff00112233445566778899","spanId":"aabbccddee000001","name":"bootstrap.test","startTimeUnixNano":"1709123456000000000","endTimeUnixNano":"1709123457000000000"}]}]}]}' \
-    2>/dev/null | grep -q "partialSuccess"; then
-    success "Collector accepting spans"
-else
-    warn "Could not verify collector — it may still be starting up"
-fi
+info "Starting OTel collector container..."
+docker compose -f "$COMPOSE_FILE" up -d
+success "Collector started"
 
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"
 echo ""
+echo "Add these vars to your shell profile (e.g. ~/.zshrc) and restart your"
+echo "shell — or export them in the pane where you launch claude:"
+echo ""
+echo "  export CLAUDE_CODE_ENABLE_TELEMETRY=1"
+echo "  export OTEL_METRICS_EXPORTER=otlp"
+echo "  export OTEL_LOGS_EXPORTER=otlp"
+echo "  export OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
+echo "  export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:${GRPC_PORT}"
+echo ""
+echo "Note: OTEL_GRPC_PORT=${GRPC_PORT} (from current shell; 4327 is the default)."
+echo "Use the same value in the shell that ran 'docker compose up' and the one"
+echo "that runs claude. Never use the HTTP port (4328) as the OTLP endpoint."
+echo ""
 echo "Next steps:"
-echo "  1. Restart Claude Code (or open a new terminal) to activate env vars"
-echo "  2. Watch data land:  tail -f ${DATA_DIR}/events.jsonl | jq '.'"
-echo "  3. Check status:     ./bin/bootstrap-otel --check"
-echo "  4. Stop collector:   ./bin/bootstrap-otel --stop"
+echo "  1. Export the vars above (or verify ~/.zshrc already has them)"
+echo "  2. Restart Claude Code (or open a new terminal) to activate env vars"
+echo "  3. Watch data land:  tail -f \${HOME}/.config/otel/events.jsonl | jq '.'"
+echo "  4. Check status:     ./bin/bootstrap-otel --check"
+echo "  5. Stop collector:   ./bin/bootstrap-otel --stop"
