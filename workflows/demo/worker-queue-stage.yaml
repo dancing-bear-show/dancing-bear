@@ -11,8 +11,8 @@ description: >
     1. The workflow orchestrator resolves this stage and, because it sets
        executor: worker_queue, hands it to WorkerQueueDispatcher instead of
        spawning an agent (workflow/dispatchers.py).
-    2. The dispatcher enqueues a Job(type="workflow_stage") via
-       worker.queue.enqueue() and returns immediately with status=pending —
+    2. The dispatcher builds a Job(type="workflow_stage") and hands it to
+       worker.queue.enqueue(job), returning immediately with status=pending —
        it does not wait for the job to finish.
     3. A worker (daemon or a manual `./bin/worker run-once`) later picks up
        the job and runs its "script" through worker/handlers.py's
@@ -46,7 +46,7 @@ stages:
       writes stdout/exit status back into the job record — check it with
       `./bin/worker show <job_id>` once processed.
     executor: worker_queue
-    script: "echo '{greeting}'"
+    script: "printf '%s\\n' \"{greeting}\""  # double-quoted so {greeting} substitution can't break the shell on a stray single quote
     agent:
       role: inline   # required by the parser but unused — worker_queue never spawns an agent
     depends_on: []

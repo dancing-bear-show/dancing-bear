@@ -87,12 +87,19 @@ stages:
       Step 2 — mark PR ready (exits draft):
         gh pr ready {pr_number}
 
-      Step 3 — poll CI status (up to 20 attempts, 60s each = ~20 min):
+      Step 3 — poll CI status:
         gh pr checks {pr_number} --watch --interval 60
+        This blocks until every check reaches a terminal state (no
+        attempt cap — `--watch` itself has no timeout flag). If a hard
+        ceiling is needed, wrap the call with an external timeout, e.g.
+          timeout 1200 gh pr checks {pr_number} --watch --interval 60
 
         If any check fails: read the failure details with:
           gh run view <RUN_ID> --log-failed
-        Write failure notes to {workspace}/validation/ci-failures.txt.
+        Write failure notes to {workspace}/validation/ci-failures.txt
+        (always write this file, even when all checks pass — use "no
+        failures" as the content in that case, since it is declared in
+        writes_to below).
 
       Step 4 — write {workspace}/validation/ci-results.json:
         {
@@ -113,6 +120,7 @@ stages:
       max_revisions: 1
     required: true
     writes_to:
+      - validation/ci-failures.txt
       - validation/ci-results.json
 
   # ===========================================================================
@@ -123,9 +131,11 @@ stages:
     depends_on: [wait-for-ci]
     reads_from: [wait-for-ci]
     description: >
-      Run qlty on all files changed by this PR and report new issues.
+      Run qlty on the Python files changed by this PR and report new
+      issues. qlty here is scoped to *.py — non-Python changed files are
+      out of scope for this stage.
 
-      Step 1 — get changed files:
+      Step 1 — get changed Python files:
         Read {workspace}/validation/pr.json for pr_number.
         gh pr diff {pr_number} --name-only | grep '\.py$'
 
@@ -173,7 +183,7 @@ stages:
       Push fixes:
         git add -p  (stage only the fix lines, not test changes)
         git commit -m "fix: address qlty findings before review"
-        gh pr push (or git push)
+        git push
 
       Write {workspace}/validation/post-fix-results.md:
         | Issue | File:Line | Fix | Test Result |

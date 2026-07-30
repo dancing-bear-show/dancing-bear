@@ -4,7 +4,12 @@
 #     - path: workflows/shared/worker-queue-babysitter.yaml
 #       prefix: qb
 #       depends_on: [some-worker-queue-or-fanout-stage]
-#       reads_from: [some-worker-queue-or-fanout-stage]
+#
+# depends_on only — omit reads_from. worker_queue stages/fan-outs typically
+# declare no writes_to (their real output is queue job state, not a
+# workspace file), so adding reads_from here would trip the compiler's
+# dangling-read contract warning for no reason. See
+# workflows/demo/worker-queue-fanout.yaml for a worked example.
 #
 # Stage injected: {prefix}-babysit-queue
 #
