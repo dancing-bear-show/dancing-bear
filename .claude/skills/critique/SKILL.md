@@ -46,26 +46,20 @@ or the current diff — not only used as an `include:` inside another workflow.
 
 ## Running
 
-Invoke the workflow directly — do not hand-roll a critic Agent() call when this skill applies, since the workflow already chains fact-checking and a human gate around the raw critique (a lone critic-agent spawn skips both):
+Invoke via the `/workflow` skill — do not hand-roll a critic Agent() call when this skill applies, since the included fragment already chains fact-checking and a human gate around the raw critique (a lone critic-agent spawn skips both). Do NOT invoke `./bin/workflow run workflows/shared/critique.yaml` directly: agent-required stages route through `SkillDispatcher`, which only writes dispatch JSON and returns `pending` — it does not spawn or wait for agents, so the critique will not actually execute end-to-end. The `/workflow` skill is the orchestrator that spawns agents, waits for results, and drives human gates.
 
-```
-./bin/workflow run workflows/shared/critique.yaml \
-  --params target=<path> \
-  --params critic_focus="<focus or empty>"
+```python
+Skill(skill="workflow", args="--workflow workflows/shared/critique.yaml --execute --params target=<path> --params critic_focus=<focus or empty>")
 ```
 
 For `--diff`/`--diff-ref`, leave `target`/`targets` blank and set `diff_ref`:
-```
-./bin/workflow run workflows/shared/critique.yaml \
-  --params diff_ref="<ref or empty for uncommitted>" \
-  --params critic_focus="<focus or empty>"
+```python
+Skill(skill="workflow", args="--workflow workflows/shared/critique.yaml --execute --params diff_ref=<ref or empty for uncommitted> --params critic_focus=<focus or empty>")
 ```
 
 For `--targets`, pass the comma-separated list as `targets`:
-```
-./bin/workflow run workflows/shared/critique.yaml \
-  --params targets="path/one.md,path/two.yaml" \
-  --params critic_focus="<focus or empty>"
+```python
+Skill(skill="workflow", args="--workflow workflows/shared/critique.yaml --execute --params targets=path/one.md,path/two.yaml --params critic_focus=<focus or empty>")
 ```
 
 ## Output

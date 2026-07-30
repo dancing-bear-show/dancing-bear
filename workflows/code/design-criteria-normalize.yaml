@@ -718,7 +718,7 @@ stages:
     agent:
       role: reviewer
       model: opus
-      tools: [Read, Bash, Grep]
+      tools: [Read, Bash, Grep, Write]
       access: read-only
     validation:
       strategy: unit

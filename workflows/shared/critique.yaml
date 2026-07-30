@@ -66,6 +66,16 @@ stages:
       read, so the same fragment works whether the caller named a single doc,
       several files, or wants the current diff reviewed.
 
+      Guardrail — check this FIRST, before anything else: if {plan_file} is
+      set to anything other than the literal string "context/target.md", halt
+      immediately with a clear error ("plan_file is not intended to be
+      overridden by callers — it exists only so the included plan-critic
+      fragment can reference it as a trigger-param placeholder; prepare-target
+      always writes to context/target.md regardless, so overriding plan_file
+      would make pc-validate/pc-critic/pc-revise read or edit a different,
+      likely nonexistent file"). Do not proceed to write target.md if this
+      check fails.
+
       Precedence:
         1. {target} is set — a single existing file path.
            Copy/read it as-is; write {workspace}/context/target.md as:
