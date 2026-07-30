@@ -138,7 +138,7 @@ stages:
           isinstance branch being replaced with a capability gate.
         C4 (composition) — name the stateless class being converted to a
           function, or the mixin being extracted.
-        C5 (error hierarching) — name the CLIError subclass replacing a bare
+        C5 (error hierarchy) — name the CLIError subclass replacing a bare
           raise.
         C6 (output) — name the print() call sites being routed through
           OutputWriter.
@@ -555,7 +555,10 @@ stages:
       Read all {workspace}/outputs/*-tests.md to enumerate touched domains.
 
       Run the full suite to catch cross-domain regressions:
-        python3 -m unittest discover -q 2>&1 | tail -20
+        set -o pipefail && python3 -m unittest discover -q 2>&1 | tail -20
+        (pipefail is required here — without it, a failing test suite's
+        non-zero exit is masked by tail's own exit 0, and this stage would
+        report PASS on a broken suite.)
 
       Write {workspace}/validation/test-results.md:
         | Domain | Test Dir | Tests Added | Status | Notes |

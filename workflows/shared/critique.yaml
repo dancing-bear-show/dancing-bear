@@ -84,13 +84,18 @@ stages:
            Otherwise: git diff (uncommitted changes, staged + unstaged:
              git diff HEAD)
            If the diff is empty, write {workspace}/context/target.md noting
-           "No target specified and no diff found — nothing to critique" and
-           stop here (do not proceed to pc-validate with an empty target;
-           later stages should treat this as required:false-equivalent by
-           writing trivial pass-through outputs — see note in pc-validate
-           inputs, this is handled by the fragment reading an explicit
-           'nothing to critique' sentinel and short-circuiting with a clean
-           status rather than fabricating findings).
+           "No target specified and no diff found — nothing to critique".
+           Note: plan-critic.yaml (the included fragment) has no
+           sentinel-aware short-circuit — pc-validate and pc-critic will
+           still run against this one-line note as their target and will
+           likely report trivial/degenerate findings (e.g. "no verifiable
+           claims present") rather than being skipped. This is a known
+           limitation, not a bug to route around here: modifying
+           plan-critic.yaml to add empty-target handling would change
+           behavior for every other workflow that includes it. If you hit
+           this path, treat the resulting plan-critic-summary.md as
+           uninformative and re-invoke with an explicit target/targets/
+           diff_ref instead.
            Otherwise write {workspace}/context/target.md:
              # Critique Target: diff ({diff_ref or "uncommitted"})
              (the full diff output, fenced as ```diff)
