@@ -1,0 +1,85 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/worker-queue-babysitter.yaml
+#       prefix: qb
+#       depends_on: [some-worker-queue-or-fanout-stage]
+#
+# depends_on only — omit reads_from. worker_queue stages/fan-outs typically
+# declare no writes_to (their real output is queue job state, not a
+# workspace file), so adding reads_from here would trip the compiler's
+# dangling-read contract warning for no reason. See
+# workflows/demo/worker-queue-fanout.yaml for a worked example.
+#
+# Stage injected: {prefix}-babysit-queue
+#
+# Caller must set trigger.params:
+#   purge_older_than  — e.g. "7d"  (age threshold passed to `worker purge`)
+#
+# Output: {workspace}/validation/queue-babysit-report.md
+fragment: true
+name: worker-queue-babysitter
+version: "1.0"
+description: >
+  Shared queue-babysitting fragment. Runs after a worker_queue or
+  worker_queue fan-out stage to watch the background queue drain, retry
+  jobs that landed in error/, and purge old done/error jobs so the queue
+  directory doesn't grow unbounded.
+
+  Cheap by design: a Haiku agent with Bash-only access to the `worker` CLI,
+  no code-writing tools. Retries are bounded (one requeue-errors pass) —
+  jobs that fail again are left in error/ for a human to inspect, never
+  retried indefinitely.
+
+  Params: {purge_older_than}.
+
+stages:
+  - name: babysit-queue
+    kind: validate
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Watch the background worker queue drain, retry transient failures
+      once, and purge old completed/errored jobs.
+
+      Step 1 — poll until the queue drains or a cap is hit:
+        Run `./bin/worker list` in a loop (up to 10 checks, ~3s apart using
+        a single `sleep 3` per iteration — do not busy-loop). Stop polling
+        once pending == 0 and processing == 0, or after 10 checks, whichever
+        comes first. Record the final counts.
+
+      Step 2 — retry errored jobs once:
+        If the final `error` count > 0:
+          Run `./bin/worker requeue-errors --reset-attempts`.
+          Run `./bin/worker run-once --max <error_count>` to process the
+          requeued jobs immediately (this fragment does not assume a daemon
+          is running).
+          Run `./bin/worker list` again to capture post-retry counts.
+        Do not requeue a second time — jobs still in error/ after this one
+        pass are genuine failures, not transient ones. Leave them for a
+        human (`./bin/worker show <id>` to inspect, `./bin/worker retry <id>`
+        to retry individually later).
+
+      Step 3 — purge old completed/errored jobs:
+        Run `./bin/worker purge --older-than {purge_older_than} --folders done,error`.
+        This only removes jobs older than the threshold — it never touches
+        pending/processing, and never touches error jobs younger than the
+        threshold (so a human still has time to inspect fresh failures
+        before Step 3 of a future run deletes them).
+
+      Step 4 — write {workspace}/validation/queue-babysit-report.md:
+        ## Queue Babysit Report
+        Initial counts: pending=N processing=N done=N error=N
+        Final counts (pre-retry): pending=N processing=N done=N error=N
+        Retried: N jobs (requeue-errors + run-once)
+        Post-retry counts: pending=N processing=N done=N error=N
+        Purged: N jobs older than {purge_older_than} (done,error)
+        Remaining unresolved errors: N (see `./bin/worker list` for current state)
+    agent:
+      role: researcher   # Haiku — cheap polling/cleanup loop, no code-writing tools needed
+      model: haiku
+      tools: [Bash, Write]
+      access: read-write
+    required: false   # queue cleanup is best-effort; never blocks the workflow's own outcome
+    writes_to:
+      - validation/queue-babysit-report.md

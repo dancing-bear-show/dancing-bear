@@ -607,5 +607,12 @@ If a stage has `fan_out` defined, check `fan_out.mode`:
 
 ### mode: worker_queue
 
-Not implemented in dancing-bear (worker infrastructure not available).
-Stages with `mode: worker_queue` will log a warning and be skipped.
+Headless, CLI-only fan-out — no agents spawned. The Python dispatcher
+(`workflow/dispatchers.py`'s `WorkerQueueDispatcher`) enqueues one
+`Job(type="workflow_stage")` per fan-out item via `worker.queue.enqueue`,
+substituting `{key}` into `fan_out.script`. Each job returns `pending`
+immediately; a worker (`./bin/worker run-once` or the daemon) processes it
+asynchronously via `worker/handlers.py`'s `handle_workflow_stage`. Same
+applies to a single stage with `executor: worker_queue` (no `fan_out`
+needed). See `workflows/demo/worker-queue-stage.yaml` and
+`workflows/demo/worker-queue-fanout.yaml` for runnable examples.

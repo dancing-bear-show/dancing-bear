@@ -1,0 +1,113 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/otel-workflow-telemetry.yaml
+#       prefix: telem
+#       depends_on: []
+#       reads_from: []
+#
+# Stage injected: {prefix}-gather-telemetry
+#
+# Caller must set trigger.params:
+#   telemetry_since   — e.g. "30d"  (time window passed to `telemetry` queries)
+#   target_workflow   — workflow name to scope to, or "*" for all workflows
+#
+# Output: {workspace}/analysis/workflow-runs.json, {workspace}/analysis/session-patterns.json
+fragment: true
+name: otel-workflow-telemetry
+version: "1.0"
+description: >
+  Shared telemetry-gathering fragment. Collects per-run workflow-cost/stage
+  data (from stage JSON files under each run's workspace) and per-session
+  tool/prompt telemetry (from OTEL) into two structured JSON files that
+  downstream analysis stages read. Read-only — never mutates telemetry data
+  or any workflow YAML.
+
+  Used by both optimize-workflow-from-telemetry.yaml (per-run stage stats
+  for one named workflow) and synthesize-workflow-from-telemetry.yaml
+  (cross-session tool/prompt patterns for pattern mining).
+
+  Params: {telemetry_since}, {target_workflow}.
+
+stages:
+  - name: gather-telemetry
+    kind: gather
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Collect workflow-run and session telemetry for the configured window
+      and scope.
+
+      Step 1 — enumerate known workflow definitions:
+        ./bin/workflow list --format json
+        Record the full list — downstream stages need this to distinguish
+        "this workflow already exists" from "this is a candidate for a new
+        workflow."
+
+      Step 2 — per-run workflow-cost stats:
+        If {target_workflow} is not "*":
+          Find run workspaces under out/ matching {target_workflow}-*:
+            find out -maxdepth 1 -type d -name "{target_workflow}-*"
+          For each run workspace found (skip if none exist — note that in
+          the output instead of failing):
+            ./bin/telemetry workflow-cost --workspace <run_workspace> --format json
+            ./bin/workflow status <run_workspace> --format json
+        If {target_workflow} is "*":
+          ./bin/telemetry workflow-cost --since {telemetry_since} --format json
+          (this aggregates across all runs under work_dir in one call — use
+          it instead of enumerating individual workspaces)
+
+      Step 3 — write {workspace}/analysis/workflow-runs.json:
+        {
+          "scope": "{target_workflow}",
+          "since": "{telemetry_since}",
+          "known_workflows": [<from Step 1>],
+          "runs": [
+            {
+              "run_id": "...",
+              "workflow": "...",
+              "workspace_dir": "...",
+              "stage_costs": [ {"stage": "...", "model": "...", "tokens": N, "cost_usd": N, "tool_uses": N, "duration_agent_ms": N} ],
+              "stage_status": [ {"stage": "...", "status": "done|error|pending|...", "errors": [...]} ]
+            }
+          ],
+          "no_data": true|false
+        }
+        If no run data was found anywhere, set "no_data": true and leave
+        "runs" empty — do not fabricate rows.
+
+      Step 4 — session-level tool/prompt patterns (for pattern mining, not
+      per-run cost):
+        ./bin/telemetry sessions --since {telemetry_since} --format json --perf
+        ./bin/telemetry tools --since {telemetry_since} --format json
+        ./bin/telemetry prompts --since {telemetry_since} --format json --limit 200
+
+      Step 5 — write {workspace}/analysis/session-patterns.json:
+        {
+          "since": "{telemetry_since}",
+          "sessions": [<raw sessions --perf output>],
+          "tools": [<raw tools output — call counts, failure rates>],
+          "prompts": [<raw prompts output — per-prompt tool usage>],
+          "no_data": true|false
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: workflow_runs
+        mode: generate
+        description: >
+          workflow-runs.json and session-patterns.json written to
+          {workspace}/analysis/ with per-run stage cost/status data and
+          cross-session tool/prompt telemetry.
+    writes_to:
+      - analysis/workflow-runs.json
+      - analysis/session-patterns.json
+    validates_output:
+      - path: analysis/workflow-runs.json
+        checks: [is_json, has_key:runs]
+      - path: analysis/session-patterns.json
+        checks: [is_json, has_key:sessions]
