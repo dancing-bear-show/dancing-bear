@@ -51,7 +51,7 @@ make test  # or: python3 -m unittest -v
 ## Per-Module Context
 
 Look for `AGENTS.md` files in subdirectories for domain-specific instructions:
-- `mail/AGENTS.md`
-- `calendars/AGENTS.md`
-- `phone/AGENTS.md`
+- `src/mail/AGENTS.md`
+- `src/calendars/AGENTS.md`
+- `src/phone/AGENTS.md`
 - etc.

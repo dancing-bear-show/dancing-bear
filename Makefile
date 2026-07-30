@@ -29,13 +29,13 @@ test: venv
 
 cov: venv
 	$(PY) -m pip install coverage || true
-	PYTHONPATH=. $(PY) -m coverage run -m unittest -q || true
+	PYTHONPATH=src $(PY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true
 	$(PY) -m coverage report -m
 
 cov-html: venv
 	$(PY) -m pip install coverage || true
-	PYTHONPATH=. $(PY) -m coverage run -m unittest -q || true
+	PYTHONPATH=src $(PY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true
 	$(PY) -m coverage html && echo "Open ./htmlcov/index.html"
 

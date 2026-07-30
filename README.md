@@ -266,25 +266,25 @@ Derive capsules:
 - `.llm/` - agent context, flows, capsules
 - `tests/` - unittest suite
 
-App modules:
-- `mail/` - Gmail/Outlook providers, filters, labels, signatures
-- `calendars/` - Outlook calendar + Gmail scans
-- `schedule/` - plan/apply calendar schedules
-- `resume/` - extract/summarize/render resumes
-- `phone/` - iOS layout tooling
-- `whatsapp/` - local-only ChatStorage search
-- `wifi/` - WiFi diagnostics
-- `desk/` - macOS filesystem tidying
-- `metals/` - precious metals tracking
-- `apple_music/` - Apple Music API
-- `maker/` - utility generators
-- `core/` - shared helpers
+App modules (under `src/`):
+- `src/mail/` - Gmail/Outlook providers, filters, labels, signatures
+- `src/calendars/` - Outlook calendar + Gmail scans
+- `src/schedule/` - plan/apply calendar schedules
+- `src/resume/` - extract/summarize/render resumes
+- `src/phone/` - iOS layout tooling
+- `src/whatsapp/` - local-only ChatStorage search
+- `src/wifi/` - WiFi diagnostics
+- `src/desk/` - macOS filesystem tidying
+- `src/metals/` - precious metals tracking
+- `src/apple_music/` - Apple Music API
+- `src/maker/` - utility generators
+- `src/core/` - shared helpers
 
 ## Code Quality and Testing
 
 ### Linting (qlty)
 - Check files: `~/.qlty/bin/qlty check path/to/file.py`
-- Check module: `~/.qlty/bin/qlty check mail/`
+- Check module: `~/.qlty/bin/qlty check src/mail/`
 - Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
 - Linters: ruff (style), bandit (security), complexity metrics
 

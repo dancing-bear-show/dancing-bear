@@ -24,7 +24,7 @@ from tests.fixtures import repo_root
 
 class MakerPipelineTests(TestCase):
     def setUp(self):
-        self.tools_root = repo_root() / "maker"
+        self.tools_root = repo_root() / "src" / "maker"
 
     def test_tool_runner_imports_and_calls_entry_point(self):
         req = ToolRequest(module="test_module", entry_point="main")
@@ -174,7 +174,7 @@ class ToolCatalogProcessorTests(TestCase):
     """Tests for the new SafeProcessor-based ToolCatalogProcessor."""
 
     def setUp(self):
-        self.tools_root = repo_root() / "maker"
+        self.tools_root = repo_root() / "src" / "maker"
 
     def test_processor_discovers_tools(self):
         """ToolCatalogProcessor scans directories and returns ToolCatalogResult."""

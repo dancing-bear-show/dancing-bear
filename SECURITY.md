@@ -45,7 +45,7 @@ When using this project:
 
 - **Credentials Storage**: This tool stores OAuth tokens locally. Ensure proper file permissions.
 - **API Access**: Gmail/Outlook APIs require OAuth2 authentication. Never share tokens.
-- **Private Data**: Resume profiles in `resume/_data/profiles_private/` are gitignored by default.
+- **Private Data**: Resume profiles in `src/resume/_data/profiles_private/` are gitignored by default.
 
 ## Known Vulnerabilities
 
@@ -64,9 +64,9 @@ pdfminer.six uses Python's `pickle` module to deserialize CMap files, which can 
 #### Our Usage
 
 We use pdfminer.six **only** for text extraction (`extract_text` from `high_level` module) in:
-- `calendars/importer/pdf_parser.py`
-- `resume/parsing.py`
-- `resume/io_utils.py`
+- `src/calendars/importer/pdf_parser.py`
+- `src/resume/parsing.py`
+- `src/resume/io_utils.py`
 
 #### Mitigation Steps Taken
 
