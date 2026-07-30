@@ -1,0 +1,655 @@
+name: qlty-complexity-sweep
+version: "1.0"
+description: >
+  Sweep the codebase for qlty "High total complexity" (file-complexity) smells,
+  group flagged files by top-level source directory, fan out parallel
+  code-writer agents to split each into smaller focused modules with
+  backward-compatible re-exports, verify tests pass, validate no broken
+  imports, apply corrections if needed, recheck complexity + lint, then
+  present a human gate.
+
+  Unlike decompose-sweep (which discovers candidates by raw line count),
+  this workflow discovers candidates directly from qlty's file-complexity
+  smell score, so it also catches complexity-dense small files that a
+  line-count threshold would miss.
+
+  Never touches bin/* public entry points or renames existing public
+  CLI-facing modules. Only splits large files into siblings within the
+  same directory. Original files become thin re-export shims so external
+  imports never break.
+
+  Stage dependency graph:
+
+    discover-candidates
+          |
+    plan-splits  [human gate]
+          |
+    decompose-groups × N  (parallel fan-out per directory group)
+          |
+    verify-tests
+          |
+    validate-imports
+          |
+    apply-corrections (optional)
+          |
+    recheck
+          |
+    human-gate
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    complexity_floor: "90"    # qlty file-complexity value at/above which a file is a candidate
+    max_files: "30"           # cap on number of files to attempt in one sweep
+    pr_title: "refactor: split high-complexity modules flagged by qlty"
+
+workspace_dir: "{work_dir}/qlty-complexity-sweep"
+
+stages:
+
+  # ===========================================================================
+  # G0: Discover candidate files via qlty smells — read-only scan
+  # ===========================================================================
+
+  - name: discover-candidates
+    kind: gather
+    depends_on: []
+    description: >
+      Run qlty's structural smell scan and extract every file flagged with
+      the "file-complexity" rule (message pattern "High total complexity
+      (count = N)"), at or above {complexity_floor}.
+
+      Step 1 — run the scan:
+        ~/.qlty/bin/qlty smells --all --json > /tmp/qlty-smells.json
+
+      Step 2 — filter and sort:
+        Parse the JSON array. Keep entries where ruleKey == "file-complexity"
+        and value >= {complexity_floor}. Sort descending by value. Cap the
+        list at {max_files} entries (log how many were dropped by the cap,
+        if any).
+
+      Step 3 — group by top-level source directory:
+        For each candidate path (e.g. "src/resume/parsing_experience.py"),
+        the group key is the directory two levels down from repo root
+        (e.g. "resume"). For "bin/*" paths, use "bin" as the group — but
+        flag these for extra caution since bin/ entries are public CLI
+        wrappers (see plan-splits DEFER guidance).
+
+      Step 4 — gather per-file responsibility hints:
+        For each candidate, run:
+          grep -n "^class \|^def " <file> | head -40
+        Also record line_count via wc -l.
+
+      Step 5 — write {workspace}/analysis/candidates.json:
+        {
+          "complexity_floor": {complexity_floor},
+          "scanned_at": "<ISO-8601 timestamp>",
+          "candidates": [
+            {
+              "path": "src/resume/parsing_experience.py",
+              "group": "resume",
+              "complexity": 208,
+              "line_count": 829,
+              "top_level_symbols": ["class ExperienceParser", "def parse_bullets", ...]
+            }
+          ],
+          "dropped_by_cap": <count of candidates beyond {max_files}>
+        }
+
+      If no candidates are found: write candidates.json with an empty list
+      and a note "no files at or above complexity_floor — nothing to split".
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: candidates
+        mode: generate
+        description: >
+          candidates.json written to {workspace}/analysis/ with the
+          complexity-ranked candidate list grouped by source directory.
+    required: true
+    writes_to:
+      - analysis/candidates.json
+
+  # ===========================================================================
+  # G1: Plan splits — decide strategy per file, group by directory, risk-assess
+  # ===========================================================================
+
+  - name: plan-splits
+    kind: propose
+    depends_on: [discover-candidates]
+    reads_from: [discover-candidates]
+    description: >
+      Read analysis/candidates.json. For each candidate file decide a split
+      strategy, group candidates into directory batches, and write the
+      execution plan. Present the plan for human approval before any files
+      are modified.
+
+      Split strategies (apply the first that fits):
+
+        extract-submodules
+          — 2+ distinguishable responsibility clusters visible in top-level
+            symbols (e.g. field parsers vs. cross-record validators, or
+            renderers vs. data builders). Extract each cluster to a sibling
+            module in the same directory. Original file becomes a thin
+            re-export shim. This is the default strategy — prefer it.
+
+        extract-package
+          — File is large enough that extract-submodules would produce 4+
+            siblings, OR the module is already referenced as a package
+            boundary elsewhere. Convert the file into a package directory.
+
+        DEFER
+          — Cannot cleanly split now. Valid reasons:
+              - Single monolithic function whose complexity comes from one
+                function, not many (splitting the file won't help — this
+                needs complexity reduction inside the function instead,
+                e.g. dispatch tables or early returns; note this and defer).
+              - Path is under bin/ (public CLI entry point — never split
+                or rename per project rules).
+              - Tight coupling through shared mutable state that would
+                require broad refactoring to untangle safely.
+            Record the reason; do not attempt the split.
+
+      Backward-compat rule (always applies):
+        The original file must remain as a thin re-export shim:
+          from .submodule import X, Y  # noqa: F401
+        Never rename classes or functions — only move them. Do not split
+        so granularly that modules become trivially small (a new sibling
+        under ~80 lines is a warning sign of over-fragmentation — prefer
+        fewer, more substantial siblings).
+
+      Directory grouping:
+        Collect all non-DEFER files into directory buckets (the "group"
+        field from candidates.json). Each bucket becomes one fan-out slot
+        for decompose-groups. Files in the same directory are handled by
+        the same agent to avoid import conflicts within that package.
+
+      Write {workspace}/design/plan.md:
+
+        ## Qlty Complexity Sweep Plan
+        Candidates: <total> files at or above complexity {complexity_floor}
+
+        ### Files to Split
+        | File | Group | Complexity | Lines | Strategy | Proposed Siblings |
+        |------|-------|-----------|-------|----------|-------------------|
+        | src/resume/parsing_experience.py | resume | 208 | 829 | extract-submodules | parsing_experience_bullets.py, parsing_experience_dates.py |
+        ...
+
+        ### Deferred Files
+        | File | Complexity | Reason |
+        |------|-----------|--------|
+
+        ### Risk Notes
+        Any files under bin/, or imported from many call sites — flag these
+        for extra import validation attention.
+
+      Write {workspace}/design/domain-groups.json:
+        {
+          "items": [
+            {
+              "group": "resume",
+              "files": [
+                {
+                  "path": "src/resume/parsing_experience.py",
+                  "complexity": 208,
+                  "line_count": 829,
+                  "strategy": "extract-submodules",
+                  "proposed_siblings": [
+                    "src/resume/parsing_experience_bullets.py",
+                    "src/resume/parsing_experience_dates.py"
+                  ]
+                }
+              ]
+            },
+            ...
+          ]
+        }
+        The "items" key at the top level is required — it is the fan_out
+        source for decompose-groups.
+
+      Present the plan. Ask the user:
+        A) Approve — proceed with decompose-groups fan-out
+        B) Adjust — specify files to exclude or strategy overrides
+        C) Abort — stop without modifying anything
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - design/plan.md
+      - design/domain-groups.json
+
+  # ===========================================================================
+  # G2: Decompose groups — parallel fan-out, one code-writer per directory group
+  # ===========================================================================
+
+  - name: decompose-groups
+    kind: execute
+    depends_on: [plan-splits]
+    reads_from: [plan-splits]
+    description: >
+      Fan out: spawn one code-writer agent per group listed in
+      {workspace}/design/domain-groups.json. All group agents run in
+      parallel, each with isolation:worktree.
+
+      Each agent handles all files for its assigned {group}.
+
+      Step 1 — read the approved plan:
+        Read {workspace}/design/plan.md for the group's section.
+        Read {workspace}/design/domain-groups.json for the file list and
+        strategies for this group.
+
+      Step 2 — for each file in this group's "files" list:
+
+        a. Read the file in full.
+        b. Identify the responsibility clusters that match the chosen strategy.
+
+        For extract-submodules:
+          - Create sibling files in the same directory as the original file.
+          - Move each cluster's classes/functions to the appropriate sibling.
+          - Rewrite the original file as a thin re-export shim:
+              from .<sibling> import ClassName, function_name  # noqa: F401
+            Do NOT rename anything. Do NOT change function signatures.
+          - Preserve all module-level docstrings and __all__ declarations.
+          - Watch for circular imports: if sibling A needs a symbol also
+            being moved to sibling B, extract shared types/errors to a third
+            small sibling (e.g. <module>_errors.py) that both import from.
+
+        For extract-package:
+          - Create package directory <module>/ (same name as the original
+            file, minus .py) in place of the original file.
+          - Move the original file's content into <module>/__init__.py,
+            then split out submodules inside <module>/ per the proposed
+            siblings.
+          - Delete the original <module>.py file.
+          - <module>/__init__.py re-exports every symbol the original file
+            exposed.
+
+        After splitting each file:
+          c. Run a quick import smoke-check:
+               python3 -c "import <module_path>" 2>&1
+             (Derive module_path from the file path relative to src/: strip
+             the src/ prefix, replace / with ., strip .py.)
+             If the import fails, fix the re-export shim before moving on.
+
+          d. Run qlty on the new files + shim:
+               ~/.qlty/bin/qlty check <original_path> <sibling_paths...>
+             Confirm no new issues introduced.
+
+      Step 3 — write per-group split summary to
+        {workspace}/outputs/{group}-splits.md:
+          ## {group} Splits
+          | Original File | Strategy | Siblings Created | Import Check |
+          |---------------|----------|-----------------|--------------|
+          | src/resume/parsing_experience.py | extract-submodules | parsing_experience_bullets.py, parsing_experience_dates.py | PASS |
+          ...
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: plan-splits
+      field: items
+      key: group
+      mode: agent
+    outputs:
+      - name: group_splits
+        mode: generate
+        description: >
+          Per-group split summary written to {workspace}/outputs/{group}-splits.md.
+          Contains the list of files split, siblings created, and import check status.
+    writes_to:
+      - outputs/{group}-splits.md
+
+  # ===========================================================================
+  # G3: Verify tests — run test suite per touched group, fix failures up to 3 cycles
+  # ===========================================================================
+
+  - name: verify-tests
+    kind: validate
+    depends_on: [decompose-groups]
+    reads_from: [decompose-groups]
+    description: >
+      Run the test suite for every group that was touched in decompose-groups
+      and confirm all tests still pass after the splits.
+
+      IMPORTANT — set PYTHONPATH explicitly before running any test command:
+        export PYTHONPATH="$(pwd)/src"
+      This repo's venv may be editable-installed against a different
+      worktree; without this override, tests can silently import stale
+      modules from another checkout and produce false failures.
+
+      Step 1 — identify touched groups:
+        Read all files matching {workspace}/outputs/*-splits.md.
+        Extract group names from filenames (e.g., resume-splits.md -> resume).
+
+      Step 2 — per-group test run:
+        For each touched group, determine the test directory:
+          - Check if tests/<group>_tests/ exists: ls tests/<group>_tests/
+          - If not, check tests/<group>/
+          - If neither, check for tests/test_<group>*.py at the top level.
+          - If none found, skip and note "no tests for <group>".
+
+        Run per-group discovery using the resolved test directory:
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <resolved_test_dir> -p "test_*.py" -q 2>&1
+
+        Fix failures up to 3 cycles per group:
+          - Import error: the re-export shim is missing an import or has a
+            wrong path. Fix the shim, re-run.
+          - AttributeError / NameError: a symbol was moved but not re-exported.
+            Add it to the shim's import list.
+          - Other failures: read the relevant source and test files to diagnose.
+          - After each fix: re-run the per-group test command.
+          - If still failing after 3 fix cycles: mark group as FAIL and
+            document the blocker — do not abort other groups.
+
+      Step 3 — run the full suite to catch cross-group regressions:
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1 | tail -10
+
+      Step 4 — write {workspace}/validation/test-results.md:
+        | Group | Test Dir | Tests Run | Status | Notes |
+        |-------|----------|-----------|--------|-------|
+        | resume | tests/resume_tests/ | 47 | PASS | |
+        | wifi | tests/wifi_tests/ | 23 | FAIL | ImportError: cannot import DiagnosticsRunner |
+        ...
+        Full suite: PASS|FAIL
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    validation:
+      strategy: deliverable
+      criteria:
+        - Full unittest discover (with PYTHONPATH=src) exits 0
+        - All per-group test runs pass or failures are documented with blockers
+        - No new import errors introduced by splits
+      max_revisions: 3
+    required: true
+    writes_to:
+      - validation/test-results.md
+
+  # ===========================================================================
+  # G4: Validate imports — confirm all split modules importable, no broken imports
+  # ===========================================================================
+
+  - name: validate-imports
+    kind: validate
+    depends_on: [verify-tests]
+    reads_from: [verify-tests, decompose-groups]
+    description: >
+      Confirm that every new sibling module and every rewritten re-export
+      shim is importable, and that no existing importer of the original
+      module is broken.
+
+      IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 -c import
+      check, for the same reason noted in verify-tests.
+
+      Step 1 — collect all split artifacts:
+        Read {workspace}/outputs/*-splits.md to enumerate every file that was
+        created or modified.
+        Also read {workspace}/design/domain-groups.json for the full list of
+        original files and their proposed siblings.
+
+      Step 2 — smoke-import each new module:
+        For each new sibling file created:
+          python3 -c "import <module_path>" 2>&1
+        For each rewritten re-export shim, verify full export parity — do NOT
+        rely on plan.md's top-level symbol list (candidates.json only
+        captured the first 40 class/def names as a planning hint):
+          a. Get the complete pre-split symbol set from git history:
+               git show HEAD:<module_path> | grep -n "^class \|^def "
+          b. Get the shim's actual exported symbols:
+               python3 -c "import <module_path>; print([n for n in dir(<module_path>) if not n.startswith('_')])"
+          c. Diff the two sets. Any pre-split symbol missing from the shim's
+             dir() output is a broken export — fix the shim's import list.
+
+      Step 2b — also verify __all__ if the original file declared one:
+        If the pre-split file defined __all__, confirm the shim's __all__
+        (or its transitively re-exported __all__) contains the same names.
+
+      Step 3 — check downstream importers:
+        For each original file that was split, grep the codebase for
+        existing import statements:
+          grep -rn "from <module_path> import\|import <module_path>" \
+            --include="*.py" \
+            --exclude-dir=.venv \
+            --exclude-dir=.claude \
+            --exclude-dir=personal_assistants.egg-info
+        For each found importer: confirm it still resolves correctly:
+          python3 -c "from <module_path> import <SymbolName>" 2>&1
+
+      Step 4 — run qlty on all modified files:
+        ~/.qlty/bin/qlty check <list of modified .py files>
+        Note any new issues introduced by the splits.
+
+      Step 5 — re-run the complexity scan to confirm improvement:
+        ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
+          python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value'], i['location']['path']) for i in d if i['ruleKey']=='file-complexity']" | sort -rn
+        Compare against analysis/candidates.json: confirm every split
+        original file's new complexity (if it still appears at all) is
+        lower than its pre-split value, and ideally below {complexity_floor}.
+
+      Step 6 — write {workspace}/validation/import-check.json:
+        {
+          "new_modules": [
+            { "path": "src/resume/parsing_experience_bullets.py", "importable": true, "issues": [] }
+          ],
+          "shims": [
+            {
+              "path": "src/resume/parsing_experience.py",
+              "importable": true,
+              "symbols_exported": ["ExperienceParser", "parse_bullets"],
+              "symbols_expected": ["ExperienceParser", "parse_bullets"],
+              "match": true
+            }
+          ],
+          "downstream_importers": [
+            {
+              "importer": "src/resume/cli/main.py",
+              "imports": "from resume.parsing_experience import ExperienceParser",
+              "resolves": true
+            }
+          ],
+          "qlty_issues": [],
+          "complexity_after": [
+            { "path": "src/resume/parsing_experience.py", "before": 208, "after": 40 }
+          ],
+          "overall": "PASS|ISSUES"
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - All new sibling modules import without error
+        - All re-export shims export the same symbol set as the original files
+        - All downstream importers of original module paths still resolve
+        - No critical qlty issues on modified files
+        - Complexity score for every split file decreased
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/import-check.json
+
+  # ===========================================================================
+  # G5: Apply corrections — fix remaining test/import failures
+  # ===========================================================================
+
+  - name: apply-corrections
+    kind: execute
+    depends_on: [validate-imports]
+    reads_from: [validate-imports, verify-tests]
+    description: >
+      Fix any remaining failures surfaced by validate-imports or verify-tests
+      that were not already resolved.
+
+      Step 1 — check if corrections are needed:
+        Read {workspace}/validation/import-check.json.
+        Read {workspace}/validation/test-results.md.
+        If import-check.json overall == "PASS" and test-results.md shows no
+        FAIL groups: write "no corrections needed" to
+        {workspace}/validation/corrections-applied.md and exit.
+
+      Step 2 — fix import issues:
+        For each entry in import-check.json where importable == false or
+        match == false:
+          - Read the shim file and the sibling it should re-export from.
+          - Fix the import statement.
+          - Re-run: python3 -c "import <module_path>" 2>&1
+          - Confirm green before moving on.
+
+      Step 3 — fix test failures:
+        For each group marked FAIL in test-results.md:
+          - Read the failure output and the relevant source/test files.
+          - Apply the minimal fix (usually a missing re-export or wrong
+            import path).
+          - Re-run using the "Test Dir" column recorded for this group in
+            test-results.md:
+              PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir_from_table> -q 2>&1
+          - Up to 2 additional fix cycles per group.
+
+      Step 4 — write {workspace}/validation/corrections-applied.md:
+        ## Corrections Applied
+        | Issue | File | Fix | Result |
+        |-------|------|-----|--------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    required: false
+    outputs:
+      - name: corrections
+        mode: generate
+        description: >
+          Corrections applied (or "no corrections needed") written to
+          {workspace}/validation/corrections-applied.md.
+    writes_to:
+      - validation/corrections-applied.md
+
+  # ===========================================================================
+  # G6: Recheck — final complexity + lint + test green-light before human gate
+  # ===========================================================================
+
+  - name: recheck
+    kind: validate
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+    description: >
+      Run the full test suite, qlty lint, and qlty complexity smell scan on
+      all modified files one final time. Escalate to code-writer-opus if any
+      check is still failing.
+
+      Step 1 — full test suite:
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1
+
+        If exit != 0:
+          Record failure output to {workspace}/validation/recheck-test-failure.txt.
+          Attempt one targeted fix: read the failure output, identify the
+          failing test, fix the underlying import or re-export issue.
+          Re-run once. If still failing: set test_status "FAIL" and document
+          the blocker. The human gate will decide whether to proceed.
+
+      Step 2 — qlty lint on all files touched by decompose-groups:
+        Enumerate modified files by reading {workspace}/outputs/*-splits.md
+        for all sibling paths and original shim paths.
+        ~/.qlty/bin/qlty check <space-separated list of .py files>
+
+        If qlty reports critical issues: attempt auto-fix:
+          ~/.qlty/bin/qlty check --fix <file>
+        Re-run to confirm clean.
+
+      Step 3 — qlty complexity recheck:
+        ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
+          python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value'], i['location']['path']) for i in d if i['ruleKey']=='file-complexity']"
+        Confirm no file touched by this sweep still exceeds its pre-split
+        complexity value. It is acceptable for a split file to still appear
+        in the list (e.g. at 55-60) as long as it's a clear improvement and
+        in line with the rest of the codebase's untouched files — do not
+        chase zero.
+
+      Step 4 — write {workspace}/validation/recheck.json:
+        {
+          "test_exit": 0,
+          "test_status": "PASS|FAIL",
+          "qlty_exit": 0,
+          "qlty_status": "PASS|ISSUES",
+          "qlty_issues": [],
+          "complexity_status": "IMPROVED|REGRESSED",
+          "unresolved_failures": [],
+          "ready_for_commit": true|false
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Full unittest discover exits 0
+        - qlty check exits 0 on all modified files
+        - No file touched by this sweep has a higher complexity score than before
+        - No unresolved import errors remain
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/recheck.json
+
+  # ===========================================================================
+  # G7: Human gate — present results and ask to commit / open PR
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    human_gate: true
+    depends_on: [recheck]
+    reads_from: [recheck, plan-splits, apply-corrections]
+    description: >
+      Present the full qlty-complexity-sweep results to the user and ask how
+      to proceed.
+
+      Read and display:
+        {workspace}/design/plan.md                         — approved split plan
+        {workspace}/validation/test-results.md             — per-group test outcomes
+        {workspace}/validation/import-check.json           — import + complexity validation
+        {workspace}/validation/corrections-applied.md      — what was fixed
+        {workspace}/validation/recheck.json                — final lint + test + complexity status
+
+      Surface:
+        - Groups split successfully vs. failed
+        - Files deferred (with reasons from plan.md)
+        - Test status: PASS / FAIL with blocker details
+        - Lint status: PASS / ISSUES
+        - Complexity before/after per split file
+
+      Ask the user:
+        A) Commit and open PR — stage all modified files and run /open-pr
+        B) Fix a specific failure — describe which group/file needs attention
+        C) Abandon — revert changes (the user must run git checkout manually)
+
+      Write {workspace}/validation/human-gate-decision.md with the decision.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md

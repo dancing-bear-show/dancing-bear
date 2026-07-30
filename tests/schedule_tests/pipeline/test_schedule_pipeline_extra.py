@@ -119,14 +119,14 @@ class TestExpandWeeklyOccurrences(unittest.TestCase):
 class TestBuildOutlookService(unittest.TestCase):
     def test_returns_error_on_runtime_error(self):
         auth = OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None)
-        with patch("schedule.pipeline.build_outlook_service", side_effect=RuntimeError("no creds")):
+        with patch("schedule.pipeline_verify.build_outlook_service", side_effect=RuntimeError("no creds")):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
             self.assertIn("no creds", err)
 
     def test_returns_error_on_general_exception(self):
         auth = OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None)
-        with patch("schedule.pipeline.build_outlook_service", side_effect=Exception("unavailable")):
+        with patch("schedule.pipeline_verify.build_outlook_service", side_effect=Exception("unavailable")):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
             self.assertIn("unavailable", err)
