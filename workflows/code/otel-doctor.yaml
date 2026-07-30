@@ -1,0 +1,319 @@
+name: otel-doctor
+version: "1.0"
+description: >
+  Diagnose why this repo's local OTel telemetry pipeline isn't working and
+  fix the first failing layer. Checks five things in order — Colima VM,
+  Docker daemon, this repo's otel-collector container, OTEL_* env vars in
+  the current shell, and whether data is actually flowing to
+  ~/.config/otel/*.jsonl — and stops at the first failure, since later
+  checks are usually unreachable/irrelevant until the earlier one clears.
+
+  Stage dependency graph:
+
+    diagnose                              (G0 — run the 5 checks, find first failure)
+        |
+    propose-fix  [human gate]            (G1 — one fix, reviewed before applying)
+        |
+    apply-fix                             (G2 — apply the approved fix)
+        |
+    verify                                (G3 — re-run checks, confirm progress)
+        |
+    report                                (G4 — summary + remaining steps)
+
+  Never stops or reconfigures a container belonging to another project as
+  a "fix" — a port collision is resolved by rebinding this repo's compose
+  file to different host ports, never by touching another project's
+  container. Env var fixes (check 4) cannot be applied by an agent in this
+  process — a new shell/session is required — so apply-fix reports that
+  step as "requires new session" rather than pretending to fix it.
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params: {}
+
+workspace_dir: "{work_dir}/otel-doctor"
+
+stages:
+  # ===========================================================================
+  # G0: Diagnose — run the 5 checks, find the first failure
+  # ===========================================================================
+  - name: diagnose
+    kind: gather
+    depends_on: []
+    reads_from: []
+    description: >
+      Run five checks in order and stop at the first failure — do not run
+      later checks once an earlier one fails, since they're usually
+      unreachable/irrelevant until the earlier layer clears.
+
+      File access rules: use the Read tool (not cat/head/tail), Grep tool
+      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
+      for CLI commands only.
+
+      Check 1 — is Colima running?
+        colima status
+        Failure signal: non-zero exit or output not containing "Running".
+
+      Check 2 — is the Docker daemon reachable?
+        docker info
+        Failure signal: non-zero exit (e.g. "Cannot connect to the Docker
+        daemon").
+
+      Check 3 — is this repo's otel-collector container up?
+        docker ps --filter "name=otel-collector" --format '{{"{{"}}.Names{{"}}"}}\t{{"{{"}}.Status{{"}}"}}\t{{"{{"}}.Ports{{"}}"}}'
+        The container name is "<project-dir-name>-otel-collector-1" (Docker
+        Compose derives it from the directory name — differs per worktree).
+        Failure signal: no row for this repo's directory name, or the row
+        exists but Status doesn't start with "Up".
+        Also check for a port collision by attempting:
+          docker compose -f docker-compose.otel.yaml up -d
+        If this errors with "port is already allocated", note which ports
+        docker-compose.otel.yaml currently binds (Read the file) and which
+        container already holds them (docker ps --filter "publish=<port>").
+
+      Check 4 — are the OTEL_* env vars set in the CURRENT shell?
+        env | grep -E "^OTEL_|^CLAUDE_CODE_ENABLE_TELEMETRY"
+        Failure signal: empty output, or OTEL_EXPORTER_OTLP_ENDPOINT points
+        at a port that doesn't match docker-compose.otel.yaml's host-side
+        gRPC port.
+
+      Check 5 — is data actually flowing?
+        ls -la ~/.config/otel/*.jsonl
+        Failure signal: no metrics.jsonl/events.jsonl/spans.jsonl even
+        though checks 1-4 all pass. Note this is expected immediately after
+        setup — nothing has exported data yet — and is not itself a bug to
+        "fix", just a state to report.
+
+      Write {workspace}/analysis/diagnosis.json:
+        {
+          "checks": [
+            {"check": "colima_running", "passed": true|false, "detail": "..."},
+            {"check": "docker_reachable", "passed": true|false, "detail": "..."},
+            {"check": "container_up", "passed": true|false, "detail": "...", "port_collision": {"host_port": N, "holder_container": "..."} | null},
+            {"check": "env_vars_set", "passed": true|false, "detail": "..."},
+            {"check": "data_flowing", "passed": true|false, "detail": "..."}
+          ],
+          "first_failure": "colima_running" | "docker_reachable" | "container_up" | "env_vars_set" | "data_flowing" | null,
+          "all_passed": true|false
+        }
+      first_failure is the name of the first check with passed=false, or
+      null if all_passed is true. Do not fabricate a failure if all checks
+      genuinely pass — set all_passed true and first_failure null.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: diagnosis
+        mode: generate
+        description: >
+          diagnosis.json written to {workspace}/analysis/ with pass/fail
+          state for all 5 checks and the first failing check, if any.
+    writes_to:
+      - analysis/diagnosis.json
+
+  # ===========================================================================
+  # G1: Propose fix — one fix for the first failure, human approval required
+  # ===========================================================================
+  - name: propose-fix
+    kind: propose
+    human_gate: true
+    depends_on: [diagnose]
+    reads_from: [diagnose]
+    description: >
+      Read {workspace}/analysis/diagnosis.json. If all_passed is true, write
+      "all checks passed — nothing to fix" to
+      {workspace}/design/fix-proposal.md and stop; the report stage will
+      present this as healthy.
+
+      Otherwise, propose exactly one fix for the check named in
+      diagnosis.json's "first_failure" field:
+
+        colima_running   → `colima start`
+        docker_reachable → wait a few seconds and retry `docker info`; if
+                            still failing, `colima restart`
+        container_up (no collision) → `docker compose -f docker-compose.otel.yaml up -d`
+        container_up (port_collision present) → edit docker-compose.otel.yaml
+                            to rebind the colliding host port(s) to a free
+                            port (e.g. 4327/4328), then
+                            `docker compose -f docker-compose.otel.yaml up -d`.
+                            Never propose stopping or reconfiguring the
+                            container already holding the port — it belongs
+                            to a different project.
+        env_vars_set     → cannot be fixed by this workflow: the fix is
+                            exporting OTEL_* vars in the shell profile
+                            (~/.zshrc) and starting a NEW shell/session —
+                            an already-running agent process cannot make
+                            its own env vars retroactively apply. Propose
+                            the env var block to add (or confirm already
+                            present) and state clearly that a new session
+                            is required, not a bug in this run.
+        data_flowing     → no fix — this is an expected transient state
+                            after setup, not a failure to act on. Note it
+                            and move on.
+
+      Write {workspace}/design/fix-proposal.md:
+        ## OTel Doctor — Proposed Fix
+
+        **First failing check**: <value of diagnosis.json's "first_failure" field>
+
+        ### Fix
+        <the exact command(s) to run, or file edit to make>
+
+        ### Why
+        <one-sentence citation of the diagnosis.json detail that triggered this>
+
+      Ask the user:
+        A) Approve — apply the fix
+        B) Skip — stop without applying anything
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: fix_proposal
+        mode: generate
+        description: >
+          fix-proposal.md written to {workspace}/design/ with the single
+          proposed fix for the first failing check (or "nothing to fix").
+    writes_to:
+      - design/fix-proposal.md
+
+  # ===========================================================================
+  # G2: Apply fix — run the approved command / edit
+  # ===========================================================================
+  - name: apply-fix
+    kind: execute
+    depends_on: [propose-fix]
+    reads_from: [propose-fix]
+    description: >
+      Read {workspace}/design/fix-proposal.md and the human's decision from
+      the propose-fix gate. If skipped, or if it said "nothing to fix" /
+      "all checks passed", write "no fix applied" to
+      {workspace}/validation/fix-applied.md and skip to the next stage.
+
+      Otherwise, apply the approved fix exactly as proposed:
+        - Shell commands (colima start, docker compose up -d, etc.) — run
+          via Bash and capture output/exit code.
+        - Port collision — Edit docker-compose.otel.yaml to the new port(s),
+          then run docker compose -f docker-compose.otel.yaml up -d.
+        - env_vars_set — do not attempt to export vars into this process's
+          environment (it cannot affect the running shell). If the proposal
+          says the block is missing from ~/.zshrc, Edit ~/.zshrc to add it
+          exactly as shown in the proposal; otherwise skip (already present).
+
+      Write {workspace}/validation/fix-applied.md:
+        - Fix attempted (or "none")
+        - Command(s) run and exit codes
+        - Files edited, if any
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Bash, Read, Edit, Write]
+      access: read-write
+    required: true
+    outputs:
+      - name: fix_applied
+        mode: generate
+        description: >
+          fix-applied.md written to {workspace}/validation/ recording the
+          command(s) run and/or files edited to apply the approved fix.
+    writes_to:
+      - validation/fix-applied.md
+
+  # ===========================================================================
+  # G3: Verify — re-run the 5 checks, confirm progress
+  # ===========================================================================
+  - name: verify
+    kind: validate
+    depends_on: [apply-fix]
+    reads_from: [apply-fix, diagnose]
+    description: >
+      Read {workspace}/validation/fix-applied.md. Re-run the same 5 checks
+      from the diagnose stage description, in the same order, stopping at
+      the first failure as before.
+
+      Compare against {workspace}/analysis/diagnosis.json's first_failure:
+        - If the previously-failing check now passes, progress was made —
+          note the new first_failure (there may be a next layer to fix, or
+          none).
+        - If the same check still fails, the fix didn't work — note this
+          plainly, do not claim success.
+
+      Write {workspace}/validation/verify-results.json:
+        {
+          "checks": [ ... same shape as diagnosis.json ... ],
+          "first_failure": "..." | null,
+          "all_passed": true|false,
+          "progress_made": true|false
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Re-run reports the same or fewer failing checks than the initial diagnosis
+        - all_passed is only true if every check genuinely passed
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/verify-results.json
+
+  # ===========================================================================
+  # G4: Report — summary for the user
+  # ===========================================================================
+  - name: report
+    kind: propose
+    depends_on: [verify]
+    reads_from: [verify, apply-fix, propose-fix, diagnose]
+    description: >
+      Read all prior stage outputs and present a final summary:
+
+      ## OTel Doctor Report
+
+      ### Diagnosis
+      <first_failure from diagnose, or "all checks passed">
+
+      ### Fix Applied
+      <from apply-fix, or "none — nothing to fix / user skipped">
+
+      ### Current State (after fix)
+      | Check | Status |
+      |-------|--------|
+      <one row per check from verify-results.json>
+
+      ### Next Steps
+      If all_passed: telemetry pipeline is healthy.
+      If env_vars_set is still the first failure: state plainly that a new
+      terminal/Claude Code session is required — this cannot be fixed
+      within the current process.
+      If data_flowing is still the first failure but everything else
+      passed: note this is expected until a session with the env vars
+      actually runs — recommend rechecking after that.
+      Otherwise: recommend re-running this workflow after addressing
+      whatever remains.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: final_report
+        mode: generate
+        description: >
+          final-report.md written to {workspace}/validation/ summarizing
+          the diagnosis, fix applied, post-fix state, and next steps.
+    writes_to:
+      - validation/final-report.md
