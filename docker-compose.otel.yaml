@@ -4,8 +4,8 @@ services:
     environment:
       - CENTRAL_OTLP_ENDPOINT=${CENTRAL_OTLP_ENDPOINT:-https://otlp.telemetry.devel.cpdev.cloud:4318}
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      - "4327:4317"   # OTLP gRPC (host 4327 avoids collision with other local collectors on 4317)
+      - "4328:4318"   # OTLP HTTP (host 4328 avoids collision with other local collectors on 4318)
     volumes:
       - ./configs/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml
       - otel-data:/data
