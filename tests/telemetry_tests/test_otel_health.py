@@ -135,6 +135,19 @@ class TestPrintNoInfrastructureMessage(unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("docker compose -f docker-compose.otel.yaml up -d", output)
 
+    def test_message_specifies_grpc_protocol_and_concrete_endpoint(self):
+        """Regression test: the endpoint hint must name the gRPC protocol and
+        a concrete port, not just vaguely say "matching the collector's port"
+        (that ambiguity let a user configure the HTTP port for a gRPC client).
+        """
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            _print_no_infrastructure_message(Path("/some/path"))
+        output = buf.getvalue()
+        self.assertIn("OTEL_EXPORTER_OTLP_PROTOCOL=grpc", output)
+        self.assertIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:", output)
+        self.assertIn("gRPC", output)
+
     def test_message_written_to_stderr_not_stdout(self):
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
