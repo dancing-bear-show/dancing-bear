@@ -43,7 +43,7 @@ trigger:
                          # workflows/code/foo.yaml). If blank, falls back to diff mode.
     targets: ""          # comma-separated list of paths — snapshotted into one doc for critique
     diff_ref: ""          # if target and targets are both blank: git diff ref, e.g. "main...HEAD"
-                          # or blank for "git diff" (uncommitted changes)
+                          # or blank for "git diff HEAD" (staged + unstaged uncommitted changes)
     critic_focus: ""     # optional: narrow the critique to one dimension
                           # (e.g. "worktree isolation safety", "idempotency on re-run")
     plan_file: "context/target.md"

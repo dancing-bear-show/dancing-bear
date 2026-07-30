@@ -19,11 +19,9 @@ description: >
 
   Stage dependency graph:
 
-    load-criteria
-          |
-    discover-domains
-          |
-    audit-domains × N   (parallel fan-out, one reviewer per domain)
+    load-criteria ─── discover-domains   (parallel, no dependency between them)
+          \                  /
+           audit-domains × N   (parallel fan-out, one reviewer per domain)
           |
     verify-high-stakes-findings × N   (parallel fan-out, second opinion —
           |                            only low-confidence + C2/C8 FAILs)
