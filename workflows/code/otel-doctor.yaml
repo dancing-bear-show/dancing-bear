@@ -74,11 +74,21 @@ stages:
         Compose derives it from the directory name — differs per worktree).
         Failure signal: no row for this repo's directory name, or the row
         exists but Status doesn't start with "Up".
-        Also check for a port collision by attempting:
-          docker compose -f docker-compose.otel.yaml up -d
-        If this errors with "port is already allocated", note which ports
-        docker-compose.otel.yaml currently binds (Read the file) and which
-        container already holds them (docker ps --filter "publish=<port>").
+
+        Diagnose only here — never run `docker compose up` in this stage;
+        starting containers is a side effect that belongs behind the
+        propose-fix human gate, not before it. To detect a port collision
+        without starting anything:
+          docker compose -f docker-compose.otel.yaml config --format json
+        This resolves the actual (env-var-substituted) published host ports
+        for the otel-collector service without touching any container. For
+        each resolved published port, check whether something else already
+        holds it:
+          docker ps --filter "publish=<port>" --format '{{.Names}}\t{{.Ports}}'
+        If a container OTHER than this repo's own otel-collector holds one
+        of the resolved ports, that's the collision — record which port and
+        which container. This is what propose-fix will act on (rebinding
+        this repo's ports), not this stage.
 
       Check 4 — are the OTEL_* env vars set in the CURRENT shell?
         env | grep -E "^OTEL_|^CLAUDE_CODE_ENABLE_TELEMETRY"
