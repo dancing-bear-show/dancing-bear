@@ -1,0 +1,181 @@
+name: critique
+version: "1.0"
+description: >
+  Standalone adversarial critique entry point. Wraps workflows/shared/plan-critic.yaml
+  (the existing validate -> critic -> validate-critique -> consolidate -> human-gate
+  -> revise fragment) with a prepare-target stage so it can be invoked directly
+  against a plan/design doc, a set of named files, or the current uncommitted diff
+  — not only as an include: inside another workflow.
+
+  Use for: reviewing a design document, a workflow YAML before running it, a
+  batch of just-written code/docs before committing, or any artifact that
+  should get an adversarial pass before being acted on.
+
+  Note: pc-revise (from the included fragment) edits {plan_file}, which
+  prepare-target always resolves to a workspace-local snapshot
+  (context/target.md) — never the caller's original file directly, since
+  the fragment expects one flat editable document and multi-target/diff
+  modes have no single file to write back to. In single-target mode, the
+  writeback-target stage below copies any approved revision from the
+  snapshot back to the real {target} path; multi-target and diff modes have
+  no writeback destination and surface revisions as findings only.
+
+  Stage dependency graph:
+
+    prepare-target
+          |
+    pc-validate -> pc-critic -> pc-validate-critique -> pc-consolidate
+          |
+    pc-human-gate
+          |
+    pc-revise
+          |
+    writeback-target  (single-target mode only; no-op otherwise)
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    target: ""          # path to a single doc to critique (e.g. .llm/DESIGN_CRITERIA.md,
+                         # workflows/code/foo.yaml). If blank, falls back to diff mode.
+    targets: ""          # comma-separated list of paths — snapshotted into one doc for critique
+    diff_ref: ""          # if target and targets are both blank: git diff ref, e.g. "main...HEAD"
+                          # or blank for "git diff" (uncommitted changes)
+    critic_focus: ""     # optional: narrow the critique to one dimension
+                          # (e.g. "worktree isolation safety", "idempotency on re-run")
+    plan_file: "context/target.md"
+                          # consumed by the included plan-critic fragment (workspace-relative).
+                          # prepare-target always writes here — do not override.
+
+workspace_dir: "{work_dir}/critique"
+
+stages:
+
+  # ===========================================================================
+  # G0: Prepare target — resolve what's being critiqued into a single doc
+  # ===========================================================================
+
+  - name: prepare-target
+    kind: gather
+    depends_on: []
+    description: >
+      Resolve the critique target into one file the plan-critic fragment can
+      read, so the same fragment works whether the caller named a single doc,
+      several files, or wants the current diff reviewed.
+
+      Precedence:
+        1. {target} is set — a single existing file path.
+           Copy/read it as-is; write {workspace}/context/target.md as:
+             # Critique Target: {target}
+             (full file content, verbatim, in a fenced code block matching
+             its extension)
+
+        2. {targets} is set — comma-separated file paths.
+           Read each in full. Write {workspace}/context/target.md with one
+           "## " heading per file (the file's own path as the heading text),
+           each followed by a fenced content block, concatenated in the
+           order given in {targets}.
+
+        3. Neither set — diff mode.
+           If {diff_ref} is non-empty: git diff {diff_ref}
+           Otherwise: git diff (uncommitted changes, staged + unstaged:
+             git diff HEAD)
+           If the diff is empty, write {workspace}/context/target.md noting
+           "No target specified and no diff found — nothing to critique" and
+           stop here (do not proceed to pc-validate with an empty target;
+           later stages should treat this as required:false-equivalent by
+           writing trivial pass-through outputs — see note in pc-validate
+           inputs, this is handled by the fragment reading an explicit
+           'nothing to critique' sentinel and short-circuiting with a clean
+           status rather than fabricating findings).
+           Otherwise write {workspace}/context/target.md:
+             # Critique Target: diff ({diff_ref or "uncommitted"})
+             (the full diff output, fenced as ```diff)
+
+      Write {workspace}/context/target-meta.json:
+        {
+          "mode": "single|multi|diff",
+          "target": "{target}",
+          "targets": ["..."],
+          "diff_ref": "{diff_ref}",
+          "empty": true|false
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-only
+    required: true
+    writes_to:
+      - context/target.md
+      - context/target-meta.json
+
+  # ===========================================================================
+  # G_final: Write back approved revisions — single-target mode only.
+  # pc-revise (from the included fragment) only ever edits the workspace
+  # snapshot at {plan_file} (context/target.md), never the caller's real
+  # file. This stage closes that gap for the one mode where a real
+  # destination file exists.
+  # ===========================================================================
+
+  - name: writeback-target
+    kind: publish
+    depends_on: [pc-revise]
+    reads_from: [pc-revise, prepare-target]
+    description: >
+      Read {workspace}/context/target-meta.json.
+
+      If mode != "single", or "empty" is true: write
+      {workspace}/outputs/writeback-result.md noting
+      "No writeback — mode is <mode> (only single-target mode has a real
+      file to write back to). Revisions, if any, are visible only in
+      plan-critic-summary.md and the workspace snapshot." Exit 0.
+
+      If mode == "single": read {workspace}/validation/human-decision.json
+      (from pc-human-gate) and {workspace}/validation/revisions-applied.md
+      (from pc-revise).
+
+      If decision was "skip", or revisions-applied.md indicates no
+      revisions were applied: write
+      {workspace}/outputs/writeback-result.md noting "No revisions applied —
+      original file at {target} left unchanged." Exit 0.
+
+      Otherwise: read {workspace}/context/target.md, strip the leading
+      "# Critique Target: {target}" heading line and the surrounding fenced
+      code block markers (the wrapper prepare-target added — the caller's
+      real file has no such heading), and write the remaining content back
+      to {target} verbatim, overwriting it in place.
+
+      Write {workspace}/outputs/writeback-result.md:
+        "Revisions written back to {target}. See revisions-applied.md for
+        what changed."
+
+      If stripping the wrapper is ambiguous (e.g. the original file's own
+      content happens to start with a line matching the wrapper heading
+      pattern), do NOT guess — write
+      {workspace}/outputs/writeback-result.md noting the ambiguity and leave
+      {target} unchanged, pointing the user at
+      {workspace}/context/target.md to copy manually.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Edit]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/writeback-result.md
+
+include:
+  # plan-critic.yaml's stages reference {plan_file} and {critic_focus} as
+  # plain trigger-param placeholders — fragments share the parent's param
+  # namespace (include.params is parsed but not yet wired to substitution,
+  # per src/workflow/models.py IncludeSpec.params: "reserved for future
+  # use"), so both must be declared in THIS workflow's trigger.params above,
+  # not passed here.
+  - path: workflows/shared/plan-critic.yaml
+    prefix: pc
+    depends_on: [prepare-target]
+    reads_from: [prepare-target]

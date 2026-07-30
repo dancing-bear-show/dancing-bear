@@ -1,0 +1,776 @@
+name: design-criteria-normalize
+version: "1.0"
+description: >
+  Apply pass for design-criteria-audit findings. Takes the approved
+  {audit_workspace}/analysis/findings.json produced by design-criteria-audit
+  and, for each in-scope domain, normalizes objects toward
+  .llm/DESIGN_CRITERIA.md: dataclasses over dicts (C1), SafeProcessor/
+  BaseProducer pipeline shape (C2), provider abstraction (C3), composition
+  over inheritance (C4), error hierarchy (C5), output formatting (C6), core
+  reuse (C7), naming consistency (C10) — then adds the happy/sad-path tests
+  required by C8 and the fixture abstraction required by C9, verifies with
+  qlty + the full test suite, and gates on human review before commit.
+
+  Must be run AFTER design-criteria-audit has completed and a human has
+  approved proceeding (human-gate decision == "A" in that workflow's run).
+  This workflow does not re-derive findings — it consumes them as input.
+
+  Also updates documentation so the normalization sticks: per-domain
+  README/AGENTS files (creating them where a touched domain has none —
+  telemetry, worker, metals, apple_music, charts, diagrams, workflow
+  currently lack one), .llm/PATTERNS.md and .llm/PIPELINE_MIGRATION.md
+  (marking newly-migrated domains complete), and proposes new entries to
+  the concerns/*.md review-guide library (reusing the same propose/human-
+  gate/append mechanism as update-review-concerns.yaml) for any genuinely
+  new anti-pattern the audit surfaced that isn't covered yet. Concern
+  entries are proposed, never auto-appended without approval.
+
+  Never touches bin/* public entry points, CLI flag names, or subcommand
+  names (CLAUDE.md backwards-compatibility rule). Normalizes internals only.
+
+  Stage dependency graph:
+
+    load-findings
+          |
+    plan-normalization  [human gate]
+          |
+    normalize-domains × N   (parallel fan-out per domain, code-writer)
+          |
+    add-tests-domains × N   (parallel fan-out per domain, tester)
+          |
+    update-docs ─── propose-concerns   (parallel)
+          \              /
+           concerns-human-gate
+                 |
+           update-concerns
+                 |
+            verify-suite
+                 |
+          apply-corrections (optional)
+                 |
+              recheck
+                 |
+             human-gate
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    audit_workspace: ""     # required — path to a completed design-criteria-audit workspace
+    domains: "*"             # comma-list to restrict scope, or "*" for all in findings.json
+    criteria: "*"             # comma-list of criterion IDs to apply (e.g. "C1,C2,C8"), or "*"
+
+workspace_dir: "{work_dir}/design-criteria-normalize-{domains}"
+
+stages:
+
+  # ===========================================================================
+  # G0: Load findings — read the approved audit output, no re-scanning
+  # ===========================================================================
+
+  - name: load-findings
+    kind: gather
+    depends_on: []
+    description: >
+      Require {audit_workspace} to be set. If empty, fail with:
+        "audit_workspace param required — run design-criteria-audit first
+        and pass its workspace path."
+
+      Read {audit_workspace}/analysis/findings.json and
+      {audit_workspace}/validation/human-gate-decision.md.
+
+      If human-gate-decision.md does not indicate approval to proceed
+      (decision A), stop and report: "Audit was not approved for apply —
+      re-run design-criteria-audit's human gate first."
+
+      Filter findings.json "domains" to:
+        - domains in {domains} (or all, if "*")
+        - only FAIL/PARTIAL entries for criteria in {criteria} (or all C1-C10)
+
+      Write {workspace}/context/scoped-findings.json:
+        {
+          "domains": [
+            {
+              "domain": "telemetry",
+              "path": "src/telemetry/",
+              "test_dir": "tests/telemetry_tests/",
+              "gaps": [
+                { "id": "C2", "detail": "...", "citations": ["src/telemetry/cli.py:112"] },
+                ...
+              ]
+            }
+          ]
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - context/scoped-findings.json
+
+  # ===========================================================================
+  # G1: Plan normalization — per-domain change plan, human-approved before writes
+  # ===========================================================================
+
+  - name: plan-normalization
+    kind: propose
+    depends_on: [load-findings]
+    reads_from: [load-findings]
+    description: >
+      Read {workspace}/context/scoped-findings.json. For each domain, turn
+      its gap list into a concrete, file-scoped change plan.
+
+      For each gap, decide the minimal normalizing change:
+        C1 (dataclasses) — name the new/converted dataclass, its fields, and
+          every call site that must switch from dict access to attribute
+          access.
+        C2 (pipeline shape) — name the Request/Result dataclasses, the
+          SafeProcessor/BaseProducer subclass names (follow C10 naming:
+          <Verb><Noun>Processor/Producer), and which existing try/except +
+          print() block they replace.
+        C3 (provider abstraction) — only if the domain has multiple
+          backends; name the ABC/Protocol method being introduced or the
+          isinstance branch being replaced with a capability gate.
+        C4 (composition) — name the stateless class being converted to a
+          function, or the mixin being extracted.
+        C5 (error hierarching) — name the CLIError subclass replacing a bare
+          raise.
+        C6 (output) — name the print() call sites being routed through
+          OutputWriter.
+        C7 (core reuse) — name the specific EXISTING core/ function to
+          import instead of the local reimplementation; confirm it actually
+          exists and has a compatible signature (Read the core/ file before
+          committing to this in the plan). C7 gaps only ever plan the import
+          side (a domain switching to an existing core/ helper) — they never
+          plan writing new code into src/core/ itself.
+        C10 (naming) — rename plan, old name -> new name, all call sites.
+
+      Skip any gap that would require touching a bin/* public entry point,
+      renaming a CLI flag, or renaming a subcommand — flag these as
+      "OUT OF SCOPE (public CLI surface)" instead of planning a change.
+
+      Skip any gap whose fix would require adding or modifying a file under
+      src/core/ — flag these as "OUT OF SCOPE (core/ promotion — requires
+      serial follow-up, not safe inside a parallel per-domain fan-out)".
+      normalize-domains and add-tests-domains run domain agents in parallel
+      with no isolation, relying on src/<domain>/ directories being
+      disjoint; src/core/ is shared across every domain, so two parallel
+      agents both promoting a helper there could collide. If a genuine
+      cross-domain duplication is found that warrants promoting a helper to
+      core/, note it in the plan as a recommended follow-up for a separate,
+      non-fan-out run — do not schedule it inside this fan-out.
+
+      Write {workspace}/design/plan.md:
+
+        ## Normalization Plan
+        Domains in scope: N   Gaps planned: N   Gaps skipped (public surface): N
+
+        ### <domain>
+        | Gap | Criterion | Change | Files Touched |
+        |-----|-----------|--------|----------------|
+        ...
+
+      Write {workspace}/design/domain-groups.json:
+        {
+          "items": [
+            {
+              "domain": "telemetry",
+              "path": "src/telemetry/",
+              "test_dir": "tests/telemetry_tests/",
+              "changes": [
+                {
+                  "criterion": "C2",
+                  "description": "Convert cost.py's manual try/except CLI handler to CostRequest/CostProcessor(SafeProcessor)/CostProducer(BaseProducer)",
+                  "files": ["src/telemetry/cost.py", "src/telemetry/cli.py"]
+                }
+              ]
+            }
+          ]
+        }
+        The "items" key at the top level is required — it is the fan_out
+        source for normalize-domains.
+
+      Append a "### Blast Radius" section to {workspace}/design/plan.md
+      before presenting it, so the human approves a known scope rather than
+      an open-ended fan-out:
+
+        ### Blast Radius
+        Domains in scope: N (of M total findable in scoped-findings.json)
+        Total files touched (estimate): N (sum of unique "files" entries
+          across all domains' "changes" arrays)
+        Agent spawns this run: N normalize-domains (one per domain) + N
+          add-tests-domains (one per domain) + 1 update-docs + 1
+          propose-concerns + up to 2 more (opus-review, apply-corrections
+          if triggered) = ~N total agent invocations
+        Largest single domain by file count: <domain> (N files touched)
+        Domains with zero prior SafeProcessor/BaseProducer adoption (highest
+          risk of a large diff per domain, per DESIGN_CRITERIA.md C2):
+          <list, or "none in scope">
+
+        If total domains in scope exceeds 6, recommend (but do not require)
+        splitting into two normalization runs via the {domains} trigger
+        param rather than one large fan-out — note this recommendation in
+        the plan but let the human decide.
+
+      Present the plan, including the Blast Radius section. Ask the user:
+        A) Approve — proceed with normalize-domains fan-out at this scope
+        B) Adjust — specify domains/gaps to exclude, or split into a
+           smaller first run (re-invoke with {domains} narrowed)
+        C) Abort — stop without modifying anything
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - design/plan.md
+      - design/domain-groups.json
+
+  # ===========================================================================
+  # G2: Normalize domains — parallel fan-out, one code-writer per domain
+  # ===========================================================================
+
+  - name: normalize-domains
+    kind: execute
+    depends_on: [plan-normalization]
+    reads_from: [plan-normalization]
+    description: >
+      Fan out: spawn one code-writer agent per domain in
+      {workspace}/design/domain-groups.json. All domain agents run in
+      parallel. No worktree isolation — each agent's file scope is
+      restricted to its own src/{domain}/ directory (and that domain's test
+      directory in add-tests-domains next), which are disjoint across
+      domains, so parallel agents cannot collide on the same files. This
+      matches decompose-sweep.yaml's domain fan-out, which uses the same
+      disjoint-directory argument instead of worktree isolation.
+
+      For the assigned {domain}, apply every change listed in this domain's
+      "changes" array from domain-groups.json:
+
+        - Read the target file(s) in full before editing.
+        - Apply the change exactly as scoped in the plan — do not expand
+          scope to unlisted files or unlisted gaps.
+        - Preserve every existing public function/class name unless the
+          plan explicitly lists a rename (C10 gaps only).
+        - After each SafeProcessor/BaseProducer conversion (C2), re-run a
+          quick smoke check: python3 -c "import <module_path>" 2>&1.
+        - Follow core/pipeline.py's SafeProcessor/BaseProducer template
+          exactly as documented in .llm/PATTERNS.md "SafeProcessor Pattern".
+        - Do not touch this domain's test files in this stage — tests are
+          handled by add-tests-domains next.
+
+      Write {workspace}/outputs/{domain}-changes.md:
+        ## <domain> Normalization
+        | Gap | Criterion | Change Applied | Files Modified | Import Check |
+        |-----|-----------|-----------------|-----------------|--------------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: plan-normalization
+      field: items
+      key: domain
+      mode: agent
+    outputs:
+      - name: domain_changes
+        mode: generate
+        description: >
+          Per-domain change summary written to
+          {workspace}/outputs/<domain>-changes.md.
+    writes_to:
+      - outputs/{domain}-changes.md
+
+  # ===========================================================================
+  # G3: Add tests — parallel fan-out, one tester per domain (C8 + C9)
+  # ===========================================================================
+
+  - name: add-tests-domains
+    kind: execute
+    depends_on: [normalize-domains]
+    reads_from: [normalize-domains, plan-normalization]
+    description: >
+      Fan out: spawn one tester agent per domain. All domain agents run in
+      parallel. No worktree isolation — same disjoint-directory argument as
+      normalize-domains (each agent's scope is its own domain's test
+      directory only).
+
+      For the assigned {domain}, read {workspace}/outputs/{domain}-changes.md
+      to see what normalize-domains actually changed, then bring test
+      coverage up to C8/C9:
+
+        C9 (fixture abstraction) — first: check for
+          tests/{domain}_tests/fixtures.py (or shared_fixtures.py /
+          helpers.py). If it does not exist and this domain now has 3+ test
+          files, create one modeled on tests/fixtures.py's
+          TempDirMixin/make_mock_envelope/make_mock_processor pattern before
+          writing new tests, so new tests use it instead of inline setup.
+
+        C8 (happy/sad path) — for every SafeProcessor/BaseProducer pair
+          introduced or touched in this domain during normalize-domains:
+          - One happy-path test: consumer -> processor -> producer,
+            asserting on the actual produced output.
+          - One sad-path test per distinct raise site in _process_safe,
+            asserting the correct CLIError subtype / ExitCode surfaces via
+            the ResultEnvelope — not just "an exception happened."
+          - If the domain has multiple providers (Gmail/Outlook), cover
+            both provider paths using existing fakes
+            (FakeGmailClient/FakeOutlookClient) rather than live calls.
+
+      Run the domain's test suite after writing tests:
+        python3 -m unittest discover -s <test_dir> -p "test_*.py" -q 2>&1
+      Fix failures up to 2 cycles. If still failing, document the blocker —
+      do not abort other domains.
+
+      Write {workspace}/outputs/{domain}-tests.md:
+        ## <domain> Test Additions
+        | Processor/Producer | Happy Path Test | Sad Path Tests | Fixture Used |
+        |---------------------|-------------------|-------------------|---------------|
+        Test run: PASS|FAIL (N tests)
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: plan-normalization
+      field: items
+      key: domain
+      mode: agent
+    outputs:
+      - name: domain_tests
+        mode: generate
+        description: >
+          Per-domain test-addition summary written to
+          {workspace}/outputs/<domain>-tests.md.
+    writes_to:
+      - outputs/{domain}-tests.md
+
+  # ===========================================================================
+  # G4a: Update docs — README/AGENTS per touched domain, PATTERNS.md,
+  # PIPELINE_MIGRATION.md. Runs in parallel with propose-concerns.
+  # ===========================================================================
+
+  - name: update-docs
+    kind: execute
+    depends_on: [add-tests-domains]
+    reads_from: [normalize-domains, add-tests-domains]
+    description: >
+      Bring documentation in line with what normalize-domains and
+      add-tests-domains actually changed. Read all
+      {workspace}/outputs/*-changes.md and {workspace}/outputs/*-tests.md
+      first — do not re-derive what changed, use those summaries.
+
+      Step 1 — per-domain README/AGENTS:
+        For each touched domain, check for src/<domain>/README.md.
+        If it exists: add or update a short section noting the pipeline
+        pattern in use (e.g. "Commands route through
+        SafeProcessor/BaseProducer — see core/pipeline.py") and any new
+        public-facing test/fixture convention. Keep it terse — 1-2 sentences
+        per addition, matching this repo's existing README style (see
+        src/mail/README.md or src/schedule/README.md for tone/length).
+        If it does NOT exist (true for telemetry, worker, metals,
+        apple_music, charts, diagrams, workflow as of this writing — verify
+        current state, do not assume): create a minimal README.md following
+        the structure of an existing domain README (purpose, CLI entry
+        point, key modules, pipeline pattern, test directory). Do not invent
+        features — describe only what the code actually does.
+
+      Step 2 — .llm/PATTERNS.md:
+        If any domain gained its first SafeProcessor/BaseProducer usage
+        (check has_safeprocessor was false pre-normalization, per the audit
+        findings), no PATTERNS.md edit is needed — the pattern documentation
+        there is already generic/reusable. Only edit PATTERNS.md if
+        normalize-domains introduced a genuinely new reusable pattern not
+        already documented there (rare — flag for propose-concerns instead
+        of editing PATTERNS.md if unsure).
+
+      Step 3 — .llm/PIPELINE_MIGRATION.md:
+        For each domain that gained SafeProcessor/BaseProducer coverage in
+        this run, add or update its phase entry: mark the newly-migrated
+        commands with [x] and a one-line note "(SafeProcessor migration via
+        design-criteria-normalize, <today's date>)". If the domain has no
+        existing phase section, append a new "## Phase N+1 — <Domain>"
+        section following the existing phase format.
+
+      Write {workspace}/outputs/docs-updated.md:
+        | File | Domain | Change |
+        |------|--------|--------|
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/docs-updated.md
+
+  # ===========================================================================
+  # G4b: Propose concerns — surface genuinely new anti-patterns the audit
+  # found for the concerns/*.md review-guide library. Parallel with update-docs.
+  # Reuses the propose/human-gate/append shape from update-review-concerns.yaml.
+  # ===========================================================================
+
+  - name: propose-concerns
+    kind: execute
+    depends_on: [add-tests-domains]
+    reads_from: [load-findings, normalize-domains]
+    description: >
+      Read {workspace}/context/scoped-findings.json (the audit gaps this run
+      addressed) and every {workspace}/outputs/*-changes.md.
+
+      Read the existing concern library (concerns/patterns.md,
+      concerns/reuse.md, concerns/correctness.md, concerns/tests.md, and any
+      other concerns/*.md present) and extract every existing concern_id
+      (the `### <id>` headings under ## Concerns), the same way
+      update-review-concerns.yaml's fetch-findings stage does.
+
+      For each gap criterion (C1-C10) that was FAIL/PARTIAL for 2+ domains
+      in scoped-findings.json, ask: does an existing concern_id already
+      cover this pattern? If yes, skip — it's covered, no proposal needed.
+      If no, draft a new concern entry in the existing format:
+        ### <kebab-case-id>
+        - **severity**: critical | major | minor
+        - **check**: one sentence describing what to verify
+        - **triggers**: specific code patterns/imports/diff signals
+        - **example**: short before/after snippet drawn from this run's
+          actual citations in scoped-findings.json
+
+      Only propose entries for patterns with real recurrence (2+ domains
+      hit the same gap) — a single-domain one-off finding does not warrant
+      a permanent guide entry.
+
+      Write {workspace}/outputs/proposed-concerns.json (same shape as
+      update-review-concerns.yaml's propose-concerns stage):
+        [
+          {
+            "concern_id": "...",
+            "guide_file": "reuse.md",
+            "severity": "major",
+            "check": "...",
+            "triggers": "...",
+            "example": "...",
+            "rationale": "...",
+            "formatted_entry": "### <id>\n- **severity**: ...\n..."
+          }
+        ]
+      Write {workspace}/outputs/proposed-concerns-summary.md (human-readable,
+      one section per proposal). If no gap recurs in 2+ domains, write [] and
+      a summary noting "no new concerns warranted this run".
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/proposed-concerns.json
+      - outputs/proposed-concerns-summary.md
+
+  # ===========================================================================
+  # G4c: Concerns human gate — approve which proposed entries get written
+  # ===========================================================================
+
+  - name: concerns-human-gate
+    kind: propose
+    depends_on: [propose-concerns]
+    reads_from: [propose-concerns]
+    description: >
+      Present {workspace}/outputs/proposed-concerns-summary.md in full (skip
+      this prompt only if propose-concerns wrote an empty array — note that
+      and continue automatically).
+
+      Ask the user:
+        "The above concerns are proposed for addition to concerns/*.md based
+         on gaps found in this normalization run. Which should be written?
+           - 'all'   — accept all
+           - '1,3'   — accept by number
+           - 'none'  — reject all, guides unchanged"
+
+      Write {workspace}/outputs/approved-concern-ids.json as a JSON array.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - outputs/approved-concern-ids.json
+
+  # ===========================================================================
+  # G4d: Update concerns — append approved entries to concerns/*.md
+  # ===========================================================================
+
+  - name: update-concerns
+    kind: publish
+    depends_on: [concerns-human-gate, update-docs]
+    reads_from: [concerns-human-gate, propose-concerns]
+    description: >
+      Read {workspace}/outputs/approved-concern-ids.json and
+      {workspace}/outputs/proposed-concerns.json. If the approved list is
+      empty, print "No concerns approved — guides unchanged." and exit 0.
+
+      For each approved concern: read the target concerns/<guide>.md file,
+      verify the concern_id is not already present (skip + warn if it is),
+      append the formatted_entry at the end of the ## Concerns section.
+
+      Write {workspace}/outputs/concerns-update-summary.md listing each
+      appended concern_id, guide_file, and severity.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/concerns-update-summary.md
+      - concerns/patterns.md
+      - concerns/reuse.md
+      - concerns/correctness.md
+      - concerns/tests.md
+      - concerns/complexity.md
+      - concerns/docs.md
+      - concerns/security.md
+
+  # ===========================================================================
+  # G5: Verify suite — full test run across all touched domains
+  # ===========================================================================
+
+  - name: verify-suite
+    kind: validate
+    depends_on: [update-concerns]
+    reads_from: [add-tests-domains, update-docs, update-concerns]
+    description: >
+      Read all {workspace}/outputs/*-tests.md to enumerate touched domains.
+
+      Run the full suite to catch cross-domain regressions:
+        python3 -m unittest discover -q 2>&1 | tail -20
+
+      Write {workspace}/validation/test-results.md:
+        | Domain | Test Dir | Tests Added | Status | Notes |
+        |--------|----------|-------------|--------|-------|
+        Full suite: PASS|FAIL
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - python3 -m unittest discover exits 0 (full suite)
+        - Every touched domain shows PASS or a documented blocker
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/test-results.md
+
+  # ===========================================================================
+  # G6: Apply corrections — fix remaining failures (optional)
+  # ===========================================================================
+
+  - name: apply-corrections
+    kind: execute
+    depends_on: [verify-suite]
+    reads_from: [verify-suite]
+    description: >
+      Read {workspace}/validation/test-results.md. If full suite == PASS and
+      no domain shows FAIL: write "no corrections needed" to
+      {workspace}/validation/corrections-applied.md and exit.
+
+      Otherwise, for each FAIL domain: read the failure output and the
+      relevant source/test files, apply the minimal fix, re-run that
+      domain's test command. Up to 2 fix cycles per domain.
+
+      Write {workspace}/validation/corrections-applied.md:
+        | Issue | File | Fix | Result |
+        |-------|------|-----|--------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/corrections-applied.md
+
+  # ===========================================================================
+  # G7: Recheck — final qlty + full suite green-light
+  # ===========================================================================
+
+  - name: recheck
+    kind: validate
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+    description: >
+      Enumerate every file modified across normalize-domains and
+      add-tests-domains (from outputs/*-changes.md and outputs/*-tests.md).
+
+      Run:
+        ~/.qlty/bin/qlty check <space-separated list of modified files>
+        python3 -m unittest discover -q 2>&1
+
+      If qlty reports critical issues: ~/.qlty/bin/qlty check --fix <file>,
+      then re-check.
+
+      Write {workspace}/validation/recheck.json:
+        {
+          "qlty_exit": 0,
+          "qlty_status": "PASS|ISSUES",
+          "test_exit": 0,
+          "test_status": "PASS|FAIL",
+          "ready_for_commit": true|false
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - qlty check exits 0 on all modified files
+        - python3 -m unittest discover exits 0
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/recheck.json
+
+  # ===========================================================================
+  # G8: Opus review — independent adversarial design/quality pass over the
+  # full diff before it reaches the human gate. Escalated model per CLAUDE.md
+  # ("inherit Opus only when generating/reviewing code that will ship").
+  # ===========================================================================
+
+  - name: opus-review
+
+    kind: validate
+    depends_on: [recheck]
+    reads_from: [recheck, plan-normalization, update-docs, update-concerns]
+    description: >
+      Independent review of everything normalize-domains, add-tests-domains,
+      update-docs, and update-concerns changed — a second opinion before the
+      human gate, not a rubber stamp of recheck's mechanical PASS.
+
+      Step 1 — gather the full diff (single working tree — normalize-domains
+      and add-tests-domains use no worktree isolation, so all changes land
+      directly in the current branch's working tree):
+        git diff --stat
+        git diff
+
+      Step 2 — deterministic public-surface gate (run this before the
+      judgment-based review below; do not rely on prose alone for this
+      invariant):
+        git diff --name-only | grep -E '^bin/'
+        If this matches ANY path, set verdict to BLOCK immediately and list
+        every matched path in public_surface_violations — do not proceed to
+        a judgment call on whether the bin/ change is acceptable. Also flag
+        (non-blocking unless combined with a bin/ change) any diff line
+        adding/removing an argparse `add_argument` call or changing a
+        subcommand string literal in a CLI file, since that changes public
+        CLI surface even without touching bin/.
+
+      Step 3 — grade against .llm/DESIGN_CRITERIA.md (C1-C10) directly on
+      the actual diff — do not trust plan-normalization's plan.md or the
+      per-domain outputs/*-changes.md summaries at face value; verify against
+      the real code:
+        - Did every claimed SafeProcessor/BaseProducer conversion actually
+          remove the manual try/except it was supposed to replace?
+        - Do new dataclasses have real field types, not `Any` used to avoid
+          modeling the shape properly?
+        - Are the added tests (outputs/*-tests.md) actually asserting on
+          meaningful output, or just "no exception raised"?
+        - Any new duplication introduced instead of removed (e.g. a "shared"
+          helper written inline in one domain instead of promoted to core/)?
+
+      Step 4 — write {workspace}/validation/opus-review.json:
+        {
+          "verdict": "APPROVE|APPROVE_WITH_NOTES|BLOCK",
+          "blocking_issues": [
+            { "file": "...", "line": N, "issue": "...", "criterion": "C2" }
+          ],
+          "notes": [
+            { "file": "...", "line": N, "note": "..." }
+          ],
+          "public_surface_violations": []
+        }
+
+      A BLOCK verdict or any non-empty public_surface_violations means the
+      human gate must present this review before allowing "commit and open
+      PR" as an option — surface it prominently, do not bury it.
+    agent:
+      role: reviewer
+      model: opus
+      tools: [Read, Bash, Grep]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - No bin/* public entry point, CLI flag, or subcommand name changed
+        - Every SafeProcessor/BaseProducer claim verified against the actual diff
+        - No new duplication introduced in place of removed duplication
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/opus-review.json
+
+  # ===========================================================================
+  # G9: Human gate — present results, ask to commit / open PR
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    human_gate: true
+    depends_on: [opus-review]
+    reads_from: [recheck, opus-review, plan-normalization, apply-corrections, update-docs, update-concerns]
+    description: >
+      Present the full normalization run to the user:
+        {workspace}/design/plan.md                    — approved change plan
+        {workspace}/outputs/*-changes.md               — per-domain changes applied
+        {workspace}/outputs/*-tests.md                 — per-domain tests added
+        {workspace}/outputs/docs-updated.md             — README/AGENTS/PATTERNS.md/PIPELINE_MIGRATION.md changes
+        {workspace}/outputs/concerns-update-summary.md  — concern-library entries added (if any)
+        {workspace}/validation/test-results.md         — suite outcome
+        {workspace}/validation/recheck.json            — final qlty + test status
+        {workspace}/validation/opus-review.json        — independent Opus review verdict
+
+      Surface: domains normalized vs. blocked, gaps skipped as out-of-scope
+      (public CLI surface), test counts added, docs created/updated, concern
+      entries approved, final PASS/FAIL status.
+
+      If opus-review.json verdict is BLOCK or public_surface_violations is
+      non-empty: lead with that. Do not offer "commit and open PR" as the
+      first option — offer "fix blocking issues" first instead.
+
+      If opus-review verdict is BLOCK or public_surface_violations is
+      non-empty, ask the user:
+        A) Fix blocking issues — describe which finding to address first
+        B) Override and commit anyway — requires explicit acknowledgement
+           of each blocking issue by number
+        C) Abandon — revert changes (user runs git checkout manually)
+
+      Otherwise (APPROVE or APPROVE_WITH_NOTES) ask the user:
+        A) Commit and open PR — stage modified files and run /open-pr
+        B) Fix a specific failure — describe which domain needs attention
+        C) Abandon — revert changes (user runs git checkout manually)
+
+      Write {workspace}/validation/human-gate-decision.md with the decision.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md

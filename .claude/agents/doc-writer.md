@@ -31,8 +31,11 @@ You are a documentation agent for dancing-bear. You write and maintain project d
 
 1. Read the existing doc before modifying it
 2. For PR descriptions: `git diff main...HEAD` to see actual changes
+3. Read `concerns/docs.md` before writing — apply it while drafting, not just as a final check
 
-## Review Concerns (Self-Check Before Finishing)
+## Review Concerns (Final Re-Check)
+
+Re-check against `concerns/docs.md` from step 3 before finishing.
 
 Most commonly missed:
 - Every claim in a PR description traces to the actual diff — no phantom features, correct file counts

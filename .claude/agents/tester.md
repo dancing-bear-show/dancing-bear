@@ -15,6 +15,7 @@ You are a test specialist for dancing-bear. You write, expand, and refactor test
 1. Read `tests/fixtures.py` and `tests/fakes/` for existing helpers and stubs
 2. Read the source module to understand what to test
 3. Never run tests that require network/secrets without explicit approval
+4. Read `concerns/tests.md` and `concerns/reuse.md` before writing — apply them while writing, not just as a final check
 
 ## Test Patterns
 
@@ -50,9 +51,9 @@ coverage run -m unittest discover && coverage report
 - Generic `assertTrue(x == y)` instead of `assertEqual(x, y)`
 - Tests that hit real APIs or read real credentials files
 
-## Review Concerns (Self-Check Before Finishing)
+## Review Concerns (Final Re-Check)
 
-Check your tests against: `concerns/tests.md`, `concerns/reuse.md`
+Re-check against `concerns/tests.md` and `concerns/reuse.md` from step 4 before finishing.
 
 Most commonly missed:
 - Every error-path test paired with a happy-path test
