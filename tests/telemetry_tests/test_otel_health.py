@@ -128,12 +128,12 @@ class TestPrintNoInfrastructureMessage(unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("OpenTelemetry infrastructure not found", output)
 
-    def test_message_mentions_collector_start(self):
+    def test_message_mentions_docker_compose_command(self):
         buf = io.StringIO()
         with redirect_stderr(buf):
             _print_no_infrastructure_message(Path("/some/path"))
         output = buf.getvalue()
-        self.assertIn("collector start", output)
+        self.assertIn("docker compose -f docker-compose.otel.yaml up -d", output)
 
     def test_message_written_to_stderr_not_stdout(self):
         stdout_buf = io.StringIO()
