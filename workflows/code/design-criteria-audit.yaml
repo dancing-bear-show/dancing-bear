@@ -1,0 +1,442 @@
+name: design-criteria-audit
+version: "1.0"
+description: >
+  Read-only audit of src/ domain packages against .llm/DESIGN_CRITERIA.md
+  (C1-C10: dataclasses, SafeProcessor/BaseProducer pipeline shape, provider
+  abstraction, composition over inheritance, error hierarchy, output
+  formatting, core reuse, happy/sad-path test coverage, test fixture
+  abstraction, naming consistency).
+
+  Makes no code edits. Produces a per-domain findings report with
+  file:line citations and a prioritized gap list, gated by a human review
+  before any normalize/apply workflow runs against the findings.
+
+  A single reviewer grades each domain — to avoid presenting one agent's
+  read as verified ground truth, low-confidence findings (large domains
+  graded from a partial sample) and the highest-blast-radius criteria
+  (C2 pipeline shape, C8 test coverage) get a second, independent opinion
+  before collation, not a blanket re-grade of every finding.
+
+  Stage dependency graph:
+
+    load-criteria ─── discover-domains   (parallel, no dependency between them)
+          \                  /
+           audit-domains × N   (parallel fan-out, one reviewer per domain)
+          |
+    verify-high-stakes-findings × N   (parallel fan-out, second opinion —
+          |                            only low-confidence + C2/C8 FAILs)
+    collate-findings
+          |
+    human-gate
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    domains: "*"   # comma-list of domains to audit, or "*" for all
+
+workspace_dir: "{work_dir}/design-criteria-audit"
+
+stages:
+
+  # ===========================================================================
+  # G0: Load criteria — read the design standard once, share across fan-out
+  # ===========================================================================
+
+  - name: load-criteria
+    kind: gather
+    depends_on: []
+    description: >
+      Read .llm/DESIGN_CRITERIA.md in full. Extract the ten criteria (C1-C10)
+      into a structured checklist so each domain agent grades against the
+      same fixed rubric.
+
+      Where a criterion states an explicit applicability test or exemption
+      condition (C2 currently has one: check before grading FAIL whether the
+      command actually does I/O/external calls/subprocess/multiple failure
+      modes — a pure in-memory transform does not gain safety from the
+      pipeline wrapper and should not be forced into one), preserve that
+      test verbatim in full, not compressed into the 1-2 sentence summary —
+      domain agents must be able to apply it, not just know the rule exists.
+
+      Write {workspace}/context/criteria.json:
+        {
+          "criteria": [
+            {
+              "id": "C1",
+              "title": "Data modeling: dataclasses over dicts",
+              "summary": "<1-2 sentence rule>",
+              "applicability_test": "<verbatim from DESIGN_CRITERIA.md if present, else omit this field>"
+            },
+            ...
+          ]
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - context/criteria.json
+
+  # ===========================================================================
+  # G1: Discover domains — enumerate src/ packages to audit
+  # ===========================================================================
+
+  - name: discover-domains
+    kind: gather
+    depends_on: []
+    description: >
+      List src/ domain packages to audit:
+        mail calendars schedule resume phone whatsapp desk maker charts
+        diagrams workflow core metals wifi apple_music telemetry worker
+
+      Exclude per CLAUDE.md "Ignore During Scanning": maker (heavy generator
+      output), and any .venv/.cache/.git/_disasm/out/_out/backups paths.
+
+      If {domains} is not "*", restrict to the comma-separated list provided.
+
+      For each included domain, record:
+        - path: src/<domain>/
+        - test_dir: resolved via `ls tests/<domain>_tests/` else
+          `tests/<domain>/` else flat `tests/test_<domain>*.py` (do not guess
+          — check each candidate with ls before recording)
+        - file_count: number of .py files under src/<domain>/
+        - has_safeprocessor: whether any file greps for "SafeProcessor" or
+          "BaseProducer" (rg -l "SafeProcessor|BaseProducer" src/<domain>)
+
+      Write {workspace}/context/domain-groups.json:
+        {
+          "items": [
+            {
+              "domain": "telemetry",
+              "path": "src/telemetry/",
+              "test_dir": "tests/telemetry_tests/",
+              "file_count": 77,
+              "has_safeprocessor": false
+            },
+            ...
+          ]
+        }
+      The "items" key at the top level is required — it is the fan_out
+      source for audit-domains.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - context/domain-groups.json
+
+  # ===========================================================================
+  # G2: Audit domains — parallel fan-out, one reviewer per domain
+  # ===========================================================================
+
+  - name: audit-domains
+    kind: validate
+    depends_on: [load-criteria, discover-domains]
+    reads_from: [load-criteria, discover-domains]
+    description: >
+      Fan out: spawn one reviewer agent per domain listed in
+      {workspace}/context/domain-groups.json. All domain agents run in
+      parallel. Read-only — no file edits.
+
+      For the assigned {domain}, grade src/{domain}/ against every criterion
+      in {workspace}/context/criteria.json (C1-C10). For each criterion:
+
+        - If the criterion has an "applicability_test" field, apply it
+          FIRST, before grading. If a command fails the applicability test
+          (e.g. C2's test: no network/API call, no file/state I/O beyond the
+          immediate invocation, no subprocess, no more than one failure mode
+          worth distinguishing), do not grade it FAIL for that criterion —
+          grade PASS with a one-line rationale ("pure in-memory transform,
+          C2 does not apply"), or PARTIAL if genuinely ambiguous. Do not
+          silently skip the criterion — always record a verdict.
+        - Sample representative files (do not read every file in large
+          domains like telemetry/ — read the largest 5-8 files plus any file
+          matching *cli*.py, *pipeline*.py, *processor*.py).
+        - Grep for pattern evidence: "class ", "@dataclass", "SafeProcessor",
+          "BaseProducer", "ABC", "Protocol", "try:", "except Exception",
+          "print(".
+        - Record PASS / FAIL / PARTIAL with a file:line citation for each
+          FAIL or PARTIAL. A PASS needs no citation.
+        - For C8/C9 (test coverage/abstraction): read the domain's test_dir
+          (from domain-groups.json). Count happy-path vs sad-path test
+          methods per processor/command. Check for a fixtures/helpers module.
+
+      Do not fix anything. Do not create files outside the workspace.
+
+      Record sampling honesty: large domains are graded from a partial file
+      sample (per the "do not read every file" instruction above), so a
+      PASS/FAIL on a 77-file domain sampled at 8 files carries less
+      confidence than the same verdict on a 6-file domain read in full.
+      Report this explicitly rather than presenting both as equally certain.
+
+      Write {workspace}/findings/{domain}.json:
+        {
+          "domain": "telemetry",
+          "files_total": 77,
+          "files_sampled": 8,
+          "criteria": [
+            {
+              "id": "C2",
+              "status": "FAIL",
+              "detail": "0 of 77 files use SafeProcessor/BaseProducer; all CLI commands do manual try/except + print()",
+              "citations": ["src/telemetry/cli.py:112", "src/telemetry/cost.py:44"],
+              "confidence": "high|medium|low"
+              # high: files_sampled/files_total >= 0.5 or files_total <= 10
+              # medium: >= 0.2
+              # low: < 0.2 — a FAIL/PASS here is a directional signal, not
+              #   a verified verdict; collate-findings must flag these for
+              #   re-check before normalize-domains treats them as ground truth
+            },
+            ...
+          ],
+          "summary": "<2-3 sentence overall assessment>"
+        }
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep, Write]
+      access: read-only
+    required: true
+    fan_out:
+      source: discover-domains
+      field: items
+      key: domain
+      mode: agent
+    outputs:
+      - name: domain_findings
+        mode: generate
+        description: >
+          Per-domain findings JSON written to {workspace}/findings/<domain>.json.
+          Contains C1-C10 grades with file:line citations for every FAIL/PARTIAL.
+    writes_to:
+      - findings/{domain}.json
+
+  # ===========================================================================
+  # G2b: Select findings needing a second opinion — low-confidence samples
+  # and the highest-blast-radius criteria (C2, C8) only. Not a full re-grade.
+  # ===========================================================================
+
+  - name: select-verify-worklist
+    kind: gather
+    depends_on: [audit-domains]
+    reads_from: [audit-domains]
+    description: >
+      Read every {workspace}/findings/*.json (one per domain, from
+      audit-domains). Build the worklist of individual (domain, criterion)
+      findings that warrant a second, independent opinion before being
+      treated as ground truth:
+
+        Include a finding if EITHER:
+          - confidence == "low" (partial-sample domain, any criterion), OR
+          - id is "C2" or "C8" AND status is "FAIL" (highest blast-radius
+            criteria per DESIGN_CRITERIA.md — a false FAIL here triggers
+            unnecessary rewrites in normalize-domains; a false PASS lets a
+            real gap through unnoticed).
+
+      Do not include PASS findings with confidence != "low" — those don't
+      need re-verification.
+
+      Write {workspace}/context/verify-worklist.json:
+        {
+          "items": [
+            {
+              "verify_key": "telemetry-C2",
+              "domain": "telemetry",
+              "criterion_id": "C2",
+              "original_status": "FAIL",
+              "original_detail": "0 of 77 files use SafeProcessor/BaseProducer...",
+              "original_citations": ["src/telemetry/cli.py:112"],
+              "reason": "low_confidence|high_blast_radius"
+            }
+          ]
+        }
+        "verify_key" (domain + "-" + criterion_id) must be unique per item —
+        this is the fan_out key. A single domain can have multiple flagged
+        criteria (e.g. telemetry low-confidence on C4 AND FAIL on C2), so
+        "domain" alone is not unique enough to key the fan-out on; using it
+        would collide two items into one agent spawn or produce duplicate
+        agent names. The "items" key at the top level is required — it is
+        the fan_out source for verify-high-stakes-findings. If no findings
+        qualify, write items: [] and downstream verify will be a no-op.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - context/verify-worklist.json
+
+  # ===========================================================================
+  # G2c: Verify high-stakes findings — independent second opinion, one
+  # reviewer per flagged (domain, criterion) pair, running in parallel.
+  # ===========================================================================
+
+  - name: verify-high-stakes-findings
+    kind: validate
+    depends_on: [select-verify-worklist]
+    reads_from: [select-verify-worklist]
+    description: >
+      Fan out: one reviewer agent per item in
+      {workspace}/context/verify-worklist.json, keyed on {verify_key}
+      (domain + criterion_id, unique per item). Read-only, independent of
+      the original audit-domains agent for that domain — do not read the
+      original agent's reasoning, only its cited status/citations, and
+      re-derive the verdict from the source directly.
+
+      For the assigned {verify_key} item (its "domain" and "criterion_id"
+      fields identify what to re-grade):
+        - Read the domain's src/ directory fresh (do not assume the
+          original citations are accurate — re-locate the evidence yourself).
+        - Re-grade this single criterion independently: PASS / FAIL / PARTIAL.
+        - Compare to original_status. If they agree, verdict is "confirmed".
+          If they disagree, verdict is "overturned" and the new status/detail
+          supersedes the original.
+
+      Write {workspace}/findings/verify-{verify_key}.json:
+        {
+          "domain": "telemetry",
+          "criterion_id": "C2",
+          "original_status": "FAIL",
+          "verified_status": "FAIL",
+          "verdict": "confirmed|overturned",
+          "detail": "<re-derived detail, citing fresh evidence>",
+          "citations": ["src/telemetry/cli.py:112"]
+        }
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Grep, Write]
+      access: read-only
+    required: true
+    fan_out:
+      source: select-verify-worklist
+      field: items
+      key: verify_key
+      mode: agent
+    outputs:
+      - name: verified_findings
+        mode: generate
+        description: >
+          Per-finding second-opinion verdict written to
+          {workspace}/findings/verify-<verify_key>.json.
+    writes_to:
+      - findings/verify-{verify_key}.json
+
+  # ===========================================================================
+  # G3: Collate findings — merge, rank, produce a single audit report
+  # ===========================================================================
+
+  - name: collate-findings
+    kind: propose
+    depends_on: [verify-high-stakes-findings]
+    reads_from: [audit-domains, verify-high-stakes-findings]
+    description: >
+      Read every {workspace}/findings/*.json that is not prefixed "verify-"
+      (original per-domain grades) and every
+      {workspace}/findings/verify-*.json (second-opinion verdicts, if any
+      were produced). For any finding with a matching verify-*.json
+      whose verdict is "overturned", replace the original status/detail with
+      the verified one and note the overturn in that finding's entry (do not
+      silently swap it — the human gate should see that a verdict flipped).
+
+      Merge into one prioritized
+      report — do not re-derive findings, only aggregate and rank what the
+      domain agents already produced.
+
+      Ranking (highest priority first):
+        1. C2 FAIL (no SafeProcessor/BaseProducer pipeline) in a domain with
+           external I/O (network/filesystem/subprocess) — highest blast
+           radius for silent failures.
+        2. C8 FAIL (missing sad-path tests) — safety gap.
+        3. C1 FAIL (dict-shaped payloads at module boundaries).
+        4. C7 FAIL (duplicated helper logic vs an existing core/ equivalent)
+           — cite the specific core/ function that should have been reused.
+        5. Everything else (C3-C6, C9, C10), grouped by criterion.
+
+      Write {workspace}/analysis/findings-summary.md:
+
+        ## Design Criteria Audit — Summary
+        Domains audited: N   Total findings: N (Critical: N, Minor: N)
+
+        ### By Domain
+        | Domain | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 | C9 | C10 | Notes |
+        |--------|----|----|----|----|----|----|----|----|----|----|----|
+        | telemetry | PASS | FAIL | n/a | PARTIAL | FAIL | FAIL | PARTIAL | FAIL | FAIL | PASS | 77 files, zero pipeline adoption |
+        ...
+        Mark any cell whose verdict was overturned during verification with
+        a trailing "*" and list overturns in a note below the table:
+        "* C2 for telemetry: audit-domains said PASS, verify-high-stakes-
+        findings overturned to FAIL — see findings/verify-telemetry-C2.json"
+
+        ### Top Priority Gaps
+        | Rank | Domain | Criterion | Finding | Citation | Confidence |
+        |------|--------|-----------|---------|----------|------------|
+        ...
+        Confidence column: "verified" (went through the second-opinion
+        pass), "high"/"medium" (single-reviewer, adequate sample), or "low
+        — unverified" (single-reviewer, partial sample, did not qualify for
+        or was not reached by verify-high-stakes-findings). Sort within a
+        rank tier so "low — unverified" entries surface above equally-severe
+        verified ones, so the human sees what still needs a closer look.
+
+        ### Recommended Normalization Order
+        Ordered list of domains to run through the apply workflow first,
+        with rationale (largest blast-radius / highest file-count gaps first,
+        already-compliant domains last or excluded).
+
+      Write {workspace}/analysis/findings.json (machine-readable, same data
+      as the summary table, for the apply workflow to consume directly):
+        {
+          "domains": [
+            { "domain": "telemetry", "grades": {"C1":"PASS","C2":"FAIL",...}, "findings": [...] }
+          ],
+          "recommended_order": ["telemetry", "worker", "charts", "diagrams", "workflow", "apple_music", "metals"]
+        }
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - analysis/findings-summary.md
+      - analysis/findings.json
+
+  # ===========================================================================
+  # G4: Human gate — present the audit, no changes have been made
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    human_gate: true
+    depends_on: [collate-findings]
+    reads_from: [collate-findings]
+    description: >
+      Present {workspace}/analysis/findings-summary.md in full. Make explicit
+      that this workflow made zero code changes — it is audit-only.
+
+      Ask the user:
+        A) Approve — proceed to the normalize/apply workflow using
+           {workspace}/analysis/findings.json as input, in the recommended
+           order (optionally scoped to specific domains)
+        B) Adjust scope — exclude specific domains/criteria before applying
+        C) Stop here — keep the audit report only, no follow-up apply run
+
+      Write {workspace}/validation/human-gate-decision.md with the decision.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md

@@ -15,6 +15,7 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 1. Read the relevant domain module before modifying it
 2. Check `tests/fakes/` and `tests/fixtures.py` for existing test helpers
 3. Follow patterns established in the module you're editing
+4. Before writing, read the concern guides relevant to the files you're about to touch — not just as an after-the-fact check. `.py` files: `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`. `.yaml`/`.yml` files: `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md`, `concerns/patterns.md`.
 
 ## Implementation Rules
 
@@ -31,11 +32,9 @@ You are a code implementation agent for dancing-bear, a personal-assistant CLI s
 - Run full suite: `make test`
 - Lint changed files: `~/.qlty/bin/qlty check path/to/file.py`
 
-## Review Concerns (Self-Check Before Finishing)
+## Review Concerns (Final Re-Check)
 
-Check your changes against:
-- **Python source**: `concerns/correctness.md`, `concerns/patterns.md`, `concerns/reuse.md`, `concerns/complexity.md`
-- **Workflow YAML**: `concerns/workflow.md`
+Re-check against the same guides you loaded in step 4 before finishing — concerns are meant to shape the code as it's written, not just catch problems after.
 
 Most commonly missed:
 - All public function parameters and return types annotated; `param: str | None = None` not `Optional[str]`
