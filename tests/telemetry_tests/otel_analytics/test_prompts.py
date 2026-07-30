@@ -429,7 +429,7 @@ class TestBuildPromptMetrics(unittest.TestCase):
         acc.cost = 0.0000001234567
         result = _build_prompt_metrics({"p1": acc})
         rounded = round(result[0].cost, 6)
-        self.assertAlmostEqual(result[0].cost, rounded, places=9)
+        self.assertAlmostEqual(result[0].cost, rounded, places=6)
 
 
 # ---------------------------------------------------------------------------

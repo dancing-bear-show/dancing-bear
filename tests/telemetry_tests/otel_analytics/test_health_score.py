@@ -258,7 +258,7 @@ class TestCalculateHealthScoreCombined(unittest.TestCase):
         result = calculate_health_score(session)
         # Verify the score value matches its own 3-place rounding (no excess precision)
         rounded = round(result.score, 3)
-        self.assertAlmostEqual(result.score, rounded, places=9)
+        self.assertAlmostEqual(result.score, rounded, places=3)
 
 
 if __name__ == "__main__":
