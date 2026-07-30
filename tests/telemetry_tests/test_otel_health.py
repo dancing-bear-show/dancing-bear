@@ -145,8 +145,9 @@ class TestPrintNoInfrastructureMessage(unittest.TestCase):
             _print_no_infrastructure_message(Path("/some/path"))
         output = buf.getvalue()
         self.assertIn("OTEL_EXPORTER_OTLP_PROTOCOL=grpc", output)
-        self.assertIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:", output)
+        self.assertIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4327", output)
         self.assertIn("gRPC", output)
+        self.assertNotIn("OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4328", output)
 
     def test_message_written_to_stderr_not_stdout(self):
         stdout_buf = io.StringIO()

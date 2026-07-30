@@ -50,9 +50,11 @@ stages:
       later checks once an earlier one fails, since they're usually
       unreachable/irrelevant until the earlier layer clears.
 
-      File access rules: use the Read tool (not cat/head/tail), Grep tool
-      (not grep/rg in Bash), Glob tool (not find/ls). Reserve the Bash tool
-      for CLI commands only.
+      File access rules: when reading a file's contents, use the Read tool
+      (not cat/head/tail) and the Glob tool (not find/ls) — not applicable
+      to the checks below, which query live system/shell state (Colima,
+      Docker, env vars), not file contents, so pipelines like
+      `env | grep ...` are run via Bash as shown.
 
       Check 1 — is Colima running?
         colima status
