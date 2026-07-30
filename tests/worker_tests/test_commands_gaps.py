@@ -4,37 +4,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import tempfile
-import time
 import threading
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from tests.worker_tests.helpers import QueueRootIsolationMixin, _make_root
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _make_root() -> tuple[tempfile.TemporaryDirectory, Path]:
-    tmp = tempfile.TemporaryDirectory()
-    return tmp, Path(tmp.name) / "queue"
-
-
-class QueueRootIsolationMixin:
-    """Save/restore QUEUE_ROOT around each test."""
-
-    def isolate_queue_root(self):
-        from worker import queue as q
-        self._orig_queue_root = q.QUEUE_ROOT
-        self.addCleanup(self._restore_queue_root)
-
-    def _restore_queue_root(self):
-        from worker import queue as q
-        q.QUEUE_ROOT = self._orig_queue_root
-
 
 def _make_args(**kwargs) -> argparse.Namespace:
     defaults = {
@@ -103,7 +85,7 @@ class TestUndoRetryAttempt(unittest.TestCase, QueueRootIsolationMixin):
         self.isolate_queue_root()
 
     def test_resets_attempts_on_pending_job(self):
-        from worker.queue import Job, enqueue, _ensure_dirs
+        from worker.queue import Job, enqueue
         from worker.commands import _undo_retry_attempt
         from worker import queue as q
         q.QUEUE_ROOT = self.root

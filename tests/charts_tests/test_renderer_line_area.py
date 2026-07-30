@@ -11,19 +11,12 @@ import datetime
 import unittest
 from unittest.mock import MagicMock, patch
 
+from tests.charts_tests.conftest_helpers import _fake_ax, _make_series
+
 
 # ---------------------------------------------------------------------------
 # Shared factories
 # ---------------------------------------------------------------------------
-
-def _make_series(name: str, x_values, y_values=None, *, x_field="ts",
-                 color=None, label=None, y_axis="left"):
-    from charts.types.base import SeriesSpec
-    if y_values is None:
-        y_values = [float(i + 1) for i in range(len(x_values))]
-    data = [{x_field: x, "value": v} for x, v in zip(x_values, y_values)]
-    return SeriesSpec(name=name, data=data, color=color, label=label, y_axis=y_axis)
-
 
 def _make_line_spec(series, *, smooth=False, shade_weekends=False,
                     show_legend=True, x_label=None, y_label=None,
@@ -73,15 +66,6 @@ def _make_dual_spec(series, *, left_names=None, right_names=None,
     if y_right_label is not None:
         kwargs["y_right_label"] = y_right_label
     return DualAxisChartSpec(**kwargs)
-
-
-def _fake_ax():
-    ax = MagicMock()
-    ax.spines = {"top": MagicMock(), "bottom": MagicMock(),
-                 "left": MagicMock(), "right": MagicMock()}
-    ax.get_legend_handles_labels.return_value = ([], [])
-    ax.get_xticklabels.return_value = []
-    return ax
 
 
 def _fake_fig():

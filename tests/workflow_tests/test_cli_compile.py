@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import io
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+from tests.workflow_tests.helpers.factories import make_cli_args as _make_args
+from tests.workflow_tests.helpers.factories import write_yaml as _write_yaml
 from workflow.cli_compile import (
     _build_compile_payload,
     _cmd_compile,
@@ -60,25 +61,6 @@ stages:
 """
 
 
-def _write_yaml(tmp_dir: str, content: str, name: str = "wf.yaml") -> Path:
-    p = Path(tmp_dir) / name
-    p.write_text(content, encoding="utf-8")
-    return p
-
-
-def _make_args(**kwargs) -> MagicMock:
-    defaults = {
-        "format": "json",
-        "no_cache": True,
-        "params": [],
-    }
-    defaults.update(kwargs)
-    args = MagicMock()
-    for k, v in defaults.items():
-        setattr(args, k, v)
-    return args
-
-
 # ---------------------------------------------------------------------------
 # _fragment_bytes
 # ---------------------------------------------------------------------------
@@ -103,7 +85,7 @@ class TestFragmentBytes(unittest.TestCase):
             tmp_path = Path(tmp_dir)
             frag = tmp_path / "frag.yaml"
             frag.write_text(fragment_content, encoding="utf-8")
-            yaml_with_include = f"""\
+            yaml_with_include = """\
 name: wf
 version: "0.1"
 description: "test"
@@ -435,7 +417,7 @@ class TestCmdCompile(unittest.TestCase):
             args = _make_args(path=path, format="json", no_cache=True)
             written_paths = []
 
-            original_write_once = __import__(
+            __import__(
                 "workflow.cli_compile", fromlist=["_write_once"]
             )._write_once
 

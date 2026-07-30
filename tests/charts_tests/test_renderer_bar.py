@@ -9,21 +9,14 @@ from __future__ import annotations
 
 import datetime
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
+from tests.charts_tests.conftest_helpers import _fake_ax, _make_series
 
 
 # ---------------------------------------------------------------------------
 # Shared factories
 # ---------------------------------------------------------------------------
-
-def _make_series(name: str, x_values, y_values=None, *, x_field="ts",
-                 color=None, label=None):
-    from charts.types.base import SeriesSpec
-    if y_values is None:
-        y_values = [float(i + 1) for i in range(len(x_values))]
-    data = [{x_field: x, "value": v} for x, v in zip(x_values, y_values)]
-    return SeriesSpec(name=name, data=data, color=color, label=label)
-
 
 def _make_bar_spec(series, *, stacked=False, orientation="vertical",
                    bar_width=0.8, date_format=None, x_field="ts"):
@@ -39,13 +32,6 @@ def _make_bar_spec(series, *, stacked=False, orientation="vertical",
     if date_format is not None:
         kwargs["date_format"] = date_format
     return BarChartSpec(**kwargs)
-
-
-def _fake_ax():
-    ax = MagicMock()
-    ax.spines = {"top": MagicMock(), "bottom": MagicMock(),
-                 "left": MagicMock(), "right": MagicMock()}
-    return ax
 
 
 def _dark_theme():
@@ -277,8 +263,8 @@ class TestRenderBar(unittest.TestCase):
         ax.set_xticklabels.assert_called_once()
         call_args = ax.set_xticklabels.call_args
         labels_used = call_args[0][0]
-        # Both labels should be date-formatted strings (non-empty)
-        self.assertTrue(all(isinstance(lbl, str) and len(lbl) > 0 for lbl in labels_used))
+        # Both labels should be date-formatted strings matching the exact format
+        self.assertEqual(labels_used, ["Jan 01", "Jan 02"])
 
     def test_string_x_values_use_x_key_as_labels(self):
         from charts.renderer_bar import _render_bar

@@ -5,13 +5,12 @@ import io
 import json
 import os
 import signal
-import sys
 import tempfile
 import unittest
 from http.server import BaseHTTPRequestHandler
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 
 import telemetry.otel.collector as collector
 from telemetry.otel.collector import (
@@ -26,7 +25,6 @@ from telemetry.otel.collector import (
     cmd_stop,
     DEFAULT_DATA_DIR,
     DEFAULT_PORT,
-    PID_FILE,
 )
 
 
@@ -75,14 +73,14 @@ class TestAppendJsonl(unittest.TestCase):
 
 class TestLockFor(unittest.TestCase):
     def test_same_path_returns_same_lock(self) -> None:
-        path = Path("/tmp/test-lock-path.jsonl")
+        path = Path("test-lock-path.jsonl")
         lock1 = _lock_for(path)
         lock2 = _lock_for(path)
         self.assertIs(lock1, lock2)
 
     def test_different_paths_different_locks(self) -> None:
-        path_a = Path("/tmp/test-lock-a.jsonl")
-        path_b = Path("/tmp/test-lock-b.jsonl")
+        path_a = Path("test-lock-a.jsonl")
+        path_b = Path("test-lock-b.jsonl")
         self.assertIsNot(_lock_for(path_a), _lock_for(path_b))
 
 
@@ -353,7 +351,7 @@ class TestCmdStart(unittest.TestCase):
         """On a platform without os.fork, cmd_start should raise SystemExit(1)."""
         with patch.object(os, "fork", None, create=True):
             # Temporarily remove fork to simulate non-Unix
-            original_fork = getattr(os, "fork", None)
+            getattr(os, "fork", None)
             try:
                 if hasattr(os, "fork"):
                     with patch("os.fork", side_effect=AttributeError("no fork")):

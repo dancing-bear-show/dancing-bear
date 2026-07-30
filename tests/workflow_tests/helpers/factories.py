@@ -13,6 +13,9 @@ Usage:
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import MagicMock
+
 from workflow.models import (
     AgentAccess,
     AgentSpec,
@@ -150,3 +153,39 @@ def make_workflow_manifest(**overrides: object) -> WorkflowManifest:
     }
     defaults.update(overrides)
     return WorkflowManifest(**defaults)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# CLI test factories
+# ---------------------------------------------------------------------------
+
+
+def write_yaml(tmp_dir: str, content: str, name: str = "wf.yaml") -> Path:
+    """Write YAML content to a temp file and return its path."""
+    path = Path(tmp_dir) / name
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def make_cli_args(**kwargs: object) -> MagicMock:
+    """Create a namespace-like args mock with sensible defaults.
+
+    Superset of the CLI arg defaults needed by both cli_compile and
+    cli_dispatch tests; pass overrides to adjust individual fields.
+    """
+    defaults: dict[str, object] = {
+        "format": "json",
+        "params": [],
+        "workspace": None,
+        "run_id": None,
+        "execute": False,
+        "strict": False,
+        "check_commands": False,
+        "no_cache": True,
+        "base_dir": "",
+    }
+    defaults.update(kwargs)
+    args = MagicMock()
+    for k, v in defaults.items():
+        setattr(args, k, v)
+    return args

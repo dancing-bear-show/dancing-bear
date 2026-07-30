@@ -10,27 +10,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-
-# ---------------------------------------------------------------------------
-# Helpers shared across tests
-# ---------------------------------------------------------------------------
-
-def _make_root() -> tuple[tempfile.TemporaryDirectory, Path]:
-    tmp = tempfile.TemporaryDirectory()
-    return tmp, Path(tmp.name) / "queue"
-
-
-class QueueRootIsolationMixin:
-    """Save/restore QUEUE_ROOT around each test."""
-
-    def isolate_queue_root(self):
-        from worker import queue as q
-        self._orig_queue_root = q.QUEUE_ROOT
-        self.addCleanup(self._restore_queue_root)
-
-    def _restore_queue_root(self):
-        from worker import queue as q
-        q.QUEUE_ROOT = self._orig_queue_root
+from tests.worker_tests.helpers import QueueRootIsolationMixin, _make_root
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +542,7 @@ class TestStatus(unittest.TestCase, QueueRootIsolationMixin):
         self.assertGreater(s["next_scheduled_in_sec"], 0)
 
     def test_status_oldest_pending_wait_populated(self):
-        from worker.queue import Job, enqueue, _ensure_dirs, status
+        from worker.queue import _ensure_dirs, status
         _ensure_dirs(self.root)
         # Write a job with a past not_before to force wait > 0
         p = self.root / "pending" / "past_job.json"

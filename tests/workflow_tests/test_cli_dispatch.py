@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import io
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from tests.workflow_tests.helpers.factories import (
+    make_cli_args as _make_args,
     make_stage_result,
     make_stage_spec,
     make_workflow_definition,
     make_workflow_manifest,
+    write_yaml,
 )
 from workflow.cli_dispatch import (
     _build_plan_json,
@@ -60,30 +61,8 @@ stages:
 
 
 def _write_yaml(tmp_dir: str, content: str, name: str = "wf.yaml") -> str:
-    """Write YAML content to a temp file and return its path."""
-    path = Path(tmp_dir) / name
-    path.write_text(content, encoding="utf-8")
-    return str(path)
-
-
-def _make_args(**kwargs: object) -> MagicMock:
-    """Create a namespace-like args mock with sensible defaults."""
-    defaults: dict = {
-        "format": "json",
-        "params": [],
-        "workspace": None,
-        "run_id": None,
-        "execute": False,
-        "strict": False,
-        "check_commands": False,
-        "no_cache": True,
-        "base_dir": "",
-    }
-    defaults.update(kwargs)
-    args = MagicMock()
-    for k, v in defaults.items():
-        setattr(args, k, v)
-    return args
+    """Write YAML content to a temp file and return its path as a string."""
+    return str(write_yaml(tmp_dir, content, name))
 
 
 # ---------------------------------------------------------------------------

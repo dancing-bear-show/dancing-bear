@@ -8,20 +8,14 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
+
+from tests.charts_tests.conftest_helpers import _fake_ax, _make_series
 
 
 # ---------------------------------------------------------------------------
 # Shared factories
 # ---------------------------------------------------------------------------
-
-def _make_series(name: str, x_values, y_values=None, *, x_field="ts"):
-    from charts.types.base import SeriesSpec
-    if y_values is None:
-        y_values = [float(i + 1) for i in range(len(x_values))]
-    data = [{x_field: x, "value": v} for x, v in zip(x_values, y_values)]
-    return SeriesSpec(name=name, data=data)
-
 
 def _make_line_spec(series=None, *, x_field="ts"):
     from charts.types.line import LineChartSpec
@@ -49,22 +43,6 @@ def _make_dual_spec(series=None):
     if series is None:
         series = [_make_series("s", ["2024-01-01"], [1.0])]
     return DualAxisChartSpec(title="Test Dual", x_field="ts", series=series)
-
-
-def _fake_ax():
-    ax = MagicMock()
-    ax.spines = {"top": MagicMock(), "bottom": MagicMock(),
-                 "left": MagicMock(), "right": MagicMock()}
-    ax.get_legend_handles_labels.return_value = ([], [])
-    ax.get_xticklabels.return_value = []
-    mock_line = MagicMock()
-    ax.plot.return_value = (mock_line,)
-    ax2 = MagicMock()
-    ax2.spines = {"top": MagicMock(), "bottom": MagicMock(),
-                  "left": MagicMock(), "right": MagicMock()}
-    ax2.plot.return_value = (mock_line,)
-    ax.twinx.return_value = ax2
-    return ax
 
 
 def _matplotlib_ctx(ax_override=None):
@@ -214,7 +192,6 @@ class TestDispatch(unittest.TestCase):
     def test_dispatch_unknown_kind_raises(self):
         from charts.renderer import _dispatch
         from charts.theme import get_theme
-        from charts.types.base import ChartSpec
         spec = _make_line_spec()
         # Patch kind to something unsupported
         bad_spec = MagicMock(spec=spec)
@@ -258,13 +235,15 @@ class TestRenderChart(unittest.TestCase):
         from charts.renderer import render_chart
         spec = _make_line_spec()
         mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("pathlib.Path.mkdir"):
-                            with mpl_ctx:
-                                result = render_chart(spec, "/tmp/test_out.png")
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            result = render_chart(spec, "/tmp/test_out.png")
         self.assertIsInstance(result, Path)
         self.assertEqual(result.name, "test_out.png")
 
@@ -272,13 +251,15 @@ class TestRenderChart(unittest.TestCase):
         from charts.renderer import render_chart
         spec = _make_line_spec()
         mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("pathlib.Path.mkdir"):
-                            with mpl_ctx:
-                                result = render_chart(spec, "/tmp/test_out.svg")
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            result = render_chart(spec, "/tmp/test_out.svg")
         self.assertEqual(result.suffix, ".svg")
 
     def test_unsupported_format_raises(self):
@@ -307,16 +288,16 @@ class TestRenderChart(unittest.TestCase):
         from charts.renderer import render_chart
         spec = _make_line_spec()
         mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
-        import sys
         mpl_ctx_patch = mpl_ctx
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("pathlib.Path.mkdir"):
-                            with mpl_ctx_patch:
-                                import matplotlib.pyplot as plt_mod
-                                render_chart(spec, "/tmp/test_dpi.png", dpi=200)
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx_patch,
+        ):
+            render_chart(spec, "/tmp/test_dpi.png", dpi=200)
         # subplots should have been called with the overridden dpi
         # (the mock plt.subplots call is captured via the patch context)
         # Just assert no error and path returned correctly
@@ -326,13 +307,15 @@ class TestRenderChart(unittest.TestCase):
         from charts.renderer import render_chart
         spec = _make_line_spec()
         mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme") as mock_at:
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("pathlib.Path.mkdir"):
-                            with mpl_ctx:
-                                render_chart(spec, "/tmp/test_out.png", theme="light")
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme") as mock_at,
+            patch("charts.renderer._apply_labels"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            render_chart(spec, "/tmp/test_out.png", theme="light")
         called_theme = mock_at.call_args[0][2]
         self.assertEqual(called_theme.name, "light")
 
@@ -340,13 +323,15 @@ class TestRenderChart(unittest.TestCase):
         from charts.renderer import render_chart
         spec = _make_line_spec()
         mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("pathlib.Path.mkdir"):
-                            with mpl_ctx:
-                                render_chart(spec, "/tmp/test_out.png")
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            render_chart(spec, "/tmp/test_out.png")
         fig.savefig.assert_called_once()
 
 
@@ -407,7 +392,6 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_negative_dpi_raises(self):
         from charts.renderer import render_grid
-        from charts.config import GridConfig, PanelConfig
         grid_cfg = self._make_grid_cfg(dpi=-1)
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
@@ -435,14 +419,16 @@ class TestRenderGrid(unittest.TestCase):
         grid_cfg = self._make_grid_cfg()
         spec = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("charts.renderer._hide_unused_axes"):
-                            with patch("pathlib.Path.mkdir"):
-                                with mpl_ctx:
-                                    result = render_grid(grid_cfg, [spec])
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("charts.renderer._hide_unused_axes"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            result = render_grid(grid_cfg, [spec])
         self.assertIsInstance(result, Path)
 
     def test_savefig_called_with_correct_output(self):
@@ -450,14 +436,16 @@ class TestRenderGrid(unittest.TestCase):
         grid_cfg = self._make_grid_cfg(output="/tmp/my_grid.png")
         spec = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("charts.renderer._hide_unused_axes"):
-                            with patch("pathlib.Path.mkdir"):
-                                with mpl_ctx:
-                                    render_grid(grid_cfg, [spec])
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("charts.renderer._hide_unused_axes"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            render_grid(grid_cfg, [spec])
         fig.savefig.assert_called_once()
         save_args = fig.savefig.call_args[0][0]
         self.assertIn("my_grid.png", save_args)
@@ -467,14 +455,16 @@ class TestRenderGrid(unittest.TestCase):
         grid_cfg = self._make_grid_cfg(title="My Grid")
         spec = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch"):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("charts.renderer._hide_unused_axes"):
-                            with patch("pathlib.Path.mkdir"):
-                                with mpl_ctx:
-                                    render_grid(grid_cfg, [spec])
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch"),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("charts.renderer._hide_unused_axes"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            render_grid(grid_cfg, [spec])
         fig.suptitle.assert_called_once()
         call_kwargs = fig.suptitle.call_args
         title_set = call_kwargs[0][0]
@@ -492,14 +482,16 @@ class TestRenderGrid(unittest.TestCase):
         s2 = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=2)
         dispatch_calls = []
-        with patch("charts.renderer._require_matplotlib"):
-            with patch("charts.renderer._dispatch", side_effect=lambda *a, **kw: dispatch_calls.append(1)):
-                with patch("charts.renderer._apply_theme"):
-                    with patch("charts.renderer._apply_labels"):
-                        with patch("charts.renderer._hide_unused_axes"):
-                            with patch("pathlib.Path.mkdir"):
-                                with mpl_ctx:
-                                    render_grid(grid_cfg, [s1, s2])
+        with (
+            patch("charts.renderer._require_matplotlib"),
+            patch("charts.renderer._dispatch", side_effect=lambda *a, **kw: dispatch_calls.append(1)),
+            patch("charts.renderer._apply_theme"),
+            patch("charts.renderer._apply_labels"),
+            patch("charts.renderer._hide_unused_axes"),
+            patch("pathlib.Path.mkdir"),
+            mpl_ctx,
+        ):
+            render_grid(grid_cfg, [s1, s2])
         self.assertEqual(len(dispatch_calls), 2)
 
 

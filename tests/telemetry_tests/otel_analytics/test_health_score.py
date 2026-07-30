@@ -6,50 +6,11 @@ from telemetry.otel.analytics.health_score import (
     _score_to_grade,
     calculate_health_score,
 )
-from telemetry.otel.cost_models import SessionCost, SessionPerf
 
-
-# ---------------------------------------------------------------------------
-# Fixture helpers
-# ---------------------------------------------------------------------------
-
-def _make_session_cost(
-    session_id: str = "sess-1",
-    cost: float = 0.01,
-    api_calls: int = 5,
-    input_tokens: int = 1000,
-    output_tokens: int = 500,
-    perf: SessionPerf | None = None,
-) -> SessionCost:
-    return SessionCost(
-        session_id=session_id,
-        api_calls=api_calls,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_creation_tokens=0,
-        cache_read_tokens=0,
-        cost=cost,
-        efficiency_ratio=0.5,
-        perf=perf,
-    )
-
-
-def _make_perf(
-    error_rate: float = 0.0,
-    tool_failure_rate: float = 0.0,
-    avg_api_latency_ms: float = 0.0,
-    error_count: int = 0,
-    tool_calls: int = 0,
-    tool_failures: int = 0,
-) -> SessionPerf:
-    return SessionPerf(
-        error_count=error_count,
-        error_rate=error_rate,
-        tool_calls=tool_calls,
-        tool_failures=tool_failures,
-        tool_failure_rate=tool_failure_rate,
-        avg_api_latency_ms=avg_api_latency_ms,
-    )
+from tests.telemetry_tests.otel_analytics._shared_helpers import (
+    _make_perf,
+    _make_session_cost,
+)
 
 
 # ---------------------------------------------------------------------------

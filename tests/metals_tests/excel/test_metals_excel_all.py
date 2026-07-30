@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -144,6 +145,7 @@ class TestMainExcelAll(unittest.TestCase):
     def _make_csv(self, rows):
         """Helper: write rows to a temp CSV and return its path."""
         f = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+        self.addCleanup(os.unlink, f.name)
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)

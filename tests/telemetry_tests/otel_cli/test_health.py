@@ -7,7 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli.health import (
     DATA_FILES,
@@ -130,9 +130,6 @@ class TestHealthMain(unittest.TestCase):
         data = json.loads(buf.getvalue())
         self.assertEqual(data["status"], "healthy")
 
-
-# Needed for test_infra_not_ok_returns_1
-from unittest.mock import MagicMock  # noqa: E402
 
 if __name__ == "__main__":
     unittest.main()

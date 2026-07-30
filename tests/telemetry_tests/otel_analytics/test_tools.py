@@ -1,7 +1,7 @@
 """Tests for telemetry/otel/analytics/tools.py."""
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest import mock
 
 from telemetry.otel.analytics.tools import (
@@ -13,14 +13,12 @@ from telemetry.otel.analytics.tools import (
 from telemetry.otel.cost_models import ToolErrorSummary
 from telemetry.otel.models import OTLPAttribute, OTLPEvent, OTLPEventsRecord, OTLPResource, OTLPValue
 
+from tests.telemetry_tests.otel_analytics._shared_helpers import _utc
+
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
-
-def _utc(year: int, month: int, day: int, hour: int = 0) -> datetime:
-    return datetime(year, month, day, hour, tzinfo=timezone.utc)
-
 
 def _nano(dt: datetime) -> int:
     return int(dt.timestamp() * 1_000_000_000)

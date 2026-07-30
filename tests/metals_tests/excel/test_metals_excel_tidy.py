@@ -295,7 +295,9 @@ class TestTidyProfitCharts(unittest.TestCase):
 
         # Should not raise even though there's only 1 chart for 3 config entries
         _tidy_profit_charts(_make_wb(), "Profit")
-        self.assertTrue(True)
+        # The 1 available chart should still get its title/axis/data calls
+        self.assertGreater(mock_patch.call_count, 0)
+        self.assertGreater(mock_post.call_count, 0)
 
     @patch("requests.post")
     @patch("requests.patch")
@@ -349,7 +351,13 @@ class TestTidyProfitCharts(unittest.TestCase):
 
         # Should not propagate the exception
         _tidy_profit_charts(_make_wb(), "Profit")
-        self.assertTrue(True)  # Reached without exception
+        # _set_chart_title raises on every call, so the try block breaks before
+        # reaching _set_axis_titles/_set_chart_data for each of the 3 charts;
+        # the exception is swallowed each iteration, so title is attempted 3x
+        # and axes/data are never reached.
+        self.assertEqual(mock_set_title.call_count, 3)
+        mock_set_axes.assert_not_called()
+        mock_set_data.assert_not_called()
 
 
 class TestMainExcelTidy(unittest.TestCase):

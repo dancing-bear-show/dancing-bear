@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -184,6 +185,8 @@ class TestMainExcel(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as sf, \
              tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as gf:
+            self.addCleanup(os.unlink, sf.name)
+            self.addCleanup(os.unlink, gf.name)
             from metals.excel import main
             rc = main([
                 "--drive-id", "drive-id",
@@ -233,6 +236,7 @@ class TestMainExcel(unittest.TestCase):
         mock_read_csv.return_value = [["date"], ["2024-01-01"]]
 
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as sf:
+            self.addCleanup(os.unlink, sf.name)
             from metals.excel import main
             rc = main([
                 "--drive-id", "drive-id",

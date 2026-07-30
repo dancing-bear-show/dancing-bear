@@ -1,62 +1,17 @@
 """Tests for telemetry/otel/analytics/compare.py."""
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from unittest import mock
 
-from telemetry.otel.cost_models import CostMetrics, SessionCost, SessionPerf
+from telemetry.otel.cost_models import SessionCost
 
-
-# ---------------------------------------------------------------------------
-# Fixture helpers
-# ---------------------------------------------------------------------------
-
-def _utc(year: int, month: int, day: int, hour: int = 0) -> datetime:
-    return datetime(year, month, day, hour, tzinfo=timezone.utc)
-
-
-def _make_perf(error_count: int = 0) -> SessionPerf:
-    return SessionPerf(error_count=error_count)
-
-
-def _make_session_cost(
-    session_id: str,
-    cost: float = 1.0,
-    input_tokens: int = 1000,
-    output_tokens: int = 500,
-    cache_creation_tokens: int = 0,
-    first_seen: datetime | None = None,
-    last_seen: datetime | None = None,
-    perf: SessionPerf | None = None,
-) -> SessionCost:
-    return SessionCost(
-        session_id=session_id,
-        api_calls=3,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_creation_tokens=cache_creation_tokens,
-        cache_read_tokens=0,
-        cost=cost,
-        efficiency_ratio=0.5,
-        first_seen=first_seen,
-        last_seen=last_seen,
-        perf=perf,
-    )
-
-
-def _make_cost_metrics(sessions: list[SessionCost]) -> CostMetrics:
-    return CostMetrics(
-        total_api_calls=len(sessions),
-        total_input_tokens=0,
-        total_output_tokens=0,
-        total_cache_creation_tokens=0,
-        total_cache_read_tokens=0,
-        total_cost=0.0,
-        total_cache_savings=0.0,
-        efficiency_ratio=0.5,
-        by_session=sessions,
-        by_model=[],
-    )
+from tests.telemetry_tests.otel_analytics._shared_helpers import (
+    _make_cost_metrics,
+    _make_perf,
+    _make_session_cost,
+    _utc,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -4,51 +4,13 @@ import unittest
 from unittest import mock
 
 from telemetry.otel.analytics.anomaly import _detect_from_metrics
-from telemetry.otel.cost_models import AnomalyFlag, CostMetrics, SessionCost, SessionPerf
+from telemetry.otel.cost_models import AnomalyFlag, SessionCost
 
-
-# ---------------------------------------------------------------------------
-# Fixture helpers
-# ---------------------------------------------------------------------------
-
-def _make_perf(avg_api_latency_ms: float = 100.0) -> SessionPerf:
-    return SessionPerf(avg_api_latency_ms=avg_api_latency_ms)
-
-
-def _make_session_cost(
-    session_id: str,
-    cost: float = 0.0,
-    input_tokens: int = 100,
-    output_tokens: int = 50,
-    cache_creation_tokens: int = 0,
-    perf: SessionPerf | None = None,
-) -> SessionCost:
-    return SessionCost(
-        session_id=session_id,
-        api_calls=1,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_creation_tokens=cache_creation_tokens,
-        cache_read_tokens=0,
-        cost=cost,
-        efficiency_ratio=0.5,
-        perf=perf,
-    )
-
-
-def _make_cost_metrics(sessions: list[SessionCost]) -> CostMetrics:
-    return CostMetrics(
-        total_api_calls=len(sessions),
-        total_input_tokens=sum(s.input_tokens for s in sessions),
-        total_output_tokens=sum(s.output_tokens for s in sessions),
-        total_cache_creation_tokens=0,
-        total_cache_read_tokens=0,
-        total_cost=sum(s.cost for s in sessions),
-        total_cache_savings=0.0,
-        efficiency_ratio=0.5,
-        by_session=sessions,
-        by_model=[],
-    )
+from tests.telemetry_tests.otel_analytics._shared_helpers import (
+    _make_cost_metrics,
+    _make_perf,
+    _make_session_cost,
+)
 
 
 # ---------------------------------------------------------------------------

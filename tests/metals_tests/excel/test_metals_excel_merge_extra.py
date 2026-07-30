@@ -1,10 +1,8 @@
 """Additional tests for metals/excel_merge.py covering uncovered lines."""
 from __future__ import annotations
 
-import csv
-import tempfile
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from metals.excel_merge import (
     _copy_item,
@@ -81,18 +79,6 @@ class TestPollCopyMonitor(unittest.TestCase):
         ]
         result = _poll_copy_monitor(_make_client(), "http://monitor/url", "drive-id")
         self.assertEqual(result, ("drive-id", "item-from-location"))
-
-    @patch("time.sleep")
-    @patch("requests.get")
-    def test_raises_on_timeout(self, mock_get, mock_sleep):
-        """Verify the timeout path exists in the source code and is exercised via _copy_item."""
-        # The loop runs 60 iterations — we verify the timeout message is in the source.
-        import inspect
-        import metals.excel_merge as em
-        source = inspect.getsource(em._poll_copy_monitor)
-        self.assertIn("Timed out waiting for copy to complete", source)
-        # Happy-path already tested above; timeout reached via exhaustion tested in TestPollCopyMonitorTimeout.
-        self.assertTrue(True)
 
 
 class TestPollCopyMonitorTimeout(unittest.TestCase):
