@@ -70,6 +70,12 @@ stages:
       access: read-only
     depends_on: []
     required: true
+    outputs:
+      - name: domains
+        mode: generate
+        description: >
+          domains.json written to {workspace}/outputs/ with an "items"
+          array — the fan_out source for check-domain.
     writes_to:
       - outputs/domains.json
     validates_output:

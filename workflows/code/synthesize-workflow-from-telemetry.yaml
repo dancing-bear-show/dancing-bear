@@ -1,0 +1,352 @@
+name: synthesize-workflow-from-telemetry
+version: "1.0"
+description: >
+  Mine OTEL session/prompt telemetry for repeated ad-hoc tool/agent
+  sequences that are NOT yet codified as a workflow, and draft a new
+  workflow YAML for the strongest candidate pattern. Complements
+  optimize-workflow-from-telemetry.yaml (which calibrates an existing
+  workflow) — this one proposes a brand-new one.
+
+  Stage dependency graph:
+
+    gather-telemetry                     (G0 — fragment: pull session/tool/prompt stats)
+          |
+      mine-patterns                      (G1 — cluster repeated tool/prompt sequences)
+          |
+      draft-workflow  [human gate]       (G2 — propose ONE new workflow YAML for review)
+          |
+      author-workflow                    (G3 — write the YAML, using workflow-author conventions)
+          |
+      validate-workflow                  (G4 — lint + compile the new YAML)
+          |
+      report                             (G5 — summary)
+
+  Conservative by design: proposes at most one new workflow per run, and
+  only when the same tool/prompt sequence recurs 3+ times across distinct
+  sessions in {telemetry_since} — a single occurrence is a one-off task,
+  not a pattern worth codifying. If no pattern clears that bar, the run
+  stops at mine-patterns with "no pattern found" rather than forcing a
+  proposal.
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    telemetry_since: "30d"   # time window for session/tool/prompt telemetry
+    min_occurrences: "3"     # minimum distinct-session repeat count before proposing a workflow
+    target_workflow: "*"     # otel-workflow-telemetry fragment param; "*" scans all sessions, not one workflow
+
+workspace_dir: "{work_dir}/synthesize-workflow"
+
+stages:
+  # ===========================================================================
+  # G1: Mine patterns — cluster repeated tool/prompt sequences
+  # ===========================================================================
+  - name: mine-patterns
+    kind: gather
+    depends_on: [telem-gather-telemetry]
+    reads_from: [telem-gather-telemetry]
+    description: >
+      Read {workspace}/analysis/session-patterns.json (sessions, tools,
+      prompts). If "no_data" is true or "sessions" is empty, write "no
+      telemetry found in {telemetry_since}" to
+      {workspace}/analysis/patterns.md and stop — do not fabricate patterns.
+
+      Step 1 — extract per-prompt tool sequences:
+        For each entry in "prompts", extract the ordered list of tool names
+        invoked (if the raw telemetry doesn't already expose an ordered
+        sequence, fall back to the unordered tool-name multiset for that
+        prompt — note which was used).
+
+      Step 2 — cluster by similarity:
+        Group prompts whose tool sequences are near-identical (same tools,
+        same rough order, allowing minor variation). A cluster is a
+        candidate pattern.
+
+        For each cluster, compute:
+          - occurrences: count of prompts in the cluster
+          - distinct_sessions: count of distinct session_ids in the cluster
+            (a pattern repeated 5x in one session is a loop, not a
+            recurring ad-hoc task — only distinct_sessions counts toward
+            {min_occurrences})
+          - example_prompts: up to 3 representative prompt texts/summaries
+          - common_tools: the tool sequence shared across the cluster
+          - avg_tool_calls, avg_cost_usd (from the sessions/prompts data)
+
+      Step 3 — filter to candidates:
+        Keep only clusters where distinct_sessions >= {min_occurrences}.
+        Also drop any cluster whose common_tools already matches an
+        existing workflow's stage tool usage (cross-reference against
+        {workspace}/analysis/workflow-runs.json's "known_workflows" list
+        from the telemetry fragment — if a workflow with a similar name/
+        purpose already exists, this is a candidate for
+        optimize-workflow-from-telemetry.yaml instead, not a new workflow).
+
+      Step 4 — rank and write {workspace}/analysis/patterns.md:
+        ## Mined Patterns — {telemetry_since}
+
+        ### Candidate Patterns (>= {min_occurrences} distinct sessions)
+        | Rank | Pattern | Distinct Sessions | Avg Tool Calls | Avg Cost | Common Tools |
+        |------|---------|--------------------|--------------------|----------|--------------|
+
+        ### Below Threshold (need more data)
+        | Pattern | Distinct Sessions | Needed |
+
+        ### Already Covered by Existing Workflows
+        | Pattern | Matches Workflow |
+
+      Also write {workspace}/analysis/patterns.json with the same data in
+      structured form, ranked by distinct_sessions descending — draft-workflow
+      reads this, not the markdown.
+
+      If no candidate clears {min_occurrences}, note that clearly at the
+      top of patterns.md/patterns.json ("no_candidate": true) — the human
+      gate in the next stage will present this as "nothing to propose"
+      rather than forcing a low-confidence draft.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: patterns
+        mode: generate
+        description: >
+          patterns.md and patterns.json written to {workspace}/analysis/
+          with clustered tool/prompt sequences ranked by distinct-session
+          repeat count.
+    writes_to:
+      - analysis/patterns.md
+      - analysis/patterns.json
+
+  # ===========================================================================
+  # G2: Draft workflow — propose ONE new workflow for the top candidate
+  # ===========================================================================
+  - name: draft-workflow
+    kind: propose
+    human_gate: true
+    depends_on: [mine-patterns]
+    reads_from: [mine-patterns]
+    description: >
+      Read {workspace}/analysis/patterns.json. If "no_candidate" is true,
+      report that to the user and stop — nothing to draft.
+
+      Otherwise, take the top-ranked candidate pattern (rank 1 in
+      patterns.md) and draft a workflow proposal:
+
+      Step 1 — derive stages from the pattern's common_tools sequence.
+        Group consecutive tool calls into logical stages (e.g. a run of
+        Read/Grep calls -> one `gather` stage; a run of Edit/Write calls ->
+        one `execute` stage). Use the stage-kind reference:
+          gather   — reading data, querying CLIs, scanning files
+          propose  — drafting a plan for review before acting
+          execute  — writing content, applying changes
+          validate — reviewing, fact-checking, quality gates
+          publish  — external side effects (PR, posting output)
+
+      Step 2 — assign agent roles per stage (researcher/doc-writer/
+      code-writer/reviewer/fact-checker) based on what the example_prompts
+      show the tools were used for.
+
+      Step 3 — decide whether any stage is a worker_queue candidate: if a
+      stage's example prompts show a pure CLI check with no judgment call
+      and it recurred as a fan-out-shaped pattern (same tool sequence
+      applied to N different targets across the clustered prompts), propose
+      fan_out.mode: worker_queue instead of one agent per target — see
+      workflows/demo/worker-queue-fanout.yaml.
+
+      Write {workspace}/design/workflow-proposal.md:
+        ## Proposed New Workflow: <name>
+
+        Motivation: pattern recurred in <distinct_sessions> sessions over
+        {telemetry_since} (avg <avg_tool_calls> tool calls, avg
+        <avg_cost_usd> cost per occurrence).
+
+        ### Stage Plan
+        | Stage | Kind | Agent Role | Purpose |
+        |-------|------|------------|---------|
+
+        ### Example Prompts This Would Have Codified
+        <up to 3 from patterns.json>
+
+        ### Estimated Savings
+        If this pattern's <distinct_sessions> occurrences had instead run
+        as one workflow invocation each: cost/time comparison is
+        qualitative only (ad-hoc session cost isn't directly comparable to
+        a structured workflow run) — state this caveat explicitly, do not
+        fabricate a precise number.
+
+      Ask the user:
+        A) Approve — author the proposed workflow YAML
+        B) Adjust — specify stage/role changes before authoring
+        C) Reject — stop without creating a new workflow file
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: workflow_proposal
+        mode: generate
+        description: >
+          workflow-proposal.md written to {workspace}/design/ with the
+          proposed stage plan, motivation, and example prompts for the
+          top-ranked mined pattern.
+    writes_to:
+      - design/workflow-proposal.md
+
+  # ===========================================================================
+  # G3: Author workflow — write the new YAML
+  # ===========================================================================
+  - name: author-workflow
+    kind: execute
+    depends_on: [draft-workflow]
+    reads_from: [draft-workflow]
+    description: >
+      Read {workspace}/design/workflow-proposal.md and the human's decision
+      from the draft-workflow gate. If rejected, write "not authored — user
+      rejected proposal" to {workspace}/validation/authoring-result.md and
+      skip to the next stage.
+
+      Otherwise, author the new workflow YAML following the conventions in
+      .claude/agents/workflow-author.md:
+        - Every non-validate stage that does agent-written work MUST have
+          an `outputs:` block with `mode: generate` (or it silently does
+          nothing — verify this on every stage before finishing)
+        - `writes_to` declares file paths for dependency tracking; `outputs`
+          drives agent spawning — both are required together
+        - Every `reads_from` entry must be transitively reachable via
+          `depends_on`
+        - No hardcoded absolute paths
+        - Escape `{` and `}` as `{{` and `}}` in any Python snippets
+
+      Choose a filename under workflows/ that matches the pattern's domain
+      (e.g. workflows/code/, workflows/mail/, workflows/shared/ if it's
+      reusable across domains) — do not default to workflows/code/ if the
+      pattern clearly belongs elsewhere.
+
+      Write the new file to workflows/<domain>/<derived-name>.yaml.
+
+      Write {workspace}/validation/authoring-result.md:
+        - Path of the new workflow file (or "not authored" note)
+        - Stage count
+        - Any deviations from the draft-workflow proposal and why
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    outputs:
+      - name: authoring_result
+        mode: generate
+        description: >
+          authoring-result.md written to {workspace}/validation/ noting the
+          new workflow file's path and stage count (or a rejection note).
+    writes_to:
+      - validation/authoring-result.md
+
+  # ===========================================================================
+  # G4: Validate workflow — lint + compile the new YAML
+  # ===========================================================================
+  - name: validate-workflow
+    kind: validate
+    depends_on: [author-workflow]
+    reads_from: [author-workflow]
+    description: >
+      Read {workspace}/validation/authoring-result.md. If it says "not
+      authored", write "nothing to validate" to
+      {workspace}/validation/new-workflow-validation.json and skip the rest.
+
+      Otherwise, validate the newly authored workflow file:
+        ./bin/workflow lint <new workflow path>
+        ./bin/workflow compile <new workflow path>
+
+      Also check for the outputs/dispatcher-routing pitfall specifically —
+      grep for every `kind: gather`, `kind: propose`, `kind: execute`, and
+      `kind: publish` stage and confirm each has an `outputs:` block with
+      `mode: generate` or `mode: template` (or `executor: worker_queue`,
+      which bypasses the check). Flag any stage that would silently no-op.
+
+      If lint fails or the outputs check finds a gap: fix it directly
+      (Edit tool) and re-validate. Do not leave a broken or silently-noop
+      workflow file on disk.
+
+      Write {workspace}/validation/new-workflow-validation.json:
+        {
+          "workflow_path": "...",
+          "lint_valid": true|false,
+          "lint_errors": [],
+          "compile_ok": true|false,
+          "outputs_gap_stages": []
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - workflow lint reports zero errors on the new workflow
+        - workflow compile succeeds
+        - No gather/propose/execute/publish stage is missing outputs (unless executor=worker_queue)
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/new-workflow-validation.json
+
+  # ===========================================================================
+  # G5: Report — summary for the user
+  # ===========================================================================
+  - name: report
+    kind: propose
+    depends_on: [validate-workflow]
+    reads_from: [validate-workflow, author-workflow, draft-workflow, mine-patterns]
+    description: >
+      Read all prior stage outputs and present a final summary:
+
+      ## Workflow Synthesis — {telemetry_since}
+
+      ### Pattern Found
+      <from mine-patterns — the top candidate, or "none found"
+
+      ### Proposal
+      <from draft-workflow>
+
+      ### Authored
+      <path from author-workflow, or "not authored">
+
+      ### Validation
+      lint: PASS|FAIL   compile: PASS|FAIL   outputs gaps: N
+
+      ### Next Steps
+      If authored and valid: recommend a dry run
+      (`./bin/workflow run <path>` without --execute) before the first
+      real invocation.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: final_report
+        mode: generate
+        description: >
+          final-report.md written to {workspace}/validation/ summarizing
+          the mined pattern, proposal, authored file path, and validation
+          result.
+    writes_to:
+      - validation/final-report.md
+
+include:
+  - path: workflows/shared/otel-workflow-telemetry.yaml
+    prefix: telem
+    depends_on: []
+    reads_from: []

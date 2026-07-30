@@ -1,0 +1,353 @@
+name: optimize-workflow-from-telemetry
+version: "1.0"
+description: >
+  Calibrate an existing workflow YAML using its own run history. Reads
+  per-stage cost/duration/failure telemetry across past runs of
+  {target_workflow}, identifies hotspots (expensive stages, high failure/
+  retry rates, stages that never do useful work), proposes data-backed
+  edits, presents them for human approval, then patches and validates the
+  target workflow YAML. Generalizes the improve-decompose-sweep pattern to
+  any workflow instead of one hardcoded target.
+
+  Stage dependency graph:
+
+    gather-telemetry                        (G0 — fragment: pull run/stage stats)
+          |
+      analyze-hotspots                      (G1 — cost/duration/failure stats per stage)
+          |
+      propose-changes  [human gate]         (G2 — data-backed edit proposals)
+          |
+      apply-changes                         (G3 — patch the target workflow YAML)
+          |
+      validate-patch                        (G4 — lint + compile the patched YAML)
+          |
+      report                                (G5 — summary + calibration log entry)
+
+  Never invents thresholds or heuristics without a citation to a specific
+  metric from gather-telemetry's output — every proposed change must name
+  the run count and stat that motivated it, same discipline as
+  improve-decompose-sweep's calibration rules.
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    target_workflow: ""       # required — workflow name (matches workflows/**/<name>.yaml stem)
+    telemetry_since: "30d"    # time window for run/session telemetry
+    min_runs: "3"             # minimum run count before any threshold change is proposed
+
+workspace_dir: "{work_dir}/optimize-workflow-{target_workflow}"
+
+stages:
+  # ===========================================================================
+  # G1: Analyze hotspots — per-stage cost, duration, failure/retry stats
+  # ===========================================================================
+  - name: analyze-hotspots
+    kind: gather
+    depends_on: [telem-gather-telemetry]
+    reads_from: [telem-gather-telemetry]
+    description: >
+      Read {workspace}/analysis/workflow-runs.json. If "no_data" is true or
+      "runs" is empty, write a note to {workspace}/analysis/hotspots.md
+      explaining no telemetry was found for {target_workflow} and stop —
+      do not fabricate stats.
+
+      Otherwise, aggregate across all runs of {target_workflow}:
+
+      Per-stage cost/duration:
+        For each stage name appearing in any run's stage_costs, compute:
+          - run_count: how many runs include this stage
+          - avg_cost_usd, max_cost_usd
+          - avg_tokens, max_tokens
+          - avg_duration_agent_ms, max_duration_agent_ms
+          - pct_of_total_run_cost: this stage's avg cost / avg total run cost
+
+      Per-stage failure/retry:
+        For each stage, from stage_status across runs:
+          - error_count: status == "error" occurrences
+          - error_rate: error_count / run_count
+          - common error messages (group by first ~60 chars, count occurrences)
+
+      Dead-weight detection:
+        Flag stages where output_files/writes_to were declared but the
+        stage's data shows no meaningful output change across runs (e.g.
+        the workflow always takes the same branch, or a fan-out group
+        consistently expands to 0 items) — these are candidates for
+        removal or a `when:` condition, not a threshold tweak.
+
+      Write {workspace}/analysis/hotspots.md:
+        ## Hotspot Analysis — {target_workflow} (last N runs, {telemetry_since})
+
+        ### Cost Hotspots (top 5 by pct_of_total_run_cost)
+        | Stage | Runs | Avg Cost | Avg Tokens | % of Run Cost |
+        |-------|------|----------|------------|----------------|
+
+        ### Failure Hotspots (error_rate > 0)
+        | Stage | Runs | Errors | Error Rate | Common Error |
+        |-------|------|--------|------------|--------------|
+
+        ### Dead-Weight Candidates
+        | Stage | Reason |
+        |-------|--------|
+
+      Also write {workspace}/analysis/hotspots.json with the same data in
+      structured form — propose-changes reads this, not the markdown.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: hotspots
+        mode: generate
+        description: >
+          hotspots.md and hotspots.json written to {workspace}/analysis/
+          with per-stage cost/duration/failure aggregates and dead-weight
+          candidates.
+    writes_to:
+      - analysis/hotspots.md
+      - analysis/hotspots.json
+
+  # ===========================================================================
+  # G2: Propose changes — data-backed edits, human approval required
+  # ===========================================================================
+  - name: propose-changes
+    kind: propose
+    human_gate: true
+    depends_on: [analyze-hotspots]
+    reads_from: [analyze-hotspots]
+    description: >
+      Read {workspace}/analysis/hotspots.json. If it shows no runs found,
+      report that to the user and stop — nothing to propose.
+
+      Read the current target workflow YAML: workflows/**/{target_workflow}.yaml
+      (search under workflows/ for a file whose stem matches {target_workflow}).
+
+      For each hotspot, propose one of these change types — every proposal
+      must cite the specific metric and run count that motivated it, and
+      must respect {min_runs} (do not propose a change backed by fewer runs
+      than {min_runs}):
+
+        model downgrade — a stage's role/model is sonnet but its task
+          (per its description) is pure lookup/comparison with no judgment
+          call, and its avg_tokens is high relative to task complexity.
+          Propose downgrading to haiku. Cite avg_cost_usd and run_count.
+
+        parallelize — a stage with no fan_out currently runs once per
+          workflow but its description implies N independent per-item
+          checks (e.g. "for each domain, do X" without a fan_out block).
+          Propose adding fan_out. Cite avg_duration_agent_ms and run_count.
+
+        remove / gate with `when:` — a dead-weight candidate from Step 1.
+          Propose deletion or a `when:` condition. Cite the runs where it
+          did no useful work.
+
+        retry/robustness fix — a stage with error_rate > 20% across
+          {min_runs}+ runs and a clear common error pattern. Propose a
+          description change (add a validation step, fix a wrong command)
+          — do not just raise max_revisions blindly; explain why the
+          failure recurs.
+
+        worker_queue conversion — a stage or fan-out currently uses
+          executor: agent / mode: agent but its description shows it's a
+          pure CLI check with no judgment call and high avg_cost_usd
+          relative to a trivial task. Propose converting to
+          executor: worker_queue (or fan_out.mode: worker_queue) — see
+          workflows/demo/worker-queue-stage.yaml and
+          workflows/demo/worker-queue-fanout.yaml for the target shape.
+
+      Do NOT propose:
+        - Threshold changes backed by fewer than {min_runs} runs
+        - Changes to stages with no hotspot signal (cost, duration, or
+          error rate all in normal range)
+        - Rewriting a stage's core logic — only the specific dimension the
+          data implicates (model, parallelism, gating, retry behavior)
+
+      Write {workspace}/design/proposed-changes.md:
+        ## Proposed Changes — {target_workflow}
+
+        ### Change 1: <type> — stage `<name>`
+        Motivation: <metric, run_count>
+        Current: <yaml snippet>
+        Proposed: <yaml snippet>
+
+        ...
+
+        ### Deferred (insufficient data)
+        | Candidate | Why deferred |
+
+      Ask the user:
+        A) Approve all — apply every proposed change
+        B) Approve some — specify which change numbers to apply
+        C) Reject — stop without modifying the target workflow
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write, Grep, Glob]
+      access: read-only
+    required: true
+    outputs:
+      - name: proposed_changes
+        mode: generate
+        description: >
+          proposed-changes.md written to {workspace}/design/ with each
+          change's type, motivating metric, and before/after YAML snippet.
+    writes_to:
+      - design/proposed-changes.md
+
+  # ===========================================================================
+  # G3: Apply changes — patch the target workflow YAML
+  # ===========================================================================
+  - name: apply-changes
+    kind: execute
+    depends_on: [propose-changes]
+    reads_from: [propose-changes]
+    description: >
+      Read {workspace}/design/proposed-changes.md and the human's decision
+      from the propose-changes human gate (which changes were approved).
+
+      For each approved change, edit the target workflow YAML directly:
+        - model downgrade: edit the stage's `agent.model` field
+        - parallelize: add a `fan_out` block per the change proposal
+        - remove / gate: delete the stage block, or add a `when:` field
+          (removing a stage also requires updating any downstream
+          `depends_on`/`reads_from` that named it)
+        - retry/robustness fix: edit the stage's `description` field
+        - worker_queue conversion: change `executor:`/`fan_out.mode:` and
+          add the required `script:` field (see
+          workflows/demo/worker-queue-stage.yaml for required fields —
+          `agent:` block stays present with `role: inline`)
+
+      If no changes were approved, write "no changes applied — user
+      rejected all proposals" to {workspace}/validation/changes-applied.md
+      and skip to the next stage.
+
+      Bump the target workflow's `version` field (e.g. "1.0" -> "1.1").
+
+      Add a calibration log entry to the top comment block of the target
+      workflow YAML (create the block if absent):
+        # Calibration log:
+        # <today's date> <change 1 summary>: <metric citation>
+        # <today's date> <change 2 summary>: <metric citation>
+
+      Write {workspace}/validation/changes-applied.md:
+        | Change | Stage | Field(s) Edited | Applied |
+        |--------|-------|------------------|---------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write]
+      access: read-write
+    required: true
+    outputs:
+      - name: changes_applied
+        mode: generate
+        description: >
+          changes-applied.md written to {workspace}/validation/ recording
+          which approved changes were patched into the target workflow YAML
+          (or a note that none were approved).
+    writes_to:
+      - validation/changes-applied.md
+
+  # ===========================================================================
+  # G4: Validate patch — lint + compile the patched workflow
+  # ===========================================================================
+  - name: validate-patch
+    kind: validate
+    depends_on: [apply-changes]
+    reads_from: [apply-changes]
+    description: >
+      Read {workspace}/validation/changes-applied.md. If it says no changes
+      were applied, write "nothing to validate" to
+      {workspace}/validation/patch-validation.json and skip the rest.
+
+      Otherwise, validate the patched target workflow YAML:
+        ./bin/workflow lint workflows/**/{target_workflow}.yaml
+        ./bin/workflow compile workflows/**/{target_workflow}.yaml
+
+      If lint reports errors: revert the specific edit that caused them
+      (Edit tool) and re-lint. Do not leave a broken workflow YAML on disk
+      under any circumstance — this stage's job is to guarantee the target
+      workflow is still valid when this run ends.
+
+      Write {workspace}/validation/patch-validation.json:
+        {
+          "lint_valid": true|false,
+          "lint_errors": [],
+          "compile_ok": true|false,
+          "contract_warnings_before": N,
+          "contract_warnings_after": N
+        }
+
+      contract_warnings_before/after: re-run compile against the pre-patch
+      version (git show HEAD:<path> to a temp file) vs the patched version,
+      to confirm the patch didn't introduce new dangling reads_from/writes_to
+      warnings.
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - workflow lint reports zero errors on the patched target workflow
+        - workflow compile succeeds
+        - No new contract warnings introduced vs the pre-patch version
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/patch-validation.json
+
+  # ===========================================================================
+  # G5: Report — summary for the user
+  # ===========================================================================
+  - name: report
+    kind: propose
+    depends_on: [validate-patch]
+    reads_from: [validate-patch, apply-changes, propose-changes, analyze-hotspots]
+    description: >
+      Read all prior stage outputs and present a final summary:
+
+      ## Workflow Optimization — {target_workflow}
+
+      ### Hotspots Found
+      <from analyze-hotspots>
+
+      ### Changes Applied
+      <from apply-changes>
+
+      ### Validation
+      lint: PASS|FAIL   compile: PASS|FAIL
+      contract warnings: <before> -> <after>
+
+      ### Next Steps
+      Recommend running {target_workflow} again and re-running this
+      workflow after {min_runs}+ more runs to confirm the changes helped
+      (lower cost, lower error rate, or faster runs vs the pre-patch
+      hotspots.json baseline).
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    outputs:
+      - name: final_report
+        mode: generate
+        description: >
+          final-report.md written to {workspace}/validation/ summarizing
+          hotspots, applied changes, validation result, and next-steps
+          recommendation.
+    writes_to:
+      - validation/final-report.md
+
+include:
+  - path: workflows/shared/otel-workflow-telemetry.yaml
+    prefix: telem
+    depends_on: []
+    reads_from: []
