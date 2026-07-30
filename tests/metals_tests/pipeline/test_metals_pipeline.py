@@ -171,6 +171,7 @@ class TestOutlookExtractProcessor(unittest.TestCase):
         self.assertTrue(result.ok())
         self.assertIsNotNone(result.payload)
         self.assertEqual(result.payload.total.silver_oz, 5.0)
+        mock_resolve.assert_called_once_with("test", None, None, None)
 
     @patch("core.auth.resolve_outlook_credentials")
     def test_process_missing_credentials(self, mock_resolve):
