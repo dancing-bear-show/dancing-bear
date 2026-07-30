@@ -81,6 +81,44 @@ class FiltersPlanConsumerTests(unittest.TestCase):
             self.assertFalse(payload.delete_missing)
 
 
+class FiltersPlanProcessorSadPathTests(unittest.TestCase):
+    """Sad-path coverage for FiltersPlanProcessor SafeProcessor wrapping."""
+
+    def test_process_raises_wraps_error_in_envelope(self):
+        """An exception in _process_safe surfaces as a ResultEnvelope error, not a raise."""
+        # Trigger an error by passing a payload whose desired_filters contains a
+        # non-dict entry that causes _canon_desired to fail.
+        payload = FiltersPlanPayload(
+            desired_filters=[None],  # non-dict spec will raise AttributeError inside _process_safe
+            existing_filters=[],
+            id_to_name={},
+            name_to_id={},
+            delete_missing=False,
+        )
+        processor = FiltersPlanProcessor()
+        envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertEqual(envelope.status, "error")
+        self.assertIsNotNone(envelope.diagnostics)
+        self.assertIsInstance(envelope.diagnostics.get("message"), str)
+        self.assertIsNone(envelope.payload)
+
+    def test_producer_handles_error_envelope_gracefully(self):
+        """FiltersPlanProducer.produce() on an error envelope emits fallback message."""
+        from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
+
+        buf = io.StringIO()
+        writer = OutputWriter(OutputConfig(file=buf))
+        producer = FiltersPlanProducer(writer=writer)
+        error_envelope = ResultEnvelope(status="error", diagnostics={"message": "boom"})
+        producer.produce(error_envelope)
+
+        output = buf.getvalue()
+        self.assertIn("failed", output.lower())
+
+
 class FiltersPlanProcessorTests(unittest.TestCase):
     def test_processor_and_producer_match_legacy_output(self):
         payload = FiltersPlanPayload(
@@ -245,6 +283,81 @@ class FiltersExportProcessorTests(unittest.TestCase):
             self.assertIn("criteria", data["filters"][0])
             self.assertIn("action", data["filters"][0])
             self.assertIn("Exported", buf.getvalue())
+
+
+class FiltersImpactProcessorSadPathTests(unittest.TestCase):
+    """Sad-path coverage for FiltersImpactProcessor SafeProcessor wrapping."""
+
+    def test_client_exception_wraps_in_error_envelope(self):
+        """When list_message_ids raises, SafeProcessor wraps it as error envelope."""
+        from unittest.mock import MagicMock
+
+        bad_client = MagicMock()
+        bad_client.list_message_ids.side_effect = RuntimeError("network error")
+
+        payload = FiltersImpactPayload(
+            filters=[{"match": {"from": "x@example.com"}}],
+            days=7,
+            only_inbox=False,
+            pages=1,
+            client=bad_client,
+        )
+        processor = FiltersImpactProcessor()
+        envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertEqual(envelope.status, "error")
+        self.assertIn("network error", envelope.diagnostics.get("message", ""))
+        bad_client.list_message_ids.assert_called_once()
+
+    def test_producer_handles_impact_error_envelope(self):
+        """FiltersImpactProducer.produce() on error envelope emits fallback message."""
+        from core.pipeline import ResultEnvelope
+        from core.cli_output import OutputWriter, OutputConfig
+
+        buf = io.StringIO()
+        writer = OutputWriter(OutputConfig(file=buf))
+        producer = FiltersImpactProducer(writer=writer)
+        error_envelope = ResultEnvelope(status="error", diagnostics={"message": "impact boom"})
+        producer.produce(error_envelope)
+
+        self.assertIn("failed", buf.getvalue().lower())
+
+
+class FiltersExportProcessorSadPathTests(unittest.TestCase):
+    """Sad-path coverage for FiltersExportProcessor SafeProcessor wrapping."""
+
+    def test_process_raises_wraps_in_error_envelope(self):
+        """An exception in _process_safe (e.g. bad filter element type) surfaces as error envelope."""
+        from mail.filters.consumers import FiltersExportPayload
+
+        # A non-dict entry in filters triggers AttributeError inside _process_safe via
+        # filt.get("criteria") being called on a string — surfaced as ResultEnvelope(error).
+        payload = FiltersExportPayload(
+            filters=["not-a-dict"],  # type: ignore[list-item]
+            id_to_name={},
+            out_path=Path("/dev/null"),
+        )
+        processor = FiltersExportProcessor()
+        envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertEqual(envelope.status, "error")
+        self.assertIsNotNone(envelope.diagnostics)
+        self.assertIsInstance(envelope.diagnostics.get("message"), str)
+        self.assertIsNone(envelope.payload)
+
+    def test_producer_handles_export_error_envelope(self):
+        """FiltersExportProducer.produce() on error envelope emits fallback message."""
+        from core.pipeline import ResultEnvelope
+
+        buf = io.StringIO()
+        producer = FiltersExportProducer()
+        error_envelope = ResultEnvelope(status="error", diagnostics={"message": "export boom"})
+        with redirect_stdout(buf):
+            producer.produce(error_envelope)
+
+        self.assertIn("failed", buf.getvalue().lower())
 
 
 if __name__ == "__main__":

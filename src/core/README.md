@@ -18,5 +18,12 @@ Modules:
 - `secrets.py` — secret redaction helpers (`mask_text`, `mask_headers`, `mask_url`) and output masking.
 - `gh_cli.py` — `GhCLI`: thin wrapper around the `gh` CLI for JSON-friendly calls (api/graphql/pr view/list/search), with error masking.
 
+Recent changes (design-criteria-normalize, 2026-07-30)
+- `pipeline.py` — `BaseProducer` now injects `OutputWriter` via `__init__`; `print_error`/`print_logs` are instance methods (not static).
+- `cli_args.py` — `OutputConfig` renamed to `OutputFormatConfig`; `OutputConfig` alias retained for backwards compatibility.
+- `gh_cli.py`, `yamlio.py`, `fileutil.py` — `RuntimeError`/`sys.exit` replaced with `CLIError`.
+- `outlook/__init__.py` — exports `OutlookBaseProvider(Protocol)` from `outlook/base.py`.
+- `auth.py` — `build_outlook_service()` is the canonical constructor; `build_outlook_service_from_config()` is a thin wrapper.
+
 Assistants should compose these pieces instead of rebuilding bespoke plumbing so that CLI
 shims stay thin and domain logic stays easy to test.

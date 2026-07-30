@@ -100,7 +100,7 @@ def run(profile: str, days: int, top: int, pages: int, folder: str) -> int:
     for name, q in QUERIES:
         try:
             summary[name] = _scan_query(cli, q, scan)
-        except Exception:
+        except Exception:  # nosec B112 - skip failed queries, continue scanning other sources
             summary[name] = []
 
     print("Matches in Outlook Inbox (last", days, "days):")

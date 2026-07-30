@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+from core.cli_output import OutputFormat, OutputWriter
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
 from .diagnostics import (
@@ -23,7 +24,7 @@ from .diagnostics import (
 @dataclass
 class DiagnoseRequest:
     config: DiagnoseConfig
-    emit_json: bool = False
+    output_format: OutputFormat = OutputFormat.TEXT
     out_path: Optional[Path] = None
 
 
@@ -34,7 +35,7 @@ DiagnoseRequestConsumer = RequestConsumer[DiagnoseRequest]
 @dataclass
 class DiagnoseResult:
     report: Report
-    emit_json: bool
+    output_format: OutputFormat
     out_path: Optional[Path]
 
 
@@ -61,14 +62,17 @@ class DiagnoseProcessor(SafeProcessor[DiagnoseRequest, DiagnoseResult]):
         )
         return DiagnoseResult(
             report=report,
-            emit_json=payload.emit_json,
+            output_format=payload.output_format,
             out_path=payload.out_path,
         )
 
 
 class DiagnoseProducer(BaseProducer):
+    def __init__(self, writer: Optional[OutputWriter] = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def _produce_success(self, payload: DiagnoseResult, diagnostics: Optional[Dict[str, Any]]) -> None:
-        if payload.emit_json:
+        if payload.output_format == OutputFormat.JSON:
             content = json.dumps(report_to_dict(payload.report), indent=2)
         else:
             content = render_report(payload.report)
@@ -76,4 +80,4 @@ class DiagnoseProducer(BaseProducer):
             out_path = payload.out_path
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(content, encoding="utf-8")
-        print(content, end="")
+        self._writer.print(content, end="")

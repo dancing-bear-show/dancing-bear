@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from core.cli_output import OutputWriter
+
 from .cli_telemetry import (  # noqa: F401
     _format_tokens,
     _load_telemetry,
@@ -61,7 +63,8 @@ def _write_output(content: str, output_path: str | None, success_msg: str = "") 
             print(f"Error writing {output_path}: {e}", file=sys.stderr)
             return 1
     else:
-        print(content)
+        _writer = OutputWriter()
+        _writer.print_data(content)
     return 0
 
 
@@ -90,7 +93,8 @@ def cmd_telemetry(args) -> int:
     if not renderer:
         print(f"Unknown diagram type: {args.type}", file=sys.stderr)
         return 1
-    print(renderer())
+    _writer = OutputWriter()
+    _writer.print_data(renderer())
     return 0
 
 
@@ -102,57 +106,51 @@ def cmd_render(args) -> int:
     if not _validate_non_empty(mermaid_text):
         return 1
 
-    from .renderers import LocalRenderer, LocalRendererError
+    from core.pipeline import run_pipeline
 
-    try:
-        renderer = LocalRenderer(timeout=args.timeout)
-    except LocalRendererError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+    from .renderers import RenderDiagramProcessor, RenderDiagramProducer, RenderRequest
 
-    try:
-        output_path = renderer.render_to_file(
-            mermaid_text,
-            args.output,
-            output_format=getattr(args, "format", None),
-            background=getattr(args, "background", None),
-            theme=getattr(args, "theme", None),
-            width=getattr(args, "width", None),
-            height=getattr(args, "height", None),
-        )
-        print(f"Rendered to: {output_path}", file=sys.stderr)
-        return 0
-    except LocalRendererError as e:
-        print(f"Render error: {e}", file=sys.stderr)
-        return 1
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
+    request = RenderRequest(
+        source=mermaid_text,
+        output=args.output,
+        output_format=getattr(args, "format", None),
+        background=getattr(args, "background", None),
+        theme=getattr(args, "theme", None),
+        width=getattr(args, "width", None),
+        height=getattr(args, "height", None),
+        timeout=args.timeout,
+    )
+    return run_pipeline(request, RenderDiagramProcessor, RenderDiagramProducer)
 
 
 def cmd_validate(args) -> int:
     """Validate mermaid syntax via mmdc."""
+    import tempfile
+
     mermaid_text = _read_input(args.input, _DEFAULT_MMD_LABEL)
     if mermaid_text is None:
         return 1
     if not _validate_non_empty(mermaid_text):
         return 1
 
-    from .renderers import LocalRenderer, LocalRendererError
+    from .renderers import RenderDiagramProcessor, RenderRequest
 
-    try:
-        renderer = LocalRenderer(timeout=args.timeout)
-    except LocalRendererError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    is_valid, error = renderer.validate_syntax(mermaid_text)
-    if is_valid:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        import os
+        tmp_out = os.path.join(tmpdir, "validate_out.svg")
+        request = RenderRequest(
+            source=mermaid_text,
+            output=tmp_out,
+            output_format="svg",
+            timeout=args.timeout,
+        )
+        envelope = RenderDiagramProcessor().process(request)
+    if envelope.ok():
         print("Valid: Mermaid syntax is correct", file=sys.stderr)
         return 0
-    else:
-        print(f"Invalid: {error}", file=sys.stderr)
-        return 1
+    msg = (envelope.diagnostics or {}).get("message", "Validation failed")
+    print(f"Invalid: {msg}", file=sys.stderr)
+    return 1
 
 
 def cmd_embed(args) -> int:

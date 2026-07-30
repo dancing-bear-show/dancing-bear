@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 
+from core.cli_errors import NotFoundError
 from desk.planner import plan_from_config
 
 
@@ -34,7 +35,7 @@ class PlanFromConfigTests(unittest.TestCase):
         return path
 
     def test_nonexistent_config_raises(self):
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(NotFoundError):
             plan_from_config("/nonexistent/config.yaml")
 
     def test_empty_config(self):

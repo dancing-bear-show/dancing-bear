@@ -8,8 +8,6 @@ from unittest.mock import patch
 
 from wifi import cli
 from wifi.diagnostics import (
-    CommandResult,
-    CommandRunner,
     DiagnoseConfig,
     DnsResult,
     HttpResult,
@@ -17,17 +15,7 @@ from wifi.diagnostics import (
     render_report,
     run_diagnosis,
 )
-
-
-class FakeRunner(CommandRunner):
-    def __init__(self):
-        self._results = {}
-
-    def add(self, cmd, stdout="", stderr="", returncode=0):
-        self._results[tuple(cmd)] = CommandResult(stdout=stdout, stderr=stderr, returncode=returncode)
-
-    def run(self, cmd, timeout=None):
-        return self._results.get(tuple(cmd), CommandResult(stdout="", stderr="missing", returncode=127))
+from tests.wifi_tests.shared_fixtures import FakeRunner
 
 
 class WifiAssistantTests(unittest.TestCase):

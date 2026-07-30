@@ -15,7 +15,7 @@ def _agentic() -> str:
 
     try:
         return build_agentic_capsule()
-    except Exception:
+    except Exception:  # nosec B110 - fall back to inline stub when agentic capsule is unavailable
         return "agentic: wifi\npurpose: Wi-Fi and LAN diagnostics"
 
 
@@ -24,7 +24,7 @@ def _domain_map() -> str:
 
     try:
         return build_domain_map()
-    except Exception:
+    except Exception:  # nosec B110 - fall back to inline stub when domain map is unavailable
         return "Domain Map not available"
 
 

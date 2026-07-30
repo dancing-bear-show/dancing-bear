@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from core.cli_errors import CLIError, ExitCode
+from core.cli_output import emit_rows
 from workflow.cli_helpers import check_workflow_path, format_workflow_not_found
 from workflow.compiler import resolve_params
 from workflow.include import parse_fragment
@@ -28,26 +30,24 @@ if TYPE_CHECKING:
 
 
 def _load_definition(path: str) -> WorkflowDefinition:
-    """Parse a workflow YAML, raising SystemExit on failure."""
+    """Parse a workflow YAML, raising CLIError on failure."""
     try:
         return parse_workflow(path)
     except WorkflowParseError as exc:
-        print(f"Parse error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise CLIError(f"Parse error: {exc}", ExitCode.ERROR) from exc
 
 
 def _load_manifest(
     path: str,
     trigger_params: dict[str, str] | None = None,
 ) -> tuple[WorkflowDefinition, WorkflowManifest]:
-    """Parse + compile a workflow, raising SystemExit on failure."""
+    """Parse + compile a workflow, raising CLIError on failure."""
     from workflow.compiler import WorkflowCompileError, compile_workflow
     defn = _load_definition(path)
     try:
         return defn, compile_workflow(defn, trigger_params=trigger_params)
     except WorkflowCompileError as exc:
-        print(f"Compile error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise CLIError(f"Compile error: {exc}", ExitCode.ERROR) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def _build_resolved_params(path: str, cli_params: dict[str, str]) -> dict[str, s
     try:
         defn_only = parse_workflow(path)
     except WorkflowParseError as exc:
-        raise SystemExit(f"workflow: parse error: {exc}") from exc
+        raise CLIError(f"workflow: parse error: {exc}", ExitCode.ERROR) from exc
     trigger_defaults = defn_only.trigger.params if defn_only.trigger else {}
     work_dir = str(Path.cwd() / "out")
     built_in_params = {"work_dir": work_dir}
@@ -201,7 +201,7 @@ def _build_plan_json(
 
 def _cmd_parse(args: argparse.Namespace) -> int:
     """Parse a workflow YAML and display its structure."""
-    from workflow.cli import _emit_one, _emit_rows
+    from workflow.cli import _emit_one
     if not check_workflow_path(args.path):
         return 1
     defn = _load_definition(args.path)
@@ -215,7 +215,7 @@ def _cmd_parse(args: argparse.Namespace) -> int:
     } for s in defn.stages]
     if args.format == "table":
         _emit_one(summary, fmt=args.format)
-        _emit_rows(stages, fmt=args.format, headers=["name", "kind", "agent_role", "depends_on", "required"])
+        emit_rows(stages, fmt=args.format, headers=["name", "kind", "agent_role", "depends_on", "required"])
     else:
         _emit_one({**summary, "stages": stages}, fmt=args.format)
     return 0
@@ -223,7 +223,7 @@ def _cmd_parse(args: argparse.Namespace) -> int:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     """Parse + compile + execute a workflow."""
-    from workflow.cli import _emit_one, _emit_rows
+    from workflow.cli import _emit_one
     from workflow.orchestrator import WorkflowOrchestrator
     if not check_workflow_path(args.path):
         return 1
@@ -267,7 +267,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         "stage": name, "status": sr.status.value,
         "duration_ms": sr.duration_ms, "errors": "; ".join(sr.errors) or "-",
     } for name, sr in result.stage_results.items()]
-    _emit_rows(stage_rows, fmt=args.format, headers=["stage", "status", "duration_ms", "errors"])
+    emit_rows(stage_rows, fmt=args.format, headers=["stage", "status", "duration_ms", "errors"])
     if dry_run or result.status in (StageStatus.success, StageStatus.awaiting_human):
         return 0
     print(
@@ -346,7 +346,6 @@ def _cmd_validate_fragment(args: argparse.Namespace) -> int:
 def _cmd_list(args: argparse.Namespace) -> int:
     """List available workflow definitions from workflows/ directory."""
     from workflow.cli_helpers import _EXCLUDED_SUBDIRS
-    from workflow.cli import _emit_rows
 
     workflows_dir = Path.cwd() / "workflows"
     if not workflows_dir.is_dir():
@@ -371,13 +370,12 @@ def _cmd_list(args: argparse.Namespace) -> int:
     if not rows:
         print("No workflow YAML files found in workflows/.", file=sys.stderr)
         return 1
-    _emit_rows(rows, fmt=args.format, headers=["file", "name", "version", "description", "stages"])
+    emit_rows(rows, fmt=args.format, headers=["file", "name", "version", "description", "stages"])
     return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
     """Show status of a workflow run from its workspace directory."""
-    from workflow.cli import _emit_rows
     from workflow.persistence import list_stage_results
     workspace = Path(args.workspace_dir)
     if not workspace.is_dir():
@@ -395,7 +393,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         "index": sr.stage_index, "stage": sr.stage_name, "status": sr.status.value,
         "duration_ms": sr.duration_ms, "errors": "; ".join(sr.errors) or "-",
     } for sr in results]
-    _emit_rows(rows, fmt=args.format, headers=["index", "stage", "status", "duration_ms", "errors"])
+    emit_rows(rows, fmt=args.format, headers=["index", "stage", "status", "duration_ms", "errors"])
     return 0
 
 
@@ -437,7 +435,6 @@ def _cmd_init_workspace(args: argparse.Namespace) -> int:
 
 def _cmd_resume(args: argparse.Namespace) -> int:
     """Show which stages need re-running in a workspace."""
-    from workflow.cli import _emit_rows
     from workflow.persistence import list_stage_results, read_manifest
     workspace = Path(args.workspace_dir)
     if not workspace.is_dir():
@@ -463,5 +460,5 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     rows = [_build_stage_row(name, existing.get(name)) for name in stage_names]
     has_pending = any(r["needs_run"] == "yes" for r in rows)
 
-    _emit_rows(rows, fmt=args.format, headers=["stage", "status", "needs_run", "reason"])
+    emit_rows(rows, fmt=args.format, headers=["stage", "status", "needs_run", "reason"])
     return 2 if has_pending else 0

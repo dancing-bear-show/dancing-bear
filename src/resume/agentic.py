@@ -81,5 +81,6 @@ def build_domain_map() -> str:
 
 def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:
     """Emit the agentic capsule (fmt/compact not yet implemented)."""
-    print(build_agentic_capsule())
+    from core.cli_output import OutputWriter
+    OutputWriter().print_data(build_agentic_capsule())
     return 0

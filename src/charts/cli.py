@@ -7,16 +7,18 @@ import json
 import sys
 from pathlib import Path
 
+from core.cli_errors import CLIError, ExitCode, handle_error
+from core.cli_output import OutputWriter, OutputConfig, OutputFormat
+
 
 def _require_matplotlib() -> None:
     try:
         import matplotlib  # noqa: F401
     except ImportError:
-        print(
-            "error: matplotlib is not installed. Run: pip install matplotlib",
-            file=sys.stderr,
+        raise CLIError(
+            "matplotlib is not installed. Run: pip install matplotlib",
+            ExitCode.ERROR,
         )
-        raise SystemExit(1)
 
 
 def _apply_cli_overrides(cfg, output_path: str | None, theme: str | None, svg: bool):
@@ -50,8 +52,7 @@ def _read_text(input_path: str) -> str:
         with open(input_path) as f:
             return f.read()
     except OSError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise CLIError(f"error: {exc}", ExitCode.ERROR) from exc
 
 
 def _parse_rows(raw_text: str) -> list[object]:
@@ -130,11 +131,13 @@ def _load_panel_specs(cfg, json_to_spec_fn):
     return specs
 
 
-def _handle_render(args: argparse.Namespace) -> int:
+def _handle_render(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     _require_matplotlib()
 
     from charts.renderer import render_chart
     from charts.reshape import json_to_spec
+
+    out = writer or OutputWriter()
 
     raw_text = _read_text(args.input_path)
     try:
@@ -159,16 +162,18 @@ def _handle_render(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
-    print(str(path))
+    out.print(str(path))
     return 0
 
 
-def _handle_grid(args: argparse.Namespace) -> int:
+def _handle_grid(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     _require_matplotlib()
 
     from charts.config import load_grid_config
     from charts.renderer import render_grid
     from charts.reshape import json_to_spec
+
+    out = writer or OutputWriter()
 
     try:
         cfg = load_grid_config(args.config_path)
@@ -185,32 +190,28 @@ def _handle_grid(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
-    print(str(path))
+    out.print(str(path))
     return 0
 
 
-def _handle_reshape(args: argparse.Namespace) -> int:
+def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
+    fmt = OutputFormat.YAML if args.fmt == "yaml" else OutputFormat.JSON
+    out = writer or OutputWriter(OutputConfig(format=fmt))
+
     raw_text = _read_text(args.input_path)
     rows = _parse_rows(raw_text)
     series_map = _build_series_map(rows, args.x_field, args.y_field, args.group_by)
 
-    output: dict[str, object] = {
+    data: dict[str, object] = {
         "title": args.title,
         "x_field": args.x_field,
         "series": [
-            {"name": name, "data": data}
-            for name, data in series_map.items()
+            {"name": name, "data": series_data}
+            for name, series_data in series_map.items()
         ],
     }
 
-    if args.fmt == "yaml":
-        try:
-            import yaml  # noqa: PLC0415
-            print(yaml.dump(output, default_flow_style=False), end="")
-        except ImportError:
-            print(json.dumps(output, indent=2))
-    else:
-        print(json.dumps(output, indent=2))
+    out.print_data(data)
     return 0
 
 
@@ -273,6 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     handler = handlers.get(args.command)
     if handler:
-        return handler(args)
+        try:
+            return handler(args)
+        except CLIError as exc:
+            sys.exit(handle_error(exc))
     parser.print_help()
     return 1

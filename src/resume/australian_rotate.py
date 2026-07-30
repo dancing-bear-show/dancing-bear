@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from core.cli_output import OutputWriter
+
+_writer = OutputWriter()
+
 
 def convert_docx_to_pdf(docx_path: str, pdf_path: str) -> bool:
     """Convert DOCX to PDF using LibreOffice."""
@@ -85,7 +89,7 @@ def create_australian_resume(
     # Intermediate PDF (non-rotated)
     temp_pdf = str(docx_file.with_suffix(".temp.pdf"))
 
-    print(f"Converting {docx_path} to PDF...")
+    _writer.print_data(f"Converting {docx_path} to PDF...")
     if not convert_docx_to_pdf(docx_path, temp_pdf):
         print("Error: DOCX to PDF conversion failed. Is LibreOffice installed?", file=sys.stderr)
         print("Try: brew install --cask libreoffice (macOS)", file=sys.stderr)
@@ -100,7 +104,7 @@ def create_australian_resume(
         print(f"Error: Expected PDF not created: {temp_pdf}", file=sys.stderr)
         return None
 
-    print("Rotating PDF 180° for Australian orientation...")
+    _writer.print_data("Rotating PDF 180° for Australian orientation...")
     if not rotate_pdf_180(temp_pdf, output_pdf):
         print("Error: PDF rotation failed", file=sys.stderr)
         if not keep_temp:
@@ -111,7 +115,7 @@ def create_australian_resume(
     if not keep_temp:
         Path(temp_pdf).unlink(missing_ok=True)
 
-    print(f"✓ Australian resume created: {output_pdf}")
+    _writer.print_data(f"✓ Australian resume created: {output_pdf}")
     return output_pdf
 
 

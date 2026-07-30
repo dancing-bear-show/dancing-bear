@@ -50,6 +50,7 @@ class CostExtractor(ABC):
         self.out_path = out_path
         self.days = days
         self.client = None
+        self.last_row_count = 0
 
     @abstractmethod
     def _authenticate(self) -> None:
@@ -189,6 +190,7 @@ class CostExtractor(ABC):
             rows = self._process_order_to_rows(order)
             out_rows.extend(rows)
 
+        self.last_row_count = len(out_rows)
         if out_rows:
             merge_costs_csv(self.out_path, out_rows)
             print(f"merged {len(out_rows)} row(s) into {self.out_path}")

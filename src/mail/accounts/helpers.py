@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from core.cli_errors import UsageError
+
 from ..config_resolver import (
     default_gmail_credentials_path,
     default_gmail_token_path,
@@ -67,6 +69,25 @@ def build_client_for_account(acc: dict):
             raise SystemExit(f"Outlook provider unavailable: {e}")
         return OutlookClient(**_outlook_client_kwargs(acc))
     raise SystemExit(f"Unsupported provider: {provider or '<missing>'} for account {acc.get('name')}")
+
+
+def require_provider_capability(provider, capability: str, acc: dict) -> None:
+    """Raise UsageError if provider does not support the given capability.
+
+    Uses provider.capabilities() (returns set[str]) to guard capability-specific
+    pipelines at the CLI layer, replacing per-call string-branch checks.
+
+    Args:
+        provider: A BaseProvider instance with a capabilities() method.
+        capability: The capability key to require (e.g. 'filters', 'labels').
+        acc: The account dict (used in the error message for context).
+    """
+    if capability not in provider.capabilities():
+        name = acc.get("name") or acc.get("provider") or "unknown"
+        raise UsageError(
+            f"Provider for account '{name}' does not support '{capability}'. "
+            f"Supported: {sorted(provider.capabilities()) or ['none']}"
+        )
 
 
 def build_provider_for_account(acc: dict):

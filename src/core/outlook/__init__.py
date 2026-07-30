@@ -13,6 +13,7 @@ Usage:
     calendars = client.list_calendars()
 """
 
+from .base import OutlookBaseProvider
 from .client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL, GRAPH_API_SCOPES
 from .calendar import OutlookCalendarMixin
@@ -47,6 +48,7 @@ class OutlookClient(OutlookClientBase, OutlookCalendarMixin, OutlookMailMixin):
 
 
 __all__ = [
+    "OutlookBaseProvider",
     "OutlookClient",
     "OutlookClientBase",
     "OutlookCalendarMixin",

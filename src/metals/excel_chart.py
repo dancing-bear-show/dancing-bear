@@ -50,8 +50,8 @@ def _add_chart(
                 }),
                 timeout=DEFAULT_REQUEST_TIMEOUT,
             )
-    except Exception:
-        pass  # nosec B110 - chart positioning is optional
+    except Exception:  # nosec B110 - chart positioning is best-effort; failure is non-fatal
+        pass
 
 
 def _write_filter_view(

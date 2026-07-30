@@ -130,6 +130,11 @@ folders:           # Folder contents
   - com.venmo
 ```
 
+## Pipeline Pattern
+- Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
+- `ExportProcessor._process_safe()` lets exceptions propagate naturally to the outer `SafeProcessor` wrapper.
+- `LayoutLoadError` subclasses `CLIError`; `UnusedProducer` injects `OutputWriter`.
+
 ## Profile signing
 
 Profile signing authenticates the profile source (different from supervision identity used for silent MDM install).

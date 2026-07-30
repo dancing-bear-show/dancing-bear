@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from tests.fixtures import TempDirMixin, write_yaml
 
+from core.cli_errors import NotFoundError
 from desk.planner import (
     MatchCriteria,
     _build_operation,
@@ -232,7 +233,7 @@ class TestPlanFromConfig(TempDirMixin, unittest.TestCase):
     """Tests for plan_from_config function."""
 
     def test_missing_config_raises(self):
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(NotFoundError):
             plan_from_config("/nonexistent/config.yaml")
 
     def test_empty_config(self):

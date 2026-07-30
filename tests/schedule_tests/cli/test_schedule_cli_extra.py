@@ -277,6 +277,7 @@ class TestCmdCompress(unittest.TestCase):
 
     def test_compress_missing_input(self):
         from schedule.cli.main import cmd_compress
+        from core.cli_errors import ExitCode
         import argparse
 
         args = argparse.Namespace(
@@ -286,7 +287,7 @@ class TestCmdCompress(unittest.TestCase):
             min_occur=2,
         )
         result = cmd_compress(args)
-        self.assertEqual(result, 2)
+        self.assertEqual(result, ExitCode.NOT_FOUND)
 
     def test_compress_no_oneoffs(self):
         from schedule.cli.main import cmd_compress
@@ -318,6 +319,7 @@ class TestCmdCompress(unittest.TestCase):
 class TestCmdApplyMissingPlan(unittest.TestCase):
     def test_missing_plan_returns_2(self):
         from schedule.cli.main import cmd_apply
+        from core.cli_errors import CLIError, ExitCode
         import argparse
 
         args = argparse.Namespace(
@@ -330,11 +332,10 @@ class TestCmdApplyMissingPlan(unittest.TestCase):
             tenant=None,
             token=None,
         )
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            result = cmd_apply(args)
-        self.assertEqual(result, 2)
-        self.assertIn("Missing", buf.getvalue())
+        with self.assertRaises(CLIError) as ctx:
+            cmd_apply(args)
+        self.assertEqual(ctx.exception.code, ExitCode.USAGE)
+        self.assertIn("Missing", str(ctx.exception))
 
 
 class TestReadYamlAndWriteYaml(unittest.TestCase):

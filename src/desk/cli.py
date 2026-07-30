@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
+from core.cli_output import OutputWriter
 
 from . import __version__
 from .pipeline import (
@@ -112,7 +113,7 @@ def cmd_rules_export(args) -> int:
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(starter)
-    print(f"Wrote starter rules to {out_path}")
+    OutputWriter().print(f"Wrote starter rules to {out_path}")
     return 0
 
 

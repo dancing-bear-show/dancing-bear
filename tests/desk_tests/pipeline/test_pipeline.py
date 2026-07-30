@@ -181,11 +181,11 @@ class ApplyResultProducerTests(unittest.TestCase):
         producer = ApplyResultProducer()
         result = ResultEnvelope(status="error", diagnostics={"message": "test error"})
 
-        with patch("sys.stdout", new_callable=StringIO) as mock_out:
+        with patch("sys.stderr", new_callable=StringIO) as mock_err:
             producer.produce(result)
-            output = mock_out.getvalue()
+            output = mock_err.getvalue()
 
-        # BaseProducer prints the error message
+        # BaseProducer routes error output through OutputWriter.print_error() -> sys.stderr
         self.assertIn("test error", output)
 
 

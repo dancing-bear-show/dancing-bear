@@ -1,31 +1,17 @@
 """Tests for diagrams CLI renderers."""
 
 import unittest
-from datetime import datetime
 
 from diagrams.cli import _render_cost_pie, _render_token_pie, _render_timeline
 from diagrams.mermaid import SequenceDiagramBuilder
-from telemetry.parser import SessionStats
 from telemetry.pricing import compute_cost, model_tier
 
-
-def _make_session(session_id="abc123", model="claude-sonnet-4-6",
-                  input_tok=1000, output_tok=500,
-                  start="2026-04-16T10:00:00Z", end="2026-04-16T10:30:00Z"):
-    from pathlib import Path
-    s = SessionStats(session_id=session_id, path=Path(f"/fake/{session_id}.jsonl"))
-    s.model = model
-    s.input_tokens = input_tok
-    s.output_tokens = output_tok
-    s.events = 1
-    s.start_time = datetime.fromisoformat(start.replace("Z", "+00:00"))
-    s.end_time = datetime.fromisoformat(end.replace("Z", "+00:00"))
-    return s
+from tests.diagrams_tests.fixtures import make_session
 
 
 class TestRenderCostPie(unittest.TestCase):
     def test_renders_pie_with_session(self):
-        sessions = [_make_session(model="claude-opus-4-6", input_tok=1_000_000, output_tok=0)]
+        sessions = [make_session(model="claude-opus-4-6", input_tok=1_000_000, output_tok=0)]
         result = _render_cost_pie(sessions, 7, compute_cost, model_tier)
         self.assertIn("pie title", result)
         self.assertIn("Opus", result)
@@ -37,7 +23,7 @@ class TestRenderCostPie(unittest.TestCase):
         self.assertNotIn('"Opus"', result)
 
     def test_unknown_model_excluded(self):
-        sessions = [_make_session(model="future-model-xyz")]
+        sessions = [make_session(model="future-model-xyz")]
         result = _render_cost_pie(sessions, 7, compute_cost, model_tier)
         # Unknown model has 0 cost, so no slice should appear
         self.assertNotIn("future-model-xyz", result)
@@ -45,15 +31,15 @@ class TestRenderCostPie(unittest.TestCase):
 
 class TestRenderTokenPie(unittest.TestCase):
     def test_renders_pie_with_tokens(self):
-        sessions = [_make_session(model="claude-haiku-4-5", input_tok=500, output_tok=200)]
+        sessions = [make_session(model="claude-haiku-4-5", input_tok=500, output_tok=200)]
         result = _render_token_pie(sessions, 7, model_tier)
         self.assertIn("pie title", result)
         self.assertIn("Haiku", result)
 
     def test_multiple_tiers(self):
         sessions = [
-            _make_session(session_id="s1", model="claude-opus-4-6", input_tok=1000),
-            _make_session(session_id="s2", model="claude-sonnet-4-6", input_tok=2000),
+            make_session(session_id="s1", model="claude-opus-4-6", input_tok=1000),
+            make_session(session_id="s2", model="claude-sonnet-4-6", input_tok=2000),
         ]
         result = _render_token_pie(sessions, 7, model_tier)
         self.assertIn("Opus", result)
@@ -66,14 +52,14 @@ class TestRenderTimeline(unittest.TestCase):
         # the assertion is derived from the fixture, not duplicated as a literal.
         fixture_start = "2026-04-16T10:00:00Z"
         expected_date = fixture_start[:10]  # "2026-04-16"
-        sessions = [_make_session(start=fixture_start)]
+        sessions = [make_session(start=fixture_start)]
         result = _render_timeline(sessions, 7, compute_cost, model_tier)
         self.assertIn("gantt", result)
         self.assertIn("dateFormat YYYY-MM-DD", result)
         self.assertIn(expected_date, result)
 
     def test_duration_in_days(self):
-        sessions = [_make_session()]
+        sessions = [make_session()]
         result = _render_timeline(sessions, 7, compute_cost, model_tier)
         # Duration must use 'd' suffix, not 'm'
         self.assertRegex(result, r"\d+d")
@@ -81,7 +67,7 @@ class TestRenderTimeline(unittest.TestCase):
 
     def test_task_id_sanitized(self):
         # Session ID with hyphens should produce valid Mermaid task IDs
-        sessions = [_make_session(session_id="abc-def-ghi-123")]
+        sessions = [make_session(session_id="abc-def-ghi-123")]
         result = _render_timeline(sessions, 7, compute_cost, model_tier)
         # ID should not contain hyphens
         import re

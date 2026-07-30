@@ -7,8 +7,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
-from core.yamlio import dump_config as _dump_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END
+from core.auth import build_outlook_service
+from core.cli_errors import CLIError, ExitCode
+from core.cli_output import OutputWriter
+from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
+from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME
 
 from core.date_utils import to_iso_str as _to_iso_str  # noqa: F401
 
@@ -128,10 +131,13 @@ class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
 class PlanProducer(BaseProducer):
     """Produce output for plan generation with automatic error handling."""
 
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def _produce_success(self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         _dump_yaml(str(payload.out_path), payload.document)
         events = payload.document.get("events", [])
-        print(f"Wrote plan with {len(events)} events to {payload.out_path}")
+        self._writer.print(f"Wrote plan with {len(events)} events to {payload.out_path}")
 
 
 def _should_create_oneoff(
@@ -340,11 +346,11 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         # Validate inputs
         events, err = _load_plan_events(payload.plan_path)
         if err or events is None:
-            raise ValueError(err or _ERR_NO_PLAN_EVENTS)
+            raise CLIError(err or _ERR_NO_PLAN_EVENTS, ExitCode.ERROR)
         if not payload.calendar:
-            raise ValueError("--calendar is required")
+            raise CLIError("--calendar is required", ExitCode.USAGE)
         if not (payload.from_date and payload.to_date):
-            raise ValueError("--from and --to are required (YYYY-MM-DD)")
+            raise CLIError("--from and --to are required (YYYY-MM-DD)", ExitCode.USAGE)
 
         # Build plan keys
         match_mode = payload.match or "subject-time"
@@ -355,14 +361,14 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         # Connect to Outlook
         svc, err = _build_outlook_service(payload.auth)
         if err:
-            raise RuntimeError(err)
+            raise CLIError(err, ExitCode.AUTH_ERROR)
         cal_id = svc.ensure_calendar(payload.calendar)
 
         try:
             start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
             end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
-        except Exception:
-            raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD")
+        except (ValueError, TypeError):
+            raise CLIError("Invalid --from/--to date format; expected YYYY-MM-DD", ExitCode.USAGE)
 
         from calendars.outlook_service import ListEventsRequest
         occ = svc.list_events_in_range(ListEventsRequest(
@@ -409,7 +415,7 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
         # Execute deletes
         raw_client = getattr(svc, "client", None)
         if raw_client is None:
-            raise RuntimeError("Outlook client unavailable; cannot delete events.")
+            raise CLIError("Outlook client unavailable; cannot delete events.", ExitCode.ERROR)
 
         deleted = _execute_sync_deletes(
             raw_client, cal_id, payload, to_delete_occurrence_ids, to_delete_series_master_ids
@@ -422,9 +428,12 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
 class SyncProducer(BaseProducer):
     """Produce output for sync operations with automatic error handling."""
 
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def _produce_success(self, payload: SyncResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         for line in payload.lines:
-            print(line)
+            self._writer.print(line)
 
 
 @dataclass
@@ -474,22 +483,98 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
             f"Provider: {provider}",
         ]
         if provider != "outlook":
-            raise ValueError("Unsupported provider for apply. Use --provider outlook.")
+            raise CLIError("Unsupported provider for apply. Use --provider outlook.", ExitCode.USAGE)
 
         svc, err = _build_outlook_service(payload.auth)
         if err:
-            raise RuntimeError(err)
+            raise CLIError(err, ExitCode.AUTH_ERROR)
 
         rc, logs = _apply_outlook_events(events, calendar_name=calendar_name, service=svc)
         lines.extend(logs)
         if rc != 0:
-            raise RuntimeError("\n".join(logs))
+            raise CLIError("\n".join(logs), ExitCode.ERROR)
         return ApplyResult(lines=lines)
 
 
 class ApplyProducer(BaseProducer):
     """Produce output for apply operations with automatic error handling."""
 
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
     def _produce_success(self, payload: ApplyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         for line in payload.lines:
-            print(line)
+            self._writer.print(line)
+
+
+# ---------------------------------------------------------------------------
+# Export pipeline (C2: wrap Outlook API calls in SafeProcessor/BaseProducer)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ExportScheduleRequest:
+    """Request to export Outlook calendar events to plan YAML."""
+
+    service: Any
+    cal_name: str
+    start_iso: str
+    end_iso: str
+    out_path: Path
+
+
+# Type alias using generic RequestConsumer from core.pipeline
+ExportScheduleRequestConsumer = RequestConsumer[ExportScheduleRequest]
+
+
+@dataclass
+class ExportScheduleResult:
+    """Result of exporting calendar events."""
+
+    rows: List[Dict[str, Any]]
+    cal_name: str
+    out_path: Path
+
+
+class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportScheduleResult]):
+    """Fetch and transform Outlook calendar events for export."""
+
+    def _process_safe(self, payload: ExportScheduleRequest) -> ExportScheduleResult:
+        from calendars.outlook_service import ListEventsRequest
+
+        evs = payload.service.list_events_in_range(ListEventsRequest(
+            start_iso=payload.start_iso,
+            end_iso=payload.end_iso,
+            calendar_name=payload.cal_name,
+            top=800,
+        ))
+
+        rows: List[Dict[str, Any]] = []
+        for ev in evs:
+            sub = (ev.get("subject") or "").strip()
+            st = ((ev.get("start") or {}).get("dateTime") or "").strip()
+            en = ((ev.get("end") or {}).get("dateTime") or "").strip()
+            loc = (ev.get("location") or {}).get("displayName") or ""
+            if not sub or not st or not en:
+                continue
+            rows.append({"calendar": payload.cal_name, "subject": sub, "start": st, "end": en, "location": loc})
+
+        rows.sort(key=lambda ev: ev.get("start", ""))
+        return ExportScheduleResult(rows=rows, cal_name=payload.cal_name, out_path=payload.out_path)
+
+
+class ExportScheduleProducer(BaseProducer):
+    """Write export results to YAML and print summary."""
+
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        self._writer = writer or OutputWriter()
+
+    def _produce_success(self, payload: ExportScheduleResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+        _dump_yaml(str(payload.out_path), {"events": payload.rows})
+        self._writer.print(
+            f"Exported {len(payload.rows)} events from '{payload.cal_name}' to {payload.out_path}"
+        )
+        self._writer.print(
+            "Note: export writes occurrences as one-offs for backup. "
+            "Use verify/sync to manage plan application."
+        )
+

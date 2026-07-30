@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from core.cli_errors import CLIError, ExitCode
 from telemetry.otel.reader import OTLPDataDir
 
 
@@ -71,7 +72,7 @@ def require_otel_infrastructure() -> None:
     """Ensure OTel infrastructure exists, exit cleanly if not.
 
     Raises:
-        SystemExit: with code 1 if infrastructure is not available.
+        CLIError: with ExitCode.ERROR if infrastructure is not available.
     """
     if not check_otel_infrastructure():
-        sys.exit(1)
+        raise CLIError("OTel infrastructure not available.", ExitCode.ERROR)

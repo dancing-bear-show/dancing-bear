@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.cli_errors import CLIError, ExitCode
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 from .backup import find_latest_backup_dir, find_iconstate_file, load_plist
 from .layout import NormalizedLayout, normalize_iconstate
 
 
-@dataclass
-class LayoutLoadError(Exception):
-    code: int
-    message: str
+class LayoutLoadError(CLIError):
+    """Raised when the iOS layout cannot be loaded from a backup or file."""
+
+    def __init__(self, code: int, message: str) -> None:
+        exit_code = ExitCode(code) if code in list(ExitCode) else ExitCode.ERROR
+        super().__init__(message, exit_code)
 
     def __str__(self) -> str:  # pragma: no cover - simple formatting
         return self.message

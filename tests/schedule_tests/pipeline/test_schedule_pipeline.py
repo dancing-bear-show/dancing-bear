@@ -1,7 +1,7 @@
 import datetime as dt
 import io
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest import TestCase
 
@@ -72,7 +72,7 @@ class SchedulePipelineTests(TestCase):
     def test_plan_producer_handles_error_envelope(self):
         env = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             PlanProducer().produce(env)
         self.assertIn("Something went wrong", buf.getvalue())
 
@@ -544,7 +544,7 @@ class VerifyProducerTests(TestCase):
     def test_produce_error(self):
         env = ResultEnvelope(status="error", diagnostics={"message": "Verify failed"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             VerifyProducer().produce(env)
         self.assertIn("Verify failed", buf.getvalue())
 
@@ -565,7 +565,7 @@ class SyncProducerTests(TestCase):
     def test_produce_error(self):
         env = ResultEnvelope(status="error", diagnostics={"message": "Sync failed"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             SyncProducer().produce(env)
         self.assertIn("Sync failed", buf.getvalue())
 
@@ -585,6 +585,6 @@ class ApplyProducerTests(TestCase):
     def test_produce_error(self):
         env = ResultEnvelope(status="error", diagnostics={"message": "Apply failed"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             ApplyProducer().produce(env)
         self.assertIn("Apply failed", buf.getvalue())

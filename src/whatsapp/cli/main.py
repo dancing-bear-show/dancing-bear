@@ -12,6 +12,7 @@ from typing import Optional
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
+from core.cli_output import OutputFormat
 
 from ..meta import APP_ID, PURPOSE
 from ..pipeline import SearchProcessor, SearchProducer, SearchRequest, SearchRequestConsumer
@@ -63,6 +64,7 @@ def cmd_search(args) -> int:
     elif getattr(args, "from_them", False):
         from_me_filter = False
 
+    fmt = OutputFormat.JSON if getattr(args, "json", False) else OutputFormat.TEXT
     request = SearchRequest(
         db_path=getattr(args, "db", None),
         contains=getattr(args, "contains", None) or [],
@@ -71,7 +73,7 @@ def cmd_search(args) -> int:
         from_me=from_me_filter,
         since_days=getattr(args, "since_days", None),
         limit=max(1, int(getattr(args, "limit", 50) or 50)),
-        emit_json=getattr(args, "json", False),
+        output_format=fmt,
     )
 
     envelope = SearchProcessor().process(SearchRequestConsumer(request).consume())

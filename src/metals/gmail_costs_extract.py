@@ -379,6 +379,7 @@ class GmailCostExtractor(CostExtractor):
             rows = self._process_order_to_rows(order)
             out_rows.extend(rows)
 
+        self.last_row_count = len(out_rows)
         if out_rows:
             write_costs_csv(self.out_path, out_rows)
             print(f"wrote {self.out_path} rows={len(out_rows)}")

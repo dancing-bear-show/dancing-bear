@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import unittest
+from io import StringIO
+from unittest.mock import patch
 
-from core.pipeline import ResultEnvelope
+from core.cli_output import OutputWriter, OutputConfig
+from core.pipeline import BaseProducer, ResultEnvelope, SafeProcessor
 
 
 class TestResultEnvelopeUnwrap(unittest.TestCase):
@@ -96,6 +99,102 @@ class TestResultEnvelopeOk(unittest.TestCase):
         """Test ok() returns False for 'failed' status."""
         envelope = ResultEnvelope(status="failed")
         self.assertFalse(envelope.ok())
+
+
+class TestBaseProducerConstruction(unittest.TestCase):
+    """C6: BaseProducer construction and OutputWriter injection."""
+
+    def test_zero_arg_construction_succeeds(self):
+        """BaseProducer() with no args creates a default OutputWriter."""
+        producer = BaseProducer()
+        self.assertIsInstance(producer._writer, OutputWriter)
+
+    def test_default_writer_is_fresh_instance(self):
+        """Two zero-arg constructions each get their own OutputWriter."""
+        p1 = BaseProducer()
+        p2 = BaseProducer()
+        self.assertIsNot(p1._writer, p2._writer)
+
+    def test_injected_writer_is_used(self):
+        """BaseProducer(writer=custom) stores and uses the injected writer."""
+        buf = StringIO()
+        custom = OutputWriter(OutputConfig(file=buf))
+        producer = BaseProducer(writer=custom)
+        self.assertIs(producer._writer, custom)
+
+    def test_print_error_goes_to_stderr_not_stdout(self):
+        """C6 contract: print_error() output goes to stderr, not stdout.
+
+        This is the canonical test pinning the C6 routing change — other
+        domains' tests broke on exactly this boundary (stdout vs stderr).
+        """
+        stderr_buf = StringIO()
+        stdout_buf = StringIO()
+        producer = BaseProducer()
+        failed = ResultEnvelope(status="error", diagnostics={"message": "boom"})
+
+        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf):
+            producer.print_error(failed)
+
+        self.assertIn("boom", stderr_buf.getvalue())
+        self.assertEqual(stdout_buf.getvalue(), "")
+
+    def test_produce_error_message_goes_to_stderr(self):
+        """produce() routes error-path message to stderr via the writer."""
+        stderr_buf = StringIO()
+        stdout_buf = StringIO()
+        producer = BaseProducer()
+        failed = ResultEnvelope(status="error", diagnostics={"message": "produce-error"})
+
+        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf):
+            producer.produce(failed)
+
+        self.assertIn("produce-error", stderr_buf.getvalue())
+        self.assertEqual(stdout_buf.getvalue(), "")
+
+    def test_produce_success_delegates_to_subclass(self):
+        """produce() calls _produce_success on happy path."""
+        calls = []
+
+        class TrackingProducer(BaseProducer):
+            def _produce_success(self, payload, diagnostics):
+                calls.append(payload)
+
+        producer = TrackingProducer()
+        producer.produce(ResultEnvelope(status="success", payload="mydata"))
+        self.assertEqual(calls, ["mydata"])
+
+    def test_print_logs_uses_injected_writer(self):
+        """print_logs() writes to the injected writer's stream, not bare print."""
+        buf = StringIO()
+        custom = OutputWriter(OutputConfig(file=buf))
+        producer = BaseProducer(writer=custom)
+        producer.print_logs(["line1", "line2"])
+        output = buf.getvalue()
+        self.assertIn("line1", output)
+        self.assertIn("line2", output)
+
+
+class TestSafeProcessorBasic(unittest.TestCase):
+    """SafeProcessor wraps _process_safe with error handling."""
+
+    def test_success_path_returns_envelope_ok(self):
+        class OkProcessor(SafeProcessor):
+            def _process_safe(self, payload):
+                return payload * 2
+
+        result = OkProcessor().process(5)
+        self.assertTrue(result.ok())
+        self.assertEqual(result.payload, 10)
+
+    def test_exception_path_returns_error_envelope(self):
+        class BoomProcessor(SafeProcessor):
+            def _process_safe(self, payload):
+                raise ValueError("oops")
+
+        result = BoomProcessor().process("anything")
+        self.assertFalse(result.ok())
+        self.assertIn("oops", result.diagnostics.get("message", ""))
 
 
 if __name__ == "__main__":

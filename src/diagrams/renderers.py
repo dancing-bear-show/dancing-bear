@@ -6,6 +6,36 @@ LocalRenderer: renders via local mmdc CLI (requires @mermaid-js/mermaid-cli).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
+from core.cli_errors import CLIError, ExitCode
+
+
+@dataclass(frozen=True)
+class RenderRequest:
+    """Request to render a Mermaid diagram to a file.
+
+    output_format: format override; inferred from output extension when None.
+    """
+
+    source: str
+    output: str
+    output_format: str | None = None
+    background: str | None = None
+    theme: str | None = None
+    width: int | None = None
+    height: int | None = None
+    timeout: int = 60
+
+
+@dataclass(frozen=True)
+class RenderResult:
+    """Result of a successful diagram render."""
+
+    output_path: str
+    size_bytes: int
+
 
 class TextRenderer:
     """Render Mermaid diagrams as plain text or embedded code fences.
@@ -39,8 +69,11 @@ class TextRenderer:
         return f"```mermaid\n{content}\n```"
 
 
-class LocalRendererError(Exception):
+class LocalRendererError(CLIError):
     """Error raised by LocalRenderer when mmdc is unavailable or fails."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message=message, code=ExitCode.ERROR)
 
 
 class LocalRenderer:
@@ -257,3 +290,65 @@ class LocalRenderer:
             return True, None
         except LocalRendererError as e:
             return False, str(e)
+
+
+# ── Pipeline classes ──────────────────────────────────────────────────────────
+
+
+class RenderDiagramProcessor:
+    """SafeProcessor[RenderRequest, RenderResult] — renders a Mermaid diagram.
+
+    Wraps LocalRenderer.render_to_file() (which calls _run()) in the
+    SafeProcessor contract so cmd_render and cmd_validate can call via
+    run_pipeline().  LocalRenderer itself is not renamed — it is an
+    implementation detail, not a pipeline class.
+    """
+
+    def _process_safe(self, payload: RenderRequest) -> RenderResult:
+        """Render diagram and return RenderResult; raises LocalRendererError on failure.
+
+        output_format=None defers format inference to LocalRenderer._infer_format().
+        """
+        renderer = LocalRenderer(timeout=payload.timeout)
+        renderer.render_to_file(
+            payload.source,
+            payload.output,
+            output_format=payload.output_format,
+            background=payload.background,
+            theme=payload.theme,
+            width=payload.width,
+            height=payload.height,
+        )
+        size = Path(payload.output).stat().st_size
+        return RenderResult(output_path=payload.output, size_bytes=size)
+
+    def process(self, payload: RenderRequest) -> object:
+        """Wrap _process_safe with error handling; returns a ResultEnvelope."""
+        from core.pipeline import ResultEnvelope
+        try:
+            result = self._process_safe(payload)
+            return ResultEnvelope(status="success", payload=result)
+        except Exception as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
+
+
+class RenderDiagramProducer:
+    """BaseProducer for RenderDiagramProcessor — emits render result via OutputWriter."""
+
+    def __init__(self) -> None:
+        from core.cli_output import OutputWriter
+        self._writer = OutputWriter()
+
+    def produce(self, result: object) -> None:
+        """Emit render result or error (accepts a ResultEnvelope)."""
+        if not result.ok():  # type: ignore[union-attr]
+            msg = (result.diagnostics or {}).get("message", "Render failed")  # type: ignore[union-attr]
+            self._writer.print_error(msg)
+            return
+        payload = result.payload  # type: ignore[union-attr]
+        if payload is not None:
+            self._produce_success(payload)
+
+    def _produce_success(self, payload: RenderResult) -> None:
+        """Emit success message with output path."""
+        self._writer.print(f"Rendered to: {payload.output_path}")

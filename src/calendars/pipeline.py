@@ -23,11 +23,15 @@ from .pipeline_base import (
 
 # Re-export Gmail pipelines
 from .gmail_pipelines import (
+    CalendarEvent,
     GmailReceiptsRequest,
     GmailReceiptsRequestConsumer,
+    GmailScanResult,
+    GmailScanProducer,
+    # Backwards-compatible aliases (C10 rename)
     GmailPlanResult,
-    GmailReceiptsProcessor,
     GmailPlanProducer,
+    GmailReceiptsProcessor,
     GmailScanClassesRequest,
     GmailScanClassesRequestConsumer,
     GmailScanClassesResult,
@@ -154,11 +158,14 @@ __all__ = [
     "MONTH_MAP",
     "DAY_MAP",
     # Gmail pipelines
+    "CalendarEvent",
     "GmailReceiptsRequest",
     "GmailReceiptsRequestConsumer",
-    "GmailPlanResult",
+    "GmailScanResult",
+    "GmailScanProducer",
+    "GmailPlanResult",  # backwards-compatible alias
+    "GmailPlanProducer",  # backwards-compatible alias
     "GmailReceiptsProcessor",
-    "GmailPlanProducer",
     "GmailScanClassesRequest",
     "GmailScanClassesRequestConsumer",
     "GmailScanClassesResult",

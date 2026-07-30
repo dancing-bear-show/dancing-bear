@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
+from core.cli_output import OutputFormat
 from core.pipeline import ResultEnvelope
 from wifi.diagnostics import DiagnoseConfig, DnsResult, Report
 from wifi.pipeline import (
@@ -45,7 +46,7 @@ class WifiPipelineTests(TestCase):
         report = _sample_report()
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "wifi.json"
-            payload = DiagnoseResult(report=report, emit_json=True, out_path=out_path)
+            payload = DiagnoseResult(report=report, output_format=OutputFormat.JSON, out_path=out_path)
             env = ResultEnvelope(status="success", payload=payload)
             buf = io.StringIO()
             with redirect_stdout(buf):

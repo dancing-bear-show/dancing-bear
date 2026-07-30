@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional
 
+from core.cli_errors import CLIError
 from core.http import HttpClient
 
 
-class AppleMusicError(RuntimeError):
+class AppleMusicCLIError(CLIError):
     """Raised when the Apple Music API returns an error."""
 
 
@@ -60,11 +61,11 @@ class AppleMusicClient:
             r = exc.response
             status = r.status_code if r is not None else "?"
             body = r.text if r is not None else ""
-            raise AppleMusicError(f"{status} from Apple Music: {body}") from exc
+            raise AppleMusicCLIError(f"{status} from Apple Music: {body}") from exc
         try:
             return resp.json()
         except Exception as exc:  # pragma: no cover - defensive
-            raise AppleMusicError(f"Invalid JSON from Apple Music: {resp.text}") from exc
+            raise AppleMusicCLIError(f"Invalid JSON from Apple Music: {resp.text}") from exc
 
     def _paginate(
         self, path: str, params: Optional[Dict[str, object]] = None, limit: Optional[int] = None

@@ -104,21 +104,6 @@ def resolve_outlook_credentials(
     return resolved_client, resolved_tenant, resolved_token
 
 
-def build_outlook_service_from_config(
-    config: OutlookServiceConfig,
-    context_cls=None,
-    service_cls=None,
-):
-    """Instantiate OutlookService using OutlookServiceConfig."""
-    from calendars.context import OutlookContext as DefaultContext
-    from calendars.outlook_service import OutlookService as DefaultService
-
-    context_cls = context_cls or DefaultContext
-    service_cls = service_cls or DefaultService
-    cid, ten, tok = resolve_outlook_credentials(config.profile, config.client_id, config.tenant, config.token_path)
-    return service_cls(context_cls(client_id=cid, tenant=ten, token_path=tok, profile=config.profile))
-
-
 def build_outlook_service(
     profile: Optional[str] = None,
     client_id: Optional[str] = None,
@@ -127,14 +112,34 @@ def build_outlook_service(
     context_cls=None,
     service_cls=None,
 ):
-    """Instantiate OutlookService with a shared resolver (legacy signature)."""
-    config = OutlookServiceConfig(
-        profile=profile,
-        client_id=client_id,
-        tenant=tenant,
-        token_path=token_path,
+    """Instantiate an OutlookService using the shared credential resolver."""
+    from calendars.context import OutlookContext as DefaultContext
+    from calendars.outlook_service import OutlookService as DefaultService
+
+    context_cls = context_cls or DefaultContext
+    service_cls = service_cls or DefaultService
+    cid, ten, tok = resolve_outlook_credentials(profile, client_id, tenant, token_path)
+    return service_cls(context_cls(client_id=cid, tenant=ten, token_path=tok, profile=profile))
+
+
+def build_outlook_service_from_config(
+    config: OutlookServiceConfig,
+    context_cls=None,
+    service_cls=None,
+):
+    """Instantiate OutlookService using OutlookServiceConfig.
+
+    Thin wrapper around the canonical ``build_outlook_service`` so callers
+    that hold a config object don't need to unpack it themselves.
+    """
+    return build_outlook_service(
+        profile=config.profile,
+        client_id=config.client_id,
+        tenant=config.tenant,
+        token_path=config.token_path,
+        context_cls=context_cls,
+        service_cls=service_cls,
     )
-    return build_outlook_service_from_config(config, context_cls=context_cls, service_cls=service_cls)
 
 
 def build_gmail_service(

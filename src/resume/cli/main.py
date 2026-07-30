@@ -19,9 +19,11 @@ from pathlib import Path
 from typing import List, Optional
 
 from core.assistant import BaseAssistant
+from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json, write_text
+from ..model import CandidateData
 from ..parsing import parse_linkedin_text, parse_resume_text, merge_profiles
 from ..summarizer import build_summary
 from ..templating import load_template, parse_seed_criteria
@@ -126,7 +128,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
             rs = parse_resume_pdf(args.resume)
         else:
             rs = parse_resume_text(resume_text) if resume_text else {}
-    data = merge_profiles(li, rs)
+    data: CandidateData = merge_profiles(li, rs)
     out_path = _resolve_out(args, EXT_JSON, kind="data")
     write_yaml_or_json(data, out_path)
     return 0
@@ -193,7 +195,7 @@ def _try_load_structure(path: Path) -> Optional[dict]:
         return None
     try:
         return read_yaml_or_json(str(path))
-    except Exception:
+    except Exception:  # nosec B110 - best-effort structure load; returns None on any failure
         return None
 
 
@@ -288,7 +290,7 @@ def cmd_render(args: argparse.Namespace) -> int:
     out_docx = _resolve_out(args, ".docx", kind="resume")
     out_suf = out_docx.suffix.lower()
     if out_suf == ".pdf":
-        raise RuntimeError("PDF rendering planned for future; use .docx output.")
+        raise CLIError("PDF rendering planned for future; use .docx output.", ExitCode.USAGE)
     # default to docx
     # Ensure parent directory exists for nested profile layout
     try:

@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from wifi.diagnostics import (
     CommandResult,
-    CommandRunner,
     DiagnoseConfig,
     DiagnoseResults,
     DnsResult,
@@ -49,20 +48,7 @@ from wifi.diagnostics import (
     run_diagnosis,
     trace_route,
 )
-
-
-class FakeRunner(CommandRunner):
-    """Fake runner for tests."""
-    def __init__(self, responses=None):
-        self.responses = responses or {}
-        self.calls = []
-
-    def run(self, cmd, timeout=None):
-        self.calls.append(cmd)
-        key = cmd[0]
-        if key in self.responses:
-            return self.responses[key]
-        return CommandResult(stdout="", stderr="not found", returncode=127)
+from tests.wifi_tests.shared_fixtures import FakeRunner
 
 
 class TestSubprocessRunner(unittest.TestCase):

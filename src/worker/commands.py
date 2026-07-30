@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from core.cli_output import emit_one
+from core.cli_errors import CLIError, ExitCode, UsageError
+from core.cli_output import OutputWriter, emit_one
+from core.pipeline import BaseProducer, RequestConsumer, ResultEnvelope, SafeProcessor
 from worker._helpers import (
     DATE_FORMAT_YMD,
     ISO_DATETIME_FORMAT,
@@ -92,6 +94,22 @@ class JobContext:
         )
 
 
+@dataclass
+class JobRequest:
+    """Request payload for a single job invocation."""
+
+    job_id: str
+    payload: dict[str, object]
+
+
+@dataclass
+class JobResult:
+    """Result of a single job invocation."""
+
+    outcome: str
+    logs: list[str]
+
+
 # ============================================================================
 # Outcome dispatch
 # ============================================================================
@@ -141,6 +159,69 @@ def _handle_outcome(
 
 
 # ============================================================================
+# SafeProcessor / BaseProducer pipeline wrappers
+# ============================================================================
+
+
+class JobSafeProcessor(SafeProcessor[JobRequest, JobResult]):
+    """SafeProcessor wrapper for a single job invocation.
+
+    Delegates to the registered handler for the job type and returns a
+    JobResult carrying the outcome string and any log lines.
+    """
+
+    def __init__(self, job_type: str, job_data: dict[str, object]) -> None:
+        self._job_type = job_type
+        self._job_data = job_data
+
+    def _process_safe(self, payload: JobRequest) -> JobResult:
+        """Invoke the handler and return a JobResult; raises on unrecoverable error."""
+        handler = HANDLERS.get(self._job_type)
+        if not handler:
+            raise UsageError(f"unknown handler: {self._job_type}")
+        success, out = handler(self._job_data)
+        outcome = "success" if success else str(out)
+        logs: list[str] = [str(out)] if out else []
+        return JobResult(outcome=outcome, logs=logs)
+
+
+class JobResultProducer(BaseProducer):
+    """BaseProducer that dispatches a completed JobResult to the queue outcome handler."""
+
+    def __init__(
+        self,
+        proc_path: Path,
+        ctx: JobContext,
+        duration: int,
+        command: str,
+        config: WorkerConfig,
+        writer: OutputWriter | None = None,
+    ) -> None:
+        self._proc_path = proc_path
+        self._ctx = ctx
+        self._duration = duration
+        self._command = command
+        self._config = config
+        self._writer = writer or OutputWriter()
+
+    def _produce_success(
+        self, payload: JobResult, diagnostics: dict[str, object] | None
+    ) -> None:
+        """Dispatch outcome to queue operations based on the outcome string."""
+        success = payload.outcome == "success"
+        out_val: object = payload.outcome if not success else payload.logs[0] if payload.logs else True
+        _handle_outcome(
+            self._proc_path,
+            self._ctx,
+            success,
+            out_val,
+            self._duration,
+            self._command,
+            self._config,
+        )
+
+
+# ============================================================================
 # Job Processor
 # ============================================================================
 
@@ -148,7 +229,7 @@ def _handle_outcome(
 class JobProcessor:
     """Processes individual jobs from the queue."""
 
-    def __init__(self, config: WorkerConfig, command: str):
+    def __init__(self, config: WorkerConfig, command: str) -> None:
         """Initialize processor with configuration."""
         self.config = config
         self.command = command
@@ -179,7 +260,7 @@ class JobProcessor:
             base_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
             job_data = {**job_data, "payload": {**base_payload, "timeout": job_timeout_sec}}
 
-        # Check for handler
+        # Check for handler — unknown type is a terminal failure, no retry.
         handler = HANDLERS.get(ctx.job_type)
         if not handler:
             q.finish(
@@ -193,17 +274,21 @@ class JobProcessor:
             )
             return 1
 
-        # Execute handler; always call finish/retry even on exception or signal kill.
-        try:
-            success, out = handler(job_data)
-        except Exception as exc:  # noqa: BLE001 - intentional broad catch; must not strand job
-            duration = int((time.time() - st) * 1000)
+        # Execute handler via JobSafeProcessor; always call finish/retry even on exception.
+        request = JobRequest(job_id=str(job_data.get("id") or ""), payload=dict(job_data.get("payload") or {}))
+        processor = JobSafeProcessor(ctx.job_type, job_data)
+        envelope: ResultEnvelope[JobResult] = processor.process(RequestConsumer(request).consume())
+
+        duration = int((time.time() - st) * 1000)
+
+        if not envelope.ok():
+            # SafeProcessor caught an exception — treat as handler-raised error.
+            reason = (envelope.diagnostics or {}).get("message", "handler raised: unknown error")
             attempts = ctx.attempts + 1
-            reason = f"handler raised: {exc}"
             if attempts >= ctx.max_attempts:
-                q.finish(proc_path, success=False, error_msg=reason)
+                q.finish(proc_path, success=False, error_msg=str(reason))
             else:
-                q.retry(proc_path, delay_sec=self.config.backoff, reason=reason)
+                q.retry(proc_path, delay_sec=self.config.backoff, reason=str(reason))
             log_perf_jsonl(
                 "worker",
                 duration,
@@ -212,10 +297,8 @@ class JobProcessor:
             )
             return 1
 
-        duration = int((time.time() - st) * 1000)
-        _handle_outcome(
-            proc_path, ctx, success, out, duration, self.command, self.config
-        )
+        producer = JobResultProducer(proc_path, ctx, duration, self.command, self.config)
+        producer.produce(envelope)
         return 1
 
 
@@ -372,20 +455,23 @@ class StatusCommand:
     """Show queue status with optional throughput metrics."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args, writer: OutputWriter | None = None) -> int:
         """Execute status command."""
         s = q.status(root=q.QUEUE_ROOT)
 
         if getattr(args, "text", False) and not getattr(args, "json", False):
-            StatusCommand._print_text_status(s, args)
+            StatusCommand._print_text_status(s, args, writer=writer)
         else:
             emit_one(s)
 
         return 0
 
     @staticmethod
-    def _print_text_status(status: dict[str, object], args) -> None:
+    def _print_text_status(
+        status: dict[str, object], args, writer: OutputWriter | None = None
+    ) -> None:
         """Print human-readable status."""
+        out = writer or OutputWriter()
         nxt = status.get("next_scheduled_in_sec")
         nxt_txt = f"{nxt}s" if nxt is not None else "-"
         counts: dict[str, object] = (
@@ -412,7 +498,7 @@ class StatusCommand:
             if throughput_line:
                 lines.append(throughput_line)
 
-        print("\n".join(lines))
+        out.print("\n".join(lines))
 
     @staticmethod
     def _calculate_throughput() -> str | None:
@@ -452,19 +538,19 @@ class ShowCommand:
     """Show a job by ID."""
 
     @staticmethod
-    def run(args) -> int:
+    def run(args, writer: OutputWriter | None = None) -> int:
         """Execute show command."""
+        out = writer or OutputWriter()
         jid = str(args.id)
         root = q.QUEUE_ROOT
 
         for folder in ["pending", "processing", "done", "error"]:
             p = root / folder / f"{jid}.json"
             if p.exists():
-                print(p.read_text(encoding="utf-8"))
+                out.print(p.read_text(encoding="utf-8"))
                 return 0
 
-        print("Job not found", file=os.sys.stderr)
-        return 1
+        raise CLIError(f"Job not found: {jid}", code=ExitCode.NOT_FOUND)
 
 
 class RequeueErrorsCommand:
@@ -551,8 +637,7 @@ class RetryCommand:
         p = q.find_job_path_by_id(jid, root=q.QUEUE_ROOT)
 
         if not p or p.parent.name != "error":
-            print("Job not found in error/", file=os.sys.stderr)
-            return 1
+            raise CLIError(f"Job {jid!r} not found in error/", code=ExitCode.NOT_FOUND)
 
         np = q.requeue_error(
             p,

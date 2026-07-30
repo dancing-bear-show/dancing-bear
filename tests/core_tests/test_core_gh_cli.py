@@ -18,6 +18,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from core.cli_errors import CLIError
 from core.gh_cli import GhCLI
 
 
@@ -134,15 +135,15 @@ class TestGhCLIApi(unittest.TestCase):
         self.assertIn("state=all", call_args)
         self.assertIn("per_page=100", call_args)
 
-    def test_api_failure_raises_runtime_error(self):
-        """Test that API failure raises RuntimeError."""
+    def test_api_failure_raises_cli_error(self):
+        """Test that API failure raises CLIError."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="Not Found"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises(CLIError) as ctx:
             cli.api("/repos/nonexistent/repo")
 
         self.assertIn("Not Found", str(ctx.exception))
@@ -224,15 +225,15 @@ class TestGhCLISearchPrs(unittest.TestCase):
 
         self.assertEqual(result, "a warning line, not json")
 
-    def test_search_prs_failure_raises_runtime_error(self):
-        """Test that search failure raises RuntimeError."""
+    def test_search_prs_failure_raises_cli_error(self):
+        """Test that search failure raises CLIError."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="Search failed"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(CLIError):
             cli.search_prs(author="@me")
 
 
@@ -511,15 +512,15 @@ class TestGhCLIPrView(unittest.TestCase):
         # Should return raw text on parse error
         self.assertEqual(result, "not valid json")
 
-    def test_pr_view_failure_raises_runtime_error(self):
-        """Test that PR view failure raises RuntimeError."""
+    def test_pr_view_failure_raises_cli_error(self):
+        """Test that PR view failure raises CLIError."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="PR not found"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(CLIError):
             cli.pr_view("999")
 
 
@@ -543,15 +544,15 @@ class TestGhCLIPrList(unittest.TestCase):
             ["gh", "pr", "list", "--state", "all", "--json", "number"],
         )
 
-    def test_pr_list_failure_raises_runtime_error(self):
-        """Test that PR list failure raises RuntimeError."""
+    def test_pr_list_failure_raises_cli_error(self):
+        """Test that PR list failure raises CLIError."""
         mock_run = MagicMock(return_value=_proc(
             returncode=1,
             stderr="Failed to list PRs"
         ))
         cli = GhCLI(run_func=mock_run)
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(CLIError):
             cli.pr_list(["pr", "list"])
 
     def test_pr_list_rejects_non_pr_list_cmd(self):

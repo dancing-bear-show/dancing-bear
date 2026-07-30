@@ -50,6 +50,12 @@ Schedule Importer (scaffold)
 - Creates the calendar if missing. Use `--dry-run` to preview.
   - Add `--no-reminder` to suppress event reminders/alerts when importing
 
+Pipeline Pattern
+- Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
+- `OutlookScanProcessor`/`OutlookScanProducer` added for Outlook scan commands; `GmailScanProducer` (renamed from `GmailPlanProducer`) handles Gmail scan output.
+- `CalendarProvider(Protocol)` in `importer/base.py` defines the provider contract; `CalendarEvent` dataclass is the shared event model.
+- All producer output routes through `OutputWriter`; `CalendarNotFoundError` subclasses `NotFoundError`.
+
 Location Format
 - Prefer: `Name (street, city, ST POSTAL)` or `Name at Facility street, city, ST POSTAL`.
 - Canadian postal codes with or without space are supported (e.g., `L4G 1J5`).

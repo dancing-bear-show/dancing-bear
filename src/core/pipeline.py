@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar
 
+from core.cli_output import OutputWriter
+
 
 PayloadT = TypeVar("PayloadT")
 ResultT = TypeVar("ResultT")
@@ -73,15 +75,19 @@ class BaseProducer:
     Example usage:
         class MyProducer(BaseProducer):
             def _produce_success(self, payload: MyResult, diagnostics: Optional[dict]) -> None:
-                print(f"Success: {payload.message}")
+                self._writer.print(f"Success: {payload.message}")
     """
+
+    def __init__(self, writer: OutputWriter | None = None) -> None:
+        """Initialise with an optional OutputWriter (defaults to a plain OutputWriter)."""
+        self._writer: OutputWriter = writer or OutputWriter()
 
     def produce(self, result: ResultEnvelope) -> None:
         """Template method: handle errors, delegate success to subclass."""
         if not result.ok():
             msg = (result.diagnostics or {}).get("message")
             if msg:
-                print(msg)
+                self._writer.print_error(msg)
             return
         if result.payload is not None:
             self._produce_success(result.payload, result.diagnostics)
@@ -90,21 +96,19 @@ class BaseProducer:
         """Override in subclass to handle successful result output."""
         raise NotImplementedError("Subclass must implement _produce_success")
 
-    @staticmethod
-    def print_error(result: ResultEnvelope) -> bool:
+    def print_error(self, result: ResultEnvelope) -> bool:
         """Print error message if result failed. Returns True if error was printed."""
         if result.ok():
             return False
         msg = (result.diagnostics or {}).get("message")
         if msg:
-            print(msg)
+            self._writer.print_error(msg)
         return True
 
-    @staticmethod
-    def print_logs(logs: List[str]) -> None:
+    def print_logs(self, logs: List[str]) -> None:
         """Print a list of log messages."""
         for line in logs:
-            print(line)
+            self._writer.print(line)
 
 
 class SafeProcessor(Generic[T, R]):

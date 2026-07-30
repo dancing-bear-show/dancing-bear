@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from core.cli_output import OutputFormat, OutputWriter
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
 from .search import MessageRow, format_rows_json, format_rows_text, search_messages
@@ -20,7 +21,7 @@ class SearchRequest:
     from_me: Optional[bool] = None
     since_days: Optional[int] = None
     limit: int = 50
-    emit_json: bool = False
+    output_format: OutputFormat = OutputFormat.TEXT
 
 
 # Type alias for backward compatibility
@@ -32,7 +33,7 @@ class SearchResult:
     """Container for search results and output preferences."""
 
     rows: List[MessageRow]
-    emit_json: bool = False
+    output_format: OutputFormat = OutputFormat.TEXT
 
 
 class SearchProcessor(SafeProcessor[SearchRequest, SearchResult]):
@@ -48,14 +49,18 @@ class SearchProcessor(SafeProcessor[SearchRequest, SearchResult]):
             since_days=payload.since_days,
             limit=payload.limit,
         )
-        return SearchResult(rows=rows, emit_json=payload.emit_json)
+        return SearchResult(rows=rows, output_format=payload.output_format)
 
 
 class SearchProducer(BaseProducer):
     """Output search results to stdout (text or JSON)."""
 
+    def __init__(self, writer: Optional[OutputWriter] = None) -> None:
+        super().__init__()
+        self._writer = writer or OutputWriter()
+
     def _produce_success(self, payload: SearchResult, diagnostics: Optional[Dict[str, Any]]) -> None:
-        if payload.emit_json:
-            print(format_rows_json(payload.rows))
+        if payload.output_format == OutputFormat.JSON:
+            self._writer.print(format_rows_json(payload.rows))
         else:
-            print(format_rows_text(payload.rows))
+            self._writer.print(format_rows_text(payload.rows))

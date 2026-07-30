@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import unittest
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 from unittest.mock import patch, MagicMock
 
@@ -15,6 +16,7 @@ from mail.auto.processors import (
     AutoApplyProcessor,
 )
 from mail.auto.consumers import (
+    AutoProposePayload,
     AutoSummaryPayload,
     AutoApplyPayload,
 )
@@ -456,6 +458,166 @@ class TestAutoApplyProcessor(unittest.TestCase):
         self.assertTrue(envelope.ok())
         # Should have 2 groups: LabelA (2 msgs) and LabelB (1 msg)
         self.assertEqual(len(envelope.payload.groups), 2)
+
+
+class TestAutoSummaryProcessorSadPath(unittest.TestCase):
+    """Sad-path coverage for AutoSummaryProcessor SafeProcessor wrapping."""
+
+    def test_raises_wraps_as_error_envelope(self):
+        """A non-dict proposal that raises on access is wrapped as ResultEnvelope error."""
+        # AutoSummaryProcessor._process_safe calls payload.proposal.get("messages") —
+        # passing a non-dict proposal triggers AttributeError.
+        payload = AutoSummaryPayload(proposal="not-a-dict")  # type: ignore[arg-type]
+        processor = AutoSummaryProcessor()
+        envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertEqual(envelope.status, "error")
+        self.assertIsNotNone(envelope.diagnostics)
+        self.assertIsInstance(envelope.diagnostics.get("message"), str)
+        self.assertIsNone(envelope.payload)
+
+
+class TestAutoApplyProcessorSadPath(unittest.TestCase):
+    """Sad-path coverage for AutoApplyProcessor SafeProcessor wrapping."""
+
+    def test_client_exception_wraps_in_error_envelope(self):
+        """A client failure inside _process_safe is wrapped as error envelope."""
+        from mail.auto.consumers import AutoApplyPayload
+        from unittest.mock import MagicMock
+
+        # Mock context whose get_gmail_client() raises
+        mock_ctx = MagicMock()
+        mock_ctx.get_gmail_client.return_value.authenticate.side_effect = RuntimeError(
+            "auth failed"
+        )
+
+        with patch("mail.applog.AppLogger") as MockLogger:
+            mock_logger = MagicMock()
+            mock_logger.start.return_value = "session_id"
+            MockLogger.return_value = mock_logger
+
+            payload = AutoApplyPayload(
+                context=mock_ctx,
+                proposal={"messages": [{"id": "m1", "add": ["Label"], "remove": [], "ts": 1000}]},
+                batch_size=10,
+                dry_run=False,
+                log_path="/dev/null",
+            )
+            processor = AutoApplyProcessor()
+            envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertEqual(envelope.status, "error")
+        self.assertIn("auth failed", envelope.diagnostics.get("message", ""))
+        self.assertIsNone(envelope.payload)
+        mock_ctx.get_gmail_client.assert_called_once()
+
+
+class TestAutoProposeProcessor(unittest.TestCase):
+    """Tests for AutoProposeProcessor — happy and sad paths.
+
+    Network calls are fully stubbed; no real Gmail credentials are used.
+    """
+
+    def _make_propose_payload(self, tmpdir: str, client) -> "AutoProposePayload":
+        """Build an AutoProposePayload with a stub context and temp output path."""
+        from tests.mail_tests.fixtures import FakeMailContext
+
+        ctx = FakeMailContext(gmail_client=client)
+        return AutoProposePayload(
+            context=ctx,
+            out_path=Path(tmpdir) / "proposal.json",
+            days=7,
+            pages=1,
+            protect=[],
+            log_path="/dev/null",
+        )
+
+    def test_happy_path_writes_proposal_file(self):
+        """AutoProposeProcessor writes a proposal JSON file on success."""
+        import json
+        import tempfile
+
+        # A promo message that classify_low_interest will flag.
+        promo_msg = _make_message(
+            "m1",
+            {"From": "store@example.com", "Subject": "Big Sale Today"},
+        )
+        # A normal message that should be filtered out.
+        normal_msg = _make_message(
+            "m2",
+            {"From": "friend@example.com", "Subject": "Lunch?"},
+        )
+
+        client = FakeAutoClient(
+            labels=[],
+            message_ids_by_query={"in:inbox": ["m1", "m2"]},
+            messages={"m1": promo_msg, "m2": normal_msg},
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            payload = self._make_propose_payload(tmpdir, client)
+
+            with (
+                patch("mail.utils.gmail_ops.fetch_messages_with_metadata") as mock_fetch,
+                patch("mail.applog.AppLogger") as MockLogger,
+            ):
+                mock_fetch.return_value = (["m1", "m2"], [promo_msg, normal_msg])
+                mock_logger = MagicMock()
+                mock_logger.start.return_value = "sid"
+                MockLogger.return_value = mock_logger
+
+                from mail.auto.processors import AutoProposeProcessor
+
+                processor = AutoProposeProcessor()
+                envelope = processor.process(payload)
+
+            self.assertTrue(envelope.ok())
+            result = envelope.payload
+            self.assertEqual(result.total_considered, 2)
+            self.assertEqual(result.selected_count, 1)
+            self.assertIn("in:inbox", result.query)
+            self.assertTrue(payload.out_path.exists())
+
+            doc = json.loads(payload.out_path.read_text())
+            self.assertEqual(doc["counts"]["selected"], 1)
+            self.assertEqual(len(doc["messages"]), 1)
+            mock_fetch.assert_called_once()
+
+    def test_sad_path_client_error_wraps_in_error_envelope(self):
+        """A client failure inside AutoProposeProcessor._process_safe surfaces as error envelope."""
+        import tempfile
+        from tests.mail_tests.fixtures import FakeMailContext
+
+        bad_client = MagicMock()
+        bad_client.authenticate.side_effect = RuntimeError("no credentials")
+        ctx = FakeMailContext(gmail_client=bad_client)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            payload = AutoProposePayload(
+                context=ctx,
+                out_path=Path(tmpdir) / "proposal.json",
+                days=7,
+                pages=1,
+                log_path="/dev/null",
+            )
+
+            with patch("mail.applog.AppLogger") as MockLogger:
+                mock_logger = MagicMock()
+                mock_logger.start.return_value = "sid"
+                MockLogger.return_value = mock_logger
+
+                from mail.auto.processors import AutoProposeProcessor
+
+                processor = AutoProposeProcessor()
+                envelope = processor.process(payload)
+
+        self.assertFalse(envelope.ok())
+        self.assertEqual(envelope.status, "error")
+        self.assertIn("no credentials", envelope.diagnostics.get("message", ""))
+        self.assertIsNone(envelope.payload)
+        bad_client.authenticate.assert_called_once()
 
 
 if __name__ == "__main__":
