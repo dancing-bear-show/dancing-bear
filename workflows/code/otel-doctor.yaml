@@ -66,7 +66,7 @@ stages:
         daemon").
 
       Check 3 — is this repo's otel-collector container up?
-        docker ps --filter "name=otel-collector" --format '{{"{{"}}.Names{{"}}"}}\t{{"{{"}}.Status{{"}}"}}\t{{"{{"}}.Ports{{"}}"}}'
+        docker ps --filter "name=otel-collector" --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
         The container name is "<project-dir-name>-otel-collector-1" (Docker
         Compose derives it from the directory name — differs per worktree).
         Failure signal: no row for this repo's directory name, or the row
