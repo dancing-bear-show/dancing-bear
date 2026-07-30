@@ -4,8 +4,13 @@ services:
     environment:
       - CENTRAL_OTLP_ENDPOINT=${CENTRAL_OTLP_ENDPOINT:-https://otlp.telemetry.devel.cpdev.cloud:4318}
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      # Defaults (4327/4328) avoid colliding with other local collectors on
+      # the standard 4317/4318 OTLP ports. Override via OTEL_GRPC_PORT /
+      # OTEL_HTTP_PORT if these also collide — keep OTEL_EXPORTER_OTLP_ENDPOINT
+      # (see src/telemetry/otel/health.py's setup message) in sync with
+      # whatever OTEL_GRPC_PORT resolves to.
+      - "${OTEL_GRPC_PORT:-4327}:4317"   # OTLP gRPC
+      - "${OTEL_HTTP_PORT:-4328}:4318"   # OTLP HTTP
     volumes:
       - ./configs/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml
       - otel-data:/data

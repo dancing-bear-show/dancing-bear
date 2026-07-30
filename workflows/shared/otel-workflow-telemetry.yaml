@@ -50,10 +50,10 @@ stages:
             find out -maxdepth 1 -type d -name "{target_workflow}-*"
           For each run workspace found (skip if none exist — note that in
           the output instead of failing):
-            ./bin/telemetry workflow-cost --workspace <run_workspace> --format json
+            ./bin/telemetry otel workflow-cost --workspace <run_workspace> --format json
             ./bin/workflow status <run_workspace> --format json
         If {target_workflow} is "*":
-          ./bin/telemetry workflow-cost --since {telemetry_since} --format json
+          ./bin/telemetry otel workflow-cost --since {telemetry_since} --format json
           (this aggregates across all runs under work_dir in one call — use
           it instead of enumerating individual workspaces)
 
@@ -78,9 +78,9 @@ stages:
 
       Step 4 — session-level tool/prompt patterns (for pattern mining, not
       per-run cost):
-        ./bin/telemetry sessions --since {telemetry_since} --format json --perf
-        ./bin/telemetry tools --since {telemetry_since} --format json
-        ./bin/telemetry prompts --since {telemetry_since} --format json --limit 200
+        ./bin/telemetry otel sessions --since {telemetry_since} --format json --perf
+        ./bin/telemetry otel tools --since {telemetry_since} --format json
+        ./bin/telemetry otel prompts --since {telemetry_since} --format json --limit 200
 
       Step 5 — write {workspace}/analysis/session-patterns.json:
         {
