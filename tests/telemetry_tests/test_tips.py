@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from tests.telemetry_tests.shared_fixtures import _evt, _make_blame, _make_tip, reset_seq
+from tests.telemetry_tests.shared_fixtures import _evt, reset_seq
 from telemetry.models import BlameTarget, SessionEvent, Tip
 from telemetry.tips import TipsEngine
 

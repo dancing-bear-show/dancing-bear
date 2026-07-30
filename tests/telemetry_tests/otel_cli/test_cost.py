@@ -5,8 +5,7 @@ from __future__ import annotations
 import io
 import json
 import unittest
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import patch
 
 from telemetry.otel.cli.cost import main

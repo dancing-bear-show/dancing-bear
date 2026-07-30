@@ -1,11 +1,8 @@
 """Tests for telemetry/_cli_sessions.py — session rendering helpers."""
 from __future__ import annotations
 
-import io
-import json
 import unittest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from datetime import datetime, timezone
 
 from rich.table import Table
 
@@ -22,7 +19,6 @@ from telemetry._cli_sessions import (
     _sessions_json_payload,
     _truncate_id,
 )
-from telemetry.models import SessionSummary
 
 
 # ---------------------------------------------------------------------------

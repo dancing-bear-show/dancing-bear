@@ -48,11 +48,17 @@ class TestSplitArgv(unittest.TestCase):
         self.assertIsNone(subcmd)
         self.assertFalse(show_help)
 
-    def test_flag_before_subcommand_goes_to_remaining(self):
-        # Flags before subcommand are treated as remaining
+    def test_flag_with_value_before_subcommand_is_not_supported(self):
+        # KNOWN LIMITATION, not desired behavior: _split_argv has no concept
+        # of "flags that take a value", so a value-taking flag placed before
+        # the subcommand (e.g. --format json) has its value ("json") mistaken
+        # for the subcommand. This isn't a supported invocation per the
+        # project's CLI conventions (flags always follow the subcommand,
+        # e.g. "telemetry otel cost --breakdown session"), so this test only
+        # pins the current parser's actual output for this unsupported input
+        # to catch accidental behavior changes — it does not assert this is
+        # correct or desired.
         subcmd, remaining, show_help = _split_argv(["--format", "json", "cost"])
-        # First non-flag positional is "json" (since "--format" starts with "-")
-        # Actually "json" is the first non-flag, so it becomes subcmd
         self.assertEqual(subcmd, "json")
         self.assertIn("cost", remaining)
 

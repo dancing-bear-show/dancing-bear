@@ -16,7 +16,6 @@ from telemetry._cli_agents import (
     _print_agents_csv,
     _print_agents_json,
 )
-from telemetry.models import AgentTokenRow
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from telemetry.otel.cli.compare import _format_delta, main

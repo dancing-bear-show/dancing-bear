@@ -1,6 +1,7 @@
 """Gap-fill tests for telemetry/rules.py — _deep_merge, validate_rules, load_rules."""
 from __future__ import annotations
 
+import builtins
 import tempfile
 import unittest
 from copy import deepcopy
@@ -8,6 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from telemetry.rules import DEFAULT_RULES, _deep_merge, load_rules, validate_rules
+
+_real_import = builtins.__import__
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +108,6 @@ class TestValidateRules(unittest.TestCase):
         self.assertIn("Could not load rules schema", errors[0])
 
     def test_validate_rules_with_mock_validator_returns_errors(self):
-        import json as _json
         import types
         fake_jsonschema = types.ModuleType("jsonschema")
 
@@ -133,8 +135,7 @@ class TestValidateRules(unittest.TestCase):
 def _make_import_error_for_jsonschema(name, *args, **kwargs):
     if name == "jsonschema":
         raise ImportError("no module named jsonschema")
-    import builtins
-    return builtins.__import__(name, *args, **kwargs)
+    return _real_import(name, *args, **kwargs)
 
 
 # ---------------------------------------------------------------------------

@@ -138,7 +138,7 @@ class TestIconTokenStream(unittest.TestCase):
         tokens = _icon_token_stream("$@")
         # Should produce at least one literal token
         lit_parts = [t for k, t in tokens if k == "lit"]
-        self.assertTrue(len(lit_parts) > 0)
+        self.assertGreater(len(lit_parts), 0)
         # The literal should contain the dollar sign (the matched group)
         combined = "".join(lit_parts)
         self.assertIn("$", combined)

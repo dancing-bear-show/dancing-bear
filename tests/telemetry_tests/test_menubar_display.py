@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 from telemetry._menubar_display import (
     _age_str,

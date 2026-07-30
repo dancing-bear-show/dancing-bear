@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import telemetry._menubar_app as _app_module
 from telemetry._menubar_app import (

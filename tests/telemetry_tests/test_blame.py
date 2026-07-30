@@ -5,7 +5,7 @@ import unittest
 
 from tests.telemetry_tests.shared_fixtures import _evt, _make_blame, reset_seq
 from telemetry.blame import BlameEngine
-from telemetry.models import BlameTarget, SessionEvent
+from telemetry.models import BlameTarget
 
 
 class TestBlameEngineAttribute(unittest.TestCase):
