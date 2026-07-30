@@ -158,12 +158,19 @@ stages:
       {workspace}/outputs/writeback-result.md noting "No revisions applied —
       original file at {target} left unchanged." Exit 0.
 
-      Otherwise: before writing back, verify {target} is a safe repo-relative
-      path — it must not be absolute (must not start with "/") and must not
-      contain a ".." path segment. If either check fails, write
+      Otherwise: before writing back, verify {target} is safe. A syntactic
+      check on the path string (rejecting absolute paths and ".." segments)
+      is not sufficient on its own — a repo-relative path can still be a
+      symlink pointing outside the repo. Resolve the real path and confirm
+      it stays within the repo root:
+        python3 -c "import os,sys; repo=os.path.realpath('.'); t=os.path.realpath(sys.argv[1]); sys.exit(0 if (t==repo or t.startswith(repo+os.sep)) else 1)" "{target}"
+      (run via the Bash tool). Also reject {target} outright if it is
+      absolute (starts with "/") or contains a ".." segment BEFORE running
+      the realpath check, as a cheap first filter. If either the syntactic
+      check or the realpath-containment check fails, write
       {workspace}/outputs/writeback-result.md noting "Writeback refused —
-      {target} is not a safe repo-relative path" and leave every file
-      unchanged. Exit 0.
+      {target} resolves outside the repository root (or the path itself is
+      unsafe)" and leave every file unchanged. Exit 0.
 
       If the path is safe: read {workspace}/context/target.md, strip the
       leading "# Critique Target: {target}" heading line and the surrounding
@@ -184,7 +191,7 @@ stages:
     agent:
       role: doc-writer
       model: sonnet
-      tools: [Read, Write, Edit]
+      tools: [Read, Write, Edit, Bash]
       access: read-write
     required: true
     writes_to:
