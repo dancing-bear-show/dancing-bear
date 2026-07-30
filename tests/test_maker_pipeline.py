@@ -19,7 +19,7 @@ from tests.fixtures import repo_root
 
 class MakerPipelineTests(TestCase):
     def setUp(self):
-        self.tools_root = repo_root() / "maker"
+        self.tools_root = repo_root() / "src" / "maker"
 
     def test_catalog_processor_discovers_tools(self):
         req = ToolCatalogRequest(tools_root=self.tools_root)

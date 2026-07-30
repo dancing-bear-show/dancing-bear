@@ -82,18 +82,18 @@ Familiarization Policy (Fast + Lean)
 - Avoid opening large YAML/JSON unless auditing derived vs canonical.
   - Canonical: `config/filters_unified.yaml` (single source of truth)
   - Derived/ephemeral (open only for audits): `out/**` (legacy `_out/**`), `backups/**`, exports
-- Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
+- Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
   1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
   2) Entry points: `bin/assistant`, `bin/mail-assistant`, `bin/calendar-assistant`, `bin/schedule-assistant`, `bin/phone`, `bin/whatsapp`
-  3) Shared helpers: `core/`
-  4) Mail config/DSL: `mail/dsl.py`, `mail/config_resolver.py`, `mail/utils/filters.py`
-  5) Providers/APIs: `mail/providers/*.py`, `mail/gmail_api.py`, `mail/outlook_api/`
+  3) Shared helpers: `src/core/`
+  4) Mail config/DSL: `src/mail/dsl.py`, `src/mail/config_resolver.py`, `src/mail/utils/filters.py`
+  5) Providers/APIs: `src/mail/providers/*.py`, `src/mail/gmail_api.py`, `src/mail/outlook_api/`
   6) Tests for shape: `tests/test_cli.py`, `tests/test_cli_filters.py`, `tests/test_workflows*.py`
 - Ripgrep quick searches (exclude heavy dirs):
-  - `rg -n "(def main\(|argparse|click)" mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
-  - `rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
-  - `rg -n "filters_unified.yaml|derive|audit|optimize" mail/ README.md -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
+  - `rg -n "(def main\(|argparse|click)" src/mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
+  - `rg -n "filters (plan|sync|export)|labels (plan|sync|export)" src/mail/ bin/ -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
+  - `rg -n "filters_unified.yaml|derive|audit|optimize" src/mail/ README.md -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
 
 Agentic Shortcuts
 - `./bin/assistant mail --agentic` or direct `./bin/mail-assistant --agentic` - compact agentic capsule from main parser

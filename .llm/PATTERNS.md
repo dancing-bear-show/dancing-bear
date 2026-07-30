@@ -53,21 +53,21 @@ Agentic Shortcuts (LLM CLI)
 Familiarization: Reading Order
 ```
 1) .llm/CONTEXT.md, .llm/DOMAIN_MAP.md, README.md
-2) bin/mail-assistant → mail/__main__.py
-3) mail/dsl.py, mail/config_resolver.py, mail/utils/filters.py
-4) mail/providers/*.py, mail/gmail_api.py, mail/outlook_api.py
+2) bin/mail-assistant → src/mail/__main__.py
+3) src/mail/dsl.py, src/mail/config_resolver.py, src/mail/utils/filters.py
+4) src/mail/providers/*.py, src/mail/gmail_api.py, src/mail/outlook_api.py
 5) tests/test_cli.py, tests/test_cli_filters.py, tests/test_workflows*.py
 ```
 
 Familiarization: Ripgrep Quick Searches (exclude heavy dirs)
 ```
-rg -n "(def main\(|argparse|click)" mail/ bin/ \
+rg -n "(def main\(|argparse|click)" src/mail/ bin/ \
   -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'
 
-rg -n "filters (plan|sync|export)|labels (plan|sync|export)" mail/ bin/ \
+rg -n "filters (plan|sync|export)|labels (plan|sync|export)" src/mail/ bin/ \
   -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'
 
-rg -n "filters_unified.yaml|derive|audit|optimize" mail/ README.md \
+rg -n "filters_unified.yaml|derive|audit|optimize" src/mail/ README.md \
   -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'
 ```
 

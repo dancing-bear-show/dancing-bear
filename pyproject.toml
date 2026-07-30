@@ -57,9 +57,11 @@ wifi = "wifi.__main__:main"
 
 [tool.vulture]
 paths = [
-  "apple_music", "bin", "calendars", "charts", "core", "desk", "diagrams",
-  "mail", "metals", "phone", "resume", "schedule", "telemetry", "tests",
-  "whatsapp", "wifi", "worker", "workflow",
+  "bin", "tests",
+  "src/apple_music", "src/calendars", "src/charts", "src/core", "src/desk",
+  "src/diagrams", "src/mail", "src/metals", "src/phone", "src/resume",
+  "src/schedule", "src/telemetry", "src/whatsapp", "src/wifi", "src/worker",
+  "src/workflow",
 ]
 min_confidence = 60
 exclude = [
@@ -68,7 +70,7 @@ exclude = [
   # "unused" to vulture even though the schema is fully consumed at
   # runtime. Field-level false positives here vastly outnumber any real
   # dead code, so these files are reviewed by hand instead.
-  "workflow/models.py", "telemetry/otel/models.py",
+  "src/workflow/models.py", "src/telemetry/otel/models.py",
 ]
 ignore_decorators = [
   # Click CLI dispatch: framework invokes by registry, not direct call.
@@ -93,9 +95,10 @@ ignore_names = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "."}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = [
   "telemetry*",
   "core*",
@@ -107,4 +110,11 @@ include = [
   "whatsapp*",
   "apple_music*",
   "wifi*",
+  "charts*",
+  "diagrams*",
+  "workflow*",
+  "metals*",
+  "worker*",
+  "maker*",
+  "desk*",
 ]

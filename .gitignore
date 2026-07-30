@@ -103,10 +103,10 @@ settings.init
 /config/**/private*.yaml
 
 # Resume profiles (PII) - ignore all except sample/example
-resume/_data/profiles_private/
-resume/config/profiles/*
-!resume/config/profiles/sample/
-!resume/config/profiles/*.example.yaml
+src/resume/_data/profiles_private/
+src/resume/config/profiles/*
+!src/resume/config/profiles/sample/
+!src/resume/config/profiles/*.example.yaml
 
 # Private/org-specific workflows (not for this repo)
 workflows/private/

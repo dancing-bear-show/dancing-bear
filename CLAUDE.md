@@ -30,19 +30,25 @@ make test
 ## Architecture
 
 ```
-mail/                     # Gmail/Outlook providers, CLI wiring, helpers
-calendars/                # Outlook calendar CLI + Gmail scans
-schedule/                 # plan/apply calendar schedules
-resume/                   # extract/summarize/render resumes
-phone/                    # iOS layout tooling
-whatsapp/                 # local-only ChatStorage search
-desk/                     # desktop/workspace tooling
-maker/                    # utility generators
-charts/                   # render time-series charts from JSON (line/bar/area/dual)
-diagrams/                 # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
-workflow/                 # YAML DAG workflow engine (parse/compile/run/lint/list/status)
+src/                      # all Python source packages (installable via package-dir=src)
+  mail/                   # Gmail/Outlook providers, CLI wiring, helpers
+  calendars/              # Outlook calendar CLI + Gmail scans
+  schedule/               # plan/apply calendar schedules
+  resume/                 # extract/summarize/render resumes
+  phone/                  # iOS layout tooling
+  whatsapp/               # local-only ChatStorage search
+  desk/                   # desktop/workspace tooling
+  maker/                  # utility generators
+  charts/                 # render time-series charts from JSON (line/bar/area/dual)
+  diagrams/               # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
+  workflow/               # YAML DAG workflow engine (parse/compile/run/lint/list/status)
+  core/                   # shared helpers
+  telemetry/              # Claude Code session telemetry (cost, tokens, TUI)
+  worker/                 # background job queue and daemon
+  metals/                 # precious metals purchase tracking
+  apple_music/            # Apple Music CLI
+  wifi/                   # Wi-Fi CLI
 bin/                      # entry wrappers and helper scripts
-core/                     # shared helpers
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
 configs/                  # runtime config templates (e.g. launchd plist)
@@ -59,7 +65,7 @@ Read in order for best context:
 
 ## CLI Argument Conventions
 
-All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly. Most CLIs accept a `--` separator before flags (used by the workflow engine in `workflow/compiler.py`); a small set (`llm`, `docs`, `workflow`) omit it.
+All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly. Most CLIs accept a `--` separator before flags (used by the workflow engine in `src/workflow/compiler.py`); a small set (`llm`, `docs`, `workflow`) omit it.
 
 **Dispatch model**: `./bin/assistant <app> <subcommand> [flags]`
 
@@ -76,8 +82,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Subcommands are positional, not flag-prefixed
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
-- The workflow engine (`workflow/compiler.py`) inserts `--` before flags for most skills; `llm`, `docs`, and `workflow` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, metals); `core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs`/`workflow` remains unchanged.
+- The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm`, `docs`, and `workflow` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, metals); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs`/`workflow` remains unchanged.
 - Auto-derived agentic schema: all CLIApp CLIs support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group
 
 ## Development Rules
@@ -113,7 +119,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 
 **Linting (qlty):**
 - Check files: `~/.qlty/bin/qlty check path/to/file.py`
-- Check module: `~/.qlty/bin/qlty check mail/`
+- Check module: `~/.qlty/bin/qlty check src/mail/`
 - Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
 - Linters: ruff (style), bandit (security), complexity metrics
 
@@ -288,4 +294,4 @@ When reviewing PRs, follow `.github/CLAUDE_REVIEW.md` for detailed guidelines. K
 
 ## Ignore During Scanning
 
-Skip these heavy/non-core paths: `.venv/`, `.cache/`, `.git/`, `maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
+Skip these heavy/non-core paths: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/`, `backups/`, `personal_assistants.egg-info/`
