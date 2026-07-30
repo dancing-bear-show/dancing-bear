@@ -784,7 +784,7 @@ class TestUpdateWaitMetrics(unittest.TestCase):
         from worker.queue import _update_wait_metrics
         now = datetime.now(UTC)
         nb = now - timedelta(seconds=100)
-        oldest_wait, next_in = _update_wait_metrics(nb, None, now, 0, None)
+        oldest_wait, _ = _update_wait_metrics(nb, None, now, 0, None)
         self.assertGreaterEqual(oldest_wait, 99)
 
     def test_future_job_sets_next_in(self):

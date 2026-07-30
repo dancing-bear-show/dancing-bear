@@ -34,17 +34,17 @@ class TestSplitArgv(unittest.TestCase):
         self.assertFalse(show_help)
 
     def test_help_only(self):
-        subcmd, remaining, show_help = _split_argv(["--help"])
+        subcmd, _, show_help = _split_argv(["--help"])
         self.assertIsNone(subcmd)
         self.assertTrue(show_help)
 
     def test_h_flag(self):
-        subcmd, remaining, show_help = _split_argv(["-h"])
+        subcmd, _, show_help = _split_argv(["-h"])
         self.assertIsNone(subcmd)
         self.assertTrue(show_help)
 
     def test_empty_argv(self):
-        subcmd, remaining, show_help = _split_argv([])
+        subcmd, _, show_help = _split_argv([])
         self.assertIsNone(subcmd)
         self.assertFalse(show_help)
 
@@ -58,7 +58,7 @@ class TestSplitArgv(unittest.TestCase):
         # pins the current parser's actual output for this unsupported input
         # to catch accidental behavior changes — it does not assert this is
         # correct or desired.
-        subcmd, remaining, show_help = _split_argv(["--format", "json", "cost"])
+        subcmd, remaining, _ = _split_argv(["--format", "json", "cost"])
         self.assertEqual(subcmd, "json")
         self.assertIn("cost", remaining)
 

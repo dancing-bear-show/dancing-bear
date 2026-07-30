@@ -1,16 +1,14 @@
 """Tests for telemetry/otel/menubar_provider.py — OtelMenubarProvider."""
 from __future__ import annotations
 
-import collections
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from telemetry.otel.menubar_dataclasses import (
     OtelDisplayData,
-    OtelModels,
     OtelUsage,
     MetaStats,
     HookHealth,
@@ -18,7 +16,6 @@ from telemetry.otel.menubar_dataclasses import (
     CodeImpact,
     Skills,
     SessionPatterns,
-    _unavailable,
 )
 from telemetry.otel.menubar_provider import OtelMenubarProvider
 from telemetry.otel.reader import OTLPDataDir, EVENTS_FILE, METRICS_FILE
@@ -77,7 +74,7 @@ def _make_event_record(event_type: str, attrs: dict | None = None, secs_ago: flo
 
 class TestGetDisplayDataMissingDir(unittest.TestCase):
     def test_missing_dir_returns_unavailable(self) -> None:
-        data_dir = OTLPDataDir(path=Path("/tmp/nonexistent_otel_test_dir_12345"))
+        data_dir = OTLPDataDir(path=Path("/tmp/nonexistent_otel_test_dir_12345"))  # nosec B108 - intentionally nonexistent path to test missing-dir behavior
         provider = OtelMenubarProvider(data_dir=data_dir)
         result = provider.get_display_data()
         self.assertIsInstance(result, OtelDisplayData)
@@ -241,7 +238,7 @@ class TestParseEvents(unittest.TestCase):
 
 class TestComputeMetaStats(unittest.TestCase):
     def _provider(self) -> OtelMenubarProvider:
-        return OtelMenubarProvider(data_dir=OTLPDataDir(path=Path("/tmp")))
+        return OtelMenubarProvider(data_dir=OTLPDataDir(path=Path("/tmp")))  # nosec B108 - stub path for testing stat computation, no file written
 
     def test_zero_active_hours_gives_zero_cost_per_hour(self) -> None:
         usage = OtelUsage(

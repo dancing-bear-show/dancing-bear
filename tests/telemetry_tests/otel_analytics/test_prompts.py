@@ -260,7 +260,7 @@ class TestProcessToolResultPrompts(unittest.TestCase):
         _process_tool_result(_make_tool_result_event(success="false"), acc)
         self.assertEqual(acc.tool_failures, 1)
 
-    def test_success_False_increments_tool_failures(self):
+    def test_success_capitalized_False_increments_tool_failures(self):
         acc = _PromptAccumulator()
         _process_tool_result(_make_tool_result_event(success="False"), acc)
         self.assertEqual(acc.tool_failures, 1)
@@ -428,7 +428,8 @@ class TestBuildPromptMetrics(unittest.TestCase):
         acc = _PromptAccumulator()
         acc.cost = 0.0000001234567
         result = _build_prompt_metrics({"p1": acc})
-        self.assertEqual(result[0].cost, round(result[0].cost, 6))
+        rounded = round(result[0].cost, 6)
+        self.assertAlmostEqual(result[0].cost, rounded, places=9)
 
 
 # ---------------------------------------------------------------------------

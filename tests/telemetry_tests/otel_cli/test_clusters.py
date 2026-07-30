@@ -41,12 +41,12 @@ class TestClustersMain(unittest.TestCase):
         return result, stdout_buf.getvalue(), stderr_buf.getvalue()
 
     def test_no_data_returns_0_with_message_on_stderr(self):
-        result, stdout, stderr = self._run([])
+        result, _, stderr = self._run([])
         self.assertEqual(result, 0)
         self.assertIn("No session data", stderr)
 
     def test_with_data_returns_0(self):
-        result, stdout, _ = self._run([], results=[_make_cluster()])
+        result, _, _ = self._run([], results=[_make_cluster()])
         self.assertEqual(result, 0)
 
     def test_json_format(self):

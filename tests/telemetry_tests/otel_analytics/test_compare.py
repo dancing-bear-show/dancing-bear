@@ -50,7 +50,7 @@ class TestCompareSessions(unittest.TestCase):
     @mock.patch("telemetry.otel.analytics.compare.get_all_costs")
     def test_token_delta_computed(self, mock_get_all_costs):
         from telemetry.otel.analytics.compare import compare_sessions
-        # billable_tokens = input + output + cache_creation
+        # billable_tokens sums input, output, and cache_creation tokens
         sessions = [
             _make_session_cost("a", input_tokens=1000, output_tokens=500),  # 1500 billable
             _make_session_cost("b", input_tokens=2000, output_tokens=1000),  # 3000 billable

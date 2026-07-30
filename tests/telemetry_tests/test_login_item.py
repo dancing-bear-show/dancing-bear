@@ -1,13 +1,12 @@
 """Tests for telemetry/login_item.py — LaunchAgent management helpers."""
 from __future__ import annotations
 
-import os
 import plistlib
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import telemetry.login_item as login_item
 from telemetry.login_item import (

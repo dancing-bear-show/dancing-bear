@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import io
-import json
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -89,18 +87,18 @@ class TestBuildJsonRows(unittest.TestCase):
 class TestBuildTableRows(unittest.TestCase):
     def test_metrics_has_headers(self):
         records = [_make_metric_record()]
-        rows, headers = _build_table_rows(records, "metrics")
+        _, headers = _build_table_rows(records, "metrics")
         self.assertIn("Service", headers)
         self.assertIn("Metrics", headers)
 
     def test_events_has_headers(self):
         records = [_make_event_record()]
-        rows, headers = _build_table_rows(records, "events")
+        _, headers = _build_table_rows(records, "events")
         self.assertIn("Events", headers)
 
     def test_spans_has_headers(self):
         records = [_make_span_record()]
-        rows, headers = _build_table_rows(records, "spans")
+        _, headers = _build_table_rows(records, "spans")
         self.assertIn("Spans", headers)
 
 

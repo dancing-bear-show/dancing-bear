@@ -45,13 +45,13 @@ class TestAnomaliesMain(unittest.TestCase):
         return result, stdout_buf.getvalue(), stderr_buf.getvalue()
 
     def test_no_data_returns_0_with_message_on_stderr(self):
-        result, stdout, stderr = self._run([])
+        result, _, stderr = self._run([])
         self.assertEqual(result, 0)
         self.assertIn("No anomalies detected", stderr)
 
     def test_with_data_returns_0(self):
         flags = [_make_flag()]
-        result, stdout, stderr = self._run([], flags=flags)
+        result, _, _ = self._run([], flags=flags)
         self.assertEqual(result, 0)
 
     def test_json_format(self):
