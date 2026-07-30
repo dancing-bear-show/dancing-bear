@@ -18,6 +18,7 @@ dependencies = [
   "google-auth-httplib2==0.4.0",
   "google-auth-oauthlib==1.4.0",
   "httplib2==0.32.0",
+  "matplotlib>=3.8",
   "msal==1.37.0",
   "numpy==2.4.6",
   "pdfminer.six==20260107",
