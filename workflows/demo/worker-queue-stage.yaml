@@ -1,0 +1,53 @@
+name: worker-queue-stage
+version: "1.0"
+description: >
+  Minimal demo of executor="worker_queue": a single stage that is enqueued
+  to the background worker instead of running inline through an agent.
+
+  Run it:
+    ./bin/workflow run workflows/demo/worker-queue-stage.yaml --execute
+
+  What happens:
+    1. The workflow orchestrator resolves this stage and, because it sets
+       executor: worker_queue, hands it to WorkerQueueDispatcher instead of
+       spawning an agent (workflow/dispatchers.py).
+    2. The dispatcher enqueues a Job(type="workflow_stage") via
+       worker.queue.enqueue() and returns immediately with status=pending —
+       it does not wait for the job to finish.
+    3. A worker (daemon or a manual `./bin/worker run-once`) later picks up
+       the job and runs its "script" through worker/handlers.py's
+       handle_workflow_stage, which shells out via handle_run_shell.
+    4. Check progress independently of the workflow run:
+         ./bin/worker list                # pending/processing/done/error counts
+         ./bin/worker status               # detailed summary
+         ./bin/worker show <job_id>         # the job written under
+                                             #   {workspace}/dispatch/<stage>.json
+
+  Why use this instead of the default executor="agent": the stage is a pure
+  CLI one-liner with no judgment call to make, so paying for an LLM agent
+  session adds latency and cost for no benefit — enqueue it and move on.
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    greeting: "hello from the worker queue"
+
+workspace_dir: "{work_dir}/worker-queue-stage-demo"
+
+stages:
+  - name: enqueue-greeting
+    kind: execute
+    description: >
+      Enqueued (not run inline). The worker executes this shell command and
+      writes stdout/exit status back into the job record — check it with
+      `./bin/worker show <job_id>` once processed.
+    executor: worker_queue
+    script: "echo '{greeting}'"
+    agent:
+      role: inline   # required by the parser but unused — worker_queue never spawns an agent
+    depends_on: []
+    required: true

@@ -69,6 +69,7 @@ trigger:
     source_root: ""
     test_path: "tests/"
     pr_title: "chore(coverage): uplift uncovered lines + consolidate test helpers"
+    pr_body_sources: "{workspace}/validation/domain-test-results.md and {workspace}/validation/corrections-applied.md"
     test_cmd: "python3 -m unittest discover -s tests/ -q"
 
 workspace_dir: "{work_dir}/coverage-uplift"
@@ -687,143 +688,10 @@ stages:
       - validation/corrections-applied.md
 
   # ===========================================================================
-  # G10-G11: Open PR + wait for GitHub Actions CI
+  # G10-G14: Open PR + wait for GitHub Actions CI + qlty gate + fix critical
+  # findings. Injected via include below (prefix: pr) — see
+  # workflows/shared/pr-open-and-wait-ci.yaml.
   # ===========================================================================
-
-  - name: pr-open-pr
-    kind: publish
-    depends_on: [apply-corrections]
-    reads_from: [apply-corrections]
-    description: >
-      Open a GitHub PR for the coverage uplift branch.
-
-      Step 1 — build PR body:
-        Read {workspace}/validation/domain-test-results.md and
-        {workspace}/validation/corrections-applied.md.
-        Summarize: domains covered, tests added, corrections applied.
-
-      Step 2 — create the PR:
-        gh pr create \
-          --title "{pr_title}" \
-          --body "<summary from Step 1>" \
-          --draft
-
-      Step 3 — write {workspace}/validation/pr.json:
-        { "pr_number": <number>, "pr_url": "<url>", "draft": true }
-    agent:
-      role: code-writer
-      model: sonnet
-      tools: [Read, Bash, Write]
-      access: read-write
-    required: true
-    writes_to:
-      - validation/pr.json
-
-  - name: pr-wait-for-ci
-    kind: validate
-    depends_on: [pr-open-pr]
-    reads_from: [pr-open-pr]
-    description: >
-      Wait for GitHub Actions CI to complete on the PR.
-
-      Step 1 — read PR number:
-        Read {workspace}/validation/pr.json. Extract pr_number.
-
-      Step 2 — mark PR ready (exits draft):
-        gh pr ready {pr_number}
-
-      Step 3 — poll CI status (up to 20 attempts, 60s each = ~20 min):
-        gh pr checks {pr_number} --watch --interval 60
-
-        If any check fails: read the failure details with:
-          gh run view <RUN_ID> --log-failed
-        Write failure notes to {workspace}/validation/ci-failures.txt.
-
-      Step 4 — write {workspace}/validation/ci-results.json:
-        {
-          "pr_number": N,
-          "all_passed": true|false,
-          "failed_checks": [],
-          "ci_duration_seconds": N
-        }
-    agent:
-      role: researcher
-      model: sonnet
-      tools: [Bash, Read, Write]
-      access: read-write
-    validation:
-      strategy: unit
-      criteria:
-        - All GitHub Actions checks pass (gh pr checks exits 0)
-      max_revisions: 1
-    required: true
-    writes_to:
-      - validation/ci-results.json
-
-  - name: pr-qlty-check
-    kind: validate
-    depends_on: [pr-wait-for-ci]
-    reads_from: [pr-wait-for-ci]
-    description: >
-      Run qlty on all files changed by this PR and report new issues.
-
-      Step 1 — get changed files:
-        Read {workspace}/validation/pr.json for pr_number.
-        gh pr diff {pr_number} --name-only | grep '\.py$'
-
-      Step 2 — run qlty:
-        ~/.qlty/bin/qlty check <changed files...> --format json
-        Write raw output to {workspace}/validation/qlty-results.json.
-
-      Step 3 — summarize new issues vs pre-existing:
-        Only report issues on lines changed in this PR (use `gh pr diff` to
-        establish the changed line ranges). Pre-existing issues on unchanged
-        lines are out of scope.
-
-      Write {workspace}/validation/qlty-summary.md:
-        ## qlty Check Results
-        New issues on changed files: N
-        | File | Line | Severity | Message |
-        |------|------|----------|---------|
-    agent:
-      role: reviewer
-      model: sonnet
-      tools: [Bash, Read, Write]
-      access: read-write
-    required: true
-    writes_to:
-      - validation/qlty-results.json
-      - validation/qlty-summary.md
-
-  - name: pr-post-fix-review
-    kind: validate
-    depends_on: [pr-qlty-check]
-    reads_from: [pr-qlty-check]
-    description: >
-      Address any critical qlty issues found before swarm review starts.
-
-      Read {workspace}/validation/qlty-results.json.
-      For each issue with severity MAJOR or CRITICAL on changed files:
-        - Apply the fix (Edit tool).
-        - Re-run the relevant test: python3 -m unittest <test_file> -v
-        - Confirm green before moving to the next.
-
-      Push fixes:
-        git add -p  (stage only the fix lines, not test changes)
-        git commit -m "fix: address qlty findings before review"
-        gh pr push (or git push)
-
-      Write {workspace}/validation/post-fix-results.md:
-        | Issue | File:Line | Fix | Test Result |
-        |-------|-----------|-----|-------------|
-    agent:
-      role: code-writer
-      model: sonnet
-      tools: [Read, Edit, Bash, Write]
-      access: read-write
-    required: false
-    writes_to:
-      - validation/post-fix-results.md
 
   # ===========================================================================
   # G20: Adversarial swarm review runs in parallel from G12 after pr-wait-for-ci.
@@ -947,6 +815,13 @@ stages:
       - validation/final-gate-decision.txt
 
 include:
+  # Open PR + gate on CI + gate on qlty + fix critical findings.
+  # Stages: pr-open-pr → pr-wait-for-ci → pr-qlty-check → pr-post-fix-review
+  - path: workflows/shared/pr-open-and-wait-ci.yaml
+    prefix: pr
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+
   # Adversarial swarm review — runs after pr-wait-for-ci completes.
   # Stages: review-fetch-pr-context → review-concern-sweep → review-enumerate-targets
   #   → review-validate-concerns + review-cross-unit-check → review-consolidate

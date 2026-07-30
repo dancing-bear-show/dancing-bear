@@ -1,0 +1,113 @@
+name: worker-queue-fanout
+version: "1.0"
+description: >
+  Minimal demo of fan_out.mode="worker_queue": expand one stage into N
+  headless background jobs — no agents spawned for the fan-out itself.
+
+  Run it:
+    ./bin/workflow run workflows/demo/worker-queue-fanout.yaml --execute
+
+  Stage dependency graph:
+
+    list-domains                 (G0 — agent, writes the fan-out source list)
+          |
+    check-domain × N             (G1 — worker_queue fan-out, one job per item)
+          |
+    qb-babysit-queue             (G2 — Haiku fragment: watch/retry/purge the queue)
+
+  What happens:
+    1. list-domains is a normal agent stage. It writes
+       {workspace}/outputs/domains.json containing an "items" array — this
+       is the fan_out source.
+    2. check-domain declares fan_out.mode: worker_queue. At compile time the
+       workflow compiler reads items[].domain from domains.json and expands
+       this single stage into one resolved stage per domain — but instead of
+       spawning an agent per item (the default mode: agent behavior), each
+       becomes a Job(type="workflow_stage") enqueued via worker.queue, with
+       fan_out.script's {domain} placeholder substituted per item.
+    3. All N jobs return status=pending immediately; nothing processes them
+       automatically — the next stage is responsible for draining the queue.
+    4. qb-babysit-queue (workflows/shared/worker-queue-babysitter.yaml) is a
+       cheap Haiku agent, included as a fragment, that: polls
+       `./bin/worker list` until the fan-out's jobs finish, requeues+retries
+       any that landed in error/ once, purges old done/error jobs, and
+       writes a summary report. It never touches pending/processing jobs
+       and never retries a job more than once — see the fragment file for
+       the exact bounded-retry contract.
+
+  Why worker_queue fan-out instead of agent fan-out: each item here is a
+  fixed CLI check with no judgment call — N parallel agent sessions would be
+  pure overhead. worker_queue fan-out gets the same parallel-per-item
+  execution without spawning N LLM sessions. The babysitter fragment keeps
+  that savings intact on the cleanup side too — Haiku, not a full agent.
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-30"
+
+trigger:
+  source: manual
+  params:
+    purge_older_than: "7d"
+
+workspace_dir: "{work_dir}/worker-queue-fanout-demo"
+
+stages:
+  # ===========================================================================
+  # G0: List domains — normal agent stage, produces the fan-out source
+  # ===========================================================================
+  - name: list-domains
+    kind: gather
+    description: >
+      Write {workspace}/outputs/domains.json with an "items" array, one
+      entry per domain to check. Fixed, small list — this is a demo, not a
+      real domain sweep:
+        {"items": [{"domain": "mail"}, {"domain": "calendars"}, {"domain": "schedule"}]}
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Write]
+      access: read-only
+    depends_on: []
+    required: true
+    writes_to:
+      - outputs/domains.json
+    validates_output:
+      - path: outputs/domains.json
+        checks: [is_json, has_key:items]
+
+  # ===========================================================================
+  # G1: Check each domain — worker_queue fan-out, no agents spawned
+  # ===========================================================================
+  - name: check-domain
+    kind: execute
+    description: >
+      Enqueued once per domain in outputs/domains.json — never runs as an
+      agent. Each job runs `ls <domain>/` as a stand-in for a real
+      per-domain check; swap the script for anything CLI-only.
+    executor: worker_queue
+    script: "ls {domain}/ 2>&1 || echo 'no such domain dir: {domain}'"  # parser requires a stage-level script even though fan_out.script (below) is what's actually used per item
+    agent:
+      role: inline   # required by the parser but unused — worker_queue never spawns an agent
+    depends_on: [list-domains]
+    reads_from: [list-domains]
+    required: true
+    fan_out:
+      source: list-domains
+      field: items
+      key: domain
+      mode: worker_queue
+      script: "ls {domain}/ 2>&1 || echo 'no such domain dir: {domain}'"
+
+include:
+  # Watches the check-domain fan-out jobs drain, retries transient errors
+  # once, purges old done/error jobs. Prefixed "qb" to avoid stage-name
+  # collisions if this fragment is ever included more than once.
+  #
+  # depends_on only (no reads_from): check-domain's real output is queue
+  # job state, not a workspace file — it intentionally declares no
+  # writes_to, so reads_from would just trip the compiler's dangling-read
+  # contract warning for no reason.
+  - path: workflows/shared/worker-queue-babysitter.yaml
+    prefix: qb
+    depends_on: [check-domain]

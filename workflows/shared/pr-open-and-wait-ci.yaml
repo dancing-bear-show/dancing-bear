@@ -1,0 +1,182 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/pr-open-and-wait-ci.yaml
+#       prefix: pr
+#       depends_on: [last-pre-pr-stage]
+#       reads_from: [last-pre-pr-stage]
+#
+# Caller must set trigger.params.pr_title.
+# Stages injected (all prefixed):
+#   pr-open-pr → pr-wait-for-ci → pr-qlty-check → pr-post-fix-review
+#
+# Caller's PR-body source: pr-open-pr's description references
+# {pr_body_sources} — a caller-provided list of workspace-relative paths to
+# summarize into the PR body (e.g. "validation/domain-test-results.md and
+# validation/corrections-applied.md"). Set trigger.params.pr_body_sources to
+# a short prose description of which files to read.
+#
+# Output: {workspace}/validation/pr.json, ci-results.json, qlty-results.json,
+# qlty-summary.md, post-fix-results.md
+fragment: true
+name: pr-open-and-wait-ci
+version: "1.0"
+description: >
+  Shared "open PR, gate on CI, gate on qlty" fragment. Opens a draft PR,
+  marks it ready, polls GitHub Actions to completion, runs qlty on the
+  changed files and reports new issues, then fixes any critical qlty
+  findings before handing off to whatever review stage follows (typically
+  code-review-swarm.yaml).
+
+  Extracted from coverage-uplift.yaml's pr-open-pr/pr-wait-for-ci/
+  pr-qlty-check/pr-post-fix-review stages — reuse this instead of
+  re-authoring the same open/wait/lint sequence in a new workflow.
+
+  Params: {pr_title}, {pr_body_sources}.
+
+stages:
+  # ===========================================================================
+  # Open PR
+  # ===========================================================================
+  - name: open-pr
+    kind: publish
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Open a GitHub PR for the current branch.
+
+      Step 1 — build PR body:
+        Read {pr_body_sources}. Summarize the work done into a PR body.
+
+      Step 2 — create the PR:
+        gh pr create \
+          --title "{pr_title}" \
+          --body "<summary from Step 1>" \
+          --draft
+
+      Step 3 — write {workspace}/validation/pr.json:
+        { "pr_number": <number>, "pr_url": "<url>", "draft": true }
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/pr.json
+
+  # ===========================================================================
+  # Wait for CI
+  # ===========================================================================
+  - name: wait-for-ci
+    kind: validate
+    depends_on: [open-pr]
+    reads_from: [open-pr]
+    description: >
+      Wait for GitHub Actions CI to complete on the PR.
+
+      Step 1 — read PR number:
+        Read {workspace}/validation/pr.json. Extract pr_number.
+
+      Step 2 — mark PR ready (exits draft):
+        gh pr ready {pr_number}
+
+      Step 3 — poll CI status (up to 20 attempts, 60s each = ~20 min):
+        gh pr checks {pr_number} --watch --interval 60
+
+        If any check fails: read the failure details with:
+          gh run view <RUN_ID> --log-failed
+        Write failure notes to {workspace}/validation/ci-failures.txt.
+
+      Step 4 — write {workspace}/validation/ci-results.json:
+        {
+          "pr_number": N,
+          "all_passed": true|false,
+          "failed_checks": [],
+          "ci_duration_seconds": N
+        }
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - All GitHub Actions checks pass (gh pr checks exits 0)
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/ci-results.json
+
+  # ===========================================================================
+  # qlty check on changed files
+  # ===========================================================================
+  - name: qlty-check
+    kind: validate
+    depends_on: [wait-for-ci]
+    reads_from: [wait-for-ci]
+    description: >
+      Run qlty on all files changed by this PR and report new issues.
+
+      Step 1 — get changed files:
+        Read {workspace}/validation/pr.json for pr_number.
+        gh pr diff {pr_number} --name-only | grep '\.py$'
+
+      Step 2 — run qlty:
+        ~/.qlty/bin/qlty check <changed files...> --format json
+        Write raw output to {workspace}/validation/qlty-results.json.
+
+      Step 3 — summarize new issues vs pre-existing:
+        Only report issues on lines changed in this PR (use `gh pr diff` to
+        establish the changed line ranges). Pre-existing issues on unchanged
+        lines are out of scope.
+
+      Write {workspace}/validation/qlty-summary.md:
+        ## qlty Check Results
+        New issues on changed files: N
+        | File | Line | Severity | Message |
+        |------|------|----------|---------|
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - validation/qlty-results.json
+      - validation/qlty-summary.md
+
+  # ===========================================================================
+  # Fix critical qlty findings before handoff
+  # ===========================================================================
+  - name: post-fix-review
+    kind: validate
+    depends_on: [qlty-check]
+    reads_from: [qlty-check]
+    description: >
+      Address any critical qlty issues found before the next stage (typically
+      a review swarm) starts.
+
+      Read {workspace}/validation/qlty-results.json.
+      For each issue with severity MAJOR or CRITICAL on changed files:
+        - Apply the fix (Edit tool).
+        - Re-run the relevant test: python3 -m unittest <test_file> -v
+        - Confirm green before moving to the next.
+
+      Push fixes:
+        git add -p  (stage only the fix lines, not test changes)
+        git commit -m "fix: address qlty findings before review"
+        gh pr push (or git push)
+
+      Write {workspace}/validation/post-fix-results.md:
+        | Issue | File:Line | Fix | Test Result |
+        |-------|-----------|-----|-------------|
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    required: false
+    writes_to:
+      - validation/post-fix-results.md
