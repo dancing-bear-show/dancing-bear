@@ -47,7 +47,16 @@ trigger:
     critic_focus: ""     # optional: narrow the critique to one dimension
                           # (e.g. "worktree isolation safety", "idempotency on re-run")
     plan_file: "context/target.md"
-                          # consumed by the included plan-critic fragment (workspace-relative).
+                          # workspace-relative path, consumed by the included plan-critic
+                          # fragment's {plan_file} references (e.g. pc-revise's "Overwrite
+                          # {plan_file} in place") — the fragment always resolves this
+                          # against {workspace}, i.e. {workspace}/context/target.md, the
+                          # SAME concrete path prepare-target's writes_to: [context/target.md]
+                          # resolves to via the workflow orchestrator's own path rule
+                          # ("other explicit paths -> {workspace}/{path}", see
+                          # .claude/skills/workflow/SKILL.md's Output Instructions). Both
+                          # paths agree by construction — do not "fix" this into
+                          # outputs/target.md, that would be a different, non-existent file.
                           # prepare-target always writes here — do not override.
 
 workspace_dir: "{work_dir}/critique"
