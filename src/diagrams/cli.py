@@ -5,97 +5,24 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .mermaid import GanttBuilder, PieBuilder
+from .cli_telemetry import (  # noqa: F401
+    _format_tokens,
+    _load_telemetry,
+    _render_cost_pie,
+    _render_timeline,
+    _render_token_pie,
+    _session_cost,
+)
+from .cli_yaml import (  # noqa: F401
+    _build_flowchart_from_spec,
+    _build_sequence_from_spec,
+    _convert_yaml_spec,
+    _load_yaml,
+)
 
 DAYS_HELP = "Lookback days (default: 7)"
 NO_SESSIONS = "No sessions found."
 _DEFAULT_MMD_LABEL = "diagram.mmd"
-
-
-def _format_tokens(n: int) -> str:
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
-    return str(n)
-
-
-def _load_telemetry(days: int):
-    """Load session stats and helpers from the telemetry module."""
-    from datetime import datetime, timezone
-
-    from telemetry.parser import iter_session_files, parse_session
-    from telemetry.pricing import compute_cost, model_tier
-
-    sessions = []
-    for path in iter_session_files(days=days):
-        s = parse_session(path)
-        if s.events > 0:
-            sessions.append(s)
-    sessions.sort(
-        key=lambda s: s.start_time or datetime.min.replace(tzinfo=timezone.utc),
-        reverse=True,
-    )
-    return sessions, compute_cost, model_tier
-
-
-def _session_cost(s, compute_cost) -> float:
-    if not s.model:
-        return 0.0
-    return compute_cost(
-        s.input_tokens, s.output_tokens,
-        s.cache_read_tokens, s.cache_create_tokens, s.model,
-    )
-
-
-# ── Telemetry diagram renderers ───────────────────────────────────────────────
-
-
-def _render_cost_pie(sessions, days, compute_cost, model_tier) -> str:
-    tier_cost: dict[str, float] = {"opus": 0.0, "sonnet": 0.0, "haiku": 0.0}
-    for s in sessions:
-        if s.model:
-            tier = model_tier(s.model)
-            tier_cost[tier] = tier_cost.get(tier, 0.0) + _session_cost(s, compute_cost)
-    pie = PieBuilder(f"Cost by Model (last {days}d)")
-    for tier, cost in tier_cost.items():
-        if cost > 0:
-            pie.slice(f"{tier.title()} ${cost:.2f}", round(cost, 2))
-    return pie.render()
-
-
-def _render_token_pie(sessions, days, model_tier) -> str:
-    tier_tokens: dict[str, int] = {"opus": 0, "sonnet": 0, "haiku": 0}
-    for s in sessions:
-        if s.model:
-            tier = model_tier(s.model)
-            tier_tokens[tier] = tier_tokens.get(tier, 0) + s.total_tokens
-    pie = PieBuilder(f"Tokens by Model (last {days}d)")
-    for tier, tok in tier_tokens.items():
-        if tok > 0:
-            pie.slice(f"{tier.title()} {_format_tokens(tok)}", tok)
-    return pie.render()
-
-
-def _render_timeline(sessions, days, compute_cost, model_tier) -> str:
-    gantt = GanttBuilder(f"Sessions (last {days}d)", date_format="YYYY-MM-DD")
-    by_date: dict[str, list] = {}
-    for s in sessions:
-        if s.start_time:
-            key = s.start_time.strftime("%Y-%m-%d")
-            by_date.setdefault(key, []).append(s)
-    for date_key in sorted(by_date.keys()):
-        tasks = []
-        for s in by_date[date_key]:
-            sid = s.session_id[:12]
-            tier = model_tier(s.model) if s.model else "?"
-            cost = _session_cost(s, compute_cost)
-            start = s.start_time.strftime("%Y-%m-%d") if s.start_time else date_key
-            dur_days = max(1, round(s.duration_seconds / 86400))
-            safe_id = "".join(c for c in sid if c.isalnum() or c == "_")[:8]
-            tasks.append(f"{sid} ({tier} ${cost:.0f}) :t{safe_id}, {start}, {dur_days}d")
-        gantt.section(date_key, tasks)
-    return gantt.render()
 
 
 # ── Shared I/O helpers ────────────────────────────────────────────────────────
@@ -143,99 +70,6 @@ def _validate_non_empty(content: str) -> bool:
         print("Error: Empty input", file=sys.stderr)
         return False
     return True
-
-
-def _load_yaml(content: str) -> dict | None:
-    try:
-        import yaml  # noqa: PLC0415
-        return yaml.safe_load(content)
-    except ImportError:
-        import json
-        try:
-            return json.loads(content)
-        except Exception as e:
-            print(f"Error parsing input: {e}", file=sys.stderr)
-            return None
-    except Exception as e:
-        print(f"Error parsing YAML: {e}", file=sys.stderr)
-        return None
-
-
-# ── YAML → Mermaid conversion helpers ────────────────────────────────────────
-
-
-def _build_flowchart_from_spec(spec: dict) -> str:
-    from .mermaid import FlowchartBuilder
-
-    builder = FlowchartBuilder()
-    if "direction" in spec:
-        builder.with_direction(spec["direction"])
-    if "title" in spec:
-        builder.with_title(spec["title"])
-    for node_spec in spec.get("nodes", []):
-        builder.node(
-            node_id=node_spec["id"],
-            label=node_spec.get("label"),
-            shape=node_spec.get("shape", "rect"),
-        )
-    for edge_spec in spec.get("edges", []):
-        builder.edge(
-            src=edge_spec["source"],
-            dst=edge_spec["target"],
-            label=edge_spec.get("label", ""),
-            style=edge_spec.get("style", "-->"),
-        )
-    return builder.render()
-
-
-def _build_sequence_from_spec(spec: dict) -> str:
-    from .mermaid import SequenceDiagramBuilder
-
-    builder = SequenceDiagramBuilder()
-    if "title" in spec:
-        builder.with_title(spec["title"])
-    if spec.get("autonumber"):
-        builder.autonumber()
-    for p_spec in spec.get("participants", []):
-        builder.participant(
-            name=p_spec["id"],
-            alias=p_spec.get("label", ""),
-            actor=p_spec.get("actor", False),
-        )
-    for m_spec in spec.get("messages", []):
-        builder.message(
-            src=m_spec["sender"],
-            dst=m_spec["receiver"],
-            text=m_spec["text"],
-            arrow=m_spec.get("arrow_type", "->>"),
-            activate=m_spec.get("activate", False),
-            deactivate=m_spec.get("deactivate", False),
-        )
-    return builder.render()
-
-
-def _convert_yaml_spec(spec: dict) -> tuple[str | None, int]:
-    """Convert a YAML spec dict to mermaid text. Returns (text, exit_code)."""
-    if not isinstance(spec, dict):
-        print("Error: YAML spec must be a dictionary", file=sys.stderr)
-        return None, 1
-
-    diagram_type = spec.get("type", "flowchart").lower()
-    try:
-        if diagram_type in ("flowchart", "graph"):
-            return _build_flowchart_from_spec(spec), 0
-        elif diagram_type in ("sequence", "sequencediagram"):
-            return _build_sequence_from_spec(spec), 0
-        else:
-            print(f"Error: Unsupported diagram type {diagram_type!r}", file=sys.stderr)
-            print("Supported types: flowchart, sequence", file=sys.stderr)
-            return None, 1
-    except KeyError as e:
-        print(f"Error: Missing required field {e} in spec", file=sys.stderr)
-        return None, 1
-    except Exception as e:
-        print(f"Error building diagram: {e}", file=sys.stderr)
-        return None, 1
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────

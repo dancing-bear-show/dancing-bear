@@ -7,12 +7,54 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
-from core.auth import build_outlook_service
-from core.date_utils import to_iso_str as _to_iso_str
-from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME
+from core.yamlio import dump_config as _dump_yaml
+from core.constants import FMT_DAY_START, FMT_DAY_END
 
-_ERR_NO_PLAN_EVENTS = "Invalid plan: no events found"
+from core.date_utils import to_iso_str as _to_iso_str  # noqa: F401
+
+from schedule.pipeline_expand import (  # noqa: F401
+    EventCreateParams,
+    RecurrenceExpansionConfig,
+    SyncMatchContext,
+    _apply_outlook_events,
+    _calculate_expansion_window,
+    _create_recurring_or_single,
+    _ensure_calendar_id,
+    _expand_daily,
+    _expand_recurring_occurrences,
+    _expand_weekly,
+    _expand_weekly_occurrences,
+    _extract_event_times,
+    _make_occurrence,
+    _norm_dt_minute,
+    _parse_exdates,
+    _to_date,
+    _to_datetime,
+    _weekday_code_to_py,
+)
+from schedule.pipeline_verify import (  # noqa: F401
+    OutlookAuth,
+    SyncRequest,
+    SyncRequestConsumer,
+    SyncResult,
+    VerifyRequest,
+    VerifyRequestConsumer,
+    VerifyResult,
+    VerifyProducer,
+    VerifyProcessor,
+    _ERR_NO_PLAN_EVENTS,
+    _build_have_map,
+    _build_have_st_keys,
+    _build_outlook_service,
+    _build_plan_keys,
+    _build_plan_st_keys,
+    _build_verify_lines_subject,
+    _build_verify_lines_subject_time,
+    _find_missing_series,
+    _key_subject_time,
+    _load_plan_events,
+)
+from core.auth import build_outlook_service  # noqa: F401
 
 
 def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, Any]]:
@@ -90,567 +132,6 @@ class PlanProducer(BaseProducer):
         _dump_yaml(str(payload.out_path), payload.document)
         events = payload.document.get("events", [])
         print(f"Wrote plan with {len(events)} events to {payload.out_path}")
-
-
-@dataclass
-class OutlookAuth:
-    profile: Optional[str]
-    client_id: Optional[str]
-    tenant: Optional[str]
-    token_path: Optional[str]
-
-
-def _build_outlook_service(auth: OutlookAuth):
-    try:
-        return build_outlook_service(
-            profile=auth.profile,
-            client_id=auth.client_id,
-            tenant=auth.tenant,
-            token_path=auth.token_path,
-        ), None
-    except RuntimeError as exc:
-        return None, str(exc)
-    except Exception as exc:
-        return None, f"Outlook provider unavailable: {exc}"
-
-
-def _load_plan_events(plan_path: Path) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
-    try:
-        data = _load_yaml(str(plan_path)) or {}
-        if not isinstance(data, dict):
-            raise ValueError("Top-level YAML must be a mapping (dict)")
-    except Exception as exc:
-        return None, f"Failed to read plan: {exc}"
-    events = data.get("events") or []
-    if not isinstance(events, list):
-        return None, "Invalid plan: 'events' must be a list"
-    return events, None
-
-
-def _norm_dt_minute(s: Optional[str]) -> Optional[str]:
-    """Normalize an ISO-like datetime to minute precision without timezone."""
-    if not s:
-        return None
-    try:
-        ss = str(s).replace("Z", "").replace("z", "").strip()
-        if "T" not in ss:
-            ss = ss + "T00:00:00"
-        try:
-            dt = _dt.datetime.fromisoformat(ss)
-        except Exception:
-            base, _, tail = ss.partition("T")
-            hhmm = tail.split(":")
-            if len(hhmm) >= 2:
-                dt = _dt.datetime.fromisoformat(f"{base}T{hhmm[0]}:{hhmm[1]}:00")
-            else:
-                return None
-        return dt.strftime(FMT_DATETIME)
-    except Exception:
-        return None
-
-
-def _weekday_code_to_py(d: str) -> Optional[int]:
-    m = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
-    return m.get(d.upper())
-
-
-def _to_date(d: Any) -> _dt.date:
-    """Parse a date string to a date object."""
-    return _dt.date.fromisoformat(str(d))
-
-
-def _to_datetime(d: _dt.date, t: str) -> _dt.datetime:
-    """Combine a date and time string into a datetime."""
-    hh, mm = (t or "00:00").split(":", 1)
-    return _dt.datetime(d.year, d.month, d.day, int(hh), int(mm))
-
-
-def _parse_exdates(exdates_raw: List[Any]) -> set:
-    """Parse exclusion dates into a set of ISO date strings."""
-    ex_set: set = set()
-    for x in exdates_raw:
-        try:
-            xs = str(x).strip()
-            if xs:
-                ex_set.add(xs.split("T", 1)[0])
-        except (TypeError, ValueError):
-            continue  # Skip malformed entries
-    return ex_set
-
-
-def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, str]:
-    """Create a start/end ISO string pair for a single occurrence."""
-    sdt = _to_datetime(d, start_time)
-    edt = _to_datetime(d, end_time)
-    if edt <= sdt:
-        edt = edt + _dt.timedelta(days=1)
-    if (edt - sdt).total_seconds() >= 4 * 3600:
-        edt = sdt + _dt.timedelta(hours=3, minutes=59)
-    return (sdt.strftime(FMT_DATETIME), edt.strftime(FMT_DATETIME))
-
-
-@dataclass
-class EventCreateParams:
-    """Bundled parameters for creating a calendar event."""
-
-    cal_id: Any
-    calendar_name: Optional[str]
-    subject: str
-    tz: Any
-    body_html: Any
-    location: Any
-    no_reminder: bool
-    reminder_minutes: Any
-
-
-@dataclass
-class RecurrenceExpansionConfig:
-    """Configuration for expanding recurring event occurrences."""
-
-    start_date: _dt.date
-    end_date: _dt.date
-    start_time: str
-    end_time: str
-    excluded_dates: set
-    weekdays: Optional[List[int]] = None  # For weekly recurrence
-
-
-@dataclass
-class SyncMatchContext:
-    """Context for matching and synchronizing calendar events."""
-
-    plan_st_keys: set  # Planned subject-time keys
-    planned_subjects_set: set  # Set of planned subjects (lowercased)
-    have_keys: set  # Existing event keys
-    have_map: Dict[str, Dict[str, Any]]  # Map of existing events by key
-    match_mode: str  # "subject-time" or "subject"
-
-
-def _expand_daily(
-    cur: _dt.date, end: _dt.date, start_time: str, end_time: str, ex_set: set
-) -> List[Tuple[str, str]]:
-    """Expand daily occurrences within a date range."""
-    out: List[Tuple[str, str]] = []
-    d = cur
-    while d <= end:
-        if d.isoformat() not in ex_set:
-            out.append(_make_occurrence(d, start_time, end_time))
-        d = d + _dt.timedelta(days=1)
-    return out
-
-
-def _expand_weekly(config: RecurrenceExpansionConfig) -> List[Tuple[str, str]]:
-    """Expand weekly occurrences within a date range."""
-    out: List[Tuple[str, str]] = []
-    d = config.start_date
-    while d <= config.end_date:
-        if config.weekdays and d.weekday() in config.weekdays and d.isoformat() not in config.excluded_dates:
-            out.append(_make_occurrence(d, config.start_time, config.end_time))
-        d = d + _dt.timedelta(days=1)
-    return out
-
-
-def _extract_event_times(ev: Dict[str, Any], win_from: str, win_to: str) -> Optional[Tuple[str, str, str, str]]:
-    """Extract and validate time fields from event.
-
-    Returns (start_time, end_time, range_start, range_until) or None if invalid.
-    """
-    start_time = ev.get("start_time")
-    end_time = ev.get("end_time") or start_time
-    rng = ev.get("range") or {}
-    range_start = rng.get("start_date") or win_from
-    range_until = rng.get("until") or win_to
-
-    if not (start_time and end_time and range_start):
-        return None
-
-    return start_time, end_time, range_start, range_until
-
-
-def _calculate_expansion_window(
-    range_start: str, range_until: str, win_from: str, win_to: str
-) -> Optional[Tuple[_dt.date, _dt.date]]:
-    """Calculate effective date range for expansion.
-
-    Returns (start_date, end_date) or None if range is invalid.
-    """
-    win_start = _to_date(win_from)
-    win_end = _to_date(win_to)
-    cur = max(_to_date(range_start), win_start)
-    end = min(_to_date(range_until), win_end)
-
-    if cur > end:
-        return None
-
-    return cur, end
-
-
-def _expand_weekly_occurrences(
-    ev: Dict[str, Any], config: RecurrenceExpansionConfig
-) -> List[Tuple[str, str]]:
-    """Expand weekly recurrence for event."""
-    byday = ev.get("byday") or []
-    days_idx = [x for x in (_weekday_code_to_py(d) for d in byday) if x is not None]
-    if not days_idx:
-        return []
-
-    week_config = RecurrenceExpansionConfig(
-        start_date=config.start_date,
-        end_date=config.end_date,
-        start_time=config.start_time,
-        end_time=config.end_time,
-        excluded_dates=config.excluded_dates,
-        weekdays=days_idx,
-    )
-    return _expand_weekly(week_config)
-
-
-def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[Tuple[str, str]]:
-    """Expand recurring event (weekly/daily) to list of (start_iso, end_iso) within window."""
-    rpt = (ev.get("repeat") or "").strip().lower()
-    if rpt not in ("daily", "weekly"):
-        return []
-
-    times = _extract_event_times(ev, win_from, win_to)
-    if not times:
-        return []
-
-    start_time, end_time, range_start, range_until = times
-    window = _calculate_expansion_window(range_start, range_until, win_from, win_to)
-    if not window:
-        return []
-
-    start_date, end_date = window
-    ex_set = _parse_exdates(ev.get("exdates") or [])
-
-    if rpt == "daily":
-        return _expand_daily(start_date, end_date, start_time, end_time, ex_set)
-
-    return _expand_weekly_occurrences(ev, RecurrenceExpansionConfig(
-        start_date=start_date,
-        end_date=end_date,
-        start_time=start_time,
-        end_time=end_time,
-        excluded_dates=ex_set,
-    ))
-
-
-def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
-    """Resolve calendar ID, falling back to name lookup on error."""
-    if not calendar_name:
-        return None
-    try:
-        return service.ensure_calendar(calendar_name)
-    except Exception:  # nosec B110 - fallback across heterogeneous service implementations
-        return service.get_calendar_id_by_name(calendar_name)
-
-
-def _create_recurring_or_single(
-    service: Any, ev: Dict[str, Any], params: EventCreateParams,
-) -> Optional[Any]:
-    """Create recurring or single event. Returns result dict or None if skipped."""
-    ev_range = ev.get("range") or {}
-    if ev.get("repeat") and ev.get("start_time") and ev_range.get("start_date"):
-        return service.create_recurring_event(
-            calendar_id=params.cal_id,
-            calendar_name=params.calendar_name,
-            subject=params.subject,
-            start_time=ev.get("start_time"),
-            end_time=ev.get("end_time") or ev.get("start_time"),
-            tz=params.tz,
-            repeat=str(ev.get("repeat") or "").lower(),
-            interval=int(ev.get("interval") or 1),
-            byday=ev.get("byday") or [],
-            range_start_date=ev_range.get("start_date"),
-            range_until=ev_range.get("until"),
-            count=ev.get("count"),
-            body_html=params.body_html,
-            location=params.location,
-            exdates=ev.get("exdates"),
-            no_reminder=params.no_reminder,
-            reminder_minutes=params.reminder_minutes,
-        )
-    if ev.get("start") and ev.get("end"):
-        return service.create_event(
-            calendar_id=params.cal_id,
-            calendar_name=params.calendar_name,
-            subject=params.subject,
-            start_iso=_to_iso_str(ev.get("start")),
-            end_iso=_to_iso_str(ev.get("end")),
-            tz=params.tz,
-            body_html=params.body_html,
-            location=params.location,
-            no_reminder=params.no_reminder,
-            reminder_minutes=params.reminder_minutes,
-        )
-    return None
-
-
-def _apply_outlook_events(
-    events: List[Dict[str, Any]],
-    *,
-    calendar_name: Optional[str],
-    service: Any,
-) -> Tuple[int, List[str]]:
-    logs: List[str] = []
-    cal_id = _ensure_calendar_id(service, calendar_name)
-    created = 0
-    for ev in events:
-        subject = (ev.get("subject") or "").strip()
-        if not subject:
-            logs.append("Skipping event without subject")
-            continue
-        no_reminder = ev.get("is_reminder_on") is False
-        try:
-            params = EventCreateParams(
-                cal_id=cal_id,
-                calendar_name=calendar_name,
-                subject=subject,
-                tz=ev.get("tz"),
-                body_html=ev.get("body_html"),
-                location=ev.get("location"),
-                no_reminder=no_reminder,
-                reminder_minutes=ev.get("reminder_minutes"),
-            )
-            r = _create_recurring_or_single(service, ev, params)
-            if r is None:
-                logs.append(f"Skipping event (insufficient fields): {subject}")
-                continue
-            created += 1
-            eid = r.get("id") if isinstance(r, dict) else None
-            logs.append(f"Created: {subject} (id={eid})" if eid else f"Created: {subject}")
-        except Exception as exc:
-            logs.append(f"Failed to create event '{subject}': {exc}")
-            return 2, logs
-    logs.append(f"Applied {created} events.")
-    return 0, logs
-
-
-@dataclass
-class VerifyRequest:
-    plan_path: Path
-    calendar: Optional[str]
-    from_date: Optional[str]
-    to_date: Optional[str]
-    match: str
-    auth: OutlookAuth
-
-
-# Type alias using generic RequestConsumer from core.pipeline
-VerifyRequestConsumer = RequestConsumer[VerifyRequest]
-
-
-@dataclass
-class VerifyResult:
-    lines: List[str]
-
-
-def _key_subject_time(subj: str, st: Optional[str], en: Optional[str]) -> str:
-    """Build a key from subject and start/end times."""
-    ns = (subj or "").strip().lower()
-    ks = _norm_dt_minute(st or "") or ""
-    ke = _norm_dt_minute(en or "") or ""
-    return f"{ns}|{ks}|{ke}"
-
-
-def _build_have_st_keys(occ: List[Dict[str, Any]]) -> set:
-    """Build subject-time keys from calendar occurrences."""
-    have_st_keys: set = set()
-    for o in occ:
-        sub = (o.get("subject") or "").strip()
-        st = (o.get("start") or {}).get("dateTime") if isinstance(o.get("start"), dict) else None
-        en = (o.get("end") or {}).get("dateTime") if isinstance(o.get("end"), dict) else None
-        have_st_keys.add(_key_subject_time(sub, st, en))
-    return have_st_keys
-
-
-def _build_plan_st_keys(events: List[Dict[str, Any]], from_date: str, to_date: str) -> set:
-    """Build subject-time keys from plan events."""
-    plan_st_keys: set = set()
-    for e in events or []:
-        subj = (e.get("subject") or "").strip()
-        if not subj:
-            continue
-        if e.get("start") and e.get("end"):
-            plan_st_keys.add(_key_subject_time(subj, e.get("start"), e.get("end")))
-            continue
-        for st, en in _expand_recurring_occurrences(e, from_date, to_date):
-            plan_st_keys.add(_key_subject_time(subj, st, en))
-    return plan_st_keys
-
-
-def _build_verify_lines_subject_time(
-    payload: "VerifyRequest", plan_st_keys: set, have_st_keys: set
-) -> List[str]:
-    """Build verification output lines for subject-time mode."""
-    missing_keys = sorted(k for k in plan_st_keys if k not in have_st_keys)
-    extra_keys = sorted(k for k in have_st_keys if k not in plan_st_keys)
-    lines = [
-        f"Verified window {payload.from_date} → {payload.to_date} on '{payload.calendar}' (match=subject-time)",
-        f"Planned occurrences: {len(plan_st_keys)}; Found occurrences: {len(have_st_keys)}",
-    ]
-    if missing_keys:
-        lines.append("Missing (subject@time):")
-        lines.extend(f"  - {k}" for k in missing_keys[:20])
-    else:
-        lines.append("Missing: none")
-    if extra_keys:
-        lines.append(f"Extras not in plan (sample {min(20, len(extra_keys))}/{len(extra_keys)}):")
-        lines.extend(f"  - {k}" for k in extra_keys[:20])
-    else:
-        lines.append("Extras not in plan: none")
-    return lines
-
-
-def _build_verify_lines_subject(
-    payload: "VerifyRequest",
-    events: List[Dict[str, Any]],
-    occ: List[Dict[str, Any]],
-) -> List[str]:
-    """Build verification output lines for subject-only mode."""
-    planned_subjects = [
-        (e.get("subject") or "").strip() for e in events or []
-        if (e.get("subject") or "").strip()
-    ]
-    have_subjects = {(o.get("subject") or "").strip().lower() for o in occ}
-
-    missing = [s for s in planned_subjects if s.strip().lower() not in have_subjects]
-    extras = [
-        (o.get("subject") or "").strip() for o in occ
-        if (o.get("subject") or "").strip().lower() not in {ps.lower() for ps in planned_subjects}
-    ]
-
-    lines = [
-        f"Verified window {payload.from_date} → {payload.to_date} on '{payload.calendar}'",
-        f"Planned subjects: {len(planned_subjects)}; Found subjects: {len(have_subjects)}",
-    ]
-    if missing:
-        lines.append("Missing (by subject):")
-        lines.extend(f"  - {s}" for s in sorted(set(missing)))
-    else:
-        lines.append("Missing: none")
-    if extras:
-        sample = sorted(set(extras))[:10]
-        lines.append(f"Extras not in plan (sample {len(sample)}/{len(set(extras))}):")
-        lines.extend(f"  - {s}" for s in sample)
-    else:
-        lines.append("Extras not in plan: none")
-    return lines
-
-
-class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
-    """Verify calendar events against a plan with automatic error handling."""
-
-    def _process_safe(self, payload: VerifyRequest) -> VerifyResult:
-        # Validate inputs
-        events, err = _load_plan_events(payload.plan_path)
-        if err or events is None:
-            raise ValueError(err or _ERR_NO_PLAN_EVENTS)
-        if not payload.calendar:
-            raise ValueError("--calendar is required")
-        if not (payload.from_date and payload.to_date):
-            raise ValueError("--from and --to are required (YYYY-MM-DD)")
-        try:
-            start_iso = _dt.datetime.fromisoformat(payload.from_date).strftime(FMT_DAY_START)
-            end_iso = _dt.datetime.fromisoformat(payload.to_date).strftime(FMT_DAY_END)
-        except Exception:
-            raise ValueError("Invalid --from/--to date format; expected YYYY-MM-DD")
-
-        # Fetch calendar events
-        svc, err = _build_outlook_service(payload.auth)
-        if err:
-            raise RuntimeError(err)
-        from calendars.outlook_service import ListEventsRequest
-        occ = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=payload.calendar,
-            top=400,
-        ))
-
-        # Build output based on match mode
-        if payload.match == "subject-time":
-            have_st_keys = _build_have_st_keys(occ)
-            plan_st_keys = _build_plan_st_keys(events, payload.from_date, payload.to_date)
-            lines = _build_verify_lines_subject_time(payload, plan_st_keys, have_st_keys)
-        else:
-            lines = _build_verify_lines_subject(payload, events, occ)
-
-        return VerifyResult(lines=lines)
-
-
-class VerifyProducer(BaseProducer):
-    """Produce output for verify operations with automatic error handling."""
-
-    def _produce_success(self, payload: VerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
-        for line in payload.lines:
-            print(line)
-
-
-@dataclass
-class SyncRequest:
-    plan_path: Path
-    calendar: Optional[str]
-    from_date: Optional[str]
-    to_date: Optional[str]
-    match: str
-    delete_missing: bool
-    delete_unplanned_series: bool
-    apply: bool
-    auth: OutlookAuth
-
-
-# Type alias using generic RequestConsumer from core.pipeline
-SyncRequestConsumer = RequestConsumer[SyncRequest]
-
-
-@dataclass
-class SyncResult:
-    lines: List[str]
-
-
-def _build_plan_keys(
-    events: List[Dict[str, Any]], from_date: str, to_date: str
-) -> Tuple[set, Dict[str, Dict[str, Any]], set]:
-    """Build plan keys, series map, and planned subjects from events."""
-    plan_st_keys: set = set()
-    series_by_subject: Dict[str, Dict[str, Any]] = {}
-    planned_subjects_set: set = set()
-    for e in events or []:
-        subj = (e.get("subject") or "").strip()
-        if not subj:
-            continue
-        planned_subjects_set.add(subj.strip().lower())
-        if e.get("start") and e.get("end"):
-            plan_st_keys.add(
-                f"{subj.strip().lower()}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
-            )
-        elif e.get("repeat") and e.get("start_time") and (e.get("range") or {}).get("start_date"):
-            series_by_subject.setdefault(subj.strip().lower(), e)
-            for st, en in _expand_recurring_occurrences(e, from_date, to_date):
-                plan_st_keys.add(f"{subj.strip().lower()}|{_norm_dt_minute(st)}|{_norm_dt_minute(en)}")
-    return plan_st_keys, series_by_subject, planned_subjects_set
-
-
-def _build_have_map(occurrences: List[Dict[str, Any]]) -> Tuple[Dict[str, Dict[str, Any]], set]:
-    """Build map and keys from existing calendar occurrences."""
-    have_map: Dict[str, Dict[str, Any]] = {}
-    have_keys: set = set()
-    for o in occurrences:
-        sub = (o.get("subject") or "").strip()
-        st = (o.get("start") or {}).get("dateTime") if isinstance(o.get("start"), dict) else None
-        en = (o.get("end") or {}).get("dateTime") if isinstance(o.get("end"), dict) else None
-        k = f"{sub.strip().lower()}|{_norm_dt_minute(st)}|{_norm_dt_minute(en)}"
-        have_map[k] = o
-        have_keys.add(k)
-    return have_map, have_keys
-
-
-def _find_missing_series(
-    series_by_subject: Dict[str, Dict[str, Any]], present_subjects: set
-) -> List[Dict[str, Any]]:
-    """Find series that need to be created (not present in calendar)."""
-    return [e for subj, e in series_by_subject.items() if subj not in present_subjects]
 
 
 def _should_create_oneoff(
@@ -1012,4 +493,3 @@ class ApplyProducer(BaseProducer):
     def _produce_success(self, payload: ApplyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         for line in payload.lines:
             print(line)
-

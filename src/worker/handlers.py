@@ -133,8 +133,8 @@ REGISTRY: dict[str, HandlerFn] = {
 # --- Optional: generic shell runner (allowlisted) ---
 def _shell_allowlist() -> set[str]:
     env = os.getenv("DANCING_BEAR_WORKER_SHELL_ALLOWLIST", "")
-    # NOTE: When DANCING_BEAR_WORKER_SHELL_ALLOWLIST is set it *replaces* (not augments)
-    # the default allowlist. Only set this variable in trusted deployment environments.
+    # Setting DANCING_BEAR_WORKER_SHELL_ALLOWLIST *replaces* (not augments) the default
+    # allowlist. Only set this variable in trusted deployment environments.
     if env.strip():
         return {s.strip() for s in env.split(",") if s.strip()}
     # Conservative defaults; extend via env as needed
