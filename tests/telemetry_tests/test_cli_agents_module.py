@@ -54,7 +54,8 @@ class TestAgentRowToDict(unittest.TestCase):
     def test_est_cost_rounded_to_6_places(self):
         row = _make_agent_token_row(est_cost=0.1234567890)
         result = _agent_row_to_dict(row)
-        self.assertEqual(result["est_cost"], round(0.1234567890, 6))
+        # expected: 0.1234567890 rounded to 6 places = 0.123457
+        self.assertAlmostEqual(result["est_cost"], 0.123457, places=6)
 
 
 # ---------------------------------------------------------------------------

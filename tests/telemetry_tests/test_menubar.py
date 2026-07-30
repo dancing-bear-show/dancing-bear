@@ -16,13 +16,11 @@ What IS tested:
 """
 from __future__ import annotations
 
-import os
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import telemetry.menubar as menubar
 

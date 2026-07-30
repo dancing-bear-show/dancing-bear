@@ -110,7 +110,7 @@ class TestCalculateHealthScorePerfectPerf(unittest.TestCase):
 class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
 
     def test_error_rate_10pct_subtracts_0_3(self):
-        # error_penalty = min(0.1 * 3, 0.4) = 0.3
+        # error_penalty: min(0.1 * 3, 0.4) gives 0.3
         perf = _make_perf(error_rate=0.1)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -118,7 +118,7 @@ class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
         self.assertAlmostEqual(result.score, 0.7, places=3)
 
     def test_error_penalty_capped_at_0_4(self):
-        # error_penalty = min(0.2 * 3, 0.4) = min(0.6, 0.4) = 0.4
+        # error_penalty: min(0.2 * 3, 0.4) clamps at 0.4
         perf = _make_perf(error_rate=0.2)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -131,7 +131,7 @@ class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
         self.assertAlmostEqual(result.error_penalty, 0.4, places=3)
 
     def test_error_penalty_low_rate(self):
-        # error_penalty = min(0.01 * 3, 0.4) = 0.03
+        # error_penalty: min(0.01 * 3, 0.4) gives 0.03
         perf = _make_perf(error_rate=0.01)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -145,7 +145,7 @@ class TestCalculateHealthScoreErrorPenalty(unittest.TestCase):
 class TestCalculateHealthScoreToolPenalty(unittest.TestCase):
 
     def test_tool_failure_rate_10pct_subtracts_0_2(self):
-        # tool_penalty = min(0.1 * 2, 0.3) = 0.2
+        # tool_penalty: min(0.1 * 2, 0.3) gives 0.2
         perf = _make_perf(tool_failure_rate=0.1)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -153,7 +153,7 @@ class TestCalculateHealthScoreToolPenalty(unittest.TestCase):
         self.assertAlmostEqual(result.score, 0.8, places=3)
 
     def test_tool_penalty_capped_at_0_3(self):
-        # tool_penalty = min(0.2 * 2, 0.3) = min(0.4, 0.3) = 0.3
+        # tool_penalty: min(0.2 * 2, 0.3) clamps at 0.3
         perf = _make_perf(tool_failure_rate=0.2)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -173,7 +173,7 @@ class TestCalculateHealthScoreToolPenalty(unittest.TestCase):
 class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
 
     def test_latency_below_5000ms_no_penalty(self):
-        # max(0, (4999 - 5000) / 30000) = max(0, negative) = 0
+        # latency below 5000ms: penalty formula gives a negative value, floored to 0
         perf = _make_perf(avg_api_latency_ms=4999.0)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -186,7 +186,7 @@ class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
         self.assertEqual(result.latency_penalty, 0.0)
 
     def test_latency_35000ms_penalty_1_30th(self):
-        # (35000 - 5000) / 30000 = 1.0; min(1.0, 0.3) = 0.3
+        # 35000ms gives ratio 1.0, clamped to 0.3 by the max-penalty cap
         perf = _make_perf(avg_api_latency_ms=35000.0)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -199,14 +199,14 @@ class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
         self.assertAlmostEqual(result.latency_penalty, 0.3, places=3)
 
     def test_latency_20000ms_midrange_penalty(self):
-        # (20000 - 5000) / 30000 = 0.5; min(0.5, 0.3) = 0.3
+        # 20000ms gives ratio 0.5, clamped to 0.3 by the max-penalty cap
         perf = _make_perf(avg_api_latency_ms=20000.0)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
         self.assertAlmostEqual(result.latency_penalty, 0.3, places=3)
 
     def test_latency_8000ms_small_penalty(self):
-        # (8000 - 5000) / 30000 = 0.1
+        # 8000ms gives a small penalty of 0.1 (within cap)
         perf = _make_perf(avg_api_latency_ms=8000.0)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -220,7 +220,7 @@ class TestCalculateHealthScoreLatencyPenalty(unittest.TestCase):
 class TestCalculateHealthScoreCombined(unittest.TestCase):
 
     def test_combined_penalties_summed(self):
-        # error_penalty=0.3 + tool_penalty=0.2 + latency=0 = 0.5, score=0.5
+        # error_penalty 0.3 and tool_penalty 0.2 sum to 0.5, leaving score of 0.5
         perf = _make_perf(error_rate=0.1, tool_failure_rate=0.1)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
@@ -256,8 +256,9 @@ class TestCalculateHealthScoreCombined(unittest.TestCase):
         perf = _make_perf(error_rate=1 / 3)
         session = _make_session_cost(perf=perf)
         result = calculate_health_score(session)
-        # Verify it's a 3-decimal-place number by checking round(0.6, 3)
-        self.assertEqual(result.score, round(result.score, 3))
+        # Verify the score value matches its own 3-place rounding (no excess precision)
+        rounded = round(result.score, 3)
+        self.assertAlmostEqual(result.score, rounded, places=3)
 
 
 if __name__ == "__main__":

@@ -1129,6 +1129,7 @@ class TestJoinWithTimeout(unittest.TestCase, QueueRootIsolationMixin):
         runner = DaemonRunner(cfg, proc)
 
         def _fast():
+            # intentionally empty: thread completes immediately to test join timeout
             pass
 
         threads = [threading.Thread(target=_fast)]

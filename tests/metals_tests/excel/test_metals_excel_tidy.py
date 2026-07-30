@@ -377,7 +377,7 @@ class TestMainExcelTidy(unittest.TestCase):
         mock_tidy_profit,
     ):
         """Test main() runs with mocked dependencies and no charts on summary."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_list_charts.return_value = []  # No charts on summary sheet
@@ -410,7 +410,7 @@ class TestMainExcelTidy(unittest.TestCase):
         mock_set_axes,
     ):
         """Test main() sets title on Summary chart when charts exist."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_list_charts.return_value = [{"id": "chart-sum-1", "name": "Summary Chart"}]
 
@@ -449,7 +449,7 @@ class TestMainExcelTidy(unittest.TestCase):
         mock_tidy_profit,
     ):
         """Test main() passes custom sheet names to helper functions."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_list_charts.return_value = []
 

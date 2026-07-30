@@ -7,7 +7,6 @@ import os
 import signal
 import tempfile
 import unittest
-from http.server import BaseHTTPRequestHandler
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -61,7 +60,7 @@ class TestAppendJsonl(unittest.TestCase):
             path = Path(tmpdir) / "test.jsonl"
             for i in range(5):
                 _append_jsonl(path, json.dumps({"i": i}).encode())
-            lines = [l for l in path.read_text().splitlines() if l.strip()]
+            lines = [line for line in path.read_text().splitlines() if line.strip()]
             self.assertEqual(len(lines), 5)
 
     def test_empty_json_object_valid(self) -> None:
@@ -126,7 +125,7 @@ def _make_handler(
     handler.rfile = mock_rfile
     handler.wfile = mock_wfile
     handler.headers = mock_headers
-    handler.data_dir = data_dir or Path("/tmp")
+    handler.data_dir = data_dir or Path("/tmp")  # nosec B108 - fallback stub path; actual tests always pass a tmpdir
 
     handler.send_response = lambda code: responses.append(("response", code))
     handler.send_header = lambda k, v: headers_sent.append((k, v))
@@ -361,7 +360,7 @@ class TestCmdStart(unittest.TestCase):
                             # checking the already-running path instead
                             pass
             finally:
-                pass
+                pass  # no cleanup needed; test only checks the early-exit path
 
     def test_start_already_running_does_not_fork(self) -> None:
         """If pid is found and running, cmd_start returns early without forking."""

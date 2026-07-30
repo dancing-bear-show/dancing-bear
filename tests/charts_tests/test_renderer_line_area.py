@@ -452,7 +452,7 @@ class TestRenderLine(unittest.TestCase):
     def test_shade_weekends_enabled_calls_axvspan_for_saturday(self):
         from charts.renderer_line_area import _render_line
         ax = _fake_ax()
-        # 2024-01-06 = Saturday
+        # 2024-01-06 is a Saturday
         s = _make_series("s", ["2024-01-06"], [5.0])
         spec = _make_line_spec([s], shade_weekends=True)
         mock_mdates = MagicMock()
@@ -708,7 +708,7 @@ class TestRenderDual(unittest.TestCase):
 
     def test_twinx_called(self):
         from charts.renderer_line_area import _render_dual
-        ax, ax2 = self._ax_with_twinx()
+        ax, _ = self._ax_with_twinx()
         fig = _fake_fig()
         s_left = _make_series("left", ["2024-01-01", "2024-01-02"], [1.0, 2.0], y_axis="left")
         s_right = _make_series("right", ["2024-01-01", "2024-01-02"], [3.0, 4.0], y_axis="right")
@@ -725,7 +725,7 @@ class TestRenderDual(unittest.TestCase):
 
     def test_legend_created_when_show_legend_and_handles(self):
         from charts.renderer_line_area import _render_dual
-        ax, ax2 = self._ax_with_twinx()
+        ax, _ = self._ax_with_twinx()
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-01"], [1.0])
         spec = _make_dual_spec([s], show_legend=True)
@@ -741,7 +741,7 @@ class TestRenderDual(unittest.TestCase):
 
     def test_legend_not_created_when_show_legend_false(self):
         from charts.renderer_line_area import _render_dual
-        ax, ax2 = self._ax_with_twinx()
+        ax, _ = self._ax_with_twinx()
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-01"], [1.0])
         spec = _make_dual_spec([s], show_legend=False)
@@ -757,7 +757,7 @@ class TestRenderDual(unittest.TestCase):
 
     def test_shade_weekends_triggered_for_saturday(self):
         from charts.renderer_line_area import _render_dual
-        ax, ax2 = self._ax_with_twinx()
+        ax, _ = self._ax_with_twinx()
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-06"], [5.0])  # Saturday
         spec = _make_dual_spec([s], shade_weekends=True)
@@ -774,7 +774,7 @@ class TestRenderDual(unittest.TestCase):
 
     def test_date_axis_configured_for_date_x(self):
         from charts.renderer_line_area import _render_dual
-        ax, ax2 = self._ax_with_twinx()
+        ax, _ = self._ax_with_twinx()
         fig = _fake_fig()
         s = _make_series("s", ["2024-01-01", "2024-01-02"], [1.0, 2.0])
         spec = _make_dual_spec([s])

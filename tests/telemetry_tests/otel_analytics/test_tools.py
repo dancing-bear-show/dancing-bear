@@ -132,7 +132,7 @@ class TestProcessToolEvent(unittest.TestCase):
         _process_tool_event(_make_tool_event(success="false"), tools)
         self.assertEqual(tools["Bash"].failures, 1)
 
-    def test_success_False_string_counted_as_failure(self):
+    def test_success_capitalized_False_string_counted_as_failure(self):
         from collections import defaultdict
         tools = defaultdict(_ToolAccumulator)
         _process_tool_event(_make_tool_event(success="False"), tools)

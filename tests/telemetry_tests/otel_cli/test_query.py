@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -132,7 +131,7 @@ class TestQueryMain(unittest.TestCase):
         self.assertIn("No metrics", output)
 
     def test_json_format_returns_0(self):
-        result, output = self._run(["--format", "json"])
+        result, _ = self._run(["--format", "json"])
         self.assertEqual(result, 0)
 
     def test_invalid_since_returns_2(self):

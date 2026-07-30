@@ -16,7 +16,7 @@ def _write_payload(path: Path, data: dict) -> None:
 
 class TestReadCurrentMissingFile(unittest.TestCase):
     def test_missing_file_returns_none(self) -> None:
-        result = read_current(Path("/tmp/nonexistent_ccpulse_test.json"))
+        result = read_current(Path("/tmp/nonexistent_ccpulse_test.json"))  # nosec B108 - intentionally nonexistent path to test missing-file behavior
         self.assertIsNone(result)
 
 

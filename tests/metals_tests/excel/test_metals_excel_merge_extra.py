@@ -307,7 +307,7 @@ class TestMainExcelMergeUnionHeaders(unittest.TestCase):
         mock_write,
     ):
         """Test that extra columns beyond base headers are included in the write call."""
-        mock_creds.return_value = ("cid", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("cid", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         # Existing sheet has an extra column 'notes' beyond base headers
         mock_get_range.return_value = [
@@ -325,8 +325,8 @@ class TestMainExcelMergeUnionHeaders(unittest.TestCase):
         rc = main([
             "--drive-id", "drive-src",
             "--item-id", "item-src",
-            "--silver-csv", "/tmp/silver.csv",
-            "--gold-csv", "/tmp/gold.csv",
+            "--silver-csv", "/tmp/silver.csv",  # nosec B108 - _read_csv is mocked, no file read
+            "--gold-csv", "/tmp/gold.csv",  # nosec B108 - _read_csv is mocked, no file read
         ])
         self.assertEqual(rc, 0)
 
@@ -345,7 +345,7 @@ class TestMainExcelMerge(unittest.TestCase):
     """Integration tests for the main() function in excel_merge.py."""
 
     def _make_resolved_creds(self):
-        return ("client-id-123", "consumers", "/tmp/token.json")
+        return ("client-id-123", "consumers", "/tmp/token.json")  # nosec B108 - mock credential path, not a real file op
 
     @patch("metals.excel_merge._write_sheet")
     @patch("metals.excel_merge._ensure_sheet")
@@ -365,7 +365,7 @@ class TestMainExcelMerge(unittest.TestCase):
         mock_write,
     ):
         """Test main() runs end-to-end with mocked dependencies."""
-        mock_creds.return_value = ("cid", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("cid", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_get_range.return_value = [
@@ -382,8 +382,8 @@ class TestMainExcelMerge(unittest.TestCase):
         rc = main([
             "--drive-id", "drive-src",
             "--item-id", "item-src",
-            "--silver-csv", "/tmp/silver.csv",
-            "--gold-csv", "/tmp/gold.csv",
+            "--silver-csv", "/tmp/silver.csv",  # nosec B108 - _read_csv is mocked, no file read
+            "--gold-csv", "/tmp/gold.csv",  # nosec B108 - _read_csv is mocked, no file read
         ])
         self.assertEqual(rc, 0)
         mock_client.authenticate.assert_called_once()
@@ -400,8 +400,8 @@ class TestMainExcelMerge(unittest.TestCase):
             main([
                 "--drive-id", "x",
                 "--item-id", "y",
-                "--silver-csv", "/tmp/s.csv",
-                "--gold-csv", "/tmp/g.csv",
+                "--silver-csv", "/tmp/s.csv",  # nosec B108 - exits before file is read
+                "--gold-csv", "/tmp/g.csv",  # nosec B108 - exits before file is read
             ])
 
 

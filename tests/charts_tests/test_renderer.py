@@ -234,7 +234,7 @@ class TestRenderChart(unittest.TestCase):
     def test_happy_path_returns_path(self):
         from charts.renderer import render_chart
         spec = _make_line_spec()
-        mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
+        mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         with (
             patch("charts.renderer._require_matplotlib"),
             patch("charts.renderer._dispatch"),
@@ -243,14 +243,14 @@ class TestRenderChart(unittest.TestCase):
             patch("pathlib.Path.mkdir"),
             mpl_ctx,
         ):
-            result = render_chart(spec, "/tmp/test_out.png")
+            result = render_chart(spec, "/tmp/test_out.png")  # nosec B108 - mock path, savefig is mocked
         self.assertIsInstance(result, Path)
         self.assertEqual(result.name, "test_out.png")
 
     def test_svg_format_accepted(self):
         from charts.renderer import render_chart
         spec = _make_line_spec()
-        mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
+        mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         with (
             patch("charts.renderer._require_matplotlib"),
             patch("charts.renderer._dispatch"),
@@ -259,7 +259,7 @@ class TestRenderChart(unittest.TestCase):
             patch("pathlib.Path.mkdir"),
             mpl_ctx,
         ):
-            result = render_chart(spec, "/tmp/test_out.svg")
+            result = render_chart(spec, "/tmp/test_out.svg")  # nosec B108 - mock path, savefig is mocked
         self.assertEqual(result.suffix, ".svg")
 
     def test_unsupported_format_raises(self):
@@ -267,7 +267,7 @@ class TestRenderChart(unittest.TestCase):
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError) as cm:
-                render_chart(spec, "/tmp/test_out.gif")
+                render_chart(spec, "/tmp/test_out.gif")  # nosec B108 - raises before any file op
         self.assertIn("gif", str(cm.exception).lower())
 
     def test_negative_dpi_raises(self):
@@ -275,19 +275,19 @@ class TestRenderChart(unittest.TestCase):
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError):
-                render_chart(spec, "/tmp/test_out.png", dpi=-1)
+                render_chart(spec, "/tmp/test_out.png", dpi=-1)  # nosec B108 - raises before any file op
 
     def test_zero_dpi_raises(self):
         from charts.renderer import render_chart
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError):
-                render_chart(spec, "/tmp/test_out.png", dpi=0)
+                render_chart(spec, "/tmp/test_out.png", dpi=0)  # nosec B108 - raises before any file op
 
     def test_dpi_override_used(self):
         from charts.renderer import render_chart
         spec = _make_line_spec()
-        mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
+        mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         mpl_ctx_patch = mpl_ctx
         with (
             patch("charts.renderer._require_matplotlib"),
@@ -297,7 +297,7 @@ class TestRenderChart(unittest.TestCase):
             patch("pathlib.Path.mkdir"),
             mpl_ctx_patch,
         ):
-            render_chart(spec, "/tmp/test_dpi.png", dpi=200)
+            render_chart(spec, "/tmp/test_dpi.png", dpi=200)  # nosec B108 - mock path, savefig is mocked
         # subplots should have been called with the overridden dpi
         # (the mock plt.subplots call is captured via the patch context)
         # Just assert no error and path returned correctly
@@ -306,7 +306,7 @@ class TestRenderChart(unittest.TestCase):
     def test_custom_theme_applied(self):
         from charts.renderer import render_chart
         spec = _make_line_spec()
-        mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
+        mpl_ctx, _, _ = self._mock_matplotlib_and_patch()
         with (
             patch("charts.renderer._require_matplotlib"),
             patch("charts.renderer._dispatch"),
@@ -315,14 +315,14 @@ class TestRenderChart(unittest.TestCase):
             patch("pathlib.Path.mkdir"),
             mpl_ctx,
         ):
-            render_chart(spec, "/tmp/test_out.png", theme="light")
+            render_chart(spec, "/tmp/test_out.png", theme="light")  # nosec B108 - mock path, savefig is mocked
         called_theme = mock_at.call_args[0][2]
         self.assertEqual(called_theme.name, "light")
 
     def test_savefig_called(self):
         from charts.renderer import render_chart
         spec = _make_line_spec()
-        mpl_ctx, fig, ax = self._mock_matplotlib_and_patch()
+        mpl_ctx, fig, _ = self._mock_matplotlib_and_patch()
         with (
             patch("charts.renderer._require_matplotlib"),
             patch("charts.renderer._dispatch"),
@@ -331,7 +331,7 @@ class TestRenderChart(unittest.TestCase):
             patch("pathlib.Path.mkdir"),
             mpl_ctx,
         ):
-            render_chart(spec, "/tmp/test_out.png")
+            render_chart(spec, "/tmp/test_out.png")  # nosec B108 - mock path, savefig is mocked
         fig.savefig.assert_called_once()
 
 
@@ -341,7 +341,7 @@ class TestRenderChart(unittest.TestCase):
 
 class TestRenderGrid(unittest.TestCase):
     def _make_grid_cfg(self, rows=1, cols=1, panels=None, theme="dark",
-                       output="/tmp/grid_test.png", title="Grid",
+                       output="/tmp/grid_test.png", title="Grid",  # nosec B108 - mock path, savefig is mocked
                        dpi=150, width_px=1200, height_px=400):
         from charts.config import GridConfig, PanelConfig
         if panels is None:
@@ -408,7 +408,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_unsupported_output_format_raises(self):
         from charts.renderer import render_grid
-        grid_cfg = self._make_grid_cfg(output="/tmp/out.bmp")
+        grid_cfg = self._make_grid_cfg(output="/tmp/out.bmp")  # nosec B108 - raises before any file op
         spec = _make_line_spec()
         with patch("charts.renderer._require_matplotlib"):
             with self.assertRaises(ValueError):
@@ -418,7 +418,7 @@ class TestRenderGrid(unittest.TestCase):
         from charts.renderer import render_grid
         grid_cfg = self._make_grid_cfg()
         spec = _make_line_spec()
-        mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
+        mpl_ctx, _ = self._mock_matplotlib(rows=1, cols=1)
         with (
             patch("charts.renderer._require_matplotlib"),
             patch("charts.renderer._dispatch"),
@@ -433,7 +433,7 @@ class TestRenderGrid(unittest.TestCase):
 
     def test_savefig_called_with_correct_output(self):
         from charts.renderer import render_grid
-        grid_cfg = self._make_grid_cfg(output="/tmp/my_grid.png")
+        grid_cfg = self._make_grid_cfg(output="/tmp/my_grid.png")  # nosec B108 - mock path, savefig is mocked
         spec = _make_line_spec()
         mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=1)
         with (
@@ -480,7 +480,7 @@ class TestRenderGrid(unittest.TestCase):
         grid_cfg = self._make_grid_cfg(rows=1, cols=2, panels=panels)
         s1 = _make_line_spec()
         s2 = _make_line_spec()
-        mpl_ctx, fig = self._mock_matplotlib(rows=1, cols=2)
+        mpl_ctx, _ = self._mock_matplotlib(rows=1, cols=2)
         dispatch_calls = []
         with (
             patch("charts.renderer._require_matplotlib"),

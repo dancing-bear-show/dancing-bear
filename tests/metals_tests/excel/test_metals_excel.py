@@ -178,7 +178,7 @@ class TestMainExcel(unittest.TestCase):
         self, mock_creds, mock_client_cls, mock_read_csv, mock_write_sheet
     ):
         """Test main() reads both CSVs and writes both sheets."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_read_csv.return_value = [["date", "order_id"], ["2024-01-01", "1"]]
@@ -209,7 +209,7 @@ class TestMainExcel(unittest.TestCase):
         self, mock_creds, mock_client_cls, mock_read_csv, mock_write_sheet
     ):
         """Test main() skips writing a sheet when CSV/sheet args not provided."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
 
         from metals.excel import main
@@ -231,7 +231,7 @@ class TestMainExcel(unittest.TestCase):
         self, mock_creds, mock_client_cls, mock_read_csv, mock_write_sheet
     ):
         """Test main() writes only the silver sheet when gold args are absent."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_read_csv.return_value = [["date"], ["2024-01-01"]]
 

@@ -52,7 +52,7 @@ class TestCopyItemExcelAll(unittest.TestCase):
     @patch("requests.post")
     def test_returns_new_wb_via_poll(self, mock_post, mock_get):
         """Test _copy_item polls async operation and returns new WorkbookContext."""
-        from metals.excel_all import _copy_item, _poll_async_operation
+        from metals.excel_all import _copy_item
 
         # GET /items/{id} → parent metadata
         mock_get.side_effect = [
@@ -179,7 +179,7 @@ class TestMainExcelAll(unittest.TestCase):
         mock_profit,
     ):
         """Test main() runs end-to-end with all I/O mocked."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_read_existing.return_value = []
         mock_copy.return_value = _make_wb("drive-new", "item-new")
@@ -228,7 +228,7 @@ class TestMainExcelAll(unittest.TestCase):
         mock_profit,
     ):
         """Test main() creates Profit sheet when profit series data is present."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_read_existing.return_value = []
         mock_copy.return_value = _make_wb("drive-new", "item-new")
@@ -269,8 +269,8 @@ class TestMainExcelAll(unittest.TestCase):
             main([
                 "--drive-id", "x",
                 "--item-id", "y",
-                "--silver-csv", "/tmp/s.csv",
-                "--gold-csv", "/tmp/g.csv",
+                "--silver-csv", "/tmp/s.csv",  # nosec B108 - exits before file is read
+                "--gold-csv", "/tmp/g.csv",  # nosec B108 - exits before file is read
             ])
 
     @patch("metals.excel_all._build_profit_series")
@@ -299,7 +299,7 @@ class TestMainExcelAll(unittest.TestCase):
         mock_profit,
     ):
         """Test main() swallows sheet positioning exceptions (nosec B110 paths)."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_read_existing.return_value = []
         mock_copy.return_value = _make_wb("drive-new", "item-new")
@@ -351,7 +351,7 @@ class TestMainExcelAll(unittest.TestCase):
         mock_profit,
     ):
         """Test main() swallows sheet visibility exceptions (nosec B110 path)."""
-        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")
+        mock_creds.return_value = ("client-id", "consumers", "/tmp/tok")  # nosec B108 - mock credential path, not a real file op
         mock_client_cls.return_value = MagicMock()
         mock_read_existing.return_value = []
         mock_copy.return_value = _make_wb("drive-new", "item-new")

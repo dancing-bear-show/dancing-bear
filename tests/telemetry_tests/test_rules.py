@@ -93,6 +93,7 @@ class TestValidateRules(unittest.TestCase):
 
         class _FakeDraft7Validator:
             def __init__(self, schema):
+                # stub: no schema setup needed for this fake
                 pass
             def iter_errors(self, rules):
                 return []
@@ -118,6 +119,7 @@ class TestValidateRules(unittest.TestCase):
 
         class _FakeDraft7Validator:
             def __init__(self, schema):
+                # stub: no schema setup needed for this fake
                 pass
             def iter_errors(self, rules):
                 return [_FakeError(["avoidable", "bash-as-grep", "enabled"], "must be boolean")]

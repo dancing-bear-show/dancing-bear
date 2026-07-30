@@ -133,7 +133,7 @@ class TestEventsSearchMain(unittest.TestCase):
         return result, stdout_buf.getvalue(), stderr_buf.getvalue()
 
     def test_match_found_returns_0(self):
-        result, stdout, stderr = self._run([])
+        result, _, _ = self._run([])
         self.assertEqual(result, 0)
 
     def test_no_match_message_on_stderr(self):

@@ -161,7 +161,9 @@ class OutlookExtractProcessor(SafeProcessor[ExtractRequest, ExtractResult]):
         from mail.outlook_api import OutlookClient
         from .extractors import extract_amounts, extract_order_id, MetalsAmount
 
-        client_id, tenant, token_path = resolve_outlook_credentials(request.profile)
+        client_id, tenant, token_path = resolve_outlook_credentials(
+            request.profile, None, None, None
+        )
         if not all([client_id, tenant, token_path]):
             raise ValueError("Missing Outlook credentials")
 

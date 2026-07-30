@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli.sessions import (
-    _extract_api_request_detail,
     _extract_event_detail,
     _extract_tool_result_detail,
     _filter_sessions,
@@ -271,7 +270,7 @@ class TestSessionsMain(unittest.TestCase):
 
     def test_limit_flag(self):
         sessions = [_make_session(session_id=str(i)) for i in range(5)]
-        result, output = self._run(["--limit", "2"], by_session=sessions)
+        result, _ = self._run(["--limit", "2"], by_session=sessions)
         self.assertEqual(result, 0)
 
     def test_sort_flag_cost(self):
@@ -293,7 +292,7 @@ class TestSessionsMain(unittest.TestCase):
         self.assertNotIn("other", ids)
 
     def test_health_flag(self):
-        result, output = self._run(["--health"])
+        result, _ = self._run(["--health"])
         self.assertEqual(result, 0)
 
 
@@ -523,13 +522,13 @@ class TestSessionsMainPerfFlags(unittest.TestCase):
     def test_perf_flag(self):
         perf = _make_perf(avg_api_latency_ms=500.0, p95_api_latency_ms=1000.0, total_api_wait_ms=5000.0)
         s = _make_session(perf=perf)
-        result, output = self._run(["--perf"], by_session=[s])
+        result, _ = self._run(["--perf"], by_session=[s])
         self.assertEqual(result, 0)
 
     def test_error_codes_flag(self):
         perf = _make_perf(error_status_codes={"429": 5})
         s = _make_session(perf=perf)
-        result, output = self._run(["--error-codes"], by_session=[s])
+        result, _ = self._run(["--error-codes"], by_session=[s])
         self.assertEqual(result, 0)
 
     def test_json_with_health_flag(self):

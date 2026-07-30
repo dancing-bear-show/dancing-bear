@@ -98,8 +98,8 @@ class TestAddArguments(unittest.TestCase):
     def test_add_data_dir_argument(self):
         parser = argparse.ArgumentParser()
         add_data_dir_argument(parser)
-        args = parser.parse_args(["--data-dir", "/tmp/otel"])
-        self.assertEqual(args.data_dir, "/tmp/otel")
+        args = parser.parse_args(["--data-dir", "/tmp/otel"])  # nosec B108 - parsed as CLI string, no file op
+        self.assertEqual(args.data_dir, "/tmp/otel")  # nosec B108 - string comparison only
 
     def test_add_since_argument(self):
         parser = argparse.ArgumentParser()
@@ -120,7 +120,7 @@ class TestResolveDataDir(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_returns_otelpdatadir_from_path(self):
-        args = argparse.Namespace(data_dir="/tmp/otel")
+        args = argparse.Namespace(data_dir="/tmp/otel")  # nosec B108 - path string in Namespace, no file op
         result = resolve_data_dir(args, allow_none=True)
         self.assertIsNotNone(result)
 

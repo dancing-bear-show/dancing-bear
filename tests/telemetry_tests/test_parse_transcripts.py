@@ -454,7 +454,7 @@ class TestProcessOneRecord(unittest.TestCase):
         # role in top-level record, content is none
         record = {"message": "bad", "role": "user"}
         # No crash — role from fallback, content empty
-        p_delta, b_delta = _process_one_record(record, idx, 0, 0)
+        _, b_delta = _process_one_record(record, idx, 0, 0)
         self.assertEqual(b_delta, 0)
 
     def test_both_user_prompt_and_no_tool_blocks_counted(self):
@@ -503,7 +503,7 @@ class TestProcessJsonlFile(unittest.TestCase):
         p = self.dir / "empty.jsonl"
         p.write_text("", encoding="utf-8")
         idx = self._make_index()
-        prompts, bash, nbytes, offset = _process_jsonl_file(p, 0, idx, str(self.dir))
+        prompts, bash, nbytes, _ = _process_jsonl_file(p, 0, idx, str(self.dir))
         self.assertEqual(prompts, 0)
         self.assertEqual(bash, 0)
         self.assertEqual(nbytes, 0)

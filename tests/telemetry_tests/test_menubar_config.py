@@ -574,13 +574,13 @@ class TestParseConfigText(unittest.TestCase):
     def test_empty_lines_ignored(self) -> None:
         cfg = self._base_cfg()
         text = "\n\nmonthly_budget: 300\n\n"
-        parsed, rejected = _parse_config_text(text, cfg)
+        parsed, _ = _parse_config_text(text, cfg)
         self.assertEqual(parsed["monthly_budget"], 300.0)
 
     def test_sections_header_line_ignored(self) -> None:
         cfg = self._base_cfg()
         text = "sections:\nmonthly_budget: 200"
-        parsed, rejected = _parse_config_text(text, cfg)
+        parsed, _ = _parse_config_text(text, cfg)
         self.assertEqual(parsed["monthly_budget"], 200.0)
 
     def test_invalid_key_goes_to_rejected(self) -> None:

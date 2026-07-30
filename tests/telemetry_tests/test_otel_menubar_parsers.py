@@ -6,7 +6,6 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from telemetry.otel.menubar_parsers import (
     _accumulate_compaction_events,
@@ -275,7 +274,7 @@ class TestAccumulateDatapoint(unittest.TestCase):
         out: list = []
         _accumulate_datapoint(dp, "my.metric", cutoff, out)
         self.assertEqual(len(out), 1)
-        name, value, attrs = out[0]
+        name, value, _ = out[0]
         self.assertEqual(name, "my.metric")
         self.assertAlmostEqual(value, 2.5)
 
