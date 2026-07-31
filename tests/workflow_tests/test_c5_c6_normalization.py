@@ -389,8 +389,7 @@ class TestEmitRowsDelegation(unittest.TestCase):
         rows = [{"x": 1}]
         out = io.StringIO()
         with patch("sys.stdout", out):
-            rc = _emit_rows(rows, fmt="json")
-        self.assertIsNone(rc)
+            self.assertIsNone(_emit_rows(rows, fmt="json"))
 
     def test_emit_rows_with_headers_filters_columns(self) -> None:
         rows = [{"a": "1", "b": "2", "c": "3"}]

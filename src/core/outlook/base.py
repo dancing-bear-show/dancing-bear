@@ -25,4 +25,4 @@ class OutlookBaseProvider(Protocol):
 
     def get_service(self) -> Any:
         """Return an authenticated Outlook service / client object."""
-        ...
+        raise NotImplementedError

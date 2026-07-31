@@ -245,7 +245,7 @@ class TestShellJobProcessorSadPaths(unittest.TestCase):
 
         self.assertFalse(envelope.ok())
         msg = (envelope.diagnostics or {}).get("message", "")
-        self.assertTrue(len(msg) > 0)
+        self.assertGreater(len(msg), 0)
 
     def test_os_error_produces_failed_envelope(self):
         from worker.handlers import ShellJobProcessor, ShellJobRequest

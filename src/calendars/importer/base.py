@@ -18,11 +18,11 @@ class CalendarProvider(Protocol):
 
     def list_events(self, date_range: tuple[str, str]) -> list[CalendarEvent]:
         """Return events within the given ISO date range (start, end)."""
-        ...
+        raise NotImplementedError
 
     def add_event(self, event: CalendarEvent) -> CalendarEvent:
         """Add a new event and return the persisted result."""
-        ...
+        raise NotImplementedError
 
 
 class ScheduleParser(ABC):

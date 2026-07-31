@@ -228,7 +228,6 @@ def _acquire_instance_lock() -> None:
     except BlockingIOError:
         os.close(fd)
         raise CLIError("ClaudeStats is already running.", ExitCode.ERROR)
-        return  # unreachable in production; prevents execution past raise when mocked
     os.write(fd, f"{os.getpid()}\n".encode())
     _instance_lock_fd = fd  # keep fd open so the OS holds the lock for our lifetime
 
