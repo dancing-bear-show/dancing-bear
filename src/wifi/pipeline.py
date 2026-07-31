@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from core.cli_output import OutputFormat, OutputWriter
+from core.cli_output import OutputFormat
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
 from .diagnostics import (
@@ -68,9 +68,6 @@ class DiagnoseProcessor(SafeProcessor[DiagnoseRequest, DiagnoseResult]):
 
 
 class DiagnoseProducer(BaseProducer):
-    def __init__(self, writer: Optional[OutputWriter] = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: DiagnoseResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         if payload.output_format == OutputFormat.JSON:
             content = json.dumps(report_to_dict(payload.report), indent=2)

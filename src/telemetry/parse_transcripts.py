@@ -81,9 +81,6 @@ class TranscriptParseProcessor(SafeProcessor[TranscriptParseRequest, TranscriptP
 class TranscriptParseProducer(BaseProducer):
     """Render transcript parse results via OutputWriter."""
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(
         self, payload: TranscriptParseResult, diagnostics: dict[str, Any] | None
     ) -> None:

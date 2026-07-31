@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-from core.cli_output import OutputWriter
 from core.pipeline import SafeProcessor
 
 from .gmail_service import GmailService, QueryParams
@@ -349,9 +348,6 @@ class GmailScanClassesProcessor(SafeProcessor[GmailScanClassesRequest, GmailScan
 
 
 class GmailScanClassesProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: GmailScanClassesResult, diagnostics: dict[str, Any] | None) -> None:
         events = payload.events
         if not events:
@@ -429,9 +425,6 @@ class GmailMailListProcessor(SafeProcessor[GmailMailListRequest, GmailMailListRe
 
 
 class GmailMailListProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: GmailMailListResult, diagnostics: dict[str, Any] | None) -> None:
         messages = payload.messages
         if not messages:
@@ -528,9 +521,6 @@ class GmailSweepTopProcessor(SafeProcessor[GmailSweepTopRequest, GmailSweepTopRe
 
 
 class GmailSweepTopProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: GmailSweepTopResult, diagnostics: dict[str, Any] | None) -> None:
         top = payload.top_senders
         if not top:

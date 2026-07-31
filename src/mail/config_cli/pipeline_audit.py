@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.cli_output import OutputWriter
 from core.pipeline import (
     BaseProducer,
     RequestConsumer,
@@ -129,7 +130,8 @@ class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResul
 
 
 class AuditFiltersProducer(BaseProducer):
-    def __init__(self, preview_missing: bool = False) -> None:
+    def __init__(self, preview_missing: bool = False, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
         self._preview_missing = preview_missing
 
     def _produce_success(self, payload: AuditFiltersResult, diagnostics: dict[str, Any] | None) -> None:

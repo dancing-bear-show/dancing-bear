@@ -1,7 +1,5 @@
 """Outlook Remove Pipeline - delete calendar events based on config."""
 
-from core.cli_output import OutputWriter
-
 from ._base import (
     _dt,
     dataclass,
@@ -231,9 +229,6 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
 
 
 class OutlookRemoveProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: OutlookRemoveResult, diagnostics: dict[str, Any] | None) -> None:
         if not payload.apply:
             self._writer.print("Planned deletions:")

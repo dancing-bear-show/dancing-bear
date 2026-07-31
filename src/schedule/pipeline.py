@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from core.auth import build_outlook_service
 from core.cli_errors import CLIError, ExitCode
-from core.cli_output import OutputWriter
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME
 
@@ -130,9 +129,6 @@ class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
 
 class PlanProducer(BaseProducer):
     """Produce output for plan generation with automatic error handling."""
-
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
 
     def _produce_success(self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         _dump_yaml(str(payload.out_path), payload.document)
@@ -428,9 +424,6 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
 class SyncProducer(BaseProducer):
     """Produce output for sync operations with automatic error handling."""
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: SyncResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         for line in payload.lines:
             self._writer.print(line)
@@ -499,9 +492,6 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
 class ApplyProducer(BaseProducer):
     """Produce output for apply operations with automatic error handling."""
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: ApplyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         for line in payload.lines:
             self._writer.print(line)
@@ -564,9 +554,6 @@ class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportSchedul
 
 class ExportScheduleProducer(BaseProducer):
     """Write export results to YAML and print summary."""
-
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
 
     def _produce_success(self, payload: ExportScheduleResult, diagnostics: Optional[Dict[str, Any]]) -> None:
         _dump_yaml(str(payload.out_path), {"events": payload.rows})

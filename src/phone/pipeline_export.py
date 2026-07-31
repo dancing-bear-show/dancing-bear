@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.cli_output import OutputWriter, emit_one
+from core.cli_output import emit_one
 from core.pipeline import (
     BaseProducer as _CoreBaseProducer,
     RequestConsumer,
@@ -258,9 +258,6 @@ class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
 
 
 class UnusedProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(
         self, payload: UnusedResult, diagnostics: dict[str, Any] | None
     ) -> None:
