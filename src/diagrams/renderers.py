@@ -216,9 +216,9 @@ class LocalRenderer:
         Args:
             diagram: Builder, model, or raw mermaid string.
             output_path: Destination file path.
-            config: Rendering options; config.output_format is unused here —
-                    mmdc infers format from the output_path extension. Use
-                    _infer_format to validate the extension is supported.
+            config: Rendering options. config.output_format overrides the
+                    format inferred from output_path's extension; if
+                    output_path lacks a matching extension, it is appended.
 
         Returns:
             The output path.
@@ -230,7 +230,12 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
-        if config.output_format is None:
+        if config.output_format is not None:
+            if config.output_format not in {"svg", "png", "pdf"}:
+                raise ValueError(f"Unsupported format {config.output_format!r}")
+            if not output_path.endswith(f".{config.output_format}"):
+                output_path = f"{output_path}.{config.output_format}"
+        else:
             self._infer_format(output_path)  # validate extension; raises ValueError if unsupported
 
         mermaid_text = self._get_mermaid_text(diagram)
