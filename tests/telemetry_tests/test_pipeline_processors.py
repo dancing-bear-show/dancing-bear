@@ -16,7 +16,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from core.cli_output import OutputWriter
 from core.pipeline import RequestConsumer, ResultEnvelope

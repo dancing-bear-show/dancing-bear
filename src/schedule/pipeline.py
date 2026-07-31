@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
-from core.auth import build_outlook_service
 from core.cli_errors import CLIError, ExitCode
-from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
-from core.constants import FMT_DAY_START, FMT_DAY_END, FMT_DATETIME
+from core.yamlio import dump_config as _dump_yaml
+from core.constants import FMT_DAY_START, FMT_DAY_END
 
 from core.date_utils import to_iso_str as _to_iso_str  # noqa: F401
 

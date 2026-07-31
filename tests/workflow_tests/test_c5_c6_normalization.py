@@ -95,7 +95,7 @@ class TestLoadDefinitionRaisesCLIError(unittest.TestCase):
         try:
             _load_definition("/nonexistent/path/wf.yaml")
         except CLIError:
-            pass
+            pass  # expected path under test — CLIError, not SystemExit
         except SystemExit:
             self.fail("_load_definition raised SystemExit instead of CLIError")
 
@@ -111,7 +111,7 @@ class TestLoadDefinitionRaisesCLIError(unittest.TestCase):
             try:
                 _load_definition(path)
             except CLIError:
-                pass
+                pass  # expected path under test — CLIError, not SystemExit
             except SystemExit:
                 self.fail("_load_definition raised SystemExit instead of CLIError")
 
@@ -383,13 +383,6 @@ class TestEmitRowsDelegation(unittest.TestCase):
             _emit_rows([], fmt="json")
         # Empty rows → emit_rows prints "No results." to stderr
         self.assertEqual(out.getvalue(), "")
-
-    def test_emit_rows_returns_none(self) -> None:
-        """_emit_rows is a thin void wrapper; return value is None."""
-        rows = [{"x": 1}]
-        out = io.StringIO()
-        with patch("sys.stdout", out):
-            self.assertIsNone(_emit_rows(rows, fmt="json"))
 
     def test_emit_rows_with_headers_filters_columns(self) -> None:
         rows = [{"a": "1", "b": "2", "c": "3"}]

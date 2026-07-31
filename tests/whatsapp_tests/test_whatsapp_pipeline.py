@@ -1,6 +1,7 @@
 """Tests for whatsapp pipeline module."""
 from __future__ import annotations
 
+import importlib
 import io
 import unittest
 from unittest.mock import patch
@@ -221,7 +222,7 @@ class TestSearchQueryRemoved(unittest.TestCase):
 
     def test_search_query_not_in_search_module(self):
         """Confirm SearchQuery dataclass was deleted from whatsapp.search."""
-        import whatsapp.search as search_mod
+        search_mod = importlib.import_module(MessageRow.__module__)
         self.assertFalse(
             hasattr(search_mod, "SearchQuery"),
             "SearchQuery should have been removed from whatsapp.search (C1 deduplication)",
@@ -229,7 +230,7 @@ class TestSearchQueryRemoved(unittest.TestCase):
 
     def test_search_query_not_in_pipeline_module(self):
         """Confirm SearchQuery is not re-exported from whatsapp.pipeline."""
-        import whatsapp.pipeline as pipeline_mod
+        pipeline_mod = importlib.import_module(SearchRequest.__module__)
         self.assertFalse(
             hasattr(pipeline_mod, "SearchQuery"),
             "SearchQuery should not be present in whatsapp.pipeline",
