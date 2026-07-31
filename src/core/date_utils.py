@@ -16,6 +16,7 @@ __all__ = [
     "DAY_MAP",
     "DAY_NAMES",
     "MONTH_MAP",
+    "RRULE_CODE_TO_DAY_NAME",
     "normalize_day",
     "normalize_days",
     "now_utc",
@@ -45,6 +46,15 @@ DAY_MAP = {
     "sunday": "SU",
     "sun": "SU",
 }
+
+# Inverse of DAY_MAP (RRULE code -> full day name). DAY_MAP has multiple
+# spellings per code (e.g. "tue"/"tues"/"tuesday"); keep the longest, which
+# is always the full name.
+RRULE_CODE_TO_DAY_NAME: dict[str, str] = {}
+for _name, _code in DAY_MAP.items():
+    if len(_name) > len(RRULE_CODE_TO_DAY_NAME.get(_code, "")):
+        RRULE_CODE_TO_DAY_NAME[_code] = _name
+del _name, _code
 
 # Day name sequence for iteration (abbreviated, lowercase)
 DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']

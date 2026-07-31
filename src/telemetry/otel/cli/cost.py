@@ -151,19 +151,35 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def _load_or_error(loader_fn, empty_msg: str, writer: OutputWriter):
+    """Run a data-dir-scoped loader, handling invalid --since consistently.
+
+    Returns (data, exit_code). exit_code is None if the caller should continue
+    with the returned data; otherwise it's the exit code to return immediately.
+    """
+    try:
+        data = loader_fn()
+    except ValueError as e:
+        return None, format_validation_error("--since", str(e))
+
+    if not data:
+        writer.print(empty_msg)
+        return None, 0
+
+    return data, None
+
+
 def _handle_by_date(args: argparse.Namespace) -> int:
     """Handle --by-date flag."""
     writer = OutputWriter()
-    try:
-        data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
-        daily = get_daily_costs(data_dir=data_dir, since=args.since)
-    except ValueError:
-        writer.print_error("Invalid --since value")
-        return 1
-
-    if not daily:
-        writer.print("No cost data found")
-        return 0
+    data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
+    daily, exit_code = _load_or_error(
+        lambda: get_daily_costs(data_dir=data_dir, since=args.since),
+        "No cost data found",
+        writer,
+    )
+    if exit_code is not None:
+        return exit_code
 
     if args.format == "json":
         _output_daily_json(daily)
@@ -215,16 +231,14 @@ def _output_daily_json(daily: list) -> None:
 def _handle_model_perf(args: argparse.Namespace) -> int:
     """Handle --perf --breakdown model."""
     writer = OutputWriter()
-    try:
-        data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
-        perfs = get_model_performance(data_dir=data_dir, since=args.since)
-    except ValueError:
-        writer.print_error("Invalid --since value")
-        return 1
-
-    if not perfs:
-        writer.print("No model performance data found")
-        return 0
+    data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
+    perfs, exit_code = _load_or_error(
+        lambda: get_model_performance(data_dir=data_dir, since=args.since),
+        "No model performance data found",
+        writer,
+    )
+    if exit_code is not None:
+        return exit_code
 
     if args.format == "json":
         _output_model_perf_json(perfs)

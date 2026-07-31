@@ -194,10 +194,10 @@ class TestCostMainByDate(unittest.TestCase):
             result = main(["--by-date", "--format", "json"])
         self.assertEqual(result, 0)
 
-    def test_by_date_invalid_since_returns_1(self):
+    def test_by_date_invalid_since_returns_2(self):
         with patch("telemetry.otel.cli.cost.get_daily_costs", side_effect=ValueError("bad")):
             result = main(["--by-date", "--since", "bad"])
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 2)
 
 
 # ---------------------------------------------------------------------------
