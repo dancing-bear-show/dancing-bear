@@ -29,6 +29,12 @@ Profiles
   - `[mail.gmail_personal]` → `credentials`, `token`
   - `[mail.outlook_personal]` → `outlook_client_id`, `tenant`, `outlook_token`
 
+Pipeline Pattern
+- Filter/label commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
+- `FiltersPlanProcessor`, `FiltersImpactProcessor`, `FiltersExportProcessor`, `AutoProposeProcessor`, `AutoSummaryProcessor`, `AutoApplyProcessor` use `SafeProcessor`.
+- All producer output routes through `OutputWriter`; bare `print()` eliminated in `filters/producers.py` and `labels/producers.py`.
+- CLI-boundary errors raise `UsageError` or `CLIError` (not `ValueError`/`RuntimeError`).
+
 Notes
 - Optional deps lazily imported: Google API client, PyYAML, MSAL, requests.
 - Keep YAML human-editable; unknown keys are ignored on sync.

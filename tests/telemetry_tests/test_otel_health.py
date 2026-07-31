@@ -197,11 +197,12 @@ class TestRequireOtelInfrastructure(unittest.TestCase):
             require_otel_infrastructure()
         mock_check.assert_called_once()
 
-    def test_raises_system_exit_when_infrastructure_missing(self):
+    def test_raises_cli_error_when_infrastructure_missing(self):
+        from core.cli_errors import CLIError, ExitCode
         with patch("telemetry.otel.health.check_otel_infrastructure", return_value=False):
-            with self.assertRaises(SystemExit) as ctx:
+            with self.assertRaises(CLIError) as ctx:
                 require_otel_infrastructure()
-            self.assertEqual(ctx.exception.code, 1)
+            self.assertEqual(ctx.exception.code, ExitCode.ERROR)
 
 
 if __name__ == "__main__":

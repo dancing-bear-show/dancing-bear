@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.auth import resolve_outlook_credentials
+from core.cli_errors import CLIError
 
 
 @dataclass
@@ -47,8 +48,8 @@ class OutlookContext:
         """
         try:  # lazy heavy import
             from mail.outlook_api import OutlookClient  # type: ignore
-        except Exception as e:  # pragma: no cover - optional dep
-            raise RuntimeError(f"Outlook features unavailable: {e}") from e
+        except Exception as e:  # nosec B110 - optional dep; re-raise as CLIError
+            raise CLIError(f"Outlook features unavailable: {e}") from e
         client_id, tenant, token_path = self.resolve()
         if not client_id:
             raise RuntimeError(

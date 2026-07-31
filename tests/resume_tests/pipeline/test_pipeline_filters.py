@@ -207,15 +207,13 @@ class TestWithSkillFilter(unittest.TestCase):
         self.assertIn("py", pipeline._synonyms)
 
     @patch("resume.pipeline.read_yaml_or_json")
-    def test_handles_read_exception(self, mock_read):
-        """Silently handles alignment file read failures."""
+    def test_propagates_read_exception(self, mock_read):
+        """Alignment file read failures now propagate (C2: exception-swallowing removed)."""
         mock_read.side_effect = FileNotFoundError("not found")
 
         pipeline = FilterPipeline({"skills": ["Python"]})
-        pipeline.with_skill_filter("/nonexistent.json")
-
-        # Data unchanged
-        self.assertEqual(pipeline._data, {"skills": ["Python"]})
+        with self.assertRaises(FileNotFoundError):
+            pipeline.with_skill_filter("/nonexistent.json")
 
     @patch("resume.pipeline.read_yaml_or_json")
     def test_handles_empty_matched_keywords(self, mock_read):
@@ -271,15 +269,13 @@ class TestWithExperienceFilter(unittest.TestCase):
         self.assertEqual(passed_cfg.min_score, 2)
 
     @patch("resume.pipeline.read_yaml_or_json")
-    def test_handles_read_exception(self, mock_read):
-        """Silently handles alignment file read failures."""
+    def test_propagates_read_exception(self, mock_read):
+        """Alignment file read failures now propagate (C2: exception-swallowing removed)."""
         mock_read.side_effect = FileNotFoundError("not found")
 
         pipeline = FilterPipeline({"experience": [{"title": "Dev"}]})
-        pipeline.with_experience_filter("/nonexistent.json")
-
-        # Data unchanged
-        self.assertEqual(pipeline._data, {"experience": [{"title": "Dev"}]})
+        with self.assertRaises(FileNotFoundError):
+            pipeline.with_experience_filter("/nonexistent.json")
 
 
 class TestWithPriorityFilter(unittest.TestCase):

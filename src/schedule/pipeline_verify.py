@@ -34,7 +34,7 @@ def _build_outlook_service(auth: OutlookAuth):
         ), None
     except RuntimeError as exc:
         return None, str(exc)
-    except Exception as exc:
+    except (ImportError, OSError, ValueError) as exc:  # nosec B110 - surface provider init failures as error tuple
         return None, f"Outlook provider unavailable: {exc}"
 
 

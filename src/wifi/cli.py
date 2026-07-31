@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Optional
 
 from core.assistant import BaseAssistant
+from core.cli_errors import ExitCode
 from core.cli_framework import CLIApp
+from core.cli_output import OutputFormat
 
 from .diagnostics import DiagnoseConfig, run_diagnosis
 from .meta import APP_ID, PURPOSE
@@ -68,13 +70,14 @@ def cmd_diagnose(args) -> int:
     )
 
     out_path = Path(args.out) if args.out else None
-    request = DiagnoseRequest(config=cfg, emit_json=args.json, out_path=out_path)
+    fmt = OutputFormat.JSON if args.json else OutputFormat.TEXT
+    request = DiagnoseRequest(config=cfg, output_format=fmt, out_path=out_path)
     processor = DiagnoseProcessor(run_fn=run_diagnosis)
     envelope = processor.process(DiagnoseRequestConsumer(request).consume())
     DiagnoseProducer().produce(envelope)
     if envelope.ok():
-        return 0
-    return int((envelope.diagnostics or {}).get("code", 2))
+        return ExitCode.SUCCESS
+    return ExitCode((envelope.diagnostics or {}).get("code", ExitCode.ERROR))
 
 
 def main(argv: Optional[list[str]] = None) -> int:

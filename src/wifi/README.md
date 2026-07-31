@@ -15,6 +15,11 @@ Legacy (still supported):
 ./bin/wifi-assistant
 ```
 
+Pipeline Pattern
+- `DiagnoseProcessor`/`DiagnoseProducer` route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
+- `DiagnoseRequest.output_format: OutputFormat` (replaces removed `emit_json` field); `DiagnoseProducer` injects `OutputWriter`.
+- `cmd_diagnose` returns `ExitCode` values; errors raise `CLIError`.
+
 Probes:
 - Stage 1: quick ICMP survey (few packets) to see what responds; skips ICMP-only conclusions when filtered.
 - Detect default gateway (route/ip)

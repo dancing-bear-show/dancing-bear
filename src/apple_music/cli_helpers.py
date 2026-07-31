@@ -7,6 +7,9 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from core.cli_output import OutputConfig, OutputFormat, OutputWriter
 
 from .config import DEFAULT_PROFILE, load_profile
 
@@ -43,13 +46,14 @@ def _resolve_tokens(args) -> tuple[str | None, str | None]:
     return developer_token, user_token
 
 
-def _output_json(args, payload: dict) -> int:
-    """Output JSON payload to stdout or file."""
+def _output_json(args: Any, payload: dict[str, Any]) -> int:
+    """Output JSON payload to stdout or file via OutputWriter."""
     pretty = getattr(args, "pretty", False)
     out_path = getattr(args, "out", None)
     json_text = json.dumps(payload, indent=2 if pretty else None)
     if out_path:
         Path(out_path).write_text(json_text)
     else:
-        print(json_text)
+        writer = OutputWriter(OutputConfig(format=OutputFormat.TEXT))
+        writer.print(json_text)
     return 0

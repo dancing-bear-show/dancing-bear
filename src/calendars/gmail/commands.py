@@ -8,7 +8,7 @@ from core.pipeline import run_pipeline
 
 from ..gmail_pipelines import (
     GmailAuth,
-    GmailPlanProducer,
+    GmailScanProducer,
     GmailReceiptsProcessor,
     GmailReceiptsRequest,
     GmailScanClassesProcessor,
@@ -101,7 +101,7 @@ def run_gmail_scan_receipts(args: argparse.Namespace) -> int:
         calendar=getattr(args, "calendar", None),
         out_path=Path(getattr(args, "out")),
     )
-    return run_pipeline(request, GmailReceiptsProcessor, GmailPlanProducer)
+    return run_pipeline(request, GmailReceiptsProcessor, GmailScanProducer)
 
 
 def run_gmail_scan_activerh(args: argparse.Namespace) -> int:

@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
+from core.cli_errors import CLIError, ExitCode
 from core.secrets import mask_text
 
 __all__ = ["GhCLI"]
@@ -41,7 +42,7 @@ class GhCLI:
         res = self._run(cmd, text=True, capture_output=True)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh api failed")
-            raise RuntimeError(err_msg)
+            raise CLIError(err_msg, ExitCode.ERROR)
         try:
             return json.loads(res.stdout)
         except Exception:  # nosec B110 - non-JSON gh api output returned as raw string
@@ -65,7 +66,7 @@ class GhCLI:
         res = self._run(cmd, text=True, capture_output=True)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh search prs failed")
-            raise RuntimeError(err_msg)
+            raise CLIError(err_msg, ExitCode.ERROR)
         try:
             return json.loads(res.stdout)
         except Exception:  # nosec B110 - non-JSON gh search output returned as raw string
@@ -191,7 +192,7 @@ class GhCLI:
         res = self._run(cmd, text=True, capture_output=True)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh pr view failed")
-            raise RuntimeError(err_msg)
+            raise CLIError(err_msg, ExitCode.ERROR)
         if fields:
             try:
                 return json.loads(res.stdout)
@@ -218,5 +219,5 @@ class GhCLI:
         res = self._run(full_cmd, text=True, capture_output=True)
         if res.returncode != 0:
             err_msg = mask_text(res.stderr or res.stdout or "gh pr list failed")
-            raise RuntimeError(err_msg)
+            raise CLIError(err_msg, ExitCode.ERROR)
         return res.stdout

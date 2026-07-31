@@ -2,9 +2,27 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from .model import ScheduleItem
+from calendars.gmail_pipelines import CalendarEvent
+
+
+@runtime_checkable
+class CalendarProvider(Protocol):
+    """Protocol for calendar backends.
+
+    Both Gmail and Outlook backends implement this interface, enabling
+    provider-agnostic callers to list and create events.
+    """
+
+    def list_events(self, date_range: tuple[str, str]) -> list[CalendarEvent]:
+        """Return events within the given ISO date range (start, end)."""
+        raise NotImplementedError
+
+    def add_event(self, event: CalendarEvent) -> CalendarEvent:
+        """Add a new event and return the persisted result."""
+        raise NotImplementedError
 
 
 class ScheduleParser(ABC):

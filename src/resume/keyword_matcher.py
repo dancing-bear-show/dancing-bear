@@ -1,14 +1,17 @@
 """KeywordMatcher: Unified keyword matching and synonym handling.
 
 This module is now a thin shim; implementation lives in:
-  - resume.keyword_normalize: KeywordInfo, MatchResult, SynonymRegistry, normalize_text
+  - resume.keyword_normalize: KeywordInfo, KeywordMatchResult, SynonymRegistry, normalize_text
   - resume.keyword_match: KeywordMatchEngine, keyword_match
 """
 from __future__ import annotations
 
-from resume.keyword_normalize import KeywordInfo, MatchResult, normalize_text  # noqa: F401
+from resume.keyword_normalize import KeywordInfo, KeywordMatchResult, normalize_text  # noqa: F401
 from resume.keyword_match import KeywordMatchEngine, keyword_match  # noqa: F401
 from typing import Dict, Iterable, List, Optional
+
+# Backwards-compatible alias for code that imports MatchResult from this module
+MatchResult = KeywordMatchResult
 
 
 class KeywordMatcher(KeywordMatchEngine):

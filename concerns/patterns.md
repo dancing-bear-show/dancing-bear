@@ -315,3 +315,41 @@ applicability by file type:
 - **check**: Verify that no two `@app.command(...)` registrations in the same `CLIApp` instance resolve to the same full name. `CLIApp.command()` (`core/cli_framework.py`) computes `full_name = f"{parent}.{name}"` and stores it as `self._commands[full_name] = cmd_def` — the dict assignment silently overwrites any prior registration with the same key, with no error or warning at import time or at `--help`. Because `"outlook.add"`, `"outlook add"`, and `parent="outlook"` + `name="add"` all normalize to the identical key, a second command written in a different dotted/spaced form than an existing one collides invisibly.
 - **triggers**: New `@app.command(` decorators added to a CLI module that already has commands under the same parent group; a PR that copies an existing command as a starting point and forgets to change its `name` string; commands registered via `parent=` kwarg alongside commands using dot/space notation for the same group.
 - **example**: `@app.command("outlook.add")` exists, and a later PR adds `@app.command("outlook add", ...)` intending a distinct command — both normalize to `full_name = "outlook.add"`, so the second decorator's registration silently replaces the first in `self._commands`. The original `outlook add` handler becomes unreachable with no import error, no duplicate-command warning, and no test failure unless a test specifically exercises the now-shadowed command. Fix: grep `self._commands` keys (or run `--agentic --agentic-format json` and check for exactly one entry per intended command) before merging a new command in an existing parent group.
+
+### producer-bypasses-output-writer
+- **severity**: major
+- **check**: Verify that producer classes (BaseProducer subclasses) and CLI output helpers route all user-facing output through an injected OutputWriter rather than calling bare print() directly.
+- **triggers**: BaseProducer subclasses with `print(` in `_produce_success()` or `produce()`; CLI command handlers that call `print()` for structured output instead of `emit_rows`/`emit_one`/`OutputWriter`; producer `__init__` that does not accept a `writer` parameter; diff adding a new producer class without an OutputWriter injection site.
+- **example**:
+  ```python
+  # bad — bare print() bypasses stream injection and format routing
+  class FiltersPlanProducer(BaseProducer):
+      def _produce_success(self, result, envelope):
+          for entry in result.creates:
+              print(f'  + {entry.label}')
+
+  # good — OutputWriter injected, defaults to OutputWriter(); routes through configured stream
+  class FiltersPlanProducer(BaseProducer):
+      def __init__(self, writer=None):
+          self._writer = writer or OutputWriter()
+      def _produce_success(self, result, envelope):
+          for entry in result.creates:
+              self._writer.print(f'  + {entry.label}')
+  ```
+
+### pipeline-naming-inconsistency
+- **severity**: minor
+- **check**: Verify that pipeline class pairs follow the `<Verb><Noun>Processor` / `<Verb><Noun>Producer` naming convention, that input dataclasses use a `Request` suffix, output dataclasses use a `Result` suffix, and that no legacy `Payload` suffix survives in modules that have adopted `SafeProcessor`.
+- **triggers**: Processor/Producer subclasses whose names deviate from `<Verb><Noun>Processor`/`<Verb><Noun>Producer`; dataclasses passed to `SafeProcessor` or `BaseProducer` with a `Payload` suffix; dataclasses returned from `_process_safe` without a `Result` suffix; a module mixing `Payload` (old pattern) and `Request` (new pattern) naming; result type names that don't derive from the paired class name (e.g. `MatchResult` without `Keyword` prefix).
+- **example**:
+  ```python
+  # bad — Payload suffix on input, Plan is noun not verb, MatchResult drops class prefix
+  class FiltersSyncPayload: ...
+  class GmailPlanProducer: ...
+  class MatchResult: ...  # returned by KeywordMatcher
+
+  # good — Request/Result suffixes, verb-noun class names
+  class FiltersSyncRequest: ...
+  class GmailScanProducer: ...
+  class KeywordMatchResult: ...  # prefix matches KeywordMatcher domain
+  ```

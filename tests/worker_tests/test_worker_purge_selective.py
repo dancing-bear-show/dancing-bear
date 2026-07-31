@@ -22,17 +22,7 @@ def _parse_json(text):
     return json.loads(text.strip())
 
 
-class QueueRootIsolationMixin:
-    """Save/restore QUEUE_ROOT around each test."""
-
-    def isolate_queue_root(self):
-        from worker import queue as q
-        self._orig_queue_root = q.QUEUE_ROOT
-        self.addCleanup(self._restore_queue_root)
-
-    def _restore_queue_root(self):
-        from worker import queue as q
-        q.QUEUE_ROOT = self._orig_queue_root
+from tests.worker_tests.helpers import QueueRootIsolationMixin
 
 
 class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):

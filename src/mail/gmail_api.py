@@ -61,13 +61,13 @@ class GmailClient(ConfigCacheMixin):
         if os.path.exists(self.token_path):
             try:
                 creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception:
+            except Exception:  # nosec B110 - malformed/stale token file; re-authenticate below
                 creds = None
 
         if creds and creds.expired and getattr(creds, "refresh_token", None):
             try:
                 creds.refresh(Request())
-            except Exception:
+            except Exception:  # nosec B110 - refresh failure; fall through to re-authenticate
                 creds = None
 
         if creds is None:

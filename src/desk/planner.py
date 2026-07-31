@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from core.cli_errors import NotFoundError
 from core.yamlio import load_config as _load_yaml
 
 from .utils import expand_paths, parse_duration, parse_size
@@ -121,7 +122,7 @@ def plan_from_config(config_path: str) -> Dict:
     """Generate a plan of file operations from a config file."""
     config_path = os.path.expanduser(config_path)
     if not os.path.exists(config_path):
-        raise FileNotFoundError(config_path)
+        raise NotFoundError(f"Config file not found: {config_path}")
 
     cfg = _load_yaml(config_path) or {}
     version = int(cfg.get("version", 1))

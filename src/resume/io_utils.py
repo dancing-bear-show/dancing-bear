@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from core.cli_errors import CLIError
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 
@@ -29,7 +30,7 @@ def read_text_any(path: str | os.PathLike[str]) -> str:
     if suffix == ".docx":
         docx = safe_import("docx")
         if not docx:
-            raise RuntimeError(
+            raise CLIError(
                 "Reading .docx requires python-docx. Install it or provide .txt/.md."
             )
         from docx import Document  # type: ignore
@@ -40,7 +41,7 @@ def read_text_any(path: str | os.PathLike[str]) -> str:
         # Optional dependency
         pdfminer = safe_import("pdfminer.high_level")
         if not pdfminer:
-            raise RuntimeError(
+            raise CLIError(
                 "Reading .pdf requires pdfminer.six. Install it or provide .txt/.md."
             )
         from pdfminer.high_level import extract_text  # type: ignore

@@ -29,6 +29,9 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] `messages_cli` search and summarize now use pipeline processors/producers.
   - [x] `accounts` multi-account commands (list, export-labels, sync-labels, export-filters, sync-filters, plan-labels, plan-filters, export-signatures, sync-signatures) now use pipeline processors/producers.
   - [x] `config_cli` commands (auth, backup, cache-stats, cache-clear, cache-prune, config-inspect, derive-labels, derive-filters, optimize-filters, audit-filters, env-setup, workflows) now use SafeProcessor/BaseProducer/RequestConsumer pattern (Dec 2024).
+  - [x] `FiltersPlanProcessor`, `FiltersImpactProcessor`, `FiltersExportProcessor`, `AutoProposeProcessor`, `AutoSummaryProcessor`, `AutoApplyProcessor` migrated to `SafeProcessor` pattern (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] `FiltersPlanProducer`, `FiltersImpactProducer`, `LabelsPlanProducer`, `LabelsSyncProducer`, `LabelsExportProducer` migrated to `OutputWriter` injection (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [ ] `FiltersSyncProcessor` retained on old `Processor` pattern (test contract requires `diagnostics["code"] == 2`).
   - [ ] Slim `mail/__main__.py` to CLI shim → domain orchestrator. (Filters + labels now delegate; other commands pending.)
   - [x] Update docs/tests (`tests/test_llm_*`, CLI tests) to cover new pathway.
 
@@ -57,6 +60,9 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Gmail (4 processors): GmailReceiptsProcessor, GmailScanClassesProcessor, GmailMailListProcessor, GmailSweepTopProcessor.
   - [x] Outlook (15 processors): OutlookVerifyProcessor, OutlookAddProcessor, OutlookScheduleImportProcessor, OutlookListOneOffsProcessor, OutlookCalendarShareProcessor, OutlookAddEventProcessor, OutlookAddRecurringProcessor, OutlookLocationsEnrichProcessor, OutlookMailListProcessor, OutlookLocationsUpdateProcessor, OutlookLocationsApplyProcessor, OutlookRemoveProcessor, OutlookRemindersProcessor, OutlookSettingsProcessor, OutlookDedupProcessor.
   - [x] Tests updated: removed 24 error code assertions; 316/342 tests passing (92.4%).
+  - [x] `OutlookScanProcessor`/`OutlookScanProducer` added; `CalendarNotFoundError` subclasses `NotFoundError`; `GmailPlanProducer`→`GmailScanProducer` rename with backwards-compatible aliases (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] `CalendarProvider(Protocol)` and `CalendarEvent` dataclass added to `importer/base.py` (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] All 6 calendar producers migrated to `OutputWriter` injection (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
   - [ ] CLI shim delegates to new domain orchestrator.
 - Schedule:
   - [x] Plan command uses dedicated pipeline consumers/processors/producers (`schedule/pipeline.py` + new tests).
@@ -65,6 +71,7 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] All producers already using BaseProducer (no changes needed).
   - [x] CLI already using RequestConsumer and ResultEnvelope pattern.
   - [x] Helper function `_execute_sync_deletes` simplified (no longer returns error envelope).
+  - [x] `ExportScheduleProcessor`/`ExportScheduleProducer` added; all 5 producers inject `OutputWriter`; `CLIError` at all error boundaries (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
   - [x] All 78 tests passing ✓.
 
 ## Phase 3 — Desk & Resume (parallel-friendly)
@@ -78,6 +85,7 @@ so multiple engineers can work in parallel without stepping on each other.
 - Resume:
   - [x] Pipeline module (`resume/pipeline.py`) with FilterPipeline for chainable transforms.
   - [x] Commands (extract, summarize, render, structure, align, etc.) use pipeline pattern.
+  - [x] `FilterPipeline` exception-swallowing removed; `CLIError` at all error boundaries; `OutputWriter` in agentic/australian_rotate output; `KeywordMatchResult` rename with alias (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
 
 ## Phase 4 — Phone & WhatsApp (after core + example apps done)
 - Phone:
@@ -90,6 +98,7 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] Full pipeline coverage: 12/12 commands use Consumer/Processor/Producer pattern.
   - [x] **SafeProcessor migration (Dec 2024)**: All 12 processors migrated to SafeProcessor pattern (-52 lines).
   - [x] Tests updated: removed error code assertions (SafeProcessor doesn't preserve custom error codes).
+  - [x] `LayoutLoadError` subclasses `CLIError`; `ExportProcessor._process_safe()` contract fixed; `UnusedProducer` injects `OutputWriter` (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
   - [x] All 174 tests passing ✓.
 - WhatsApp:
   - [x] Pipeline module (`whatsapp/pipeline.py`) with SearchProcessor/SearchRequestConsumer/SearchProducer.
@@ -98,6 +107,7 @@ so multiple engineers can work in parallel without stepping on each other.
   - [x] SearchProducer already using BaseProducer (no changes needed).
   - [x] CLI updated to use standard "message" diagnostics field instead of custom "error"/"code"/"hint" fields.
   - [x] Tests updated to check standard diagnostics structure.
+  - [x] `SearchRequest.emit_json` → `output_format: OutputFormat`; `SearchProducer` injects `OutputWriter`; `NotFoundError` at missing-DB boundary (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
   - [x] All 70 tests passing ✓.
 
 ## Phase 5 — Maker & Misc (optional)
@@ -114,7 +124,40 @@ so multiple engineers can work in parallel without stepping on each other.
 - [x] Wi-Fi diagnostics now use pipeline consumers/processors/producers (`wifi/pipeline.py` + CLI shim).
 - [x] **SafeProcessor migration (Dec 2024)**: DiagnoseProcessor migrated to SafeProcessor pattern (-13 lines).
 - [x] DiagnoseProducer already using BaseProducer (no changes needed).
+- [x] `DiagnoseRequest.emit_json` → `output_format: OutputFormat`; `DiagnoseProducer` injects `OutputWriter`; `cmd_diagnose` returns `ExitCode` (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
 - [x] All 39 tests passing ✓.
+
+## Phase 7 — Telemetry, Worker, Apple Music, Diagrams, Charts, Metals, Workflow (design-criteria-normalize, 2026-07-30)
+
+- Telemetry:
+  - [x] `CostScanProcessor`/`CostScanProducer`, `CollectorReadProcessor`/`CollectorProducer`, `TranscriptParseProcessor`/`TranscriptParseProducer` introduced (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] All output routes through `OutputWriter` (cost, sessions, compare — 72 bare `print()` calls routed).
+  - [x] `sys.exit()` replaced with `CLIError` at non-POSIX boundaries (`health.py`, `menubar.py`, `collector.py`).
+
+- Worker:
+  - [x] `JobSafeProcessor`/`JobResultProducer` wrap job execution; `ShellJobProcessor` wraps subprocess (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] `CLIError`/`UsageError` at all error boundaries; `OutputWriter` in `ShowCommand`/`StatusCommand`.
+  - [x] `QueueRootIsolationMixin` deduped from test files into `tests/worker_tests/helpers.py`.
+
+- Apple Music:
+  - [x] `ListPlaylistsProcessor`/`ListPlaylistsProducer`, `TracksProcessor`/`TracksProducer`, `ExportProcessor`/`ExportProducer` introduced (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] `PlaylistResult`, `TrackResult`, `ExportPlaylistResult` frozen dataclasses added.
+  - [x] `AppleMusicCLIError` subclasses `CLIError`; JSON output routes through `OutputWriter`.
+
+- Diagrams:
+  - [x] `RenderDiagramProcessor`/`RenderDiagramProducer` introduced; `RenderRequest`/`RenderResult` frozen dataclasses (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] `LocalRendererError` subclasses `CLIError`; all output routes through `OutputWriter`.
+
+- Charts:
+  - [x] C2 exempt (pure in-memory rendering); `CLIError` at error boundaries; `OutputWriter` for all output (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+
+- Metals:
+  - [x] `SpotPriceProcessor`/`SpotPriceProducer`, `GmailCostsProcessor`/`GmailCostsProducer`, `OutlookCostsProcessor`/`OutlookCostsProducer` introduced (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] All producers inject `OutputWriter`; `CLIError` for missing credentials.
+
+- Workflow:
+  - [x] `WorkflowCompileError` subclasses `CLIError`; `CLIError` at dispatch boundary in `cli_dispatch.py` (SafeProcessor migration via design-criteria-normalize, 2026-07-30).
+  - [x] `_emit_rows` delegates to `core.cli_output.emit_rows`; SafeProcessor wrapping intentionally deferred (engine is the pipeline).
 
 ## Coordination Notes
 - Each phase should leave CLI behavior unchanged (backward compatible).

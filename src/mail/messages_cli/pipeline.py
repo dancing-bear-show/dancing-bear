@@ -5,6 +5,7 @@ import json as _json
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.cli_output import OutputWriter
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 
@@ -119,7 +120,8 @@ def _outlook_msg_to_candidate(mid: str, msg: dict) -> MessageCandidate:
 class MessagesSearchProducer(BaseProducer):
     """Output search results with automatic error handling."""
 
-    def __init__(self, output_json: bool = False) -> None:
+    def __init__(self, output_json: bool = False, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
         self._output_json = output_json
 
     def _produce_success(self, payload: MessagesSearchResult, diagnostics: Any | None) -> None:
@@ -194,7 +196,8 @@ class MessagesSummarizeProcessor(SafeProcessor[MessagesSummarizeRequest, Message
 class MessagesSummarizeProducer(BaseProducer):
     """Output summarization results with automatic error handling."""
 
-    def __init__(self, out_path: str | None = None) -> None:
+    def __init__(self, out_path: str | None = None, writer: OutputWriter | None = None) -> None:
+        super().__init__(writer)
         self._out_path = out_path
 
     def _produce_success(self, payload: MessagesSummarizeResult, diagnostics: Any | None) -> None:

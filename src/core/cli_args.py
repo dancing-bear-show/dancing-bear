@@ -36,13 +36,18 @@ class GmailAuthConfig:
 
 
 @dataclass
-class OutputConfig:
+class OutputFormatConfig:
     """Configuration for output formatting arguments."""
 
     formats: Optional[List[str]] = None
     default_format: str = "text"
     include_verbose: bool = True
     include_quiet: bool = True
+
+
+# Backward-compatible alias: keeps any existing `from core.cli_args import OutputConfig`
+# imports working while the canonical name is now OutputFormatConfig.
+OutputConfig = OutputFormatConfig
 
 
 @dataclass
@@ -129,7 +134,7 @@ def add_gmail_auth_args(parser, config: Optional[GmailAuthConfig] = None):
     return parser
 
 
-def add_output_args(parser, config: Optional[OutputConfig] = None):
+def add_output_args(parser, config: Optional[OutputFormatConfig] = None):
     """Add output formatting arguments.
 
     Args:
@@ -140,7 +145,7 @@ def add_output_args(parser, config: Optional[OutputConfig] = None):
         The parser for chaining.
     """
     if config is None:
-        config = OutputConfig()
+        config = OutputFormatConfig()
 
     output_formats = config.formats if config.formats is not None else ["text", "json", "yaml", "table"]
 

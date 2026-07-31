@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-from core.cli_output import emit_one
+from core.cli_output import OutputWriter, emit_one
 from telemetry.otel.analytics.compare import compare_sessions
 from telemetry.otel.cli._format_helpers import format_duration, format_timestamp
 from telemetry.otel.cost_models import SessionComparison
@@ -48,18 +47,19 @@ def main(argv: list[str] | None = None) -> int:
     else:
         data_dir = OTLPDataDir.from_env()
 
+    writer = OutputWriter()
     try:
         comparison = compare_sessions(
             args.session_a, args.session_b, data_dir=data_dir
         )
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        writer.print_error(str(e))
         return 1
 
     if args.format == "json":
         _output_json(comparison)
     else:
-        _output_table(comparison)
+        _output_table(comparison, writer)
 
     return 0
 
@@ -72,8 +72,9 @@ def _format_delta(value: float | int, prefix: str = "", suffix: str = "") -> str
     return f"{sign}{prefix}{value:,}{suffix}"
 
 
-def _output_table(comp: SessionComparison) -> None:
+def _output_table(comp: SessionComparison, writer: OutputWriter | None = None) -> None:
     """Render comparison as a formatted table."""
+    w = writer or OutputWriter()
     a = comp.session_a
     b = comp.session_b
 
@@ -82,19 +83,19 @@ def _output_table(comp: SessionComparison) -> None:
             return sid[:8] + "..." + sid[-8:]
         return sid
 
-    print("Session Comparison")
-    print("=" * 72)
-    print(f"  {'Metric':<24} {'Session A':<20} {'Session B':<20} {'Delta':<12}")
-    print(f"  {'-' * 24} {'-' * 20} {'-' * 20} {'-' * 12}")
+    w.print("Session Comparison")
+    w.print("=" * 72)
+    w.print(f"  {'Metric':<24} {'Session A':<20} {'Session B':<20} {'Delta':<12}")
+    w.print(f"  {'-' * 24} {'-' * 20} {'-' * 20} {'-' * 12}")
 
-    print(f"  {'ID':<24} {_sid(a.session_id):<20} {_sid(b.session_id):<20}")
+    w.print(f"  {'ID':<24} {_sid(a.session_id):<20} {_sid(b.session_id):<20}")
 
-    print(
+    w.print(
         f"  {'First seen':<24} "
         f"{format_timestamp(a.first_seen):<20} "
         f"{format_timestamp(b.first_seen):<20}"
     )
-    print(
+    w.print(
         f"  {'Last seen':<24} "
         f"{format_timestamp(a.last_seen):<20} "
         f"{format_timestamp(b.last_seen):<20}"
@@ -106,10 +107,10 @@ def _output_table(comp: SessionComparison) -> None:
     if comp.duration_delta is not None:
         mins = comp.duration_delta.total_seconds() / 60
         dur_delta = _format_delta(int(mins), suffix="m")
-    print(f"  {'Duration':<24} {dur_a:<20} {dur_b:<20} {dur_delta:<12}")
+    w.print(f"  {'Duration':<24} {dur_a:<20} {dur_b:<20} {dur_delta:<12}")
 
     cost_delta = _format_delta(comp.cost_delta, prefix="$")
-    print(
+    w.print(
         f"  {'Cost':<24} "
         f"${a.cost:<19.4f} "
         f"${b.cost:<19.4f} "
@@ -117,7 +118,7 @@ def _output_table(comp: SessionComparison) -> None:
     )
 
     tok_delta = _format_delta(comp.token_delta)
-    print(
+    w.print(
         f"  {'Billable tokens':<24} "
         f"{a.billable_tokens:<20,} "
         f"{b.billable_tokens:<20,} "
@@ -125,7 +126,7 @@ def _output_table(comp: SessionComparison) -> None:
     )
 
     calls_delta = _format_delta(b.api_calls - a.api_calls)
-    print(
+    w.print(
         f"  {'API calls':<24} "
         f"{a.api_calls:<20,} "
         f"{b.api_calls:<20,} "
@@ -135,14 +136,14 @@ def _output_table(comp: SessionComparison) -> None:
     err_delta = _format_delta(comp.error_delta)
     errors_a = a.perf.error_count if a.perf else 0
     errors_b = b.perf.error_count if b.perf else 0
-    print(
+    w.print(
         f"  {'Errors':<24} "
         f"{errors_a:<20} "
         f"{errors_b:<20} "
         f"{err_delta:<12}"
     )
 
-    print("=" * 72)
+    w.print("=" * 72)
 
 
 def _output_json(comp: SessionComparison) -> None:

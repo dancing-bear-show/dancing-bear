@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from core.cli_output import OutputWriter
 from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
 from .apply_ops import apply_plan_file
 from .planner import plan_from_config
@@ -82,7 +83,8 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, None]):
 class ReportProducer(BaseProducer):
     """Produce output for scan/plan results with automatic error handling."""
 
-    def __init__(self, out_path: Optional[str]) -> None:
+    def __init__(self, out_path: Optional[str], writer: Optional[OutputWriter] = None) -> None:
+        super().__init__(writer)
         self._out_path = out_path
 
     def _produce_success(self, payload: Dict[str, Any], diagnostics: Optional[Dict[str, Any]]) -> None:

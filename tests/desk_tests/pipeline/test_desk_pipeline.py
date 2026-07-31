@@ -1,7 +1,7 @@
 import io
 import json
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import TestCase
 
@@ -79,6 +79,6 @@ class DeskPipelineTests(TestCase):
         )
         envelope.status = "error"
         envelope.diagnostics = {"message": "oops"}
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             ApplyResultProducer().produce(envelope)
         self.assertIn("oops", buf.getvalue())

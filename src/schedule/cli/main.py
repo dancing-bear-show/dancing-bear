@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.assistant import BaseAssistant
+from core.cli_errors import CLIError, ExitCode
+from core.cli_output import OutputWriter
 from core.constants import FMT_DAY_START, FMT_DAY_END
 from core.auth import build_outlook_service_from_args
 from core.cli_framework import CLIApp
@@ -29,6 +31,10 @@ from ..pipeline import (
     ApplyProcessor,
     ApplyRequest,
     ApplyRequestConsumer,
+    ExportScheduleProcessor,
+    ExportScheduleProducer,
+    ExportScheduleRequest,
+    ExportScheduleRequestConsumer,
     OutlookAuth,
     PlanProducer,
     PlanProcessor,
@@ -252,13 +258,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 def _build_outlook_service_from_args(args: argparse.Namespace):
     """Construct an OutlookService instance via shared auth helpers."""
+    _writer = OutputWriter()
     try:
         return build_outlook_service_from_args(args)
     except RuntimeError as exc:
-        print(str(exc))
+        _writer.print_error(str(exc))
         return None
-    except Exception as exc:
-        print(f"Outlook provider unavailable: {exc}")
+    except (ImportError, OSError, ValueError) as exc:  # nosec B110 - surface provider init failures to caller
+        _writer.print_error(f"Outlook provider unavailable: {exc}")
         return None
 
 
@@ -345,55 +352,33 @@ def cmd_export(args: argparse.Namespace) -> int:
     # Validate service
     svc = _build_outlook_service_from_args(args)
     if not svc:
-        return 2
+        raise CLIError("Outlook service unavailable; check credentials.", ExitCode.AUTH_ERROR)
 
     # Validate calendar name
-    cal_name = getattr(args, 'calendar', None)
+    cal_name = getattr(args, "calendar", None)
     if not cal_name:
-        print("--calendar is required")
-        return 2
+        raise CLIError("--calendar is required", ExitCode.USAGE)
 
     # Parse and validate date range
     try:
         start_iso = _dt.datetime.fromisoformat(args.from_date).strftime(FMT_DAY_START)
         end_iso = _dt.datetime.fromisoformat(args.to_date).strftime(FMT_DAY_END)
-    except Exception:
-        print("Invalid --from/--to date format; expected YYYY-MM-DD")
-        return 2
+    except (ValueError, TypeError):
+        raise CLIError("Invalid --from/--to date format; expected YYYY-MM-DD", ExitCode.USAGE)
 
-    # Fetch events from Outlook
-    try:
-        from calendars.outlook_service import ListEventsRequest
-        evs = svc.list_events_in_range(ListEventsRequest(
-            start_iso=start_iso,
-            end_iso=end_iso,
-            calendar_name=cal_name,
-            top=800,
-        ))
-    except Exception as e:
-        print(f"Failed to list events: {e}")
-        return 3
-
-    # Process and export events
-    rows: List[Dict[str, Any]] = []
-    for ev in evs:
-        sub = (ev.get('subject') or '').strip()
-        st = ((ev.get('start') or {}).get('dateTime') or '').strip()
-        en = ((ev.get('end') or {}).get('dateTime') or '').strip()
-        loc = (ev.get('location') or {}).get('displayName') or ''
-        if not sub or not st or not en:
-            continue
-        rows.append({'calendar': cal_name, 'subject': sub, 'start': st, 'end': en, 'location': loc})
-
-    # Sort by start time for readability
-    rows.sort(key=lambda ev: ev.get('start', ''))
-
-    # Write output
-    out_path = Path(getattr(args, 'out'))
-    _write_yaml(out_path, {'events': rows})
-    print(f"Exported {len(rows)} events from '{cal_name}' to {out_path}")
-    print("Note: export writes occurrences as one-offs for backup. Use verify/sync to manage plan application.")
-    return 0
+    out_path = Path(getattr(args, "out"))
+    request = ExportScheduleRequest(
+        service=svc,
+        cal_name=cal_name,
+        start_iso=start_iso,
+        end_iso=end_iso,
+        out_path=out_path,
+    )
+    envelope = ExportScheduleProcessor().process(ExportScheduleRequestConsumer(request).consume())
+    ExportScheduleProducer().produce(envelope)
+    if envelope.ok():
+        return 0
+    return int((envelope.diagnostics or {}).get("code", ExitCode.ERROR))
 
 
 @app.command("compress", help="Infer recurring weekly series from one-off plan events")
@@ -402,35 +387,36 @@ def cmd_export(args: argparse.Namespace) -> int:
 @app.argument("--calendar", help="Calendar name to set on series (optional)")
 @app.argument("--min-occur", type=int, default=2, help="Minimum occurrences to form a series (default 2)")
 def cmd_compress(args: argparse.Namespace) -> int:
-    inp = Path(getattr(args, 'in_path'))
+    _writer = OutputWriter()
+    inp = Path(getattr(args, "in_path"))
     if not inp.exists():
-        print(f"Input not found: {inp}")
-        return 2
+        _writer.print_error(f"Input not found: {inp}")
+        return ExitCode.NOT_FOUND
 
     data = _read_yaml(inp)
-    items = data.get('events') or []
+    items = data.get("events") or []
     if not isinstance(items, list):
-        print("Invalid input: events must be a list")
-        return 2
+        _writer.print_error("Invalid input: events must be a list")
+        return ExitCode.ERROR
 
     # Filter to one-offs only (events with start and end)
-    one_offs = [ev for ev in items if ev.get('start') and ev.get('end')]
+    one_offs = [ev for ev in items if ev.get("start") and ev.get("end")]
     if not one_offs:
-        print("No one-off events found to compress.")
-        return 0
+        _writer.print("No one-off events found to compress.")
+        return ExitCode.SUCCESS
 
     # Group and compress
     groups, meta = _group_one_offs(one_offs)
-    min_occur = max(1, int(getattr(args, 'min_occur', 2)))
-    override_cal = getattr(args, 'calendar', None)
+    min_occur = max(1, int(getattr(args, "min_occur", 2)))
+    override_cal = getattr(args, "calendar", None)
     out_events = _compress_events(groups, meta, min_occur, override_cal)
     out_events.sort(key=_compress_sort_key)
 
     # Write output
-    _write_yaml(Path(getattr(args, 'out')), {'events': out_events})
+    _write_yaml(Path(getattr(args, "out")), {"events": out_events})
     total_input = sum(len(v) for v in groups.values())
-    print(f"Compressed {total_input} one-offs into {len(out_events)} entries → {getattr(args, 'out')}")
-    return 0
+    _writer.print(f"Compressed {total_input} one-offs into {len(out_events)} entries → {getattr(args, 'out')}")
+    return ExitCode.SUCCESS
 
 
 @app.command("apply", help="Apply a schedule plan (dry-run by default)")
@@ -444,8 +430,7 @@ def cmd_compress(args: argparse.Namespace) -> int:
 def cmd_apply(args: argparse.Namespace) -> int:
     plan_value = getattr(args, "plan", None)
     if not plan_value:
-        print("Missing --plan PATH")
-        return 2
+        raise CLIError("Missing --plan PATH", ExitCode.USAGE)
     auth = OutlookAuth(
         profile=getattr(args, "profile", None),
         client_id=getattr(args, "client_id", None),

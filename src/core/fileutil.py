@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+from core.cli_errors import CLIError, ExitCode
 
 __all__ = [
     "atomic_write_json",
@@ -74,15 +75,20 @@ def safe_load_json(
 
 
 def load_json_or_exit(path: str | Path) -> Any:
-    """Load JSON from path; exit with an error message string (exit status 1) if it fails."""
+    """Load JSON from path; raise CLIError so callers decide the exit strategy.
+
+    Raises:
+        CLIError: with ExitCode.NOT_FOUND when the file is missing,
+                  ExitCode.ERROR for JSON parse or other read failures.
+    """
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        sys.exit(f"File not found: {path}")
+        raise CLIError(f"File not found: {path}", ExitCode.NOT_FOUND)
     except json.JSONDecodeError as exc:
-        sys.exit(f"Invalid JSON in {path}: {exc}")
+        raise CLIError(f"Invalid JSON in {path}: {exc}", ExitCode.ERROR)
     except Exception as exc:  # catch-all for unexpected read errors
-        sys.exit(f"Failed to load {path}: {exc}")
+        raise CLIError(f"Failed to load {path}: {exc}", ExitCode.ERROR)
 
 
 def find_rotated_files(base_path: Path) -> list[Path]:

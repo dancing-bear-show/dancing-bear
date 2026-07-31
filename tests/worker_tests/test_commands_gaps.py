@@ -815,16 +815,17 @@ class TestShowCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(rc, 0)
         self.assertIn("show1", buf.getvalue())
 
-    def test_show_missing_job_returns_1(self):
+    def test_show_missing_job_raises_cli_error(self):
         from worker.commands import ShowCommand
         from worker.queue import _ensure_dirs
         from worker import queue as q
+        from core.cli_errors import CLIError
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
 
         args = argparse.Namespace(id="no-such-job")
-        rc = ShowCommand.run(args)
-        self.assertEqual(rc, 1)
+        with self.assertRaises(CLIError):
+            ShowCommand.run(args)
 
 
 # ---------------------------------------------------------------------------
@@ -986,29 +987,31 @@ class TestRetryCommand(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(rc, 0)
         self.assertTrue((self.root / "pending" / "retry1.json").exists())
 
-    def test_retry_command_job_not_in_error_returns_1(self):
+    def test_retry_command_job_not_in_error_raises_cli_error(self):
         from worker.commands import RetryCommand
         from worker.queue import Job, enqueue, _ensure_dirs
         from worker import queue as q
+        from core.cli_errors import CLIError
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
         # Job is in pending, not error
         enqueue(Job(id="notinerr", type="noop", payload={}), root=self.root)
 
         args = argparse.Namespace(id="notinerr", delay=0, reset_attempts=False, new_max_attempts=None)
-        rc = RetryCommand.run(args)
-        self.assertEqual(rc, 1)
+        with self.assertRaises(CLIError):
+            RetryCommand.run(args)
 
-    def test_retry_command_missing_job_returns_1(self):
+    def test_retry_command_missing_job_raises_cli_error(self):
         from worker.commands import RetryCommand
         from worker.queue import _ensure_dirs
         from worker import queue as q
+        from core.cli_errors import CLIError
         q.QUEUE_ROOT = self.root
         _ensure_dirs(self.root)
 
         args = argparse.Namespace(id="no-such-job", delay=0, reset_attempts=False, new_max_attempts=None)
-        rc = RetryCommand.run(args)
-        self.assertEqual(rc, 1)
+        with self.assertRaises(CLIError):
+            RetryCommand.run(args)
 
     def test_retry_command_emits_requeued(self):
         from worker.commands import RetryCommand

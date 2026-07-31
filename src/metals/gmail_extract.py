@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import argparse
 import re
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
 from mail.config_resolver import resolve_paths_profile
 from mail.gmail_api import GmailClient
 
 from .constants import G_PER_OZ
 from .extractors import OzAccumulator
+
+if TYPE_CHECKING:
+    from core.cli_output import OutputWriter
 
 
 # Compiled patterns for amount extraction
@@ -103,7 +106,24 @@ def _ge_build_order_map(client: GmailClient, cand_ids: list) -> dict:
     return order_map
 
 
-def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa: ARG001 - days reserved for future use
+def run(
+    profile: str = "gmail_personal",
+    days: int | None = 365,  # noqa: ARG001 - days reserved for future use
+    writer: "OutputWriter | None" = None,
+) -> int:
+    """Extract gold/silver totals from Gmail order emails.
+
+    Args:
+        profile: Gmail credential profile name
+        days: Day window (reserved; not yet used in query)
+        writer: OutputWriter for progress messages; defaults to stdout writer
+
+    Returns:
+        0 on success
+    """
+    from core.cli_output import OutputWriter as _OW
+    _writer = writer or _OW()
+
     cred, tok = resolve_paths_profile(
         arg_credentials=None, arg_token=None, profile=profile
     )
@@ -129,13 +149,13 @@ def run(profile: str = "gmail_personal", days: int | None = 365) -> int:  # noqa
         if g or s:
             samples.append((mid, round(g, 3), round(s, 3)))
 
-    print(f"gold_oz={total_gold:.3f} silver_oz={total_silver:.3f}")
+    _writer.print(f"gold_oz={total_gold:.3f} silver_oz={total_silver:.3f}")
     if samples:
-        print("samples:")
+        _writer.print("samples:")
         for mid, g, s in samples[:10]:
-            print(f"- {mid}: gold={g} silver={s}")
+            _writer.print(f"- {mid}: gold={g} silver={s}")
     else:
-        print("no line-items detected; ensure messages include item weights")
+        _writer.print("no line-items detected; ensure messages include item weights")
     return 0
 
 

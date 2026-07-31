@@ -5,6 +5,8 @@ from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from tests.schedule_tests.fixtures import FakeOutlook
+
 
 def _make_outlook_args(**kwargs) -> SimpleNamespace:
     """Build a SimpleNamespace with common Outlook test auth defaults."""
@@ -50,18 +52,11 @@ class TestScheduleVerifySync(unittest.TestCase):
                 {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-06T18:00:00"}, "end": {"dateTime": "2025-10-06T19:00:00"}},
                 {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-20T18:00:00"}, "end": {"dateTime": "2025-10-20T19:00:00"}},
             ]
-
-            class FakeOutlook:
-                def __init__(self, *a, **k):
-                    pass  # intentionally empty stub - no init logic needed for fake
-                def authenticate(self):
-                    return None
-                def list_events_in_range(self, params):
-                    return occ
+            fake = FakeOutlook(events=occ)
 
             args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -87,18 +82,11 @@ class TestScheduleVerifySync(unittest.TestCase):
             occ = [
                 {"subject": "Chess", "start": {"dateTime": "2025-10-05T10:00:00"}, "end": {"dateTime": "2025-10-05T11:00:00"}},
             ]
-
-            class FakeOutlook:
-                def __init__(self, *a, **k):
-                    pass  # intentionally empty stub - no init logic needed for fake
-                def authenticate(self):
-                    return None
-                def list_events_in_range(self, params):
-                    return occ
+            fake = FakeOutlook(events=occ)
 
             args = _make_outlook_args(plan=str(plan), calendar="Your Family", from_date="2025-10-01", to_date="2025-10-31", match="subject-time")
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_verify(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -129,20 +117,11 @@ class TestScheduleVerifySync(unittest.TestCase):
                 {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-05T10:00:00"}, "end": {"dateTime": "2025-10-05T11:00:00"}, "type": "occurrence", "seriesMasterId": "SID1", "id": "OCC1"},
                 {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-06T10:00:00"}, "end": {"dateTime": "2025-10-06T11:00:00"}, "type": "singleInstance", "id": "OID1"},
             ]
-
-            class FakeOutlook:
-                def __init__(self, *a, **k):
-                    pass  # intentionally empty stub - no init logic needed for fake
-                def authenticate(self):
-                    return None
-                def ensure_calendar(self, name: str) -> str:
-                    return "CAL123"
-                def list_events_in_range(self, params):
-                    return occ
+            fake = FakeOutlook(events=occ)
 
             args = _make_outlook_args(plan=str(plan), calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", match="subject-time", delete_missing=True, apply=False)
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_sync(args)
             out = buf.getvalue()
             self.assertEqual(rc, 0)
@@ -159,18 +138,11 @@ class TestScheduleVerifySync(unittest.TestCase):
                 {"subject": "Leisure Swim", "start": {"dateTime": "2025-10-05T10:00:00"}, "end": {"dateTime": "2025-10-05T11:00:00"}, "location": {"displayName": "Pool"}},
                 {"subject": "Public Skating", "start": {"dateTime": "2025-10-06T10:00:00"}, "end": {"dateTime": "2025-10-06T11:00:00"}, "location": {"displayName": "Rink"}},
             ]
-
-            class FakeOutlook:
-                def __init__(self, *a, **k):
-                    pass  # intentionally empty stub - no init logic needed for fake
-                def authenticate(self):
-                    return None
-                def list_events_in_range(self, params):
-                    return evs
+            fake = FakeOutlook(events=evs)
 
             args = _make_outlook_args(calendar="Activities", from_date="2025-10-01", to_date="2025-10-31", out=str(out))
             buf = io.StringIO()
-            with patch("mail.outlook_api.OutlookClient", new=FakeOutlook), redirect_stdout(buf):
+            with patch("mail.outlook_api.OutlookClient", new=lambda *a, **k: fake), redirect_stdout(buf):
                 rc = sa.cmd_export(args)
             self.assertEqual(rc, 0)
             self.assertTrue(out.exists())

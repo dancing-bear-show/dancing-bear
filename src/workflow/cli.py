@@ -3,13 +3,20 @@
 ``build_parser`` and ``main`` live here; command handlers and cache logic
 are in ``cli_dispatch`` and ``cli_compile``.  Everything that was previously
 defined here is still importable from this module for backwards compatibility.
+
+Engine-specific verb conventions: this domain uses ``run`` (not ``apply``) and
+``lint`` (not ``verify``) to match workflow engine terminology.  These names are
+part of the public CLI surface and are intentional deviations from the general
+assistant convention documented in DESIGN_CRITERIA.md.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
+
+from core.cli_errors import ExitCode, handle_error
+from core.cli_output import emit_one, emit_rows
 
 # ---------------------------------------------------------------------------
 # Re-exports from sibling modules (backwards-compat shim)
@@ -66,40 +73,29 @@ def _add_format_argument(
 
 
 def _emit_one(data: dict, *, fmt: str = "table") -> None:
-    """Print a single dict in the requested format."""
-    if fmt == "json":
-        print(json.dumps(data, indent=2, default=str))
+    """Emit a single dict — delegates to core.cli_output.emit_one for json/jsonl;
+    falls back to key: value text for table/yaml formats."""
+    if fmt in ("json", "jsonl"):
+        emit_one(data, fmt=fmt)
     elif fmt == "yaml":
         try:
             import yaml
             print(yaml.safe_dump(data, default_flow_style=False).rstrip())
         except ImportError:
-            print(json.dumps(data, indent=2, default=str))
+            emit_one(data, fmt="json")
     else:
         for k, v in data.items():
             print(f"{k}: {v}")
 
 
-def _emit_rows(rows: list[dict], *, fmt: str = "table", headers: list[str] | None = None) -> None:
-    """Print a list of dicts in the requested format."""
-    if not rows:
-        return
-    if fmt == "json":
-        print(json.dumps(rows, indent=2, default=str))
-    elif fmt == "yaml":
-        try:
-            import yaml
-            print(yaml.dump(rows, default_flow_style=False).rstrip())
-        except ImportError:
-            print(json.dumps(rows, indent=2, default=str))
-    else:
-        keys = headers or list(rows[0].keys())
-        widths = {k: max(len(str(k)), max(len(str(r.get(k, ""))) for r in rows)) for k in keys}
-        header = "  ".join(str(k).ljust(widths[k]) for k in keys)
-        print(header)
-        print("-" * len(header))
-        for row in rows:
-            print("  ".join(str(row.get(k, "")).ljust(widths[k]) for k in keys))
+def _emit_rows(
+    rows: list[dict],
+    *,
+    fmt: str = "table",
+    headers: list[str] | None = None,
+) -> None:
+    """Emit a list of dicts — delegates to core.cli_output.emit_rows."""
+    emit_rows(rows, fmt=fmt, headers=headers)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -187,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
             file=sys.stderr,
         )
-        return 1
+        return ExitCode.USAGE
 
     dispatch = {
         "parse": _cmd_parse, "compile": _cmd_compile, "run": _cmd_run,
@@ -197,9 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         return dispatch[args.subcommand](args)
-    except Exception as exc:  # noqa: BLE001 # nosec B110 - top-level CLI error handler
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    except Exception as exc:  # noqa: BLE001 # nosec B110 - top-level CLI error handler; CLIError subclasses propagate exit codes
+        return handle_error(exc)
 
 
 if __name__ == "__main__":  # pragma: no cover

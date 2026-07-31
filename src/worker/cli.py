@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 
+from core.cli_errors import CLIError, UsageError, handle_error
 from worker.commands import (
     DaemonRunner,
     EnqueueCommand,
@@ -101,9 +102,8 @@ class WorkerApp:
         return p
 
     @staticmethod
-    def _parse_interval(args: argparse.Namespace) -> float | None:
-        """Parse and validate --interval; returns None and prints error on failure."""
-        import sys
+    def _parse_interval(args: argparse.Namespace) -> float:
+        """Parse and validate --interval; raises UsageError on invalid input."""
         raw = getattr(args, "interval", "5")
         try:
             value = float(str(raw))
@@ -111,14 +111,11 @@ class WorkerApp:
                 raise ValueError("must be positive")
             return value
         except ValueError:
-            print(f"error: --interval must be a positive number, got {raw!r}", file=sys.stderr)
-            return None
+            raise UsageError(f"--interval must be a positive number, got {raw!r}")
 
     def _run_processor(self, args: argparse.Namespace, cmd: str) -> int:
         """Build config and run a job processor for run-once or daemon."""
         interval = self._parse_interval(args)
-        if interval is None:
-            return 1
         config = WorkerConfig(
             backoff=int(getattr(args, "backoff", 60) or 60),
             max_per_tick=int(getattr(args, "max", getattr(args, "max_per_tick", 3))),
@@ -147,14 +144,17 @@ class WorkerApp:
             "purge": lambda: PurgeCommand.run(args),
         }
 
-        if cmd in dispatch:
-            return dispatch[cmd]()  # type: ignore[operator]
+        try:
+            if cmd in dispatch:
+                return dispatch[cmd]()  # type: ignore[operator]
 
-        if cmd in {"run-once", "daemon"}:
-            return self._run_processor(args, cmd)
+            if cmd in {"run-once", "daemon"}:
+                return self._run_processor(args, cmd)
 
-        print("Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help", file=sys.stderr)
-        return 1
+            print("Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help", file=sys.stderr)
+            return 1
+        except CLIError as exc:
+            return handle_error(exc)
 
     def main(self, argv: list[str] | None = None) -> int:
         """Parse arguments and run the command."""

@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from core.cli_errors import CLIError, ExitCode
 from core.cli_output import emit_one
 from core.pipeline import run_pipeline
 
@@ -238,50 +239,52 @@ def cmd_profile_build(args) -> int:
     """Build a .mobileconfig from a plan YAML."""
     try:
         plan = read_yaml(Path(args.plan))
-
-        layout_export = None
-        if getattr(args, "layout", None):
-            layout_export = read_yaml(Path(args.layout))
-
-        all_apps_folder = _build_all_apps_folder_config(args, layout_export)
-
-        profile_dict = build_mobileconfig(
-            plan=plan,
-            layout_export=layout_export,
-            profile_meta=ProfileMetadata(
-                top_identifier=getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
-                hs_identifier=getattr(args, "hs_identifier", _DEFAULT_HS_IDENTIFIER),
-                display_name=getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
-                organization=getattr(args, "organization", None),
-            ),
-            dock_count=max(0, int(getattr(args, "dock_count", 4))),
-            all_apps_folder=all_apps_folder,
-            folder_page_size=int(getattr(args, "folder_page_size", 30)),
-        )
-
-        out_path = Path(args.out)
-        _write_mobileconfig(profile_dict, out_path)
-        print(f"Wrote {_DEFAULT_DISPLAY_NAME} profile to {out_path}")
-
-        # Sign the profile if requested
-        sign_p12 = getattr(args, "sign_p12", None)
-        if sign_p12:
-            sign_pass = getattr(args, "sign_pass", None) or os.environ.get(
-                "IOS_SIGN_PASS", ""
-            )
-            _sign_mobileconfig(out_path, out_path, Path(sign_p12), sign_pass)
-            print(f"Signed profile with {sign_p12}")
-
-        return 0
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 2
+        raise CLIError(str(e), ExitCode.USAGE) from e
+
+    layout_export = None
+    if getattr(args, "layout", None):
+        try:
+            layout_export = read_yaml(Path(args.layout))
+        except FileNotFoundError as e:
+            raise CLIError(str(e), ExitCode.USAGE) from e
+
+    try:
+        all_apps_folder = _build_all_apps_folder_config(args, layout_export)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 2
-    except subprocess.CalledProcessError as e:
-        print(f"Error signing profile: {e}", file=sys.stderr)
-        return 2
+        raise CLIError(str(e), ExitCode.USAGE) from e
+
+    profile_dict = build_mobileconfig(
+        plan=plan,
+        layout_export=layout_export,
+        profile_meta=ProfileMetadata(
+            top_identifier=getattr(args, "identifier", _DEFAULT_PROFILE_IDENTIFIER),
+            hs_identifier=getattr(args, "hs_identifier", _DEFAULT_HS_IDENTIFIER),
+            display_name=getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
+            organization=getattr(args, "organization", None),
+        ),
+        dock_count=max(0, int(getattr(args, "dock_count", 4))),
+        all_apps_folder=all_apps_folder,
+        folder_page_size=int(getattr(args, "folder_page_size", 30)),
+    )
+
+    out_path = Path(args.out)
+    _write_mobileconfig(profile_dict, out_path)
+    print(f"Wrote {_DEFAULT_DISPLAY_NAME} profile to {out_path}")
+
+    # Sign the profile if requested
+    sign_p12 = getattr(args, "sign_p12", None)
+    if sign_p12:
+        sign_pass = getattr(args, "sign_pass", None) or os.environ.get(
+            "IOS_SIGN_PASS", ""
+        )
+        try:
+            _sign_mobileconfig(out_path, out_path, Path(sign_p12), sign_pass)
+        except subprocess.CalledProcessError as e:
+            raise CLIError(f"Error signing profile: {e}", ExitCode.ERROR) from e
+        print(f"Signed profile with {sign_p12}")
+
+    return 0
 
 
 def cmd_manifest_create(args) -> int:

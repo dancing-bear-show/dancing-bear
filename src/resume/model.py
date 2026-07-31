@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, Dict, List
+
+# Type alias for the unified candidate/resume data dictionary produced by merge_profiles()
+# and consumed by pipeline, summarizer, and renderer stages.
+CandidateData = Dict[str, Any]
 
 
 @dataclass

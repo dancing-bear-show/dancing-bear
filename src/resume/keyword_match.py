@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from resume.keyword_normalize import KeywordInfo, MatchResult, SynonymRegistry
+from resume.keyword_normalize import KeywordInfo, KeywordMatchResult, SynonymRegistry
 
 
 def keyword_match(
@@ -143,13 +143,13 @@ class KeywordMatchEngine(SynonymRegistry):
                 return True
         return False
 
-    def find_matches(self, text: str, *, expand_synonyms: bool = True) -> List[MatchResult]:
+    def find_matches(self, text: str, *, expand_synonyms: bool = True) -> List[KeywordMatchResult]:
         """Find all registered keywords that match in text."""
-        results: List[MatchResult] = []
+        results: List[KeywordMatchResult] = []
         for canon, info in self._keywords.items():
             to_check = self.expand(canon) if expand_synonyms else [canon]
             if any(self.match_keyword(text, kw) for kw in to_check):
-                results.append(MatchResult(
+                results.append(KeywordMatchResult(
                     keyword=canon, tier=info.tier, weight=info.weight,
                     category=info.category, count=1, contexts=[text],
                 ))
@@ -191,15 +191,15 @@ class KeywordMatchEngine(SynonymRegistry):
                     matched.add(canon)
         return sum(self._keywords[k].weight for k in matched)
 
-    def _make_match_result(self, canon: str) -> MatchResult:
+    def _make_match_result(self, canon: str) -> KeywordMatchResult:
         info = self._keywords.get(canon, KeywordInfo(keyword=canon))
-        return MatchResult(
+        return KeywordMatchResult(
             keyword=canon, tier=info.tier, weight=info.weight,
             category=info.category, count=0, contexts=[],
         )
 
     def _record_match(
-        self, results: Dict[str, MatchResult], canon: str, context: str, scope: str
+        self, results: Dict[str, KeywordMatchResult], canon: str, context: str, scope: str
     ) -> None:
         if canon not in results:
             results[canon] = self._make_match_result(canon)
@@ -207,14 +207,14 @@ class KeywordMatchEngine(SynonymRegistry):
         results[canon].contexts.append(f"[{scope}] {context[:50]}")
 
     def _match_text_against_keywords(
-        self, results: Dict[str, MatchResult], text: str, scope: str
+        self, results: Dict[str, KeywordMatchResult], text: str, scope: str
     ) -> None:
         for canon in self._keywords:
             if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
                 self._record_match(results, canon, text, scope)
 
     def _collect_exp_matches(
-        self, results: Dict[str, MatchResult], candidate: Dict[str, Any]
+        self, results: Dict[str, KeywordMatchResult], candidate: Dict[str, Any]
     ) -> None:
         for i, exp in enumerate(candidate.get("experience") or []):
             title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
@@ -223,9 +223,9 @@ class KeywordMatchEngine(SynonymRegistry):
             for bullet in exp.get("bullets") or []:
                 self._match_text_against_keywords(results, str(bullet), f"exp[{i}].bullet")
 
-    def collect_matches_from_candidate(self, candidate: Dict[str, Any]) -> Dict[str, MatchResult]:
+    def collect_matches_from_candidate(self, candidate: Dict[str, Any]) -> Dict[str, KeywordMatchResult]:
         """Collect all keyword matches from a candidate profile."""
-        results: Dict[str, MatchResult] = {}
+        results: Dict[str, KeywordMatchResult] = {}
         summary = str(candidate.get("summary") or "")
         if summary:
             self._match_text_against_keywords(results, summary, "summary")

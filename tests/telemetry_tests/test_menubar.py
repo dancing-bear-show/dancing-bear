@@ -130,7 +130,8 @@ class TestAcquireInstanceLockNoFcntl(unittest.TestCase):
 
 class TestAcquireInstanceLockAlreadyRunning(unittest.TestCase):
     def test_exits_when_blocking_io_error(self) -> None:
-        """When fcntl.flock raises BlockingIOError, process should exit(0)."""
+        """When fcntl.flock raises BlockingIOError, _acquire_instance_lock raises CLIError."""
+        from core.cli_errors import CLIError, ExitCode
         mock_fcntl = MagicMock()
         mock_fcntl.flock.side_effect = BlockingIOError()
         mock_fcntl.LOCK_EX = 2
@@ -143,10 +144,10 @@ class TestAcquireInstanceLockAlreadyRunning(unittest.TestCase):
                  patch.object(menubar, "_CLAUDE_DIR", Path(tmpdir)), \
                  patch.object(menubar, "_LOCK_PATH", lock_path), \
                  patch.object(menubar.os, "open", return_value=99), \
-                 patch.object(menubar.os, "close"), \
-                 patch.object(menubar.sys, "exit") as mock_exit:
-                menubar._acquire_instance_lock()
-            mock_exit.assert_called_once_with(0)
+                 patch.object(menubar.os, "close"):
+                with self.assertRaises(CLIError) as ctx:
+                    menubar._acquire_instance_lock()
+            self.assertEqual(ctx.exception.code, ExitCode.ERROR)
 
 
 class TestMenubarConfigPath(unittest.TestCase):

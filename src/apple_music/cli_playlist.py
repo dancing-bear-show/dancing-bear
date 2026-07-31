@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from datetime import datetime
 
-from .client import AppleMusicClient, AppleMusicError
+from .client import AppleMusicCLIError, AppleMusicClient
 from .cli_helpers import PlaylistCreationConfig
 
 # Artist name constants (avoids duplicate string literals)
@@ -323,7 +323,7 @@ def _create_from_seeds(
     if config.dry_run:
         return {"plan": plan}
     if not tracks_data:
-        raise AppleMusicError("No tracks resolved from seeds; cannot create playlist.")
+        raise AppleMusicCLIError("No tracks resolved from seeds; cannot create playlist.")
     resp = client.create_playlist(config.name, tracks=tracks_data, description=config.description)
     return {"created": resp, "plan": plan}
 

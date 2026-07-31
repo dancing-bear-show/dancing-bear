@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from core.cli_errors import CLIError
 from core.fileutil import atomic_write_json, load_json_or_exit, safe_load_json, write_once
 
 
@@ -122,23 +123,22 @@ class TestLoadJsonOrExit(unittest.TestCase):
             self.assertTrue(result["ok"])
 
     def test_exits_on_missing_file(self) -> None:
-        with self.assertRaises(SystemExit) as cm:
+        with self.assertRaises(CLIError) as cm:
             load_json_or_exit("/nonexistent/missing.json")
-        self.assertIsInstance(cm.exception.code, str)
-        self.assertIn("missing.json", cm.exception.code)
+        self.assertIn("missing.json", str(cm.exception))
 
     def test_exits_on_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "bad.json"
             p.write_text("{bad json", encoding="utf-8")
-            with self.assertRaises(SystemExit) as cm:
+            with self.assertRaises(CLIError) as cm:
                 load_json_or_exit(p)
-        self.assertIn("bad.json", str(cm.exception.code))
+        self.assertIn("bad.json", str(cm.exception))
 
     def test_exit_message_mentions_path(self) -> None:
-        with self.assertRaises(SystemExit) as cm:
+        with self.assertRaises(CLIError) as cm:
             load_json_or_exit("/no/such/file.json")
-        self.assertIn("file.json", str(cm.exception.code))
+        self.assertIn("file.json", str(cm.exception))
 
 
 if __name__ == "__main__":

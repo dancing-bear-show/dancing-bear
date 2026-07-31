@@ -5,10 +5,11 @@ import datetime as dt
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from core.pipeline import ResultEnvelope
 from schedule.pipeline import (
     ApplyProcessor,
     ApplyRequest,
@@ -124,9 +125,10 @@ class TestBuildOutlookService(unittest.TestCase):
             self.assertIsNone(svc)
             self.assertIn("no creds", err)
 
-    def test_returns_error_on_general_exception(self):
+    def test_returns_error_on_import_or_value_error(self):
+        # _build_outlook_service narrows to (ImportError, OSError, ValueError) for non-auth errors
         auth = OutlookAuth(profile=None, client_id=None, tenant=None, token_path=None)
-        with patch("schedule.pipeline_verify.build_outlook_service", side_effect=Exception("unavailable")):
+        with patch("schedule.pipeline_verify.build_outlook_service", side_effect=ValueError("unavailable")):
             svc, err = _build_outlook_service(auth)
             self.assertIsNone(svc)
             self.assertIn("unavailable", err)
@@ -648,6 +650,216 @@ class TestApplyProcessorDryRun(unittest.TestCase):
             with patch("schedule.pipeline._build_outlook_service", return_value=(None, "no creds")):
                 env = ApplyProcessor().process(ApplyRequestConsumer(request).consume())
             self.assertFalse(env.ok())
+
+
+class TestExportScheduleProcessor(unittest.TestCase):
+    """Tests for ExportScheduleProcessor._process_safe() and ExportScheduleProducer."""
+
+    def _make_svc(self, events):
+        """Build a mock service that returns the given events from list_events_in_range."""
+        svc = MagicMock()
+        svc.list_events_in_range.return_value = events
+        return svc
+
+    def _make_request(self, svc, out_path):
+        from schedule.pipeline import ExportScheduleRequest
+        return ExportScheduleRequest(
+            service=svc,
+            cal_name="Activities",
+            start_iso="2025-10-01T00:00:00",
+            end_iso="2025-10-31T23:59:59",
+            out_path=out_path,
+        )
+
+    # --- Happy path ---
+
+    def test_export_happy_path_produces_yaml_and_prints_summary(self):
+        """Consumer -> processor -> producer writes YAML and prints summary."""
+        from schedule.pipeline import (
+            ExportScheduleProcessor,
+            ExportScheduleProducer,
+            ExportScheduleRequestConsumer,
+        )
+
+        evs = [
+            {
+                "subject": "Swim",
+                "start": {"dateTime": "2025-10-06T10:00:00"},
+                "end": {"dateTime": "2025-10-06T11:00:00"},
+                "location": {"displayName": "Pool"},
+            },
+            {
+                "subject": "Skate",
+                "start": {"dateTime": "2025-10-07T14:00:00"},
+                "end": {"dateTime": "2025-10-07T15:00:00"},
+                "location": {"displayName": "Rink"},
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "export.yaml"
+            svc = self._make_svc(evs)
+            request = self._make_request(svc, out_path)
+
+            envelope = ExportScheduleProcessor().process(
+                ExportScheduleRequestConsumer(request).consume()
+            )
+
+            self.assertTrue(envelope.ok())
+            self.assertEqual(len(envelope.payload.rows), 2)
+            # Rows are sorted by start time
+            self.assertEqual(envelope.payload.rows[0]["subject"], "Swim")
+            self.assertEqual(envelope.payload.rows[1]["subject"], "Skate")
+            self.assertEqual(envelope.payload.cal_name, "Activities")
+
+            # Produce: write YAML and print summary
+            buf_out = io.StringIO()
+            with redirect_stdout(buf_out):
+                ExportScheduleProducer().produce(envelope)
+
+            self.assertTrue(out_path.exists())
+            content = out_path.read_text(encoding="utf-8")
+            self.assertIn("events:", content)
+            self.assertIn("Swim", content)
+            self.assertIn("Skate", content)
+            summary = buf_out.getvalue()
+            self.assertIn("Exported 2 events", summary)
+            self.assertIn("Activities", summary)
+
+    def test_export_skips_events_with_missing_fields(self):
+        """Events with no subject, no start, or no end are silently skipped."""
+        from schedule.pipeline import (
+            ExportScheduleProcessor,
+            ExportScheduleRequestConsumer,
+        )
+
+        evs = [
+            # No subject
+            {"start": {"dateTime": "2025-10-06T10:00:00"}, "end": {"dateTime": "2025-10-06T11:00:00"}},
+            # No start
+            {"subject": "Ghost", "end": {"dateTime": "2025-10-06T11:00:00"}},
+            # No end
+            {"subject": "Phantom", "start": {"dateTime": "2025-10-06T10:00:00"}},
+            # Valid
+            {
+                "subject": "Valid",
+                "start": {"dateTime": "2025-10-06T10:00:00"},
+                "end": {"dateTime": "2025-10-06T11:00:00"},
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "export.yaml"
+            svc = self._make_svc(evs)
+            request = self._make_request(svc, out_path)
+
+            envelope = ExportScheduleProcessor().process(
+                ExportScheduleRequestConsumer(request).consume()
+            )
+
+            self.assertTrue(envelope.ok())
+            self.assertEqual(len(envelope.payload.rows), 1)
+            self.assertEqual(envelope.payload.rows[0]["subject"], "Valid")
+
+    def test_export_empty_calendar_produces_empty_events(self):
+        """Empty calendar returns 0-row result and writes events: [] to YAML."""
+        from schedule.pipeline import (
+            ExportScheduleProcessor,
+            ExportScheduleProducer,
+            ExportScheduleRequestConsumer,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "empty.yaml"
+            svc = self._make_svc([])
+            request = self._make_request(svc, out_path)
+
+            envelope = ExportScheduleProcessor().process(
+                ExportScheduleRequestConsumer(request).consume()
+            )
+
+            self.assertTrue(envelope.ok())
+            self.assertEqual(envelope.payload.rows, [])
+
+            buf_out = io.StringIO()
+            with redirect_stdout(buf_out):
+                ExportScheduleProducer().produce(envelope)
+
+            self.assertTrue(out_path.exists())
+            self.assertIn("Exported 0 events", buf_out.getvalue())
+
+    # --- Sad paths (per distinct raise site in _process_safe) ---
+
+    def test_export_sad_path_service_raises_propagates_as_error_envelope(self):
+        """If list_events_in_range raises, SafeProcessor returns error envelope."""
+        from schedule.pipeline import (
+            ExportScheduleProcessor,
+            ExportScheduleRequestConsumer,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "export.yaml"
+            svc = MagicMock()
+            svc.list_events_in_range.side_effect = RuntimeError("API timeout")
+
+            from schedule.pipeline import ExportScheduleRequest
+            request = ExportScheduleRequest(
+                service=svc,
+                cal_name="Activities",
+                start_iso="2025-10-01T00:00:00",
+                end_iso="2025-10-31T23:59:59",
+                out_path=out_path,
+            )
+
+            envelope = ExportScheduleProcessor().process(
+                ExportScheduleRequestConsumer(request).consume()
+            )
+
+            self.assertFalse(envelope.ok())
+            self.assertIn("API timeout", envelope.diagnostics.get("message", ""))
+
+    def test_export_producer_prints_error_to_stderr_on_failure(self):
+        """ExportScheduleProducer.produce() routes error message to stderr."""
+        from schedule.pipeline import ExportScheduleProducer
+
+        env = ResultEnvelope(
+            status="error", diagnostics={"message": "Export pipeline failed"}
+        )
+        buf_err = io.StringIO()
+        with redirect_stderr(buf_err):
+            ExportScheduleProducer().produce(env)
+        self.assertIn("Export pipeline failed", buf_err.getvalue())
+
+    def test_export_rows_sorted_by_start(self):
+        """Output rows are sorted ascending by start datetime string."""
+        from schedule.pipeline import (
+            ExportScheduleProcessor,
+            ExportScheduleRequestConsumer,
+        )
+
+        # Provide events out of order
+        evs = [
+            {
+                "subject": "Later",
+                "start": {"dateTime": "2025-10-10T14:00:00"},
+                "end": {"dateTime": "2025-10-10T15:00:00"},
+            },
+            {
+                "subject": "Earlier",
+                "start": {"dateTime": "2025-10-05T09:00:00"},
+                "end": {"dateTime": "2025-10-05T10:00:00"},
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "sorted.yaml"
+            svc = self._make_svc(evs)
+            request = self._make_request(svc, out_path)
+
+            envelope = ExportScheduleProcessor().process(
+                ExportScheduleRequestConsumer(request).consume()
+            )
+
+            self.assertTrue(envelope.ok())
+            self.assertEqual(envelope.payload.rows[0]["subject"], "Earlier")
+            self.assertEqual(envelope.payload.rows[1]["subject"], "Later")
 
 
 if __name__ == "__main__":

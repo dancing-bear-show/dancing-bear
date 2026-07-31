@@ -65,6 +65,20 @@ _RECEIPT_LOC_PAT = re.compile(r"Location:\s*(?P<loc>.+)", re.I)
 
 
 # =============================================================================
+# Shared Calendar Data Model
+# =============================================================================
+
+@dataclass(frozen=True)
+class CalendarEvent:
+    """Structured representation of a single calendar event."""
+    id: str
+    subject: str
+    start: str
+    end: str
+    calendar: str
+
+
+# =============================================================================
 # Gmail Receipts Pipeline
 # =============================================================================
 
@@ -84,19 +98,19 @@ GmailReceiptsRequestConsumer = RequestConsumer[GmailReceiptsRequest]
 
 
 @dataclass
-class GmailPlanResult:
+class GmailScanResult:
     document: dict[str, Sequence[dict[str, object]]]
     out_path: Path
 
 
-class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult]):
+class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailScanResult]):
     def __init__(self, service_builder=None) -> None:
         self._service_builder = service_builder or self._default_service_builder
 
     def _default_service_builder(self, auth: GmailAuth):
         return GmailServiceBuilder.build(auth, service_cls=GmailService)
 
-    def _process_safe(self, payload: GmailReceiptsRequest) -> GmailPlanResult:
+    def _process_safe(self, payload: GmailReceiptsRequest) -> GmailScanResult:
         svc = self._service_builder(payload.auth)
         query = GmailService.build_receipts_query(
             from_text=payload.from_text,
@@ -105,10 +119,10 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         )
         ids = svc.list_message_ids(query=query, max_pages=payload.pages, page_size=payload.page_size)
         if not ids:
-            return GmailPlanResult(document={"events": []}, out_path=payload.out_path)
+            return GmailScanResult(document={"events": []}, out_path=payload.out_path)
         events = self._parse_receipts(svc, ids, payload.calendar)
         if not events:
-            return GmailPlanResult(document={"events": []}, out_path=payload.out_path)
+            return GmailScanResult(document={"events": []}, out_path=payload.out_path)
 
         # Dedupe with child field included
         def key_fn(ev):
@@ -123,7 +137,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
                 ev.get("child"),
             )
         uniq = dedupe_events(events, key_fn)
-        return GmailPlanResult(document={"events": uniq}, out_path=payload.out_path)
+        return GmailScanResult(document={"events": uniq}, out_path=payload.out_path)
 
     def _parse_receipts(self, svc, ids: list[str], calendar: str | None):
         events = []
@@ -217,13 +231,18 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailPlanResult
         return result
 
 
-class GmailPlanProducer(BaseProducer):
-    def _produce_success(self, payload: GmailPlanResult, diagnostics: dict[str, Any] | None) -> None:
+class GmailScanProducer(BaseProducer):
+    def _produce_success(self, payload: GmailScanResult, diagnostics: dict[str, Any] | None) -> None:
         from calendars.yamlio import dump_config
 
         dump_config(str(payload.out_path), payload.document)
         events = payload.document.get("events", [])
-        print(f"Wrote {len(events)} events to {payload.out_path}")
+        self._writer.print(f"Wrote {len(events)} events to {payload.out_path}")
+
+
+# Backwards-compatible alias for existing call sites and tests
+GmailPlanResult = GmailScanResult
+GmailPlanProducer = GmailScanProducer
 
 
 # =============================================================================
@@ -333,23 +352,23 @@ class GmailScanClassesProducer(BaseProducer):
         events = payload.events
         if not events:
             if payload.message_count:
-                print("No schedule-like lines found in matching emails.")
+                self._writer.print("No schedule-like lines found in matching emails.")
             else:
-                print("No matching messages found.")
+                self._writer.print("No matching messages found.")
             if not payload.out_path:
-                print("Use --out plan.yaml to write YAML.")
+                self._writer.print("Use --out plan.yaml to write YAML.")
             return
-        print(f"Found {len(events)} candidate recurring class entries from {payload.message_count} messages.")
+        self._writer.print(f"Found {len(events)} candidate recurring class entries from {payload.message_count} messages.")
         if payload.out_path:
             from calendars.yamlio import dump_config
 
             dump_config(str(payload.out_path), {"events": events})
-            print(f"Wrote plan to {payload.out_path}")
+            self._writer.print(f"Wrote plan to {payload.out_path}")
             return
         for ev in events:
             byday = ",".join(ev.get("byday") or [])
-            print(f"- {byday} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}")
-        print("Use --out plan.yaml to write YAML.")
+            self._writer.print(f"- {byday} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}")
+        self._writer.print("Use --out plan.yaml to write YAML.")
 
 
 # =============================================================================
@@ -409,11 +428,11 @@ class GmailMailListProducer(BaseProducer):
     def _produce_success(self, payload: GmailMailListResult, diagnostics: dict[str, Any] | None) -> None:
         messages = payload.messages
         if not messages:
-            print("No messages matched.")
+            self._writer.print("No messages matched.")
             return
         for msg in messages:
-            print(f"- {msg.get('id')} | {msg.get('snippet')}")
-        print(f"Listed {len(messages)} Gmail message(s).")
+            self._writer.print(f"- {msg.get('id')} | {msg.get('snippet')}")
+        self._writer.print(f"Listed {len(messages)} Gmail message(s).")
 
 
 # =============================================================================
@@ -505,11 +524,11 @@ class GmailSweepTopProducer(BaseProducer):
     def _produce_success(self, payload: GmailSweepTopResult, diagnostics: dict[str, Any] | None) -> None:
         top = payload.top_senders
         if not top:
-            print("No sender stats available.")
+            self._writer.print("No sender stats available.")
             return
-        print(f"Top {len(top)} sender(s) in last {payload.freq_days}d (Inbox={payload.inbox_only}):")
+        self._writer.print(f"Top {len(top)} sender(s) in last {payload.freq_days}d (Inbox={payload.inbox_only}):")
         for sender, count in top:
-            print(f"- {sender}: {count}")
+            self._writer.print(f"- {sender}: {count}")
         if payload.out_path:
             from calendars.yamlio import dump_config
 
@@ -528,4 +547,4 @@ class GmailSweepTopProducer(BaseProducer):
                     }
                 )
             dump_config(str(payload.out_path), {"filters": filters})
-            print(f"Wrote suggested Gmail filters to {payload.out_path}")
+            self._writer.print(f"Wrote suggested Gmail filters to {payload.out_path}")

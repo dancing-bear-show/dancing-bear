@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from io import StringIO
 from unittest.mock import patch
 
@@ -92,6 +93,24 @@ class DoMoveTests(unittest.TestCase):
         self.assertTrue(os.path.exists(src))  # Still exists
         self.assertFalse(os.path.exists(dest))  # Not moved
         self.assertIn("DRY-RUN", output)
+
+    def test_move_failure_surfaces_as_stderr_not_exception(self):
+        """C8: shutil.move failure must route through writer.print_error() to stderr,
+        not be silently swallowed by the nosec-annotated bare except."""
+        src = os.path.join(self.tmpdir, "source.txt")
+        dest = os.path.join(self.tmpdir, "dest", "source.txt")
+        with open(src, "w") as f:
+            f.write("content")
+
+        err_buf = StringIO()
+        with patch("shutil.move", side_effect=OSError("disk full")):
+            with redirect_stderr(err_buf):
+                _do_move(src, dest, dry_run=False)
+
+        # Error must appear on stderr (not silently swallowed)
+        self.assertIn("disk full", err_buf.getvalue())
+        # Source still exists since move failed
+        self.assertTrue(os.path.exists(src))
 
 
 class DoTrashTests(unittest.TestCase):

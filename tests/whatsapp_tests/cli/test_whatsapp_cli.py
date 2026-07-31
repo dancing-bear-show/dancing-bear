@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from tests.fixtures import bin_path, repo_root, run
+from tests.whatsapp_tests.fixtures import make_mock_search_args
 
 
 class WhatsAppCLITests(unittest.TestCase):
@@ -83,17 +84,7 @@ class WhatsAppMainTests(unittest.TestCase):
         mock_processor = mock_processor_cls.return_value
         mock_processor.process.return_value = mock_envelope
 
-        args = MagicMock()
-        args.from_me = False
-        args.from_them = False
-        args.db = None
-        args.contains = []
-        args.match_all = False
-        args.match_any = False
-        args.contact = None
-        args.since_days = None
-        args.limit = 50
-        args.json = False
+        args = make_mock_search_args()
 
         result = cmd_search(args)
         self.assertEqual(result, 0)
@@ -116,17 +107,7 @@ class WhatsAppMainTests(unittest.TestCase):
         mock_consumer = mock_consumer_cls.return_value
         mock_consumer.consume.return_value = MagicMock()
 
-        args = MagicMock()
-        args.from_me = False
-        args.from_them = False
-        args.db = None
-        args.contains = []
-        args.match_all = False
-        args.match_any = False
-        args.contact = None
-        args.since_days = None
-        args.limit = 50
-        args.json = False
+        args = make_mock_search_args()
 
         result = cmd_search(args)
         self.assertEqual(result, 1)
@@ -144,17 +125,16 @@ class WhatsAppMainTests(unittest.TestCase):
         mock_processor = mock_processor_cls.return_value
         mock_processor.process.return_value = mock_envelope
 
-        args = MagicMock()
-        args.from_me = True
-        args.from_them = False
-        args.db = "/path/to/db"
-        args.contains = ["test"]
-        args.match_all = True
-        args.match_any = False
-        args.contact = "John"
-        args.since_days = 7
-        args.limit = 100
-        args.json = True
+        args = make_mock_search_args(
+            from_me=True,
+            db="/path/to/db",
+            contains=["test"],
+            match_all=True,
+            contact="John",
+            since_days=7,
+            limit=100,
+            json=True,
+        )
 
         result = cmd_search(args)
         self.assertEqual(result, 0)
@@ -172,17 +152,7 @@ class WhatsAppMainTests(unittest.TestCase):
         mock_processor = mock_processor_cls.return_value
         mock_processor.process.return_value = mock_envelope
 
-        args = MagicMock()
-        args.from_me = False
-        args.from_them = True
-        args.db = None
-        args.contains = []
-        args.match_all = False
-        args.match_any = True
-        args.contact = None
-        args.since_days = None
-        args.limit = 50
-        args.json = False
+        args = make_mock_search_args(from_them=True, match_any=True)
 
         result = cmd_search(args)
         self.assertEqual(result, 0)

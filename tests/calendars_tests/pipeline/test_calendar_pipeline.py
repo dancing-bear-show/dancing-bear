@@ -1,7 +1,7 @@
 import io
 import tempfile
 import datetime as _dt
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock
@@ -735,7 +735,7 @@ class BaseProducerTests(TestCase):
         """BaseProducer.produce() prints error message for failed results."""
         env = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong", "code": 1})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             OutlookVerifyProducer().produce(env)
         self.assertIn("Something went wrong", buf.getvalue())
 
@@ -776,15 +776,15 @@ class BaseProducerTests(TestCase):
         """BaseProducer.print_error() returns True when result has error."""
         env = ResultEnvelope(status="error", diagnostics={"message": "fail"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
-            result = BaseProducer.print_error(env)
+        with redirect_stderr(buf):
+            result = BaseProducer().print_error(env)
         self.assertTrue(result)
         self.assertIn("fail", buf.getvalue())
 
     def test_base_producer_print_error_returns_false_on_success(self):
         """BaseProducer.print_error() returns False when result is successful."""
         env = ResultEnvelope(status="success", payload=None)
-        result = BaseProducer.print_error(env)
+        result = BaseProducer().print_error(env)
         self.assertFalse(result)
 
 
