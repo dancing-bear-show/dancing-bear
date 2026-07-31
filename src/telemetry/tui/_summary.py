@@ -15,7 +15,7 @@ from telemetry.models import (
 class SummaryConfig:
     """Session-level metadata passed alongside event data to compute_summary."""
 
-    session_id: str
+    session_id: str | None
     project_path: str | None
     cost_is_estimated: bool
     total_cost_override: float | None = None

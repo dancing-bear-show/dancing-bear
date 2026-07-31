@@ -1,6 +1,7 @@
 """TranscriptProvider: parses Claude Code JSONL transcript files."""
 
 import json
+import logging
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ from telemetry.timeutil import parse_iso_utc
 from telemetry.models import AgentSummary, AgentTokenRow, SessionEvent, SessionSummary
 from telemetry.pricing import TokenMetrics, compute_cost
 
+
+logger = logging.getLogger(__name__)
 
 _JSONL_GLOB = "*.jsonl"
 # Old subdirectory format: <project>/<session-uuid>/subagents/<agent-id>.jsonl
@@ -629,5 +632,5 @@ class TranscriptProvider:
                     accs.cache_read[key] += usage.get("cache_read_input_tokens", 0)
                     accs.cache_write[key] += usage.get("cache_creation_input_tokens", 0)
                     accs.call_count[agent_name] += 1
-        except OSError:  # nosec B110 - skip unreadable JSONL files silently
-            pass
+        except OSError as exc:  # nosec B110 - non-fatal; log and continue
+            logger.warning("Could not read JSONL file: %s", exc)
