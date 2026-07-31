@@ -159,9 +159,8 @@ def _load_or_error(loader_fn, empty_msg: str, writer: OutputWriter):
     """
     try:
         data = loader_fn()
-    except ValueError:
-        writer.print_error("Invalid --since value")
-        return None, 1
+    except ValueError as e:
+        return None, format_validation_error("--since", str(e))
 
     if not data:
         writer.print(empty_msg)
