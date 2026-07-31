@@ -1,5 +1,45 @@
 # Phone
 
+## Repeatable Reorg (recommended)
+
+One-shot command to reorganize your iPhone Home Screen — export, merge folders, build profile, and copy to device:
+
+```bash
+# Full reorg (connects to device, builds profile, copies to device)
+./bin/phone-assistant reorg --device-label bcsphone
+
+# Build only (no device needed)
+./bin/phone-assistant reorg --dry-run
+
+# Or step by step:
+./bin/phone-assistant export-device --out out/ios.IconState.yaml
+./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
+./bin/phone-assistant profile build --plan out/ios.plan.merged.yaml --layout out/ios.IconState.yaml --folder-page-size 9 --out out/ios.merged.mobileconfig
+./bin/ios-install-profile --profile out/ios.merged.mobileconfig --device-label bcsphone --no-prompt
+```
+
+### Code 625 is success
+
+`cfgutil install-profile` exits Code 625 ("User interaction on the device is required") on macOS 26. **This is the expected, correct outcome.** It means the profile was copied to the device and is waiting for you to tap Install.
+
+After the command exits 0 or 625:
+1. On your iPhone: Settings → General → VPN & Device Management
+2. Tap the pending profile → Install
+
+**Silent install via cfgutil `-C`/`-K` is permanently broken on macOS 26** (Apple removed `SecKeyCreateFromData`). The copy-then-tap flow is the only supported path.
+
+### merge-folders behavior
+
+`merge-folders` preserves your existing folder taxonomy:
+- Dock: unchanged
+- Page 1: all apps stay as loose pins
+- Loose apps on pages >= 2: filed into best-fit existing folder
+- Apps in dump folders (default: `Other`): redistributed into best-fit existing folder
+- All other existing folders: contents preserved exactly
+- Conservation invariant: every app in the input appears exactly once in the output
+
+---
+
 - Local-only CLI for iOS/iPadOS layout exports, plan scaffolds, manifests, and identity verification.
 - Entry point: `./bin/phone` (includes `export-device`, `iconmap`, `plan`, `checklist`, `manifest`, `identity`, etc.; `export` is deprecated).
 - Icon map helper: `./bin/ios-iconmap-refresh` (cfgutil JSON + YAML export).

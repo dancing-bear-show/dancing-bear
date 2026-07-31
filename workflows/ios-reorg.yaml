@@ -1,0 +1,136 @@
+name: ios-reorg
+version: "1.0"
+description: >
+  Repeatable iPhone Home Screen reorganization flow:
+  export current device layout → merge-folders (redistribute dump
+  folder into best-fit existing folders) → build mobileconfig profile
+  → copy profile to device (Code 625 = expected: tap Install in Settings).
+
+  Code 625 from cfgutil install-profile is SUCCESS on macOS 26 — it means
+  the profile was copied and is waiting for the user to tap Install in
+  Settings -> General -> VPN & Device Management. Silent install via
+  cfgutil -C/-K is permanently broken on macOS 26.
+
+  Stage dependency graph:
+    export (G0)
+      |
+    merge-folders (G1)
+      |
+    build-profile (G2)
+      |
+    install [human gate: tap Install on device] (G3)
+
+metadata:
+  author: dancing-bear
+  created: "2026-07-31"
+
+trigger:
+  source: manual
+  params:
+    device_label:
+      default: bcsphone
+      description: Device label from credentials.ini
+    keep:
+      default: ""
+      description: Comma-separated bundle IDs to keep as page-1 pins
+
+workspace_dir: "{work_dir}/ios-reorg"
+
+stages:
+
+  - name: export
+    kind: gather
+    depends_on: []
+    description: >
+      Export current device layout to YAML via cfgutil.
+
+        ./bin/phone-assistant export-device --out out/ios.IconState.yaml
+
+      Must exit 0. Writes out/ios.IconState.yaml.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - out/ios.IconState.yaml
+
+  - name: merge-folders
+    kind: execute
+    depends_on: [export]
+    reads_from: [export]
+    description: >
+      Redistribute dump folder apps (default: Other) into best-fit existing
+      folders, and file loose apps from pages >= 2 into existing folders.
+
+        ./bin/phone-assistant merge-folders \
+          --layout out/ios.IconState.yaml \
+          --plan out/ios.plan.merged.yaml
+
+      Must exit 0. Verifies conservation invariant (all apps accounted for).
+      Writes out/ios.plan.merged.yaml.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - out/ios.plan.merged.yaml
+
+  - name: build-profile
+    kind: execute
+    depends_on: [merge-folders]
+    reads_from: [merge-folders]
+    description: >
+      Build the .mobileconfig profile from the merged plan.
+
+        ./bin/phone-assistant profile build \
+          --plan out/ios.plan.merged.yaml \
+          --layout out/ios.IconState.yaml \
+          --folder-page-size 9 \
+          --out out/ios.merged.mobileconfig
+
+      Must exit 0. Writes out/ios.merged.mobileconfig.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - out/ios.merged.mobileconfig
+
+  - name: install
+    kind: execute
+    human_gate: true
+    depends_on: [build-profile]
+    reads_from: [build-profile]
+    description: >
+      Copy the profile to the device and instruct the user to tap Install.
+
+        ./bin/ios-install-profile \
+          --profile out/ios.merged.mobileconfig \
+          --device-label bcsphone \
+          --no-prompt
+
+      IMPORTANT: Code 625 ("User interaction on the device is required") is
+      the EXPECTED SUCCESS outcome on macOS 26. It means the profile was
+      copied to the device and is awaiting user approval.
+
+      Do NOT retry with --use-configurator-identity or treat 625 as failure.
+
+      After the command exits (0 or 625):
+        Open Settings → General → VPN & Device Management → tap the pending
+        profile → Install.
+
+      Silent cfgutil install (-C/-K) is permanently broken on macOS 26
+      (Apple gutted SecKeyCreateFromData). The tap-to-approve flow is the
+      only supported path.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
