@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from resume.pipeline import FilterPipeline, apply_filters_from_args, create_pipeline
+from resume.pipeline import FilterConfig, FilterPipeline, apply_filters_from_args, create_pipeline
 
 
 class TestExecute(unittest.TestCase):
@@ -153,7 +153,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
         """Applies priority filter when specified."""
         mock_filter.return_value = {"name": "John", "filtered": True}
 
-        result = apply_filters_from_args({"name": "John"}, min_priority=0.5)
+        result = apply_filters_from_args({"name": "John"}, config=FilterConfig(min_priority=0.5))
 
         mock_filter.assert_called_once()
         self.assertTrue(result["filtered"])
@@ -167,7 +167,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
 
         apply_filters_from_args(
             {"skills": ["Python", "Java"]},
-            filter_skills_alignment="/alignment.json",
+            config=FilterConfig(filter_skills_alignment="/alignment.json"),
         )
 
         mock_filter.assert_called_once()
@@ -181,7 +181,7 @@ class TestApplyFiltersFromArgs(unittest.TestCase):
 
         apply_filters_from_args(
             {"experience": []},
-            filter_exp_alignment="/alignment.json",
+            config=FilterConfig(filter_exp_alignment="/alignment.json"),
         )
 
         mock_filter.assert_called_once()

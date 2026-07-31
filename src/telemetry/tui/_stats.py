@@ -17,7 +17,7 @@ from telemetry.tui._renderers import (
     _render_timeline_line,
     _render_tips_text,
 )
-from telemetry.tui._summary import compute_summary
+from telemetry.tui._summary import SummaryConfig, compute_summary
 
 
 class _StatsRenderer:  # pragma: no cover
@@ -71,8 +71,8 @@ class _StatsRenderer:  # pragma: no cover
 
         project_path = str(self.session_file.parent)
         summary = compute_summary(
-            events, agents, self.resolved_session_id, project_path,
-            cost_is_estimated=True,
+            events, agents,
+            SummaryConfig(self.resolved_session_id, project_path, cost_is_estimated=True),
         )
 
         if self.compact:
@@ -143,7 +143,10 @@ def print_summary(
     classify_engine.classify(events)
     blame_engine.attribute(events)
 
-    summary = compute_summary(events, agents, session_id, project_path, cost_is_estimated=True)
+    summary = compute_summary(
+        events, agents,
+        SummaryConfig(session_id, project_path, cost_is_estimated=True),
+    )
     tips = tips_engine.generate(events, max_tips=5)
 
     console.print(Panel(_render_header_text(summary), title="[bold]Session[/]", border_style="blue"))

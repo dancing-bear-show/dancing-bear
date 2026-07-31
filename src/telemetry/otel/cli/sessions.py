@@ -15,6 +15,7 @@ from telemetry.otel.utils import parse_time_window
 
 # Re-exports from sibling modules
 from telemetry.otel.cli.sessions_output import (  # noqa: F401
+    SessionOutputOptions,
     _format_model_mix,
     _output_json,
     _output_table,
@@ -149,15 +150,19 @@ def main(argv: list[str] | None = None) -> int:
 
     metrics = get_all_costs(data_dir=data_dir, since=since)
 
+    opts = SessionOutputOptions(
+        sort_key=args.sort,
+        errors_only=args.errors_only,
+        limit=args.limit,
+        show_error_codes=args.error_codes,
+        show_health=args.health,
+        session_id=args.session_id,
+        show_perf=args.perf,
+    )
+
     if args.format == "json":
-        _output_json(
-            metrics, args.sort, args.errors_only, args.limit,
-            args.error_codes, args.health, args.session_id,
-        )
+        _output_json(metrics, opts)
     else:
-        _output_table(
-            metrics, args.sort, args.perf, args.errors_only, args.limit,
-            args.error_codes, args.health, args.session_id,
-        )
+        _output_table(metrics, opts)
 
     return 0

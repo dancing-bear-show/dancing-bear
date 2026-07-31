@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 _CONFIG_PATH = Path.home() / ".claude" / "claudestats.json"
@@ -68,6 +69,16 @@ def model_tier(model_id: str) -> str:
     return normalize_model(model_id)
 
 
+@dataclass(frozen=True)
+class TokenMetrics:
+    """Token counts from a single Claude API call."""
+
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+
+
 def _get_model_pricing(model: str) -> tuple[float, float]:
     """Return (input_per_million, output_per_million) for a model ID."""
     if model in _MODEL_PRICING:
@@ -87,10 +98,7 @@ def _get_model_pricing(model: str) -> tuple[float, float]:
 
 
 def compute_cost(
-    input_tokens: int,
-    output_tokens: int,
-    cache_read_tokens: int,
-    cache_creation_tokens: int,
+    metrics: TokenMetrics,
     model: str,
     pricing_override: dict[str, float] | None = None,
 ) -> float:
@@ -105,9 +113,9 @@ def compute_cost(
         in_rate, out_rate = _get_model_pricing(model)
 
     raw = (
-        input_tokens * in_rate
-        + output_tokens * out_rate
-        + cache_read_tokens * (in_rate / 10)
-        + cache_creation_tokens * (in_rate * 1.25)
+        metrics.input_tokens * in_rate
+        + metrics.output_tokens * out_rate
+        + metrics.cache_read_tokens * (in_rate / 10)
+        + metrics.cache_creation_tokens * (in_rate * 1.25)
     ) / 1_000_000
     return raw * _cost_multiplier()

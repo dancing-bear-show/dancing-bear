@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -29,6 +30,17 @@ from .priority import filter_by_min_priority
 from .skills_filter import filter_skills_by_keywords
 from .experience_filter import filter_experience_by_keywords
 from .render_config import ExperienceFilterConfig
+
+
+@dataclass(frozen=True)
+class FilterConfig:
+    """Bundled filter-configuration params for apply_filters_from_args."""
+
+    filter_skills_alignment: str | None = None
+    filter_skills_job: str | None = None
+    filter_exp_alignment: str | None = None
+    filter_exp_job: str | None = None
+    min_priority: float | None = None
 
 
 class FilterPipeline:
@@ -223,35 +235,25 @@ def create_pipeline(data: Dict[str, Any]) -> FilterPipeline:
 
 def apply_filters_from_args(
     data: Dict[str, Any],
-    profile: Optional[str] = None,
-    filter_skills_alignment: Optional[str] = None,
-    filter_skills_job: Optional[str] = None,
-    filter_exp_alignment: Optional[str] = None,
-    filter_exp_job: Optional[str] = None,
-    min_priority: Optional[float] = None,
+    profile: str | None = None,
+    config: FilterConfig | None = None,
 ) -> Dict[str, Any]:
-    """Apply all filters using explicit arguments (convenience function).
-
-    This mirrors the common CLI pattern but with explicit args instead of
-    argparse.Namespace, making it easier to use programmatically.
+    """Apply all filters using a FilterConfig (convenience function).
 
     Args:
         data: The candidate/resume data.
         profile: Profile name for overlays.
-        filter_skills_alignment: Path to alignment for skills filter.
-        filter_skills_job: Path to job config for skills synonyms.
-        filter_exp_alignment: Path to alignment for experience filter.
-        filter_exp_job: Path to job config for experience synonyms.
-        min_priority: Minimum priority threshold.
+        config: Bundled filter configuration; defaults to no-op if None.
 
     Returns:
         The filtered data dictionary.
     """
+    cfg = config or FilterConfig()
     return (
         FilterPipeline(data)
         .with_profile_overlays(profile)
-        .with_skill_filter(filter_skills_alignment, filter_skills_job)
-        .with_experience_filter(filter_exp_alignment, filter_exp_job)
-        .with_priority_filter(min_priority)
+        .with_skill_filter(cfg.filter_skills_alignment, cfg.filter_skills_job)
+        .with_experience_filter(cfg.filter_exp_alignment, cfg.filter_exp_job)
+        .with_priority_filter(cfg.min_priority)
         .execute()
     )

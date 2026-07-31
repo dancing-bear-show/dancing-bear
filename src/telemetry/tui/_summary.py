@@ -1,5 +1,6 @@
 """Session summary computation — aggregates events into SessionSummary."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from telemetry.models import (
@@ -8,6 +9,16 @@ from telemetry.models import (
     SessionSummary,
     ToolStats,
 )
+
+
+@dataclass(frozen=True)
+class SummaryConfig:
+    """Session-level metadata passed alongside event data to compute_summary."""
+
+    session_id: str
+    project_path: str | None
+    cost_is_estimated: bool
+    total_cost_override: float | None = None
 
 
 def _build_tool_stats(tool_events: list[SessionEvent]) -> dict[str, ToolStats]:
@@ -37,10 +48,7 @@ def _latest_model(api_events: list[SessionEvent]) -> str:
 def compute_summary(  # noqa: S3776 - flat aggregation; many generator expressions inflate score but there is no reducible nesting
     events: list[SessionEvent],
     agents: list[AgentSummary],
-    session_id: str,
-    project_path: str | None,
-    cost_is_estimated: bool,
-    total_cost_override: float | None = None,
+    config: SummaryConfig,
 ) -> SessionSummary:
     tool_events = [e for e in events if e.event_type == "tool_use"]
     api_events = [e for e in events if e.event_type == "api_request"]
@@ -68,8 +76,8 @@ def compute_summary(  # noqa: S3776 - flat aggregation; many generator expressio
     tool_stats = _build_tool_stats(tool_events)
 
     total_cost = (
-        total_cost_override
-        if total_cost_override is not None
+        config.total_cost_override
+        if config.total_cost_override is not None
         else sum(e.cost_usd or 0.0 for e in api_events)
     )
     productive_cost = sum(e.cost_usd or 0.0 for e in api_events if e.cost_usd)
@@ -82,13 +90,13 @@ def compute_summary(  # noqa: S3776 - flat aggregation; many generator expressio
     end_time = events[-1].timestamp if events else None
 
     return SessionSummary(
-        session_id=session_id,
-        project_path=project_path,
+        session_id=config.session_id,
+        project_path=config.project_path,
         start_time=start_time,
         end_time=end_time,
         model=_latest_model(api_events),
         total_cost=total_cost,
-        cost_is_estimated=cost_is_estimated,
+        cost_is_estimated=config.cost_is_estimated,
         total_events=len(events),
         efficiency_score=efficiency_score,
         productive_count=productive,

@@ -15,6 +15,7 @@ from telemetry.tui._formatters import (  # noqa: F401
     format_tokens,
 )
 from telemetry.tui._summary import (  # noqa: F401
+    SummaryConfig,
     _build_tool_stats,
     _latest_model,
     compute_summary,

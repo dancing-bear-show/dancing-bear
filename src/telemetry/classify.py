@@ -1,9 +1,19 @@
 """Classification engine — classifies SessionEvent objects in-place."""
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from telemetry.models import SessionEvent
+
+
+@dataclass(frozen=True)
+class WindowConfig:
+    """Search-window constraints for write-after-agent detection."""
+
+    window_seconds: float
+    lookforward_events: int
+    write_tools: frozenset[str]
 
 
 class ClassifyEngine:
@@ -229,9 +239,7 @@ class ClassifyEngine:
         agent_evt: SessionEvent,
         events: list[SessionEvent],
         start: int,
-        window_seconds: float,
-        lookforward_events: int,
-        write_tools: set[str],
+        window: WindowConfig,
     ) -> bool:
         """Return True if a write tool appears within the look-forward window."""
         count = 0
@@ -239,12 +247,12 @@ class ClassifyEngine:
             if events[j].event_type != "tool_use":
                 continue
             delta = (events[j].timestamp - agent_evt.timestamp).total_seconds()
-            if delta > window_seconds:
+            if delta > window.window_seconds:
                 break
-            if events[j].tool_name in write_tools:
+            if events[j].tool_name in window.write_tools:
                 return True
             count += 1
-            if count >= lookforward_events:
+            if count >= window.lookforward_events:
                 break
         return False
 
@@ -254,14 +262,16 @@ class ClassifyEngine:
         if not rule.get("enabled", True):
             return
 
-        window_seconds = rule.get("window_seconds", 300)
-        lookforward_events = rule.get("lookforward_events", 10)
         # Agent types that are read-only by design — never fruitless
         exempt_types = set(rule.get("exempt_agent_types", [
             "reviewer", "researcher", "Explore", "fact-checker",
             "unit-validator", "cross-unit-validator", "claude-code-guide",
         ]))
-        write_tools = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+        window = WindowConfig(
+            window_seconds=rule.get("window_seconds", 300),
+            lookforward_events=rule.get("lookforward_events", 10),
+            write_tools=frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"}),
+        )
 
         for i, evt in enumerate(events):
             if evt.event_type != "tool_use" or evt.tool_name != "Agent":
@@ -271,9 +281,7 @@ class ClassifyEngine:
             if agent_type in exempt_types:
                 continue
 
-            found_write = self._has_write_after_agent(
-                evt, events, i + 1, window_seconds, lookforward_events, write_tools
-            )
+            found_write = self._has_write_after_agent(evt, events, i + 1, window)
             if not found_write and evt.classification in (None, "productive"):
                 evt.classification = "review"
                 evt.waste_reason = "fruitless-agent"

@@ -1,18 +1,35 @@
 """TranscriptProvider: parses Claude Code JSONL transcript files."""
 
 import json
+from collections import defaultdict
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from telemetry.timeutil import parse_iso_utc
 from telemetry.models import AgentSummary, AgentTokenRow, SessionEvent, SessionSummary
-from telemetry.pricing import compute_cost
+from telemetry.pricing import TokenMetrics, compute_cost
 
 
 _JSONL_GLOB = "*.jsonl"
 # Old subdirectory format: <project>/<session-uuid>/subagents/<agent-id>.jsonl
 _SUBDIR_GLOB = "*/subagents/*.jsonl"
+
+
+@dataclass
+class TokenAccumulators:
+    """Mutable per-agent, per-model token count accumulators.
+
+    Each dict keyed by (agent_name, model) except call_count which is keyed by agent_name.
+    Fields hold defaultdict(int) so callers can increment without a membership check.
+    """
+
+    input: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
+    output: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
+    cache_read: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
+    cache_write: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
+    call_count: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
 
 class TranscriptProvider:
@@ -42,7 +59,7 @@ class TranscriptProvider:
         (MTD, per-session, per-tool, per-agent), not just paths that go
         through ``pricing.compute_cost`` directly.
         """
-        return compute_cost(input_tokens, output_tokens, cache_read, cache_create, model)
+        return compute_cost(TokenMetrics(input_tokens, output_tokens, cache_read, cache_create), model)
 
     def _parse_assistant_record(
         self,
@@ -502,15 +519,7 @@ class TranscriptProvider:
         Returns one AgentTokenRow per unique agent name, sorted by estimated
         cost descending.
         """
-        from collections import defaultdict
-
-        # Per-agent, per-model accumulators
-        # key: (agent_name, model)
-        input_acc: dict[tuple[str, str], int] = defaultdict(int)
-        output_acc: dict[tuple[str, str], int] = defaultdict(int)
-        cache_read_acc: dict[tuple[str, str], int] = defaultdict(int)
-        cache_write_acc: dict[tuple[str, str], int] = defaultdict(int)
-        call_acc: dict[str, int] = defaultdict(int)
+        accs = TokenAccumulators()
 
         if not self.projects_dir.exists():
             return []
@@ -522,15 +531,12 @@ class TranscriptProvider:
                 file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
                 if file_ts < since:
                     continue
-                self._accumulate_agent_tokens(
-                    jsonl_file, since,
-                    input_acc, output_acc, cache_read_acc, cache_write_acc, call_acc,
-                )
+                self._accumulate_agent_tokens(jsonl_file, since, accs)
 
         # Collapse per-(agent, model) into per-agent rows
-        agent_names: set[str] = {name for name, _ in input_acc.keys()} | set(call_acc)
+        agent_names: set[str] = {name for name, _ in accs.input.keys()} | set(accs.call_count)
         rows: list[AgentTokenRow] = [
-            self._build_agent_row(agent_name, input_acc, output_acc, cache_read_acc, cache_write_acc, call_acc)
+            self._build_agent_row(agent_name, accs)
             for agent_name in agent_names
         ]
 
@@ -540,28 +546,24 @@ class TranscriptProvider:
     def _build_agent_row(
         self,
         agent_name: str,
-        input_acc: dict[tuple[str, str], int],
-        output_acc: dict[tuple[str, str], int],
-        cache_read_acc: dict[tuple[str, str], int],
-        cache_write_acc: dict[tuple[str, str], int],
-        call_acc: dict[str, int],
+        accs: TokenAccumulators,
     ) -> AgentTokenRow:
         """Collapse per-(agent, model) accumulators into one AgentTokenRow for agent_name.
 
         Single pass: collect per-model token totals, then compute cost once per model.
         """
-        # Collect per-model token counts in one pass over input_acc keys.
+        # Collect per-model token counts in one pass over input keys.
         # Other accs share the same key set, so we only need to iterate once.
         per_model: dict[str, list[int]] = {}  # model -> [in, out, cr, cw]
-        for (n, m) in input_acc:
+        for (n, m) in accs.input:
             if n != agent_name:
                 continue
             if m not in per_model:
                 per_model[m] = [0, 0, 0, 0]
-            per_model[m][0] += input_acc[n, m]
-            per_model[m][1] += output_acc.get((n, m), 0)
-            per_model[m][2] += cache_read_acc.get((n, m), 0)
-            per_model[m][3] += cache_write_acc.get((n, m), 0)
+            per_model[m][0] += accs.input[n, m]
+            per_model[m][1] += accs.output.get((n, m), 0)
+            per_model[m][2] += accs.cache_read.get((n, m), 0)
+            per_model[m][3] += accs.cache_write.get((n, m), 0)
 
         models_used = sorted(m for m in per_model if m)
         total_input = sum(v[0] for v in per_model.values())
@@ -571,13 +573,7 @@ class TranscriptProvider:
 
         if per_model:
             cost = sum(
-                compute_cost(
-                    input_tokens=v[0],
-                    output_tokens=v[1],
-                    cache_read_tokens=v[2],
-                    cache_creation_tokens=v[3],
-                    model=m,
-                )
+                compute_cost(TokenMetrics(v[0], v[1], v[2], v[3]), m)
                 for m, v in per_model.items()
             )
         else:
@@ -585,7 +581,7 @@ class TranscriptProvider:
 
         return AgentTokenRow(
             agent=agent_name,
-            calls=call_acc[agent_name],
+            calls=accs.call_count[agent_name],
             input_tokens=total_input,
             output_tokens=total_output,
             cache_read_tokens=total_cr,
@@ -598,13 +594,9 @@ class TranscriptProvider:
         self,
         jsonl_file: Path,
         since: datetime,
-        input_acc: dict[tuple[str, str], int],
-        output_acc: dict[tuple[str, str], int],
-        cache_read_acc: dict[tuple[str, str], int],
-        cache_write_acc: dict[tuple[str, str], int],
-        call_acc: dict[str, int],
+        accs: TokenAccumulators,
     ) -> None:
-        """Parse one JSONL file and accumulate token counts into the given dicts."""
+        """Parse one JSONL file and accumulate token counts into accs."""
         try:
             with open(jsonl_file, encoding="utf-8") as fh:
                 for raw_line in fh:
@@ -632,10 +624,10 @@ class TranscriptProvider:
                     model = msg.get("model", "") or ""
                     key = (agent_name, model)
 
-                    input_acc[key] += usage.get("input_tokens", 0)
-                    output_acc[key] += usage.get("output_tokens", 0)
-                    cache_read_acc[key] += usage.get("cache_read_input_tokens", 0)
-                    cache_write_acc[key] += usage.get("cache_creation_input_tokens", 0)
-                    call_acc[agent_name] += 1
+                    accs.input[key] += usage.get("input_tokens", 0)
+                    accs.output[key] += usage.get("output_tokens", 0)
+                    accs.cache_read[key] += usage.get("cache_read_input_tokens", 0)
+                    accs.cache_write[key] += usage.get("cache_creation_input_tokens", 0)
+                    accs.call_count[agent_name] += 1
         except OSError:  # nosec B110 - skip unreadable JSONL files silently
             pass
