@@ -144,7 +144,7 @@ class TestLoadManifestRaisesCLIError(unittest.TestCase):
         try:
             _load_manifest("/no/such/wf.yaml")
         except CLIError:
-            pass
+            pass  # expected path under test — CLIError, not SystemExit
         except SystemExit:
             self.fail("_load_manifest raised SystemExit instead of CLIError")
 
@@ -201,7 +201,7 @@ stages:
             try:
                 _load_manifest(path)
             except CLIError:
-                pass
+                pass  # expected path under test — CLIError, not SystemExit
             except SystemExit:
                 self.fail("_load_manifest raised SystemExit instead of CLIError")
 
@@ -229,7 +229,7 @@ class TestBuildResolvedParamsRaisesCLIError(unittest.TestCase):
         try:
             _build_resolved_params("/no/such/file.yaml", {})
         except CLIError:
-            pass
+            pass  # expected path under test — CLIError, not SystemExit
         except SystemExit:
             self.fail("_build_resolved_params raised SystemExit instead of CLIError")
 
