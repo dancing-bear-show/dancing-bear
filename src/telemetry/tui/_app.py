@@ -21,7 +21,7 @@ from telemetry.tui._renderers import (
     _tool_event_detail,
     _tool_stat_detail,
 )
-from telemetry.tui._summary import compute_summary
+from telemetry.tui._summary import SummaryConfig, compute_summary
 from telemetry.tui._widgets import (
     APP_CSS,
     _DetailModal,
@@ -133,8 +133,8 @@ class TelemetryTranscriptsApp(App):  # pragma: no cover
             str(self._session_file.parent) if self._session_file else None
         )
         summary = compute_summary(
-            events, agents, self._session_id, project_path,
-            cost_is_estimated=True,
+            events, agents,
+            SummaryConfig(self._session_id, project_path, cost_is_estimated=True),
         )
 
         tips = self._tips_engine.generate(events, max_tips=5)

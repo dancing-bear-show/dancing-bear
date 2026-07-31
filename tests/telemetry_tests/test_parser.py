@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from telemetry.parser import iter_session_files, parse_session, _parse_ts
-from telemetry.pricing import compute_cost, model_tier
+from telemetry.pricing import TokenMetrics, compute_cost, model_tier
 
 
 class TestParseTs(unittest.TestCase):
@@ -207,19 +207,19 @@ class TestPricing(unittest.TestCase):
 
     def test_compute_cost(self):
         # Opus pricing: $5/M input, $25/M output (Apr 2026 rates)
-        cost = compute_cost(1_000_000, 0, 0, 0, "claude-opus-4-6")
+        cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "claude-opus-4-6")
         self.assertAlmostEqual(cost, 5.0, places=2)
 
-        cost = compute_cost(0, 1_000_000, 0, 0, "claude-opus-4-6")
+        cost = compute_cost(TokenMetrics(0, 1_000_000, 0, 0), "claude-opus-4-6")
         self.assertAlmostEqual(cost, 25.0, places=2)
 
     def test_zero_tokens(self):
-        cost = compute_cost(0, 0, 0, 0, "claude-opus-4-6")
+        cost = compute_cost(TokenMetrics(0, 0, 0, 0), "claude-opus-4-6")
         self.assertEqual(cost, 0.0)
 
     def test_unknown_model_falls_back_to_haiku(self):
         # Unknown models fall back to haiku ($1/M input) — not zero
-        cost = compute_cost(1_000_000, 0, 0, 0, "unknown-model-xyz")
+        cost = compute_cost(TokenMetrics(1_000_000, 0, 0, 0), "unknown-model-xyz")
         self.assertGreater(cost, 0.0)
 
 

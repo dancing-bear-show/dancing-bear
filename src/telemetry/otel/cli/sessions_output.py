@@ -5,6 +5,8 @@ Extracted from sessions.py to reduce complexity.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from core.cli_output import emit_one
 from telemetry.otel.analytics.cost import CostMetrics
 from telemetry.otel.analytics.health_score import calculate_health_score
@@ -15,6 +17,19 @@ from telemetry.otel.cli._format_helpers import (
 )
 from telemetry.otel.cost_models import SessionCost, SessionPerf
 from telemetry.timeutil import format_latency as _format_latency
+
+
+@dataclass(frozen=True)
+class SessionOutputOptions:
+    """Rendering options shared between table and JSON session output."""
+
+    sort_key: str
+    errors_only: bool
+    limit: int
+    show_error_codes: bool = False
+    show_health: bool = False
+    session_id: str | None = None
+    show_perf: bool = False  # table-only; ignored by _output_json
 
 
 def _format_model_mix(model_mix: dict[str, int]) -> str:
@@ -170,19 +185,13 @@ def _print_session(
 
 def _output_table(
     metrics: CostMetrics,
-    sort_key: str,
-    show_perf: bool,
-    errors_only: bool,
-    limit: int,
-    show_error_codes: bool = False,
-    show_health: bool = False,
-    session_id: str | None = None,
+    opts: SessionOutputOptions,
 ) -> None:
     """Output session list as formatted table."""
     from telemetry.otel.cli.sessions import _filter_sessions
 
-    sessions = _sort_sessions(metrics.by_session, sort_key)
-    sessions = _filter_sessions(sessions, errors_only, limit, session_id)
+    sessions = _sort_sessions(metrics.by_session, opts.sort_key)
+    sessions = _filter_sessions(sessions, opts.errors_only, opts.limit, opts.session_id)
 
     if not sessions:
         print("No sessions found.")
@@ -193,7 +202,7 @@ def _output_table(
     print("─" * 72)
     for session in sessions:
         _print_session(
-            session, total_cost, show_perf, show_error_codes, show_health,
+            session, total_cost, opts.show_perf, opts.show_error_codes, opts.show_health,
         )
     print("─" * 72)
     total_billable = metrics.total_billable_tokens
@@ -265,25 +274,20 @@ def _session_to_json(
 
 def _output_json(
     metrics: CostMetrics,
-    sort_key: str,
-    errors_only: bool,
-    limit: int,
-    show_error_codes: bool = False,
-    show_health: bool = False,
-    session_id: str | None = None,
+    opts: SessionOutputOptions,
 ) -> None:
     """Output session list as JSON."""
     from telemetry.otel.cli.sessions import _filter_sessions
 
-    sessions = _sort_sessions(metrics.by_session, sort_key)
-    sessions = _filter_sessions(sessions, errors_only, limit, session_id)
+    sessions = _sort_sessions(metrics.by_session, opts.sort_key)
+    sessions = _filter_sessions(sessions, opts.errors_only, opts.limit, opts.session_id)
 
     output = {
         "session_count": len(sessions),
         "total_cost": round(metrics.total_cost, 4),
         "total_billable_tokens": metrics.total_billable_tokens,
         "sessions": [
-            _session_to_json(s, show_error_codes, show_health)
+            _session_to_json(s, opts.show_error_codes, opts.show_health)
             for s in sessions
         ],
     }

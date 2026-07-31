@@ -6,6 +6,23 @@ LocalRenderer: renders via local mmdc CLI (requires @mermaid-js/mermaid-cli).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class RenderConfig:
+    """Rendering options shared across LocalRenderer methods.
+
+    output_format: Target format ("svg", "png", "pdf"). None lets render_to_file
+        infer the format from the output file extension; render() defaults to "svg".
+    """
+
+    output_format: str | None = None
+    background: str | None = None
+    theme: str | None = None
+    width: int | None = None
+    height: int | None = None
+
 
 class TextRenderer:
     """Render Mermaid diagrams as plain text or embedded code fences.
@@ -101,20 +118,17 @@ class LocalRenderer:
         self,
         input_path: str,
         output_path: str,
-        background: str | None = None,
-        theme: str | None = None,
-        width: int | None = None,
-        height: int | None = None,
+        config: RenderConfig,
     ) -> list[str]:
         cmd = [self.mmdc_path, "-i", input_path, "-o", output_path]
-        if background:
-            cmd.extend(["-b", background])
-        if theme:
-            cmd.extend(["-t", theme])
-        if width:
-            cmd.extend(["-w", str(width)])
-        if height:
-            cmd.extend(["-H", str(height)])
+        if config.background:
+            cmd.extend(["-b", config.background])
+        if config.theme:
+            cmd.extend(["-t", config.theme])
+        if config.width:
+            cmd.extend(["-w", str(config.width)])
+        if config.height:
+            cmd.extend(["-H", str(config.height)])
         return cmd
 
     def _run(self, cmd: list[str]) -> None:
@@ -151,21 +165,14 @@ class LocalRenderer:
     def render(
         self,
         diagram: object,
-        output_format: str = "svg",
-        background: str | None = None,
-        theme: str | None = None,
-        width: int | None = None,
-        height: int | None = None,
+        config: RenderConfig = RenderConfig(),
     ) -> bytes:
         """Render a diagram to bytes.
 
         Args:
             diagram: Builder, model, or raw mermaid string.
-            output_format: ``"svg"``, ``"png"``, or ``"pdf"``.
-            background: Background color (e.g. ``"white"``, ``"transparent"``).
-            theme: Mermaid theme (``"default"``, ``"forest"``, ``"dark"``, ``"neutral"``).
-            width: Output width in pixels (PNG only).
-            height: Output height in pixels (PNG only).
+            config: Rendering options (format, background, theme, dimensions).
+                    config.output_format defaults to "svg" when None.
 
         Returns:
             Rendered diagram bytes.
@@ -176,8 +183,10 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
+        output_format = config.output_format or "svg"
+
         mermaid_text = self._get_mermaid_text(diagram)
-        if theme == "dark":
+        if config.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
@@ -189,7 +198,7 @@ class LocalRenderer:
             out = pathlib.Path(tmpdir) / f"output.{output_format}"
             inp.write_text(mermaid_text)
 
-            cmd = self._build_command(str(inp), str(out), background, theme, width, height)
+            cmd = self._build_command(str(inp), str(out), config)
             self._run(cmd)
 
             if not out.exists():
@@ -200,22 +209,16 @@ class LocalRenderer:
         self,
         diagram: object,
         output_path: str,
-        output_format: str | None = None,
-        background: str | None = None,
-        theme: str | None = None,
-        width: int | None = None,
-        height: int | None = None,
+        config: RenderConfig = RenderConfig(),
     ) -> str:
         """Render a diagram directly to a file on disk.
 
         Args:
             diagram: Builder, model, or raw mermaid string.
             output_path: Destination file path.
-            output_format: Format override; inferred from extension when None.
-            background: Background color.
-            theme: Mermaid theme.
-            width: Width in pixels (PNG only).
-            height: Height in pixels (PNG only).
+            config: Rendering options; config.output_format is unused here —
+                    mmdc infers format from the output_path extension. Use
+                    _infer_format to validate the extension is supported.
 
         Returns:
             The output path.
@@ -227,11 +230,11 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
-        if output_format is None:
-            output_format = self._infer_format(output_path)
+        if config.output_format is None:
+            self._infer_format(output_path)  # validate extension; raises ValueError if unsupported
 
         mermaid_text = self._get_mermaid_text(diagram)
-        if theme == "dark":
+        if config.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
@@ -240,7 +243,7 @@ class LocalRenderer:
             tmp_input = f.name
 
         try:
-            cmd = self._build_command(tmp_input, output_path, background, theme, width, height)
+            cmd = self._build_command(tmp_input, output_path, config)
             self._run(cmd)
             return output_path
         finally:
@@ -253,7 +256,7 @@ class LocalRenderer:
             ``(True, None)`` on success; ``(False, error_message)`` on failure.
         """
         try:
-            self.render(diagram, "svg")
+            self.render(diagram, RenderConfig(output_format="svg"))
             return True, None
         except LocalRendererError as e:
             return False, str(e)

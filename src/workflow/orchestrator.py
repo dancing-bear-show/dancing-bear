@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from workflow._fileutil import atomic_write_json
@@ -34,9 +35,22 @@ from workflow.persistence import (
 )
 
 __all__ = [
+    "OrchestratorConfig",
     "WorkflowExecutionError",
     "WorkflowOrchestrator",
 ]
+
+
+@dataclass(frozen=True)
+class OrchestratorConfig:
+    """Static configuration for a WorkflowOrchestrator run."""
+
+    manifest: WorkflowManifest
+    workspace_dir: str | Path
+    run_id: str | None = None
+    dry_run: bool = False
+    trigger_params: dict[str, str] = field(default_factory=dict)
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,44 +64,36 @@ class WorkflowOrchestrator:
 
     def __init__(
         self,
-        manifest: WorkflowManifest,
-        workspace_dir: str | Path,
+        config: OrchestratorConfig,
         *,
-        run_id: str | None = None,
-        dry_run: bool = False,
         dispatcher: StageDispatcher | None = None,
-        trigger_params: dict[str, str] | None = None,
     ) -> None:
         """Initialize orchestrator.
 
         Args:
-            manifest: Compiled workflow manifest.
-            workspace_dir: Directory for stage results and outputs.
-            run_id: Unique run identifier. Generated if not provided.
-            dry_run: If True, log what would happen without executing.
+            config: Static run configuration (manifest, workspace, run_id, etc.).
             dispatcher: Stage execution strategy. Defaults to CompositeDispatcher.
-            trigger_params: Parameters from the workflow trigger.
         """
-        self._manifest = manifest
-        self._dry_run = dry_run
+        self._manifest = config.manifest
+        self._dry_run = config.dry_run
         self._results: dict[str, StageResult] = {}
         self._status = StageStatus.pending
-        self._trigger_params = trigger_params or {}
+        self._trigger_params = dict(config.trigger_params)
 
-        name = manifest.definition.name
-        self._run_id = run_id or f"{name}-{iso_now()}-{uuid.uuid4().hex[:8]}"
+        name = config.manifest.definition.name
+        self._run_id = config.run_id or f"{name}-{iso_now()}-{uuid.uuid4().hex[:8]}"
 
         self._workspace_dir = init_workspace(
             workflow_name=name,
             run_id=self._run_id,
-            base_dir=str(workspace_dir),
+            base_dir=str(config.workspace_dir),
         )
 
         self._dispatcher: StageDispatcher = dispatcher or CompositeDispatcher(
             name, trigger_params=self._trigger_params,
         )
 
-        self._stages_by_name: dict[str, ResolvedStage] = manifest.resolved_stages
+        self._stages_by_name: dict[str, ResolvedStage] = config.manifest.resolved_stages
 
     # -- Public API -----------------------------------------------------------
 

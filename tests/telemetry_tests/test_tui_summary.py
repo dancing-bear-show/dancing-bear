@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from telemetry.models import AgentSummary, SessionEvent, SessionSummary
-from telemetry.tui._summary import compute_summary
+from telemetry.tui._summary import SummaryConfig, compute_summary
 
 
 @dataclass
@@ -105,14 +105,15 @@ def make_agent_summary(agent_id: str = "agent-1") -> AgentSummary:
     )
 
 
+_CFG = SummaryConfig("s", None, cost_is_estimated=False)
+
+
 class TestComputeSummaryEmpty(unittest.TestCase):
     def test_empty_events_defaults(self):
         summary = compute_summary(
             events=[],
             agents=[],
-            session_id="sess-empty",
-            project_path="/some/project",
-            cost_is_estimated=False,
+            config=SummaryConfig("sess-empty", "/some/project", cost_is_estimated=False),
         )
         self.assertIsInstance(summary, SessionSummary)
         self.assertEqual(summary.session_id, "sess-empty")
@@ -132,16 +133,15 @@ class TestComputeSummaryEmpty(unittest.TestCase):
         summary = compute_summary(
             events=[],
             agents=[],
-            session_id="sess-empty",
-            project_path=None,
-            cost_is_estimated=False,
+            config=SummaryConfig("sess-empty", None, cost_is_estimated=False),
         )
         self.assertIsNone(summary.end_time)
         self.assertIsInstance(summary.start_time, datetime)
 
     def test_empty_project_path_is_none(self):
         summary = compute_summary(
-            events=[], agents=[], session_id="s", project_path=None, cost_is_estimated=True
+            events=[], agents=[],
+            config=SummaryConfig("s", None, cost_is_estimated=True),
         )
         self.assertIsNone(summary.project_path)
         self.assertTrue(summary.cost_is_estimated)
@@ -159,9 +159,7 @@ class TestComputeSummaryClassifications(unittest.TestCase):
         summary = compute_summary(
             events=events,
             agents=[],
-            session_id="sess-1",
-            project_path="/proj",
-            cost_is_estimated=False,
+            config=SummaryConfig("sess-1", "/proj", cost_is_estimated=False),
         )
         self.assertEqual(summary.productive_count, 2)
         self.assertEqual(summary.neutral_count, 1)
@@ -174,9 +172,7 @@ class TestComputeSummaryClassifications(unittest.TestCase):
             make_tool_event("Read", classification="productive", sequence=1),
             make_tool_event("Read", classification="productive", sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.efficiency_score, 100.0)
 
     def test_efficiency_score_mixed(self):
@@ -187,16 +183,12 @@ class TestComputeSummaryClassifications(unittest.TestCase):
             make_tool_event("Bash", classification="avoidable", sequence=3),
             make_tool_event("Grep", classification="review", sequence=4),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertAlmostEqual(summary.efficiency_score, 37.5)
 
     def test_unclassified_events_do_not_count(self):
         events = [make_tool_event("Read", classification=None, sequence=1)]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.productive_count, 0)
         self.assertEqual(summary.neutral_count, 0)
         self.assertEqual(summary.avoidable_count, 0)
@@ -211,9 +203,7 @@ class TestComputeSummaryToolStats(unittest.TestCase):
             make_tool_event("Read", classification="avoidable", cost_usd=0.2, sequence=2),
             make_tool_event("Read", classification="review", cost_usd=0.3, sequence=3),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         stats = summary.tool_stats["Read"]
         self.assertEqual(stats.tool_name, "Read")
         self.assertEqual(stats.count, 3)
@@ -226,9 +216,7 @@ class TestComputeSummaryToolStats(unittest.TestCase):
             make_tool_event("Read", classification="productive", sequence=1),
             make_tool_event("Bash", classification="productive", sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertIn("Read", summary.tool_stats)
         self.assertIn("Bash", summary.tool_stats)
         self.assertEqual(summary.tool_stats["Read"].count, 1)
@@ -236,17 +224,13 @@ class TestComputeSummaryToolStats(unittest.TestCase):
 
     def test_missing_tool_name_grouped_as_unknown(self):
         events = [make_tool_event(tool_name=None, classification="neutral", sequence=1)]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertIn("unknown", summary.tool_stats)
         self.assertEqual(summary.tool_stats["unknown"].count, 1)
 
     def test_cost_none_not_added(self):
         events = [make_tool_event("Read", classification="productive", cost_usd=None, sequence=1)]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.tool_stats["Read"].cost, 0.0)
 
     def test_api_events_excluded_from_tool_stats(self):
@@ -254,9 +238,7 @@ class TestComputeSummaryToolStats(unittest.TestCase):
             make_api_event(sequence=1),
             make_tool_event("Read", classification="productive", sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(len(summary.tool_stats), 1)
         self.assertIn("Read", summary.tool_stats)
 
@@ -266,9 +248,7 @@ class TestComputeSummaryCacheHitRate(unittest.TestCase):
         events = [
             make_api_event(input_tokens=100, cache_read_tokens=300, sequence=1),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         # hit rate is cache_read as a fraction of (input + cache_read): 300 of 400 = 0.75
         self.assertAlmostEqual(summary.cache_hit_rate, 0.75)
         self.assertEqual(summary.cache_read_tokens, 300)
@@ -278,23 +258,17 @@ class TestComputeSummaryCacheHitRate(unittest.TestCase):
         events = [
             make_api_event(input_tokens=100, cache_read_tokens=0, sequence=1),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.cache_hit_rate, 0.0)
 
     def test_cache_hit_rate_none_when_no_api_events(self):
         events = [make_tool_event("Read", classification="productive", sequence=1)]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertIsNone(summary.cache_hit_rate)
 
     def test_cache_hit_rate_none_when_totals_zero(self):
         events = [make_api_event(input_tokens=0, cache_read_tokens=0, sequence=1)]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertIsNone(summary.cache_hit_rate)
 
     def test_cache_creation_tokens_summed_separately(self):
@@ -302,9 +276,7 @@ class TestComputeSummaryCacheHitRate(unittest.TestCase):
             make_api_event(cache_creation_tokens=50, sequence=1),
             make_api_event(cache_creation_tokens=25, sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.cache_creation_tokens, 75)
 
 
@@ -316,16 +288,12 @@ class TestComputeSummaryEndTime(unittest.TestCase):
             make_tool_event("Read", classification="productive", sequence=1, timestamp=t1),
             make_tool_event("Bash", classification="productive", sequence=2, timestamp=t2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.start_time, t1)
         self.assertEqual(summary.end_time, t2)
 
     def test_end_time_absent_when_no_events(self):
-        summary = compute_summary(
-            events=[], agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=[], agents=[], config=_CFG)
         self.assertIsNone(summary.end_time)
 
 
@@ -335,16 +303,12 @@ class TestComputeSummaryModelAndCost(unittest.TestCase):
             make_api_event(model="claude-haiku-4-5", sequence=1),
             make_api_event(model="claude-opus-4-6", sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.model, "claude-opus-4-6")
 
     def test_model_empty_when_no_api_events_have_model(self):
         events = [make_api_event(model="", sequence=1)]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertEqual(summary.model, "")
 
     def test_total_cost_sums_api_events(self):
@@ -352,9 +316,7 @@ class TestComputeSummaryModelAndCost(unittest.TestCase):
             make_api_event(cost_usd=0.5, sequence=1),
             make_api_event(cost_usd=1.5, sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertAlmostEqual(summary.total_cost, 2.0)
 
     def test_total_cost_override_takes_precedence(self):
@@ -362,10 +324,7 @@ class TestComputeSummaryModelAndCost(unittest.TestCase):
         summary = compute_summary(
             events=events,
             agents=[],
-            session_id="s",
-            project_path=None,
-            cost_is_estimated=False,
-            total_cost_override=99.0,
+            config=SummaryConfig("s", None, cost_is_estimated=False, total_cost_override=99.0),
         )
         self.assertEqual(summary.total_cost, 99.0)
 
@@ -374,9 +333,7 @@ class TestComputeSummaryModelAndCost(unittest.TestCase):
             make_tool_event("Read", classification="avoidable", cost_usd=0.3, sequence=1),
             make_tool_event("Bash", classification="productive", cost_usd=0.7, sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertAlmostEqual(summary.avoidable_cost, 0.3)
 
     def test_productive_cost_sums_api_event_costs(self):
@@ -384,18 +341,14 @@ class TestComputeSummaryModelAndCost(unittest.TestCase):
             make_api_event(cost_usd=0.4, sequence=1),
             make_api_event(cost_usd=0.6, sequence=2),
         ]
-        summary = compute_summary(
-            events=events, agents=[], session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=events, agents=[], config=_CFG)
         self.assertAlmostEqual(summary.productive_cost, 1.0)
 
 
 class TestComputeSummaryAgents(unittest.TestCase):
     def test_agents_passed_through(self):
         agents = [make_agent_summary("a1"), make_agent_summary("a2")]
-        summary = compute_summary(
-            events=[], agents=agents, session_id="s", project_path=None, cost_is_estimated=False
-        )
+        summary = compute_summary(events=[], agents=agents, config=_CFG)
         self.assertEqual(len(summary.agents), 2)
         self.assertEqual(summary.agents[0].agent_id, "a1")
         self.assertEqual(summary.agents[1].agent_id, "a2")

@@ -224,7 +224,7 @@ def _cmd_parse(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     """Parse + compile + execute a workflow."""
     from workflow.cli import _emit_one, _emit_rows
-    from workflow.orchestrator import WorkflowOrchestrator
+    from workflow.orchestrator import OrchestratorConfig, WorkflowOrchestrator
     if not check_workflow_path(args.path):
         return 1
     dry_run = not args.execute
@@ -253,8 +253,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
         )
     else:
         orchestrator = WorkflowOrchestrator(
-            manifest=manifest, workspace_dir=workspace, run_id=args.run_id,
-            dry_run=dry_run, trigger_params=resolved_params or None,
+            OrchestratorConfig(
+                manifest=manifest,
+                workspace_dir=workspace,
+                run_id=args.run_id,
+                dry_run=dry_run,
+                trigger_params=resolved_params or {},
+            )
         )
     result = orchestrator.run()
     _emit_one({

@@ -6,9 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from resume.pipeline import (
+    FilterConfig,
     FilterPipeline,
-    create_pipeline,
     apply_filters_from_args,
+    create_pipeline,
 )
 
 

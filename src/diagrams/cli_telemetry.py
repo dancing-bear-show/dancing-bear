@@ -35,9 +35,10 @@ def _load_telemetry(days: int):
 def _session_cost(s, compute_cost) -> float:
     if not s.model:
         return 0.0
+    from telemetry.pricing import TokenMetrics
     return compute_cost(
-        s.input_tokens, s.output_tokens,
-        s.cache_read_tokens, s.cache_create_tokens, s.model,
+        TokenMetrics(s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_create_tokens),
+        s.model,
     )
 
 
