@@ -15,6 +15,7 @@ from .models import (
     UpdateEventReminderRequest,
 )
 from core.constants import DAY_START_TIME, DAY_END_TIME, GRAPH_API_URL
+from core.date_utils import RRULE_CODE_TO_DAY_NAME
 
 
 class OutlookCalendarMixin:
@@ -507,22 +508,13 @@ def _parse_location(loc: str) -> Dict[str, Any]:
 
 def _normalize_days(days: List[str]) -> List[str]:
     """Map MO,TU,WE,TH,FR,SA,SU -> monday,tuesday,... as Graph expects."""
-    map_short = {
-        "MO": "monday",
-        "TU": "tuesday",
-        "WE": "wednesday",
-        "TH": "thursday",
-        "FR": "friday",
-        "SA": "saturday",
-        "SU": "sunday",
-    }
     out: List[str] = []
     for d in days:
         if not d:
             continue
         dd = d.strip()
         if len(dd) == 2:
-            out.append(map_short.get(dd.upper(), dd.lower()))
+            out.append(RRULE_CODE_TO_DAY_NAME.get(dd.upper(), dd.lower()))
         else:
             out.append(dd.lower())
     seen = set()

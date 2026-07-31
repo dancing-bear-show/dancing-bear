@@ -16,6 +16,7 @@ __all__ = [
     "DAY_MAP",
     "DAY_NAMES",
     "MONTH_MAP",
+    "RRULE_CODE_TO_DAY_NAME",
     "normalize_day",
     "normalize_days",
     "now_utc",
@@ -45,6 +46,9 @@ DAY_MAP = {
     "sunday": "SU",
     "sun": "SU",
 }
+
+# Inverse of DAY_MAP, restricted to full day names (RRULE code -> full name)
+RRULE_CODE_TO_DAY_NAME = {v: k for k, v in DAY_MAP.items() if len(k) > 3}
 
 # Day name sequence for iteration (abbreviated, lowercase)
 DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
