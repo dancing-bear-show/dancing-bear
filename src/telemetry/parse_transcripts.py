@@ -165,5 +165,4 @@ def parse_transcripts(
         )
     else:
         msg = (envelope.diagnostics or {}).get("message", "parse-transcripts failed")
-        click.echo(f"error: {msg}", err=True)
-        raise SystemExit(1)
+        raise click.ClickException(msg)

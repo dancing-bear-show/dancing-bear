@@ -195,9 +195,6 @@ class ExportProcessor(SafeProcessor[ExportRequest, list[ExportPlaylistResult]]):
 class ListPlaylistsProducer(BaseProducer):
     """Output typed playlist list."""
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(
         self,
         payload: list[PlaylistResult],
@@ -209,9 +206,6 @@ class ListPlaylistsProducer(BaseProducer):
 
 class TracksProducer(BaseProducer):
     """Output typed track list."""
-
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
 
     def _produce_success(
         self,
@@ -238,9 +232,6 @@ class TracksProducer(BaseProducer):
 
 class ExportProducer(BaseProducer):
     """Output full playlist export."""
-
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
 
     def _produce_success(
         self,

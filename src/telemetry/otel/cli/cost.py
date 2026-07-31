@@ -56,9 +56,6 @@ class CostScanProcessor(SafeProcessor[CostScanRequest, CostScanResult]):
 class CostScanProducer(BaseProducer):
     """Render telemetry cost output (table or JSON) via OutputWriter."""
 
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(
         self, payload: CostScanResult, diagnostics: dict[str, Any] | None
     ) -> None:

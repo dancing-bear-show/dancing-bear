@@ -197,12 +197,12 @@ class JobResultProducer(BaseProducer):
         config: WorkerConfig,
         writer: OutputWriter | None = None,
     ) -> None:
+        super().__init__(writer)
         self._proc_path = proc_path
         self._ctx = ctx
         self._duration = duration
         self._command = command
         self._config = config
-        self._writer = writer or OutputWriter()
 
     def _produce_success(
         self, payload: JobResult, diagnostics: dict[str, object] | None

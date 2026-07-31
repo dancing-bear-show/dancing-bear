@@ -233,9 +233,6 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailScanResult
 
 
 class GmailScanProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: GmailScanResult, diagnostics: dict[str, Any] | None) -> None:
         from calendars.yamlio import dump_config
 

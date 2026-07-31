@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from core.auth import build_outlook_service_from_args
-from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, SafeProcessor, run_pipeline
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
@@ -448,9 +447,6 @@ class OutlookScanProcessor(SafeProcessor[OutlookScanRequest, OutlookScanResult])
 
 
 class OutlookScanProducer(BaseProducer):
-    def __init__(self, writer: OutputWriter | None = None) -> None:
-        self._writer = writer or OutputWriter()
-
     def _produce_success(self, payload: OutlookScanResult, diagnostics: dict[str, Any] | None) -> None:
         from ..yamlio import dump_config
 

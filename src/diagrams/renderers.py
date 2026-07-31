@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
+from core.pipeline import BaseProducer, SafeProcessor
 
 
 @dataclass(frozen=True)
@@ -295,8 +296,8 @@ class LocalRenderer:
 # ── Pipeline classes ──────────────────────────────────────────────────────────
 
 
-class RenderDiagramProcessor:
-    """SafeProcessor[RenderRequest, RenderResult] — renders a Mermaid diagram.
+class RenderDiagramProcessor(SafeProcessor[RenderRequest, RenderResult]):
+    """Renders a Mermaid diagram.
 
     Wraps LocalRenderer.render_to_file() (which calls _run()) in the
     SafeProcessor contract so cmd_render and cmd_validate can call via
@@ -322,33 +323,10 @@ class RenderDiagramProcessor:
         size = Path(payload.output).stat().st_size
         return RenderResult(output_path=payload.output, size_bytes=size)
 
-    def process(self, payload: RenderRequest) -> object:
-        """Wrap _process_safe with error handling; returns a ResultEnvelope."""
-        from core.pipeline import ResultEnvelope
-        try:
-            result = self._process_safe(payload)
-            return ResultEnvelope(status="success", payload=result)
-        except Exception as e:
-            return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
+class RenderDiagramProducer(BaseProducer):
+    """Emits render result via OutputWriter."""
 
-class RenderDiagramProducer:
-    """BaseProducer for RenderDiagramProcessor — emits render result via OutputWriter."""
-
-    def __init__(self) -> None:
-        from core.cli_output import OutputWriter
-        self._writer = OutputWriter()
-
-    def produce(self, result: object) -> None:
-        """Emit render result or error (accepts a ResultEnvelope)."""
-        if not result.ok():  # type: ignore[union-attr]
-            msg = (result.diagnostics or {}).get("message", "Render failed")  # type: ignore[union-attr]
-            self._writer.print_error(msg)
-            return
-        payload = result.payload  # type: ignore[union-attr]
-        if payload is not None:
-            self._produce_success(payload)
-
-    def _produce_success(self, payload: RenderResult) -> None:
+    def _produce_success(self, payload: RenderResult, diagnostics: dict | None = None) -> None:
         """Emit success message with output path."""
         self._writer.print(f"Rendered to: {payload.output_path}")

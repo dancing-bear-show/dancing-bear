@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar
 
+from core.cli_errors import CLIError
 from core.cli_output import OutputWriter
 
 
@@ -129,6 +130,8 @@ class SafeProcessor(Generic[T, R]):
         try:
             result = self._process_safe(payload)
             return ResultEnvelope(status="success", payload=result)
+        except CLIError as e:
+            return ResultEnvelope(status="error", diagnostics={"message": str(e), "code": int(e.code)})
         except Exception as e:
             return ResultEnvelope(status="error", diagnostics={"message": str(e)})
 
