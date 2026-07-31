@@ -48,6 +48,10 @@ rules:
       move_to: "~/Downloads/Archives/DMGs"
 ```
 
+## Pipeline Pattern
+- Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
+- `apply_ops.py` routes output through `OutputWriter`; `planner.py` raises `NotFoundError` for missing config files.
+
 ## Notes
 - Duplicate detection in `scan` is by size + SHA-256 content hash.
 - `apply` moves files or sends them to `~/.Trash`. It will not delete permanently.

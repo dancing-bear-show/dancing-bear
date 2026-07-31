@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core.cli_output import OutputWriter
 from core.pipeline import Producer, ResultEnvelope
 
 from ..providers.base import BaseProvider
@@ -40,42 +41,43 @@ _EMPTY_QUERY = "(empty)"
 class FiltersPlanProducer(Producer[ResultEnvelope[FiltersPlanResult]]):
     """Render plan results in the legacy human-readable format."""
 
-    def __init__(self, preview_limit: int = 20):
+    def __init__(self, preview_limit: int = 20, writer: OutputWriter | None = None):
         self.preview_limit = preview_limit
+        self._writer = writer or OutputWriter()
 
     def produce(self, result: ResultEnvelope[FiltersPlanResult]) -> None:
         if not result.ok() or not result.payload:
-            print("Filters plan failed.")
+            self._writer.print("Filters plan failed.")
             return
         payload = result.payload
         print_plan_summary(create=len(payload.to_create), delete=len(payload.to_delete))
         if payload.add_counts:
-            print("Adds distribution:")
+            self._writer.print("Adds distribution:")
             for name, count in payload.add_counts.most_common():
-                print(f"  {name}: {count}")
+                self._writer.print(f"  {name}: {count}")
 
         if payload.to_create:
-            print("\nWould create:")
+            self._writer.print("\nWould create:")
             for entry in payload.to_create[: self.preview_limit]:
                 self._print_create_entry(entry)
             remaining = len(payload.to_create) - self.preview_limit
             if remaining > 0:
-                print(f"  … and {remaining} more")
+                self._writer.print(f"  … and {remaining} more")
 
         if payload.to_delete:
-            print("\nWould delete (not present in YAML):")
+            self._writer.print("\nWould delete (not present in YAML):")
             for filter_entry in payload.to_delete[: self.preview_limit]:
                 self._print_delete_entry(filter_entry, payload.id_to_name)
             remaining = len(payload.to_delete) - self.preview_limit
             if remaining > 0:
-                print(f"  … and {remaining} more")
+                self._writer.print(f"  … and {remaining} more")
 
     def _print_create_entry(self, entry: FilterPlanEntry) -> None:
         actions = entry.action_names
         add = actions.get("add") or []
         remove = actions.get("remove") or []
         forward = actions.get("forward")
-        print(
+        self._writer.print(
             f"  {preview_criteria(entry.criteria)} -> "
             f"add={add} remove={remove} forward={forward}"
         )
@@ -86,7 +88,7 @@ class FiltersPlanProducer(Producer[ResultEnvelope[FiltersPlanResult]]):
         add_names = [id_to_name.get(x, x) for x in (action.get("addLabelIds") or [])]
         remove_names = [id_to_name.get(x, x) for x in (action.get("removeLabelIds") or [])]
         forward = action.get("forward")
-        print(
+        self._writer.print(
             f"  {preview_criteria(crit)} -> "
             f"add={add_names} remove={remove_names} forward={forward}"
         )
@@ -154,15 +156,18 @@ class FiltersSyncProducer(Producer[ResultEnvelope[FiltersSyncResult]]):
 class FiltersImpactProducer(Producer[ResultEnvelope[FiltersImpactResult]]):
     """Render impact counts for filters."""
 
+    def __init__(self, writer: OutputWriter | None = None):
+        self._writer = writer or OutputWriter()
+
     def produce(self, result: ResultEnvelope[FiltersImpactResult]) -> None:
         if not result.ok() or not result.payload:
-            print("Filters impact failed.")
+            self._writer.print("Filters impact failed.")
             return
         payload = result.payload
         for record in payload.records:
             query = record.query or _EMPTY_QUERY
-            print(f"{record.count:6d}  {query}")
-        print(f"Total impacted: {payload.total}")
+            self._writer.print(f"{record.count:6d}  {query}")
+        self._writer.print(f"Total impacted: {payload.total}")
 
 
 class FiltersAddForwardProducer(Producer[ResultEnvelope[FiltersAddForwardResult]]):

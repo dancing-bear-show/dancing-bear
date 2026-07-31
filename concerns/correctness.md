@@ -338,3 +338,60 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
 - **check**: Verify that `sqlite3.connect(...)` calls have an explicit `conn.close()` in a `finally` block — a bare `conn = sqlite3.connect(...)` (or `with sqlite3.connect(...) as conn:`) with no corresponding close leaks a file handle and, on some platforms, leaves the database file locked for subsequent readers/writers in the same process. Note that `with sqlite3.connect(...) as conn:` is a common trap: it only commits/rolls back the transaction on exit, it does **not** close the connection — `whatsapp/search.py`'s `_connect_ro()` currently relies on this pattern (`with _connect_ro(path) as conn:`) and does not explicitly close, so it is a candidate to harden rather than a model to copy. `phone/backup.py`'s explicit `con.close()` is the pattern new call sites should follow.
 - **triggers**: `sqlite3.connect(` assigned to a variable with no enclosing `try/finally` and no `.close()` call later in the same function; `with sqlite3.connect(...) as conn:` used as if it closes the connection; helper functions that open a connection, run a query, and `return` the result without closing the connection on the return path; a new sqlite-backed reader/writer added under `telemetry/` or elsewhere that doesn't explicitly close.
 - **example**: `conn = sqlite3.connect(db_path); cursor = conn.execute(query); return cursor.fetchall()` — the connection is never closed, leaking a file handle per call. A tempting but incomplete fix is `with sqlite3.connect(db_path) as conn: return conn.execute(query).fetchall()` — this commits the (implicit) transaction but leaves the connection open. The reliable fix: `conn = sqlite3.connect(db_path)` then `try: return conn.execute(query).fetchall() finally: conn.close()`.
+
+### domain-exception-not-clierror
+- **severity**: major
+- **check**: Verify that domain-specific exception classes subclass `CLIError` (or an appropriate CLIError subtype — `NotFoundError`, `AuthError`, `UsageError`) rather than bare `Exception`, `RuntimeError`, `ValueError`, or `FileNotFoundError`; and that CLI boundaries raise `CLIError` instead of calling `sys.exit()` directly.
+- **triggers**: `class FooError(Exception):` or `class FooError(RuntimeError):` or `class FooError(ValueError):` in domain modules; `raise FileNotFoundError(...)` at a CLI boundary; `sys.exit(N)` inside a domain module's `run()` or command handler where `CLIApp.run()` is the outer boundary; `raise ValueError(...)` or `raise RuntimeError(...)` in `_process_safe`, `consume()`, or `run()` methods.
+- **example**:
+  ```python
+  # bad — bare Exception subclass bypasses CLIApp error routing
+  class LayoutLoadError(Exception):
+      def __init__(self, code, message): ...
+
+  # bad — sys.exit bypasses handle_error()
+  if not config_path.exists():
+      print('Config not found', file=sys.stderr)
+      sys.exit(2)
+
+  # good — CLIError subclass integrates with handle_error() dispatch
+  from core.cli_errors import CLIError, ExitCode
+  class LayoutLoadError(CLIError):
+      def __init__(self, code: int, message: str):
+          super().__init__(message, ExitCode(code))
+
+  # good — raise propagates to CLIApp boundary for clean formatting
+  if not config_path.exists():
+      raise CLIError('Config not found', ExitCode.NOT_FOUND)
+  ```
+
+### stdout-stderr-output-contract-drift
+- **severity**: major
+- **check**: Verify that when a change routes output from one stream to another (e.g. bare `print()` on stdout → `OutputWriter.print_error()` on stderr), all tests asserting on that output are updated to redirect the correct stream. A test using `redirect_stdout` to capture output that was moved to stderr will silently pass while capturing nothing.
+- **triggers**: A diff that changes a producer or base-class error method from bare `print()` (stdout) to `OutputWriter.print_error()` / `sys.stderr` (or vice versa); `BaseProducer` subclasses whose `_produce_success` routes errors through `OutputWriter`; tests that use `contextlib.redirect_stdout` to assert on error/status messages; `print_error()` introduced in a base class while domain tests assert on stdout.
+- **example**:
+  ```python
+  # before — BaseProducer.print_error writes to stdout
+  class BaseProducer:
+      @staticmethod
+      def print_error(msg): print(msg)  # stdout
+
+  # test captures stdout correctly
+  with redirect_stdout(buf):
+      producer.produce(bad_envelope)
+  assert 'Pipeline error' in buf.getvalue()  # passes
+
+  # after — refactor routes through OutputWriter (stderr)
+  class BaseProducer:
+      def print_error(self, msg): self._writer.print_error(msg)  # stderr
+
+  # bad test — redirect_stdout captures nothing; buf is empty
+  with redirect_stdout(buf):
+      producer.produce(bad_envelope)
+  assert 'Pipeline error' in buf.getvalue()  # silently passes (empty string, guarded assertion)
+
+  # good — update test to match the new stream contract
+  with redirect_stderr(buf):
+      producer.produce(bad_envelope)
+  assert 'Pipeline error' in buf.getvalue()
+  ```

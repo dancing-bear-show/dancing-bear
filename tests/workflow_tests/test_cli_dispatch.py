@@ -17,6 +17,7 @@ from tests.workflow_tests.helpers.factories import (
     make_workflow_manifest,
     write_yaml,
 )
+from core.cli_errors import CLIError
 from workflow.cli_dispatch import (
     _build_plan_json,
     _build_resolved_params,
@@ -334,13 +335,13 @@ class TestLoadDefinition(unittest.TestCase):
             self.assertEqual(defn.name, "test-wf")
 
     def test_missing_file_raises_system_exit(self) -> None:
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(CLIError):
             _load_definition("/nonexistent/path/wf.yaml")
 
     def test_invalid_yaml_raises_system_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = _write_yaml(tmp_dir, "invalid: yaml: {{{")
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(CLIError):
                 _load_definition(path)
 
 
@@ -358,7 +359,7 @@ class TestLoadManifest(unittest.TestCase):
             self.assertGreater(len(manifest.parallel_groups), 0)
 
     def test_missing_file_raises_system_exit(self) -> None:
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(CLIError):
             _load_manifest("/no/such/wf.yaml")
 
 

@@ -1,7 +1,7 @@
 """Keyword synonym management and normalization utilities.
 
 Provides synonym registry and data classes used by KeywordMatcher:
-  - KeywordInfo, MatchResult: data containers
+  - KeywordInfo, KeywordMatchResult: data containers
   - SynonymRegistry: synonym management helpers
   - normalize_text: standalone text normalization helper (compat)
 """
@@ -22,7 +22,7 @@ class KeywordInfo:
 
 
 @dataclass
-class MatchResult:
+class KeywordMatchResult:
     """Result of a keyword match."""
     keyword: str
     tier: str

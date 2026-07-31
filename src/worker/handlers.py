@@ -19,9 +19,66 @@ import stat
 import subprocess
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
+from core.pipeline import SafeProcessor
+
 HandlerFn = Callable[[dict[str, object]], tuple[bool, object]]
+
+
+# ---------------------------------------------------------------------------
+# ShellJobProcessor — SafeProcessor wrapper for subprocess execution
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ShellJobRequest:
+    """Request for a subprocess shell invocation."""
+
+    cmd: list[str]
+    env_overlay: dict[str, str]
+    timeout: int
+    cwd: str | None
+
+
+@dataclass
+class ShellJobResult:
+    """Result of a subprocess shell invocation."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+    def ok(self) -> bool:
+        """Return True when the subprocess exited with code 0."""
+        return self.returncode == 0
+
+
+class ShellJobProcessor(SafeProcessor[ShellJobRequest, ShellJobResult]):
+    """SafeProcessor wrapping a subprocess shell invocation.
+
+    Raises on timeout or unexpected OS-level errors; returns a ShellJobResult
+    on normal subprocess completion (including non-zero exit codes).
+    """
+
+    def _process_safe(self, payload: ShellJobRequest) -> ShellJobResult:
+        env = os.environ.copy()
+        env.update(payload.env_overlay)
+        res = subprocess.run(  # nosec B603 - cmd is validated against allowlist before reaching here
+            [str(x) for x in payload.cmd],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=payload.timeout,
+            text=True,
+            env=env,
+            cwd=payload.cwd,
+        )
+        return ShellJobResult(
+            returncode=res.returncode,
+            stdout=res.stdout[-2000:],
+            stderr=res.stderr[-2000:],
+        )
 
 
 def _repo_root() -> Path:
@@ -67,22 +124,24 @@ def _build_command(prog: str, cmd_list: list) -> list[str]:
 
 
 def _execute_subprocess(cmd: list[str], env_overlay: dict, timeout: int, cwd: str | None = None) -> dict:  # pragma: no cover - subprocess execution
-    """Execute command as a subprocess. Returns dict with returncode, stdout, stderr."""
-    env = os.environ.copy()
-    env.update({k: str(v) for k, v in env_overlay.items()})
-    res = subprocess.run(  # nosec B603 - cmd is validated against allowlist before reaching here
-        [str(x) for x in cmd],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    """Execute command as a subprocess via ShellJobProcessor. Returns dict with returncode, stdout, stderr."""
+    from core.pipeline import RequestConsumer
+    request = ShellJobRequest(
+        cmd=[str(x) for x in cmd],
+        env_overlay={k: str(v) for k, v in env_overlay.items()},
         timeout=timeout,
-        text=True,
-        env=env,
         cwd=cwd,
     )
+    envelope = ShellJobProcessor().process(RequestConsumer(request).consume())
+    if not envelope.ok():
+        # SafeProcessor caught a subprocess-level error (e.g. TimeoutExpired, OSError)
+        msg = (envelope.diagnostics or {}).get("message", "subprocess error")
+        raise RuntimeError(msg)
+    result = envelope.unwrap()
     return {
-        "returncode": res.returncode,
-        "stdout": res.stdout[-2000:],
-        "stderr": res.stderr[-2000:],
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
     }
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
-from core.pipeline import Processor, ResultEnvelope
+from core.pipeline import Processor, SafeProcessor, ResultEnvelope
 
 from ..utils.filters import (
     build_criteria_from_match,
@@ -33,10 +33,10 @@ class FiltersPlanResult:
     id_to_name: dict[str, str]
 
 
-class FiltersPlanProcessor(Processor[FiltersPlanPayload, ResultEnvelope[FiltersPlanResult]]):
+class FiltersPlanProcessor(SafeProcessor[FiltersPlanPayload, FiltersPlanResult]):
     """Compute plan results from the gathered payload."""
 
-    def process(self, payload: FiltersPlanPayload) -> ResultEnvelope[FiltersPlanResult]:
+    def _process_safe(self, payload: FiltersPlanPayload) -> FiltersPlanResult:
         existing_map = {_canon_existing(f): f for f in payload.existing_filters}
         desired_entries: list[tuple[str, FilterPlanEntry]] = []
         desired_keys: set[str] = set()
@@ -55,13 +55,12 @@ class FiltersPlanProcessor(Processor[FiltersPlanPayload, ResultEnvelope[FiltersP
             extra_keys = set(existing_map.keys()) - desired_keys
             to_delete = [existing_map[k] for k in extra_keys]
 
-        result = FiltersPlanResult(
+        return FiltersPlanResult(
             to_create=to_create,
             to_delete=to_delete,
             add_counts=add_counter,
             id_to_name=payload.id_to_name,
         )
-        return ResultEnvelope(status="success", payload=result)
 
 
 @dataclass
@@ -119,10 +118,10 @@ class FiltersImpactResult:
     total: int
 
 
-class FiltersImpactProcessor(Processor[FiltersImpactPayload, ResultEnvelope[FiltersImpactResult]]):
+class FiltersImpactProcessor(SafeProcessor[FiltersImpactPayload, FiltersImpactResult]):
     """Compute impact counts for desired filters."""
 
-    def process(self, payload: FiltersImpactPayload) -> ResultEnvelope[FiltersImpactResult]:
+    def _process_safe(self, payload: FiltersImpactPayload) -> FiltersImpactResult:
         records: list[FilterImpactRecord] = []
         total = 0
         for spec in payload.filters:
@@ -132,10 +131,7 @@ class FiltersImpactProcessor(Processor[FiltersImpactPayload, ResultEnvelope[Filt
             count = len(ids)
             total += count
             records.append(FilterImpactRecord(query=query, count=count))
-        return ResultEnvelope(
-            status="success",
-            payload=FiltersImpactResult(records=records, total=total),
-        )
+        return FiltersImpactResult(records=records, total=total)
 
 
 @dataclass
@@ -144,10 +140,10 @@ class FiltersExportResult:
     out_path: str
 
 
-class FiltersExportProcessor(Processor[FiltersExportPayload, ResultEnvelope[FiltersExportResult]]):
+class FiltersExportProcessor(SafeProcessor[FiltersExportPayload, FiltersExportResult]):
     """Convert Gmail filters into DSL export format."""
 
-    def process(self, payload: FiltersExportPayload) -> ResultEnvelope[FiltersExportResult]:
+    def _process_safe(self, payload: FiltersExportPayload) -> FiltersExportResult:
         entries: list[dict] = []
         for filt in payload.filters:
             entry: dict = {}
@@ -160,10 +156,7 @@ class FiltersExportProcessor(Processor[FiltersExportPayload, ResultEnvelope[Filt
             if filt.get("id"):
                 entry["id"] = filt.get("id")
             entries.append(entry)
-        return ResultEnvelope(
-            status="success",
-            payload=FiltersExportResult(filters=entries, out_path=str(payload.out_path)),
-        )
+        return FiltersExportResult(filters=entries, out_path=str(payload.out_path))
 
     def _export_criteria(self, criteria: dict) -> dict:
         out: dict = {}

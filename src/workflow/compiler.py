@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from core.cli_errors import CLIError, ExitCode
 from workflow._timeutil import iso_now
 from workflow.models import (
     OutputMode,
@@ -40,8 +41,11 @@ _WHEN_PATTERN = re.compile(
 )
 
 
-class WorkflowCompileError(Exception):
+class WorkflowCompileError(CLIError):
     """Raised when workflow compilation fails."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, ExitCode.ERROR)
 
 
 @dataclass(frozen=True)

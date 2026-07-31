@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core.cli_errors import CLIError, ExitCode
+
 __all__ = ["load_config", "dump_config"]
 
 
@@ -13,7 +15,7 @@ def _require_yaml():
 
         return yaml
     except Exception as exc:  # pragma: no cover - runtime guard
-        raise RuntimeError("PyYAML not installed. Run: pip install pyyaml") from exc
+        raise CLIError("PyYAML not installed. Run: pip install pyyaml", ExitCode.CONFIG_ERROR) from exc
 
 
 def load_config(path: Optional[str]) -> Dict[str, Any]:

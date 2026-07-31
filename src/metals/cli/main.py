@@ -80,16 +80,30 @@ costs_group = app.group("costs", help="Extract and manage purchase costs")
 @app.argument("--profile", "-p", default="gmail_personal", help="Gmail profile")
 @app.argument("--out", "-o", default="out/metals/costs.csv", help="Output CSV path")
 def cmd_costs_gmail(args) -> int:
-    from .costs import main as costs_main
-    return costs_main(["--profile", args.profile, "--out", args.out])
+    from ..pipeline import GmailCostsRequest, GmailCostsProcessor, GmailCostsProducer
+
+    request = GmailCostsRequest(profile=args.profile, out_path=args.out)
+    processor = GmailCostsProcessor()
+    producer = GmailCostsProducer()
+
+    result = processor.process(request)
+    producer.produce(result)
+    return 0 if result.ok() else 1
 
 
 @costs_group.command("outlook", help="Extract costs from Outlook (RCM)")
 @app.argument("--profile", "-p", default="outlook_personal", help="Outlook profile")
 @app.argument("--out", "-o", default="out/metals/costs.csv", help="Output CSV path")
 def cmd_costs_outlook(args) -> int:
-    from .outlook_costs import main as outlook_costs_main
-    return outlook_costs_main(["--profile", args.profile, "--out", args.out])
+    from ..pipeline import OutlookCostsRequest, OutlookCostsProcessor, OutlookCostsProducer
+
+    request = OutlookCostsRequest(profile=args.profile, out_path=args.out)
+    processor = OutlookCostsProcessor()
+    producer = OutlookCostsProducer()
+
+    result = processor.process(request)
+    producer.produce(result)
+    return 0 if result.ok() else 1
 
 
 # ============================================================================
@@ -104,11 +118,20 @@ spot_group = app.group("spot", help="Fetch and manage spot prices")
 @app.argument("--start", "-s", help="Start date (YYYY-MM-DD)")
 @app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
 def cmd_spot_fetch(args) -> int:
-    from .spot import main as spot_main
-    argv = ["--metal", args.metal, "--out-dir", args.out_dir]
-    if args.start:
-        argv.extend(["--start", args.start])
-    return spot_main(argv)
+    from ..pipeline import SpotPriceRequest, SpotPriceProcessor, SpotPriceProducer
+
+    out_path = f"{args.out_dir}/{args.metal}_spot_cad_daily.csv"
+    request = SpotPriceRequest(
+        metal=args.metal,
+        start_date=args.start or None,
+        out_path=out_path,
+    )
+    processor = SpotPriceProcessor()
+    producer = SpotPriceProducer()
+
+    result = processor.process(request)
+    producer.produce(result)
+    return 0 if result.ok() else 1
 
 
 # ============================================================================

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from core.cli_errors import UsageError
 from core.pipeline import Consumer
 
 from ..context import MailContext
@@ -18,7 +19,7 @@ _ERR_LABEL_PREFIX = "Invalid --label-prefix"
 
 
 @dataclass
-class FiltersBasePayload:
+class FiltersBaseRequest:
     desired_filters: list[dict]
     existing_filters: list[dict]
     id_to_name: dict[str, str]
@@ -27,12 +28,12 @@ class FiltersBasePayload:
 
 
 @dataclass
-class FiltersPlanPayload(FiltersBasePayload):
+class FiltersPlanPayload(FiltersBaseRequest):
     pass
 
 
 @dataclass
-class FiltersSyncPayload(FiltersBasePayload):
+class FiltersSyncPayload(FiltersBaseRequest):
     require_forward_verified: bool
     verified_forward_addresses: set[str]
 
@@ -185,7 +186,7 @@ class FiltersExportConsumer(Consumer[FiltersExportPayload]):
         args = self.context.args
         out_path = getattr(args, "out", None)
         if not out_path:
-            raise ValueError("Missing --out for filters export.")
+            raise UsageError("Missing --out for filters export.")
         client = self.context.get_gmail_client()
         labels = client.list_labels()
         id_to_name = {
@@ -259,7 +260,7 @@ class FiltersSweepRangeConsumer(Consumer[FiltersSweepRangePayload]):
         to_days = int(getattr(args, "to_days", 0))
         step_days = int(getattr(args, "step_days", 0))
         if step_days <= 0 or to_days <= from_days:
-            raise ValueError("Invalid range/step.")
+            raise UsageError("Invalid range/step: --to-days must exceed --from-days and --step-days must be positive.")
         pages = int(getattr(args, "pages", 50) or 50)
         batch_size = int(getattr(args, "batch_size", 500) or 500)
         max_msgs = getattr(args, "max_msgs", None)
@@ -312,10 +313,10 @@ class FiltersAddForwardConsumer(Consumer[FiltersAddForwardPayload]):
         args = self.context.args
         dest = getattr(args, "email", None)
         if not dest:
-            raise ValueError("Missing --email for add-forward-by-label.")
+            raise UsageError("Missing --email for add-forward-by-label.")
         label_prefix = str(getattr(args, "label_prefix", "")).strip()
         if not label_prefix:
-            raise ValueError(_ERR_LABEL_PREFIX)
+            raise UsageError(_ERR_LABEL_PREFIX)
 
         client = self.context.get_gmail_client()
         labels = client.list_labels()
@@ -349,11 +350,11 @@ class FiltersAddTokenConsumer(Consumer[FiltersAddTokenPayload]):
         args = self.context.args
         label_prefix = str(getattr(args, "label_prefix", "")).strip()
         if not label_prefix:
-            raise ValueError(_ERR_LABEL_PREFIX)
+            raise UsageError(_ERR_LABEL_PREFIX)
         needle = str(getattr(args, "needle", "")).strip().lower()
         tokens = [str(x).strip() for x in (getattr(args, "add", []) or []) if str(x).strip()]
         if not needle or not tokens:
-            raise ValueError("Missing --needle or --add")
+            raise UsageError("Missing --needle or --add")
         client = self.context.get_gmail_client()
         labels = client.list_labels()
         id_to_name = {
@@ -383,11 +384,11 @@ class FiltersRemoveTokenConsumer(Consumer[FiltersRemoveTokenPayload]):
         args = self.context.args
         label_prefix = str(getattr(args, "label_prefix", "")).strip()
         if not label_prefix:
-            raise ValueError(_ERR_LABEL_PREFIX)
+            raise UsageError(_ERR_LABEL_PREFIX)
         needle = str(getattr(args, "needle", "")).strip().lower()
         tokens = [str(x).strip().lower() for x in (getattr(args, "remove", []) or []) if str(x).strip()]
         if not needle or not tokens:
-            raise ValueError("Missing --needle or --remove")
+            raise UsageError("Missing --needle or --remove")
         client = self.context.get_gmail_client()
         labels = client.list_labels()
         id_to_name = {
@@ -439,7 +440,7 @@ def _load_desired_filters(doc: dict, *, error_hint: str, allow_missing: bool) ->
     if not isinstance(raw, list):
         if allow_missing:
             return []
-        raise ValueError(error_hint)
+        raise UsageError(error_hint)
     desired: list[dict] = []
     for entry in raw:
         if isinstance(entry, dict):

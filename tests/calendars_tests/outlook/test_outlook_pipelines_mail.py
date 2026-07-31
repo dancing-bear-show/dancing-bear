@@ -6,7 +6,7 @@ sad paths (None service, client exception), and producer output format.
 
 import io
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import MagicMock
 
 from calendars.outlook_pipelines.mail import (
@@ -140,6 +140,15 @@ class OutlookMailListProducerTests(unittest.TestCase):
             OutlookMailListProducer().produce(env)
         return buf.getvalue()
 
+    def _produce_err(self, env) -> str:
+        """Like _produce, but captures stderr — BaseProducer.produce() routes
+        error output through OutputWriter.print_error(), which writes to
+        stderr, not stdout."""
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            OutlookMailListProducer().produce(env)
+        return buf.getvalue()
+
     def _ok_env(self, messages: list, folder: str = "inbox"):
         from core.pipeline import ResultEnvelope
         payload = OutlookMailListResult(messages=messages, folder=folder)
@@ -198,7 +207,7 @@ class OutlookMailListProducerTests(unittest.TestCase):
     # --- error path ---
 
     def test_produce_error_envelope_prints_error_message(self):
-        out = self._produce(self._err_env("Outlook service is required"))
+        out = self._produce_err(self._err_env("Outlook service is required"))
 
         self.assertIn("Outlook service is required", out)
 

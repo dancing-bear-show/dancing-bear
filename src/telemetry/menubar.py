@@ -9,9 +9,10 @@ menubar.NSColor, menubar.NSFont, etc.).
 
 import os  # patched by tests via menubar.os
 import subprocess  # patched by tests via menubar.subprocess
-import sys  # patched by tests via menubar.sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from core.cli_errors import CLIError, ExitCode
 
 try:
     import fcntl  # patched by tests via menubar.fcntl
@@ -226,9 +227,7 @@ def _acquire_instance_lock() -> None:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[name-defined]
     except BlockingIOError:
         os.close(fd)
-        print("ClaudeStats is already running.", file=sys.stderr)
-        sys.exit(0)
-        return  # unreachable in production; prevents execution past exit when mocked
+        raise CLIError("ClaudeStats is already running.", ExitCode.ERROR)
     os.write(fd, f"{os.getpid()}\n".encode())
     _instance_lock_fd = fd  # keep fd open so the OS holds the lock for our lifetime
 

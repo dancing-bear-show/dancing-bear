@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from core.cli_errors import CLIError
 from resume.io_utils import (
     read_text_any,
     read_text_raw,
@@ -95,7 +96,7 @@ class TestReadTextAny(unittest.TestCase):
             f.write(b"fake docx")
             try:
                 with patch("resume.io_utils.safe_import", return_value=None):
-                    with self.assertRaises(RuntimeError) as ctx:
+                    with self.assertRaises(CLIError) as ctx:
                         read_text_any(f.name)
                     self.assertIn("python-docx", str(ctx.exception))
             finally:
@@ -128,7 +129,7 @@ class TestReadTextAny(unittest.TestCase):
             f.write(b"%PDF-fake")
             try:
                 with patch("resume.io_utils.safe_import", return_value=None):
-                    with self.assertRaises(RuntimeError) as ctx:
+                    with self.assertRaises(CLIError) as ctx:
                         read_text_any(f.name)
                     self.assertIn("pdfminer", str(ctx.exception))
             finally:

@@ -183,7 +183,7 @@ class TestResumeCLIRender(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, msg=proc.stderr)
 
     def test_render_pdf_raises_error(self):
-        """Test render with .pdf output raises error."""
+        """Test render with .pdf output exits with USAGE error (C5: CLIError replaces RuntimeError)."""
         data = {"name": "Test User"}
         with temp_yaml_file(data) as data_path:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -193,7 +193,8 @@ class TestResumeCLIRender(unittest.TestCase):
                     "--data", data_path,
                     "--out", out_path,
                 ])
-                self.assertEqual(proc.returncode, 1)
+                # ExitCode.USAGE == 2 (C5 fix replaced RuntimeError with CLIError(..., ExitCode.USAGE))
+                self.assertEqual(proc.returncode, 2)
                 self.assertIn("PDF", proc.stderr)
 
 

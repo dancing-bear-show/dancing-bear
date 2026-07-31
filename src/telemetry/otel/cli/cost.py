@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import sys
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-from core.cli_output import emit_one, emit_rows
+from core.cli_output import OutputWriter, emit_one, emit_rows
+from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
 from telemetry.otel.analytics.cost import (
     get_all_costs,
     get_daily_costs,
@@ -22,6 +25,48 @@ from telemetry.otel.cli._format_helpers import (
 from telemetry.otel.cost_models import CostMetrics
 from telemetry.otel.reader import OTLPDataDir
 from telemetry.otel.utils import parse_time_window
+
+
+@dataclass(frozen=True)
+class CostScanRequest:
+    """Request to scan telemetry cost data."""
+
+    data_dir: OTLPDataDir
+    since: datetime | None
+    breakdown: str
+    sort_key: str
+    fmt: str
+
+
+@dataclass
+class CostScanResult:
+    """Result of a telemetry cost scan."""
+
+    metrics: CostMetrics
+
+
+class CostScanProcessor(SafeProcessor[CostScanRequest, CostScanResult]):
+    """Load telemetry cost metrics from JSONL data files."""
+
+    def _process_safe(self, payload: CostScanRequest) -> CostScanResult:
+        metrics = get_all_costs(data_dir=payload.data_dir, since=payload.since)
+        return CostScanResult(metrics=metrics)
+
+
+class CostScanProducer(BaseProducer):
+    """Render telemetry cost output (table or JSON) via OutputWriter."""
+
+    def _produce_success(
+        self, payload: CostScanResult, diagnostics: dict[str, Any] | None
+    ) -> None:
+        # fmt and breakdown are carried via diagnostics from the call site
+        fmt = (diagnostics or {}).get("fmt", "table")
+        breakdown = (diagnostics or {}).get("breakdown", "none")
+        sort_key = (diagnostics or {}).get("sort_key", "time")
+        if fmt == "json":
+            _output_json(payload.metrics, breakdown, sort_key)
+        else:
+            _output_table(payload.metrics, breakdown, sort_key, self._writer)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,54 +130,67 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         return format_validation_error("--since", str(e))
 
-    metrics = get_all_costs(data_dir=data_dir, since=since)
-
-    if args.format == "json":
-        _output_json(metrics, args.breakdown, args.sort)
-    else:
-        _output_table(metrics, args.breakdown, args.sort)
-
-    return 0
+    request = CostScanRequest(
+        data_dir=data_dir,
+        since=since,
+        breakdown=args.breakdown,
+        sort_key=args.sort,
+        fmt=args.format,
+    )
+    writer = OutputWriter()
+    producer = CostScanProducer(writer=writer)
+    envelope = CostScanProcessor().process(RequestConsumer(request).consume())
+    # Pass rendering context via diagnostics so the producer can render correctly
+    if envelope.ok():
+        producer._produce_success(  # noqa: SLF001 - direct call to pass extra context
+            envelope.unwrap(),
+            {"fmt": args.format, "breakdown": args.breakdown, "sort_key": args.sort},
+        )
+        return 0
+    producer.produce(envelope)
+    return 1
 
 
 def _handle_by_date(args: argparse.Namespace) -> int:
     """Handle --by-date flag."""
+    writer = OutputWriter()
     try:
         data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
         daily = get_daily_costs(data_dir=data_dir, since=args.since)
     except ValueError:
-        print("Error: Invalid --since value", file=sys.stderr, flush=True)
+        writer.print_error("Invalid --since value")
         return 1
 
     if not daily:
-        print("No cost data found")
+        writer.print("No cost data found")
         return 0
 
     if args.format == "json":
         _output_daily_json(daily)
     else:
-        _output_daily_table(daily)
+        _output_daily_table(daily, writer)
     return 0
 
 
-def _output_daily_table(daily: list) -> None:
+def _output_daily_table(daily: list, writer: OutputWriter | None = None) -> None:
     """Output daily cost summary as table."""
-    print("Daily Cost Summary")
-    print("─" * 80)
-    print(f"  {'Date':<12} {'Calls':>8} {'Cost':>10} {'Input':>12} {'Output':>12} {'Cache Read':>12}")
-    print("─" * 80)
+    w = writer or OutputWriter()
+    w.print("Daily Cost Summary")
+    w.print("─" * 80)
+    w.print(f"  {'Date':<12} {'Calls':>8} {'Cost':>10} {'Input':>12} {'Output':>12} {'Cache Read':>12}")
+    w.print("─" * 80)
     for d in daily:
-        print(
+        w.print(
             f"  {d.date:<12} {d.api_calls:>8,} {d.cost:>10.4f} "
             f"{d.input_tokens:>12,} {d.output_tokens:>12,} {d.cache_read_tokens:>12,}"
         )
-    print("─" * 80)
+    w.print("─" * 80)
     total_cost = sum(d.cost for d in daily)
     total_calls = sum(d.api_calls for d in daily)
     total_input = sum(d.input_tokens for d in daily)
     total_output = sum(d.output_tokens for d in daily)
     total_cache = sum(d.cache_read_tokens for d in daily)
-    print(
+    w.print(
         f"  {'Total':<12} {total_calls:>8,} {total_cost:>10.4f} "
         f"{total_input:>12,} {total_output:>12,} {total_cache:>12,}"
     )
@@ -156,36 +214,38 @@ def _output_daily_json(daily: list) -> None:
 
 def _handle_model_perf(args: argparse.Namespace) -> int:
     """Handle --perf --breakdown model."""
+    writer = OutputWriter()
     try:
         data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
         perfs = get_model_performance(data_dir=data_dir, since=args.since)
     except ValueError:
-        print("Error: Invalid --since value", file=sys.stderr, flush=True)
+        writer.print_error("Invalid --since value")
         return 1
 
     if not perfs:
-        print("No model performance data found")
+        writer.print("No model performance data found")
         return 0
 
     if args.format == "json":
         _output_model_perf_json(perfs)
     else:
-        _output_model_perf_table(perfs)
+        _output_model_perf_table(perfs, writer)
     return 0
 
 
-def _output_model_perf_table(perfs: list) -> None:
+def _output_model_perf_table(perfs: list, writer: OutputWriter | None = None) -> None:
     """Output model performance as table."""
-    print("Model Performance")
-    print("─" * 100)
-    print(
+    w = writer or OutputWriter()
+    w.print("Model Performance")
+    w.print("─" * 100)
+    w.print(
         f"  {'Model':<30} {'Calls':>8} {'Cost':>10} "
         f"{'Err%':>8} {'Avg Lat':>10} {'P95 Lat':>10} "
         f"{'Input':>12} {'Output':>12}"
     )
-    print("─" * 100)
+    w.print("─" * 100)
     for mp in perfs:
-        print(
+        w.print(
             f"  {mp.model_name:<30} {mp.api_calls:>8,} ${mp.cost:>9.4f} "
             f"{mp.error_rate * 100:>7.1f}% {mp.avg_latency_ms:>9.0f}ms {mp.p95_latency_ms:>9.0f}ms "
             f"{mp.input_tokens:>12,} {mp.output_tokens:>12,}"
@@ -211,37 +271,46 @@ def _output_model_perf_json(perfs: list) -> None:
     emit_rows(rows, "json")
 
 
-def _output_table(metrics: CostMetrics, breakdown: str, sort_key: str) -> None:
+def _output_table(
+    metrics: CostMetrics,
+    breakdown: str,
+    sort_key: str,
+    writer: OutputWriter | None = None,
+) -> None:
     """Output results as formatted table."""
-    print("Telemetry Cost Summary")
-    print("─" * 60)
-    print(f"Input Tokens:          {metrics.total_input_tokens:,}")
-    print(f"Output Tokens:         {metrics.total_output_tokens:,}")
-    print(f"Cache Creation:        {metrics.total_cache_creation_tokens:,}")
-    print(f"Cache Read (FREE):     {metrics.total_cache_read_tokens:,}")
-    print()
-    print(f"Total Billable:        {metrics.total_billable_tokens:,}")
-    print(f"Total Cost:            ${metrics.total_cost:.2f}")
-    print()
+    w = writer or OutputWriter()
+    w.print("Telemetry Cost Summary")
+    w.print("─" * 60)
+    w.print(f"Input Tokens:          {metrics.total_input_tokens:,}")
+    w.print(f"Output Tokens:         {metrics.total_output_tokens:,}")
+    w.print(f"Cache Creation:        {metrics.total_cache_creation_tokens:,}")
+    w.print(f"Cache Read (FREE):     {metrics.total_cache_read_tokens:,}")
+    w.print("")
+    w.print(f"Total Billable:        {metrics.total_billable_tokens:,}")
+    w.print(f"Total Cost:            ${metrics.total_cost:.2f}")
+    w.print("")
     pct = metrics.cache_savings_percent
     savings = metrics.total_cache_savings
-    print(f"Cache Savings:         ${savings:.2f} ({pct:.1f}%)")
+    w.print(f"Cache Savings:         ${savings:.2f} ({pct:.1f}%)")
     ratio = metrics.efficiency_ratio
-    print(f"Efficiency:            {ratio:.2f}x (output/input)")
+    w.print(f"Efficiency:            {ratio:.2f}x (output/input)")
 
     if breakdown == "session" and metrics.by_session:
-        _print_session_breakdown(metrics, sort_key)
+        _print_session_breakdown(metrics, sort_key, w)
     elif breakdown == "model" and metrics.by_model:
-        _print_model_breakdown(metrics)
+        _print_model_breakdown(metrics, w)
 
 
-def _print_session_breakdown(metrics: CostMetrics, sort_key: str) -> None:
+def _print_session_breakdown(
+    metrics: CostMetrics, sort_key: str, writer: OutputWriter | None = None
+) -> None:
     """Print session cost breakdown table."""
-    print()
-    print()
+    w = writer or OutputWriter()
+    w.print("")
+    w.print("")
     sessions = _sort_sessions(metrics.by_session, sort_key)
-    print(f"Sessions ({len(sessions)})")
-    print("─" * 60)
+    w.print(f"Sessions ({len(sessions)})")
+    w.print("─" * 60)
     total_cost = metrics.total_cost
     for session in sessions:
         pct = (session.cost / total_cost * 100) if total_cost > 0 else 0
@@ -251,29 +320,32 @@ def _print_session_breakdown(metrics: CostMetrics, sort_key: str) -> None:
         ts_start = _format_timestamp(session.first_seen)
         ts_end = _format_timestamp(session.last_seen)
         dur = _format_duration(session.duration_minutes)
-        print(f"  {sid}  {ts_start} → {ts_end}  {dur}")
-        print(
+        w.print(f"  {sid}  {ts_start} → {ts_end}  {dur}")
+        w.print(
             f"    ${session.cost:.2f} ({pct:.1f}%)  |  "
             f"{session.api_calls:,} calls  |  "
             f"{session.billable_tokens:,} tokens"
         )
 
 
-def _print_model_breakdown(metrics: CostMetrics) -> None:
+def _print_model_breakdown(
+    metrics: CostMetrics, writer: OutputWriter | None = None
+) -> None:
     """Print model cost breakdown table."""
-    print()
-    print()
-    print("Cost by Model")
-    print("─" * 60)
+    w = writer or OutputWriter()
+    w.print("")
+    w.print("")
+    w.print("Cost by Model")
+    w.print("─" * 60)
     total_cost = metrics.total_cost
     for model in metrics.by_model:
         pct = (model.cost / total_cost * 100) if total_cost > 0 else 0
-        print(f"  {model.model_name}")
-        print(
+        w.print(f"  {model.model_name}")
+        w.print(
             f"    Calls: {model.api_calls:,}  |  "
             f"Cost: ${model.cost:.4f} ({pct:.1f}%)"
         )
-        print(
+        w.print(
             f"    Tokens: {model.billable_tokens:,} billable  |  "
             f"Efficiency: {model.efficiency_ratio:.2f}x"
         )

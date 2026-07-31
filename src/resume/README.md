@@ -231,6 +231,11 @@ Profiles & Outputs
 - Outputs are nested by profile in `out/<prefix>/` with conventional names: `data.json`, `summary.md`, `resume.docx`, `structure.json`, `alignment.json`, `style.json`.
 - Default profile is `sample`; override with `--profile <prefix>`.
 
+Pipeline Pattern
+- `FilterPipeline` in `pipeline.py` provides chainable transforms; filter exceptions propagate naturally (no swallowing).
+- `KeywordMatchResult` (renamed from `MatchResult`) is the canonical match dataclass in `keyword_normalize.py`; `MatchResult` alias retained in `keyword_matcher.py`.
+- Output routes through `OutputWriter`; `CLIError` used at all error boundaries.
+
 Internals
 - Overlays: `resume/overlays.py` centralizes profile/grouped-skills/experience overlays.
 - Priority filtering: `resume/priority.py` applies `--min-priority` cutoff across known lists.

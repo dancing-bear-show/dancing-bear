@@ -15,7 +15,7 @@ from core.pipeline import (
     SafeProcessor,
 )
 
-from .helpers import LayoutLoadError, load_layout, read_lines_file, read_yaml, write_yaml
+from .helpers import load_layout, read_lines_file, read_yaml, write_yaml
 from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
 
 
@@ -137,12 +137,7 @@ class ExportResult:
 
 class ExportProcessor(SafeProcessor[ExportRequest, ExportResult]):
     def _process_safe(self, payload: ExportRequest) -> ExportResult:
-        try:
-            layout = load_layout(None, payload.backup)
-        except Exception as exc:  # pragma: no cover - unexpected IO errors
-            if isinstance(exc, LayoutLoadError):
-                raise
-            raise ValueError(f"Error: {exc}")
+        layout = load_layout(None, payload.backup)
         export = to_yaml_export(layout)
         return ExportResult(document=export, out_path=payload.out_path)
 
@@ -268,14 +263,14 @@ class UnusedProducer(BaseProducer):
     ) -> None:
         rows = payload.rows
         if payload.format == "csv":
-            print("app,score,location")
+            self._writer.print("app,score,location")
             for app, score, loc in rows:
-                print(f"{app},{score:.2f},{loc}")
+                self._writer.print(f"{app},{score:.2f},{loc}")
         else:
-            print("Likely unused app candidates (heuristic):")
-            print("score  app                                   location")
+            self._writer.print("Likely unused app candidates (heuristic):")
+            self._writer.print("score  app                                   location")
             for app, score, loc in rows:
-                print(f"{score:4.1f}  {app:36}  {loc}")
+                self._writer.print(f"{score:4.1f}  {app:36}  {loc}")
 
 
 # -----------------------------------------------------------------------------

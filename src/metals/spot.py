@@ -27,9 +27,12 @@ import argparse
 import csv
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
+
+if TYPE_CHECKING:
+    from core.cli_output import OutputWriter
 
 # HTTP retry constants
 _MAX_RETRIES = 6
@@ -324,7 +327,28 @@ def _build_csv_rows(
     return rows
 
 
-def run(metal: str, start_date: Optional[str], end_date: Optional[str], out_path: str) -> int:
+def run(
+    metal: str,
+    start_date: str | None,
+    end_date: str | None,
+    out_path: str,
+    writer: "OutputWriter | None" = None,
+) -> int:
+    """Fetch spot prices and write CSV.
+
+    Args:
+        metal: 'silver' or 'gold'
+        start_date: Start date YYYY-MM-DD; None = auto-detect
+        end_date: End date YYYY-MM-DD; None = today
+        out_path: Output CSV file path
+        writer: OutputWriter for progress messages; defaults to stdout writer
+
+    Returns:
+        0 on success
+    """
+    from core.cli_output import OutputWriter as _OW
+    _writer = writer or _OW()
+
     m = (metal or "").strip().lower()
     if m not in ("silver", "gold"):
         raise SystemExit("--metal must be 'silver' or 'gold'")
@@ -345,7 +369,7 @@ def run(metal: str, start_date: Optional[str], end_date: Optional[str], out_path
     with op.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerows(rows)
-    print(f"wrote {op} rows={len(rows)-1} window={sdate}..{edate}")
+    _writer.print(f"wrote {op} rows={len(rows)-1} window={sdate}..{edate}")
     return 0
 
 

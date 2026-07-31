@@ -98,16 +98,13 @@ class FilterPipeline:
         if job_path:
             self.with_synonyms_from_job(job_path)
 
-        try:
-            matched = self._extract_matched_keywords(alignment_path)
-            if matched:
-                self._data = filter_skills_by_keywords(
-                    self._data,
-                    matched_keywords=matched,
-                    synonyms=self._synonyms,
-                )
-        except Exception:  # nosec B110 - alignment load failure
-            pass
+        matched = self._extract_matched_keywords(alignment_path)
+        if matched:
+            self._data = filter_skills_by_keywords(
+                self._data,
+                matched_keywords=matched,
+                synonyms=self._synonyms,
+            )
 
         return self
 
@@ -134,17 +131,14 @@ class FilterPipeline:
         if job_path:
             self.with_synonyms_from_job(job_path)
 
-        try:
-            matched = self._extract_matched_keywords(alignment_path)
-            if matched:
-                self._data = filter_experience_by_keywords(
-                    self._data,
-                    matched_keywords=matched,
-                    synonyms=self._synonyms,
-                    filter_cfg=filter_cfg,
-                )
-        except Exception:  # nosec B110 - experience filter failure
-            pass
+        matched = self._extract_matched_keywords(alignment_path)
+        if matched:
+            self._data = filter_experience_by_keywords(
+                self._data,
+                matched_keywords=matched,
+                synonyms=self._synonyms,
+                filter_cfg=filter_cfg,
+            )
 
         return self
 

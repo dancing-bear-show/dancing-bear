@@ -1,5 +1,7 @@
 """Outlook Locations Pipelines - enrich, update, and apply location data."""
 
+from core.cli_errors import NotFoundError
+
 from ._base import (
     Any,
     BaseProducer,
@@ -42,7 +44,7 @@ class OutlookLocationsEnrichResult:
     dry_run: bool
 
 
-class CalendarNotFoundError(ValueError):
+class CalendarNotFoundError(NotFoundError):
     """Raised when a calendar is not found."""
 
     def __init__(self, calendar_name: str):

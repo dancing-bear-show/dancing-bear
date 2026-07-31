@@ -42,13 +42,12 @@ def _write_temp_json(content: str) -> str:
 class TestReadText(unittest.TestCase):
     def test_missing_file_exits_1(self):
         from charts.cli import _read_text
+        from core.cli_errors import CLIError, ExitCode
 
-        with self.assertRaises(SystemExit) as cm:
-            err = StringIO()
-            with patch("sys.stderr", err):
-                _read_text("/nonexistent/path/does_not_exist.json")
-        self.assertEqual(cm.exception.code, 1)
-        self.assertIn("error", err.getvalue().lower())
+        with self.assertRaises(CLIError) as cm:
+            _read_text("/nonexistent/path/does_not_exist.json")
+        self.assertEqual(cm.exception.code, ExitCode.ERROR)
+        self.assertIn("error", str(cm.exception).lower())
 
     def test_existing_file_returns_content(self):
         from charts.cli import _read_text

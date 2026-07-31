@@ -23,6 +23,11 @@ Recommended Commands
 - Notes:
   - Write plans to `out/` (tracked).
 
+Pipeline Pattern
+- All commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
+- `ExportScheduleProcessor`/`ExportScheduleProducer` added in this cycle; `PlanProducer`, `VerifyProducer`, `SyncProducer`, `ApplyProducer`, `ExportScheduleProducer` all inject `OutputWriter`.
+- Errors raise `CLIError` (not `ValueError`/`RuntimeError`); broad `except` blocks narrowed to `(ImportError, OSError, ValueError)`.
+
 Notes
 - When the Schedule Assistant CLI becomes available, this wrapper (`./bin/schedule-assistant`) will invoke it directly.
 - Keep inputs under `config/` or a local `schedules/` folder; write outputs to `out/`.

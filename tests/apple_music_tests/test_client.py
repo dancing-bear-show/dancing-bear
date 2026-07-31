@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from apple_music.client import AppleMusicClient, AppleMusicError
+from apple_music.client import AppleMusicClient, AppleMusicCLIError
 from tests.apple_music_tests.fixtures import FakeResponse, FakeSession
 
 
@@ -75,14 +75,14 @@ class TestRequestMethod(unittest.TestCase):
     def test_error_status_raises_apple_music_error(self):
         session = FakeSession([FakeResponse({"error": "Unauthorized"}, 401)])
         client = AppleMusicClient("dev", "user", session=session)
-        with self.assertRaises(AppleMusicError) as ctx:
+        with self.assertRaises(AppleMusicCLIError) as ctx:
             client._get("me/storefront")
         self.assertIn("401", str(ctx.exception))
 
     def test_400_error_raises_apple_music_error(self):
         session = FakeSession([FakeResponse({"error": "Forbidden"}, 403)])
         client = AppleMusicClient("dev", "user", session=session)
-        with self.assertRaises(AppleMusicError) as ctx:
+        with self.assertRaises(AppleMusicCLIError) as ctx:
             client._get("me/library/playlists")
         self.assertIn("403", str(ctx.exception))
 

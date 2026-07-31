@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from core.auth import build_outlook_service_from_args
-from core.pipeline import run_pipeline
+from core.pipeline import BaseProducer, SafeProcessor, run_pipeline
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
 from ..outlook_pipelines import (
@@ -398,43 +400,88 @@ def _scan_dedup_events(extracted: list) -> list:
     return events
 
 
-def run_outlook_scan_classes(args: argparse.Namespace) -> int:
-    from ..yamlio import dump_config
+@dataclass
+class OutlookScanRequest:
+    service: Any
+    from_text: str
+    days: int
+    top: int
+    pages: int
+    calendar: str | None
+    out: str | None
 
+
+@dataclass
+class OutlookScanResult:
+    events: list[dict[str, Any]]
+    message_count: int
+    extracted: list[dict[str, Any]]
+    out: str | None
+
+
+class OutlookScanProcessor(SafeProcessor[OutlookScanRequest, OutlookScanResult]):
+    def _process_safe(self, payload: OutlookScanRequest) -> OutlookScanResult:
+        svc = payload.service
+        query = f'from:"{payload.from_text}"'
+        ids = svc.search_inbox_messages(query, days=payload.days, top=payload.top, pages=payload.pages)
+        if not ids:
+            return OutlookScanResult(events=[], message_count=0, extracted=[], out=payload.out)
+
+        extracted: list[dict[str, Any]] = []
+        for mid in ids:
+            try:
+                msg = svc.get_message(mid, select_body=True)
+            except Exception as exc:  # nosec B112 - skip unreadable messages
+                extracted.append({"_error": f"failed to fetch {mid}: {exc}"})
+                continue
+            extracted.extend(_scan_extract_from_message(msg, payload.calendar))
+
+        _scan_enrich_items(extracted)
+        events = _scan_dedup_events(extracted)
+        return OutlookScanResult(
+            events=events,
+            message_count=len(ids),
+            extracted=extracted[:10],
+            out=payload.out,
+        )
+
+
+class OutlookScanProducer(BaseProducer):
+    def _produce_success(self, payload: OutlookScanResult, diagnostics: dict[str, Any] | None) -> None:
+        from ..yamlio import dump_config
+
+        if not payload.events:
+            if not payload.message_count:
+                self._writer.print("No matching messages found.")
+            else:
+                self._writer.print("No schedule-like lines found in matching emails.")
+            return
+
+        self._writer.print(f"Found {len(payload.events)} candidate recurring class entries from {payload.message_count} messages.")
+        if payload.out:
+            dump_config(payload.out, {"events": payload.events, "_sources": payload.extracted})
+            self._writer.print(f"Wrote plan to {payload.out}")
+        else:
+            for ev in payload.events:
+                self._writer.print(
+                    f"- {ev.get('subject')} {','.join(ev.get('byday') or [])} "
+                    f"{ev.get('start_time')}-{ev.get('end_time')} "
+                    f"calendar={ev.get('calendar') or '<default>'}"
+                )
+            self._writer.print("Use --out plan.yaml to write YAML.")
+
+
+def run_outlook_scan_classes(args: argparse.Namespace) -> int:
     svc = _build_outlook_service(args)
     if not svc:
         return 1
-
-    query = f"from:\"{args.from_text}\""
-    ids = svc.search_inbox_messages(query, days=getattr(args, 'days', 60), top=getattr(args, 'top', 25), pages=getattr(args, 'pages', 2))
-    if not ids:
-        print("No matching messages found.")
-        return 0
-
-    calendar = getattr(args, "calendar", None)
-    extracted = []
-    for mid in ids:
-        try:
-            msg = svc.get_message(mid, select_body=True)
-        except Exception as e:
-            print(f"Warning: failed to fetch message {mid}: {e}")
-            continue
-        extracted.extend(_scan_extract_from_message(msg, calendar))
-
-    if not extracted:
-        print("No schedule-like lines found in matching emails.")
-        return 0
-
-    _scan_enrich_items(extracted)
-    events = _scan_dedup_events(extracted)
-
-    print(f"Found {len(events)} candidate recurring class entries from {len(ids)} messages.")
-    if args.out:
-        outp = args.out
-        dump_config(outp, {"events": events, "_sources": extracted[:10]})
-        print(f"Wrote plan to {outp}")
-    else:
-        for ev in events:
-            print(f"- {ev.get('subject')} {','.join(ev.get('byday') or [])} {ev.get('start_time')}-{ev.get('end_time')} calendar={ev.get('calendar') or '<default>'}")
-        print("Use --out plan.yaml to write YAML.")
-    return 0
+    request = OutlookScanRequest(
+        service=svc,
+        from_text=args.from_text,
+        days=int(getattr(args, "days", 60)),
+        top=int(getattr(args, "top", 25)),
+        pages=int(getattr(args, "pages", 2)),
+        calendar=getattr(args, "calendar", None),
+        out=getattr(args, "out", None),
+    )
+    return run_pipeline(request, OutlookScanProcessor, OutlookScanProducer)

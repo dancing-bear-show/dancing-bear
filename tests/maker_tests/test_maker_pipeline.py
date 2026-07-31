@@ -1,5 +1,5 @@
 import io
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -63,9 +63,9 @@ class MakerPipelineTests(TestCase):
 
     def test_tool_result_producer_reports_failure(self):
         buf = io.StringIO()
-        # With BaseProducer pattern, error messages go in diagnostics
+        # With BaseProducer pattern, error messages go in diagnostics and print to stderr
         envelope = ResultEnvelope(status="error", diagnostics={"message": "Something went wrong"})
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Something went wrong", buf.getvalue())
 
@@ -153,18 +153,18 @@ class MakerPipelineTests(TestCase):
 
     def test_tool_result_producer_non_zero_exit_code(self):
         buf = io.StringIO()
-        # With BaseProducer pattern, error messages go in diagnostics
+        # With BaseProducer pattern, error messages go in diagnostics and print to stderr
         envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module exited with code 2"})
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("test.module", buf.getvalue())
         self.assertIn("exited with code 2", buf.getvalue())
 
     def test_tool_result_producer_error_with_message(self):
         buf = io.StringIO()
-        # With BaseProducer pattern, error messages go in diagnostics
+        # With BaseProducer pattern, error messages go in diagnostics and print to stderr
         envelope = ResultEnvelope(status="error", diagnostics={"message": "[maker] test.module: Import failed"})
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             ToolResultProducer().produce(envelope)
         self.assertIn("Import failed", buf.getvalue())
         self.assertIn("test.module", buf.getvalue())
@@ -225,10 +225,10 @@ class ToolCatalogProducerTests(TestCase):
         self.assertIn("maker/card/gen.py", buf.getvalue())
 
     def test_producer_handles_error(self):
-        """ToolCatalogProducer prints error message on failure."""
+        """ToolCatalogProducer prints error message to stderr on failure."""
         env = ResultEnvelope(status="error", diagnostics={"message": "Failed to scan"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stderr(buf):
             ToolCatalogProducer().produce(env)
         self.assertIn("Failed to scan", buf.getvalue())
 

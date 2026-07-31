@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core.pipeline import Processor, ResultEnvelope
+from core.pipeline import SafeProcessor
 
 from .consumers import AutoProposePayload, AutoSummaryPayload, AutoApplyPayload
 
@@ -122,110 +122,89 @@ class AutoApplyResult:
     groups: list[tuple[int, list[str], list[str]]] = field(default_factory=list)  # (count, add_ids, rem_ids)
 
 
-class AutoProposeProcessor(Processor[AutoProposePayload, ResultEnvelope[AutoProposeResult]]):
+class AutoProposeProcessor(SafeProcessor[AutoProposePayload, AutoProposeResult]):
     """Create proposal for categorizing + archiving low-interest mail."""
 
-    def process(self, payload: AutoProposePayload) -> ResultEnvelope[AutoProposeResult]:
+    def _process_safe(self, payload: AutoProposePayload) -> AutoProposeResult:
+        import json
+
+        from ..applog import AppLogger
+        from ..gmail_api import GmailClient
+        from ..utils.gmail_ops import MessageQueryParams, fetch_messages_with_metadata
+
+        logger = AppLogger(payload.log_path)
+        sid = logger.start("auto_propose", {"days": payload.days, "pages": payload.pages})
         try:
-            from ..applog import AppLogger
-            from ..utils.gmail_ops import fetch_messages_with_metadata, MessageQueryParams
-            from ..gmail_api import GmailClient
+            client = payload.context.get_gmail_client()
+            client.authenticate()
 
-            logger = AppLogger(payload.log_path)
-            sid = logger.start("auto_propose", {"days": payload.days, "pages": payload.pages})
-
-            try:
-                client = payload.context.get_gmail_client()
-                client.authenticate()
-
-                # Build query for inbox messages within days
-                q = f"in:inbox newer_than:{payload.days}d"
-                _, msgs = fetch_messages_with_metadata(
-                    client,
-                    MessageQueryParams(query=q, pages=payload.pages),
-                )
-
-                selected = []
-                prot = [p.strip().lower() for p in payload.protect if p and isinstance(p, str)]
-
-                for m in msgs:
-                    hdrs = GmailClient.headers_to_dict(m)
-                    if _is_protected(hdrs.get("from", ""), prot):
-                        continue
-                    act = classify_low_interest(m)
-                    if act:
-                        selected.append(
-                            {
-                                "id": m.get("id"),
-                                "threadId": m.get("threadId"),
-                                **act,
-                            }
-                        )
-
-                doc = {
-                    "generated_at": int(time.time()),
-                    "days": payload.days,
-                    "query": q,
-                    "counts": {"total_considered": len(msgs), "selected": len(selected)},
-                    "messages": selected,
-                }
-
-                import json
-
-                payload.out_path.parent.mkdir(parents=True, exist_ok=True)
-                payload.out_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-
-                logger.end(sid, status="ok")
-                return ResultEnvelope(
-                    status="success",
-                    payload=AutoProposeResult(
-                        out_path=payload.out_path,
-                        total_considered=len(msgs),
-                        selected_count=len(selected),
-                        query=q,
-                    ),
-                )
-            except Exception as e:
-                logger.error(sid, f"auto_propose failed: {e}")
-                logger.end(sid, status="error", error=str(e))
-                raise
-        except Exception as exc:
-            return ResultEnvelope(
-                status="error",
-                payload=None,
-                diagnostics={"error": str(exc), "code": 1},
+            # Build query for inbox messages within days
+            q = f"in:inbox newer_than:{payload.days}d"
+            _, msgs = fetch_messages_with_metadata(
+                client,
+                MessageQueryParams(query=q, pages=payload.pages),
             )
 
-
-class AutoSummaryProcessor(Processor[AutoSummaryPayload, ResultEnvelope[AutoSummaryResult]]):
-    """Summarize a proposal."""
-
-    def process(self, payload: AutoSummaryPayload) -> ResultEnvelope[AutoSummaryResult]:
-        try:
-            msgs = payload.proposal.get("messages") or []
-            reasons: Counter = Counter()
-            add_labels: Counter = Counter()
+            selected = []
+            prot = [p.strip().lower() for p in payload.protect if p and isinstance(p, str)]
 
             for m in msgs:
-                for r in m.get("reasons") or []:
-                    reasons[r] += 1
-                for a in m.get("add") or []:
-                    add_labels[a] += 1
+                hdrs = GmailClient.headers_to_dict(m)
+                if _is_protected(hdrs.get("from", ""), prot):
+                    continue
+                act = classify_low_interest(m)
+                if act:
+                    selected.append(
+                        {
+                            "id": m.get("id"),
+                            "threadId": m.get("threadId"),
+                            **act,
+                        }
+                    )
 
-            return ResultEnvelope(
-                status="success",
-                payload=AutoSummaryResult(
-                    message_count=len(msgs),
-                    reasons=dict(reasons.most_common(10)),
-                    label_adds=dict(add_labels.most_common()),
-                ),
+            doc = {
+                "generated_at": int(time.time()),
+                "days": payload.days,
+                "query": q,
+                "counts": {"total_considered": len(msgs), "selected": len(selected)},
+                "messages": selected,
+            }
+
+            payload.out_path.parent.mkdir(parents=True, exist_ok=True)
+            payload.out_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            logger.end(sid, status="ok")
+            return AutoProposeResult(
+                out_path=payload.out_path,
+                total_considered=len(msgs),
+                selected_count=len(selected),
+                query=q,
             )
-        except Exception as exc:
-            return ResultEnvelope(
-                status="error",
-                payload=None,
-                diagnostics={"error": str(exc), "code": 1},
-            )
+        except Exception as e:
+            logger.error(sid, f"auto_propose failed: {e}")
+            logger.end(sid, status="error", error=str(e))
+            raise
+
+
+class AutoSummaryProcessor(SafeProcessor[AutoSummaryPayload, AutoSummaryResult]):
+    """Summarize a proposal."""
+
+    def _process_safe(self, payload: AutoSummaryPayload) -> AutoSummaryResult:
+        msgs = payload.proposal.get("messages") or []
+        reasons: Counter = Counter()
+        add_labels: Counter = Counter()
+
+        for m in msgs:
+            for r in m.get("reasons") or []:
+                reasons[r] += 1
+            for a in m.get("add") or []:
+                add_labels[a] += 1
+
+        return AutoSummaryResult(
+            message_count=len(msgs),
+            reasons=dict(reasons.most_common(10)),
+            label_adds=dict(add_labels.most_common()),
+        )
 
 
 def _group_messages_by_labels(
@@ -242,48 +221,37 @@ def _group_messages_by_labels(
     return groups
 
 
-class AutoApplyProcessor(Processor[AutoApplyPayload, ResultEnvelope[AutoApplyResult]]):
+class AutoApplyProcessor(SafeProcessor[AutoApplyPayload, AutoApplyResult]):
     """Apply a proposal to modify messages."""
 
-    def process(self, payload: AutoApplyPayload) -> ResultEnvelope[AutoApplyResult]:
+    def _process_safe(self, payload: AutoApplyPayload) -> AutoApplyResult:
+        from ..applog import AppLogger
+
+        logger = AppLogger(payload.log_path)
+        sid = logger.start("auto_apply", {"dry_run": payload.dry_run, "batch_size": payload.batch_size})
         try:
-            from ..applog import AppLogger
+            msgs = payload.proposal.get("messages") or []
+            client = payload.context.get_gmail_client()
+            client.authenticate()
+            name_to_id = client.get_label_id_map()
 
-            logger = AppLogger(payload.log_path)
-            sid = logger.start("auto_apply", {"dry_run": payload.dry_run, "batch_size": payload.batch_size})
+            cutoff_ts = None
+            if payload.cutoff_days:
+                cutoff_ts = int(time.time()) - payload.cutoff_days * 86400
 
-            try:
-                msgs = payload.proposal.get("messages") or []
-                client = payload.context.get_gmail_client()
-                client.authenticate()
-                name_to_id = client.get_label_id_map()
+            groups = _group_messages_by_labels(msgs, name_to_id, cutoff_ts)
+            total, result_groups = self._apply_groups(client, groups, payload)
 
-                cutoff_ts = None
-                if payload.cutoff_days:
-                    cutoff_ts = int(time.time()) - payload.cutoff_days * 86400
-
-                groups = _group_messages_by_labels(msgs, name_to_id, cutoff_ts)
-                total, result_groups = self._apply_groups(client, groups, payload)
-
-                logger.end(sid, status="ok")
-                return ResultEnvelope(
-                    status="success",
-                    payload=AutoApplyResult(
-                        total_modified=total,
-                        dry_run=payload.dry_run,
-                        groups=result_groups,
-                    ),
-                )
-            except Exception as e:
-                logger.error(sid, f"auto_apply failed: {e}")
-                logger.end(sid, status="error", error=str(e))
-                raise
-        except Exception as exc:
-            return ResultEnvelope(
-                status="error",
-                payload=None,
-                diagnostics={"error": str(exc), "code": 1},
+            logger.end(sid, status="ok")
+            return AutoApplyResult(
+                total_modified=total,
+                dry_run=payload.dry_run,
+                groups=result_groups,
             )
+        except Exception as e:
+            logger.error(sid, f"auto_apply failed: {e}")
+            logger.end(sid, status="error", error=str(e))
+            raise
 
     def _apply_groups(self, client, groups, payload) -> tuple[int, list]:
         """Apply label changes per group; return (total, result_groups)."""
