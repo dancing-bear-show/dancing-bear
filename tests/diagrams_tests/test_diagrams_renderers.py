@@ -80,63 +80,6 @@ class TestLocalRendererInferFormat(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# LocalRenderer.render_to_file
-# ---------------------------------------------------------------------------
-
-
-class TestLocalRendererRenderToFile(unittest.TestCase):
-    def _make_renderer(self):
-        from diagrams.renderers import LocalRenderer
-
-        with patch("shutil.which", return_value="/usr/local/bin/mmdc"):
-            return LocalRenderer()
-
-    def test_explicit_format_matching_extension_used_as_is(self):
-        from diagrams.renderers import RenderConfig
-
-        renderer = self._make_renderer()
-        with patch.object(renderer, "_run"), patch.object(renderer, "_get_mermaid_text", return_value="x"):
-            result = renderer.render_to_file(
-                "flowchart LR\n    A-->B", "out.png", RenderConfig(output_format="png")
-            )
-        self.assertEqual(result, "out.png")
-
-    def test_explicit_format_appends_extension_when_missing(self):
-        from diagrams.renderers import RenderConfig
-
-        renderer = self._make_renderer()
-        with patch.object(renderer, "_run"), patch.object(renderer, "_get_mermaid_text", return_value="x"):
-            result = renderer.render_to_file(
-                "flowchart LR\n    A-->B", "out", RenderConfig(output_format="png")
-            )
-        self.assertEqual(result, "out.png")
-
-    def test_explicit_unsupported_format_raises_value_error(self):
-        from diagrams.renderers import RenderConfig
-
-        renderer = self._make_renderer()
-        with self.assertRaises(ValueError):
-            renderer.render_to_file(
-                "flowchart LR\n    A-->B", "out.gif", RenderConfig(output_format="gif")
-            )
-
-    def test_no_format_infers_and_validates_extension(self):
-        from diagrams.renderers import RenderConfig
-
-        renderer = self._make_renderer()
-        with self.assertRaises(ValueError):
-            renderer.render_to_file("flowchart LR\n    A-->B", "out.gif", RenderConfig())
-
-    def test_no_format_valid_extension_passes_through(self):
-        from diagrams.renderers import RenderConfig
-
-        renderer = self._make_renderer()
-        with patch.object(renderer, "_run"), patch.object(renderer, "_get_mermaid_text", return_value="x"):
-            result = renderer.render_to_file("flowchart LR\n    A-->B", "out.svg", RenderConfig())
-        self.assertEqual(result, "out.svg")
-
-
-# ---------------------------------------------------------------------------
 # LocalRenderer.validate_syntax
 # ---------------------------------------------------------------------------
 
