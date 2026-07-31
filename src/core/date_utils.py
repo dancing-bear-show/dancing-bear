@@ -47,8 +47,14 @@ DAY_MAP = {
     "sun": "SU",
 }
 
-# Inverse of DAY_MAP, restricted to full day names (RRULE code -> full name)
-RRULE_CODE_TO_DAY_NAME = {v: k for k, v in DAY_MAP.items() if len(k) > 3}
+# Inverse of DAY_MAP (RRULE code -> full day name). DAY_MAP has multiple
+# spellings per code (e.g. "tue"/"tues"/"tuesday"); keep the longest, which
+# is always the full name.
+RRULE_CODE_TO_DAY_NAME: dict[str, str] = {}
+for _name, _code in DAY_MAP.items():
+    if len(_name) > len(RRULE_CODE_TO_DAY_NAME.get(_code, "")):
+        RRULE_CODE_TO_DAY_NAME[_code] = _name
+del _name, _code
 
 # Day name sequence for iteration (abbreviated, lowercase)
 DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
