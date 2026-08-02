@@ -42,6 +42,8 @@ from charts.renderer_line_area import (  # noqa: F401
     _parse_x_values,
     _plot_dual_series,
     _plot_series_smooth,
+    DualSeriesContext,
+    LineSeriesStyle,
     _render_area,
     _render_dual,
     _render_line,
@@ -49,8 +51,6 @@ from charts.renderer_line_area import (  # noqa: F401
     _shade_weekends,
     _split_by_name_lists,
     _split_dual_series,
-    DualSeriesContext,
-    LineSeriesStyle,
 )
 
 # ---------------------------------------------------------------------------

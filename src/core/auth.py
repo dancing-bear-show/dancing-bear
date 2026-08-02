@@ -121,18 +121,6 @@ def build_outlook_service(
     return service_cls(context_cls(client_id=cid, tenant=ten, token_path=tok, profile=config.profile))
 
 
-def build_outlook_service_from_config(
-    config: OutlookServiceConfig,
-    context_cls=None,
-    service_cls=None,
-):
-    """Instantiate OutlookService using OutlookServiceConfig.
-
-    Delegates directly to ``build_outlook_service``.
-    """
-    return build_outlook_service(config, context_cls=context_cls, service_cls=service_cls)
-
-
 def build_gmail_service(
     profile: Optional[str] = None,
     cache_dir: Optional[str] = None,

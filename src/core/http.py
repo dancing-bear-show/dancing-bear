@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -29,7 +29,7 @@ class HttpRequestBody:
     """Optional request body parameters grouped for HttpClient.request."""
 
     data: Any = None
-    json: Any = field(default=None)
+    json: Any = None
     files: Any = None
     stream: bool = False
 

@@ -201,7 +201,7 @@ class LocalRenderer:
     def render(
         self,
         diagram: object,
-        opts: RenderOptions = RenderOptions(),
+        opts: RenderOptions | None = None,
     ) -> bytes:
         """Render a diagram to bytes.
 
@@ -219,6 +219,7 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
+        opts = opts or RenderOptions()
         output_format = opts.output_format or "svg"
 
         mermaid_text = self._get_mermaid_text(diagram)
@@ -245,7 +246,7 @@ class LocalRenderer:
         self,
         diagram: object,
         output_path: str,
-        opts: RenderOptions = RenderOptions(),
+        opts: RenderOptions | None = None,
     ) -> str:
         """Render a diagram directly to a file on disk.
 
@@ -265,28 +266,25 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
-        output_format = opts.output_format if opts.output_format is not None else self._infer_format(output_path)
+        opts = opts or RenderOptions()
+        # Validate the target format up front (raises ValueError on an unknown
+        # extension); mmdc derives the actual output format from output_path's
+        # extension, so _build_command only needs the visual options
+        # (background/theme/size) carried by opts.
+        if opts.output_format is None:
+            self._infer_format(output_path)
 
         mermaid_text = self._get_mermaid_text(diagram)
         if opts.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
-        # Build opts with the resolved format for _build_command (theme/background/size only).
-        build_opts = RenderOptions(
-            output_format=output_format,
-            background=opts.background,
-            theme=opts.theme,
-            width=opts.width,
-            height=opts.height,
-        )
-
         with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False) as f:
             f.write(mermaid_text)
             tmp_input = f.name
 
         try:
-            cmd = self._build_command(tmp_input, output_path, build_opts)
+            cmd = self._build_command(tmp_input, output_path, opts)
             self._run(cmd)
             return output_path
         finally:

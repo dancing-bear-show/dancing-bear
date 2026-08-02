@@ -205,7 +205,7 @@ class SequenceDiagramBuilder:
         src: str,
         dst: str,
         text: str,
-        opts: MessageOptions = MessageOptions(),
+        opts: MessageOptions | None = None,
     ) -> SequenceDiagramBuilder:
         """Add a message between participants.
 
@@ -215,6 +215,7 @@ class SequenceDiagramBuilder:
             text: Message label text.
             opts: Arrow style, activation, and deactivation options.
         """
+        opts = opts or MessageOptions()
         suffix = "+" if opts.activate else ""
         self._steps.append(f"    {src}{opts.arrow}{suffix}{dst}: {text}")
         if opts.deactivate:
