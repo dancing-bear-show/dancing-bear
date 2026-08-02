@@ -395,3 +395,9 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
       producer.produce(bad_envelope)
   assert 'Pipeline error' in buf.getvalue()
   ```
+
+### bare-except-missing-nosec
+- **severity**: major
+- **check**: Verify that every `except Exception` block in production code carries a `# nosec B110` or `# nosec B112` comment with an inline rationale explaining why swallowing or re-raising without narrowing is intentional.
+- **triggers**: `except Exception` or `except Exception as e` blocks in `.py` source files that lack a `# nosec` annotation; `_process_safe`, `consume()`, or loader methods that catch `Exception` broadly; new CLI handlers or parser loaders that add a bare broad catch.
+- **example**: `except Exception: return None` with no annotation — Bandit flags this and reviewers cannot determine whether the broad catch is intentional or an oversight. Fix: `except Exception:  # nosec B110 - <reason why this is best-effort and not hiding real bugs>`. The rationale must explain the failure mode and confirm that swallowing the exception is a deliberate design decision, not an accidental oversight.

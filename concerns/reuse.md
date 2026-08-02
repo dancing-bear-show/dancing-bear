@@ -76,3 +76,9 @@ non-test source files unless noted.
   import from the shared location.
 - **note**: For missing factory usage in test bodies, see `test-data-builder-gap`
   in `tests.md`.
+
+### decompose-shim-noqa-false-positive
+- **severity**: minor
+- **check**: Verify that `# noqa: F401` suppressions on re-exported symbols in decompose-sweep shim files are accompanied by a comment identifying the file as an intentional shim, so automated linters and future reviewers do not flag them as unused imports.
+- **triggers**: Source files under any domain that import symbols solely to re-export them (created by the decompose-sweep refactor); `# noqa: F401` markers on multiple symbols in the same file without a module-level docstring or comment explaining the shim pattern; linter findings of 20+ unused-import warnings on a single file.
+- **example**: A shim file carries 20+ `# noqa: F401` annotations with no module-level comment — reviewers cannot distinguish intentional re-exports from dead imports. Fix: add a module-level comment: `# Thin re-export shim created by decompose-sweep refactor. All imports are intentional backward-compat re-exports; # noqa: F401 markers are deliberate.` Only applies to files whose sole purpose is re-export; for genuinely unused imports suppressed by noqa, see `noqa-f401-on-used-import`.

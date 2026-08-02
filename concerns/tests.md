@@ -253,3 +253,9 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
       self.cli.run(self.args)
       mock_get_profile.assert_called_once()
   ```
+
+### wildcard-import-test-shim-no-all
+- **severity**: minor
+- **check**: Verify that any wildcard import shim in a test tree defines `__all__` or carries a suppression comment explaining the re-export intent, so linters do not flag it as a namespace-polluting import.
+- **triggers**: Test files that use `from <module> import *` to re-export decompose-sweep shim symbols; `# nosonar` or `# noqa` suppressions on wildcard imports that lack an inline rationale; new shim files under `tests/` created by decompose refactors.
+- **example**: `from tests.mail_tests.accounts.test_accounts_processors import *  # nosonar` — no rationale; a future reader cannot distinguish an intentional backward-compat shim from an accidental wildcard. Fix: add a comment — `# nosonar - intentional re-export shim from decompose-sweep; __all__ not defined in source` — or define `__all__` in the imported module to prevent namespace pollution.
