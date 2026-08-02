@@ -12,7 +12,7 @@ Implementation lives in:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path  # noqa: F401 — tests patch telemetry.parse_transcripts.Path
+from pathlib import Path
 from typing import Any
 
 import click

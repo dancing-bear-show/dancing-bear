@@ -54,9 +54,6 @@ from telemetry._menubar_budget import (
     _safe_float,  # noqa: F401
     _safe_int,  # noqa: F401
 )
-from telemetry._menubar_config import (
-    _INSIGHTS_TIP_ROWS,  # noqa: F401
-)
 from telemetry._menubar_renderers import (
     _icon_substitutions,  # noqa: F401
     _icon_token_stream,  # noqa: F401

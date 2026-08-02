@@ -50,15 +50,15 @@ def _scan_tool_window(
         return False
 
     start = max(0, idx - lookback_events)
-    for prev in events[start:idx]:
+    for prev in reversed(events[start:idx]):
+        delta = (evt.timestamp - prev.timestamp).total_seconds()
+        if delta > window_seconds:
+            break
         if prev.event_type != "tool_use" or prev.tool_name not in allowed_tools:
             continue
         if file_path != (prev.tool_input or {}).get("file_path"):
             continue
-        delta = (evt.timestamp - prev.timestamp).total_seconds()
-        if delta < min_gap_seconds:
-            continue
-        if delta <= window_seconds:
+        if delta >= min_gap_seconds:
             return True
     return False
 
