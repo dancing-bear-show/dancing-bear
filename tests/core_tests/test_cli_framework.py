@@ -276,38 +276,38 @@ class TestCLIApp(unittest.TestCase):
 
 
 class TestNormalizeArgv(unittest.TestCase):
-    """Test CLIApp._normalize_argv() '--' separator handling."""
+    """Test CLIApp.normalize_argv() '--' separator handling."""
 
     def test_no_separator_unchanged(self):
         argv = ["search", "--contains", "test"]
-        self.assertEqual(CLIApp._normalize_argv(argv), argv)
+        self.assertEqual(CLIApp.normalize_argv(argv), argv)
 
     def test_strips_first_bare_separator(self):
         argv = ["search", "--", "--contains", "test"]
         self.assertEqual(
-            CLIApp._normalize_argv(argv), ["search", "--contains", "test"]
+            CLIApp.normalize_argv(argv), ["search", "--contains", "test"]
         )
 
     def test_trailing_separator_preserved(self):
         argv = ["search", "--contains", "test", "--"]
-        self.assertEqual(CLIApp._normalize_argv(argv), argv)
+        self.assertEqual(CLIApp.normalize_argv(argv), argv)
 
     def test_only_first_separator_stripped_second_preserved(self):
         # The first '--' is the optional subcommand/flag separator; a second
         # '--' still guards a positional value that looks like a flag.
         argv = ["cmd", "--", "--opt", "--", "--literal-value"]
         self.assertEqual(
-            CLIApp._normalize_argv(argv),
+            CLIApp.normalize_argv(argv),
             ["cmd", "--opt", "--", "--literal-value"],
         )
 
     def test_empty_argv(self):
-        self.assertEqual(CLIApp._normalize_argv([]), [])
+        self.assertEqual(CLIApp.normalize_argv([]), [])
 
     def test_single_trailing_separator_preserved(self):
         # A lone '--' with nothing after it carries no separator information
         # here and is left untouched, same as any other trailing '--'.
-        self.assertEqual(CLIApp._normalize_argv(["--"]), ["--"])
+        self.assertEqual(CLIApp.normalize_argv(["--"]), ["--"])
 
 
 class TestHelpfulArgumentParser(unittest.TestCase):

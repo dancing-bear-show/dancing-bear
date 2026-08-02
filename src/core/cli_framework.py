@@ -341,7 +341,7 @@ class CLIApp:
             parser.add_argument(*arg.name_or_flags, **arg.kwargs)
 
     @staticmethod
-    def _normalize_argv(argv: Sequence[str]) -> list[str]:
+    def normalize_argv(argv: Sequence[str]) -> list[str]:
         """Strip a single leading '--' used as the optional subcommand/flag separator.
 
         CLAUDE.md documents '--' as optional (not required) for CLIApp-based
@@ -402,7 +402,7 @@ class CLIApp:
             post_build_hook(parser)
         assistant.add_agentic_flags(parser)
 
-        _argv = self._normalize_argv(argv if argv is not None else sys.argv[1:])
+        _argv = self.normalize_argv(argv if argv is not None else sys.argv[1:])
         args = parser.parse_args(_argv)
 
         # Handle agentic output if requested
@@ -449,17 +449,21 @@ class CLIApp:
         parser = self._parser
         if parser is None:
             parser = self.build_parser()
-        _argv = self._normalize_argv(argv if argv is not None else sys.argv[1:])
+        _argv = self.normalize_argv(argv if argv is not None else sys.argv[1:])
         args = parser.parse_args(_argv)
 
-        # Set up output writer
-        output_format = OutputFormat(getattr(args, "output", "text"))
-        output_config = OutputConfig(
-            format=output_format,
-            verbose=getattr(args, "verbose", False),
-            quiet=getattr(args, "quiet", False),
-        )
-        args._output = OutputWriter(output_config)
+        # Set up output writer. args.output only means "output format" when
+        # this app added the common --output flag itself (_add_common_arguments);
+        # with add_common_args=False a CLI's own --output may hold unrelated
+        # data (e.g. a file path), so OutputFormat(...) would raise on it.
+        if self.add_common_args:
+            output_format = OutputFormat(getattr(args, "output", "text"))
+            output_config = OutputConfig(
+                format=output_format,
+                verbose=getattr(args, "verbose", False),
+                quiet=getattr(args, "quiet", False),
+            )
+            args._output = OutputWriter(output_config)
 
         # Get the command function
         cmd_func = getattr(args, "_cmd_func", None)

@@ -296,7 +296,7 @@ def cmd_from_yaml(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = app.build_parser()
-    _argv = app._normalize_argv(argv if argv is not None else sys.argv[1:])
+    _argv = app.normalize_argv(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(_argv)
 
     cmd_func = getattr(args, "_cmd_func", None)
