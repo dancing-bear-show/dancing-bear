@@ -28,13 +28,11 @@ _DEFAULT_MMD_LABEL = "diagram.mmd"
 
 # add_common_args=False: diagrams' own --output/-o (dest="output") means an
 # output *file path*, not CLIApp's built-in output *format* flag of the same
-# name. This is more than a naming collision: CLIApp.run() unconditionally
-# does OutputFormat(getattr(args, "output", "text")) outside its try/except
-# (core/cli_framework.py), so calling app.run() here would raise an uncaught
-# ValueError on any invocation of render/embed/from-yaml with -o/--output set
-# to a file path (e.g. "out.svg" is not a valid OutputFormat). main() below
-# must keep dispatching via _cmd_func directly rather than delegating the
-# whole request to app.run() — this is a hard constraint, not a style choice.
+# name. CLIApp.run() now guards its OutputFormat(args.output) parsing behind
+# add_common_args (core/cli_framework.py), so calling app.run() here would no
+# longer crash on that specifically — but main() still dispatches via
+# _cmd_func directly (not app.run()) to preserve this CLI's legacy
+# no-subcommand exit code (0, not CLIApp's default ExitCode.USAGE).
 app = CLIApp("diagrams", "Mermaid diagram generation", add_common_args=False)
 
 

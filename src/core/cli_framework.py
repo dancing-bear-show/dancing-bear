@@ -342,7 +342,7 @@ class CLIApp:
 
     @staticmethod
     def normalize_argv(argv: Sequence[str]) -> list[str]:
-        """Strip a single leading '--' used as the optional subcommand/flag separator.
+        """Strip the first bare '--' used as the optional subcommand/flag separator.
 
         CLAUDE.md documents '--' as optional (not required) for CLIApp-based
         CLIs: ``foo bar -- --flag value`` and ``foo bar --flag value`` should
