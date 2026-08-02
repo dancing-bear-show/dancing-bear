@@ -121,12 +121,22 @@ stages:
   # ===========================================================================
   # 3. Fan out one isolated tester per TEST FILE (never per symbol).
   # ===========================================================================
+  # ISOLATION IS ADVISORY, NOT A SCHEMA FIELD. The workflow parser
+  # (src/workflow/parser_fields.py) has no `isolation` key and silently drops
+  # one if present — so it is NOT set on the stage. Instead, the orchestrating
+  # session MUST pass isolation:"worktree" on each fan-out Agent() tool call for
+  # this stage (see the ORCHESTRATOR ISOLATION note in the description). That is
+  # what makes each per-file tester run in its own worktree.
   - name: add-sad-tests
     kind: execute
     depends_on: [approve-fixes]
     reads_from: [load-gaps]
-    isolation: worktree
     description: >
+      ORCHESTRATOR ISOLATION (read first): spawn EACH fan-out agent for this
+      stage with isolation:"worktree" on the Agent() call — the YAML cannot
+      encode this. Per-file isolation is what guarantees the collision-safety
+      below; without it these testers would write the shared tree concurrently.
+
       Add sad-path (error/edge) tests to ONE test file: {test_file}. Cover every
       gap symbol in this file's "symbols" list. Because fan-out is per file,
       you are the ONLY writer for {test_file} — no other agent touches it.
@@ -182,10 +192,14 @@ stages:
       failure_assertion MUST name the concrete raises/exit/regex used — validate
       relies on it.
 
-      NOTE (worktree isolation): you are in an isolated worktree; your edits do
-      NOT merge back automatically. Since you are the sole writer of {test_file},
-      the parent session copies just this file back after the stage. Report the
-      path accurately.
+      NOTE (worktree isolation + merge-back): you run in an isolated worktree;
+      your edits do NOT merge back automatically. After this whole fan-out group
+      completes, the orchestrator merges each tester's worktree branch into the
+      current branch per SKILL.md orchestration rule #7
+      (git merge --no-ff worktree-agent-<id>). This is safe here precisely
+      because each tester touches exactly ONE distinct file. Do not rely on a
+      selective single-file copy — report your worktree and the edited path so
+      the merge can be verified.
     agent:
       role: tester
       model: sonnet
@@ -203,8 +217,16 @@ stages:
   # ===========================================================================
   # 4. Validate: touched suites green, additions-only, genuine sad tests.
   # ===========================================================================
+  # kind is `execute`, not `validate`, on purpose: the engine builds a
+  # validate-stage prompt from validation.criteria only and never reads the
+  # stage `description` (src/workflow/dispatch.py::_validate, SKILL.md Step 4).
+  # This stage's whole Step 1-4 procedure — the failure-assertion-token check,
+  # the additions-only git-diff enforcement, the per-file fix cycles, and the
+  # code-writer read-write role — must live in an execute stage or it is
+  # silently dropped. strategy:unit would also try to fan out "one per unit"
+  # over an outputs list this stage does not have.
   - name: validate-sad-tests
-    kind: validate
+    kind: execute
     depends_on: [add-sad-tests]
     reads_from: [add-sad-tests]
     description: >
@@ -238,12 +260,5 @@ stages:
       tools: [Read, Edit, Bash]
       access: read-write
     required: true
-    validation:
-      strategy: unit
-      criteria:
-        - Every methods_added entry is present on disk with its recorded failure_assertion token
-        - Each added method genuinely asserts a failure (raises / non-zero exit / rejection), no theatre
-        - git diff of each touched test_file is additions-only (no pre-existing test modified or deleted)
-        - python3 -m unittest tests.<module> passes for every touched file (single-file, not discover)
     writes_to:
       - outputs/validation.md

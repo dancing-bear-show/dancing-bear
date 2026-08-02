@@ -24,7 +24,7 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -610,11 +610,13 @@ class TestOutlookRemindersProducerErrorBranch(unittest.TestCase):
         from calendars.outlook_pipelines.reminders import OutlookRemindersProducer
         env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "Calendar not found: Bogus"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        err_buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err_buf):
             OutlookRemindersProducer().produce(env)
         # print_error routes through OutputWriter.print_error -> stderr, not stdout
         self.assertNotIn("Updated reminders", buf.getvalue())
         self.assertNotIn("Disabled reminders", buf.getvalue())
+        self.assertIn("Calendar not found: Bogus", err_buf.getvalue())
 
 
 class TestOutlookAddProducerErrorBranch(unittest.TestCase):
@@ -624,9 +626,11 @@ class TestOutlookAddProducerErrorBranch(unittest.TestCase):
         from calendars.outlook_pipelines.add import OutlookAddProducer
         env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "events.yaml not found"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        err_buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err_buf):
             OutlookAddProducer().produce(env)
         self.assertNotIn("Planned", buf.getvalue())
+        self.assertIn("events.yaml not found", err_buf.getvalue())
 
 
 class TestOutlookRemoveProducerErrorBranch(unittest.TestCase):
@@ -636,11 +640,13 @@ class TestOutlookRemoveProducerErrorBranch(unittest.TestCase):
         from calendars.outlook_pipelines.remove import OutlookRemoveProducer
         env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        err_buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err_buf):
             OutlookRemoveProducer().produce(env)
         output = buf.getvalue()
         self.assertNotIn("Planned deletions", output)
         self.assertNotIn("Deleted", output)
+        self.assertIn("service is required", err_buf.getvalue())
 
 
 class TestOutlookSettingsProducerErrorBranch(unittest.TestCase):
@@ -654,11 +660,13 @@ class TestOutlookSettingsProducerErrorBranch(unittest.TestCase):
             diagnostics={"message": "Config must contain settings.rules: [] or top-level rules: []"},
         )
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        err_buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err_buf):
             OutlookSettingsProducer().produce(env)
         output = buf.getvalue()
         self.assertNotIn("Applied settings", output)
         self.assertNotIn("Preview complete", output)
+        self.assertIn("Config must contain settings.rules", err_buf.getvalue())
 
 
 class TestOutlookScheduleImportProducerErrorBranch(unittest.TestCase):
@@ -668,11 +676,13 @@ class TestOutlookScheduleImportProducerErrorBranch(unittest.TestCase):
         from calendars.outlook_pipelines.schedule_import import OutlookScheduleImportProducer
         env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        err_buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err_buf):
             OutlookScheduleImportProducer().produce(env)
         output = buf.getvalue()
         self.assertNotIn("Created", output)
         self.assertNotIn("Preview complete", output)
+        self.assertIn("service is required", err_buf.getvalue())
 
 
 class TestOutlookCalendarShareProducerErrorBranch(unittest.TestCase):
@@ -682,9 +692,11 @@ class TestOutlookCalendarShareProducerErrorBranch(unittest.TestCase):
         from calendars.outlook_pipelines.share import OutlookCalendarShareProducer
         env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        err_buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err_buf):
             OutlookCalendarShareProducer().produce(env)
         self.assertNotIn("Shared", buf.getvalue())
+        self.assertIn("service is required", err_buf.getvalue())
 
 
 class TestOutlookRemindersProcessorCalendarNotFound(unittest.TestCase):

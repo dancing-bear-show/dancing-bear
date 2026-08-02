@@ -149,7 +149,11 @@ stages:
           attribute to the concrete symbol under test.
         - Empty list if undeterminable.
 
-      Write per-file findings to {workspace}/outputs/shards/{slug}.json:
+      This is a PER-BATCH stage: {batch} is the only substituted fan-out token.
+      There is NO single {slug} for the batch — each file carries its own slug in
+      the item's "files" list. For EACH file in files, write a separate shard to
+      {workspace}/outputs/shards/<that file's slug>.json (loop over files; do not
+      treat "slug" as one value for the whole batch):
         {
           "file": "<file>",
           "methods": [
@@ -165,8 +169,7 @@ stages:
         }
 
       Every test_* method in each file appears exactly once. Do NOT emit entries
-      for non-test_* helpers. Use each file's slug from the manifest as its
-      shard filename.
+      for non-test_* helpers. Name each shard by its own file's slug.
     agent:
       role: reviewer
       model: sonnet
@@ -267,16 +270,22 @@ stages:
   # ===========================================================================
   # 4. Validate the matrix mechanically BEFORE the human gate (B3/B5).
   # ===========================================================================
+  # NOTE: kind is `execute`, not `validate`, on purpose. The workflow engine
+  # (src/workflow/dispatch.py::_validate) builds a validate-stage prompt ONLY
+  # from validation.criteria and reads_from data — it never reads a validate
+  # stage's `description`. The full procedure below (the 5 checks + the gate
+  # presentation) must therefore live in an execute stage so nothing is dropped.
   - name: validate-matrix
-    kind: validate
+    kind: execute
     human_gate: true
     depends_on: [build-matrix]
     reads_from: [build-matrix]
     description: >
-      Schema- and consistency-check the matrix, then present it for approval.
+      Schema- and consistency-check the matrix, write a gate summary, then pause
+      for approval.
 
       Read {workspace}/outputs/sad-path-gaps.json and classification.json and
-      confirm:
+      confirm (write a PASS/FAIL line per check into the summary):
         1. sad-path-gaps.json is a dict with a non-empty (or explicitly empty)
            "items" list; gap_count == len(items).
         2. Every item has: slug, module (dotted, no "/" or ".py"), symbol,
@@ -288,22 +297,19 @@ stages:
         5. source_sha is present and equals the current git rev-parse HEAD
            (warn loudly if it differs — the tree moved since classification).
 
-      Present a summary at the gate: totals, gap_count, top 15 gap symbols, the
-      full unassigned list for triage, and any check that failed.
+      Write {workspace}/outputs/gate-summary.md with: per-check PASS/FAIL,
+      totals, gap_count, the top 15 gap symbols, and the full unassigned list
+      for triage. This markdown is what the human reviews at the gate.
     agent:
       role: reviewer
       model: sonnet
-      tools: [Read, Bash]
+      tools: [Read, Write, Bash]
       access: read-only
-    validation:
-      strategy: unit
-      criteria:
-        - sad-path-gaps.json is valid JSON with items list and gap_count == len(items)
-        - every item has canonical dotted module, filename-safe unique slug, and an on-disk test_file
-        - source_sha present and matches current HEAD (warn on drift)
-        - classification totals internally consistent; non-test methods excluded
+    required: true
     validates_output:
       - path: outputs/sad-path-gaps.json
         checks: [is_json, has_key:items]
       - path: outputs/classification.json
         checks: [is_json, has_key:totals]
+    writes_to:
+      - outputs/gate-summary.md
