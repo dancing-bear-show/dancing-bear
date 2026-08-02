@@ -44,13 +44,12 @@ from .base import ScheduleParser
 from .csv_parser import CSVParser
 from .xlsx_parser import XLSXParser
 from .pdf_parser import PDFParser
-from .web_parser import (
-    WebParser,
+from .web_parser_vendors import WebParser, parse_website
+from .web_parser_vendors_rh import (
     RichmondHillSkatingParser,
     RichmondHillSwimmingParser,
-    AuroraAquaticsParser,
-    parse_website,
 )
+from .web_parser_vendors_aurora import AuroraAquaticsParser
 
 
 # Parser registry: maps kind/extension to parser class

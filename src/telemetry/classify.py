@@ -6,6 +6,16 @@ from typing import Any
 
 from telemetry.models import SessionEvent
 
+# Default tool → classification mapping for first-pass fallback.
+_TOOL_CLASS_MAP: dict[str, str] = {
+    "Edit": "productive",
+    "Write": "productive",
+    "MultiEdit": "productive",
+    "NotebookEdit": "productive",
+    "Bash": "productive",
+    "Agent": "productive",
+}
+
 
 @dataclass(frozen=True)
 class WindowConfig:
@@ -14,6 +24,43 @@ class WindowConfig:
     window_seconds: float
     lookforward_events: int
     write_tools: frozenset[str]
+
+
+def _matches_any(pattern_list: list[str], text: str) -> bool:
+    """Return True if any regex in *pattern_list* matches *text*."""
+    return any(re.search(p, text) for p in pattern_list)
+
+
+def _scan_tool_window(
+    evt: SessionEvent,
+    idx: int,
+    events: list[SessionEvent],
+    allowed_tools: set[str],
+    window_seconds: float,
+    lookback_events: int,
+    min_gap_seconds: float = 0.0,
+) -> bool:
+    """Scan backward for a matching tool_use event within the lookback window.
+
+    Returns True when a prior event matches *allowed_tools*, is within
+    *window_seconds*, and has at least *min_gap_seconds* elapsed since *evt*.
+    """
+    file_path = (evt.tool_input or {}).get("file_path")
+    if not file_path:
+        return False
+
+    start = max(0, idx - lookback_events)
+    for prev in events[start:idx]:
+        if prev.event_type != "tool_use" or prev.tool_name not in allowed_tools:
+            continue
+        if file_path != (prev.tool_input or {}).get("file_path"):
+            continue
+        delta = (evt.timestamp - prev.timestamp).total_seconds()
+        if delta < min_gap_seconds:
+            continue
+        if delta <= window_seconds:
+            return True
+    return False
 
 
 class ClassifyEngine:
@@ -81,14 +128,8 @@ class ClassifyEngine:
                 continue
             patterns = rule_cfg.get("patterns", [])
             excludes = rule_cfg.get("exclude", [])
-
-            matched = any(re.search(p, first_segment) for p in patterns)
-            if not matched:
-                continue
-            excluded = any(re.search(p, first_segment) for p in excludes)
-            if excluded:
-                continue
-            return ("avoidable", rule_name)
+            if _matches_any(patterns, first_segment) and not _matches_any(excludes, first_segment):
+                return ("avoidable", rule_name)
 
         return None
 
@@ -97,56 +138,33 @@ class ClassifyEngine:
         evt: SessionEvent,
         idx: int,
         events: list[SessionEvent],
-        rule: dict,
+        rule: dict[str, Any],
     ) -> bool:
-        window_seconds = rule.get("window_seconds", 60)
-        lookback_events = rule.get("lookback_events", 10)
-        file_path = (evt.tool_input or {}).get("file_path")
-        if not file_path:
-            return False
-
-        start = max(0, idx - lookback_events)
-        for prev in events[start:idx]:
-            if prev.event_type != "tool_use":
-                continue
-            if prev.tool_name != "Read":
-                continue
-            if file_path != (prev.tool_input or {}).get("file_path"):
-                continue
-            delta = (evt.timestamp - prev.timestamp).total_seconds()
-            if delta <= window_seconds:
-                return True
-        return False
+        return _scan_tool_window(
+            evt,
+            idx,
+            events,
+            allowed_tools={"Read"},
+            window_seconds=rule.get("window_seconds", 60),
+            lookback_events=rule.get("lookback_events", 10),
+        )
 
     def _is_rapid_re_edit(
         self,
         evt: SessionEvent,
         idx: int,
         events: list[SessionEvent],
-        rule: dict,
+        rule: dict[str, Any],
     ) -> bool:
-        window_seconds = rule.get("window_seconds", 30)
-        lookback_events = rule.get("lookback_events", 5)
-        min_gap_seconds = rule.get("min_gap_seconds", 0)
-        file_path = (evt.tool_input or {}).get("file_path")
-        if not file_path:
-            return False
-
-        edit_tools = {"Edit", "MultiEdit", "NotebookEdit"}
-        start = max(0, idx - lookback_events)
-        for prev in events[start:idx]:
-            if prev.event_type != "tool_use":
-                continue
-            if prev.tool_name not in edit_tools:
-                continue
-            if file_path != (prev.tool_input or {}).get("file_path"):
-                continue
-            delta = (evt.timestamp - prev.timestamp).total_seconds()
-            if delta < min_gap_seconds:
-                continue
-            if delta <= window_seconds:
-                return True
-        return False
+        return _scan_tool_window(
+            evt,
+            idx,
+            events,
+            allowed_tools={"Edit", "MultiEdit", "NotebookEdit"},
+            window_seconds=rule.get("window_seconds", 30),
+            lookback_events=rule.get("lookback_events", 5),
+            min_gap_seconds=rule.get("min_gap_seconds", 0),
+        )
 
     def _apply_custom_rules(self, evt: SessionEvent) -> tuple[str, str] | None:
         """Apply custom rules. Returns (classification, reason) or None."""
@@ -168,20 +186,16 @@ class ClassifyEngine:
     def _default_classification(self, evt: SessionEvent) -> str:
         """Return the default classification for an event."""
         tools_cfg = self.rules.get("tools", {})
-        productive_tools = tools_cfg.get(
+        productive_tools = set(tools_cfg.get(
             "productive", ["Edit", "Write", "MultiEdit", "NotebookEdit"]
-        )
-        neutral_tools = tools_cfg.get("neutral", [])
+        ))
+        neutral_tools = set(tools_cfg.get("neutral", []))
 
         if evt.tool_name in productive_tools:
             return "productive"
         if evt.tool_name in neutral_tools:
             return "neutral"
-        if evt.tool_name == "Bash":
-            return "productive"
-        if evt.tool_name == "Agent":
-            return "productive"
-        return "neutral"
+        return _TOOL_CLASS_MAP.get(evt.tool_name, "neutral")
 
     # ------------------------------------------------------------------
     # Second pass: context-dependent classification
@@ -198,8 +212,7 @@ class ClassifyEngine:
         write_tools: set[str],
     ) -> None:
         """Mark a run of search events as abandoned if no write follows."""
-        has_write_after = any(e.tool_name in write_tools for _, e in tail_events)
-        if has_write_after:
+        if any(e.tool_name in write_tools for _, e in tail_events):
             return
         for _, evt in run:
             if evt.classification in (None, "neutral"):
@@ -224,7 +237,7 @@ class ClassifyEngine:
         i = 0
         while i < len(tool_events):
             run_start = i
-            run = []
+            run: list[tuple[int, SessionEvent]] = []
             while i < len(tool_events) and tool_events[i][1].tool_name in search_tools:
                 run.append(tool_events[i])
                 i += 1
@@ -247,13 +260,11 @@ class ClassifyEngine:
             if events[j].event_type != "tool_use":
                 continue
             delta = (events[j].timestamp - agent_evt.timestamp).total_seconds()
-            if delta > window.window_seconds:
+            if delta > window.window_seconds or count >= window.lookforward_events:
                 break
             if events[j].tool_name in window.write_tools:
                 return True
             count += 1
-            if count >= window.lookforward_events:
-                break
         return False
 
     def _classify_fruitless_agent(self, events: list[SessionEvent]) -> None:
@@ -276,12 +287,10 @@ class ClassifyEngine:
         for i, evt in enumerate(events):
             if evt.event_type != "tool_use" or evt.tool_name != "Agent":
                 continue
-
             agent_type = (evt.tool_input or {}).get("subagent_type", "")
             if agent_type in exempt_types:
                 continue
-
-            found_write = self._has_write_after_agent(evt, events, i + 1, window)
-            if not found_write and evt.classification in (None, "productive"):
-                evt.classification = "review"
-                evt.waste_reason = "fruitless-agent"
+            if not self._has_write_after_agent(evt, events, i + 1, window):
+                if evt.classification in (None, "productive"):
+                    evt.classification = "review"
+                    evt.waste_reason = "fruitless-agent"

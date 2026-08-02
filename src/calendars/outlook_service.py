@@ -56,7 +56,7 @@ class OutlookService:
 
     # Mail/message helpers (inbox search)
     def search_inbox_messages(self, query: str, *, days: int = 60, top: int = 25, pages: int = 2) -> list[str]:
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         return self.client.search_inbox_messages(
             SearchParams(search_query=query, days=days, top=top, pages=pages)
         )
