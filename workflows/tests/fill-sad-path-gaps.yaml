@@ -1,58 +1,94 @@
 name: fill-sad-path-gaps
-version: "1.0"
+version: "1.1"
 description: >
   Second-stage companion to categorize-test-cases.yaml. Consumes the
   sad-path-gaps.json matrix (symbols with happy-path coverage but no sad-path
-  coverage) and fans out one tester per symbol to add error/edge tests, each
-  in an isolated worktree so parallel writers do not collide. A final validate
-  stage runs the touched suites and confirms green.
+  coverage) and fans out one tester PER TEST FILE to add error/edge tests for
+  every gap symbol in that file. Fanning out per file (not per symbol) means at
+  most one writer ever touches a given test file, so parallel writers never
+  collide. A final validate stage runs the touched suites and confirms green.
 
-  Prerequisite: run categorize-test-cases.yaml first and copy its
-  outputs/sad-path-gaps.json into this run's workspace at
-  inputs/sad-path-gaps.json (or point the load stage at its path).
+  v1.1 folds in the adversarial critique (B1-B5):
+    - Input MUST live in the current workspace (inputs/sad-path-gaps.json);
+      no "newest mtime" search. Run fails hard if it is absent.
+    - The matrix's source_sha is checked against HEAD; drift is surfaced at the
+      human gate before any writes.
+    - Fan-out is per TEST FILE, keyed by a filename-safe slug (no symbol-name
+      collisions), eliminating same-file merge/clobber.
+    - A hard max_files cap bounds cost; overflow is logged, never silent.
+    - Validation is mechanical: single-file test runs (not whole-dir discover),
+      diff-range / additions-only enforcement, read-only qlty on shared files,
+      and a recorded per-method failure assertion.
+
+  Prerequisite: run categorize-test-cases.yaml, then copy its
+  outputs/sad-path-gaps.json into THIS run's workspace at
+  inputs/sad-path-gaps.json before running.
+
+metadata:
+  author: brian
+  created: "2026-08-02"
 
 trigger:
   source: manual
+  params:
+    max_files: "25"   # hard cap on test files to touch this run
 
 stages:
   # ===========================================================================
-  # 1. Load + sanity-check the gap matrix, republish it as the fan_out source.
+  # 1. Load + validate the gap matrix from THIS workspace; regroup per file.
   # ===========================================================================
   - name: load-gaps
     kind: gather
     description: >
-      Locate the sad-path gap matrix produced by categorize-test-cases.yaml.
+      Load the sad-path gap matrix from the CURRENT workspace ONLY:
+        {workspace}/inputs/sad-path-gaps.json
+      If that file does not exist, FAIL this stage (status: failed, required) —
+      do NOT search other runs, other directories, or by mtime. The matrix must
+      be placed in this workspace deliberately.
 
-      Look for it, in order:
-        1. {workspace}/inputs/sad-path-gaps.json
-        2. the most recent workflow run's outputs/sad-path-gaps.json under the
-           workflow runs directory (search for sad-path-gaps.json, newest mtime)
+      Read it and:
+        1. Validate top-level shape: dict with "items", "gap_count",
+           "source_sha". Confirm gap_count == len(items).
+        2. Check source_sha against the current tree: run `git rev-parse HEAD`.
+           If it differs, set a top-level "sha_drift": true and record both
+           SHAs — the human gate will decide whether to proceed.
+        3. Validate each item: slug, module, symbol, test_file,
+           happy_test_count, suggested_sad_cases. Drop malformed items into a
+           "rejected" list (do NOT silently discard) and record why.
+        4. REGROUP items by test_file. Emit one work item per DISTINCT test_file:
+             - test_file (repo-relative path)
+             - file_slug (test_file with "/" "." ":" -> "_")
+             - symbols   (list of {{module, symbol, happy_test_count,
+                          suggested_sad_cases}} whose test_file is this path)
+        5. Apply the cap: keep at most {max_files} files, ranked by total
+           happy_test_count across their symbols (highest-value first). Record
+           dropped_files (count + names) — never truncate silently.
 
-      Read it and validate each item has: module, symbol, test_file,
-      happy_test_count, suggested_sad_cases. Drop malformed items and note them.
-
-      Re-emit the cleaned list to {workspace}/outputs/gaps.json with a
-      top-level "items" array (same item shape), plus an integer "count".
-      The array MUST be named "items" so the fan_out below resolves.
-
-      If items is empty, write count: 0 and state clearly that there is no
-      sad-path work to do — downstream fan_out over an empty list is a no-op.
+      Write {workspace}/outputs/gaps.json with a top-level "items" array of the
+      per-file work items (post-cap), plus "count", "dropped_files",
+      "rejected", "sha_drift", "source_sha", "head_sha". The array MUST be named
+      "items" so the fan_out below resolves. If items is empty, write count: 0
+      and state clearly there is no work.
     agent:
       role: researcher
       model: haiku
       tools: [Read, Write, Bash]
       access: read-only
+    required: true
     outputs:
       - name: gaps
         mode: generate
         description: >
-          JSON object with key "items": validated per-symbol gap list, plus
-          "count".
+          JSON with key "items": per-FILE work items (each carrying its gap
+          symbols), plus count/dropped_files/rejected/sha_drift.
+    validates_output:
+      - path: outputs/gaps.json
+        checks: [is_json, has_key:items]
     writes_to:
       - outputs/gaps.json
 
   # ===========================================================================
-  # 2. Human gate — approve the fix set before any test files are written.
+  # 2. Human gate — approve the fix set (and any SHA drift) before writes.
   # ===========================================================================
   - name: approve-fixes
     kind: propose
@@ -64,12 +100,15 @@ stages:
 
       Read {workspace}/outputs/gaps.json and write {workspace}/outputs/plan.md:
         ## Sad-path fix plan
-        - Symbols to cover: N
-        - Test files to touch: [distinct test_file list]
-        A table: | Symbol | Module | Test file | Happy tests | Suggested sad cases |
+        - Test files to touch: N (cap {max_files})
+        - Symbols to cover: M
+        - Dropped by cap: K  (list names)
+        - SHA drift: <yes/no> — if yes, show source_sha vs head_sha and WARN
+          that test_file paths / symbols may be stale.
+        A table: | Test file | # gap symbols | symbols | total happy tests |
 
-      Keep it terse. This is the checkpoint to trim the list or bail before
-      the tester fan-out runs.
+      If sha_drift is true, call it out explicitly at the top — approving means
+      accepting a matrix computed against a different tree.
     agent:
       role: reviewer
       model: sonnet
@@ -80,7 +119,7 @@ stages:
       - outputs/plan.md
 
   # ===========================================================================
-  # 3. Fan out one isolated tester per gap symbol.
+  # 3. Fan out one isolated tester per TEST FILE (never per symbol).
   # ===========================================================================
   - name: add-sad-tests
     kind: execute
@@ -88,57 +127,65 @@ stages:
     reads_from: [load-gaps]
     isolation: worktree
     description: >
-      Add sad-path (error/edge) tests for one symbol: {symbol} in {module},
-      whose happy path is already tested in {test_file}.
+      Add sad-path (error/edge) tests to ONE test file: {test_file}. Cover every
+      gap symbol in this file's "symbols" list. Because fan-out is per file,
+      you are the ONLY writer for {test_file} — no other agent touches it.
 
       Before writing:
-        1. Read {module} — understand how {symbol} fails: what it raises, what
-           it rejects, its exit codes, its boundary/empty-input behavior.
-           Only test failure modes the code actually has — never invent an
-           exception the code does not raise.
-        2. Read {test_file} — match its imports, fixtures, class structure,
-           and assertion style. Extend the existing TestCase where one fits;
-           add a new TestCase only if none is appropriate.
-        3. Read tests/AGENTS.md, tests/fixtures.py, and tests/fakes/ for
-           conventions and available fakes/factories.
+        1. Read {test_file} — match its imports, fixtures, class structure, and
+           assertion style. Extend the existing TestCase where one fits; add a
+           new TestCase only if none is appropriate.
+        2. For each symbol, Read its source module and determine how it ACTUALLY
+           fails: what it raises, what it rejects, its exit codes, its
+           boundary/empty-input behavior. Test only real failure modes — never
+           invent an exception the code does not raise. The suggested_sad_cases
+           are hints, not authority: prefer source-derived failure modes and
+           discard any suggestion the code cannot actually produce.
+        3. Read tests/AGENTS.md, tests/fixtures.py, tests/fakes/ IF they exist
+           (do not fail if absent) for conventions and available fakes.
 
       Test authoring rules (strict):
         - unittest.TestCase only — no pytest. subclass TestCase.
-        - No network, no real file I/O, no subprocess to external services,
-          no real credentials or tokens.
+        - No network, no real file I/O, no subprocess to external services, no
+          real credentials or tokens.
         - Patch at the point of use, not the point of definition.
         - Use fakes/fixtures rather than raw dicts/API objects where they exist.
-        - Assert failure precisely: assertRaises(SpecificError),
+        - Assert failure PRECISELY: assertRaises(SpecificError),
           assertRaisesRegex, or assert the exact non-zero exit / error message.
-          Never assertTrue(x is not None) or a bare "does not raise".
-        - Cover the suggested_sad_cases for this item plus any additional real
-          failure mode you find in the source. Add at least 2 sad-path methods.
+          Never assertTrue(x is not None), never a bare "does not raise", never
+          `with assertRaises(...): pass`-style theatre.
+        - At least 1 sad-path method per gap symbol (2+ where the source has
+          multiple distinct failure modes).
         - Descriptive names: test_<symbol>_<failure_scenario>.
-        - Do not modify or delete existing passing tests. Only add methods
-          (or a new class) to {test_file}.
+        - ADD ONLY. Do not modify, reformat, reorder, or delete any existing
+          method. Do NOT run `qlty --fix` on {test_file} — it may reformat
+          existing code. If you must lint, run `qlty check` read-only and fix
+          only within your own added lines by hand.
 
-      After writing, run the touched suite and fix until green:
-        python3 -m unittest discover -s $(dirname {test_file}) -q
-      Up to 3 fix cycles. Then run:
-        ~/.qlty/bin/qlty check {test_file}
-      and fix lint before finishing.
+      After writing, run ONLY this file (never whole-dir discover) and fix until
+      green, up to 3 cycles. Compute the module path from {test_file}
+      (strip .py, "/"->"."), e.g.:
+        python3 -m unittest tests.test_charts_cli -q
 
-      Write a per-symbol summary to
-      {workspace}/outputs/added/{symbol}.json:
+      Write a summary to {workspace}/outputs/added/{file_slug}.json:
         {
-          "symbol": "{symbol}",
-          "module": "{module}",
           "test_file": "{test_file}",
-          "methods_added": ["test_parse_row_malformed_exits", ...],
+          "symbols_covered": ["parse_row", ...],
+          "methods_added": [
+            {"method":"test_parse_row_malformed_exits",
+             "symbol":"parse_row",
+             "failure_assertion":"assertRaises(SystemExit)"}
+          ],
           "unittest": "PASS" | "FAIL",
-          "qlty": "PASS" | "FAIL",
           "notes": "..."
         }
+      failure_assertion MUST name the concrete raises/exit/regex used — validate
+      relies on it.
 
       NOTE (worktree isolation): you are in an isolated worktree; your edits do
-      NOT merge back automatically. Leave changed files in place and report
-      their paths accurately in the summary — the parent session copies them
-      back after this stage.
+      NOT merge back automatically. Since you are the sole writer of {test_file},
+      the parent session copies just this file back after the stage. Report the
+      path accurately.
     agent:
       role: tester
       model: sonnet
@@ -148,42 +195,43 @@ stages:
     fan_out:
       source: load-gaps
       field: items
-      key: symbol
+      key: file_slug
       mode: agent
     writes_to:
-      - outputs/added/{symbol}.json
+      - outputs/added/{file_slug}.json
 
   # ===========================================================================
-  # 4. Validate: every touched suite green, no existing tests broken.
+  # 4. Validate: touched suites green, additions-only, genuine sad tests.
   # ===========================================================================
   - name: validate-sad-tests
     kind: validate
     depends_on: [add-sad-tests]
     reads_from: [add-sad-tests]
     description: >
-      Confirm all sad-path additions landed and pass.
+      Confirm all sad-path additions landed, pass, and are genuine — mechanically.
 
-      Step 1 — collect: read all {workspace}/outputs/added/*.json. Build the
-      set of distinct test_file paths touched and the methods_added per file.
+      Step 1 — collect: read all {workspace}/outputs/added/*.json.
 
-      Step 2 — verify presence: for each summary, confirm every method in
-      methods_added is actually present in its test_file on disk, and that each
-      is a genuine sad-path test (asserts an exception, non-zero exit, or
-      rejection — not a happy assertion mislabeled).
+      Step 2 — presence + genuineness: for each summary, for each methods_added
+      entry, confirm the method exists in its test_file on disk AND that its
+      body contains the recorded failure_assertion token (assertRaises /
+      assertRaisesRegex / a non-zero exit-code assertion / an error-message
+      regex). Fail the unit if a method is present but contains no real failure
+      assertion (catches mislabeled happy tests and assertRaises-pass theatre).
 
-      Step 3 — run: for each distinct directory dirname(test_file):
-        python3 -m unittest discover -s <dir> -q
-      All must pass. Up to 3 fix cycles per directory for import/assertion
-      breakage introduced by the additions; never weaken an assertion to make
-      a test pass — fix the test to reflect real behavior.
+      Step 3 — additions-only: `git diff` each touched test_file. The diff MUST
+      be additions only (added lines / a new class or methods); if any
+      pre-existing line was modified or deleted, flag it (a tester reformatted
+      or weakened existing tests). Do not accept it.
 
-      Step 4 — regression check: confirm no pre-existing test method was
-      modified or removed (git diff should show additions only within the
-      touched test files).
+      Step 4 — run each touched file individually (module path form, NOT
+      discover): python3 -m unittest tests.<module> -q. All must pass; up to 3
+      fix cycles per file for import/assertion breakage in the ADDED tests only.
+      Never weaken an assertion to make a test pass.
 
       Write {workspace}/outputs/validation.md:
-        | Test file | Symbols | Methods added | unittest | Sad-verified | Notes |
-      and a final PASS/FAIL line for the whole run.
+        | Test file | Symbols | Methods added | unittest | Additions-only | Sad-verified | Notes |
+      and a final PASS/FAIL line for the run.
     agent:
       role: code-writer
       model: sonnet
@@ -193,9 +241,9 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - Every method in each added/*.json methods_added is present on disk
-        - Every added method is a genuine sad-path test (raises / non-zero exit / rejection)
-        - unittest discover passes for every touched directory
-        - No pre-existing test method was modified or deleted
+        - Every methods_added entry is present on disk with its recorded failure_assertion token
+        - Each added method genuinely asserts a failure (raises / non-zero exit / rejection), no theatre
+        - git diff of each touched test_file is additions-only (no pre-existing test modified or deleted)
+        - python3 -m unittest tests.<module> passes for every touched file (single-file, not discover)
     writes_to:
       - outputs/validation.md
