@@ -50,7 +50,6 @@ metadata:
 trigger:
   source: manual
   params:
-    branch: "feat/pdffill-domain"   # branch the implementation agents work on
     real_pdf: ""                     # optional: path to ~/Downloads/pdfFormClaim.pdf for smoke test
     run_qlty: "true"                 # set "false" to skip qlty in verify (CI-only environments)
 
@@ -169,7 +168,12 @@ stages:
           PURPOSE = "PDF form-filling toolkit (widget-fill and coordinate-injection)"
 
         bin/pdffill
-          Thin wrapper: shebang + exec python3 -m pdffill.cli "$@"
+          Thin Python wrapper matching bin/wifi exactly:
+            #!/usr/bin/env python3, docstring, then insert
+            SRC_ROOT = Path(__file__).resolve().parents[1] / "src" into sys.path,
+            then "from pdffill.__main__ import main" and
+            "if __name__ == '__main__': raise SystemExit(main())".
+          Do not use exec python3 -m.
           (Derive the exact pattern from cat bin/wifi.)
 
         tests/pdffill_tests/__init__.py  (empty)
@@ -417,18 +421,31 @@ stages:
         Use the Bash tool: cat src/wifi/cli.py | head -30
         Use the Bash tool: cat src/core/assistant.py | head -40
 
-      Step 2 -- write implementation files:
+      Step 2 -- add pymupdf dependency and register the package.
+        PyMuPDF (fitz) is not yet in pyproject.toml. Edit pyproject.toml:
+          a. Add "pymupdf>=1.24.0" to the [project] dependencies list (same
+             format as the existing entries, e.g. "PyYAML==6.0.3").
+          b. Add "pdffill*" to the [tool.setuptools.packages.find] include list
+             (same glob pattern as "wifi*", "charts*", etc.).
+        Verify the edits took effect:
+          Bash tool: grep "pymupdf\|pdffill" pyproject.toml
+        Then reinstall so pip picks up the new package and dependency:
+          Bash tool: pip install -e . -q 2>&1 | tail -5
+        Confirm fitz is importable:
+          Bash tool: python3 -c "import fitz; print(fitz.__version__)" 2>&1
+
+      Step 3 -- write implementation files:
         Write src/pdffill/__init__.py (empty or minimal re-exports only).
         Write src/pdffill/meta.py.
         Write src/pdffill/widget.py (WidgetFiller class with all public API).
         Write src/pdffill/inject.py (CoordinateInjector class with all public API).
 
-      Step 3 -- quick import smoke check:
-        Bash tool: python3 -c "import pdffill; import pdffill.widget; import pdffill.inject" 2>&1
+      Step 4 -- quick import smoke check:
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -c "import pdffill; import pdffill.widget; import pdffill.inject" 2>&1
         If the import fails, fix the module before proceeding (likely a
         non-lazy import or a missing __init__ re-export).
 
-      Step 4 -- write output manifest to {workspace}/outputs/engine-manifest.json:
+      Step 5 -- write output manifest to {workspace}/outputs/engine-manifest.json:
         {{
           "files_written": [
             "src/pdffill/__init__.py",
@@ -436,6 +453,8 @@ stages:
             "src/pdffill/widget.py",
             "src/pdffill/inject.py"
           ],
+          "pyproject_updated": true,
+          "fitz_importable": "PASS|FAIL",
           "import_smoke_check": "PASS|FAIL",
           "import_error": null
         }}
@@ -490,8 +509,12 @@ stages:
         This prevents import errors at startup when fitz is absent.
 
       Step 3 -- write bin/pdffill.
-        Exact same shebang+exec pattern as bin/wifi. Make it executable:
-          Bash tool: chmod +x bin/pdffill
+        Use the same Python wrapper pattern as bin/wifi (not exec python3 -m):
+          #!/usr/bin/env python3, a docstring, insert SRC_ROOT into sys.path
+          via Path(__file__).resolve().parents[1] / "src", then
+          "from pdffill.__main__ import main" and
+          "if __name__ == '__main__': raise SystemExit(main())".
+        Make it executable: Bash tool: chmod +x bin/pdffill
 
       Step 4 -- CLI import smoke check:
         Bash tool: python3 -c "import pdffill.cli" 2>&1
@@ -794,14 +817,14 @@ stages:
       and (if configured) a read-only real-form smoke test.
 
       Step 1 -- run the pdffill test suite:
-        Bash tool: python3 -m unittest discover -s tests/pdffill_tests -p "test_*.py" -v 2>&1
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests/pdffill_tests -p "test_*.py" -v 2>&1
         Record exit code and output. If exit != 0, attempt one targeted fix:
           - Read the failure line.
           - Fix the minimal issue (import path, wrong assertion).
           - Re-run once. If still failing, set test_status="FAIL" and document.
 
       Step 2 -- run the full test suite (regression guard):
-        Bash tool: python3 -m unittest discover -q 2>&1 | tail -20
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -q 2>&1 | tail -20
         Record exit code. Any regression introduced by new pdffill files is
         a BLOCKING issue.
 
