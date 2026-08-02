@@ -48,7 +48,8 @@ stages:
       explicitly, resolve it to a UDID from [ios_devices] in
       credentials.ini first:
 
-        UDID=$(awk -F' *= *' '/^\[ios_devices\]/{f=1;next} /^\[/{f=0} f&&$1=="{device_label}"{print $2;exit}' ~/.config/credentials.ini)
+        CREDS="${IOS_CREDS_FILE:-$HOME/.config/credentials.ini}"
+        UDID=$(awk -F' *= *' '/^\[ios_devices\]/{f=1;next} /^\[/{f=0} f&&$1=="{device_label}"{print $2;exit}' "$CREDS")
         ./bin/phone-assistant export-device ${UDID:+--udid "$UDID"} \
           --out out/ios.IconState.yaml
 

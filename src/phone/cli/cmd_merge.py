@@ -57,12 +57,14 @@ def cmd_merge_folders(args) -> int:
     return 0
 
 
-def _resolve_reorg_udid(args, dry_run: bool) -> tuple[str | None, int]:
+def _resolve_reorg_udid(args, dry_run: bool) -> tuple[str, int]:
     """Resolve the target device UDID for a reorg run.
 
-    Returns (udid, 0) on success, or (None, 1) after printing a fail-fast error
-    when an explicit device label can't be resolved and no --udid was given
-    (outside dry-run, since reorg replaces the whole Home Screen).
+    Returns (udid, 0) on success (udid may be "" under --dry-run, where no
+    device is needed), or ("", 1) after printing a fail-fast error when an
+    explicit device label can't be resolved and no --udid was given (reorg
+    replaces the whole Home Screen, so it must not target the wrong device).
+    Callers gate on the int; the udid is only meaningful when it is 0.
     """
     device_label = getattr(args, "device_label", None) or "bcsphone"
     udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID", "")
@@ -74,7 +76,7 @@ def _resolve_reorg_udid(args, dry_run: bool) -> tuple[str | None, int]:
             f"(check [ios_devices] in credentials.ini); pass --udid or --dry-run",
             file=sys.stderr,
         )
-        return None, 1
+        return "", 1
     return udid, 0
 
 
