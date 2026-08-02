@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from .client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL
@@ -16,9 +16,9 @@ class FoldersMixin:
     Requires OutlookClientBase methods: _headers, cfg_get_json, cfg_put_json, cfg_clear.
     """
 
-    def list_folders(self: OutlookClientBase) -> List[Dict[str, Any]]:
+    def list_folders(self: OutlookClientBase) -> list[dict[str, Any]]:
         url: str | None = f"{GRAPH_API_URL}/me/mailFolders"
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         while url:
             r = _requests().get(url, headers=self._headers())
             r.raise_for_status()
@@ -27,7 +27,7 @@ class FoldersMixin:
             url = data.get(_NEXT_LINK)
         return out
 
-    def get_folder_id_map(self: OutlookClientBase) -> Dict[str, str]:
+    def get_folder_id_map(self: OutlookClientBase) -> dict[str, str]:
         return {f.get("displayName", ""): f.get("id", "") for f in self.list_folders()}
 
     def ensure_folder(self: OutlookClientBase, name: str) -> str:
@@ -55,14 +55,14 @@ class FoldersMixin:
         self: OutlookClientBase,
         ttl: int = 600,
         clear_cache: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return all folders including nested, using BFS traversal."""
         if clear_cache:
             self.cfg_clear()
         cached = self.cfg_get_json("folders_all", ttl)
         if isinstance(cached, list):
             return cached
-        all_folders: Dict[str, Dict[str, Any]] = {}
+        all_folders: dict[str, dict[str, Any]] = {}
         roots = self.list_folders()
         for f in roots:
             if f.get("id"):
@@ -88,14 +88,14 @@ class FoldersMixin:
         self: OutlookClientBase,
         ttl: int = 600,
         clear_cache: bool = False,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Map full path (Parent/Child/Sub) to folder id."""
         folders = self.list_all_folders(ttl=ttl, clear_cache=clear_cache)
         by_id = {f.get("id"): f for f in folders}
         parent = {fid: f.get("parentFolderId") for fid, f in by_id.items()}
         name = {fid: (f.get("displayName") or "") for fid, f in by_id.items()}
-        path_map: Dict[str, str] = {}
-        cache: Dict[str, str] = {}
+        path_map: dict[str, str] = {}
+        cache: dict[str, str] = {}
 
         def build_path(fid: str) -> str:
             if fid in cache:

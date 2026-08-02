@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL
@@ -20,7 +20,7 @@ class LabelsFiltersMixin:
         self: OutlookClientBase,
         use_cache: bool = False,
         ttl: int = 300,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if use_cache:
             cached = self.cfg_get_json("categories", ttl)
             if isinstance(cached, list):
@@ -48,10 +48,10 @@ class LabelsFiltersMixin:
     def create_label(
         self: OutlookClientBase,
         name: str,
-        color: Optional[Dict[str, Any]] = None,
+        color: dict[str, Any] | None = None,
         **_kwargs: Any,
-    ) -> Dict[str, Any]:
-        body: Dict[str, Any] = {"displayName": name}
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"displayName": name}
         if color and isinstance(color, dict) and color.get("name"):
             body["color"] = color.get("name")
         r = _requests().post(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers(), json=body)
@@ -62,9 +62,9 @@ class LabelsFiltersMixin:
     def update_label(
         self: OutlookClientBase,
         label_id: str,
-        body: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {}
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
         if body.get("name"):
             payload["displayName"] = body["name"]
         if isinstance(body.get("color"), dict) and body["color"].get("name"):
@@ -86,7 +86,7 @@ class LabelsFiltersMixin:
         )
         r.raise_for_status()
 
-    def get_label_id_map(self: OutlookClientBase) -> Dict[str, str]:
+    def get_label_id_map(self: OutlookClientBase) -> dict[str, str]:
         return {lbl.get("name", ""): lbl.get("id", "") for lbl in self.list_labels()}
 
     def ensure_label(self: OutlookClientBase, name: str, **kwargs: Any) -> str:
@@ -97,7 +97,7 @@ class LabelsFiltersMixin:
         return created.get("id", "")
 
     # -------------------- Rules (filters) --------------------
-    def _fetch_inbox_rules_raw(self: OutlookClientBase) -> List[Dict[str, Any]]:
+    def _fetch_inbox_rules_raw(self: OutlookClientBase) -> list[dict[str, Any]]:
         """Fetch raw inbox rules from Graph API."""
         r = _requests().get(
             f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
@@ -106,18 +106,18 @@ class LabelsFiltersMixin:
         r.raise_for_status()
         return r.json().get("value", [])
 
-    def _map_rule(self: OutlookClientBase, ru: Dict[str, Any]) -> Dict[str, Any]:
+    def _map_rule(self: OutlookClientBase, ru: dict[str, Any]) -> dict[str, Any]:
         """Map a raw Graph rule to the internal filter format."""
         cond = ru.get("conditions", {}) or {}
         act = ru.get("actions", {}) or {}
-        crit: Dict[str, Any] = {}
+        crit: dict[str, Any] = {}
         if cond.get("senderContains"):
             crit["from"] = " OR ".join(cond["senderContains"])
         if cond.get("recipientContains"):
             crit["to"] = " OR ".join(cond["recipientContains"])
         if cond.get("subjectContains"):
             crit["subject"] = " OR ".join(cond["subjectContains"])
-        action: Dict[str, Any] = {}
+        action: dict[str, Any] = {}
         if act.get("assignCategories"):
             action["addLabelIds"] = act["assignCategories"]
         if act.get("forwardTo"):
@@ -132,7 +132,7 @@ class LabelsFiltersMixin:
         self: OutlookClientBase,
         use_cache: bool = False,
         ttl: int = 300,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if use_cache:
             cached = self.cfg_get_json("rules_inbox", ttl)
             rules = cached if isinstance(cached, list) else self._fetch_inbox_rules_raw()
@@ -142,9 +142,9 @@ class LabelsFiltersMixin:
             rules = self._fetch_inbox_rules_raw()
         return [self._map_rule(ru) for ru in rules]
 
-    def _build_rule_conditions(self: OutlookClientBase, criteria: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_rule_conditions(self: OutlookClientBase, criteria: dict[str, Any]) -> dict[str, Any]:
         """Convert filter criteria dict to Graph API conditions format."""
-        cond: Dict[str, Any] = {}
+        cond: dict[str, Any] = {}
         if criteria.get("from"):
             cond["senderContains"] = [s.strip() for s in str(criteria["from"]).split("OR")]
         if criteria.get("to"):
@@ -153,9 +153,9 @@ class LabelsFiltersMixin:
             cond["subjectContains"] = [s.strip() for s in str(criteria["subject"]).split("OR")]
         return cond
 
-    def _build_rule_actions(self: OutlookClientBase, action: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_rule_actions(self: OutlookClientBase, action: dict[str, Any]) -> dict[str, Any]:
         """Convert filter action dict to Graph API actions format."""
-        act: Dict[str, Any] = {}
+        act: dict[str, Any] = {}
         if action.get("addLabelIds"):
             act["assignCategories"] = action["addLabelIds"]
         if action.get("forward"):
@@ -167,9 +167,9 @@ class LabelsFiltersMixin:
 
     def create_filter(
         self: OutlookClientBase,
-        criteria: Dict[str, Any],
-        action: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        criteria: dict[str, Any],
+        action: dict[str, Any],
+    ) -> dict[str, Any]:
         payload = {
             "displayName": f"Rule {int(time.time())}",
             "sequence": 1,

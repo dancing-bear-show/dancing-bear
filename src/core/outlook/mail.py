@@ -6,7 +6,7 @@ folders are in _mail_folders.py.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .client import OutlookClientBase, _requests
 from .models import MessageSearchQuery, SearchParams
@@ -17,12 +17,12 @@ from core.constants import GRAPH_API_URL
 _NEXT_LINK = "@odata.nextLink"
 
 
-def _build_kql_search_url(params: MessageSearchQuery) -> Optional[str]:
+def _build_kql_search_url(params: MessageSearchQuery) -> str | None:
     """Build the KQL search URL from MessageSearchQuery, or None if no terms."""
     import urllib.parse
     sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
     folder_path = "mailFolders/inbox/messages" if params.only_inbox else "messages"
-    kql_terms: List[str] = []
+    kql_terms: list[str] = []
     if params.sender:
         kql_terms.append(f"from:{params.sender}")
     if params.query.strip():
@@ -33,7 +33,7 @@ def _build_kql_search_url(params: MessageSearchQuery) -> Optional[str]:
     return f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(params.top)}&{sel}"
 
 
-def _map_search_result(m: Dict[str, Any]) -> Dict[str, Any]:
+def _map_search_result(m: dict[str, Any]) -> dict[str, Any]:
     """Map a Graph API message to a search result dict."""
     addr = (m.get("from") or {}).get("emailAddress", {})
     return {
@@ -64,10 +64,10 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
             query_params.append(f"$filter=receivedDateTime ge {start_iso}")
         return base + "?" + "&".join(query_params)
 
-    def _fetch_search_ids(self, params: "SearchParams") -> List[str]:
+    def _fetch_search_ids(self, params: "SearchParams") -> list[str]:
         """Paginate through search results and collect message IDs."""
-        ids: List[str] = []
-        nxt: Optional[str] = self._build_search_url(params)
+        ids: list[str] = []
+        nxt: str | None = self._build_search_url(params)
         for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
@@ -81,7 +81,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
     def search_inbox_messages(
         self: OutlookClientBase,
         params: SearchParams,
-    ) -> List[str]:
+    ) -> list[str]:
         """Return message IDs in Inbox matching $search query, optional days filter."""
         import hashlib
 
@@ -104,11 +104,11 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         folder: str = "inbox",
         top: int = 25,
         pages: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List messages in a folder with pagination."""
         base = f"{GRAPH_API_URL}/me/mailFolders/{folder}/messages"
         url = f"{base}?$top={int(top)}&$orderby=receivedDateTime desc"
-        msgs: List[Dict[str, Any]] = []
+        msgs: list[dict[str, Any]] = []
         for _ in range(max(1, int(pages))):
             r = _requests().get(url, headers=self._headers())
             r.raise_for_status()
@@ -132,7 +132,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         self: OutlookClientBase,
         msg_id: str,
         select_body: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         sel = "$select=subject,receivedDateTime,from,bodyPreview" + (",body" if select_body else "")
         url = f"{GRAPH_API_URL}/me/messages/{msg_id}?{sel}"
         r = _requests().get(url, headers=self._headers())
@@ -142,9 +142,9 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
     def search_messages(
         self: OutlookClientBase,
         query: str = "",
-        params: Optional[MessageSearchQuery] = None,
+        params: MessageSearchQuery | None = None,
         **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search mail messages matching query.
 
         Accepts either a MessageSearchQuery params object or keyword arguments
@@ -160,7 +160,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         nxt = _build_kql_search_url(params)
         if not nxt:
             return []
-        msgs: List[Dict[str, Any]] = []
+        msgs: list[dict[str, Any]] = []
         for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
@@ -177,7 +177,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
     def get_attachments(
         self: OutlookClientBase,
         msg_id: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return list of attachments for a message (includes contentBytes base64)."""
         url = f"{GRAPH_API_URL}/me/messages/{msg_id}/attachments"
         r = _requests().get(url, headers=self._headers())
@@ -185,7 +185,7 @@ class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
         return r.json().get("value", [])
 
     # -------------------- Signatures --------------------
-    def list_signatures(self: OutlookClientBase) -> List[Dict[str, Any]]:
+    def list_signatures(self: OutlookClientBase) -> list[dict[str, Any]]:
         raise NotImplementedError("Outlook signatures are not available via Microsoft Graph API v1.0")
 
     def update_signature(self: OutlookClientBase, signature_html: str) -> None:
