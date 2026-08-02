@@ -118,15 +118,12 @@ stages:
     depends_on: [build-profile]
     reads_from: [build-profile]
     description: >
-      Copy the profile to the device and instruct the user to tap Install.
-      Prefer the one-shot command, which targets {device_label} and handles
-      the Code 625 success case:
+      Copy the already-built profile to the device and instruct the user to
+      tap Install. Uses --install-only to skip re-running export/merge/build:
 
-        ./bin/phone-assistant reorg --device-label "{device_label}"
-
-      Or copy the already-built profile directly:
-
-        cfgutil install-profile out/ios.merged.mobileconfig
+        ./bin/phone-assistant reorg --install-only \
+          --device-label "{device_label}" \
+          --profile out/ios.merged.mobileconfig
 
       IMPORTANT: "User interaction on the device is required" (Code 625) is
       the EXPECTED SUCCESS outcome on macOS 26. The process exits non-zero

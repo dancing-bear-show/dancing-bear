@@ -179,14 +179,14 @@ class TestClassifyToFolder(unittest.TestCase):
         self.assertEqual(result, "Misc")
 
     def test_classify_to_folder_fallback_when_no_match(self):
-        # Category target not in existing_folders → fallback
+        # Category target not in existing_folders → fallback returned unconditionally
         result = classify_to_folder(
             "com.unknown.nothing",
             {"Work"},  # Misc not present
             fallback="Misc",
         )
-        # Fallback "Misc" not in existing_folders, so returns first sorted folder
-        self.assertEqual(result, "Work")
+        # Now returns fallback unconditionally (caller creates folder if needed)
+        self.assertEqual(result, "Misc")
 
     def test_bundle_override_respected(self):
         result = classify_to_folder(
@@ -334,6 +334,32 @@ class TestMergePlanToDict(unittest.TestCase):
         self.assertEqual(d["pins"], ["com.b"])
         self.assertEqual(d["folders"]["Work"], ["com.c"])
         self.assertIn("1", d["pages"])
+
+
+class TestClassifyFallbackNoMiscFolder(unittest.TestCase):
+    def test_unclassifiable_lands_in_new_misc_not_ai(self):
+        """Fix 4: unclassifiable app with no Misc folder must go to new Misc, not AI."""
+        layout = {
+            "dock": [],
+            "pages": [
+                {
+                    "apps": [],
+                    "folders": [
+                        {"name": "AI", "apps": ["com.openai.chat"]},
+                        {"name": "Media", "apps": ["com.netflix.Netflix"]},
+                        {"name": "Work", "apps": ["com.slack"]},
+                        {"name": "Other", "apps": ["com.totally.unknown.xyzqrs"]},
+                    ],
+                },
+            ],
+        }
+        plan = merge_folders(layout)
+        verify_conservation(layout, plan.to_dict())
+        # Unclassifiable app must NOT be in AI (the alphabetically first folder)
+        self.assertNotIn("com.totally.unknown.xyzqrs", plan.folders.get("AI", []))
+        # It must be in a newly-created Misc folder
+        self.assertIn("Misc", plan.folders)
+        self.assertIn("com.totally.unknown.xyzqrs", plan.folders["Misc"])
 
 
 if __name__ == "__main__":

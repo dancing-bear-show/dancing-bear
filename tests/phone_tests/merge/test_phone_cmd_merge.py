@@ -154,8 +154,8 @@ class TestReorgInstall625(unittest.TestCase):
         """cfgutil exits 1 with the 625 phrase → treated as SUCCESS (rc 0)."""
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge._resolve_cfgutil", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge._resolve_ecid", return_value=None), \
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
              patch(
                  "phone.cli.cmd_merge.subprocess.run",
                  return_value=_cfg_result(1, stderr=_CFG_625),
@@ -170,8 +170,8 @@ class TestReorgInstall625(unittest.TestCase):
     def test_clean_success_rc0(self):
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge._resolve_cfgutil", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge._resolve_ecid", return_value=None), \
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
              patch(
                  "phone.cli.cmd_merge.subprocess.run",
                  return_value=_cfg_result(0, stdout="ok"),
@@ -188,8 +188,8 @@ class TestReorgInstall625(unittest.TestCase):
             "cfgutil: error: The device is locked.\n"
             "(Domain: MCInstallationErrorDomain Code: 4009)\n"
         )
-        with patch("phone.cli.cmd_merge._resolve_cfgutil", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge._resolve_ecid", return_value=None), \
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
              patch(
                  "phone.cli.cmd_merge.subprocess.run",
                  return_value=_cfg_result(1, stderr=locked),
@@ -201,8 +201,8 @@ class TestReorgInstall625(unittest.TestCase):
     def test_no_devices_is_failure(self):
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge._resolve_cfgutil", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge._resolve_ecid", return_value=None), \
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
              patch(
                  "phone.cli.cmd_merge.subprocess.run",
                  return_value=_cfg_result(1, stderr="cfgutil: error: no devices found"),
@@ -215,8 +215,8 @@ class TestReorgInstall625(unittest.TestCase):
         """Output containing '625' but not the cfgutil phrase is NOT success."""
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge._resolve_cfgutil", return_value="/usr/bin/cfgutil"), \
-             patch("phone.cli.cmd_merge._resolve_ecid", return_value=None), \
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
              patch(
                  "phone.cli.cmd_merge.subprocess.run",
                  return_value=_cfg_result(1, stdout="installed 625 profiles earlier"),
@@ -228,7 +228,7 @@ class TestReorgInstall625(unittest.TestCase):
     def test_no_cfgutil_returns_error(self):
         from phone.cli.cmd_merge import _reorg_install
 
-        with patch("phone.cli.cmd_merge._resolve_cfgutil", return_value=None):
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", side_effect=FileNotFoundError):
             rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
 
         self.assertNotEqual(rc, 0)
@@ -262,6 +262,7 @@ class TestCmdReorg(unittest.TestCase):
                 args = make_args(
                     device_label="bcsphone", udid=None, keep="",
                     out=None, no_install=False, dry_run=True,
+                    install_only=False, profile=None,
                 )
                 rc = cmd_reorg(args)
 
@@ -287,10 +288,11 @@ class TestCmdReorg(unittest.TestCase):
 
             with _chdir(dp), \
                  patch("phone.cli.cmd_merge.subprocess.run", side_effect=fake_run), \
-                 patch("phone.cli.cmd_merge._resolve_cfgutil", return_value="/usr/bin/cfgutil"):
+                 patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"):
                 args = make_args(
                     device_label="bcsphone", udid="UDID-X", keep="",
                     out=None, no_install=True, dry_run=False,
+                    install_only=False, profile=None,
                 )
                 rc = cmd_reorg(args)
 
@@ -330,33 +332,256 @@ class TestUdidForLabel(unittest.TestCase):
 
 
 class TestResolveEcid(unittest.TestCase):
-    """_resolve_ecid: parse cfgutil list output for a UDID's ECID."""
+    """map_udid_to_ecid: parse cfgutil list output for a UDID's ECID."""
 
     def test_matches_udid_line(self):
-        from phone.cli.cmd_merge import _resolve_ecid
+        from phone.device import map_udid_to_ecid
 
         listing = (
             "Type: iPhone18,2\tECID: 0x578D421D8401C\t"
             "UDID: 00008150-000578D421D8401C Name: Brian Phone\n"
         )
-        with patch(
-            "phone.cli.cmd_merge.subprocess.run",
-            return_value=_cfg_result(0, stdout=listing),
-        ):
-            ecid = _resolve_ecid("/usr/bin/cfgutil", "00008150-000578D421D8401C")
+        with patch("phone.device.subprocess.check_output", return_value=listing):
+            ecid = map_udid_to_ecid("/usr/bin/cfgutil", "00008150-000578D421D8401C")
 
         self.assertEqual(ecid, "0x578D421D8401C")
 
-    def test_absent_udid_returns_none(self):
-        from phone.cli.cmd_merge import _resolve_ecid
+    def test_absent_udid_returns_empty(self):
+        from phone.device import map_udid_to_ecid
 
-        with patch(
-            "phone.cli.cmd_merge.subprocess.run",
-            return_value=_cfg_result(0, stdout="Type: iPhone\tECID: 0xAAA\tUDID: other\n"),
-        ):
-            ecid = _resolve_ecid("/usr/bin/cfgutil", "00008150-NOTHERE")
+        with patch("phone.device.subprocess.check_output",
+                   return_value="Type: iPhone\tECID: 0xAAA\tUDID: other\n"):
+            ecid = map_udid_to_ecid("/usr/bin/cfgutil", "00008150-NOTHERE")
 
-        self.assertIsNone(ecid)
+        self.assertEqual(ecid, "")
+
+
+class TestKeepConservation(unittest.TestCase):
+    def test_keep_app_in_preserved_folder(self):
+        """Fix 1: --keep strips app from its folder and adds it to pins; conservation PASS."""
+        from phone.cli.cmd_merge import cmd_merge_folders
+
+        layout = {
+            "dock": ["com.dock.a"],
+            "pages": [
+                {"apps": ["com.apple.mobilesafari"], "folders": []},
+                {
+                    "apps": [],
+                    "folders": [
+                        {"name": "Work", "apps": ["com.microsoft.Office.Word", "com.slack"]},
+                        {"name": "Media", "apps": ["com.netflix.Netflix"]},
+                        {"name": "Other", "apps": ["com.burbn.instagram"]},
+                    ],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            layout_path = dp / "layout.yaml"
+            layout_path.write_text(yaml.safe_dump(layout))
+            plan_out = dp / "plan.yaml"
+            args = make_args(
+                layout=str(layout_path),
+                plan=str(plan_out),
+                keep="com.microsoft.Office.Word",
+                dump_folder_names="Other",
+            )
+            rc = cmd_merge_folders(args)
+            self.assertEqual(rc, 0)
+            plan = yaml.safe_load(plan_out.read_text())
+            # App must be in pins
+            self.assertIn("com.microsoft.Office.Word", plan["pins"])
+            # App must NOT be in Work folder
+            self.assertNotIn("com.microsoft.Office.Word", plan["folders"].get("Work", []))
+
+    def test_keep_absent_bundle_warns_no_error(self):
+        """Fix 1: --keep with bundle ID not in layout → warned, conservation PASS."""
+        from phone.cli.cmd_merge import cmd_merge_folders
+
+        layout = {
+            "dock": [],
+            "pages": [
+                {"apps": ["com.apple.mobilesafari"], "folders": []},
+                {
+                    "apps": [],
+                    "folders": [
+                        {"name": "Work", "apps": ["com.slack"]},
+                        {"name": "Other", "apps": ["com.burbn.instagram"]},
+                    ],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            layout_path = dp / "layout.yaml"
+            layout_path.write_text(yaml.safe_dump(layout))
+            plan_out = dp / "plan.yaml"
+            args = make_args(
+                layout=str(layout_path),
+                plan=str(plan_out),
+                keep="com.nonexistent.app",
+                dump_folder_names="Other",
+            )
+            rc = cmd_merge_folders(args)
+        self.assertEqual(rc, 0)  # must NOT raise / return error
+
+
+class TestCmdReorgFailFast(unittest.TestCase):
+    def test_unresolvable_label_no_udid_returns_nonzero(self):
+        """Fix 3: unresolvable device_label without --udid and not --dry-run → non-zero."""
+        from phone.cli.cmd_merge import cmd_reorg
+
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            (dp / "out").mkdir()
+            with _chdir(dp), \
+                 patch.dict(os.environ, {"IOS_DEVICE_UDID": "", "IOS_CREDS_FILE": "/nonexistent"}), \
+                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+                args = make_args(
+                    device_label="no-such-device",
+                    udid=None,
+                    keep="",
+                    out=None,
+                    no_install=False,
+                    dry_run=False,
+                )
+                rc = cmd_reorg(args)
+
+        self.assertNotEqual(rc, 0)
+        run.assert_not_called()
+
+
+class TestReorgMergeMissingLayout(unittest.TestCase):
+    def test_missing_layout_returns_none_tuple(self):
+        """Fix 7: _reorg_merge with missing layout → returns (None, False, 0), no exception."""
+        from phone.cli.cmd_merge import _reorg_merge
+
+        with tempfile.TemporaryDirectory() as d:
+            result = _reorg_merge(
+                Path(d) / "nonexistent.yaml",
+                Path(d) / "plan.yaml",
+                [],
+            )
+
+        plan_obj, dump_elim, loose = result
+        self.assertIsNone(plan_obj)
+        self.assertFalse(dump_elim)
+        self.assertEqual(loose, 0)
+
+
+class TestReorgInstallOnly(unittest.TestCase):
+    """reorg --install-only: skip export/merge/build, install an existing profile."""
+
+    def test_install_only_success_with_625(self):
+        """--install-only with existing profile + cfgutil 625 → rc 0, no export/merge/build."""
+        from phone.cli.cmd_merge import cmd_reorg
+
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            (dp / "out").mkdir()
+            profile = dp / "out" / "ios.merged.mobileconfig"
+            profile.write_bytes(b"fake-profile")
+
+            with _chdir(dp), \
+                 patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+                 patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
+                 patch(
+                     "phone.cli.cmd_merge.subprocess.run",
+                     return_value=_cfg_result(1, stderr=_CFG_625),
+                 ) as run:
+                args = make_args(
+                    device_label="bcsphone",
+                    udid="UDID-X",
+                    install_only=True,
+                    no_install=False,
+                    dry_run=False,
+                    profile=str(profile),
+                    out=None,
+                    keep="",
+                )
+                rc = cmd_reorg(args)
+
+        self.assertEqual(rc, 0)
+        # subprocess.run must have been called once (cfgutil install-profile only)
+        run.assert_called_once()
+        call_cmd = run.call_args[0][0]
+        self.assertIn("install-profile", call_cmd)
+        # export-device must NOT have been called
+        self.assertNotIn("export-device", call_cmd)
+
+    def test_install_only_profile_not_found(self):
+        """--install-only with nonexistent profile → nonzero, no cfgutil call."""
+        from phone.cli.cmd_merge import cmd_reorg
+
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            (dp / "out").mkdir()
+            with _chdir(dp), \
+                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+                args = make_args(
+                    device_label="bcsphone",
+                    udid="UDID-X",
+                    install_only=True,
+                    no_install=False,
+                    dry_run=False,
+                    profile=str(dp / "out" / "nonexistent.mobileconfig"),
+                    out=None,
+                    keep="",
+                )
+                rc = cmd_reorg(args)
+
+        self.assertNotEqual(rc, 0)
+        run.assert_not_called()
+
+    def test_install_only_and_no_install_are_mutually_exclusive(self):
+        """--install-only + --no-install → error, nonzero."""
+        from phone.cli.cmd_merge import cmd_reorg
+
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            with _chdir(dp), \
+                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+                args = make_args(
+                    device_label="bcsphone",
+                    udid="UDID-X",
+                    install_only=True,
+                    no_install=True,
+                    dry_run=False,
+                    profile=None,
+                    out=None,
+                    keep="",
+                )
+                rc = cmd_reorg(args)
+
+        self.assertNotEqual(rc, 0)
+        run.assert_not_called()
+
+    def test_install_only_dry_run_no_subprocess(self):
+        """--install-only --dry-run → prints, rc 0, no subprocess.run."""
+        from phone.cli.cmd_merge import cmd_reorg
+
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d)
+            (dp / "out").mkdir()
+            profile = dp / "out" / "ios.merged.mobileconfig"
+            profile.write_bytes(b"fake-profile")
+
+            with _chdir(dp), \
+                 patch("phone.cli.cmd_merge.subprocess.run") as run:
+                args = make_args(
+                    device_label="bcsphone",
+                    udid="UDID-X",
+                    install_only=True,
+                    no_install=False,
+                    dry_run=True,
+                    profile=str(profile),
+                    out=None,
+                    keep="",
+                )
+                rc = cmd_reorg(args)
+
+        self.assertEqual(rc, 0)
+        run.assert_not_called()
 
 
 class _chdir:

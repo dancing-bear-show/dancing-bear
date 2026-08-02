@@ -14,12 +14,24 @@ One-shot command to reorganize your iPhone Home Screen — export, merge folders
 # Build the profile but do not copy it to the device
 ./bin/phone-assistant reorg --no-install
 
+# Install an already-built profile (skip export/merge/build)
+./bin/phone-assistant reorg --install-only --device-label bcsphone
+./bin/phone-assistant reorg --install-only --profile out/ios.merged.mobileconfig --device-label bcsphone
+
 # Or step by step:
 ./bin/phone-assistant export-device --out out/ios.IconState.yaml
 ./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
 ./bin/phone-assistant profile build --plan out/ios.plan.merged.yaml --layout out/ios.IconState.yaml --folder-page-size 9 --out out/ios.merged.mobileconfig
 cfgutil install-profile out/ios.merged.mobileconfig   # then tap Install on the device
 ```
+
+### `--install-only` mode
+
+Use `--install-only` to copy an already-built profile to the device without re-running the
+export/merge/build stages. Requires the profile to exist (default: `out/ios.merged.mobileconfig`;
+override with `--profile`). The same fail-fast UDID resolution and Code 625 handling apply.
+
+`--install-only` and `--no-install` are mutually exclusive.
 
 ### Code 625 is success
 

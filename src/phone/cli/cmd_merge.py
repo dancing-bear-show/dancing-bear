@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+from ..device import find_cfgutil_path, map_udid_to_ecid
 from ..helpers import read_yaml, write_yaml
 from ..layout_merge import merge_folders, verify_conservation
 
@@ -32,7 +34,7 @@ def cmd_merge_folders(args) -> int:
 
     try:
         plan = merge_folders(layout, keep=keep, dump_folders=dump_folders)
-    except Exception as exc:  # nosec B112 - surface merge failures with context
+    except ValueError as exc:
         print(f"Error: merge failed: {exc}", file=sys.stderr)
         return 1
 
@@ -55,18 +57,46 @@ def cmd_merge_folders(args) -> int:
     return 0
 
 
-def cmd_reorg(args) -> int:
-    """Chain export-device → merge-folders → profile build → install."""
-    import os
+def _resolve_reorg_udid(args, dry_run: bool) -> tuple[str | None, int]:
+    """Resolve the target device UDID for a reorg run.
 
+    Returns (udid, 0) on success, or (None, 1) after printing a fail-fast error
+    when an explicit device label can't be resolved and no --udid was given
+    (outside dry-run, since reorg replaces the whole Home Screen).
+    """
     device_label = getattr(args, "device_label", None) or "bcsphone"
     udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID", "")
     if not udid and device_label:
         udid = _udid_for_label(device_label) or ""
+    if not udid and not dry_run:
+        print(
+            f"Error: could not resolve device label '{device_label}' to a UDID "
+            f"(check [ios_devices] in credentials.ini); pass --udid or --dry-run",
+            file=sys.stderr,
+        )
+        return None, 1
+    return udid, 0
+
+
+def cmd_reorg(args) -> int:
+    """Chain export-device → merge-folders → profile build → install."""
+    install_only = getattr(args, "install_only", False)
+    no_install = getattr(args, "no_install", False)
+
+    if install_only and no_install:
+        print("Error: --install-only and --no-install are mutually exclusive", file=sys.stderr)
+        return 1
+
+    if install_only:
+        return _cmd_reorg_install_only(args)
+
+    dry_run = getattr(args, "dry_run", False)
+    udid, rc = _resolve_reorg_udid(args, dry_run)
+    if rc != 0:
+        return rc
+
     keep_csv = getattr(args, "keep", "") or ""
     out_profile = Path(getattr(args, "out", None) or "out/ios.merged.mobileconfig")
-    no_install = getattr(args, "no_install", False)
-    dry_run = getattr(args, "dry_run", False)
 
     layout_path = Path("out/ios.IconState.yaml")
     plan_path = Path("out/ios.plan.merged.yaml")
@@ -92,6 +122,25 @@ def cmd_reorg(args) -> int:
     return 0
 
 
+def _cmd_reorg_install_only(args) -> int:
+    """Install-only mode: skip export/merge/build; install an existing profile."""
+    dry_run = getattr(args, "dry_run", False)
+    udid, rc = _resolve_reorg_udid(args, dry_run)
+    if rc != 0:
+        return rc
+
+    # --profile takes precedence; fall back to --out default
+    profile_arg = getattr(args, "profile", None)
+    out_arg = getattr(args, "out", None)
+    profile_path = Path(profile_arg or out_arg or "out/ios.merged.mobileconfig")
+
+    if not profile_path.exists():
+        print(f"Error: profile not found: {profile_path}", file=sys.stderr)
+        return 1
+
+    return _reorg_install(dry_run, False, profile_path, udid)
+
+
 def _reorg_export(dry_run: bool, udid: str, layout_path: Path) -> int:
     """Step 1: export device layout."""
     print("=== reorg: step 1/4 — export-device ===")
@@ -113,10 +162,13 @@ def _reorg_export(dry_run: bool, udid: str, layout_path: Path) -> int:
 def _reorg_merge(layout_path: Path, plan_path: Path, keep: list[str]):
     """Step 2: run merge-folders and write plan. Returns (plan_obj, dump_eliminated, loose_filed) or (None, ...) on error."""
     print("=== reorg: step 2/4 — merge-folders ===")
+    if not layout_path.exists():
+        print(f"Error: layout not found: {layout_path}", file=sys.stderr)
+        return None, False, 0
     layout = read_yaml(layout_path)
     try:
         plan_obj = merge_folders(layout, keep=keep, dump_folders=["Other"])
-    except Exception as exc:  # nosec B112 - surface merge failures with context
+    except ValueError as exc:
         print(f"Error: merge-folders failed: {exc}", file=sys.stderr)
         return None, False, 0
     try:
@@ -179,12 +231,18 @@ def _reorg_install(
     # canonical route is copy-then-tap: cfgutil copies the profile and returns a
     # non-zero exit with "Code: 625 / User interaction on the device is
     # required", which is the EXPECTED success outcome — the user taps Install.
-    cfgutil = _resolve_cfgutil()
-    if not cfgutil:
+    try:
+        cfgutil = find_cfgutil_path()
+    except FileNotFoundError:
         print("Error: cfgutil not found (install Apple Configurator)", file=sys.stderr)
         return 1
     cmd = [cfgutil]
-    ecid = _resolve_ecid(cfgutil, udid) if udid else None
+    ecid: str | None = None
+    if udid:
+        try:
+            ecid = map_udid_to_ecid(cfgutil, udid) or None
+        except RuntimeError:
+            ecid = None
     if ecid:
         cmd += ["--ecid", ecid]
     cmd += ["install-profile", str(out_profile)]
@@ -214,12 +272,12 @@ def _reorg_install(
 def _udid_for_label(label: str) -> str | None:
     """Resolve a device label to its UDID via [ios_devices] in credentials.ini."""
     import configparser
-    import os
+    from core.constants import credential_ini_paths
 
-    for path in (
-        os.environ.get("IOS_CREDS_FILE"),
-        os.path.expanduser("~/.config/credentials.ini"),
-    ):
+    env_creds = os.environ.get("IOS_CREDS_FILE")
+    search_paths = ([env_creds] if env_creds else []) + credential_ini_paths()
+
+    for path in search_paths:
         if not path or not os.path.isfile(path):
             continue
         parser = configparser.ConfigParser()
@@ -229,36 +287,6 @@ def _udid_for_label(label: str) -> str | None:
             continue
         if parser.has_option("ios_devices", label):
             return parser.get("ios_devices", label)
-    return None
-
-
-def _resolve_cfgutil() -> str | None:
-    """Locate the cfgutil binary."""
-    import shutil
-
-    for candidate in (
-        "/usr/local/bin/cfgutil",
-        "/Applications/Apple Configurator.app/Contents/MacOS/cfgutil",
-    ):
-        if Path(candidate).exists():
-            return candidate
-    return shutil.which("cfgutil")
-
-
-def _resolve_ecid(cfgutil: str, udid: str) -> str | None:
-    """Map a UDID to its ECID so install targets one device."""
-    try:
-        out = subprocess.run(  # nosec B603 - resolved cfgutil path, list-form, no shell
-            [cfgutil, "list"], capture_output=True, text=True
-        ).stdout
-    except OSError:
-        return None
-    for line in out.splitlines():
-        if udid in line and "ECID:" in line:
-            parts = line.split()
-            for i, tok in enumerate(parts):
-                if tok == "ECID:" and i + 1 < len(parts):
-                    return parts[i + 1]
     return None
 
 

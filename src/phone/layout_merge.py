@@ -7,6 +7,7 @@ Preserves dock and page-1 pins. Enforces conservation invariant.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -207,8 +208,8 @@ def classify_to_folder(
     Priority:
     1. _BUNDLE_OVERRIDES exact match (if target folder exists)
     2. classify_app() category → _CATEGORY_TO_FOLDER (if target folder exists)
-    3. fallback ("Misc") if in existing_folders
-    4. first folder in existing_folders (alphabetical)
+    3. fallback name ("Misc") — returned unconditionally so the caller can create
+       the folder if it does not yet exist (caller's create-branch is reachable)
     """
     # 1. Check bundle-level override
     if bundle_id in _BUNDLE_OVERRIDES:
@@ -223,14 +224,10 @@ def classify_to_folder(
     if folder_name in existing_folders:
         return folder_name
 
-    # 3. Fallback to "Misc" if available
-    if fallback in existing_folders:
-        return fallback
-
-    # 4. First available folder (deterministic)
-    if existing_folders:
-        return sorted(existing_folders)[0]
-
+    # 3. Return fallback unconditionally — let the caller create the folder if
+    #    needed (_file_apps_into_folders already handles this). Returning the
+    #    alphabetically-first existing folder when "Misc" is absent just moves
+    #    unclassifiable apps into an arbitrary folder.
     return fallback
 
 
@@ -406,7 +403,7 @@ def merge_folders(
     Behavior:
         - Dock: preserved exactly
         - Page 1 apps: all kept as pins (not foldered)
-        - Keep set: always pins on page 1
+        - Keep set: always pins on page 1; stripped from any preserved folder first
         - Loose apps on pages >= 2: filed into best-fit existing folder
         - Dump folder apps: redistributed into best-fit existing folder
         - All other existing folders: preserved exactly
@@ -427,13 +424,26 @@ def merge_folders(
             "No existing (non-dump) folders in layout; cannot redistribute apps"
         )
 
+    all_layout_ids: set[str] = set(_collect_layout_ids(layout))
+    effective_keep: set[str] = set()
+    for bid in keep_set:
+        if bid in all_layout_ids:
+            effective_keep.add(bid)
+        else:
+            print(f"Warning: --keep id not found in layout, ignoring: {bid}", file=sys.stderr)
+
+    # Strip keep-set members from their preserved folders so they are not double-counted
+    if effective_keep:
+        for name in folders_by_name:
+            folders_by_name[name] = [b for b in folders_by_name[name] if b not in effective_keep]
+
     to_file = _collect_apps_to_file(pages_raw, dump_set, dock_set)
     _file_apps_into_folders(
-        to_file, keep_set, folders_by_name, folder_page, existing_folders,
+        to_file, effective_keep, folders_by_name, folder_page, existing_folders,
         default_page=max(len(pages_raw), 2),
     )
 
-    pins = _build_pins(pages_raw, dock_set, keep_set)
+    pins = _build_pins(pages_raw, dock_set, effective_keep)
     pages = _build_pages_dict(pins, folder_page)
 
     return MergePlan(dock=dock, pins=pins, folders=folders_by_name, pages=pages)

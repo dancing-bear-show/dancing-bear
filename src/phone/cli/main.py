@@ -329,6 +329,17 @@ def _cmd_merge_folders(args) -> int:
     default=False,
     help="Plan only; use existing layout, skip device write",
 )
+@app.argument(
+    "--install-only",
+    action="store_true",
+    default=False,
+    help="Skip export/merge/build; install an existing profile (see --profile)",
+)
+@app.argument(
+    "--profile",
+    default=None,
+    help="Profile path for --install-only (default out/ios.merged.mobileconfig)",
+)
 def _cmd_reorg(args) -> int:
     return cmd_reorg(args)
 
