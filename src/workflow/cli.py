@@ -1,21 +1,27 @@
 """Workflow engine CLI — thin shim.
 
-``build_parser`` and ``main`` live here; command handlers and cache logic
-are in ``cli_dispatch`` and ``cli_compile``.  Everything that was previously
-defined here is still importable from this module for backwards compatibility.
+The ``app`` (CLIApp) wiring and ``main`` live here; command handlers and cache
+logic are in ``cli_dispatch`` and ``cli_compile``.  Everything that was
+previously defined here is still importable from this module for backwards
+compatibility.
+
+Built on ``core.cli_framework.CLIApp``, matching the pattern used by the other
+domain CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi,
+maker, apple_music, metals).
 
 Engine-specific verb conventions: this domain uses ``run`` (not ``apply``) and
-``lint`` (not ``verify``) to match workflow engine terminology.  These names are
-part of the public CLI surface and are intentional deviations from the general
-assistant convention documented in DESIGN_CRITERIA.md.
+``lint`` (not ``verify``) to match workflow engine terminology.  These names
+are part of the public CLI surface and are an intentional naming deviation
+from the general assistant convention documented in DESIGN_CRITERIA.md — this
+is purely a naming choice, not a framework deviation.
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
+from typing import Any
 
-from core.cli_errors import ExitCode, handle_error
+from core.cli_framework import CLIApp
 from core.cli_output import emit_one, emit_rows
 
 # ---------------------------------------------------------------------------
@@ -57,19 +63,24 @@ from workflow.cli_dispatch import (  # noqa: F401
 _PATH_HELP = "Path to workflow YAML file"
 
 
-def _add_format_argument(
-    parser: argparse.ArgumentParser,
+def _format_kwargs(
     *,
     formats: list[str] | None = None,
     default: str = "table",
-) -> None:
+) -> dict[str, Any]:
+    """Build the shared kwargs for a per-command ``--format/-f`` argument.
+
+    Each subcommand has its own choices/default, so this is spread into
+    ``@app.argument("--format", "-f", **_format_kwargs(...))`` rather than
+    mutating an ``argparse.ArgumentParser`` directly (CLIApp does not expose
+    one until after ``@app.command`` registers the function).
+    """
     choices = formats or ["table", "json", "yaml"]
-    parser.add_argument(
-        "--format", "-f",
-        choices=choices,
-        default=default,
-        help=f"Output format (default: {default})",
-    )
+    return {
+        "choices": choices,
+        "default": default,
+        "help": f"Output format (default: {default})",
+    }
 
 
 def _emit_one(data: dict, *, fmt: str = "table") -> None:
@@ -98,103 +109,110 @@ def _emit_rows(
     emit_rows(rows, fmt=fmt, headers=headers)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level parser and register all subcommands."""
-    parser = argparse.ArgumentParser(prog="workflow", description="Workflow engine CLI.")
-    sub = parser.add_subparsers(dest="subcommand")
+app = CLIApp("workflow", "Workflow engine CLI.", add_common_args=False)
 
-    p_parse = sub.add_parser("parse", help="Parse a workflow YAML and display its structure")
-    p_parse.add_argument("path", help=_PATH_HELP)
-    _add_format_argument(p_parse, default="table")
 
-    p_compile = sub.add_parser("compile", help="Parse + compile, showing the execution plan")
-    p_compile.add_argument("path", help=_PATH_HELP)
-    p_compile.add_argument(
-        "--no-compile-cache",
-        action="store_true",
-        dest="no_cache",
-        help="Bypass the sha256-keyed compile cache and re-compile from YAML",
-    )
-    _add_format_argument(p_compile, default="table")
+@app.command("parse", help="Parse a workflow YAML and display its structure")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--format", "-f", **_format_kwargs(default="table"))
+def cmd_parse(args: argparse.Namespace) -> int:
+    return _cmd_parse(args)
 
-    p_run = sub.add_parser("run", help="Parse + compile + execute a workflow")
-    p_run.add_argument("path", help=_PATH_HELP)
-    p_run.add_argument("--execute", action="store_true", help="Actually run the workflow (default is dry-run)")
-    p_run.add_argument("--workspace", help="Override workspace base directory")
-    p_run.add_argument("--params", action="append", default=[], metavar="key=value",
-                       help="Trigger parameter overrides (repeatable)")
-    p_run.add_argument("--run-id", help="Custom run ID")
-    _add_format_argument(p_run, default="table")
 
-    p_lint = sub.add_parser("lint", help="Validate workflow YAML structure without running it")
-    p_lint.add_argument("file", help="Path to workflow YAML file")
-    p_lint.add_argument(
-        "--strict", action="store_true",
-        help="Treat warnings as errors (exit non-zero if any warnings exist)",
-    )
-    p_lint.add_argument(
-        "--check-commands", action="store_true", dest="check_commands",
-        help="Validate ./bin/<cli> <subcommand> patterns by probing each binary",
-    )
-    _add_format_argument(p_lint, default="yaml")
+@app.command("compile", help="Parse + compile, showing the execution plan")
+@app.argument("path", help=_PATH_HELP)
+@app.argument(
+    "--no-compile-cache",
+    action="store_true",
+    dest="no_cache",
+    help="Bypass the sha256-keyed compile cache and re-compile from YAML",
+)
+@app.argument("--format", "-f", **_format_kwargs(default="table"))
+def cmd_compile(args: argparse.Namespace) -> int:
+    return _cmd_compile(args)
 
-    p_list = sub.add_parser("list", help="List available workflow definitions")
-    _add_format_argument(p_list, default="table")
 
-    p_status = sub.add_parser("status", help="Show status of a workflow run")
-    p_status.add_argument("workspace_dir", help="Workspace directory of the run")
-    _add_format_argument(p_status, default="table")
+@app.command("run", help="Parse + compile + execute a workflow")
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--execute", action="store_true", help="Actually run the workflow (default is dry-run)")
+@app.argument("--workspace", help="Override workspace base directory")
+@app.argument(
+    "--params", action="append", default=[], metavar="key=value",
+    help="Trigger parameter overrides (repeatable)",
+)
+@app.argument("--run-id", help="Custom run ID")
+@app.argument("--format", "-f", **_format_kwargs(default="table"))
+def cmd_run(args: argparse.Namespace) -> int:
+    return _cmd_run(args)
 
-    p_init = sub.add_parser(
-        "init-workspace",
-        help="Create workspace dir, write manifest.json + plan.json, print workspace path",
-    )
-    p_init.add_argument("path", help=_PATH_HELP)
-    p_init.add_argument("--run-id", dest="run_id", default="", help="Custom run ID (auto-generated if omitted)")
-    p_init.add_argument("--base-dir", dest="base_dir", default="", help="Base directory for workspace")
-    p_init.add_argument("--params", action="append", default=[], metavar="key=value",
-                        help="Trigger parameter overrides (repeatable)")
 
-    p_resume = sub.add_parser(
-        "resume",
-        help="Show which stages need re-running (exit 0 if all done, exit 2 if stages remain)",
-    )
-    p_resume.add_argument("workspace_dir", help="Workspace directory of the run to resume")
-    _add_format_argument(p_resume, default="table")
+@app.command("lint", help="Validate workflow YAML structure without running it")
+@app.argument("file", help="Path to workflow YAML file")
+@app.argument(
+    "--strict", action="store_true",
+    help="Treat warnings as errors (exit non-zero if any warnings exist)",
+)
+@app.argument(
+    "--check-commands", action="store_true", dest="check_commands",
+    help="Validate ./bin/<cli> <subcommand> patterns by probing each binary",
+)
+@app.argument("--format", "-f", **_format_kwargs(default="yaml"))
+def cmd_lint(args: argparse.Namespace) -> int:
+    return _cmd_lint(args)
 
-    p_vf = sub.add_parser(
-        "validate-fragment",
-        help="Validate a workflow fragment YAML (must have top-level 'fragment: true' key)",
-    )
-    p_vf.add_argument("file", help="Path to fragment YAML file")
-    p_vf.add_argument("--strict", action="store_true", help="Treat warnings as errors")
-    _add_format_argument(p_vf, formats=["json", "yaml", "table"], default="yaml")
 
-    return parser
+@app.command("list", help="List available workflow definitions")
+@app.argument("--format", "-f", **_format_kwargs(default="table"))
+def cmd_list(args: argparse.Namespace) -> int:
+    return _cmd_list(args)
+
+
+@app.command("status", help="Show status of a workflow run")
+@app.argument("workspace_dir", help="Workspace directory of the run")
+@app.argument("--format", "-f", **_format_kwargs(default="table"))
+def cmd_status(args: argparse.Namespace) -> int:
+    return _cmd_status(args)
+
+
+@app.command(
+    "init-workspace",
+    help="Create workspace dir, write manifest.json + plan.json, print workspace path",
+)
+@app.argument("path", help=_PATH_HELP)
+@app.argument("--run-id", dest="run_id", default="", help="Custom run ID (auto-generated if omitted)")
+@app.argument("--base-dir", dest="base_dir", default="", help="Base directory for workspace")
+@app.argument(
+    "--params", action="append", default=[], metavar="key=value",
+    help="Trigger parameter overrides (repeatable)",
+)
+def cmd_init_workspace(args: argparse.Namespace) -> int:
+    return _cmd_init_workspace(args)
+
+
+@app.command(
+    "resume",
+    help="Show which stages need re-running (exit 0 if all done, exit 2 if stages remain)",
+)
+@app.argument("workspace_dir", help="Workspace directory of the run to resume")
+@app.argument("--format", "-f", **_format_kwargs(default="table"))
+def cmd_resume(args: argparse.Namespace) -> int:
+    return _cmd_resume(args)
+
+
+@app.command(
+    "validate-fragment",
+    help="Validate a workflow fragment YAML (must have top-level 'fragment: true' key)",
+)
+@app.argument("file", help="Path to fragment YAML file")
+@app.argument("--strict", action="store_true", help="Treat warnings as errors")
+@app.argument("--format", "-f", **_format_kwargs(formats=["json", "yaml", "table"], default="yaml"))
+def cmd_validate_fragment(args: argparse.Namespace) -> int:
+    return _cmd_validate_fragment(args)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Workflow CLI entry point."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    if not args.subcommand:
-        print(
-            "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
-            file=sys.stderr,
-        )
-        return ExitCode.USAGE
-
-    dispatch = {
-        "parse": _cmd_parse, "compile": _cmd_compile, "run": _cmd_run,
-        "lint": _cmd_lint, "list": _cmd_list, "status": _cmd_status,
-        "init-workspace": _cmd_init_workspace, "resume": _cmd_resume,
-        "validate-fragment": _cmd_validate_fragment,
-    }
-    try:
-        return dispatch[args.subcommand](args)
-    except Exception as exc:  # noqa: BLE001 # nosec B110 - top-level CLI error handler; CLIError subclasses propagate exit codes
-        return handle_error(exc)
+    return app.run(argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
