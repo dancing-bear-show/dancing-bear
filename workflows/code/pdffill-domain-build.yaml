@@ -1,0 +1,1021 @@
+# Build the src/pdffill/ domain from scratch: design, adversarial critique,
+# parallel implementation, integration review, fix, and verify.
+#
+# Motivation: a manual PDF insurance-claim filling session exposed a cluster of
+# hard-to-diagnose bugs in pymupdf/fitz-based form filling (silent field
+# clipping on narrow widgets, unreliable widget.update(), misleading on-state
+# names on checkboxes). This workflow formalises those lessons as a reusable
+# domain so they are never rediscovered by hand again.
+#
+# Stage dependency graph:
+#
+#   design
+#       |
+#   critique-design  [human gate]
+#       |
+#   implement-engine --- implement-cli --- implement-tests  (parallel)
+#       \                    |                  /
+#              integration-review  [validate]
+#                    |
+#              fix-integration
+#                    |
+#              verify  [validate]
+#                    |
+#              human-gate
+
+name: pdffill-domain-build
+version: "1.0"
+description: >
+  Design and implement the src/pdffill/ domain: a pymupdf/fitz-based PDF
+  form-filling toolkit that bakes in lessons from a manual insurance-claim
+  session (Sun Life EHC forms). Covers two fill strategies — widget-fill
+  for AcroForm PDFs and coordinate-injection for flat/scanned PDFs — plus a
+  CLIApp-based bin/pdffill entry point, synthetic test suite, and render-based
+  verification utilities.
+
+  The workflow runs: design -> adversarial critique (human gate) -> parallel
+  implementation of core engine / CLI layer / tests -> integration review
+  (signature-consistency check across the three parallel outputs) -> fix stage
+  -> full verify (tests + qlty + CLI --help smoke + optional real-form smoke
+  test) -> final human gate presenting what was built before anything lands on
+  main.
+
+  Nothing is pushed to main or auto-merged. The branch and worktree location
+  are reported at the human gate for Brian to review and merge manually.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-02"
+
+trigger:
+  source: manual
+  params:
+    real_pdf: ""                     # optional: path to ~/Downloads/pdfFormClaim.pdf for smoke test
+    run_qlty: "true"                 # set "false" to skip qlty in verify (CI-only environments)
+
+workspace_dir: "{work_dir}/pdffill-domain-build"
+
+stages:
+
+  # ===========================================================================
+  # S0: Design -- write the implementation spec for all three parallel agents
+  # ===========================================================================
+
+  - name: design
+    kind: gather
+    depends_on: []
+    description: >
+      Produce a detailed implementation spec for the pdffill domain. This spec
+      is the shared contract that the three parallel implementation stages
+      (implement-engine, implement-cli, implement-tests) will be built against,
+      since they cannot read each other's actual code while running in parallel.
+      The spec must be precise enough that independently-written layers are
+      API-compatible on first merge.
+
+      Step 1 -- orient to the codebase.
+        Use the Bash tool to read:
+          ls src/
+          cat src/wifi/cli.py              (CLIApp pattern to mirror)
+          cat src/core/cli_framework.py    (CLIApp/BaseAssistant internals)
+          cat src/core/assistant.py        (BaseAssistant pattern)
+          cat bin/wifi                     (bin wrapper pattern)
+        Also read one existing test suite to understand the test conventions:
+          ls tests/wifi_tests/ 2>/dev/null || ls tests/ | head -20
+          cat tests/wifi_tests/test_wifi_cli.py 2>/dev/null | head -80
+
+      Step 2 -- write the module structure spec.
+        The domain lives entirely under src/pdffill/ and tests/pdffill_tests/.
+        Write {workspace}/design/spec.md describing:
+
+        src/pdffill/__init__.py
+          Empty or re-exports only. No fitz import at module level.
+
+        src/pdffill/widget.py  -- WIDGET-FILL strategy
+          WidgetFiller class (fitz lazy-imported inside methods, never top-level).
+          Public API:
+            list_fields(pdf_path: str) -> list[dict]
+              Returns [{{name, type, value, rect_page, rect_coords, on_states}}].
+            fill_fields(pdf_path: str, values: dict[str, str], out_path: str,
+                        fontsize: float | None = None, bake: bool = False,
+                        strict: bool = False) -> FillResult
+              Fills each field in values using DIRECT XREF MANIPULATION (not
+              widget.update() alone). For text fields:
+                - Set /DA via doc.xref_set_key(xref, "DA", ...) using
+                  auto-size font ("0 g /Helv 0 Tf") unless caller passes
+                  fontsize (in which case, use "/Helv {{fontsize}} Tf").
+                - Set /V via doc.xref_set_key(xref, "V", fitz.get_pdf_str(value)).
+                - Clear cached appearance: doc.xref_set_key(xref, "AP", "null").
+                - widget.update() called afterward as belt-and-suspenders only,
+                  never relied upon as the sole persistence path.
+              For checkboxes/radio:
+                - Set via xref too; do NOT toggle widget alone.
+              strict=True raises on unknown field names; False skips them.
+              bake=False (default) preserves fillable form; True flattens.
+              Returns FillResult(filled: list[str], skipped: list[str],
+                                 errors: list[str], out_path: str).
+            verify_checkbox_label(pdf_path: str, field_name: str,
+                                  expect_label: str) -> CheckboxVerifyResult
+              Determines the TRUE visual answer by comparing widget.rect
+              against nearby text extracted with page.get_text("dict"), NOT
+              by trusting field.on_state name alone.
+              Returns CheckboxVerifyResult(field_name, on_state, nearby_text,
+                                           label_matches: bool,
+                                           suspect_swap: bool).
+            render_field_region(pdf_path: str, field_name: str,
+                                out_png: str, dpi: int = 300,
+                                pad: int = 20) -> None
+              Crop and render the field's bounding rect (plus pad pixels) to
+              a PNG for human visual verification.
+
+        src/pdffill/inject.py  -- COORDINATE-INJECTION strategy
+          CoordinateInjector class (fitz lazy-imported).
+          Public API:
+            fill(pdf_path: str, template_path: str, values: dict[str, str],
+                 out_path: str) -> InjectResult
+              Loads a JSON/YAML coordinate template. Each entry maps a semantic
+              field name to {{page, x, y, fontsize, align, color}}. Calls
+              page.insert_text() for each matched field. Unknown fields in
+              values are skipped with a warning (never an error). Returns
+              InjectResult(placed: list[str], skipped: list[str], out_path: str).
+            calibrate(pdf_path: str, page_num: int, out_png: str,
+                      grid_spacing: int = 25) -> None
+              Renders the page at 300 DPI and overlays a coordinate grid
+              (horizontal and vertical lines every grid_spacing points, with
+              numeric labels at each grid line). Saves to out_png. No fitz
+              form-field interaction; purely visual.
+
+        src/pdffill/cli.py  -- CLIApp entry point
+          Mirror src/wifi/cli.py's CLIApp decorator pattern exactly.
+          App name: "pdffill". One-line help text per CLAUDE.md.
+          Subcommand groups: widget, inject.
+          Commands:
+            widget list-fields --pdf <path> [--json]
+            widget fill        --pdf <path> --values <file> --out <path>
+                               [--fontsize N] [--bake] [--strict]
+            widget verify-checkbox --pdf <path> --field <name>
+                               --expect-label <text>
+            widget render-field  --pdf <path> --field <name> --out <png>
+                               [--dpi 300] [--pad 20]
+            inject fill        --pdf <path> --template <file>
+                               --values <file> --out <path>
+            inject calibrate   --pdf <path> --page N --out <png>
+                               [--grid-spacing 25]
+          All commands support --agentic / --agentic-format / --agentic-compact
+          per project convention (BaseAssistant/agentic.py pattern from wifi).
+
+        src/pdffill/meta.py
+          APP_ID = "pdffill"
+          PURPOSE = "PDF form-filling toolkit (widget-fill and coordinate-injection)"
+
+        src/pdffill/__main__.py
+          Thin re-export shim so both "python3 -m pdffill" and bin/pdffill work:
+            from __future__ import annotations
+            from .cli import main
+            __all__ = ["main"]
+            if __name__ == "__main__":  # pragma: no cover
+                raise SystemExit(main())
+          Mirror src/wifi/__main__.py exactly.
+
+        bin/pdffill
+          Thin Python wrapper matching bin/wifi exactly:
+            #!/usr/bin/env python3, docstring, then insert
+            SRC_ROOT = Path(__file__).resolve().parents[1] / "src" into sys.path,
+            then "from pdffill.__main__ import main" and
+            "if __name__ == '__main__': raise SystemExit(main())".
+          Do not use exec python3 -m.
+          (Derive the exact pattern from cat bin/wifi.)
+
+        tests/pdffill_tests/__init__.py  (empty)
+        tests/pdffill_tests/conftest_fixtures.py  (NOT conftest.py -- this repo
+          uses unittest, not pytest; shared fixtures are imported explicitly)
+          Build synthetic test PDFs with fitz in module-level functions:
+            make_widget_pdf() -> bytes  -- 3 AcroForm text fields (name, phone,
+              dob_day) where dob_day has a narrow rect (~18pt wide) simulating
+              a real narrow sub-field; plus 2 checkbox widgets forming a
+              deliberately-swapped pair (on_state names are "Yes"/"No" but the
+              widget whose on_state is "No" is physically positioned beside the
+              "Yes" printed label -- matching the real-form bug).
+            make_flat_pdf() -> bytes  -- 1 page, no widgets, plain text body.
+          Both functions return in-memory bytes; tests write to
+          tempfile.NamedTemporaryFile.
+
+        tests/pdffill_tests/test_widget.py
+          Must assert:
+            - list_fields returns expected field names and types.
+            - fill_fields happy path: fills all known fields, returns
+              FillResult with all names in filled, skipped empty, errors empty.
+            - Auto-size /DA: after fill_fields, read back xref and confirm
+              /DA string contains "0 Tf" (auto-size) when no fontsize given.
+            - Clipping fix implicit: /AP key is absent or null after fill (so
+              viewer will regenerate appearance from new /DA).
+            - strict=True raises on unknown field, strict=False skips it.
+            - verify_checkbox_label: on the swapped pair, returns suspect_swap=True
+              for the field whose on_state name does NOT match its visual position.
+            - render_field_region: produces a .png file > 0 bytes.
+
+        tests/pdffill_tests/test_inject.py
+          Must assert:
+            - inject fill places text so page.get_text("words") returns the
+              filled value near the specified coordinates.
+            - inject calibrate produces a .png file > 0 bytes without error.
+
+        tests/pdffill_tests/test_cli.py
+          Smoke tests for CLI import and help text reachability. Assert:
+            - bin/pdffill --help exits 0.
+            - Each subcommand --help exits 0.
+            - --agentic --agentic-format json exits 0 and emits valid JSON.
+
+      Step 3 -- write the shared dataclass definitions.
+        Write {workspace}/design/dataclasses.md listing every @dataclass with
+        field names, types, and docstrings. This ensures all three parallel
+        agents use identical signatures.
+
+      Step 4 -- write the coordinate-template JSON schema.
+        Write {workspace}/design/template-schema.json:
+          {{
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "description": "Coordinate-injection template: field-name -> placement config",
+            "additionalProperties": {{
+              "type": "object",
+              "required": ["page", "x", "y", "fontsize"],
+              "properties": {{
+                "page":     {{ "type": "integer", "minimum": 0 }},
+                "x":        {{ "type": "number" }},
+                "y":        {{ "type": "number" }},
+                "fontsize": {{ "type": "number", "minimum": 1 }},
+                "align":    {{ "type": "integer", "enum": [0, 1, 2], "default": 0 }},
+                "color":    {{ "type": "array", "items": {{ "type": "number" }},
+                               "minItems": 3, "maxItems": 3, "default": [0, 0, 0] }}
+              }}
+            }}
+          }}
+
+      Step 5 -- mkdir workspace dirs.
+        Bash tool:
+          mkdir -p {workspace}/design
+          mkdir -p {workspace}/outputs
+          mkdir -p {workspace}/validation
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: spec
+        mode: generate
+        description: >
+          Implementation spec at {workspace}/design/spec.md, dataclass
+          definitions at {workspace}/design/dataclasses.md, and coordinate
+          template JSON schema at {workspace}/design/template-schema.json.
+    required: true
+    writes_to:
+      - design/spec.md
+      - design/dataclasses.md
+      - design/template-schema.json
+
+  # ===========================================================================
+  # S1: Critique design -- adversarial review of spec before code is written
+  # ===========================================================================
+
+  - name: critique-design
+    kind: validate
+    human_gate: true
+    depends_on: [design]
+    reads_from: [design]
+    description: >
+      Adversarially critique the spec produced by the design stage. The goal
+      is to find gaps, contradictions, or risks BEFORE code is written in
+      parallel -- integration failures here are cheap; after parallel fan-out
+      they are expensive.
+
+      Read {workspace}/design/spec.md, {workspace}/design/dataclasses.md,
+      and {workspace}/design/template-schema.json.
+
+      Evaluate against these axes:
+
+        1. API consistency
+           Do all three planned layers (engine, CLI, tests) agree on method
+           signatures and dataclass field names? Look for any place where the
+           spec describes the same concept with different names or types across
+           sections.
+
+        2. Clipping-fix correctness
+           Does the spec actually prevent the silent-clipping bug? Verify:
+             a. The /DA manipulation uses "0 Tf" (auto-size) as the default.
+             b. /AP is explicitly cleared (set to null xref key) so the viewer
+                regenerates the appearance from /DA+/V, not the old cached
+                appearance stream.
+             c. The spec never falls back to widget.update() as the ONLY write
+                path for /DA or /V.
+           If any of these are wrong or ambiguous, flag as BLOCKING.
+
+        3. Checkbox visual-verifier completeness
+           Does verify_checkbox_label return enough data to distinguish:
+             - Correctly labelled checkbox (on_state matches visual position)
+             - Swapped pair (on_state name does NOT match visual position)
+           Is it clear HOW the comparison is done (rect overlap vs text search)?
+           Is the return type defined precisely enough for the test to assert?
+
+        4. Test suite coverage of stated bugs
+           For each of the four bug classes called out in spec.md:
+             a. narrow-field clipping fix
+             b. widget.update() unreliability
+             c. checkbox on-state swap
+             d. misleading pdftotext/field_value verification
+           Does the test plan produce an assertion that would FAIL if the fix
+           were absent? If a bug class has no regression-catching assertion,
+           flag as BLOCKING.
+
+        5. bake-by-default safety
+           Does the spec default bake=False? Verify explicitly -- forms with
+           ink-signature-only fields must never be silently flattened.
+
+        6. Lazy-import discipline
+           Does every fitz import appear inside function/method bodies only?
+           Any module-level fitz import is a BLOCKING violation.
+
+        7. Bin wrapper pattern
+           Does the spec reference the correct pattern from bin/wifi? Any
+           deviation (e.g. using python -m directly as the default) must be
+           flagged.
+
+        8. Missing edge cases
+           - What happens when pdf_path does not exist? (FileNotFoundError)
+           - What happens when a values dict key is a valid field name but
+             the field type is unsupported (e.g. signature widget)?
+           - What happens when the coordinate template references a page index
+             that does not exist in the PDF?
+           Flag each missing edge case as SUGGESTION or BLOCKING as appropriate.
+
+      Write {workspace}/validation/design-critique.md:
+        ## Design Critique
+        ### Blocking Issues
+        (items that MUST be resolved before parallel implementation begins)
+        ### Suggestions
+        (items worth fixing but not blockers)
+        ### Confirmed Correct
+        (axes that passed review)
+
+      Present the critique to the user and ask:
+        A) Approve as-is -- proceed to parallel implementation
+        B) Fix blocking issues -- describe the changes needed, then re-run design
+        C) Abort -- stop the workflow
+
+      Write the decision to {workspace}/validation/critique-decision.md.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - No BLOCKING issues remain unaddressed
+        - Clipping-fix DA/AP spec verified correct
+        - All four bug classes have regression-catching assertions in the test plan
+        - bake=False confirmed as default
+        - fitz lazy-import discipline confirmed
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/design-critique.md
+      - validation/critique-decision.md
+
+  # ===========================================================================
+  # S2a: Implement core engine -- widget.py + inject.py + meta.py
+  # ===========================================================================
+
+  - name: implement-engine
+    kind: execute
+    depends_on: [critique-design]
+    reads_from: [critique-design, design]
+    description: >
+      Implement src/pdffill/__init__.py, src/pdffill/meta.py,
+      src/pdffill/widget.py, and src/pdffill/inject.py per the spec at
+      {workspace}/design/spec.md and the dataclass definitions at
+      {workspace}/design/dataclasses.md.
+
+      CRITICAL constraints (verify each before saving):
+        - fitz (pymupdf) is NEVER imported at module level. Every fitz import
+          is inside a function or method body: "import fitz" inside the method.
+        - /DA manipulation uses doc.xref_set_key() directly. widget.update()
+          may be called afterward as belt-and-suspenders but is never the sole
+          write path for /DA or /V.
+        - Auto-size font default: when caller does not pass fontsize, set
+          /DA to "0 g /Helv 0 Tf" (size 0 = auto-fit-to-box). When fontsize
+          is given, use "/Helv {fontsize} Tf".
+        - After setting /DA, always clear the cached appearance stream:
+          doc.xref_set_key(xref, "AP", "null")
+          This forces the PDF viewer to regenerate the appearance from the new
+          /DA+/V on open, preventing stale-appearance clipping.
+        - bake=False is the default. Never flatten unless explicitly requested.
+        - verify_checkbox_label compares widget.rect to nearby text from
+          page.get_text("dict"), NOT on_state name. Returns CheckboxVerifyResult.
+        - render_field_region crops with page.get_pixmap(clip=padded_rect, dpi=dpi)
+          and saves via pixmap.save(out_png).
+        - CoordinateInjector.calibrate overlays a grid at grid_spacing-point
+          intervals with numeric labels using page.draw_line() + page.insert_text().
+
+      Code quality constraints (CLAUDE.md):
+        - @dataclass for all structured return types (FillResult, InjectResult,
+          CheckboxVerifyResult).
+        - Type hints on all function signatures; PEP 585/604 style.
+        - No bare except Exception: pass -- use # nosec B110 with intent comment.
+        - Terse docstrings (1 line per method -- no prose).
+
+      Step 1 -- read the spec and existing patterns:
+        Use the Read tool on {workspace}/design/spec.md.
+        Use the Read tool on {workspace}/design/dataclasses.md.
+        Use the Bash tool: cat src/wifi/cli.py | head -30
+        Use the Bash tool: cat src/core/assistant.py | head -40
+
+      Step 2 -- add pymupdf as an optional extra and register the package.
+        PyMuPDF (fitz) is not yet in pyproject.toml. Edit pyproject.toml:
+          a. Add a "pdffill" extra under [project.optional-dependencies] (the
+             section already exists; add a new key after the existing "pdf" and
+             "dev" entries):
+               pdffill = [
+                 "pymupdf>=1.24.0",
+               ]
+             Do NOT add pymupdf to the [project] base dependencies list --
+             fitz is lazy-imported inside functions precisely so the package
+             is usable without it installed.
+          b. Add "pdffill*" to the [tool.setuptools.packages.find] include list
+             (same glob pattern as "wifi*", "charts*", etc.).
+        Verify the edits took effect:
+          Bash tool: grep "pymupdf\|pdffill" pyproject.toml
+        Then reinstall with the pdffill extra so pip picks up the package and
+        the optional dependency:
+          Bash tool: pip install -e ".[pdffill]" -q 2>&1 | tail -5
+        Confirm fitz is importable:
+          Bash tool: python3 -c "import fitz; print(fitz.__version__)" 2>&1
+
+      Step 3 -- write implementation files:
+        Write src/pdffill/__init__.py (empty or minimal re-exports only).
+        Write src/pdffill/meta.py.
+        Write src/pdffill/widget.py (WidgetFiller class with all public API).
+        Write src/pdffill/inject.py (CoordinateInjector class with all public API).
+
+      Step 4 -- quick import smoke check:
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -c "import pdffill; import pdffill.widget; import pdffill.inject" 2>&1
+        If the import fails, fix the module before proceeding (likely a
+        non-lazy import or a missing __init__ re-export).
+
+      Step 5 -- write output manifest to {workspace}/outputs/engine-manifest.json:
+        {{
+          "files_written": [
+            "src/pdffill/__init__.py",
+            "src/pdffill/meta.py",
+            "src/pdffill/widget.py",
+            "src/pdffill/inject.py"
+          ],
+          "pyproject_updated": true,
+          "fitz_importable": "PASS|FAIL",
+          "import_smoke_check": "PASS|FAIL",
+          "import_error": null
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: engine
+        mode: generate
+        description: >
+          Core engine files: src/pdffill/__init__.py, meta.py, widget.py,
+          inject.py. Engine manifest at {workspace}/outputs/engine-manifest.json.
+    required: true
+    writes_to:
+      - outputs/engine-manifest.json
+
+  # ===========================================================================
+  # S2b: Implement CLI layer -- cli.py + bin/pdffill
+  # ===========================================================================
+
+  - name: implement-cli
+    kind: execute
+    depends_on: [critique-design]
+    reads_from: [critique-design, design]
+    description: >
+      Implement src/pdffill/__main__.py, src/pdffill/cli.py, and bin/pdffill per the spec at
+      {workspace}/design/spec.md, mirroring the CLIApp decorator pattern in
+      src/wifi/cli.py exactly.
+
+      Step 1 -- read the spec and the wifi CLI pattern:
+        Use the Read tool on {workspace}/design/spec.md.
+        Use the Read tool on src/wifi/cli.py.
+        Use the Bash tool: cat bin/wifi
+        Use the Bash tool: cat src/wifi/meta.py
+
+      Step 2 -- write src/pdffill/cli.py.
+        Subcommand groups: widget, inject.
+        All six commands must be wired up per the spec (terse 1-line help text).
+        The app and assistant setup MUST match wifi's pattern exactly:
+          - BaseAssistant(APP_ID, ...) instantiated at module level.
+          - CLIApp("pdffill", ...) instantiated at module level.
+          - @app.command / @app.argument decorators on each function.
+          - main(argv=None) -> int function that calls app.run(argv).
+          - Lazy _lazy_agentic() via lru_cache, as in wifi.
+        The CLI calls into WidgetFiller and CoordinateInjector from
+        pdffill.widget and pdffill.inject. Because those modules are being
+        written by a parallel agent, the CLI must import them lazily inside
+        each command function body (not at module level), using the exact
+        class/method names defined in {workspace}/design/dataclasses.md.
+        This prevents import errors at startup when fitz is absent.
+
+      Step 3 -- write src/pdffill/__main__.py.
+        This file is the import target for "from pdffill.__main__ import main"
+        used by bin/pdffill. Mirror src/wifi/__main__.py exactly:
+          from __future__ import annotations
+          from .cli import main
+          __all__ = ["main"]
+          if __name__ == "__main__":  # pragma: no cover
+              raise SystemExit(main())
+        Confirm the file exists and imports cleanly:
+          Bash tool: python3 -c "from pdffill.__main__ import main; print('ok')" 2>&1
+
+      Step 4 -- write bin/pdffill.
+        Use the same Python wrapper pattern as bin/wifi (not exec python3 -m):
+          #!/usr/bin/env python3, a docstring, insert SRC_ROOT into sys.path
+          via Path(__file__).resolve().parents[1] / "src", then
+          "from pdffill.__main__ import main" and
+          "if __name__ == '__main__': raise SystemExit(main())".
+        Make it executable: Bash tool: chmod +x bin/pdffill
+
+      Step 5 -- CLI import smoke check:
+        Bash tool: python3 -c "import pdffill.cli" 2>&1
+        If it fails, fix before writing the manifest (likely a module-level
+        import of fitz or pdffill.widget at the top of cli.py).
+
+      Step 6 -- write {workspace}/outputs/cli-manifest.json:
+        {{
+          "files_written": ["src/pdffill/__main__.py", "src/pdffill/cli.py", "bin/pdffill"],
+          "import_smoke_check": "PASS|FAIL",
+          "import_error": null,
+          "commands_registered": [
+            "widget list-fields", "widget fill", "widget verify-checkbox",
+            "widget render-field", "inject fill", "inject calibrate"
+          ]
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: cli
+        mode: generate
+        description: >
+          CLI layer: src/pdffill/__main__.py, src/pdffill/cli.py, and bin/pdffill.
+          CLI manifest at {workspace}/outputs/cli-manifest.json.
+    required: true
+    writes_to:
+      - outputs/cli-manifest.json
+
+  # ===========================================================================
+  # S2c: Implement test suite -- tests/pdffill_tests/
+  # ===========================================================================
+
+  - name: implement-tests
+    kind: execute
+    depends_on: [critique-design]
+    reads_from: [critique-design, design]
+    description: >
+      Implement the test suite under tests/pdffill_tests/ per the spec at
+      {workspace}/design/spec.md.
+
+      This repo uses unittest (NOT pytest). No conftest.py -- shared fixtures
+      are in conftest_fixtures.py and imported explicitly.
+
+      Step 1 -- read the spec:
+        Use the Read tool on {workspace}/design/spec.md.
+        Use the Read tool on {workspace}/design/dataclasses.md.
+        Use the Bash tool: ls tests/ (orient to test directory layout)
+        Read an existing test for style reference:
+          find tests/ -name "test_*.py" | head -3 | xargs head -50 2>/dev/null
+
+      Step 2 -- write tests/pdffill_tests/__init__.py (empty).
+
+      Step 3 -- write tests/pdffill_tests/conftest_fixtures.py.
+        Two factory functions, no network or disk reads:
+          make_widget_pdf() -> bytes
+            Uses fitz.open() to create a new PDF in memory.
+            3 text widgets: "name" (wide rect), "phone" (wide), "dob_day"
+            (~18pt wide to simulate a narrow sub-field).
+            2 checkbox widgets forming a deliberately-swapped pair:
+              checkbox A: on_state="No",  rect physically beside "Yes" label
+              checkbox B: on_state="Yes", rect physically beside "No" label
+            Returns doc.tobytes().
+          make_flat_pdf() -> bytes
+            1-page PDF with page.insert_text() content but zero widgets.
+            Returns doc.tobytes().
+        Both functions build the PDF entirely with fitz; no external files.
+
+      Step 4 -- write tests/pdffill_tests/test_widget.py.
+        Import from conftest_fixtures, write all values to tempfile, then
+        exercise WidgetFiller. Must assert:
+          - list_fields returns dicts with "name", "type", "value" keys.
+          - fill_fields happy path: FillResult.filled contains all 3 text
+            field names; FillResult.skipped is empty; FillResult.errors empty.
+          - /DA contains "0 Tf" after auto-size fill (xref read via
+            doc.xref_get_key(xref, "DA") or equivalent).
+          - /AP key is null/absent after fill (appearance cleared).
+          - strict=True raises ValueError (or similar) on an unknown field name.
+          - strict=False skips unknown field name (in FillResult.skipped).
+          - verify_checkbox_label returns suspect_swap=True for the checkbox
+            whose on_state name does not match its visual position in the
+            swapped pair.
+          - render_field_region writes a .png file with size > 0 bytes.
+        Use setUp/tearDown or tempfile.NamedTemporaryFile for temp PDF files.
+
+      Step 5 -- write tests/pdffill_tests/test_inject.py.
+        Use make_flat_pdf() + a minimal in-memory template dict. Assert:
+          - inject fill places text so page.get_text("words") returns the
+            filled value near the specified coordinates.
+          - inject calibrate writes a .png file with size > 0 bytes.
+
+      Step 6 -- write tests/pdffill_tests/test_cli.py.
+        Use subprocess and mock (not real fitz calls). Assert:
+          - subprocess.run(['./bin/pdffill', '--help']) exits 0.
+          - Each subcommand --help exits 0.
+          - ['./bin/pdffill', '--agentic', '--agentic-format', 'json'] exits 0
+            and stdout is parseable JSON.
+
+      Step 7 -- write {workspace}/outputs/tests-manifest.json:
+        {{
+          "files_written": [
+            "tests/pdffill_tests/__init__.py",
+            "tests/pdffill_tests/conftest_fixtures.py",
+            "tests/pdffill_tests/test_widget.py",
+            "tests/pdffill_tests/test_inject.py",
+            "tests/pdffill_tests/test_cli.py"
+          ],
+          "test_count_estimated": 0,
+          "assertions_covering_bugs": [
+            "DA_contains_0Tf", "AP_cleared_after_fill",
+            "strict_unknown_field_raises", "checkbox_swap_detected",
+            "render_produces_png"
+          ]
+        }}
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    outputs:
+      - name: tests
+        mode: generate
+        description: >
+          Test suite: tests/pdffill_tests/ with __init__, conftest_fixtures,
+          test_widget, test_inject, test_cli. Manifest at
+          {workspace}/outputs/tests-manifest.json.
+    required: true
+    writes_to:
+      - outputs/tests-manifest.json
+
+  # ===========================================================================
+  # S3: Integration review -- check signature consistency across parallel outputs
+  # ===========================================================================
+
+  - name: integration-review
+    kind: validate
+    depends_on: [implement-engine, implement-cli, implement-tests]
+    reads_from: [implement-engine, implement-cli, implement-tests, design]
+    description: >
+      Cross-check the three parallel implementation outputs for API consistency.
+      The three agents built against the same spec, not each other's actual
+      code, so this is the highest-risk integration point: method signatures,
+      dataclass field names, and import paths may diverge.
+
+      Step 1 -- read all source files:
+        Use the Read tool on:
+          src/pdffill/__init__.py
+          src/pdffill/meta.py
+          src/pdffill/widget.py
+          src/pdffill/inject.py
+          src/pdffill/__main__.py
+          src/pdffill/cli.py
+          bin/pdffill
+          tests/pdffill_tests/conftest_fixtures.py
+          tests/pdffill_tests/test_widget.py
+          tests/pdffill_tests/test_inject.py
+          tests/pdffill_tests/test_cli.py
+        Also read {workspace}/design/dataclasses.md for intended signatures.
+
+      Step 2 -- check engine API vs CLI imports:
+        For each method that cli.py calls on WidgetFiller or CoordinateInjector:
+          a. Confirm the method name exists in widget.py / inject.py.
+          b. Confirm the argument names match (keyword args must be identical).
+          c. Confirm return types match (cli.py accesses FillResult.filled, etc.).
+        Flag every mismatch.
+
+      Step 3 -- check engine API vs test expectations:
+        For each method that test_widget.py / test_inject.py calls:
+          a. Confirm the method name and signature match widget.py / inject.py.
+          b. Confirm field names used in assertions (e.g. result.filled,
+             result.suspect_swap) match the @dataclass definitions.
+        Flag every mismatch.
+
+      Step 4 -- check lazy-import discipline:
+        Scan widget.py, inject.py, and cli.py for any top-level fitz import:
+        Bash tool: grep -n "^import fitz\|^from fitz" src/pdffill/widget.py \
+                     src/pdffill/inject.py src/pdffill/cli.py 2>/dev/null
+        Any hit is a BLOCKING issue.
+
+      Step 5 -- check bake default:
+        grep -n "bake" src/pdffill/widget.py
+        Confirm bake=False is the default.
+
+      Step 6 -- check DA/AP manipulation:
+        grep -n "xref_set_key\|\"AP\"\|\"DA\"\|\"V\"" src/pdffill/widget.py
+        Confirm both /DA and /AP are set via xref_set_key, not widget.update() alone.
+
+      Step 7 -- write {workspace}/validation/integration-review.json:
+        {{
+          "engine_cli_mismatches": [],
+          "engine_test_mismatches": [],
+          "lazy_import_violations": [],
+          "bake_default_ok": true,
+          "da_ap_xref_ok": true,
+          "blocking_count": 0,
+          "overall": "PASS|ISSUES"
+        }}
+
+      Write {workspace}/validation/integration-review.md with a human-readable
+      summary of any mismatches and recommended fixes.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - No engine-CLI signature mismatches
+        - No engine-test signature mismatches
+        - No top-level fitz imports
+        - bake=False confirmed as default
+        - /DA and /AP manipulated via xref_set_key
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/integration-review.json
+      - validation/integration-review.md
+
+  # ===========================================================================
+  # S4: Fix integration -- repair all mismatches found in integration-review
+  # ===========================================================================
+
+  - name: fix-integration
+    kind: execute
+    depends_on: [integration-review]
+    reads_from: [integration-review, design]
+    description: >
+      Apply fixes for every issue identified in the integration review. If the
+      review reported overall="PASS" and blocking_count=0, write a sentinel
+      and exit immediately.
+
+      Step 1 -- read the review:
+        Use the Read tool on {workspace}/validation/integration-review.json.
+        Use the Read tool on {workspace}/validation/integration-review.md.
+        If overall == "PASS": write
+          {workspace}/outputs/fix-integration-sentinel.md
+          with content "no fixes needed -- integration review passed"
+          and exit.
+
+      Step 2 -- fix engine-CLI mismatches:
+        For each item in engine_cli_mismatches:
+          - Read the relevant source file.
+          - Apply the minimal fix (rename a method arg, add a missing field
+            to a dataclass, fix a wrong import path in cli.py).
+          - Use the Edit tool for each change.
+
+      Step 3 -- fix engine-test mismatches:
+        For each item in engine_test_mismatches:
+          - Prefer fixing the test to match the engine (the engine is the
+            source of truth). Only fix the engine if the test is correct
+            per the spec.
+          - Use the Edit tool.
+
+      Step 4 -- fix lazy-import violations:
+        For each entry in lazy_import_violations:
+          - Move the top-level fitz import inside the smallest scope that
+            needs it (the calling method).
+          - Use the Edit tool.
+
+      Step 5 -- re-run import smoke checks:
+        Bash tool: python3 -c "import pdffill; import pdffill.widget; import pdffill.inject; import pdffill.cli" 2>&1
+        If still failing, fix and retry once more.
+
+      Step 6 -- write {workspace}/outputs/fix-integration-results.json:
+        {{
+          "fixes_applied": [
+            {{ "file": "src/pdffill/cli.py", "issue": "...", "action": "..." }}
+          ],
+          "skipped": [],
+          "import_smoke_check": "PASS|FAIL",
+          "sentinel": false
+        }}
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Write, Bash]
+      access: read-write
+    outputs:
+      - name: integration-fixes
+        mode: generate
+        description: >
+          Integration fixes applied to engine/CLI/test files. Results at
+          {workspace}/outputs/fix-integration-results.json.
+    required: true
+    writes_to:
+      - outputs/fix-integration-results.json
+
+  # ===========================================================================
+  # S5: Verify -- run tests, qlty, --help smoke, optional real-form smoke test
+  # ===========================================================================
+
+  - name: verify
+    kind: validate
+    depends_on: [fix-integration]
+    reads_from: [fix-integration, implement-engine, implement-cli, implement-tests]
+    description: >
+      Full verification pass: test suite, qlty lint, CLI --help smoke tests,
+      and (if configured) a read-only real-form smoke test.
+
+      Step 1 -- run the pdffill test suite:
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests/pdffill_tests -p "test_*.py" -v 2>&1
+        Record exit code and output. If exit != 0, attempt one targeted fix:
+          - Read the failure line.
+          - Fix the minimal issue (import path, wrong assertion).
+          - Re-run once. If still failing, set test_status="FAIL" and document.
+
+      Step 2 -- run the full test suite (regression guard):
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -q > /tmp/pdffill-full-suite.log 2>&1; echo "EXIT_CODE=$?"; tail -20 /tmp/pdffill-full-suite.log
+        Record the EXIT_CODE value (not tail's exit status) as the actual
+        pass/fail signal. Any regression introduced by new pdffill files is
+        a BLOCKING issue.
+
+      Step 3 -- qlty lint on new files (if run_qlty == "true"):
+        Bash tool: ~/.qlty/bin/qlty check \
+          src/pdffill/widget.py src/pdffill/inject.py \
+          src/pdffill/cli.py src/pdffill/meta.py \
+          tests/pdffill_tests/test_widget.py \
+          tests/pdffill_tests/test_inject.py \
+          tests/pdffill_tests/test_cli.py 2>&1
+        If qlty reports auto-fixable issues, run:
+          ~/.qlty/bin/qlty check --fix <file>
+        Re-run to confirm clean.
+
+      Step 4 -- CLI --help smoke tests:
+        For each command, run via Bash and record exit code:
+          ./bin/pdffill --help
+          ./bin/pdffill widget --help
+          ./bin/pdffill widget list-fields --help
+          ./bin/pdffill widget fill --help
+          ./bin/pdffill widget verify-checkbox --help
+          ./bin/pdffill widget render-field --help
+          ./bin/pdffill inject --help
+          ./bin/pdffill inject fill --help
+          ./bin/pdffill inject calibrate --help
+          ./bin/pdffill --agentic --agentic-format json --agentic-compact
+        All must exit 0. Record any failures.
+
+      Step 5 -- optional real-form smoke test (READ-ONLY):
+        WARNING: a real, partially-filled PDF may contain PII (names, DOBs,
+        addresses, dollar amounts) in field values. Do NOT persist or log the
+        raw --json output verbatim, and do NOT include it in any report or
+        artifact as-is.
+        If {real_pdf} is non-empty AND the file exists at the given path:
+          Bash tool: ./bin/pdffill widget list-fields --pdf "{real_pdf}" --json 2>&1
+          This is READ-ONLY. Do NOT write to {real_pdf} or any path derived
+          from it.
+          Parse the JSON output in memory and extract ONLY:
+            - field names: [field["name"] for field in fields]
+            - field count: len(fields)
+          Record ONLY that redacted summary (names list + count) in the
+          verify-results.json output below. Do not record field values.
+          If {real_pdf} is blank or the file does not exist: skip this step.
+
+      Step 6 -- write {workspace}/validation/verify-results.json:
+        {{
+          "pdffill_tests": "PASS|FAIL",
+          "pdffill_test_output": "...",
+          "full_suite": "PASS|FAIL",
+          "qlty_status": "PASS|ISSUES|SKIPPED",
+          "qlty_issues": [],
+          "help_smoke": {{
+            "bin_pdffill_help": "PASS|FAIL",
+            "widget_list_fields_help": "PASS|FAIL",
+            "widget_fill_help": "PASS|FAIL",
+            "widget_verify_checkbox_help": "PASS|FAIL",
+            "widget_render_field_help": "PASS|FAIL",
+            "inject_fill_help": "PASS|FAIL",
+            "inject_calibrate_help": "PASS|FAIL",
+            "agentic_json": "PASS|FAIL"
+          }},
+          "real_form_smoke": "PASS|FAIL|SKIPPED",
+          "real_form_field_count": null,
+          "all_green": true
+        }}
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - tests/pdffill_tests all pass
+        - Full test suite (discover) exits 0 with no regressions
+        - All --help invocations exit 0
+        - --agentic --agentic-format json emits parseable JSON
+        - qlty check exits 0 on all new files (or run_qlty == "false")
+      max_revisions: 2
+    required: true
+    writes_to:
+      - validation/verify-results.json
+
+  # ===========================================================================
+  # S6: Human gate -- final review before user merges into working branch
+  # ===========================================================================
+
+  - name: human-gate
+    kind: propose
+    human_gate: true
+    depends_on: [verify]
+    reads_from: [verify, integration-review, design]
+    description: >
+      Present the full build summary to Brian and confirm the worktree and
+      branch location before he decides to merge. Nothing is pushed to main;
+      nothing is auto-merged. This gate produces a summary document only.
+
+      Step 1 -- collect results:
+        Read {workspace}/validation/verify-results.json.
+        Read {workspace}/validation/integration-review.json.
+        Read {workspace}/validation/design-critique.md.
+        Read {workspace}/design/spec.md (module structure sections only).
+
+      Step 2 -- identify the branch and worktree:
+        Bash tool: git worktree list 2>&1
+        Bash tool: git branch --show-current 2>&1
+        Record the branch name and worktree path.
+
+      Step 3 -- write {workspace}/validation/human-gate-summary.md:
+
+        ## pdffill Domain Build -- Final Summary
+
+        ### What Was Built
+        - src/pdffill/widget.py     -- WidgetFiller (AcroForm/widget-fill strategy)
+        - src/pdffill/inject.py     -- CoordinateInjector (coordinate-injection strategy)
+        - src/pdffill/cli.py        -- CLIApp entry point
+        - src/pdffill/__main__.py   -- python -m / bin import shim
+        - src/pdffill/meta.py       -- domain metadata
+        - bin/pdffill               -- bin wrapper
+        - tests/pdffill_tests/   -- synthetic test suite (no real PDF dependency)
+
+        ### Key Bug Fixes Baked In
+        - Narrow-field clipping fix: /DA set to auto-size ("0 Tf") by default
+        - /AP appearance stream cleared after fill (prevents stale cached render)
+        - Checkbox visual verifier: compares widget.rect vs page text, not on_state name
+        - bake=False default: no silent flattening of forms with ink-signature fields
+
+        ### Test / Lint Status
+        (from verify-results.json)
+        - pdffill_tests: PASS|FAIL
+        - Full suite: PASS|FAIL
+        - qlty: PASS|ISSUES|SKIPPED
+        - --help smoke: list each subcommand result
+
+        ### Real-Form Smoke Test
+        (SKIPPED if real_pdf was blank)
+        - Status: PASS|FAIL|SKIPPED
+        - Fields detected: N (if run)
+
+        ### Integration Review
+        - Blocking issues at review: N
+        - All resolved before verify: yes|no
+
+        ### Branch and Worktree
+        - Branch: <branch name from Step 2>
+        - Worktree path: <path from git worktree list>
+        - To merge: git checkout <your working branch> && git merge <branch>
+        - To open a PR: /open-pr from the branch above
+
+      Present the summary to Brian. Ask:
+        A) Looks good -- I will merge the branch manually
+        B) Something needs fixing -- describe the issue
+        C) Abandon -- do not merge (the branch and worktree remain available)
+
+      Write the decision to {workspace}/validation/human-gate-decision.md.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-summary.md
+      - validation/human-gate-decision.md
