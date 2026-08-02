@@ -124,7 +124,7 @@ stages:
 
         ./bin/phone-assistant reorg --install-only \
           --device-label "{device_label}" \
-          --profile out/ios.merged.mobileconfig
+          --profile-path out/ios.merged.mobileconfig
 
       IMPORTANT: "User interaction on the device is required" (Code 625) is
       the EXPECTED SUCCESS outcome on macOS 26. The process exits non-zero

@@ -167,6 +167,26 @@ class TestReorgInstall625(unittest.TestCase):
 
         self.assertEqual(rc, 0)
 
+    def test_625_success_suppresses_raw_cfgutil_error(self):
+        """On the 625 success path, cfgutil's raw 'error:' line is NOT printed."""
+        import contextlib
+        import io
+        from phone.cli.cmd_merge import _reorg_install
+
+        out, err = io.StringIO(), io.StringIO()
+        with patch("phone.cli.cmd_merge.find_cfgutil_path", return_value="/usr/bin/cfgutil"), \
+             patch("phone.cli.cmd_merge.map_udid_to_ecid", return_value=None), \
+             patch(
+                 "phone.cli.cmd_merge.subprocess.run",
+                 return_value=_cfg_result(1, stderr=_CFG_625),
+             ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = _reorg_install(False, False, Path("out/x.mobileconfig"), "")
+
+        self.assertEqual(rc, 0)
+        combined = out.getvalue() + err.getvalue()
+        self.assertNotIn("cfgutil: error:", combined)
+        self.assertIn("Profile copied to device", out.getvalue())
+
     def test_clean_success_rc0(self):
         from phone.cli.cmd_merge import _reorg_install
 
@@ -262,7 +282,7 @@ class TestCmdReorg(unittest.TestCase):
                 args = make_args(
                     device_label="bcsphone", udid=None, keep="",
                     out=None, no_install=False, dry_run=True,
-                    install_only=False, profile=None,
+                    install_only=False, profile_path=None,
                 )
                 rc = cmd_reorg(args)
 
@@ -292,7 +312,7 @@ class TestCmdReorg(unittest.TestCase):
                 args = make_args(
                     device_label="bcsphone", udid="UDID-X", keep="",
                     out=None, no_install=True, dry_run=False,
-                    install_only=False, profile=None,
+                    install_only=False, profile_path=None,
                 )
                 rc = cmd_reorg(args)
 
@@ -565,7 +585,7 @@ class TestReorgInstallOnly(unittest.TestCase):
                     install_only=True,
                     no_install=False,
                     dry_run=False,
-                    profile=str(profile),
+                    profile_path=str(profile),
                     out=None,
                     keep="",
                 )
@@ -594,7 +614,7 @@ class TestReorgInstallOnly(unittest.TestCase):
                     install_only=True,
                     no_install=False,
                     dry_run=False,
-                    profile=str(dp / "out" / "nonexistent.mobileconfig"),
+                    profile_path=str(dp / "out" / "nonexistent.mobileconfig"),
                     out=None,
                     keep="",
                 )
@@ -617,7 +637,7 @@ class TestReorgInstallOnly(unittest.TestCase):
                     install_only=True,
                     no_install=True,
                     dry_run=False,
-                    profile=None,
+                    profile_path=None,
                     out=None,
                     keep="",
                 )
@@ -644,7 +664,7 @@ class TestReorgInstallOnly(unittest.TestCase):
                     install_only=True,
                     no_install=False,
                     dry_run=True,
-                    profile=str(profile),
+                    profile_path=str(profile),
                     out=None,
                     keep="",
                 )

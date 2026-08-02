@@ -146,8 +146,8 @@ def _cmd_reorg_install_only(args) -> int:
     if rc != 0:
         return rc
 
-    # --profile takes precedence; fall back to --out default
-    profile_arg = getattr(args, "profile", None)
+    # --profile-path takes precedence; fall back to --out default
+    profile_arg = getattr(args, "profile_path", None)
     out_arg = getattr(args, "out", None)
     profile_path = Path(profile_arg or out_arg or "out/ios.merged.mobileconfig")
 
@@ -267,7 +267,6 @@ def _reorg_install(
         cmd, capture_output=True, text=True
     )
     combined = (result.stdout or "") + (result.stderr or "")
-    print(combined, end="")
     # cfgutil's "user interaction required" (Code 625) is the expected success:
     # the profile was copied and awaits an on-device tap. It surfaces in the
     # message text, not the process exit code (which is 1). Match the specific
@@ -278,10 +277,14 @@ def _reorg_install(
         or "code: 625" in lowered
     )
     if result.returncode == 0 or pending_tap:
-        print("\n✓ Profile copied to device.")
+        # Success: suppress cfgutil's raw "error:" line (misleading here) and
+        # print a clear instruction instead.
+        print("✓ Profile copied to device.")
         print("Open Settings -> General -> VPN & Device Management -> "
               "tap the pending profile -> Install.")
         return 0
+    # Genuine failure: surface cfgutil's actual output for diagnosis.
+    print(combined, end="", file=sys.stderr)
     print(f"Error: cfgutil install-profile failed (rc={result.returncode})", file=sys.stderr)
     return result.returncode
 

@@ -34,7 +34,7 @@ ipadbiggest = 00008132-001645323C05001C
 
 # Install an already-built profile (skip export/merge/build)
 ./bin/phone-assistant reorg --install-only
-./bin/phone-assistant reorg --install-only --profile out/ios.merged.mobileconfig
+./bin/phone-assistant reorg --install-only --profile-path out/ios.merged.mobileconfig
 
 # Or step by step:
 ./bin/phone-assistant export-device --out out/ios.IconState.yaml

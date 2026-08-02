@@ -333,10 +333,10 @@ def _cmd_merge_folders(args) -> int:
     "--install-only",
     action="store_true",
     default=False,
-    help="Skip export/merge/build; install an existing profile (see --profile)",
+    help="Skip export/merge/build; install an existing profile (see --profile-path)",
 )
 @app.argument(
-    "--profile",
+    "--profile-path",
     default=None,
     help="Profile path for --install-only (default out/ios.merged.mobileconfig)",
 )
