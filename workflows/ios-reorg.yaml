@@ -49,11 +49,19 @@ stages:
       credentials.ini first:
 
         CREDS="${IOS_CREDS_FILE:-$HOME/.config/credentials.ini}"
-        UDID=$(awk -F' *= *' '/^\[ios_devices\]/{f=1;next} /^\[/{f=0} f&&$1=="{device_label}"{print $2;exit}' "$CREDS")
+        LABEL="{device_label}"
+        UDID=$(awk -F' *= *' '/^\[ios_devices\]/{f=1;next} /^\[/{f=0} f&&$1=="'"$LABEL"'"{print $2;exit}' "$CREDS")
+        # Fail fast: a named label that doesn't resolve must not silently
+        # auto-detect a (possibly wrong) attached device.
+        if [ -n "$LABEL" ] && [ -z "$UDID" ]; then
+          echo "Error: device label '$LABEL' not found in [ios_devices] in $CREDS" >&2
+          exit 1
+        fi
         ./bin/phone-assistant export-device ${UDID:+--udid "$UDID"} \
           --out out/ios.IconState.yaml
 
-      (With a single iPhone attached, the --udid is optional.)
+      (With a single iPhone attached and no {device_label}, --udid is
+      optional and cfgutil auto-detects.)
       Must exit 0. Writes out/ios.IconState.yaml.
     agent:
       role: researcher
