@@ -23,7 +23,7 @@ Recent changes (design-criteria-normalize, 2026-07-30)
 - `cli_args.py` — `OutputConfig` renamed to `OutputFormatConfig`; `OutputConfig` alias retained for backwards compatibility.
 - `gh_cli.py`, `yamlio.py`, `fileutil.py` — `RuntimeError`/`sys.exit` replaced with `CLIError`.
 - `outlook/__init__.py` — exports `OutlookBaseProvider(Protocol)` from `outlook/base.py`.
-- `auth.py` — `build_outlook_service()` is the canonical constructor; `build_outlook_service_from_config()` is a thin wrapper.
+- `auth.py` — `build_outlook_service()` takes an `OutlookServiceConfig` directly.
 
 Assistants should compose these pieces instead of rebuilding bespoke plumbing so that CLI
 shims stay thin and domain logic stays easy to test.
