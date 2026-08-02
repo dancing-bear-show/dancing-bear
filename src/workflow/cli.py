@@ -213,28 +213,20 @@ def cmd_validate_fragment(args: argparse.Namespace) -> int:
     return _cmd_validate_fragment(args)
 
 
+def _no_command_usage() -> int:
+    """Preserve the legacy no-subcommand behavior (one-line usage to
+    stderr, ExitCode.USAGE) rather than CLIApp's default (full --help),
+    since this is a public CLI surface."""
+    print(
+        "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
+        file=sys.stderr,
+    )
+    return ExitCode.USAGE
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Workflow CLI entry point.
-
-    Preserves the legacy no-subcommand behavior (one-line usage to stderr,
-    ExitCode.USAGE) rather than CLIApp's default (full --help), since this
-    is a public CLI surface.
-    """
-    raw_argv = argv if argv is not None else sys.argv[1:]
-    parser = app.build_parser()
-    args = parser.parse_args(app._normalize_argv(raw_argv))
-
-    if getattr(args, "_cmd_func", None) is None:
-        print(
-            "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
-            file=sys.stderr,
-        )
-        return ExitCode.USAGE
-
-    # app.run() normalizes argv internally — pass the raw argv here, not the
-    # already-normalized copy above, so a lone leading "--" is stripped
-    # exactly once (double normalization can eat a legitimate second "--").
-    return app.run(raw_argv)
+    """Workflow CLI entry point."""
+    return app.run(argv, on_no_command=_no_command_usage)
 
 
 if __name__ == "__main__":  # pragma: no cover

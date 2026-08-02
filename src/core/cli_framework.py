@@ -427,11 +427,21 @@ class CLIApp:
                 result = handle_error(e, verbose=getattr(args, "verbose", False))
         return result
 
-    def run(self, argv: Optional[Sequence[str]] = None) -> int:
+    def run(
+        self,
+        argv: Optional[Sequence[str]] = None,
+        *,
+        on_no_command: Optional[Callable[[], int]] = None,
+    ) -> int:
         """Run the CLI application.
 
         Args:
             argv: Command-line arguments (defaults to sys.argv[1:]).
+            on_no_command: Optional callback invoked instead of the default
+                "print full help, return ExitCode.USAGE" behavior when no
+                subcommand is given. Lets a caller preserve a legacy
+                one-line usage message/exit code without pre-parsing argv
+                itself (which would otherwise normalize+parse it twice).
 
         Returns:
             Exit code.
@@ -454,6 +464,8 @@ class CLIApp:
         # Get the command function
         cmd_func = getattr(args, "_cmd_func", None)
         if cmd_func is None:
+            if on_no_command is not None:
+                return on_no_command()
             self._parser.print_help()
             return ExitCode.USAGE
 

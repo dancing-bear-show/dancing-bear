@@ -12,7 +12,7 @@ Key Commands
 - Purge completed jobs: `./bin/worker purge`
 
 Key Modules
-- `cli.py` — CLI dispatch; `WorkerApp.run()` catches `CLIError` and calls `handle_error()`
+- `cli.py` — CLIApp-based CLI dispatch; `main()` calls `app.run()`, which catches `CLIError`, `KeyboardInterrupt`, and other exceptions via `handle_error()`
 - `commands.py` — command implementations: `ShowCommand`, `StatusCommand`, `RetryCommand`; `JobSafeProcessor`/`JobResultProducer` for job execution
 - `handlers.py` — job type handlers; `ShellJobProcessor`/`ShellJobResult` for subprocess jobs
 - `helpers.py` — `QueueRootIsolationMixin` for test queue isolation

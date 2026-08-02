@@ -53,9 +53,10 @@ def _parse_interval(args: argparse.Namespace) -> float:
 def _run_processor(args: argparse.Namespace, cmd: str) -> int:
     """Build config and run a job processor for run-once or daemon."""
     interval = _parse_interval(args)
+    max_per_tick = args.max if cmd == "run-once" else args.max_per_tick
     config = WorkerConfig(
         backoff=int(getattr(args, "backoff", 60) or 60),
-        max_per_tick=int(getattr(args, "max", getattr(args, "max_per_tick", 3))),
+        max_per_tick=int(max_per_tick),
         max_inflight=int(getattr(args, "max_inflight", 0) or 0),
         job_timeout=int(getattr(args, "job_timeout", 0) or 0),
         interval=interval,
@@ -161,28 +162,20 @@ def cmd_purge(args: argparse.Namespace) -> int:
 # Module-level entry point (production path: delegates to CLIApp)
 # ---------------------------------------------------------------------------
 
+def _no_command_usage() -> int:
+    """Preserve the legacy no-subcommand behavior (one-line usage to
+    stderr, exit 1) rather than CLIApp's default (full --help,
+    ExitCode.USAGE), since this is a public CLI surface."""
+    print(
+        "Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for bin/worker.
-
-    Preserves the legacy no-subcommand behavior (one-line usage to stderr,
-    exit 1) rather than CLIApp's default (full --help, ExitCode.USAGE),
-    since this is a public CLI surface.
-    """
-    raw_argv = argv if argv is not None else sys.argv[1:]
-    parser = app.build_parser()
-    args = parser.parse_args(app._normalize_argv(raw_argv))
-
-    if getattr(args, "_cmd_func", None) is None:
-        print(
-            "Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help",
-            file=sys.stderr,
-        )
-        return 1
-
-    # app.run() normalizes argv internally — pass the raw argv here, not the
-    # already-normalized copy above, so a lone leading "--" is stripped
-    # exactly once (double normalization can eat a legitimate second "--").
-    return app.run(raw_argv)
+    """Entry point for bin/worker."""
+    return app.run(argv, on_no_command=_no_command_usage)
 
 
 if __name__ == "__main__":  # pragma: no cover
