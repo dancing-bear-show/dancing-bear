@@ -61,37 +61,30 @@ def _resolve_reorg_udid(args, dry_run: bool) -> tuple[str, int]:
     """Resolve the target device UDID for a reorg run.
 
     Precedence: --udid / $IOS_DEVICE_UDID > an explicit --device-label > the
-    configured [ios_devices] default label. If none of those yield a UDID, the
-    empty string is returned so cfgutil auto-detects a single attached device.
-
-    Returns (udid, 0) on success (udid may be "" for dry-run or single-device
-    auto-detect), or ("", 1) after printing a fail-fast error when an EXPLICIT
-    --device-label can't be resolved (reorg replaces the whole Home Screen, so
-    an explicitly named device that isn't found must not silently fall through
-    to auto-detect). Callers gate on the int.
+    configured [ios_devices] default label. If a label is named at either level
+    but can't be resolved, this fails fast (outside --dry-run) rather than
+    silently auto-detecting — reorg replaces the whole Home Screen, so a named
+    device that isn't found must not target some other attached device. Only
+    when NO label is named at all is "" returned, so cfgutil auto-detects a
+    single attached device. Callers gate on the int.
     """
     udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID", "")
     if udid:
         return udid, 0
 
-    explicit_label = getattr(args, "device_label", None)
-    if explicit_label:
-        udid = _udid_for_label(explicit_label) or ""
-        if not udid and not dry_run:
-            print(
-                f"Error: could not resolve device label '{explicit_label}' to a "
-                f"UDID (check [ios_devices] in credentials.ini); pass --udid or "
-                f"--dry-run",
-                file=sys.stderr,
-            )
-            return "", 1
-        return udid, 0
+    # A named target (explicit flag, else the configured default) must resolve.
+    label = getattr(args, "device_label", None) or _default_device_label()
+    if not label:
+        return "", 0  # nothing named → cfgutil auto-detects the single device
 
-    # No explicit target: use the configured default label if present, else ""
-    # (cfgutil auto-detects the single attached device).
-    default_label = _default_device_label()
-    if default_label:
-        udid = _udid_for_label(default_label) or ""
+    udid = _udid_for_label(label) or ""
+    if not udid and not dry_run:
+        print(
+            f"Error: could not resolve device label '{label}' to a UDID "
+            f"(check [ios_devices] in credentials.ini); pass --udid or --dry-run",
+            file=sys.stderr,
+        )
+        return "", 1
     return udid, 0
 
 

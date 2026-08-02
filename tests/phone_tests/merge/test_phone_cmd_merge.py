@@ -406,6 +406,35 @@ class TestDefaultDeviceLabel(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(udid, "")
 
+    def test_reorg_broken_default_fails_fast(self):
+        """A CONFIGURED default label that has no UDID entry fails fast (not dry-run)."""
+        from phone.cli.cmd_merge import _resolve_reorg_udid
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(
+                Path(d), "[ios_devices]\ndefault = ghost\nbcsphone = 00008150-X\n"
+            )
+            args = make_args(udid=None, device_label=None)
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                udid, rc = _resolve_reorg_udid(args, dry_run=False)
+            self.assertEqual(rc, 1)
+
+    def test_reorg_broken_default_dry_run_is_lenient(self):
+        """Under --dry-run, a broken configured default does not error."""
+        from phone.cli.cmd_merge import _resolve_reorg_udid
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(
+                Path(d), "[ios_devices]\ndefault = ghost\nbcsphone = 00008150-X\n"
+            )
+            args = make_args(udid=None, device_label=None)
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                udid, rc = _resolve_reorg_udid(args, dry_run=True)
+            self.assertEqual(rc, 0)
+            self.assertEqual(udid, "")
+
     def test_reorg_explicit_unknown_label_fails_fast(self):
         """An EXPLICIT unresolvable label errors, even when a default exists."""
         from phone.cli.cmd_merge import _resolve_reorg_udid
