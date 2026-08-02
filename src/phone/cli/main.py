@@ -19,6 +19,7 @@ from core.cli_framework import CLIApp
 from core.assistant import BaseAssistant
 
 # Import command implementations from split siblings
+from .cmd_merge import cmd_merge_folders, cmd_reorg  # noqa: F401
 from .cmd_layout import (  # noqa: F401
     _flatten_bundle_ids,
     _load_optional_device_apps,
@@ -266,6 +267,81 @@ def _cmd_validate_layout(args) -> int:
 )
 def _cmd_auto_folders(args) -> int:
     return cmd_auto_folders(args)
+
+
+@app.command(
+    "merge-folders",
+    help="Redistribute dump folder apps into best-fit existing folders",
+)
+@app.argument(
+    "--layout",
+    default="out/ios.IconState.yaml",
+    help="Layout export YAML (default out/ios.IconState.yaml)",
+)
+@app.argument(
+    "--plan",
+    default="out/ios.plan.merged.yaml",
+    help="Output plan YAML (default out/ios.plan.merged.yaml)",
+)
+@app.argument(
+    "--keep",
+    default="",
+    help="Comma-separated bundle IDs to keep as page-1 pins",
+)
+@app.argument(
+    "--dump-folder-names",
+    default="Other",
+    help="Comma-separated folder names to redistribute (default Other)",
+)
+def _cmd_merge_folders(args) -> int:
+    return cmd_merge_folders(args)
+
+
+@app.command(
+    "reorg",
+    help="One-shot reorg: export-device → merge-folders → profile build → install",
+)
+@app.argument(
+    "--device-label",
+    help="Device label from [ios_devices] in credentials.ini "
+    "(default: [ios_devices] 'default', else single attached device)",
+)
+@app.argument("--udid", help="Device UDID (overrides --device-label)")
+@app.argument(
+    "--keep",
+    default="",
+    help="Comma-separated bundle IDs to keep as page-1 pins",
+)
+@app.argument(
+    "--out",
+    default="out/ios.merged.mobileconfig",
+    help="Output .mobileconfig path (default out/ios.merged.mobileconfig)",
+)
+@app.argument(
+    "--no-install",
+    action="store_true",
+    default=False,
+    help="Build only; skip the cfgutil copy step",
+)
+@app.argument(
+    "--dry-run",
+    action="store_true",
+    default=False,
+    help="Plan only; use existing layout, skip device write",
+)
+@app.argument(
+    "--install-only",
+    action="store_true",
+    default=False,
+    help="Skip export/merge/build; install an existing profile (see --profile-path)",
+)
+@app.argument(
+    "--profile-path",
+    default=None,
+    help="Profile path for --install-only (default out/ios.merged.mobileconfig)",
+)
+def _cmd_reorg(args) -> int:
+    return cmd_reorg(args)
 
 
 # --- Profile group commands ---

@@ -63,8 +63,18 @@ LLM maintenance:
 Tests:
 - `make test` or `python3 -m unittest -v`
 
-Phone (iOS) — Home Screen Scaffolding:
-- Export layout from Finder backup: `./bin/phone export --out out/ios.IconState.yaml`
+Phone (iOS) — Home Screen Reorg (recommended):
+- One-shot reorg (export → merge → build → install): `./bin/phone-assistant reorg`
+  - Target device from `[ios_devices] default` in `~/.config/credentials.ini`; override with `--device-label <label>` (non-default device) or `--udid <UDID>` / `$IOS_DEVICE_UDID` (explicit UDID, wins over all).
+  - `--dry-run`: plan only, no build/install
+  - `--no-install`: build profile but skip device copy
+  - `--keep "<bundle,ids>"`: pin apps on page 1
+  - Code 625 from cfgutil = expected success on macOS 26; tap Install in Settings → General → VPN & Device Management
+- Merge Other/loose apps into existing folders (step-by-step): `./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml`
+- Export device layout: `./bin/phone-assistant export-device --out out/ios.IconState.yaml`
+
+Phone (iOS) — Home Screen Scaffolding (advanced/step-by-step):
+- Export layout from device: `./bin/phone-assistant export-device --out out/ios.IconState.yaml`
 - Scaffold plan (pins + folders): `./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml`
 - Manual checklist from plan: `./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt`
 - Build configuration profile (.mobileconfig):

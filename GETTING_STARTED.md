@@ -85,20 +85,48 @@ Manage Gmail filters/labels from YAML:
 
 ### Option C: iOS Phone Layouts
 
-Export your current home screen layout, plan changes, and apply:
+One-shot reorganization (recommended):
+
+```bash
+./bin/phone-assistant reorg
+```
+
+This chains: export-device → merge-folders → profile build → copy to device.
+After it runs, tap **Install** in Settings → General → VPN & Device Management.
+Code 625 from cfgutil is expected (not an error) — the profile was copied successfully.
+
+Set your device once in `~/.config/credentials.ini` under `[ios_devices]` (a `default = <label>` line plus `<label> = <UDID>`); then `reorg` needs no device flag. Use `--device-label` to target a non-default device, or `--udid` / `$IOS_DEVICE_UDID` to specify a UDID directly.
+
+```ini
+[ios_devices]
+default = bcsphone
+bcsphone = 00008150-000578D421D8401C
+ipadbiggest = 00008132-001645323C05001C
+```
+
+Flags:
+- `--dry-run` — plan only; uses existing export, no build/install
+- `--no-install` — build the profile but skip the device copy
+- `--keep "com.example.app1,com.example.app2"` — pin apps on page 1
+- `--device-label <label>` — target a non-default device (looked up in `[ios_devices]`)
+- `--udid <UDID>` — explicit UDID, wins over all other resolution
+
+`merge-folders` redistributes a catch-all "Other" dump folder and loose apps into
+your existing folder taxonomy. It enforces a conservation invariant: no app is
+lost, added, or duplicated. It is distinct from `auto-folders` (which makes flat
+coarse buckets from scratch).
+
+Advanced / step-by-step:
 
 ```bash
 # Export current device layout
-./bin/phone export-device --out ios_layout.yaml
+./bin/phone-assistant export-device --out ios_layout.yaml
 
-# Build a plan for reorganization
-./bin/phone plan --layout ios_layout.yaml --out ios_plan.yaml
-
-# Generate a checklist of manual steps
-./bin/phone checklist --plan ios_plan.yaml --layout ios_layout.yaml --out checklist.txt
+# Merge Other/loose into existing folders
+./bin/phone-assistant merge-folders --layout ios_layout.yaml --plan ios_plan.yaml
 
 # Build a .mobileconfig profile to apply
-./bin/phone profile build --plan ios_plan.yaml --out layout.mobileconfig
+./bin/phone-assistant profile build --plan ios_plan.yaml --layout ios_layout.yaml --out layout.mobileconfig
 ```
 
 ### Option D: Other Tools (Experimental/POC)
@@ -326,8 +354,9 @@ Then use `--profile`:
 | Export Gmail filters | `./bin/mail filters export --out filters.yaml` |
 | Sync filters | `./bin/mail filters sync --config filters.yaml --dry-run` |
 | **iOS** | |
-| Export device layout | `./bin/phone export-device --out layout.yaml` |
-| Build layout profile | `./bin/phone profile build --plan plan.yaml --out layout.mobileconfig` |
+| Reorganize home screen (one-shot) | `./bin/phone-assistant reorg` |
+| Export device layout | `./bin/phone-assistant export-device --out layout.yaml` |
+| Build layout profile | `./bin/phone-assistant profile build --plan plan.yaml --layout layout.yaml --out layout.mobileconfig` |
 | **Other** | |
 | Search WhatsApp | `./bin/whatsapp search --contains "meeting"` |
 | WiFi diagnostics | `./bin/wifi diagnose` |

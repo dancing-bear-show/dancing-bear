@@ -21,18 +21,6 @@ resolve_config() {
   if [[ -f "$HOME/.config/credentials.ini" ]]; then
     echo "$HOME/.config/credentials.ini"; return 0
   fi
-  if [[ -f "$xdg/sre-utils/credentials.ini" ]]; then
-    echo "$xdg/sre-utils/credentials.ini"; return 0
-  fi
-  if [[ -f "$HOME/.config/sre-utils/credentials.ini" ]]; then
-    echo "$HOME/.config/sre-utils/credentials.ini"; return 0
-  fi
-  if [[ -f "$HOME/.config/sreutils/credentials.ini" ]]; then
-    echo "$HOME/.config/sreutils/credentials.ini"; return 0
-  fi
-  if [[ -f "$HOME/.sre-utils/credentials.ini" ]]; then
-    echo "$HOME/.sre-utils/credentials.ini"; return 0
-  fi
   return 1
 }
 
