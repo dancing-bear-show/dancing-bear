@@ -54,7 +54,7 @@ claude  # then ask: "What can this project do?"
 - Calendar (Outlook + Gmail scans): `./bin/calendar`
 - Schedule (plan/apply calendar events): `./bin/schedule`
 - Resume (extract/summarize/render): `./bin/assistant resume`
-- Phone (iOS layout tooling): `./bin/phone`
+- Phone (iOS layout tooling): `./bin/phone` — reorganize your home screen: `./bin/phone-assistant reorg --device-label bcsphone` (see `src/phone/README.md`)
 - WhatsApp (local-only search): `./bin/whatsapp`
 - WiFi (diagnostics): `./bin/wifi`
 - Metals (precious metals tracking): `./bin/metals`
