@@ -4,12 +4,8 @@ This module re-exports from core.outlook.calendar for backward compatibility.
 New code should import directly from core.outlook.
 """
 
-# Re-export everything from core.outlook.calendar for backward compatibility
-from core.outlook.calendar import (
-    OutlookCalendarMixin,
-    _parse_location,
-    _normalize_days,
-)
+from core.outlook.calendar import OutlookCalendarMixin
+from core.outlook._location import _normalize_days, _parse_location
 from core.outlook.client import OutlookClientBase, _requests
 from core.constants import GRAPH_API_URL
 

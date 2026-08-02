@@ -62,7 +62,7 @@ def _search_all_folders(cli: OutlookClient, q: str, params: ScanParams) -> List[
 
 def _scan_query(cli: OutlookClient, q: str, params: ScanParams) -> List[str]:
     """Run a single search query for the given folder scope."""
-    from core.outlook.mail import SearchParams as _SearchParams
+    from core.outlook.models import SearchParams as _SearchParams
     if (params.folder or 'inbox').lower() == 'all':
         return _search_all_folders(cli, q, params)
     return cli.search_inbox_messages(

@@ -174,7 +174,7 @@ class OutlookCostExtractor(CostExtractor):
         import requests as _req
 
         # Try using client search first
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         q = f'"Confirmation for order number {order_id}"'
         try:
             ids = self.client.search_inbox_messages(

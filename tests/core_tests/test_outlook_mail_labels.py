@@ -64,7 +64,7 @@ class OutlookMailTestBase(unittest.TestCase):
 class TestListLabels(OutlookMailTestBase):
     """Tests for list_labels method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_labels_no_cache(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": CATEGORIES_LIST})
@@ -77,7 +77,7 @@ class TestListLabels(OutlookMailTestBase):
         self.assertEqual(result[0]["color"]["name"], "preset0")
         self.assertEqual(result[0]["type"], "user")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_labels_with_cache_miss(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": CATEGORIES_LIST})
@@ -89,7 +89,7 @@ class TestListLabels(OutlookMailTestBase):
         mock_requests.get.assert_called_once()
         self.assertIsNotNone(client._cfg_cache.get("categories"))
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_labels_with_cache_hit(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
@@ -100,7 +100,7 @@ class TestListLabels(OutlookMailTestBase):
         self.assertEqual(len(result), 2)
         mock_requests.get.assert_not_called()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_labels_empty(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": []})
@@ -113,7 +113,7 @@ class TestListLabels(OutlookMailTestBase):
 class TestCreateLabel(OutlookMailTestBase):
     """Tests for create_label method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_label_basic(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-cat", "displayName": "NewLabel"})
@@ -124,7 +124,7 @@ class TestCreateLabel(OutlookMailTestBase):
         self.assertEqual(result["name"], "NewLabel")
         mock_requests.post.assert_called_once()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_label_with_color(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-cat", "displayName": "ColorLabel"})
@@ -135,7 +135,7 @@ class TestCreateLabel(OutlookMailTestBase):
         self.assertEqual(call_json["displayName"], "ColorLabel")
         self.assertEqual(call_json["color"], "preset5")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_label_without_color(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-cat", "displayName": "NoColor"})
@@ -149,7 +149,7 @@ class TestCreateLabel(OutlookMailTestBase):
 class TestUpdateLabel(OutlookMailTestBase):
     """Tests for update_label method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_update_label_name(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.patch.return_value = make_mock_response({"id": "cat-1"}, text='{"id": "cat-1"}')
@@ -160,7 +160,7 @@ class TestUpdateLabel(OutlookMailTestBase):
         self.assertEqual(call_json["displayName"], "Updated")
         self.assertIsNotNone(result)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_update_label_color(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.patch.return_value = make_mock_response({"id": "cat-1"}, text='{"id": "cat-1"}')
@@ -170,7 +170,7 @@ class TestUpdateLabel(OutlookMailTestBase):
         call_json = mock_requests.patch.call_args.kwargs["json"]
         self.assertEqual(call_json["color"], "preset3")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_update_label_empty_body_returns_empty(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
@@ -179,7 +179,7 @@ class TestUpdateLabel(OutlookMailTestBase):
         self.assertEqual(result, {})
         mock_requests.patch.assert_not_called()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_update_label_empty_response(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.patch.return_value = make_mock_response(None, text="")
@@ -192,7 +192,7 @@ class TestUpdateLabel(OutlookMailTestBase):
 class TestDeleteLabel(OutlookMailTestBase):
     """Tests for delete_label method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_delete_label(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.delete.return_value = make_mock_response(status_code=204, text="")
@@ -206,7 +206,7 @@ class TestDeleteLabel(OutlookMailTestBase):
 class TestGetLabelIdMap(OutlookMailTestBase):
     """Tests for get_label_id_map method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_get_label_id_map(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": CATEGORIES_LIST})
@@ -216,7 +216,7 @@ class TestGetLabelIdMap(OutlookMailTestBase):
         self.assertEqual(result["Work"], "cat-1")
         self.assertEqual(result["Personal"], "cat-2")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_get_label_id_map_empty(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": []})
@@ -229,7 +229,7 @@ class TestGetLabelIdMap(OutlookMailTestBase):
 class TestEnsureLabel(OutlookMailTestBase):
     """Tests for ensure_label method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_ensure_label_exists(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": CATEGORIES_LIST})
@@ -239,7 +239,7 @@ class TestEnsureLabel(OutlookMailTestBase):
         self.assertEqual(result, "cat-1")
         mock_requests.post.assert_not_called()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_ensure_label_creates_new(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": []})

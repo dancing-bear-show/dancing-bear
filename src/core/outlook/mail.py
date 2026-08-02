@@ -1,26 +1,28 @@
 """Mail operations for Outlook via Microsoft Graph.
 
-Includes categories (labels), rules (filters), messages, and folders.
+Includes messages and signatures. Labels/categories are in _mail_labels.py;
+folders are in _mail_folders.py.
 """
 
 from __future__ import annotations
 
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .client import OutlookClientBase, _requests
 from .models import MessageSearchQuery, SearchParams
+from ._mail_labels import LabelsFiltersMixin
+from ._mail_folders import FoldersMixin
 from core.constants import GRAPH_API_URL
 
 _NEXT_LINK = "@odata.nextLink"
 
 
-def _build_kql_search_url(params: MessageSearchQuery) -> Optional[str]:
+def _build_kql_search_url(params: MessageSearchQuery) -> str | None:
     """Build the KQL search URL from MessageSearchQuery, or None if no terms."""
     import urllib.parse
     sel = "$select=id,subject,receivedDateTime,from,bodyPreview,hasAttachments"
     folder_path = "mailFolders/inbox/messages" if params.only_inbox else "messages"
-    kql_terms: List[str] = []
+    kql_terms: list[str] = []
     if params.sender:
         kql_terms.append(f"from:{params.sender}")
     if params.query.strip():
@@ -31,7 +33,7 @@ def _build_kql_search_url(params: MessageSearchQuery) -> Optional[str]:
     return f"{GRAPH_API_URL}/me/{folder_path}?$search={encoded_query}&$top={int(params.top)}&{sel}"
 
 
-def _map_search_result(m: Dict[str, Any]) -> Dict[str, Any]:
+def _map_search_result(m: dict[str, Any]) -> dict[str, Any]:
     """Map a Graph API message to a search result dict."""
     addr = (m.get("from") or {}).get("emailAddress", {})
     return {
@@ -44,189 +46,11 @@ def _map_search_result(m: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-class OutlookMailMixin:
-    """Mixin providing mail operations (categories, rules, messages, folders).
+class OutlookMailMixin(LabelsFiltersMixin, FoldersMixin):
+    """Mixin providing all mail operations (categories, rules, messages, folders).
 
-    Requires OutlookClientBase methods: _headers, _headers_search, cfg_get_json, cfg_put_json, cfg_clear
+    Requires OutlookClientBase methods: _headers, _headers_search, cfg_get_json, cfg_put_json, cfg_clear.
     """
-
-    # -------------------- Categories (labels) --------------------
-    def list_labels(
-        self: OutlookClientBase,
-        use_cache: bool = False,
-        ttl: int = 300
-    ) -> List[Dict[str, Any]]:
-        if use_cache:
-            cached = self.cfg_get_json("categories", ttl)
-            if isinstance(cached, list):
-                cats = cached
-            else:
-                r = _requests().get(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers())
-                r.raise_for_status()
-                cats = r.json().get("value", [])
-                self.cfg_put_json("categories", cats)
-        else:
-            r = _requests().get(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers())
-            r.raise_for_status()
-            cats = r.json().get("value", [])
-        out = []
-        for c in cats:
-            entry = {
-                "id": c.get("id"),
-                "name": c.get("displayName"),
-                "color": {"name": c.get("color")},
-                "type": "user",
-            }
-            out.append(entry)
-        return out
-
-    def create_label(
-        self: OutlookClientBase,
-        name: str,
-        color: Optional[Dict[str, Any]] = None,
-        **_kwargs: Any
-    ) -> Dict[str, Any]:
-        body = {"displayName": name}
-        if color and isinstance(color, dict) and color.get("name"):
-            body["color"] = color.get("name")
-        r = _requests().post(f"{GRAPH_API_URL}/me/outlook/masterCategories", headers=self._headers(), json=body)
-        r.raise_for_status()
-        c = r.json()
-        return {"id": c.get("id"), "name": c.get("displayName")}
-
-    def update_label(
-        self: OutlookClientBase,
-        label_id: str,
-        body: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {}
-        if body.get("name"):
-            payload["displayName"] = body["name"]
-        if isinstance(body.get("color"), dict) and body["color"].get("name"):
-            payload["color"] = body["color"]["name"]
-        if not payload:
-            return {}
-        r = _requests().patch(
-            f"{GRAPH_API_URL}/me/outlook/masterCategories/{label_id}",
-            headers=self._headers(),
-            json=payload
-        )
-        r.raise_for_status()
-        return r.json() if r.text else {}
-
-    def delete_label(self: OutlookClientBase, label_id: str) -> None:
-        r = _requests().delete(
-            f"{GRAPH_API_URL}/me/outlook/masterCategories/{label_id}",
-            headers=self._headers()
-        )
-        r.raise_for_status()
-
-    def get_label_id_map(self: OutlookClientBase) -> Dict[str, str]:
-        return {lbl.get("name", ""): lbl.get("id", "") for lbl in self.list_labels()}
-
-    def ensure_label(self: OutlookClientBase, name: str, **kwargs: Any) -> str:
-        m = self.get_label_id_map()
-        if name in m:
-            return m[name]
-        created = self.create_label(name, **kwargs)
-        return created.get("id", "")
-
-    # -------------------- Rules (filters) --------------------
-    def _fetch_inbox_rules_raw(self: OutlookClientBase) -> List[Dict[str, Any]]:
-        """Fetch raw inbox rules from Graph API."""
-        r = _requests().get(
-            f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
-            headers=self._headers()
-        )
-        r.raise_for_status()
-        return r.json().get("value", [])
-
-    def _map_rule(self: OutlookClientBase, ru: Dict[str, Any]) -> Dict[str, Any]:
-        """Map a raw Graph rule to the internal filter format."""
-        cond = ru.get("conditions", {}) or {}
-        act = ru.get("actions", {}) or {}
-        crit: Dict[str, Any] = {}
-        if cond.get("senderContains"):
-            crit["from"] = " OR ".join(cond["senderContains"])
-        if cond.get("recipientContains"):
-            crit["to"] = " OR ".join(cond["recipientContains"])
-        if cond.get("subjectContains"):
-            crit["subject"] = " OR ".join(cond["subjectContains"])
-        action: Dict[str, Any] = {}
-        if act.get("assignCategories"):
-            action["addLabelIds"] = act["assignCategories"]
-        if act.get("forwardTo"):
-            action["forward"] = ",".join(
-                a.get("emailAddress", {}).get("address", "") for a in act["forwardTo"]
-            )
-        if act.get("moveToFolder"):
-            action["moveToFolderId"] = act.get("moveToFolder")
-        return {"id": ru.get("id"), "criteria": crit, "action": action}
-
-    def list_filters(
-        self: OutlookClientBase,
-        use_cache: bool = False,
-        ttl: int = 300
-    ) -> List[Dict[str, Any]]:
-        if use_cache:
-            cached = self.cfg_get_json("rules_inbox", ttl)
-            rules = cached if isinstance(cached, list) else self._fetch_inbox_rules_raw()
-            if not isinstance(cached, list):
-                self.cfg_put_json("rules_inbox", rules)
-        else:
-            rules = self._fetch_inbox_rules_raw()
-        return [self._map_rule(ru) for ru in rules]
-
-    def _build_rule_conditions(self: OutlookClientBase, criteria: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert filter criteria dict to Graph API conditions format."""
-        cond: Dict[str, Any] = {}
-        if criteria.get("from"):
-            cond["senderContains"] = [s.strip() for s in str(criteria["from"]).split("OR")]
-        if criteria.get("to"):
-            cond["recipientContains"] = [s.strip() for s in str(criteria["to"]).split("OR")]
-        if criteria.get("subject"):
-            cond["subjectContains"] = [s.strip() for s in str(criteria["subject"]).split("OR")]
-        return cond
-
-    def _build_rule_actions(self: OutlookClientBase, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert filter action dict to Graph API actions format."""
-        act: Dict[str, Any] = {}
-        if action.get("addLabelIds"):
-            act["assignCategories"] = action["addLabelIds"]
-        if action.get("forward"):
-            emails = [e.strip() for e in str(action["forward"]).split(",") if e.strip()]
-            act["forwardTo"] = [{"emailAddress": {"address": e}} for e in emails]
-        if action.get("moveToFolderId"):
-            act["moveToFolder"] = action["moveToFolderId"]
-        return act
-
-    def create_filter(
-        self: OutlookClientBase,
-        criteria: Dict[str, Any],
-        action: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        payload = {
-            "displayName": f"Rule {int(time.time())}",
-            "sequence": 1,
-            "isEnabled": True,
-            "conditions": self._build_rule_conditions(criteria),
-            "actions": self._build_rule_actions(action),
-            "stopProcessingRules": True,
-        }
-        r = _requests().post(
-            f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules",
-            headers=self._headers(),
-            json=payload
-        )
-        r.raise_for_status()
-        return r.json()
-
-    def delete_filter(self: OutlookClientBase, filter_id: str) -> None:
-        r = _requests().delete(
-            f"{GRAPH_API_URL}/me/mailFolders/inbox/messageRules/{filter_id}",
-            headers=self._headers()
-        )
-        r.raise_for_status()
 
     # -------------------- Messages --------------------
     def _build_search_url(self, params: "SearchParams") -> str:
@@ -240,10 +64,10 @@ class OutlookMailMixin:
             query_params.append(f"$filter=receivedDateTime ge {start_iso}")
         return base + "?" + "&".join(query_params)
 
-    def _fetch_search_ids(self, params: "SearchParams") -> List[str]:
+    def _fetch_search_ids(self, params: "SearchParams") -> list[str]:
         """Paginate through search results and collect message IDs."""
-        ids: List[str] = []
-        nxt: Optional[str] = self._build_search_url(params)
+        ids: list[str] = []
+        nxt: str | None = self._build_search_url(params)
         for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
@@ -257,7 +81,7 @@ class OutlookMailMixin:
     def search_inbox_messages(
         self: OutlookClientBase,
         params: SearchParams,
-    ) -> List[str]:
+    ) -> list[str]:
         """Return message IDs in Inbox matching $search query, optional days filter."""
         import hashlib
 
@@ -280,11 +104,11 @@ class OutlookMailMixin:
         folder: str = "inbox",
         top: int = 25,
         pages: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List messages in a folder with pagination."""
         base = f"{GRAPH_API_URL}/me/mailFolders/{folder}/messages"
         url = f"{base}?$top={int(top)}&$orderby=receivedDateTime desc"
-        msgs: List[Dict[str, Any]] = []
+        msgs: list[dict[str, Any]] = []
         for _ in range(max(1, int(pages))):
             r = _requests().get(url, headers=self._headers())
             r.raise_for_status()
@@ -300,15 +124,15 @@ class OutlookMailMixin:
         r = _requests().post(
             f"{GRAPH_API_URL}/me/messages/{msg_id}/move",
             headers=self._headers(),
-            json=body
+            json=body,
         )
         r.raise_for_status()
 
     def get_message(
         self: OutlookClientBase,
         msg_id: str,
-        select_body: bool = True
-    ) -> Dict[str, Any]:
+        select_body: bool = True,
+    ) -> dict[str, Any]:
         sel = "$select=subject,receivedDateTime,from,bodyPreview" + (",body" if select_body else "")
         url = f"{GRAPH_API_URL}/me/messages/{msg_id}?{sel}"
         r = _requests().get(url, headers=self._headers())
@@ -318,9 +142,9 @@ class OutlookMailMixin:
     def search_messages(
         self: OutlookClientBase,
         query: str = "",
-        params: Optional[MessageSearchQuery] = None,
-        **kwargs,
-    ) -> List[Dict[str, Any]]:
+        params: MessageSearchQuery | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         """Search mail messages matching query.
 
         Accepts either a MessageSearchQuery params object or keyword arguments
@@ -336,7 +160,7 @@ class OutlookMailMixin:
         nxt = _build_kql_search_url(params)
         if not nxt:
             return []
-        msgs: List[Dict[str, Any]] = []
+        msgs: list[dict[str, Any]] = []
         for _ in range(max(1, int(params.pages))):
             r = _requests().get(nxt, headers=self._headers_search())
             r.raise_for_status()
@@ -353,164 +177,15 @@ class OutlookMailMixin:
     def get_attachments(
         self: OutlookClientBase,
         msg_id: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return list of attachments for a message (includes contentBytes base64)."""
         url = f"{GRAPH_API_URL}/me/messages/{msg_id}/attachments"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
         return r.json().get("value", [])
 
-    # -------------------- Folders --------------------
-    def list_folders(self: OutlookClientBase) -> List[Dict[str, Any]]:
-        url = f"{GRAPH_API_URL}/me/mailFolders"
-        out: List[Dict[str, Any]] = []
-        while url:
-            r = _requests().get(url, headers=self._headers())
-            r.raise_for_status()
-            data = r.json()
-            out.extend(data.get("value", []))
-            url = data.get(_NEXT_LINK)
-        return out
-
-    def get_folder_id_map(self: OutlookClientBase) -> Dict[str, str]:
-        return {f.get("displayName", ""): f.get("id", "") for f in self.list_folders()}
-
-    def ensure_folder(self: OutlookClientBase, name: str) -> str:
-        m = self.get_folder_id_map()
-        if name in m and m[name]:
-            return m[name]
-        body = {"displayName": name}
-        m0 = self.get_folder_id_map()
-        if name in m0 and m0[name]:
-            return m0[name]
-        for endpoint in [f"{GRAPH_API_URL}/me/mailFolders", f"{GRAPH_API_URL}/me/mailFolders/Inbox/childFolders"]:
-            r = _requests().post(endpoint, headers=self._headers(), json=body)
-            if r.status_code == 409:
-                m2 = self.get_folder_id_map()
-                if name in m2 and m2[name]:
-                    return m2[name]
-            if 200 <= r.status_code < 300:
-                f = r.json()
-                return f.get("id", "")
-        r.raise_for_status()
-        f = r.json()
-        return f.get("id", "")
-
-    def list_all_folders(
-        self: OutlookClientBase,
-        ttl: int = 600,
-        clear_cache: bool = False
-    ) -> List[Dict[str, Any]]:
-        """Return all folders including nested, using BFS traversal."""
-        if clear_cache:
-            self.cfg_clear()
-        cached = self.cfg_get_json("folders_all", ttl)
-        if isinstance(cached, list):
-            return cached
-        all_folders: Dict[str, Dict[str, Any]] = {}
-        roots = self.list_folders()
-        for f in roots:
-            if f.get("id"):
-                all_folders[f["id"]] = f
-        queue = list(all_folders.keys())
-        while queue:
-            fid = queue.pop(0)
-            r = _requests().get(
-                f"{GRAPH_API_URL}/me/mailFolders/{fid}/childFolders",
-                headers=self._headers()
-            )
-            r.raise_for_status()
-            for ch in r.json().get("value", []):
-                cid = ch.get("id")
-                if cid and cid not in all_folders:
-                    all_folders[cid] = ch
-                    queue.append(cid)
-        vals = list(all_folders.values())
-        self.cfg_put_json("folders_all", vals)
-        return vals
-
-    def get_folder_path_map(
-        self: OutlookClientBase,
-        ttl: int = 600,
-        clear_cache: bool = False
-    ) -> Dict[str, str]:
-        """Map full path (Parent/Child/Sub) to folder id."""
-        folders = self.list_all_folders(ttl=ttl, clear_cache=clear_cache)
-        by_id = {f.get("id"): f for f in folders}
-        parent = {fid: f.get("parentFolderId") for fid, f in by_id.items()}
-        name = {fid: (f.get("displayName") or "") for fid, f in by_id.items()}
-        path_map: Dict[str, str] = {}
-        cache: Dict[str, str] = {}
-
-        def build_path(fid: str) -> str:
-            if fid in cache:
-                return cache[fid]
-            parts = []
-            cur = fid
-            seen = set()
-            while cur and cur in name and cur not in seen:
-                seen.add(cur)
-                parts.append(name[cur])
-                cur = parent.get(cur)
-            parts.reverse()
-            p = "/".join([p for p in parts if p])
-            cache[fid] = p
-            return p
-
-        for fid in by_id:
-            p = build_path(fid)
-            if p:
-                path_map[p] = fid
-        self.cfg_put_json("folders_path_map", path_map)
-        return path_map
-
-    def _ensure_child_folder(self: OutlookClientBase, parent_id: str, seg: str) -> str:
-        """Ensure a child folder with name `seg` exists under `parent_id`. Returns child folder id."""
-        r = _requests().get(
-            f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
-            headers=self._headers()
-        )
-        r.raise_for_status()
-        kids = r.json().get("value", [])
-        kid_id = next((k.get("id") for k in kids if (k.get("displayName") or "").lower() == seg.lower()), None)
-        if kid_id:
-            return kid_id
-        r2 = _requests().post(
-            f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
-            headers=self._headers(),
-            json={"displayName": seg},
-        )
-        if r2.status_code == 409:
-            r3 = _requests().get(
-                f"{GRAPH_API_URL}/me/mailFolders/{parent_id}/childFolders",
-                headers=self._headers()
-            )
-            r3.raise_for_status()
-            kids2 = r3.json().get("value", [])
-            kid_id = next((k.get("id") for k in kids2 if (k.get("displayName") or "").lower() == seg.lower()), None)
-            if not kid_id:
-                kid_id = next((k.get("id") for k in kids2 if seg.lower() in (k.get("displayName") or "").lower()), None)
-            return kid_id or ""
-        r2.raise_for_status()
-        return r2.json().get("id") or ""
-
-    def ensure_folder_path(self: OutlookClientBase, path: str) -> str:
-        """Ensure a nested folder path exists and return the leaf folder id."""
-        parts = [p for p in (path or "").split("/") if p]
-        if not parts:
-            raise ValueError("Folder path is empty")
-
-        top_map = self.get_folder_id_map()
-        parent_id = top_map.get(parts[0]) or self.ensure_folder(parts[0])
-
-        for seg in parts[1:]:
-            parent_id = self._ensure_child_folder(parent_id, seg)
-            if not parent_id:
-                return ""
-        return parent_id or ""
-
     # -------------------- Signatures --------------------
-    def list_signatures(self: OutlookClientBase) -> List[Dict[str, Any]]:
+    def list_signatures(self: OutlookClientBase) -> list[dict[str, Any]]:
         raise NotImplementedError("Outlook signatures are not available via Microsoft Graph API v1.0")
 
     def update_signature(self: OutlookClientBase, signature_html: str) -> None:
