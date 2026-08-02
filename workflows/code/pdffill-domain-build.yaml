@@ -430,16 +430,24 @@ stages:
         Use the Bash tool: cat src/wifi/cli.py | head -30
         Use the Bash tool: cat src/core/assistant.py | head -40
 
-      Step 2 -- add pymupdf dependency and register the package.
+      Step 2 -- add pymupdf as an optional extra and register the package.
         PyMuPDF (fitz) is not yet in pyproject.toml. Edit pyproject.toml:
-          a. Add "pymupdf>=1.24.0" to the [project] dependencies list (same
-             format as the existing entries, e.g. "PyYAML==6.0.3").
+          a. Add a "pdffill" extra under [project.optional-dependencies] (the
+             section already exists; add a new key after the existing "pdf" and
+             "dev" entries):
+               pdffill = [
+                 "pymupdf>=1.24.0",
+               ]
+             Do NOT add pymupdf to the [project] base dependencies list --
+             fitz is lazy-imported inside functions precisely so the package
+             is usable without it installed.
           b. Add "pdffill*" to the [tool.setuptools.packages.find] include list
              (same glob pattern as "wifi*", "charts*", etc.).
         Verify the edits took effect:
           Bash tool: grep "pymupdf\|pdffill" pyproject.toml
-        Then reinstall so pip picks up the new package and dependency:
-          Bash tool: pip install -e . -q 2>&1 | tail -5
+        Then reinstall with the pdffill extra so pip picks up the package and
+        the optional dependency:
+          Bash tool: pip install -e ".[pdffill]" -q 2>&1 | tail -5
         Confirm fitz is importable:
           Bash tool: python3 -c "import fitz; print(fitz.__version__)" 2>&1
 
@@ -845,8 +853,9 @@ stages:
           - Re-run once. If still failing, set test_status="FAIL" and document.
 
       Step 2 -- run the full test suite (regression guard):
-        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -q 2>&1 | tail -20
-        Record exit code. Any regression introduced by new pdffill files is
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -q > /tmp/pdffill-full-suite.log 2>&1; echo "EXIT_CODE=$?"; tail -20 /tmp/pdffill-full-suite.log
+        Record the EXIT_CODE value (not tail's exit status) as the actual
+        pass/fail signal. Any regression introduced by new pdffill files is
         a BLOCKING issue.
 
       Step 3 -- qlty lint on new files (if run_qlty == "true"):
@@ -875,10 +884,19 @@ stages:
         All must exit 0. Record any failures.
 
       Step 5 -- optional real-form smoke test (READ-ONLY):
+        WARNING: a real, partially-filled PDF may contain PII (names, DOBs,
+        addresses, dollar amounts) in field values. Do NOT persist or log the
+        raw --json output verbatim, and do NOT include it in any report or
+        artifact as-is.
         If {real_pdf} is non-empty AND the file exists at the given path:
           Bash tool: ./bin/pdffill widget list-fields --pdf "{real_pdf}" --json 2>&1
           This is READ-ONLY. Do NOT write to {real_pdf} or any path derived
-          from it. Record the output (field names and count) as a sanity check.
+          from it.
+          Parse the JSON output in memory and extract ONLY:
+            - field names: [field["name"] for field in fields]
+            - field count: len(fields)
+          Record ONLY that redacted summary (names list + count) in the
+          verify-results.json output below. Do not record field values.
           If {real_pdf} is blank or the file does not exist: skip this step.
 
       Step 6 -- write {workspace}/validation/verify-results.json:
