@@ -13,7 +13,7 @@ import argparse
 import os
 from pathlib import Path
 
-from core.http import HttpClient
+from core.http import HttpClient, HttpRequestBody
 
 
 def upload_octoprint(url: str, api_key: str, file: Path, do_print: bool) -> dict:
@@ -22,7 +22,7 @@ def upload_octoprint(url: str, api_key: str, file: Path, do_print: bool) -> dict
     with open(file, "rb") as fh:
         files = {"file": (file.name, fh, "application/octet-stream")}
         data = {"print": "true" if do_print else "false"}
-        r = client.post("/api/files/local", files=files, data=data)
+        r = client.post("/api/files/local", body=HttpRequestBody(files=files, data=data))
     return r.json()
 
 
@@ -31,12 +31,12 @@ def upload_moonraker(url: str, file: Path, do_print: bool) -> dict[str, str]:
     client = HttpClient(url, timeout=60)
     with open(file, "rb") as fh:
         files = {"file": (file.name, fh, "application/octet-stream")}
-        client.post("/server/files/upload", files=files)
+        client.post("/server/files/upload", body=HttpRequestBody(files=files))
     if do_print:
         # Start: POST /printer/print/start {"filename":"gcodes/<name>"}
         # Moonraker usually places uploads under gcodes/
         payload = {"filename": f"gcodes/{file.name}"}
-        HttpClient(url, timeout=30).post("/printer/print/start", json=payload)
+        HttpClient(url, timeout=30).post("/printer/print/start", body=HttpRequestBody(json=payload))
     return {"status": "ok"}
 
 

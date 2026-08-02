@@ -35,6 +35,8 @@ from charts.renderer_line_area import (  # noqa: F401
     _RIGHT_AXIS,
     _apply_labels,
     _apply_secondary_axis_style,
+    DualSeriesContext,
+    LineSeriesStyle,
     _apply_theme,
     _build_row_map,
     _configure_date_axis,

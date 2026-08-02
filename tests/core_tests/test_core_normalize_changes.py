@@ -2,7 +2,7 @@
 
 C1 — OutputConfig backward-compat alias
 C3 — OutlookBaseProvider Protocol conformance
-C7 — build_outlook_service / build_outlook_service_from_config consolidation
+C7 — build_outlook_service consumes OutlookServiceConfig directly
 """
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class TestOutlookBaseProviderProtocol(unittest.TestCase):
 
 
 class TestBuildOutlookServiceConsolidation(unittest.TestCase):
-    """C7: build_outlook_service and build_outlook_service_from_config delegate identically."""
+    """C7: build_outlook_service consumes an OutlookServiceConfig directly."""
 
     def _make_stubs(self):
         """Return (mock_context_cls, mock_service_cls, mock_service_instance)."""
@@ -88,79 +88,49 @@ class TestBuildOutlookServiceConsolidation(unittest.TestCase):
     @patch("core.auth.resolve_outlook_credentials")
     def test_build_outlook_service_uses_resolved_credentials(self, mock_resolve):
         """build_outlook_service() passes resolved creds to the context class."""
-        from core.auth import build_outlook_service
+        from core.auth import OutlookServiceConfig, build_outlook_service
 
         mock_resolve.return_value = ("cid", "tenant", "/tok.json")
         mock_context_cls, mock_service_cls, _ = self._make_stubs()
 
         build_outlook_service(
-            profile="p",
-            client_id="cid",
-            tenant="t",
-            token_path="/t.json",
+            OutlookServiceConfig(profile="p", client_id="cid", tenant="t", token_path="/t.json"),  # nosec B106 - test fixture path, not a credential
             context_cls=mock_context_cls,
             service_cls=mock_service_cls,
         )
 
         mock_resolve.assert_called_once_with("p", "cid", "t", "/t.json")
         mock_context_cls.assert_called_once_with(
-            client_id="cid", tenant="tenant", token_path="/tok.json", profile="p"
+            client_id="cid", tenant="tenant", token_path="/tok.json", profile="p"  # nosec B106 - test fixture path, not a credential
         )
         mock_service_cls.assert_called_once()
 
     @patch("core.auth.resolve_outlook_credentials")
-    def test_build_outlook_service_from_config_delegates_to_canonical(self, mock_resolve):
-        """build_outlook_service_from_config() unpacks config and calls the canonical fn."""
-        from core.auth import OutlookServiceConfig, build_outlook_service_from_config
-
-        mock_resolve.return_value = ("cid2", "t2", "/tok2.json")
-        mock_context_cls, mock_service_cls, _ = self._make_stubs()
-        config = OutlookServiceConfig(
-            profile="prof", client_id="cid2", tenant="t2", token_path="/tok2.json"
-        )
-
-        build_outlook_service_from_config(
-            config,
-            context_cls=mock_context_cls,
-            service_cls=mock_service_cls,
-        )
-
-        mock_resolve.assert_called_once_with("prof", "cid2", "t2", "/tok2.json")
-
-    @patch("core.auth.resolve_outlook_credentials")
-    def test_both_functions_produce_same_service_type(self, mock_resolve):
-        """Both functions invoke the service_cls with the same context, producing equal calls."""
-        from core.auth import OutlookServiceConfig, build_outlook_service, build_outlook_service_from_config
+    def test_build_outlook_service_invokes_service_cls_with_context(self, mock_resolve):
+        """build_outlook_service() wraps the resolved context in the service class."""
+        from core.auth import OutlookServiceConfig, build_outlook_service
 
         mock_resolve.return_value = ("cid3", "t3", "/tok3.json")
 
-        calls_direct = []
-        calls_config = []
+        calls = []
 
-        def tracking_context_cls_direct(**kw):
-            calls_direct.append(kw)
-            return MagicMock()
-
-        def tracking_context_cls_config(**kw):
-            calls_config.append(kw)
+        def tracking_context_cls(**kw):
+            calls.append(kw)
             return MagicMock()
 
         mock_svc = MagicMock(return_value=MagicMock())
 
         build_outlook_service(
-            profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json",
-            context_cls=tracking_context_cls_direct,
+            OutlookServiceConfig(profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json"),  # nosec B106 - test fixture path, not a credential
+            context_cls=tracking_context_cls,
             service_cls=mock_svc,
         )
 
-        mock_resolve.return_value = ("cid3", "t3", "/tok3.json")
-        build_outlook_service_from_config(
-            OutlookServiceConfig(profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json"),
-            context_cls=tracking_context_cls_config,
-            service_cls=mock_svc,
+        self.assertEqual(
+            calls,
+            [{"client_id": "cid3", "tenant": "t3", "token_path": "/tok3.json", "profile": "x"}],
         )
-
-        self.assertEqual(calls_direct, calls_config)
+        mock_svc.assert_called_once()
 
 
 if __name__ == "__main__":

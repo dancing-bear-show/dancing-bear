@@ -98,6 +98,20 @@ class TranscriptParseProducer(BaseProducer):
         )
 
 
+def _run_parse_transcripts(request: TranscriptParseRequest, fmt: str) -> None:
+    """Execute parse-transcripts pipeline and emit results."""
+    writer = OutputWriter()
+    envelope = TranscriptParseProcessor().process(RequestConsumer(request).consume())
+    if envelope.ok():
+        TranscriptParseProducer(writer=writer)._produce_success(  # noqa: SLF001 - direct call to pass fmt context
+            envelope.unwrap(),
+            {"fmt": fmt},
+        )
+    else:
+        msg = (envelope.diagnostics or {}).get("message", "parse-transcripts failed")
+        raise click.ClickException(msg)
+
+
 @click.command("parse-transcripts")
 @click.option("--since", default="all", show_default=True,
               help="Time window to process (e.g. 7d, 30d, all).")
@@ -120,23 +134,11 @@ def parse_transcripts(
     limit: int,
 ) -> None:
     """Pre-parse JSONL transcripts into a structured JSON index."""
-    resolved_projects = Path(projects_dir).expanduser() if projects_dir else None
-    resolved_index = Path(index_dir).expanduser() if index_dir else DEFAULT_INDEX_DIR
-
-    resolved_request = TranscriptParseRequest(
+    request = TranscriptParseRequest(
         since=since,
-        projects_dir=resolved_projects,
-        index_dir=resolved_index,
+        projects_dir=Path(projects_dir).expanduser() if projects_dir else None,
+        index_dir=Path(index_dir).expanduser() if index_dir else DEFAULT_INDEX_DIR,
         force=force,
         limit=limit,
     )
-    writer = OutputWriter()
-    envelope = TranscriptParseProcessor().process(RequestConsumer(resolved_request).consume())
-    if envelope.ok():
-        TranscriptParseProducer(writer=writer)._produce_success(  # noqa: SLF001 - direct call to pass fmt context
-            envelope.unwrap(),
-            {"fmt": fmt},
-        )
-    else:
-        msg = (envelope.diagnostics or {}).get("message", "parse-transcripts failed")
-        raise click.ClickException(msg)
+    _run_parse_transcripts(request, fmt)

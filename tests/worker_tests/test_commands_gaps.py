@@ -138,6 +138,16 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         from worker.commands import WorkerConfig
         return WorkerConfig(backoff=0)
 
+    def _make_outcome_ctx(self, proc_path, ctx):
+        from worker.commands import OutcomeContext
+        return OutcomeContext(
+            proc_path=proc_path,
+            ctx=ctx,
+            duration=100,
+            command="daemon",
+            config=self._make_config(),
+        )
+
     def _patched_finish(self, job_path, success, **kwargs):
         """Call the real finish with the test root."""
         kwargs["root"] = self.root
@@ -154,7 +164,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         ctx = self._make_ctx("h_ok")
         with patch("worker.commands.log_perf_jsonl"), \
              patch("worker.commands.q.finish", side_effect=self._patched_finish):
-            _handle_outcome(proc, ctx, True, {"ok": True}, 100, "daemon", self._make_config())
+            _handle_outcome(self._make_outcome_ctx(proc, ctx), True, {"ok": True})
         self.assertTrue((self.root / "done" / "h_ok.json").exists())
 
     def test_deferred_outcome_moves_job_back_to_pending(self):
@@ -164,7 +174,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         with patch("worker.commands.log_perf_jsonl"), \
              patch("worker.commands._undo_retry_attempt"), \
              patch("worker.commands.q.retry", side_effect=self._patched_retry):
-            _handle_outcome(proc, ctx, False, "deferred-needs-resource", 100, "daemon", self._make_config())
+            _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "deferred-needs-resource")
         self.assertTrue((self.root / "pending" / "h_defer.json").exists())
 
     def test_terminal_failure_moves_to_error(self):
@@ -173,7 +183,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         ctx = self._make_ctx("h_term")
         with patch("worker.commands.log_perf_jsonl"), \
              patch("worker.commands.q.finish", side_effect=self._patched_finish):
-            _handle_outcome(proc, ctx, False, "terminal-unrecoverable", 100, "daemon", self._make_config())
+            _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "terminal-unrecoverable")
         self.assertTrue((self.root / "error" / "h_term.json").exists())
 
     def test_retry_exhausted_moves_to_error(self):
@@ -183,7 +193,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         ctx = self._make_ctx("h_exhaust", attempts=2, max_attempts=3)
         with patch("worker.commands.log_perf_jsonl"), \
              patch("worker.commands.q.finish", side_effect=self._patched_finish):
-            _handle_outcome(proc, ctx, False, "some error", 100, "daemon", self._make_config())
+            _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "some error")
         self.assertTrue((self.root / "error" / "h_exhaust.json").exists())
 
     def test_retry_not_exhausted_moves_back_to_pending(self):
@@ -193,7 +203,7 @@ class TestHandleOutcome(unittest.TestCase, QueueRootIsolationMixin):
         ctx = self._make_ctx("h_retry", attempts=0, max_attempts=3)
         with patch("worker.commands.log_perf_jsonl"), \
              patch("worker.commands.q.retry", side_effect=self._patched_retry):
-            _handle_outcome(proc, ctx, False, "transient error", 100, "daemon", self._make_config())
+            _handle_outcome(self._make_outcome_ctx(proc, ctx), False, "transient error")
         self.assertTrue((self.root / "pending" / "h_retry.json").exists())
 
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
+from .render_config import HeaderLineConfig
 
 _DEFAULT_BULLET_STYLE = "List Bullet"
 
@@ -77,12 +78,14 @@ class ExperienceSectionRenderer(ListSectionRenderer):
 
         if title or company:
             self.headers.add_header_line(
-                title_text=title,
-                company_text=company,
-                loc_text=loc_txt,
-                span_text=span,
+                HeaderLineConfig(
+                    title_text=title,
+                    company_text=company,
+                    loc_text=loc_txt,
+                    span_text=span,
+                    style=opts.role_style,
+                ),
                 sec=cfg,
-                style=opts.role_style,
             )
 
         # Determine per-role bullet limit
@@ -162,10 +165,10 @@ class EducationSectionRenderer(ListSectionRenderer):
 
             if degree or institution or year:
                 self.headers.add_header_line(
-                    title_text=degree,
-                    company_text=institution,
-                    loc_text="",
-                    span_text=year,
+                    HeaderLineConfig(
+                        title_text=degree,
+                        company_text=institution,
+                        span_text=year,
+                    ),
                     sec=sec,
-                    style="Normal",
                 )

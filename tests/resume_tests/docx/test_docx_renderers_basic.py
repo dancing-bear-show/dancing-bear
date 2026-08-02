@@ -2,6 +2,7 @@
 from __future__ import annotations
 import unittest
 from tests.resume_tests.fixtures import make_fake_renderer, mock_docx_modules
+from resume.render_config import HeaderLineConfig
 
 
 @mock_docx_modules
@@ -152,7 +153,7 @@ class TestHeaderRenderer(unittest.TestCase):
     def test_add_header_line_title_only(self):
         """Test header with title only."""
         renderer, doc = self._get_renderer()
-        renderer.add_header_line(title_text="Software Engineer")
+        renderer.add_header_line(HeaderLineConfig(title_text="Software Engineer"))
         self.assertEqual(len(doc.paragraphs), 1)
         runs = doc.paragraphs[0].runs
         self.assertEqual(runs[0].text, "Software Engineer")
@@ -161,7 +162,7 @@ class TestHeaderRenderer(unittest.TestCase):
     def test_add_header_line_title_and_company(self):
         """Test header with title and company."""
         renderer, doc = self._get_renderer()
-        renderer.add_header_line(title_text="Software Engineer", company_text="Acme Corp")
+        renderer.add_header_line(HeaderLineConfig(title_text="Software Engineer", company_text="Acme Corp"))
         runs = doc.paragraphs[0].runs
         texts = [r.text for r in runs]
         self.assertIn("Software Engineer", texts)
@@ -172,9 +173,11 @@ class TestHeaderRenderer(unittest.TestCase):
         """Test header with location."""
         renderer, doc = self._get_renderer()
         renderer.add_header_line(
-            title_text="Engineer",
-            company_text="Company",
-            loc_text="New York",
+            HeaderLineConfig(
+                title_text="Engineer",
+                company_text="Company",
+                loc_text="New York",
+            )
         )
         runs = doc.paragraphs[0].runs
         texts = [r.text for r in runs]
@@ -184,8 +187,10 @@ class TestHeaderRenderer(unittest.TestCase):
         """Test header with duration."""
         renderer, doc = self._get_renderer()
         renderer.add_header_line(
-            title_text="Engineer",
-            span_text="2020-2024",
+            HeaderLineConfig(
+                title_text="Engineer",
+                span_text="2020-2024",
+            )
         )
         runs = doc.paragraphs[0].runs
         texts = [r.text for r in runs]

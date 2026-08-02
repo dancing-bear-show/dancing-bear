@@ -36,6 +36,7 @@ from workflow.models import (
     WorkflowDefinition,
     WorkflowManifest,
     WorkflowRun,
+    StageResultExtras,
     make_stage_result,
 )
 from workflow.orchestrator import WorkflowExecutionError, WorkflowOrchestrator
@@ -63,6 +64,7 @@ __all__ = [
     "ResolvedStage",
     "StageKind",
     "StageResult",
+    "StageResultExtras",
     "StageSpec",
     "StageStatus",
     "TriggerSpec",

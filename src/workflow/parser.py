@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .models import WorkflowDefinition
 from .include import (
+    FragmentContext,
     parse_fragment,  # re-exported for backward compat — keep in __all__
     _parse_include,
     _expand_includes,
@@ -79,7 +80,7 @@ def parse_workflow_str(content: str, source: str = "<string>") -> WorkflowDefini
     includes = tuple(_parse_include(inc, source) for inc in raw_includes)
     if includes:
         source_path = Path(source) if source != "<string>" else None
-        stages = _expand_includes(stages, includes, source_path, source)
+        stages = _expand_includes(stages, includes, FragmentContext(source=source, source_path=source_path))
 
     _validate_unique_names(stages, source)
     _validate_refs(stages, source)

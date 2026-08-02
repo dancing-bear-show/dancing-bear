@@ -6,6 +6,7 @@ and from telemetry/cli_formatters.py.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -140,6 +141,48 @@ def sessions(since: str, fmt: str, limit: int, errors_only: bool, projects_dir: 
     console.print(_build_sessions_table(all_sessions, since))
 
 
+@dataclass(frozen=True)
+class AgentQueryRequest:
+    """Parameters for the agents CLI query."""
+
+    since: str
+    limit: int
+    model: str | None
+    sort: str
+    projects_dir: str | None
+
+
+def _run_agents(request: AgentQueryRequest, fmt: str) -> None:
+    """Execute agents query and emit results in the requested format."""
+    from telemetry.providers.transcript import TranscriptProvider
+
+    since_dt = _parse_since_cli(request.since)
+    provider = TranscriptProvider(
+        projects_dir=Path(request.projects_dir).expanduser() if request.projects_dir else None,
+    )
+    all_rows = provider.aggregate_agents(since=since_dt)
+
+    if request.model:
+        all_rows = [r for r in all_rows if any(request.model.lower() in m.lower() for m in r.models)]
+
+    all_rows.sort(key=_AGENT_SORT_KEYS[request.sort], reverse=True)
+    rows = all_rows[:request.limit] if request.limit > 0 else all_rows
+
+    if fmt == "json":
+        _print_agents_json(all_rows, rows, request.since)
+        return
+
+    if fmt == "csv":
+        _print_agents_csv(rows)
+        return
+
+    if not rows:
+        console.print("[dim]No agent data found.[/]")
+        return
+
+    console.print(_build_agents_table(all_rows, rows, request.since))
+
+
 @main.command("agents")
 @click.option("--since", default="7d", show_default=True, help="Time window (e.g. 2d, 7d, 24h).")
 @click.option(
@@ -155,32 +198,7 @@ def sessions(since: str, fmt: str, limit: int, errors_only: bool, projects_dir: 
 @click.option("--projects-dir", default=None, help="Override ~/.claude/projects directory.")
 def agents(since: str, fmt: str, limit: int, model: str | None, sort: str, projects_dir: str | None) -> None:
     """Per-agent token and cost breakdown."""
-    from telemetry.providers.transcript import TranscriptProvider
-
-    since_dt = _parse_since_cli(since)
-
-    provider = TranscriptProvider(projects_dir=Path(projects_dir).expanduser() if projects_dir else None)
-    all_rows = provider.aggregate_agents(since=since_dt)
-
-    if model:
-        all_rows = [r for r in all_rows if any(model.lower() in m.lower() for m in r.models)]
-
-    all_rows.sort(key=_AGENT_SORT_KEYS[sort], reverse=True)
-    rows = all_rows[:limit] if limit > 0 else all_rows
-
-    if fmt == "json":
-        _print_agents_json(all_rows, rows, since)
-        return
-
-    if fmt == "csv":
-        _print_agents_csv(rows)
-        return
-
-    if not rows:
-        console.print("[dim]No agent data found.[/]")
-        return
-
-    console.print(_build_agents_table(all_rows, rows, since))
+    _run_agents(AgentQueryRequest(since=since, limit=limit, model=model, sort=sort, projects_dir=projects_dir), fmt)
 
 
 def _rules_init(config_path: Path) -> None:

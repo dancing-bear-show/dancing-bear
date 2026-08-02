@@ -110,21 +110,29 @@ class JobResult:
     logs: list[str]
 
 
+@dataclass(frozen=True)
+class OutcomeContext:
+    """Bundle of state for dispatching a job outcome to queue operations."""
+
+    proc_path: Path
+    ctx: JobContext
+    duration: int
+    command: str
+    config: WorkerConfig
+
+
 # ============================================================================
 # Outcome dispatch
 # ============================================================================
 
 
-def _handle_outcome(
-    proc_path: Path,
-    ctx: JobContext,
-    success: bool,
-    out: object,
-    duration: int,
-    command: str,
-    config: WorkerConfig,
-) -> None:
+def _handle_outcome(outcome_ctx: OutcomeContext, success: bool, out: object) -> None:
     """Dispatch a completed handler invocation to the appropriate queue operation."""
+    proc_path = outcome_ctx.proc_path
+    ctx = outcome_ctx.ctx
+    duration = outcome_ctx.duration
+    command = outcome_ctx.command
+    config = outcome_ctx.config
     out_str = str(out)
     if success:
         q.finish(proc_path, success=True, result=out)
@@ -190,19 +198,11 @@ class JobResultProducer(BaseProducer):
 
     def __init__(
         self,
-        proc_path: Path,
-        ctx: JobContext,
-        duration: int,
-        command: str,
-        config: WorkerConfig,
+        outcome_ctx: OutcomeContext,
         writer: OutputWriter | None = None,
     ) -> None:
         super().__init__(writer)
-        self._proc_path = proc_path
-        self._ctx = ctx
-        self._duration = duration
-        self._command = command
-        self._config = config
+        self._outcome_ctx = outcome_ctx
 
     def _produce_success(
         self, payload: JobResult, diagnostics: dict[str, object] | None
@@ -210,15 +210,7 @@ class JobResultProducer(BaseProducer):
         """Dispatch outcome to queue operations based on the outcome string."""
         success = payload.outcome == "success"
         out_val: object = payload.outcome if not success else payload.logs[0] if payload.logs else True
-        _handle_outcome(
-            self._proc_path,
-            self._ctx,
-            success,
-            out_val,
-            self._duration,
-            self._command,
-            self._config,
-        )
+        _handle_outcome(self._outcome_ctx, success, out_val)
 
 
 # ============================================================================
@@ -297,7 +289,14 @@ class JobProcessor:
             )
             return 1
 
-        producer = JobResultProducer(proc_path, ctx, duration, self.command, self.config)
+        outcome_ctx = OutcomeContext(
+            proc_path=proc_path,
+            ctx=ctx,
+            duration=duration,
+            command=self.command,
+            config=self.config,
+        )
+        producer = JobResultProducer(outcome_ctx)
         producer.produce(envelope)
         return 1
 

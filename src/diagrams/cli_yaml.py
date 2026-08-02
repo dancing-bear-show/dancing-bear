@@ -60,13 +60,16 @@ def _build_sequence_from_spec(spec: dict) -> str:
             actor=p_spec.get("actor", False),
         )
     for m_spec in spec.get("messages", []):
+        from .mermaid import MessageOptions  # noqa: PLC0415
         builder.message(
             src=m_spec["sender"],
             dst=m_spec["receiver"],
             text=m_spec["text"],
-            arrow=m_spec.get("arrow_type", "->>"),
-            activate=m_spec.get("activate", False),
-            deactivate=m_spec.get("deactivate", False),
+            opts=MessageOptions(
+                arrow=m_spec.get("arrow_type", "->>"),
+                activate=m_spec.get("activate", False),
+                deactivate=m_spec.get("deactivate", False),
+            ),
         )
     return builder.render()
 

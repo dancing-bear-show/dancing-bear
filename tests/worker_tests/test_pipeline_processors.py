@@ -117,6 +117,7 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
             JobContext,
             JobResult,
             JobResultProducer,
+            OutcomeContext,
             WorkerConfig,
         )
         from core.pipeline import ResultEnvelope
@@ -130,13 +131,14 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
 
         # Build a success envelope directly
         envelope = ResultEnvelope(status="success", payload=JobResult(outcome="success", logs=[]))
-        producer = JobResultProducer(
+        outcome_ctx = OutcomeContext(
             proc_path=proc_path,
             ctx=ctx,
             duration=10,
             command="daemon",
             config=WorkerConfig(),
         )
+        producer = JobResultProducer(outcome_ctx)
         with patch("worker.commands.log_perf_jsonl"), \
              patch("worker.commands.q.finish", side_effect=self._patched_finish):
             producer.produce(envelope)
@@ -148,6 +150,7 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
         from worker.commands import (
             JobContext,
             JobResultProducer,
+            OutcomeContext,
             WorkerConfig,
         )
         from core.pipeline import ResultEnvelope
@@ -165,13 +168,14 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
             payload=None,
             diagnostics={"message": "handler failed"},
         )
-        producer = JobResultProducer(
+        outcome_ctx = OutcomeContext(
             proc_path=proc_path,
             ctx=ctx,
             duration=5,
             command="daemon",
             config=WorkerConfig(),
         )
+        producer = JobResultProducer(outcome_ctx)
         with patch.object(producer, "_produce_success") as mock_ps:
             producer.produce(envelope)
 

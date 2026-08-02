@@ -43,6 +43,18 @@ class MessageRow:
     text: str
 
 
+@dataclass(frozen=True)
+class MessageQuery:
+    """Parameters for a WhatsApp message search (excludes db_path)."""
+
+    contains: list[str] | None = None
+    match_all: bool = False
+    contact: str | None = None
+    from_me: bool | None = None
+    since_days: int | None = None
+    limit: int = 50
+
+
 def _connect_ro(path: str) -> sqlite3.Connection:
     # Use URI mode for read-only
     uri = f"file:{path}?mode=ro"
@@ -95,19 +107,20 @@ def _build_where(
 
 
 def search_messages(
-    db_path: Optional[str] = None,
-    contains: Optional[List[str]] = None,
-    match_all: bool = False,
-    contact: Optional[str] = None,
-    from_me: Optional[bool] = None,
-    since_days: Optional[int] = None,
-    limit: int = 50,
+    db_path: str | None = None,
+    query: MessageQuery | None = None,
 ) -> List[MessageRow]:
-    """Search WhatsApp messages."""
+    """Search WhatsApp messages.
+
+    Args:
+        db_path: Path to ChatStorage.sqlite. Defaults to the system default.
+        query: Search parameters. Defaults to MessageQuery() (return recent 50 messages).
+    """
+    q = query or MessageQuery()
     path = os.path.expanduser(db_path or default_db_path())
     if not os.path.exists(path):
         raise NotFoundError(f"WhatsApp ChatStorage not found: {path}")
-    where, params = _build_where(contains or [], match_all, contact, from_me, since_days)
+    where, params = _build_where(q.contains or [], q.match_all, q.contact, q.from_me, q.since_days)
     # Safe: where clause from _build_where uses only hardcoded column names
     # and ? placeholders - no user input in SQL string itself
     sql = (
@@ -121,7 +134,7 @@ def search_messages(
     rows: List[MessageRow] = []
     with _connect_ro(path) as conn:
         cur = conn.cursor()
-        query_args = [APPLE_EPOCH_OFFSET, *params, int(limit)]
+        query_args = [APPLE_EPOCH_OFFSET, *params, int(q.limit)]
         for ts, partner, fromme, text in cur.execute(sql, query_args):
             rows.append(MessageRow(ts=str(ts or ""), partner=str(partner or ""), from_me=int(fromme or 0), text=str(text or "")))
     return rows

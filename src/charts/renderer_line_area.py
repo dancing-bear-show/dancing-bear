@@ -7,6 +7,7 @@ housed here and re-exported via charts.renderer for backwards compatibility.
 from __future__ import annotations
 
 import datetime
+from dataclasses import dataclass
 
 from charts.theme import ChartTheme
 from charts.types.area import AreaChartSpec
@@ -15,6 +16,26 @@ from charts.types.dual import DualAxisChartSpec
 from charts.types.line import LineChartSpec
 
 _RIGHT_AXIS = "right"
+
+
+@dataclass(frozen=True)
+class LineSeriesStyle:
+    """Visual style for a single line series."""
+
+    color: str
+    linewidth: float
+    label: str
+
+
+@dataclass(frozen=True)
+class DualSeriesContext:
+    """Shared x-axis context for dual-axis series rendering."""
+
+    x_values: list[object]
+    x_field: str
+    is_dates: bool
+    palette_offset: int = 0
+    linestyle: str = "-"
 
 
 # ---------------------------------------------------------------------------
@@ -170,9 +191,7 @@ def _plot_series_smooth(
     x_values: list[object],
     y_values: list[float],
     is_dates: bool,
-    color: str,
-    linewidth: float,
-    label: str,
+    style: LineSeriesStyle,
 ) -> bool:
     import numpy as np
     x_num = np.arange(len(x_values), dtype=float)
@@ -186,7 +205,7 @@ def _plot_series_smooth(
     plot_x = x_dense if not is_dates else [
         x_values[int(round(min(xi, len(x_values) - 1)))] for xi in x_dense
     ]
-    ax.plot(plot_x, y_smooth, color=color, linewidth=linewidth, label=label)  # type: ignore[union-attr]
+    ax.plot(plot_x, y_smooth, color=style.color, linewidth=style.linewidth, label=style.label)  # type: ignore[union-attr]
     return True
 
 
@@ -203,7 +222,7 @@ def _render_line(ax: object, spec: LineChartSpec, theme: ChartTheme) -> None:
         label = series.label or series.name
 
         if spec.smooth and len(x_values) >= 3:
-            if _plot_series_smooth(ax, x_values, y_values, is_dates, color, spec.line_width, label):
+            if _plot_series_smooth(ax, x_values, y_values, is_dates, LineSeriesStyle(color, spec.line_width, label)):
                 continue
 
         ax.plot(  # type: ignore[union-attr]
@@ -274,21 +293,17 @@ def _split_dual_series(
 def _plot_dual_series(
     ax: object,
     series_list: list[SeriesSpec],
-    x_values: list[object],
-    x_field: str,
-    is_dates: bool,
+    ctx: DualSeriesContext,
     theme: ChartTheme,
-    palette_offset: int,
-    linestyle: str = "-",
 ) -> tuple[list[object], list[str]]:
     handles: list[object] = []
     labels: list[str] = []
     for idx, series in enumerate(series_list):
-        color = _series_color(series, palette_offset + idx, theme)
-        row_map = _build_row_map(series, x_field, is_dates)
-        y = [row_map.get(x, float("nan")) for x in x_values]
+        color = _series_color(series, ctx.palette_offset + idx, theme)
+        row_map = _build_row_map(series, ctx.x_field, ctx.is_dates)
+        y = [row_map.get(x, float("nan")) for x in ctx.x_values]
         label = series.label or series.name
-        (line,) = ax.plot(x_values, y, color=color, linewidth=2.0, linestyle=linestyle, label=label)  # type: ignore[union-attr]
+        (line,) = ax.plot(ctx.x_values, y, color=color, linewidth=2.0, linestyle=ctx.linestyle, label=label)  # type: ignore[union-attr]
         handles.append(line)
         labels.append(label)
     return handles, labels
@@ -317,11 +332,17 @@ def _render_dual(fig: object, ax: object, spec: DualAxisChartSpec, theme: ChartT
         _shade_weekends(ax, x_values, theme)
 
     left_handles, left_labels = _plot_dual_series(
-        ax, left_series, x_values, spec.x_field, is_dates, theme, palette_offset=0
+        ax, left_series,
+        DualSeriesContext(x_values=x_values, x_field=spec.x_field, is_dates=is_dates),
+        theme,
     )
     right_handles, right_labels = _plot_dual_series(
-        ax2, right_series, x_values, spec.x_field, is_dates, theme,
-        palette_offset=len(left_series), linestyle="--"
+        ax2, right_series,
+        DualSeriesContext(
+            x_values=x_values, x_field=spec.x_field, is_dates=is_dates,
+            palette_offset=len(left_series), linestyle="--",
+        ),
+        theme,
     )
 
     _apply_secondary_axis_style(ax2, spec, theme)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -21,6 +22,16 @@ DEFAULT_HTTP_TIMEOUT = 30.0
 DEFAULT_HTTP_RETRIES = 3
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+
+@dataclass
+class HttpRequestBody:
+    """Optional request body parameters grouped for HttpClient.request."""
+
+    data: Any = None
+    json: Any = None
+    files: Any = None
+    stream: bool = False
 
 
 def _parse_env_float(key: str, default: float) -> float:
@@ -173,23 +184,20 @@ class HttpClient:
         url: str,
         hdrs: dict[str, str],
         attempt: int,
-        *,
-        data: Any = None,
-        json: Any = None,
-        files: Any = None,
-        stream: bool = False,
+        body: HttpRequestBody | None = None,
     ) -> Any:
         """Execute a single HTTP attempt; returns response or None to retry, raises on terminal error."""
         import requests as _requests  # noqa: PLC0415 - intentional lazy import
 
+        b = body or HttpRequestBody()
         self._log_request(method, url, hdrs, attempt)
         try:
             resp = self._session.request(
-                method.upper(), url, headers=hdrs, data=data, json=json,
-                files=files, timeout=self.timeout, stream=stream,
+                method.upper(), url, headers=hdrs, data=b.data, json=b.json,
+                files=b.files, timeout=self.timeout, stream=b.stream,
             )
             if self.logger.isEnabledFor(logging.DEBUG):
-                content_len: int | str = "<streamed>" if stream else len(resp.content)
+                content_len: int | str = "<streamed>" if b.stream else len(resp.content)
                 self._log_response(method, url, resp.status_code, content_len)  # type: ignore[arg-type]
             if self._should_retry_response(resp, method, url, attempt):
                 resp.close()
@@ -212,10 +220,7 @@ class HttpClient:
         *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
-        data: Any = None,
-        json: Any = None,
-        files: Any = None,
-        stream: bool = False,
+        body: HttpRequestBody | None = None,
     ) -> Any:
         """Make an HTTP request with retry logic, returning a requests.Response."""
         url = self._build_url(path, params)
@@ -224,28 +229,53 @@ class HttpClient:
             hdrs.update(headers)
 
         for attempt in range(self.retries):
-            resp = self._attempt_request(method, url, hdrs, attempt, data=data, json=json, files=files, stream=stream)
+            resp = self._attempt_request(method, url, hdrs, attempt, body)
             if resp is not None:
                 return resp
 
         raise RuntimeError(f"request failed after {self.retries} attempts: {method} {mask_url(url)}")
 
-    def get(self, path: str, **kw: Any) -> Any:
+    def get(
+        self, path: str, *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        body: HttpRequestBody | None = None,
+    ) -> Any:
         """GET request."""
-        return self.request("GET", path, **kw)
+        return self.request("GET", path, params=params, headers=headers, body=body)
 
-    def post(self, path: str, **kw: Any) -> Any:
+    def post(
+        self, path: str, *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        body: HttpRequestBody | None = None,
+    ) -> Any:
         """POST request."""
-        return self.request("POST", path, **kw)
+        return self.request("POST", path, params=params, headers=headers, body=body)
 
-    def patch(self, path: str, **kw: Any) -> Any:
+    def patch(
+        self, path: str, *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        body: HttpRequestBody | None = None,
+    ) -> Any:
         """PATCH request."""
-        return self.request("PATCH", path, **kw)
+        return self.request("PATCH", path, params=params, headers=headers, body=body)
 
-    def put(self, path: str, **kw: Any) -> Any:
+    def put(
+        self, path: str, *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        body: HttpRequestBody | None = None,
+    ) -> Any:
         """PUT request."""
-        return self.request("PUT", path, **kw)
+        return self.request("PUT", path, params=params, headers=headers, body=body)
 
-    def delete(self, path: str, **kw: Any) -> Any:
+    def delete(
+        self, path: str, *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        body: HttpRequestBody | None = None,
+    ) -> Any:
         """DELETE request."""
-        return self.request("DELETE", path, **kw)
+        return self.request("DELETE", path, params=params, headers=headers, body=body)

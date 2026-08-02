@@ -244,13 +244,13 @@ def cmd_health(args) -> int:
 
     # Check local renderer
     try:
-        from .renderers import LocalRenderer, LocalRendererError
+        from .renderers import LocalRenderer, LocalRendererError, RenderOptions
         if not LocalRenderer.is_available():
             raise LocalRendererError(
                 "mmdc not installed. Run: npm install -g @mermaid-js/mermaid-cli"
             )
         renderer = LocalRenderer(timeout=30)
-        svg_bytes = renderer.render("flowchart LR\n    A-->B", "svg")
+        svg_bytes = renderer.render("flowchart LR\n    A-->B", RenderOptions(output_format="svg"))
         if not svg_bytes or b"<svg" not in svg_bytes:
             raise RuntimeError("Local renderer returned invalid SVG")
         print("local renderer ok", file=sys.stderr)

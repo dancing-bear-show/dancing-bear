@@ -173,14 +173,11 @@ class TestRenderDiagramProcessorHappyPath(unittest.TestCase):
         self.assertIsInstance(envelope.payload, RenderResult)
         self.assertEqual(envelope.payload.output_path, output_path)
         self.assertGreater(envelope.payload.size_bytes, 0)
+        from diagrams.renderers import RenderOptions
         mock_renderer.render_to_file.assert_called_once_with(
             "flowchart LR\n    A-->B",
             output_path,
-            output_format=None,
-            background=None,
-            theme=None,
-            width=None,
-            height=None,
+            RenderOptions(output_format=None, background=None, theme=None, width=None, height=None),
         )
 
     def test_render_request_fields_forwarded_to_renderer(self):
@@ -208,14 +205,11 @@ class TestRenderDiagramProcessorHappyPath(unittest.TestCase):
                 envelope = RenderDiagramProcessor().process(request)
 
         self.assertTrue(envelope.ok())
+        from diagrams.renderers import RenderOptions
         mock_renderer.render_to_file.assert_called_once_with(
             "flowchart LR\n    A-->B",
             output_path,
-            output_format="png",
-            background="white",
-            theme="default",
-            width=800,
-            height=600,
+            RenderOptions(output_format="png", background="white", theme="default", width=800, height=600),
         )
 
 
