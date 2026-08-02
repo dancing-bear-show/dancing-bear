@@ -219,9 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     ExitCode.USAGE) rather than CLIApp's default (full --help), since this
     is a public CLI surface.
     """
+    raw_argv = argv if argv is not None else sys.argv[1:]
     parser = app.build_parser()
-    _argv = app._normalize_argv(argv if argv is not None else sys.argv[1:])
-    args = parser.parse_args(_argv)
+    args = parser.parse_args(app._normalize_argv(raw_argv))
 
     if getattr(args, "_cmd_func", None) is None:
         print(
@@ -230,7 +230,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return ExitCode.USAGE
 
-    return app.run(_argv)
+    # app.run() normalizes argv internally — pass the raw argv here, not the
+    # already-normalized copy above, so a lone leading "--" is stripped
+    # exactly once (double normalization can eat a legitimate second "--").
+    return app.run(raw_argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
