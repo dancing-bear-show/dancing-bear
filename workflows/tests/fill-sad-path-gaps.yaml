@@ -1,0 +1,201 @@
+name: fill-sad-path-gaps
+version: "1.0"
+description: >
+  Second-stage companion to categorize-test-cases.yaml. Consumes the
+  sad-path-gaps.json matrix (symbols with happy-path coverage but no sad-path
+  coverage) and fans out one tester per symbol to add error/edge tests, each
+  in an isolated worktree so parallel writers do not collide. A final validate
+  stage runs the touched suites and confirms green.
+
+  Prerequisite: run categorize-test-cases.yaml first and copy its
+  outputs/sad-path-gaps.json into this run's workspace at
+  inputs/sad-path-gaps.json (or point the load stage at its path).
+
+trigger:
+  source: manual
+
+stages:
+  # ===========================================================================
+  # 1. Load + sanity-check the gap matrix, republish it as the fan_out source.
+  # ===========================================================================
+  - name: load-gaps
+    kind: gather
+    description: >
+      Locate the sad-path gap matrix produced by categorize-test-cases.yaml.
+
+      Look for it, in order:
+        1. {workspace}/inputs/sad-path-gaps.json
+        2. the most recent workflow run's outputs/sad-path-gaps.json under the
+           workflow runs directory (search for sad-path-gaps.json, newest mtime)
+
+      Read it and validate each item has: module, symbol, test_file,
+      happy_test_count, suggested_sad_cases. Drop malformed items and note them.
+
+      Re-emit the cleaned list to {workspace}/outputs/gaps.json with a
+      top-level "items" array (same item shape), plus an integer "count".
+      The array MUST be named "items" so the fan_out below resolves.
+
+      If items is empty, write count: 0 and state clearly that there is no
+      sad-path work to do — downstream fan_out over an empty list is a no-op.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Read, Write, Bash]
+      access: read-only
+    outputs:
+      - name: gaps
+        mode: generate
+        description: >
+          JSON object with key "items": validated per-symbol gap list, plus
+          "count".
+    writes_to:
+      - outputs/gaps.json
+
+  # ===========================================================================
+  # 2. Human gate — approve the fix set before any test files are written.
+  # ===========================================================================
+  - name: approve-fixes
+    kind: propose
+    human_gate: true
+    depends_on: [load-gaps]
+    reads_from: [load-gaps]
+    description: >
+      Present the sad-path fix plan for approval before any writes.
+
+      Read {workspace}/outputs/gaps.json and write {workspace}/outputs/plan.md:
+        ## Sad-path fix plan
+        - Symbols to cover: N
+        - Test files to touch: [distinct test_file list]
+        A table: | Symbol | Module | Test file | Happy tests | Suggested sad cases |
+
+      Keep it terse. This is the checkpoint to trim the list or bail before
+      the tester fan-out runs.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - outputs/plan.md
+
+  # ===========================================================================
+  # 3. Fan out one isolated tester per gap symbol.
+  # ===========================================================================
+  - name: add-sad-tests
+    kind: execute
+    depends_on: [approve-fixes]
+    reads_from: [load-gaps]
+    isolation: worktree
+    description: >
+      Add sad-path (error/edge) tests for one symbol: {symbol} in {module},
+      whose happy path is already tested in {test_file}.
+
+      Before writing:
+        1. Read {module} — understand how {symbol} fails: what it raises, what
+           it rejects, its exit codes, its boundary/empty-input behavior.
+           Only test failure modes the code actually has — never invent an
+           exception the code does not raise.
+        2. Read {test_file} — match its imports, fixtures, class structure,
+           and assertion style. Extend the existing TestCase where one fits;
+           add a new TestCase only if none is appropriate.
+        3. Read tests/AGENTS.md, tests/fixtures.py, and tests/fakes/ for
+           conventions and available fakes/factories.
+
+      Test authoring rules (strict):
+        - unittest.TestCase only — no pytest. subclass TestCase.
+        - No network, no real file I/O, no subprocess to external services,
+          no real credentials or tokens.
+        - Patch at the point of use, not the point of definition.
+        - Use fakes/fixtures rather than raw dicts/API objects where they exist.
+        - Assert failure precisely: assertRaises(SpecificError),
+          assertRaisesRegex, or assert the exact non-zero exit / error message.
+          Never assertTrue(x is not None) or a bare "does not raise".
+        - Cover the suggested_sad_cases for this item plus any additional real
+          failure mode you find in the source. Add at least 2 sad-path methods.
+        - Descriptive names: test_<symbol>_<failure_scenario>.
+        - Do not modify or delete existing passing tests. Only add methods
+          (or a new class) to {test_file}.
+
+      After writing, run the touched suite and fix until green:
+        python3 -m unittest discover -s $(dirname {test_file}) -q
+      Up to 3 fix cycles. Then run:
+        ~/.qlty/bin/qlty check {test_file}
+      and fix lint before finishing.
+
+      Write a per-symbol summary to
+      {workspace}/outputs/added/{symbol}.json:
+        {
+          "symbol": "{symbol}",
+          "module": "{module}",
+          "test_file": "{test_file}",
+          "methods_added": ["test_parse_row_malformed_exits", ...],
+          "unittest": "PASS" | "FAIL",
+          "qlty": "PASS" | "FAIL",
+          "notes": "..."
+        }
+
+      NOTE (worktree isolation): you are in an isolated worktree; your edits do
+      NOT merge back automatically. Leave changed files in place and report
+      their paths accurately in the summary — the parent session copies them
+      back after this stage.
+    agent:
+      role: tester
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: load-gaps
+      field: items
+      key: symbol
+      mode: agent
+    writes_to:
+      - outputs/added/{symbol}.json
+
+  # ===========================================================================
+  # 4. Validate: every touched suite green, no existing tests broken.
+  # ===========================================================================
+  - name: validate-sad-tests
+    kind: validate
+    depends_on: [add-sad-tests]
+    reads_from: [add-sad-tests]
+    description: >
+      Confirm all sad-path additions landed and pass.
+
+      Step 1 — collect: read all {workspace}/outputs/added/*.json. Build the
+      set of distinct test_file paths touched and the methods_added per file.
+
+      Step 2 — verify presence: for each summary, confirm every method in
+      methods_added is actually present in its test_file on disk, and that each
+      is a genuine sad-path test (asserts an exception, non-zero exit, or
+      rejection — not a happy assertion mislabeled).
+
+      Step 3 — run: for each distinct directory dirname(test_file):
+        python3 -m unittest discover -s <dir> -q
+      All must pass. Up to 3 fix cycles per directory for import/assertion
+      breakage introduced by the additions; never weaken an assertion to make
+      a test pass — fix the test to reflect real behavior.
+
+      Step 4 — regression check: confirm no pre-existing test method was
+      modified or removed (git diff should show additions only within the
+      touched test files).
+
+      Write {workspace}/outputs/validation.md:
+        | Test file | Symbols | Methods added | unittest | Sad-verified | Notes |
+      and a final PASS/FAIL line for the whole run.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    required: true
+    validation:
+      strategy: unit
+      criteria:
+        - Every method in each added/*.json methods_added is present on disk
+        - Every added method is a genuine sad-path test (raises / non-zero exit / rejection)
+        - unittest discover passes for every touched directory
+        - No pre-existing test method was modified or deleted
+    writes_to:
+      - outputs/validation.md
