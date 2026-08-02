@@ -63,7 +63,7 @@ from ..layout import (  # noqa: F401
 )
 from ..helpers import read_yaml, write_yaml  # noqa: F401
 from ..helpers import load_layout  # noqa: F401
-from ..profile import MobileConfigOptions, ProfileMetadata, build_mobileconfig  # noqa: F401
+from ..profile import ProfileMetadata, build_mobileconfig  # noqa: F401
 
 
 # Create the CLI app
