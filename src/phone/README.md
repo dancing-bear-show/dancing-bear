@@ -8,21 +8,24 @@ One-shot command to reorganize your iPhone Home Screen — export, merge folders
 # Full reorg (connects to device, builds profile, copies to device)
 ./bin/phone-assistant reorg --device-label bcsphone
 
-# Build only (no device needed)
+# Plan only, from an existing export (no device, no build, no install)
 ./bin/phone-assistant reorg --dry-run
+
+# Build the profile but do not copy it to the device
+./bin/phone-assistant reorg --no-install
 
 # Or step by step:
 ./bin/phone-assistant export-device --out out/ios.IconState.yaml
 ./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
 ./bin/phone-assistant profile build --plan out/ios.plan.merged.yaml --layout out/ios.IconState.yaml --folder-page-size 9 --out out/ios.merged.mobileconfig
-./bin/ios-install-profile --profile out/ios.merged.mobileconfig --device-label bcsphone --no-prompt
+cfgutil install-profile out/ios.merged.mobileconfig   # then tap Install on the device
 ```
 
 ### Code 625 is success
 
-`cfgutil install-profile` exits Code 625 ("User interaction on the device is required") on macOS 26. **This is the expected, correct outcome.** It means the profile was copied to the device and is waiting for you to tap Install.
+`cfgutil install-profile` reports "User interaction on the device is required" (Code 625) on macOS 26 — the process exits non-zero (1), and `reorg` detects this phrase and treats it as success. **This is the expected, correct outcome.** It means the profile was copied to the device and is waiting for you to tap Install.
 
-After the command exits 0 or 625:
+After the reorg reports the profile was copied:
 1. On your iPhone: Settings → General → VPN & Device Management
 2. Tap the pending profile → Install
 

@@ -361,7 +361,7 @@ def _build_pins(
             bid for bid in (pages_raw[0].get("apps") or [])
             if bid and bid not in dock_set
         )
-    for bid in keep_set:
+    for bid in sorted(keep_set):  # sorted: deterministic pin order across runs
         if bid not in pins and bid not in dock_set:
             pins.append(bid)
     return pins

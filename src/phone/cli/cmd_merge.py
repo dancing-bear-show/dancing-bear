@@ -193,8 +193,15 @@ def _reorg_install(
     )
     combined = (result.stdout or "") + (result.stderr or "")
     print(combined, end="")
-    # 625 appears in the message text, not the process exit code (which is 1).
-    pending_tap = "625" in combined or "User interaction" in combined
+    # cfgutil's "user interaction required" (Code 625) is the expected success:
+    # the profile was copied and awaits an on-device tap. It surfaces in the
+    # message text, not the process exit code (which is 1). Match the specific
+    # phrases — a bare "625" substring could collide with unrelated numbers.
+    lowered = combined.lower()
+    pending_tap = (
+        "user interaction on the device is required" in lowered
+        or "code: 625" in lowered
+    )
     if result.returncode == 0 or pending_tap:
         print("\n✓ Profile copied to device.")
         print("Open Settings -> General -> VPN & Device Management -> "
@@ -218,7 +225,7 @@ def _udid_for_label(label: str) -> str | None:
         parser = configparser.ConfigParser()
         try:
             parser.read(path)
-        except (configparser.Error, OSError):
+        except (configparser.Error, OSError):  # nosec B112 - skip unreadable/malformed creds file, try next
             continue
         if parser.has_option("ios_devices", label):
             return parser.get("ios_devices", label)

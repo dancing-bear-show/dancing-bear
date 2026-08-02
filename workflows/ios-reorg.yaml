@@ -44,8 +44,11 @@ stages:
     description: >
       Export current device layout to YAML via cfgutil.
 
-        ./bin/phone-assistant export-device --out out/ios.IconState.yaml
+        ./bin/phone-assistant export-device \
+          --device-label "{device_label}" \
+          --out out/ios.IconState.yaml
 
+      ({device_label} is the trigger param, default bcsphone.)
       Must exit 0. Writes out/ios.IconState.yaml.
     agent:
       role: researcher
@@ -66,8 +69,11 @@ stages:
 
         ./bin/phone-assistant merge-folders \
           --layout out/ios.IconState.yaml \
-          --plan out/ios.plan.merged.yaml
+          --plan out/ios.plan.merged.yaml \
+          --keep "{keep}"
 
+      ({keep} is the trigger param — comma-separated bundle IDs to pin on
+      page 1; empty means "keep whatever was already loose on page 1".)
       Must exit 0. Verifies conservation invariant (all apps accounted for).
       Writes out/ios.plan.merged.yaml.
     agent:
@@ -109,19 +115,23 @@ stages:
     reads_from: [build-profile]
     description: >
       Copy the profile to the device and instruct the user to tap Install.
+      Prefer the one-shot command, which targets {device_label} and handles
+      the Code 625 success case:
 
-        ./bin/ios-install-profile \
-          --profile out/ios.merged.mobileconfig \
-          --device-label bcsphone \
-          --no-prompt
+        ./bin/phone-assistant reorg --device-label "{device_label}"
 
-      IMPORTANT: Code 625 ("User interaction on the device is required") is
-      the EXPECTED SUCCESS outcome on macOS 26. It means the profile was
-      copied to the device and is awaiting user approval.
+      Or copy the already-built profile directly:
+
+        cfgutil install-profile out/ios.merged.mobileconfig
+
+      IMPORTANT: "User interaction on the device is required" (Code 625) is
+      the EXPECTED SUCCESS outcome on macOS 26. The process exits non-zero
+      (1); the phrase in the output means the profile was copied and is
+      awaiting user approval.
 
       Do NOT retry with --use-configurator-identity or treat 625 as failure.
 
-      After the command exits (0 or 625):
+      After the profile is copied:
         Open Settings → General → VPN & Device Management → tap the pending
         profile → Install.
 
