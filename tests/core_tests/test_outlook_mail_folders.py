@@ -4,6 +4,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from core.outlook.mail import OutlookMailMixin
 
 
@@ -38,6 +40,17 @@ def make_mock_response(json_data=None, status_code=200, text=None):
     resp.text = text if text is not None else fallback_text
     resp.json.return_value = json_data
     resp.raise_for_status = MagicMock()
+    return resp
+
+
+def make_error_response(status_code=500, text="Internal Server Error"):
+    """Create a mock HTTP response object whose raise_for_status() raises HTTPError."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.text = text
+    resp.raise_for_status = MagicMock(
+        side_effect=requests.exceptions.HTTPError(f"{status_code} Error", response=resp)
+    )
     return resp
 
 
@@ -146,6 +159,22 @@ class TestListFilters(OutlookMailTestBase):
         self.assertEqual(result[0]["criteria"]["from"], "a@test.com OR b@test.com")
         self.assertEqual(result[0]["criteria"]["to"], "to@test.com")
 
+    @patch("core.outlook.mail._requests")
+    def test_list_filters_raises_on_api_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_error_response(status_code=500)
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().list_filters()
+
+    @patch("core.outlook.mail._requests")
+    def test_list_filters_raises_on_unauthorized(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_error_response(status_code=401, text="Unauthorized")
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().list_filters()
+
 
 class TestCreateFilter(OutlookMailTestBase):
     """Tests for create_filter method."""
@@ -218,6 +247,22 @@ class TestCreateFilter(OutlookMailTestBase):
         self.assertTrue(call_json["isEnabled"])
         self.assertTrue(call_json["stopProcessingRules"])
 
+    @patch("core.outlook.mail._requests")
+    def test_create_filter_raises_on_api_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_error_response(status_code=400, text="Bad Request")
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().create_filter(criteria={"from": "sender@example.com"}, action={})
+
+    @patch("core.outlook.mail._requests")
+    def test_create_filter_raises_on_server_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.post.return_value = make_error_response(status_code=503, text="Service Unavailable")
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().create_filter(criteria={}, action={"addLabelIds": ["Work"]})
+
 
 class TestDeleteFilter(OutlookMailTestBase):
     """Tests for delete_filter method."""
@@ -232,6 +277,22 @@ class TestDeleteFilter(OutlookMailTestBase):
         mock_requests.delete.assert_called_once()
         self.assertIn("rule-1", mock_requests.delete.call_args[0][0])
         self.assertIn("messageRules", mock_requests.delete.call_args[0][0])
+
+    @patch("core.outlook.mail._requests")
+    def test_delete_filter_raises_on_not_found(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.delete.return_value = make_error_response(status_code=404, text="Not Found")
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().delete_filter("missing-rule")
+
+    @patch("core.outlook.mail._requests")
+    def test_delete_filter_raises_on_server_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.delete.return_value = make_error_response(status_code=500)
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().delete_filter("rule-1")
 
 
 # -------------------- Folder Tests --------------------
@@ -260,6 +321,25 @@ class TestListFolders(OutlookMailTestBase):
 
         self.assertEqual(len(result), 2)
         self.assertEqual(mock_requests.get.call_count, 2)
+
+    @patch("core.outlook.mail._requests")
+    def test_list_folders_raises_on_api_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_error_response(status_code=500)
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().list_folders()
+
+    @patch("core.outlook.mail._requests")
+    def test_list_folders_raises_on_pagination_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": [FOLDER_INBOX], "@odata.nextLink": "http://next"}),
+            make_error_response(status_code=502, text="Bad Gateway"),
+        ]
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().list_folders()
 
 
 class TestGetFolderIdMap(OutlookMailTestBase):
@@ -371,6 +451,25 @@ class TestListAllFolders(OutlookMailTestBase):
 
         self.assertEqual(len(result), 2)
 
+    @patch("core.outlook.mail._requests")
+    def test_list_all_folders_raises_on_root_fetch_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_error_response(status_code=500)
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().list_all_folders()
+
+    @patch("core.outlook.mail._requests")
+    def test_list_all_folders_raises_on_child_fetch_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": FOLDERS_LIST}),  # Root folders succeed
+            make_error_response(status_code=503, text="Service Unavailable"),  # Children of inbox fail
+        ]
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().list_all_folders()
+
 
 class TestGetFolderPathMap(OutlookMailTestBase):
     """Tests for get_folder_path_map method."""
@@ -402,6 +501,34 @@ class TestGetFolderPathMap(OutlookMailTestBase):
 
         self.assertIn("Inbox", result)
         self.assertIn("Inbox/SubFolder", result)
+
+    @patch("core.outlook.mail._requests")
+    def test_get_folder_path_map_raises_on_api_error(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_error_response(status_code=500)
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            FakeMailClient().get_folder_path_map()
+
+    @patch("core.outlook.mail._requests")
+    def test_get_folder_path_map_handles_cyclic_parent_chain(self, mock_requests_fn):
+        # Two folders whose parentFolderId fields point at each other, forming a
+        # cycle. build_path()'s `seen` guard must terminate rather than recurse
+        # forever, at the cost of producing a path rooted at whichever folder id
+        # was resolved first (walk order-dependent, not a real parent chain).
+        folder_a = {"id": "a-id", "displayName": "A", "parentFolderId": "b-id"}
+        folder_b = {"id": "b-id", "displayName": "B", "parentFolderId": "a-id"}
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.side_effect = [
+            make_mock_response({"value": [folder_a, folder_b]}),
+            make_mock_response({"value": []}),
+            make_mock_response({"value": []}),
+        ]
+
+        result = FakeMailClient().get_folder_path_map()
+
+        self.assertEqual(result.get("B/A"), "a-id")
+        self.assertEqual(result.get("A/B"), "b-id")
 
 
 class TestEnsureFolderPath(OutlookMailTestBase):

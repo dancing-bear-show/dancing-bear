@@ -346,5 +346,67 @@ class TestConvenienceFunctions(unittest.TestCase):
         self.assertIn("Java", expanded)
 
 
+class TestKeywordInfoSadPath(unittest.TestCase):
+    """Sad-path tests for KeywordInfo dataclass."""
+
+    def test_missing_required_keyword_raises_type_error(self):
+        with self.assertRaises(TypeError):
+            KeywordInfo()  # keyword has no default; must be supplied
+
+
+class TestKeywordMatcherConstructorSadPath(unittest.TestCase):
+    """Sad-path tests for KeywordMatcher construction."""
+
+    def test_unexpected_keyword_argument_raises_type_error(self):
+        with self.assertRaises(TypeError):
+            KeywordMatcher(unexpected_kwarg="bad")
+
+
+class TestKeywordMatcherAddKeywordSadPath(KeywordMatcherTestMixin, unittest.TestCase):
+    """Sad-path tests for KeywordMatcher.add_keyword."""
+
+    def test_add_keyword_none_raises_attribute_error(self):
+        with self.assertRaises(AttributeError):
+            self.matcher.add_keyword(None)
+
+    def test_add_keyword_duplicate_overwrites_previous_metadata(self):
+        self.matcher.add_keyword("Python", tier="preferred", weight=1)
+        self.matcher.add_keyword("Python", tier="required", weight=5)
+        info = self.matcher.get_keyword_info("Python")
+        self.assertEqual(info.tier, "required")
+        self.assertEqual(info.weight, 5)
+
+
+class TestKeywordMatcherExpandSadPath(KeywordMatcherTestMixin, unittest.TestCase):
+    """Sad-path tests for KeywordMatcher.expand."""
+
+    def test_expand_none_raises_attribute_error(self):
+        with self.assertRaises(AttributeError):
+            self.matcher.expand(None)
+
+
+class TestKeywordMatcherExpandAllSadPath(KeywordMatcherTestMixin, unittest.TestCase):
+    """Sad-path tests for KeywordMatcher.expand_all."""
+
+    def test_expand_all_empty_iterable_returns_empty_list(self):
+        expanded = self.matcher.expand_all([])
+        self.assertEqual(expanded, [])
+
+    def test_expand_all_skips_none_and_empty_string_entries(self):
+        expanded = self.matcher.expand_all([None, "", "Python"])
+        self.assertEqual(expanded, ["Python"])
+
+
+class TestKeywordMatcherMatchesSadPath(KeywordMatcherTestMixin, unittest.TestCase):
+    """Sad-path tests for KeywordMatcher.matches."""
+
+    def test_matches_empty_text_returns_false(self):
+        self.matcher.add_keyword("Python")
+        self.assertFalse(self.matcher.matches(""))
+
+    def test_matches_with_no_registered_keywords_returns_false(self):
+        self.assertFalse(self.matcher.matches("Python developer"))
+
+
 if __name__ == "__main__":
     unittest.main()

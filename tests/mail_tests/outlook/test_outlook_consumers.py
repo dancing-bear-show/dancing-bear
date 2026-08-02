@@ -55,6 +55,11 @@ class TestOutlookRulesListPayload(unittest.TestCase):
         self.assertTrue(payload.use_cache)
         self.assertEqual(payload.cache_ttl, 300)
 
+    def test_missing_client_raises_type_error(self):
+        """client is a required field with no default; omitting it must raise TypeError."""
+        with self.assertRaisesRegex(TypeError, "client"):
+            OutlookRulesListPayload()  # type: ignore[call-arg]
+
 
 class TestOutlookRulesExportPayload(unittest.TestCase):
     """Tests for OutlookRulesExportPayload."""
@@ -69,6 +74,17 @@ class TestOutlookRulesExportPayload(unittest.TestCase):
         payload = OutlookRulesExportPayload(client=client, out_path=test_path("out.yaml"))  # noqa: S108 - test fixture path
         self.assertFalse(payload.use_cache)
         self.assertEqual(payload.cache_ttl, 600)
+
+    def test_missing_out_path_raises_type_error(self):
+        """out_path is required with no default; omitting it must raise TypeError."""
+        client = Mock()
+        with self.assertRaisesRegex(TypeError, "out_path"):
+            OutlookRulesExportPayload(client=client)  # type: ignore[call-arg]
+
+    def test_missing_client_raises_type_error(self):
+        """client is required with no default; omitting it must raise TypeError."""
+        with self.assertRaisesRegex(TypeError, "client"):
+            OutlookRulesExportPayload(out_path=test_path("out.yaml"))  # type: ignore[call-arg]  # noqa: S108 - test fixture path
 
 
 class TestOutlookRulesSyncPayload(unittest.TestCase):
@@ -96,6 +112,17 @@ class TestOutlookRulesSyncPayload(unittest.TestCase):
         self.assertTrue(payload.delete_missing)
         self.assertTrue(payload.move_to_folders)
         self.assertTrue(payload.verbose)
+
+    def test_missing_config_path_raises_type_error(self):
+        """config_path is required with no default; omitting it must raise TypeError."""
+        client = Mock()
+        with self.assertRaisesRegex(TypeError, "config_path"):
+            OutlookRulesSyncPayload(client=client)  # type: ignore[call-arg]
+
+    def test_missing_client_raises_type_error(self):
+        """client is required with no default; omitting it must raise TypeError."""
+        with self.assertRaisesRegex(TypeError, "client"):
+            OutlookRulesSyncPayload(config_path="/cfg.yaml")  # type: ignore[call-arg]
 
 
 class TestOutlookRulesSweepPayload(unittest.TestCase):
@@ -305,6 +332,11 @@ class TestOutlookRulesListConsumer(unittest.TestCase):
         self.assertTrue(payload.use_cache)
         self.assertEqual(payload.cache_ttl, 120)
 
+    def test_init_missing_client_raises_type_error(self):
+        """client is a required positional/keyword arg with no default."""
+        with self.assertRaisesRegex(TypeError, "client"):
+            OutlookRulesListConsumer()  # type: ignore[call-arg]
+
 
 class TestOutlookRulesExportConsumer(unittest.TestCase):
     """Tests for OutlookRulesExportConsumer."""
@@ -381,6 +413,11 @@ class TestOutlookCategoriesListConsumer(unittest.TestCase):
         self.assertTrue(payload.use_cache)
         self.assertEqual(payload.cache_ttl, 180)
 
+    def test_init_missing_client_raises_type_error(self):
+        """client is a required positional/keyword arg with no default."""
+        with self.assertRaisesRegex(TypeError, "client"):
+            OutlookCategoriesListConsumer()  # type: ignore[call-arg]
+
 
 class TestOutlookCategoriesExportConsumer(unittest.TestCase):
     """Tests for OutlookCategoriesExportConsumer."""
@@ -406,6 +443,12 @@ class TestOutlookCategoriesExportConsumer(unittest.TestCase):
         self.assertEqual(payload.out_path, "/export.yaml")
         self.assertTrue(payload.use_cache)
         self.assertEqual(payload.cache_ttl, 240)
+
+    def test_init_missing_out_path_raises_type_error(self):
+        """out_path is a required positional/keyword arg with no default."""
+        client = Mock()
+        with self.assertRaisesRegex(TypeError, "out_path"):
+            OutlookCategoriesExportConsumer(client=client)  # type: ignore[call-arg]
 
 
 class TestOutlookCategoriesSyncConsumer(unittest.TestCase):

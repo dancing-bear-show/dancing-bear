@@ -71,6 +71,30 @@ class TestStyleManagerColorUtils(unittest.TestCase):
         result = StyleManager.auto_contrast_color((255, 255, 255))
         self.assertEqual(result, "#000000")
 
+    def test_is_dark_wrong_length_tuple_raises(self):
+        """Test is_dark raises ValueError when rgb tuple has too few elements."""
+        from resume.docx_styles import StyleManager
+        with self.assertRaises(ValueError):
+            StyleManager.is_dark((0, 0))
+
+    def test_is_dark_none_raises(self):
+        """Test is_dark raises TypeError when given None instead of a tuple."""
+        from resume.docx_styles import StyleManager
+        with self.assertRaises(TypeError):
+            StyleManager.is_dark(None)
+
+    def test_auto_contrast_color_wrong_length_tuple_raises(self):
+        """Test auto_contrast_color propagates ValueError from is_dark on bad arity."""
+        from resume.docx_styles import StyleManager
+        with self.assertRaises(ValueError):
+            StyleManager.auto_contrast_color((0, 0, 0, 0))
+
+    def test_auto_contrast_color_none_raises(self):
+        """Test auto_contrast_color propagates TypeError when bg_rgb is None."""
+        from resume.docx_styles import StyleManager
+        with self.assertRaises(TypeError):
+            StyleManager.auto_contrast_color(None)
+
 
 @mock_docx_modules
 class TestStyleManagerParagraphFormatting(unittest.TestCase):
@@ -260,6 +284,18 @@ class TestTextFormatter(unittest.TestCase):
         result = TextFormatter.format_phone("+54 9 1167929561")
         self.assertEqual(result, "+54 9 1167929561")
 
+    def test_format_phone_none_returns_empty(self):
+        """Test format_phone with None does not raise and returns empty string."""
+        from resume.docx_styles import TextFormatter
+        result = TextFormatter.format_phone(None)
+        self.assertEqual(result, "")
+
+    def test_format_phone_too_few_digits_passthrough(self):
+        """Test format_phone with too few digits is returned unformatted, not raised."""
+        from resume.docx_styles import TextFormatter
+        result = TextFormatter.format_phone("123")
+        self.assertEqual(result, "123")
+
     def test_format_link_strips_scheme(self):
         """Test format_link strips http/https."""
         from resume.docx_styles import TextFormatter
@@ -278,6 +314,18 @@ class TestTextFormatter(unittest.TestCase):
         result = TextFormatter.format_link("https://example.com/")
         self.assertEqual(result, "example.com")
 
+    def test_format_link_none_returns_empty(self):
+        """Test format_link with None does not raise and returns empty string."""
+        from resume.docx_styles import TextFormatter
+        result = TextFormatter.format_link(None)
+        self.assertEqual(result, "")
+
+    def test_format_link_empty_returns_empty(self):
+        """Test format_link with empty string returns empty string."""
+        from resume.docx_styles import TextFormatter
+        result = TextFormatter.format_link("")
+        self.assertEqual(result, "")
+
     def test_clean_inline_removes_bullets(self):
         """Test clean_inline removes bullet characters."""
         from resume.docx_styles import TextFormatter
@@ -290,6 +338,12 @@ class TestTextFormatter(unittest.TestCase):
         result = TextFormatter.clean_inline("Multiple   spaces   here")
         self.assertEqual(result, "Multiple spaces here")
 
+    def test_clean_inline_none_raises(self):
+        """Test clean_inline raises AttributeError when text is None (no guard)."""
+        from resume.docx_styles import TextFormatter
+        with self.assertRaises(AttributeError):
+            TextFormatter.clean_inline(None)
+
     def test_normalize_bullet_strips_period(self):
         """Test normalize_bullet strips terminal period."""
         from resume.docx_styles import TextFormatter
@@ -301,6 +355,12 @@ class TestTextFormatter(unittest.TestCase):
         from resume.docx_styles import TextFormatter
         result = TextFormatter.normalize_bullet("This is a sentence.", strip_terminal_period=False)
         self.assertEqual(result, "This is a sentence.")
+
+    def test_normalize_bullet_none_raises(self):
+        """Test normalize_bullet propagates AttributeError from clean_inline when text is None."""
+        from resume.docx_styles import TextFormatter
+        with self.assertRaises(AttributeError):
+            TextFormatter.normalize_bullet(None)
 
 
 @mock_docx_modules

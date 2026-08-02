@@ -25,12 +25,18 @@ from mail.outlook.processors import (
     _canon_rule,
     # Processors
     OutlookRulesListProcessor,
+    OutlookRulesExportProcessor,
+    OutlookRulesSyncProcessor,
+    OutlookRulesPlanProcessor,
     OutlookRulesDeleteProcessor,
     OutlookCategoriesListProcessor,
     OutlookCalendarAddProcessor,
 )
 from mail.outlook.consumers import (
     OutlookRulesListPayload,
+    OutlookRulesExportPayload,
+    OutlookRulesSyncPayload,
+    OutlookRulesPlanPayload,
     OutlookRulesDeletePayload,
     OutlookCategoriesListPayload,
     OutlookCalendarAddPayload,
@@ -303,6 +309,22 @@ class TestOutlookRulesListProcessor(unittest.TestCase):
         self.assertIn("API Error", result.diagnostics["error"])
 
 
+class TestOutlookRulesExportProcessorSadPath(unittest.TestCase):
+    """Sad-path tests for OutlookRulesExportProcessor (backs OutlookRulesExportResult)."""
+
+    def test_client_failure_returns_error(self):
+        mock_client = Mock()
+        mock_client.list_filters.side_effect = Exception("Export list failed")
+
+        payload = OutlookRulesExportPayload(client=mock_client, out_path=test_path("rules.yaml"))  # noqa: S108 - test fixture path
+        processor = OutlookRulesExportProcessor()
+        result = processor.process(payload)
+
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.payload)
+        self.assertIn("Export list failed", result.diagnostics["error"])
+
+
 class TestOutlookRulesDeleteProcessor(unittest.TestCase):
     """Tests for OutlookRulesDeleteProcessor."""
 
@@ -328,6 +350,59 @@ class TestOutlookRulesDeleteProcessor(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertIn("Not found", result.diagnostics["error"])
+
+
+class TestOutlookRulesSyncProcessorSadPath(unittest.TestCase):
+    """Sad-path tests for OutlookRulesSyncProcessor (backs OutlookRulesSyncResult)."""
+
+    def test_auth_failure_returns_error_with_hint(self):
+        auth_error = Exception("unauthorized")
+        auth_error.response = Mock(status_code=401)
+
+        mock_client = Mock()
+        mock_client.list_filters.side_effect = auth_error
+
+        payload = OutlookRulesSyncPayload(client=mock_client, config_path=None)
+        processor = OutlookRulesSyncProcessor()
+        result = processor.process(payload)
+
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.payload)
+        self.assertEqual(result.diagnostics["code"], 2)
+        self.assertIn("Auth failed", result.diagnostics["error"])
+        self.assertEqual(result.diagnostics["hint"], "Run outlook auth ensure")
+
+    def test_label_id_map_failure_returns_error(self):
+        mock_client = Mock()
+        mock_client.list_filters.return_value = []
+        mock_client.get_label_id_map.side_effect = Exception("Label map fetch failed")
+
+        payload = OutlookRulesSyncPayload(client=mock_client, config_path=None)
+        processor = OutlookRulesSyncProcessor()
+        result = processor.process(payload)
+
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.payload)
+        self.assertEqual(result.diagnostics["code"], 1)
+        self.assertIn("Label map fetch failed", result.diagnostics["error"])
+
+
+class TestOutlookRulesPlanProcessorSadPath(unittest.TestCase):
+    """Sad-path tests for OutlookRulesPlanProcessor (backs OutlookRulesPlanResult)."""
+
+    def test_label_id_map_failure_returns_error(self):
+        mock_client = Mock()
+        mock_client.list_filters.return_value = []
+        mock_client.get_label_id_map.side_effect = Exception("Label map fetch failed")
+
+        payload = OutlookRulesPlanPayload(client=mock_client, config_path=None)
+        processor = OutlookRulesPlanProcessor()
+        result = processor.process(payload)
+
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.payload)
+        self.assertEqual(result.diagnostics["code"], 1)
+        self.assertIn("Label map fetch failed", result.diagnostics["error"])
 
 
 class TestOutlookCategoriesListProcessor(unittest.TestCase):
@@ -358,6 +433,18 @@ class TestOutlookCategoriesListProcessor(unittest.TestCase):
         processor.process(payload)
 
         mock_client.list_labels.assert_called_once_with(use_cache=True, ttl=300)
+
+    def test_error_handling(self):
+        mock_client = Mock()
+        mock_client.list_labels.side_effect = Exception("Categories unavailable")
+
+        payload = OutlookCategoriesListPayload(client=mock_client)
+        processor = OutlookCategoriesListProcessor()
+        result = processor.process(payload)
+
+        self.assertEqual(result.status, "error")
+        self.assertIsNone(result.payload)
+        self.assertIn("Categories unavailable", result.diagnostics["error"])
 
 
 class TestOutlookCalendarAddProcessor(unittest.TestCase):

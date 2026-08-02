@@ -86,6 +86,61 @@ class IntegrationCLITests(unittest.TestCase):
         self.assertIn("llm", proc.stdout.lower())
 
 
+class IntegrationCLISadPathTests(unittest.TestCase):
+    """Sad-path tests for CLI failure behavior (bad subcommand, missing required arg)."""
+
+    def _run_wrapper(self, name: str, args: list[str]) -> subprocess.CompletedProcess:
+        wrapper = bin_path(name)
+        self.assertTrue(wrapper.exists(), f"bin/{name} not found")
+        cmd = [sys.executable, str(wrapper)] + args
+        return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+
+    def test_mail_unknown_subcommand(self):
+        proc = self._run_wrapper("mail", ["bogus-subcommand"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_mail_assistant_unknown_subcommand(self):
+        proc = self._run_wrapper("mail-assistant", ["bogus-subcommand"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_mail_assistant_labels_sync_missing_config(self):
+        proc = self._run_wrapper("mail-assistant", ["labels", "sync"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("the following arguments are required: --config", proc.stderr)
+
+    def test_calendar_assistant_unknown_subcommand(self):
+        proc = self._run_wrapper("calendar-assistant", ["bogus-subcommand"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_calendar_assistant_outlook_add_missing_required(self):
+        proc = self._run_wrapper("calendar-assistant", ["outlook", "add"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("the following arguments are required: --subject, --start, --end", proc.stderr)
+
+    def test_schedule_assistant_unknown_subcommand(self):
+        proc = self._run_wrapper("schedule-assistant", ["bogus-subcommand"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_schedule_assistant_invalid_agentic_format(self):
+        proc = self._run_wrapper("schedule-assistant", ["--agentic-format", "bogus"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_phone_unknown_subcommand(self):
+        proc = self._run_wrapper("phone", ["bogus-subcommand"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_phone_validate_layout_missing_required(self):
+        proc = self._run_wrapper("phone", ["validate-layout"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("the following arguments are required: --layout", proc.stderr)
+
+
 class AssistantDispatcherIntegrationTests(unittest.TestCase):
     """Test the unified assistant dispatcher with real app loading."""
 
@@ -158,6 +213,16 @@ class LLMCLIIntegrationTests(unittest.TestCase):
         wrapper = bin_path("llm")
         cmd = [sys.executable, str(wrapper)] + args
         return subprocess.run(cmd, cwd=str(repo_root()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # nosec B603 - test code with trusted local scripts
+
+    def test_llm_unknown_subcommand(self):
+        proc = self._run_llm(["bogus-subcommand"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("invalid choice", proc.stderr)
+
+    def test_llm_invalid_agentic_format(self):
+        proc = self._run_llm(["agentic", "--agentic-format", "bogus"])
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("unrecognized arguments", proc.stderr)
 
     def test_llm_agentic_stdout(self):
         proc = self._run_llm(["agentic", "--stdout"])

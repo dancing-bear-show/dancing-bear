@@ -111,6 +111,33 @@ class TestGmailClientWithMockedService(unittest.TestCase):
         result = self.client.list_forwarding_addresses()
         self.assertEqual(result, ["forward@example.com"])
 
+    def test_get_profile_raises_on_api_error(self):
+        self.mock_service.users().getProfile().execute.side_effect = RuntimeError("API error")
+        with self.assertRaises(RuntimeError):
+            self.client.get_profile()
+
+    def test_list_labels_raises_on_api_error(self):
+        self.mock_service.users().labels().list().execute.side_effect = RuntimeError("API error")
+        with self.assertRaises(RuntimeError):
+            self.client.list_labels()
+
+    def test_list_labels_missing_labels_key_returns_empty(self):
+        self.mock_service.users().labels().list().execute.return_value = {}
+        result = self.client.list_labels()
+        self.assertEqual(result, [])
+
+    def test_list_filters_raises_on_api_error(self):
+        self.mock_service.users().settings().filters().list().execute.side_effect = RuntimeError(
+            "API error"
+        )
+        with self.assertRaises(RuntimeError):
+            self.client.list_filters()
+
+    def test_list_filters_missing_filter_key_returns_empty(self):
+        self.mock_service.users().settings().filters().list().execute.return_value = {}
+        result = self.client.list_filters()
+        self.assertEqual(result, [])
+
     def test_get_verified_forwarding_addresses(self):
         self.mock_service.users().settings().forwardingAddresses().list().execute.return_value = {
             "forwardingAddresses": [
@@ -235,6 +262,18 @@ class TestGmailClientEnsureLabel(unittest.TestCase):
         result = self.client.ensure_label("NewLabel")
         self.assertEqual(result, "NEW_LBL")
 
+    def test_ensure_label_raises_when_list_labels_fails(self):
+        self.mock_service.users().labels().list().execute.side_effect = RuntimeError("API error")
+        with self.assertRaises(RuntimeError):
+            self.client.ensure_label("AnyLabel")
+        self.mock_service.users().labels().create.assert_not_called()
+
+    def test_ensure_label_raises_when_create_fails(self):
+        self.mock_service.users().labels().list().execute.return_value = {"labels": []}
+        self.mock_service.users().labels().create().execute.side_effect = RuntimeError("API error")
+        with self.assertRaises(RuntimeError):
+            self.client.ensure_label("NewLabel")
+
 
 class TestGmailClientListMessageIds(unittest.TestCase):
     """Tests for list_message_ids with pagination."""
@@ -267,6 +306,23 @@ class TestGmailClientListMessageIds(unittest.TestCase):
         self.assertEqual(result, ["m3", "m4"])
         mock_gather.assert_called_once_with(mock_paginate.return_value, max_pages=1)
 
+    @patch("mail.paging.paginate_gmail_messages")
+    @patch("mail.paging.gather_pages")
+    def test_list_message_ids_returns_empty_when_no_pages(self, mock_gather, mock_paginate):
+        mock_paginate.return_value = iter([])
+        mock_gather.return_value = []
+
+        result = self.client.list_message_ids(query="is:unread", max_pages=2, page_size=100)
+
+        self.assertEqual(result, [])
+
+    @patch("mail.paging.paginate_gmail_messages")
+    def test_list_message_ids_raises_when_pagination_fails(self, mock_paginate):
+        mock_paginate.side_effect = RuntimeError("API error")
+
+        with self.assertRaises(RuntimeError):
+            self.client.list_message_ids(query="is:unread", max_pages=2, page_size=100)
+
 
 class TestGmailClientMessageMetadata(unittest.TestCase):
     """Tests for message metadata retrieval with caching."""
@@ -288,6 +344,11 @@ class TestGmailClientMessageMetadata(unittest.TestCase):
         }
         result = self.client.get_message_metadata("m1", use_cache=False)
         self.assertEqual(result["id"], "m1")
+
+    def test_get_message_metadata_raises_on_api_error(self):
+        self.mock_service.users().messages().get().execute.side_effect = RuntimeError("API error")
+        with self.assertRaises(RuntimeError):
+            self.client.get_message_metadata("bad_id", use_cache=False)
 
     def test_get_message_metadata_with_cache_miss(self):
         with tempfile.TemporaryDirectory() as tmpdir:

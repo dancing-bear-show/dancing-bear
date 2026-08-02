@@ -603,5 +603,192 @@ class TestGmailServiceBuilderWithExplicitClass(unittest.TestCase):
         self.assertEqual(kwargs["service_cls"], GmailService)
 
 
+class TestOutlookRemindersProducerErrorBranch(unittest.TestCase):
+    """Sad-path: OutlookRemindersProducer.produce with an error envelope."""
+
+    def test_produce_error_status_prints_message_and_skips_success(self):
+        from calendars.outlook_pipelines.reminders import OutlookRemindersProducer
+        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "Calendar not found: Bogus"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookRemindersProducer().produce(env)
+        # print_error routes through OutputWriter.print_error -> stderr, not stdout
+        self.assertNotIn("Updated reminders", buf.getvalue())
+        self.assertNotIn("Disabled reminders", buf.getvalue())
+
+
+class TestOutlookAddProducerErrorBranch(unittest.TestCase):
+    """Sad-path: OutlookAddProducer.produce with an error envelope."""
+
+    def test_produce_error_status_skips_success_output(self):
+        from calendars.outlook_pipelines.add import OutlookAddProducer
+        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "events.yaml not found"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookAddProducer().produce(env)
+        self.assertNotIn("Planned", buf.getvalue())
+
+
+class TestOutlookRemoveProducerErrorBranch(unittest.TestCase):
+    """Sad-path: OutlookRemoveProducer.produce with an error envelope."""
+
+    def test_produce_error_status_skips_plan_and_deleted_output(self):
+        from calendars.outlook_pipelines.remove import OutlookRemoveProducer
+        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookRemoveProducer().produce(env)
+        output = buf.getvalue()
+        self.assertNotIn("Planned deletions", output)
+        self.assertNotIn("Deleted", output)
+
+
+class TestOutlookSettingsProducerErrorBranch(unittest.TestCase):
+    """Sad-path: OutlookSettingsProducer.produce with an error envelope."""
+
+    def test_produce_error_status_skips_success_output(self):
+        from calendars.outlook_pipelines.settings import OutlookSettingsProducer
+        env = ResultEnvelope(
+            status="error",
+            payload=None,
+            diagnostics={"message": "Config must contain settings.rules: [] or top-level rules: []"},
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookSettingsProducer().produce(env)
+        output = buf.getvalue()
+        self.assertNotIn("Applied settings", output)
+        self.assertNotIn("Preview complete", output)
+
+
+class TestOutlookScheduleImportProducerErrorBranch(unittest.TestCase):
+    """Sad-path: OutlookScheduleImportProducer.produce with an error envelope."""
+
+    def test_produce_error_status_skips_success_output(self):
+        from calendars.outlook_pipelines.schedule_import import OutlookScheduleImportProducer
+        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookScheduleImportProducer().produce(env)
+        output = buf.getvalue()
+        self.assertNotIn("Created", output)
+        self.assertNotIn("Preview complete", output)
+
+
+class TestOutlookCalendarShareProducerErrorBranch(unittest.TestCase):
+    """Sad-path: OutlookCalendarShareProducer.produce with an error envelope."""
+
+    def test_produce_error_status_skips_success_output(self):
+        from calendars.outlook_pipelines.share import OutlookCalendarShareProducer
+        env = ResultEnvelope(status="error", payload=None, diagnostics={"message": "service is required"})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            OutlookCalendarShareProducer().produce(env)
+        self.assertNotIn("Shared", buf.getvalue())
+
+
+class TestOutlookRemindersProcessorCalendarNotFound(unittest.TestCase):
+    """Sad-path: OutlookRemindersProcessor raises when the named calendar is missing."""
+
+    def test_process_raises_value_error_for_unknown_calendar(self):
+        from calendars.outlook_pipelines.reminders import OutlookRemindersProcessor, OutlookRemindersRequest
+        svc = MagicMock()
+        svc.get_calendar_id_by_name.return_value = None
+        req = OutlookRemindersRequest(
+            service=svc,
+            calendar="Bogus",
+            from_date=None,
+            to_date=None,
+            dry_run=True,
+            all_occurrences=False,
+            set_off=True,
+        )
+        env = OutlookRemindersProcessor().process(req)
+        self.assertEqual(env.status, "error")
+        self.assertIn("Calendar not found: Bogus", env.diagnostics["message"])
+
+
+class TestOutlookRemoveProcessorServiceRequired(unittest.TestCase):
+    """Sad-path: OutlookRemoveProcessor raises when service is None."""
+
+    def test_process_raises_value_error_when_service_missing(self):
+        from calendars.outlook_pipelines.remove import OutlookRemoveProcessor, OutlookRemoveRequest
+        with patch(
+            "calendars.outlook_pipelines.remove.load_events_config",
+            return_value=[{"subject": "Swim", "start": "2025-01-06T09:00:00", "end": "2025-01-06T10:00:00"}],
+        ):
+            req = OutlookRemoveRequest(
+                config_path=Path("events.yaml"),
+                calendar=None,
+                subject_only=False,
+                apply=False,
+                service=None,
+            )
+            env = OutlookRemoveProcessor().process(req)
+        self.assertEqual(env.status, "error")
+        self.assertIn("service", env.diagnostics["message"].lower())
+
+
+class TestOutlookSettingsProcessorInvalidRules(unittest.TestCase):
+    """Sad-path: OutlookSettingsProcessor raises when config rules are malformed."""
+
+    def test_process_raises_value_error_when_rules_not_a_list(self):
+        from calendars.outlook_pipelines.settings import OutlookSettingsProcessor, OutlookSettingsRequest
+        bad_loader = MagicMock(return_value={"settings": {"rules": "not-a-list"}})
+        req = OutlookSettingsRequest(
+            config_path=Path("settings.yaml"),
+            calendar=None,
+            from_date=None,
+            to_date=None,
+            dry_run=True,
+            service=MagicMock(),
+        )
+        env = OutlookSettingsProcessor(config_loader=bad_loader).process(req)
+        self.assertEqual(env.status, "error")
+        self.assertIn("settings.rules", env.diagnostics["message"])
+
+
+class TestOutlookScheduleImportProcessorServiceRequired(unittest.TestCase):
+    """Sad-path: OutlookScheduleImportProcessor raises when service is None."""
+
+    def test_process_raises_value_error_when_service_missing(self):
+        from calendars.outlook_pipelines.schedule_import import (
+            OutlookScheduleImportProcessor,
+            OutlookScheduleImportRequest,
+        )
+        req = OutlookScheduleImportRequest(
+            source="schedule.csv",
+            kind=None,
+            calendar="Kids",
+            tz=None,
+            until=None,
+            dry_run=True,
+            no_reminder=False,
+            service=None,
+        )
+        env = OutlookScheduleImportProcessor().process(req)
+        self.assertEqual(env.status, "error")
+        self.assertIn("service", env.diagnostics["message"].lower())
+
+
+class TestOutlookCalendarShareProcessorServiceRequired(unittest.TestCase):
+    """Sad-path: OutlookCalendarShareProcessor raises when service is None."""
+
+    def test_process_raises_value_error_when_service_missing(self):
+        from calendars.outlook_pipelines.share import (
+            OutlookCalendarShareProcessor,
+            OutlookCalendarShareRequest,
+        )
+        req = OutlookCalendarShareRequest(
+            service=None,
+            calendar="Work",
+            recipient="alice@example.com",
+            role="write",
+        )
+        env = OutlookCalendarShareProcessor().process(req)
+        self.assertEqual(env.status, "error")
+        self.assertIn("service", env.diagnostics["message"].lower())
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
