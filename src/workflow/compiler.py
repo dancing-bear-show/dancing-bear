@@ -33,7 +33,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 # CLIs that do not use the -- separator before flags.
-_NO_SEPARATOR_CLIS = frozenset({"docs", "llm", "workflow"})
+_NO_SEPARATOR_CLIS = frozenset({"docs", "llm"})
 
 # Accepted when: expression forms.
 _WHEN_PATTERN = re.compile(

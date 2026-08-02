@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
 import sys
 
+from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter
 
 from .cli_telemetry import (  # noqa: F401
@@ -25,6 +25,15 @@ from .cli_yaml import (  # noqa: F401
 DAYS_HELP = "Lookback days (default: 7)"
 NO_SESSIONS = "No sessions found."
 _DEFAULT_MMD_LABEL = "diagram.mmd"
+
+# add_common_args=False: diagrams' own --output/-o (dest="output") means an
+# output *file path*, not CLIApp's built-in output *format* flag of the same
+# name. CLIApp.run() now guards its OutputFormat(args.output) parsing behind
+# add_common_args (core/cli_framework.py), so calling app.run() here would no
+# longer crash on that specifically — but main() still dispatches via
+# _cmd_func directly (not app.run()) to preserve this CLI's legacy
+# no-subcommand exit code (0, not CLIApp's default ExitCode.USAGE).
+app = CLIApp("diagrams", "Mermaid diagram generation", add_common_args=False)
 
 
 # ── Shared I/O helpers ────────────────────────────────────────────────────────
@@ -78,6 +87,9 @@ def _validate_non_empty(content: str) -> bool:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
+@app.command("telemetry", help="Telemetry diagrams (cost, tokens, timeline)")
+@app.argument("type", choices=["cost-pie", "token-pie", "timeline"], help="Diagram type")
+@app.argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
 def cmd_telemetry(args) -> int:
     sessions, compute_cost, model_tier = _load_telemetry(args.days)
     if not sessions:
@@ -98,6 +110,15 @@ def cmd_telemetry(args) -> int:
     return 0
 
 
+@app.command("render", help="Render .mmd to PNG/SVG/PDF via mmdc")
+@app.argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
+@app.argument("--output", "-o", type=str, required=True, help="Output file (.svg, .png, or .pdf)")
+@app.argument("--format", "-f", choices=["svg", "png", "pdf"], help="Output format (inferred from path if omitted)")
+@app.argument("--timeout", type=int, default=60, help="Timeout in seconds")
+@app.argument("--theme", choices=["default", "forest", "dark", "neutral"], help="Mermaid theme")
+@app.argument("--background", "-b", type=str, help="Background color (e.g. 'white', 'transparent')")
+@app.argument("--width", "-w", type=int, help="Width in pixels (PNG only)")
+@app.argument("--height", type=int, help="Height in pixels (PNG only)")
 def cmd_render(args) -> int:
     """Render a .mmd file to PNG/SVG/PDF via mmdc."""
     mermaid_text = _read_input(args.input, _DEFAULT_MMD_LABEL)
@@ -123,6 +144,9 @@ def cmd_render(args) -> int:
     return run_pipeline(request, RenderDiagramProcessor, RenderDiagramProducer)
 
 
+@app.command("validate", help="Validate mermaid syntax via mmdc")
+@app.argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
+@app.argument("--timeout", type=int, default=60, help="Timeout in seconds")
 def cmd_validate(args) -> int:
     """Validate mermaid syntax via mmdc."""
     import tempfile
@@ -153,6 +177,10 @@ def cmd_validate(args) -> int:
     return 1
 
 
+@app.command("embed", help="Output mermaid wrapped in ```mermaid code fence")
+@app.argument("--input", "-i", type=str, help="Input file (stdin if omitted)")
+@app.argument("--output", "-o", type=str, help="Output file (stdout if omitted)")
+@app.argument("--from-yaml", action="store_true", help="Treat input as YAML spec")
 def cmd_embed(args) -> int:
     """Output mermaid wrapped in a ```mermaid code fence."""
     content = _read_input(args.input, _DEFAULT_MMD_LABEL)
@@ -180,6 +208,8 @@ def cmd_embed(args) -> int:
     return _write_output(embedded, output_path, success_msg)
 
 
+@app.command("health", help="Check mmdc is installed and working")
+@app.argument("--skip-render", action="store_true", help="Skip local mmdc render check")
 def cmd_health(args) -> int:
     """Check mmdc is installed and working."""
     skip_render = getattr(args, "skip_render", False)
@@ -231,6 +261,10 @@ def cmd_health(args) -> int:
     return 0
 
 
+@app.command("from-yaml", help="Generate .mmd from a YAML spec")
+@app.argument("--input", "-i", type=str, help="Input YAML spec file (stdin if omitted)")
+@app.argument("--output", "-o", type=str, help="Output .mmd file (stdout if omitted)")
+@app.argument("--embedded", action="store_true", help="Wrap output in ```mermaid code fence")
 def cmd_from_yaml(args) -> int:
     """Generate .mmd from a YAML spec (flowchart and sequence types)."""
     yaml_content = _read_input(args.input, "spec.yaml")
@@ -259,71 +293,15 @@ def cmd_from_yaml(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="diagrams",
-        description="Mermaid diagram generation",
-    )
-    sub = parser.add_subparsers(dest="command")
+    parser = app.build_parser()
+    _argv = app.normalize_argv(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(_argv)
 
-    # telemetry
-    p_tel = sub.add_parser("telemetry", help="Telemetry diagrams (cost, tokens, timeline)")
-    p_tel.add_argument("type", choices=["cost-pie", "token-pie", "timeline"],
-                       help="Diagram type")
-    p_tel.add_argument("-d", "--days", type=int, default=7, help=DAYS_HELP)
-
-    # render
-    p_render = sub.add_parser("render", help="Render .mmd to PNG/SVG/PDF via mmdc")
-    p_render.add_argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
-    p_render.add_argument("--output", "-o", type=str, required=True,
-                          help="Output file (.svg, .png, or .pdf)")
-    p_render.add_argument("--format", "-f", choices=["svg", "png", "pdf"],
-                          help="Output format (inferred from path if omitted)")
-    p_render.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")
-    p_render.add_argument("--theme", choices=["default", "forest", "dark", "neutral"],
-                          help="Mermaid theme")
-    p_render.add_argument("--background", "-b", type=str,
-                          help="Background color (e.g. 'white', 'transparent')")
-    p_render.add_argument("--width", "-w", type=int, help="Width in pixels (PNG only)")
-    p_render.add_argument("--height", type=int, help="Height in pixels (PNG only)")
-
-    # validate
-    p_val = sub.add_parser("validate", help="Validate mermaid syntax via mmdc")
-    p_val.add_argument("--input", "-i", type=str, help="Input .mmd file (stdin if omitted)")
-    p_val.add_argument("--timeout", type=int, default=60, help="Timeout in seconds")
-
-    # embed
-    p_embed = sub.add_parser("embed", help="Output mermaid wrapped in ```mermaid code fence")
-    p_embed.add_argument("--input", "-i", type=str, help="Input file (stdin if omitted)")
-    p_embed.add_argument("--output", "-o", type=str, help="Output file (stdout if omitted)")
-    p_embed.add_argument("--from-yaml", action="store_true",
-                         help="Treat input as YAML spec")
-
-    # health
-    p_health = sub.add_parser("health", help="Check mmdc is installed and working")
-    p_health.add_argument("--skip-render", action="store_true",
-                          help="Skip local mmdc render check")
-
-    # from-yaml
-    p_yaml = sub.add_parser("from-yaml", help="Generate .mmd from a YAML spec")
-    p_yaml.add_argument("--input", "-i", type=str,
-                        help="Input YAML spec file (stdin if omitted)")
-    p_yaml.add_argument("--output", "-o", type=str,
-                        help="Output .mmd file (stdout if omitted)")
-    p_yaml.add_argument("--embedded", action="store_true",
-                        help="Wrap output in ```mermaid code fence")
-
-    args = parser.parse_args(argv)
-
-    commands = {
-        "telemetry": cmd_telemetry,
-        "render": cmd_render,
-        "validate": cmd_validate,
-        "embed": cmd_embed,
-        "health": cmd_health,
-        "from-yaml": cmd_from_yaml,
-    }
-    handler = commands.get(args.command)
-    if handler:
-        return handler(args)
-    parser.print_help()
-    return 0
+    cmd_func = getattr(args, "_cmd_func", None)
+    if cmd_func is None:
+        # Preserve legacy behavior: no subcommand prints help and exits 0
+        # (not CLIApp's default ExitCode.USAGE), per
+        # tests/diagrams_tests/test_diagrams_cli_commands.py::test_no_command_prints_help.
+        parser.print_help()
+        return 0
+    return cmd_func(args)
