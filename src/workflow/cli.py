@@ -19,8 +19,10 @@ is purely a naming choice, not a framework deviation.
 from __future__ import annotations
 
 import argparse
+import sys
 from typing import Any
 
+from core.cli_errors import ExitCode
 from core.cli_framework import CLIApp
 from core.cli_output import emit_one, emit_rows
 
@@ -211,8 +213,24 @@ def cmd_validate_fragment(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Workflow CLI entry point."""
-    return app.run(argv)
+    """Workflow CLI entry point.
+
+    Preserves the legacy no-subcommand behavior (one-line usage to stderr,
+    ExitCode.USAGE) rather than CLIApp's default (full --help), since this
+    is a public CLI surface.
+    """
+    parser = app.build_parser()
+    _argv = app._normalize_argv(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(_argv)
+
+    if getattr(args, "_cmd_func", None) is None:
+        print(
+            "Usage: workflow {parse,compile,run,lint,list,status,init-workspace,resume,validate-fragment} [options]",
+            file=sys.stderr,
+        )
+        return ExitCode.USAGE
+
+    return app.run(_argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
