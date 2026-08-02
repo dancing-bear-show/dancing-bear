@@ -167,6 +167,15 @@ stages:
           APP_ID = "pdffill"
           PURPOSE = "PDF form-filling toolkit (widget-fill and coordinate-injection)"
 
+        src/pdffill/__main__.py
+          Thin re-export shim so both "python3 -m pdffill" and bin/pdffill work:
+            from __future__ import annotations
+            from .cli import main
+            __all__ = ["main"]
+            if __name__ == "__main__":  # pragma: no cover
+                raise SystemExit(main())
+          Mirror src/wifi/__main__.py exactly.
+
         bin/pdffill
           Thin Python wrapper matching bin/wifi exactly:
             #!/usr/bin/env python3, docstring, then insert
@@ -482,7 +491,7 @@ stages:
     depends_on: [critique-design]
     reads_from: [critique-design, design]
     description: >
-      Implement src/pdffill/cli.py and bin/pdffill per the spec at
+      Implement src/pdffill/__main__.py, src/pdffill/cli.py, and bin/pdffill per the spec at
       {workspace}/design/spec.md, mirroring the CLIApp decorator pattern in
       src/wifi/cli.py exactly.
 
@@ -508,7 +517,18 @@ stages:
         class/method names defined in {workspace}/design/dataclasses.md.
         This prevents import errors at startup when fitz is absent.
 
-      Step 3 -- write bin/pdffill.
+      Step 3 -- write src/pdffill/__main__.py.
+        This file is the import target for "from pdffill.__main__ import main"
+        used by bin/pdffill. Mirror src/wifi/__main__.py exactly:
+          from __future__ import annotations
+          from .cli import main
+          __all__ = ["main"]
+          if __name__ == "__main__":  # pragma: no cover
+              raise SystemExit(main())
+        Confirm the file exists and imports cleanly:
+          Bash tool: python3 -c "from pdffill.__main__ import main; print('ok')" 2>&1
+
+      Step 4 -- write bin/pdffill.
         Use the same Python wrapper pattern as bin/wifi (not exec python3 -m):
           #!/usr/bin/env python3, a docstring, insert SRC_ROOT into sys.path
           via Path(__file__).resolve().parents[1] / "src", then
@@ -516,14 +536,14 @@ stages:
           "if __name__ == '__main__': raise SystemExit(main())".
         Make it executable: Bash tool: chmod +x bin/pdffill
 
-      Step 4 -- CLI import smoke check:
+      Step 5 -- CLI import smoke check:
         Bash tool: python3 -c "import pdffill.cli" 2>&1
         If it fails, fix before writing the manifest (likely a module-level
         import of fitz or pdffill.widget at the top of cli.py).
 
-      Step 5 -- write {workspace}/outputs/cli-manifest.json:
+      Step 6 -- write {workspace}/outputs/cli-manifest.json:
         {{
-          "files_written": ["src/pdffill/cli.py", "bin/pdffill"],
+          "files_written": ["src/pdffill/__main__.py", "src/pdffill/cli.py", "bin/pdffill"],
           "import_smoke_check": "PASS|FAIL",
           "import_error": null,
           "commands_registered": [
@@ -540,7 +560,7 @@ stages:
       - name: cli
         mode: generate
         description: >
-          CLI layer: src/pdffill/cli.py and bin/pdffill.
+          CLI layer: src/pdffill/__main__.py, src/pdffill/cli.py, and bin/pdffill.
           CLI manifest at {workspace}/outputs/cli-manifest.json.
     required: true
     writes_to:
@@ -667,6 +687,7 @@ stages:
           src/pdffill/meta.py
           src/pdffill/widget.py
           src/pdffill/inject.py
+          src/pdffill/__main__.py
           src/pdffill/cli.py
           bin/pdffill
           tests/pdffill_tests/conftest_fixtures.py
@@ -929,11 +950,12 @@ stages:
         ## pdffill Domain Build -- Final Summary
 
         ### What Was Built
-        - src/pdffill/widget.py  -- WidgetFiller (AcroForm/widget-fill strategy)
-        - src/pdffill/inject.py  -- CoordinateInjector (coordinate-injection strategy)
-        - src/pdffill/cli.py     -- CLIApp entry point
-        - src/pdffill/meta.py    -- domain metadata
-        - bin/pdffill            -- bin wrapper
+        - src/pdffill/widget.py     -- WidgetFiller (AcroForm/widget-fill strategy)
+        - src/pdffill/inject.py     -- CoordinateInjector (coordinate-injection strategy)
+        - src/pdffill/cli.py        -- CLIApp entry point
+        - src/pdffill/__main__.py   -- python -m / bin import shim
+        - src/pdffill/meta.py       -- domain metadata
+        - bin/pdffill               -- bin wrapper
         - tests/pdffill_tests/   -- synthetic test suite (no real PDF dependency)
 
         ### Key Bug Fixes Baked In
