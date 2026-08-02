@@ -60,23 +60,38 @@ def cmd_merge_folders(args) -> int:
 def _resolve_reorg_udid(args, dry_run: bool) -> tuple[str, int]:
     """Resolve the target device UDID for a reorg run.
 
-    Returns (udid, 0) on success (udid may be "" under --dry-run, where no
-    device is needed), or ("", 1) after printing a fail-fast error when an
-    explicit device label can't be resolved and no --udid was given (reorg
-    replaces the whole Home Screen, so it must not target the wrong device).
-    Callers gate on the int; the udid is only meaningful when it is 0.
+    Precedence: --udid / $IOS_DEVICE_UDID > an explicit --device-label > the
+    configured [ios_devices] default label. If none of those yield a UDID, the
+    empty string is returned so cfgutil auto-detects a single attached device.
+
+    Returns (udid, 0) on success (udid may be "" for dry-run or single-device
+    auto-detect), or ("", 1) after printing a fail-fast error when an EXPLICIT
+    --device-label can't be resolved (reorg replaces the whole Home Screen, so
+    an explicitly named device that isn't found must not silently fall through
+    to auto-detect). Callers gate on the int.
     """
-    device_label = getattr(args, "device_label", None) or "bcsphone"
     udid = getattr(args, "udid", None) or os.environ.get("IOS_DEVICE_UDID", "")
-    if not udid and device_label:
-        udid = _udid_for_label(device_label) or ""
-    if not udid and not dry_run:
-        print(
-            f"Error: could not resolve device label '{device_label}' to a UDID "
-            f"(check [ios_devices] in credentials.ini); pass --udid or --dry-run",
-            file=sys.stderr,
-        )
-        return "", 1
+    if udid:
+        return udid, 0
+
+    explicit_label = getattr(args, "device_label", None)
+    if explicit_label:
+        udid = _udid_for_label(explicit_label) or ""
+        if not udid and not dry_run:
+            print(
+                f"Error: could not resolve device label '{explicit_label}' to a "
+                f"UDID (check [ios_devices] in credentials.ini); pass --udid or "
+                f"--dry-run",
+                file=sys.stderr,
+            )
+            return "", 1
+        return udid, 0
+
+    # No explicit target: use the configured default label if present, else ""
+    # (cfgutil auto-detects the single attached device).
+    default_label = _default_device_label()
+    if default_label:
+        udid = _udid_for_label(default_label) or ""
     return udid, 0
 
 
@@ -271,8 +286,8 @@ def _reorg_install(
     return result.returncode
 
 
-def _udid_for_label(label: str) -> str | None:
-    """Resolve a device label to its UDID via [ios_devices] in credentials.ini."""
+def _ios_devices_option(option: str) -> str | None:
+    """Return an [ios_devices] option value from the first creds file that has it."""
     import configparser
     from core.constants import credential_ini_paths
 
@@ -287,9 +302,19 @@ def _udid_for_label(label: str) -> str | None:
             parser.read(path)
         except (configparser.Error, OSError):  # nosec B112 - skip unreadable/malformed creds file, try next
             continue
-        if parser.has_option("ios_devices", label):
-            return parser.get("ios_devices", label)
+        if parser.has_option("ios_devices", option):
+            return parser.get("ios_devices", option)
     return None
+
+
+def _udid_for_label(label: str) -> str | None:
+    """Resolve a device label to its UDID via [ios_devices] in credentials.ini."""
+    return _ios_devices_option(label)
+
+
+def _default_device_label() -> str | None:
+    """Return the configured default device label ([ios_devices] default = <label>)."""
+    return _ios_devices_option("default")
 
 
 def _reorg_summary(plan_obj, dump_eliminated: bool, loose_filed: int, out_profile: Path, no_install: bool, dry_run: bool) -> None:

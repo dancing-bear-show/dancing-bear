@@ -331,6 +331,76 @@ class TestUdidForLabel(unittest.TestCase):
             self.assertIn(_udid_for_label("zzz-unlikely-label"), (None,))
 
 
+class TestDefaultDeviceLabel(unittest.TestCase):
+    """Configurable default device label ([ios_devices] default = <label>)."""
+
+    def _creds(self, dir_path: Path, body: str) -> Path:
+        p = dir_path / "credentials.ini"
+        p.write_text(body)
+        return p
+
+    def test_default_label_read_from_config(self):
+        from phone.cli import cmd_merge
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(
+                Path(d), "[ios_devices]\ndefault = bcsphone\nbcsphone = 00008150-X\n"
+            )
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds)}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                self.assertEqual(cmd_merge._default_device_label(), "bcsphone")
+
+    def test_no_default_returns_none(self):
+        from phone.cli import cmd_merge
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(Path(d), "[ios_devices]\nbcsphone = 00008150-X\n")
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds)}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                self.assertIsNone(cmd_merge._default_device_label())
+
+    def test_reorg_uses_configured_default_when_no_flag(self):
+        from phone.cli.cmd_merge import _resolve_reorg_udid
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(
+                Path(d), "[ios_devices]\ndefault = bcsphone\nbcsphone = 00008150-X\n"
+            )
+            args = make_args(udid=None, device_label=None)
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                udid, rc = _resolve_reorg_udid(args, dry_run=False)
+            self.assertEqual(rc, 0)
+            self.assertEqual(udid, "00008150-X")
+
+    def test_reorg_no_default_falls_back_to_autodetect(self):
+        """No flag + no configured default → empty udid (cfgutil auto-detects), rc 0."""
+        from phone.cli.cmd_merge import _resolve_reorg_udid
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(Path(d), "[ios_devices]\nfoo = ABC\n")
+            args = make_args(udid=None, device_label=None)
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                udid, rc = _resolve_reorg_udid(args, dry_run=False)
+            self.assertEqual(rc, 0)
+            self.assertEqual(udid, "")
+
+    def test_reorg_explicit_unknown_label_fails_fast(self):
+        """An EXPLICIT unresolvable label errors, even when a default exists."""
+        from phone.cli.cmd_merge import _resolve_reorg_udid
+
+        with tempfile.TemporaryDirectory() as d:
+            creds = self._creds(
+                Path(d), "[ios_devices]\ndefault = bcsphone\nbcsphone = 00008150-X\n"
+            )
+            args = make_args(udid=None, device_label="no-such-device")
+            with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
+                 patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
+                udid, rc = _resolve_reorg_udid(args, dry_run=False)
+            self.assertEqual(rc, 1)
+
+
 class TestResolveEcid(unittest.TestCase):
     """map_udid_to_ecid: parse cfgutil list output for a UDID's ECID."""
 

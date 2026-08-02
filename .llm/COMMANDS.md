@@ -64,7 +64,8 @@ Tests:
 - `make test` or `python3 -m unittest -v`
 
 Phone (iOS) — Home Screen Reorg (recommended):
-- One-shot reorg (export → merge → build → install): `./bin/phone-assistant reorg --device-label bcsphone`
+- One-shot reorg (export → merge → build → install): `./bin/phone-assistant reorg`
+  - Target device from `[ios_devices] default` in `~/.config/credentials.ini`; override with `--device-label <label>` (non-default device) or `--udid <UDID>` / `$IOS_DEVICE_UDID` (explicit UDID, wins over all).
   - `--dry-run`: plan only, no build/install
   - `--no-install`: build profile but skip device copy
   - `--keep "<bundle,ids>"`: pin apps on page 1

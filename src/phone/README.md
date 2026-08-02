@@ -2,11 +2,29 @@
 
 ## Repeatable Reorg (recommended)
 
-One-shot command to reorganize your iPhone Home Screen — export, merge folders, build profile, and copy to device:
+One-shot command to reorganize your iPhone Home Screen — export, merge folders, build profile, and copy to device.
+
+The target device is resolved in this order:
+1. `--udid <UDID>` or `$IOS_DEVICE_UDID` — explicit, wins.
+2. `--device-label <label>` — looked up in `[ios_devices]` in credentials.ini; if given but not found → error.
+3. `[ios_devices] default = <label>` in credentials.ini — the configured default.
+4. No configuration → cfgutil auto-detects the single attached device.
+
+Configure your device once in `~/.config/credentials.ini`:
+
+```ini
+[ios_devices]
+default = bcsphone            # which label reorg targets when no flag is passed
+bcsphone = 00008150-000578D421D8401C
+ipadbiggest = 00008132-001645323C05001C
+```
 
 ```bash
-# Full reorg (connects to device, builds profile, copies to device)
-./bin/phone-assistant reorg --device-label bcsphone
+# Full reorg — uses [ios_devices] default from credentials.ini
+./bin/phone-assistant reorg
+
+# Target a non-default device by label
+./bin/phone-assistant reorg --device-label ipadbiggest
 
 # Plan only, from an existing export (no device, no build, no install)
 ./bin/phone-assistant reorg --dry-run
@@ -15,8 +33,8 @@ One-shot command to reorganize your iPhone Home Screen — export, merge folders
 ./bin/phone-assistant reorg --no-install
 
 # Install an already-built profile (skip export/merge/build)
-./bin/phone-assistant reorg --install-only --device-label bcsphone
-./bin/phone-assistant reorg --install-only --profile out/ios.merged.mobileconfig --device-label bcsphone
+./bin/phone-assistant reorg --install-only
+./bin/phone-assistant reorg --install-only --profile out/ios.merged.mobileconfig
 
 # Or step by step:
 ./bin/phone-assistant export-device --out out/ios.IconState.yaml
@@ -135,8 +153,17 @@ Key points:
 
 ## Device labels (credentials.ini)
 
-- `ipadBiggest` → UDID `00008132-001645323C05001C` (new iPad 16,5). Used by `--device-label ipadBiggest` for verify/install commands.
-- `bcsphone` → UDID `00008150-000578D421D8401C` (iPhone; managed layout above). Used by `--device-label bcsphone`.
+Labels and UDIDs live in `~/.config/credentials.ini` under `[ios_devices]`. The `default` key sets which label `reorg` targets when no flag is passed.
+
+```ini
+[ios_devices]
+default = bcsphone
+bcsphone = 00008150-000578D421D8401C
+ipadBiggest = 00008132-001645323C05001C
+```
+
+- `bcsphone` → UDID `00008150-000578D421D8401C` (iPhone; managed layout above). Default reorg target.
+- `ipadBiggest` → UDID `00008132-001645323C05001C` (iPad 16,5). Used by `--device-label ipadBiggest` for verify/install commands.
 
 ## CLI helpers recap
 

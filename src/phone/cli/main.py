@@ -303,8 +303,8 @@ def _cmd_merge_folders(args) -> int:
 )
 @app.argument(
     "--device-label",
-    default="bcsphone",
-    help="Device label from credentials.ini (default bcsphone)",
+    help="Device label from [ios_devices] in credentials.ini "
+    "(default: [ios_devices] 'default', else single attached device)",
 )
 @app.argument("--udid", help="Device UDID (overrides --device-label)")
 @app.argument(

@@ -121,8 +121,8 @@ curated:
 
   ios_phone:
     - id: ios_reorg
-      desc: "One-shot reorg: export → merge Other/loose into existing folders → build profile → copy to device (tap Install)"
-      cmd: ./bin/phone-assistant reorg --device-label bcsphone
+      desc: "One-shot reorg: export → merge Other/loose into existing folders → build profile → copy to device (tap Install). Target device from [ios_devices] default in credentials.ini; override with --device-label or --udid."
+      cmd: ./bin/phone-assistant reorg
     - id: ios_merge_folders
       desc: Redistribute the Other dump folder + loose apps into existing folders (conservation-checked)
       cmd: ./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
