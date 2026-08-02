@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.pipeline import RequestConsumer, BaseProducer, SafeProcessor
-from core.auth import build_outlook_service
+from core.auth import build_outlook_service, OutlookServiceConfig
 from core.yamlio import load_config as _load_yaml
 from core.constants import FMT_DAY_START, FMT_DAY_END
 
@@ -27,10 +27,12 @@ class OutlookAuth:
 def _build_outlook_service(auth: OutlookAuth):
     try:
         return build_outlook_service(
-            profile=auth.profile,
-            client_id=auth.client_id,
-            tenant=auth.tenant,
-            token_path=auth.token_path,
+            OutlookServiceConfig(
+                profile=auth.profile,
+                client_id=auth.client_id,
+                tenant=auth.tenant,
+                token_path=auth.token_path,
+            )
         ), None
     except RuntimeError as exc:
         return None, str(exc)

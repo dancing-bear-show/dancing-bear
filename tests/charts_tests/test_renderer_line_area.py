@@ -355,38 +355,38 @@ class TestShadeWeekends(unittest.TestCase):
 
 class TestPlotSeriesSmooth(unittest.TestCase):
     def test_returns_true_and_calls_plot_for_valid_data(self):
-        from charts.renderer_line_area import _plot_series_smooth
+        from charts.renderer_line_area import _plot_series_smooth, LineSeriesStyle
         ax = _fake_ax()
         x_values = [datetime.datetime(2024, 1, i + 1) for i in range(5)]
         y_values = [1.0, 2.0, 3.0, 4.0, 5.0]
         result = _plot_series_smooth(
             ax, x_values, y_values, is_dates=True,
-            color="#ff0000", linewidth=1.5, label="series"
+            style=LineSeriesStyle(color="#ff0000", linewidth=1.5, label="series"),
         )
         self.assertTrue(result)
         ax.plot.assert_called_once()
 
     def test_returns_false_when_fewer_than_2_finite_values(self):
-        from charts.renderer_line_area import _plot_series_smooth
+        from charts.renderer_line_area import _plot_series_smooth, LineSeriesStyle
         import math
         ax = _fake_ax()
         x_values = [1.0, 2.0, 3.0]
         y_values = [1.0, math.nan, math.nan]
         result = _plot_series_smooth(
             ax, x_values, y_values, is_dates=False,
-            color="#ff0000", linewidth=1.5, label="s"
+            style=LineSeriesStyle(color="#ff0000", linewidth=1.5, label="s"),
         )
         self.assertFalse(result)
         ax.plot.assert_not_called()
 
     def test_non_date_x_values_passed_to_plot(self):
-        from charts.renderer_line_area import _plot_series_smooth
+        from charts.renderer_line_area import _plot_series_smooth, LineSeriesStyle
         ax = _fake_ax()
         x_values = [1.0, 2.0, 3.0, 4.0]
         y_values = [10.0, 20.0, 30.0, 40.0]
         result = _plot_series_smooth(
             ax, x_values, y_values, is_dates=False,
-            color="#00ff00", linewidth=2.0, label="data"
+            style=LineSeriesStyle(color="#00ff00", linewidth=2.0, label="data"),
         )
         self.assertTrue(result)
         ax.plot.assert_called_once()
@@ -603,7 +603,7 @@ class TestRenderArea(unittest.TestCase):
 
 class TestPlotDualSeries(unittest.TestCase):
     def test_each_series_plotted_with_correct_color(self):
-        from charts.renderer_line_area import _plot_dual_series
+        from charts.renderer_line_area import _plot_dual_series, DualSeriesContext
         ax = _fake_ax()
         mock_line = MagicMock()
         ax.plot.return_value = (mock_line,)
@@ -612,47 +612,56 @@ class TestPlotDualSeries(unittest.TestCase):
         from charts.renderer_line_area import _parse_x_values
         x_values, is_dates = _parse_x_values([s1, s2], "ts")
         handles, labels = _plot_dual_series(
-            ax, [s1, s2], x_values, "ts", is_dates, _dark_theme(), palette_offset=0
+            ax, [s1, s2],
+            DualSeriesContext(x_values=x_values, x_field="ts", is_dates=is_dates),
+            _dark_theme(),
         )
         self.assertEqual(len(handles), 2)
         self.assertEqual(labels, ["s1", "s2"])
         self.assertEqual(ax.plot.call_count, 2)
 
     def test_palette_offset_shifts_color_index(self):
-        from charts.renderer_line_area import _plot_dual_series, _parse_x_values
+        from charts.renderer_line_area import _plot_dual_series, _parse_x_values, DualSeriesContext
         ax = _fake_ax()
         mock_line = MagicMock()
         ax.plot.return_value = (mock_line,)
         s = _make_series("s", ["2024-01-01"], [10.0])
         x_values, is_dates = _parse_x_values([s], "ts")
         theme = _dark_theme()
-        _plot_dual_series(ax, [s], x_values, "ts", is_dates, theme, palette_offset=2)
+        _plot_dual_series(
+            ax, [s],
+            DualSeriesContext(x_values=x_values, x_field="ts", is_dates=is_dates, palette_offset=2),
+            theme,
+        )
         call_kwargs = ax.plot.call_args
         color_used = call_kwargs.kwargs.get("color") or call_kwargs[1].get("color")
         self.assertEqual(color_used, theme.palette[2])
 
     def test_custom_linestyle_forwarded(self):
-        from charts.renderer_line_area import _plot_dual_series, _parse_x_values
+        from charts.renderer_line_area import _plot_dual_series, _parse_x_values, DualSeriesContext
         ax = _fake_ax()
         mock_line = MagicMock()
         ax.plot.return_value = (mock_line,)
         s = _make_series("s", ["2024-01-01"], [5.0])
         x_values, is_dates = _parse_x_values([s], "ts")
         _plot_dual_series(
-            ax, [s], x_values, "ts", is_dates, _dark_theme(),
-            palette_offset=0, linestyle="--"
+            ax, [s],
+            DualSeriesContext(x_values=x_values, x_field="ts", is_dates=is_dates, linestyle="--"),
+            _dark_theme(),
         )
         call_kwargs = ax.plot.call_args
         ls = call_kwargs.kwargs.get("linestyle") or call_kwargs[1].get("linestyle")
         self.assertEqual(ls, "--")
 
     def test_empty_series_list_returns_empty_handles(self):
-        from charts.renderer_line_area import _plot_dual_series, _parse_x_values
+        from charts.renderer_line_area import _plot_dual_series, _parse_x_values, DualSeriesContext
         ax = _fake_ax()
         s = _make_series("s", ["2024-01-01"], [1.0])
         x_values, is_dates = _parse_x_values([s], "ts")
         handles, labels = _plot_dual_series(
-            ax, [], x_values, "ts", is_dates, _dark_theme(), palette_offset=0
+            ax, [],
+            DualSeriesContext(x_values=x_values, x_field="ts", is_dates=is_dates),
+            _dark_theme(),
         )
         self.assertEqual(handles, [])
         self.assertEqual(labels, [])

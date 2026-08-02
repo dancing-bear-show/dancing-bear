@@ -2,6 +2,7 @@
 
 import subprocess
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -93,6 +94,15 @@ _OTEL_WINDOWS: list[tuple[str, str]] = [
 ]
 
 _app_version_cache: str | None = None
+
+
+@dataclass(frozen=True)
+class MenuRefreshData:
+    """Current-window usage metrics passed to _update_menu."""
+
+    window_totals: dict
+    avg_hourly: float
+    mtd_cost: float
 
 
 def _build_version() -> str:
@@ -366,7 +376,10 @@ class TelemetryMenubarApp(_AppBase):  # pragma: no cover
             icon_template = str(cfg.get("icon_display") or _DEFAULT_ICON_TEMPLATE)
             icon_ctx = self._fetch_icon_window_totals(icon_template, window_totals, cfg)
             prev_otel_available = self._otel_data_available
-            self._update_menu(window_totals, avg_hourly, mtd_cost, recent, cfg, insights, icon_window_totals=icon_ctx)
+            self._update_menu(
+                MenuRefreshData(window_totals, avg_hourly, mtd_cost),
+                recent, cfg, insights, icon_window_totals=icon_ctx,
+            )
             if cfg_changed or self._otel_data_available != prev_otel_available:
                 self._rebuild_menu(cfg)
             elapsed = time.monotonic() - t0
@@ -459,8 +472,8 @@ class TelemetryMenubarApp(_AppBase):  # pragma: no cover
             return {"cost": 0.0, "input_tokens": 0, "output_tokens": 0}
 
     def _update_menu(
-        self, window_totals: dict, avg_hourly: float, mtd_cost: float,
-        recent: list[SessionSummary], cfg: dict, insights: dict | None = None,
+        self, data: MenuRefreshData, recent: list[SessionSummary],
+        cfg: dict, insights: dict | None = None,
         icon_window_totals: dict | None = None,
     ) -> None:
         budget = float(cfg.get("monthly_budget") or _DEFAULT_MONTHLY_BUDGET)
@@ -468,6 +481,7 @@ class TelemetryMenubarApp(_AppBase):  # pragma: no cover
         label, secs = _WINDOWS[self._window_idx]
         next_label, _ = _WINDOWS[(self._window_idx + 1) % len(_WINDOWS)]
         self._hdr_usage.title = f"-- Usage ({label}) [click: {next_label}] --"
+        window_totals = data.window_totals
         total_cost = window_totals["cost"]
         total_in = window_totals["input_tokens"]
         total_out = window_totals["output_tokens"]
@@ -480,9 +494,9 @@ class TelemetryMenubarApp(_AppBase):  # pragma: no cover
             f"  Tokens: {_format_tokens(total_in)} in / {_format_tokens(total_out)} out"
         )
         self._info_usage_sessions.title = f"  Sessions: {window_totals['sessions']}"
-        self._info_usage_rate.title = _rate_str(total_cost, window_secs, avg_hourly)
+        self._info_usage_rate.title = _rate_str(total_cost, window_secs, data.avg_hourly)
         self._info_usage_sparkline.title = _sparkline(window_totals.get("hourly_costs", []))
-        self._set_icon(icon_template, icon_window_totals or {}, mtd_cost, budget)
+        self._set_icon(icon_template, icon_window_totals or {}, data.mtd_cost, budget)
         self._update_conditional_sections(window_totals, recent, cfg, insights, label)
 
     def _update_conditional_sections(

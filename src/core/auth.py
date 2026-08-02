@@ -105,10 +105,7 @@ def resolve_outlook_credentials(
 
 
 def build_outlook_service(
-    profile: Optional[str] = None,
-    client_id: Optional[str] = None,
-    tenant: Optional[str] = None,
-    token_path: Optional[str] = None,
+    config: OutlookServiceConfig,
     context_cls=None,
     service_cls=None,
 ):
@@ -118,8 +115,10 @@ def build_outlook_service(
 
     context_cls = context_cls or DefaultContext
     service_cls = service_cls or DefaultService
-    cid, ten, tok = resolve_outlook_credentials(profile, client_id, tenant, token_path)
-    return service_cls(context_cls(client_id=cid, tenant=ten, token_path=tok, profile=profile))
+    cid, ten, tok = resolve_outlook_credentials(
+        config.profile, config.client_id, config.tenant, config.token_path
+    )
+    return service_cls(context_cls(client_id=cid, tenant=ten, token_path=tok, profile=config.profile))
 
 
 def build_outlook_service_from_config(
@@ -129,17 +128,9 @@ def build_outlook_service_from_config(
 ):
     """Instantiate OutlookService using OutlookServiceConfig.
 
-    Thin wrapper around the canonical ``build_outlook_service`` so callers
-    that hold a config object don't need to unpack it themselves.
+    Delegates directly to ``build_outlook_service``.
     """
-    return build_outlook_service(
-        profile=config.profile,
-        client_id=config.client_id,
-        tenant=config.tenant,
-        token_path=config.token_path,
-        context_cls=context_cls,
-        service_cls=service_cls,
-    )
+    return build_outlook_service(config, context_cls=context_cls, service_cls=service_cls)
 
 
 def build_gmail_service(
@@ -183,14 +174,13 @@ def build_outlook_service_from_args(
         Configured OutlookService instance
     """
     cfg = config or OutlookServiceArgsConfig()
-    return build_outlook_service(
+    svc_config = OutlookServiceConfig(
         profile=getattr(args, cfg.profile_attr, None),
         client_id=getattr(args, cfg.client_id_attr, None),
         tenant=getattr(args, cfg.tenant_attr, None),
         token_path=getattr(args, cfg.token_attr, None),
-        context_cls=context_cls,
-        service_cls=service_cls,
     )
+    return build_outlook_service(svc_config, context_cls=context_cls, service_cls=service_cls)
 
 
 def build_gmail_service_from_args(

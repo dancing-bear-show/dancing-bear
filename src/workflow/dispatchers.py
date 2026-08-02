@@ -25,6 +25,7 @@ from workflow.models import (
     ResolvedStage,
     StageKind,
     StageResult,
+    StageResultExtras,
     StageStatus,
     make_stage_result,
 )
@@ -125,7 +126,7 @@ class LocalDispatcher:
         data, errors = self._run_outputs(stage)
         self._write_output_files(stage, data, workspace_dir)
         status = StageStatus.failed if errors else StageStatus.success
-        return make_stage_result(stage, started_at, status, data, errors)
+        return make_stage_result(stage, started_at, status, StageResultExtras(data=data, errors=errors))
 
     def _run_outputs(
         self,
@@ -230,7 +231,7 @@ class SkillDispatcher:
 
         return make_stage_result(
             stage, started_at, StageStatus.pending,
-            {"dispatch_file": str(path)}, [],
+            StageResultExtras(data={"dispatch_file": str(path)}),
         )
 
     def dispatch_group(
@@ -305,7 +306,7 @@ class WorkerQueueDispatcher:
 
         return make_stage_result(
             stage, started_at, StageStatus.pending,
-            {"job_id": job_id, "job_type": self.JOB_TYPE}, [],
+            StageResultExtras(data={"job_id": job_id, "job_type": self.JOB_TYPE}),
         )
 
     def dispatch_group(

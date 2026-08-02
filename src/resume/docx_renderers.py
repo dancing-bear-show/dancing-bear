@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .docx_styles import StyleManager, TextFormatter
-from .render_config import MetaRunConfig
+from .render_config import HeaderLineConfig, MetaRunConfig
 
 
 class BulletRenderer:
@@ -184,20 +184,21 @@ class HeaderRenderer:
 
     def add_header_line(
         self,
+        content: HeaderLineConfig | None = None,
         *,
-        title_text: str = "",
-        company_text: str = "",
-        loc_text: str = "",
-        span_text: str = "",
         sec: Optional[Dict[str, Any]] = None,
-        style: str = "Normal",
     ):
         """Add a formatted header line.
 
         Format: Title at Company — [Location] — (Duration)
+
+        Args:
+            content: Text and style fields for the header. Defaults to HeaderLineConfig().
+            sec: Section config dict (colors, bracket flags, etc.).
         """
+        c = content or HeaderLineConfig()
         cfg = sec or {}
-        p = self.doc.add_paragraph(style=style)
+        p = self.doc.add_paragraph(style=c.style)
         self.styles.tight_paragraph(p, after_pt=0)
         self.styles.flush_left(p)
 
@@ -207,30 +208,30 @@ class HeaderRenderer:
         meta_pt = self._parse_meta_pt(cfg)
 
         # Title
-        if title_text:
-            r_title = p.add_run(title_text)
+        if c.title_text:
+            r_title = p.add_run(c.title_text)
             r_title.bold = True
             self.styles.apply_run_color(r_title, item_color)
 
         # Company
-        if title_text and company_text:
+        if c.title_text and c.company_text:
             p.add_run(" at ")
-        if company_text:
-            r_comp = p.add_run(company_text)
+        if c.company_text:
+            r_comp = p.add_run(c.company_text)
             r_comp.bold = True
             self.styles.apply_run_color(r_comp, item_color)
 
         # Location
-        if loc_text:
-            self._add_meta_run(p, loc_text, MetaRunConfig(
+        if c.loc_text:
+            self._add_meta_run(p, c.loc_text, MetaRunConfig(
                 brackets=cfg.get("location_brackets", True),
                 open_br="[", close_br="]",
                 meta_pt=meta_pt, color=loc_color, italic=True,
             ))
 
         # Duration
-        if span_text:
-            self._add_meta_run(p, span_text, MetaRunConfig(
+        if c.span_text:
+            self._add_meta_run(p, c.span_text, MetaRunConfig(
                 brackets=cfg.get("duration_brackets", True),
                 open_br="(", close_br=")",
                 meta_pt=meta_pt, color=dur_color,

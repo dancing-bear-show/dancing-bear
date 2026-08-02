@@ -7,13 +7,14 @@ the parent workflow's stage list.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from .models import FanOutSpec, IncludeSpec, StageSpec
 
 __all__ = [
+    "FragmentContext",
     "parse_fragment",
     "_parse_include",
     "_parse_fragment_str",
@@ -21,6 +22,22 @@ __all__ = [
     "resolve_fragment_path",
     "extract_include_entries",
 ]
+
+
+@dataclass(frozen=True)
+class FragmentContext:
+    """Source file context for include expansion.
+
+    Groups the source file path and its string name so _expand_includes
+    can stay at or below five parameters.
+
+    source_path: Absolute path to the workflow or fragment file being parsed;
+                 ``None`` when parsing from a string with no backing file.
+    source: Human-readable name for error messages (file path or ``"<string>"``).
+    """
+
+    source: str
+    source_path: Path | None = None
 
 
 def resolve_fragment_path(path_str: str, source_path: Path) -> Path:
@@ -245,8 +262,7 @@ def _rewrite_fan_out(
 def _expand_includes(
     stages: tuple[StageSpec, ...],
     includes: tuple[IncludeSpec, ...],
-    source_path: Path | None,
-    source: str,
+    ctx: FragmentContext,
     *,
     _visited: frozenset[str] | None = None,
     _path: tuple[str, ...] = (),
@@ -257,17 +273,17 @@ def _expand_includes(
     visited = _visited if _visited is not None else frozenset()
     expanded = list(stages)
     for inc in includes:
-        frag_path = _resolve_frag_path(inc.path, source_path)
+        frag_path = _resolve_frag_path(inc.path, ctx.source_path)
         frag_path_key = str(frag_path.resolve())
         frag_path_str = str(frag_path)
 
         if frag_path_key in visited:
             raise WorkflowParseError(
-                f"{source}: circular include detected — '{frag_path_str}' is already "
+                f"{ctx.source}: circular include detected — '{frag_path_str}' is already "
                 f"being expanded (cycle: {' -> '.join(_path + (frag_path_str,))})"
             )
 
-        frag_text = _load_frag_text(frag_path, source)
+        frag_text = _load_frag_text(frag_path, ctx.source)
         frag_stages = _parse_fragment_str(frag_text, source=frag_path_str, parse_stage=_parse_stage)
 
         frag_raw_includes = _parse_nested_includes(frag_text, frag_path_str)
@@ -275,8 +291,7 @@ def _expand_includes(
             frag_stages = _expand_includes(
                 frag_stages,
                 frag_raw_includes,
-                frag_path,
-                frag_path_str,
+                FragmentContext(source=frag_path_str, source_path=frag_path),
                 _visited=visited | {frag_path_key},
                 _path=_path + (frag_path_str,),
             )

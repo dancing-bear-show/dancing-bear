@@ -29,6 +29,7 @@ from __future__ import annotations
 from worker.queue_ops import (  # noqa: F401
     QUEUE_ROOT,
     Job,
+    ReapJobContext,
     _apply_max_attempts,
     _ensure_dirs,
     _get_file_mtime,

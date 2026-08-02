@@ -14,6 +14,24 @@ from core.pipeline import BaseProducer, SafeProcessor
 
 
 @dataclass(frozen=True)
+class RenderOptions:
+    """Visual rendering options shared by render/render_to_file/_build_command.
+
+    output_format: format override; inferred from output extension when None.
+    background: Background color (e.g. ``"white"``, ``"transparent"``).
+    theme: Mermaid theme (``"default"``, ``"forest"``, ``"dark"``, ``"neutral"``).
+    width: Output width in pixels (PNG only).
+    height: Output height in pixels (PNG only).
+    """
+
+    output_format: str | None = None
+    background: str | None = None
+    theme: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass(frozen=True)
 class RenderRequest:
     """Request to render a Mermaid diagram to a file.
 
@@ -135,20 +153,18 @@ class LocalRenderer:
         self,
         input_path: str,
         output_path: str,
-        background: str | None = None,
-        theme: str | None = None,
-        width: int | None = None,
-        height: int | None = None,
+        opts: RenderOptions,
     ) -> list[str]:
+        """Build the mmdc command list from input/output paths and render options."""
         cmd = [self.mmdc_path, "-i", input_path, "-o", output_path]
-        if background:
-            cmd.extend(["-b", background])
-        if theme:
-            cmd.extend(["-t", theme])
-        if width:
-            cmd.extend(["-w", str(width)])
-        if height:
-            cmd.extend(["-H", str(height)])
+        if opts.background:
+            cmd.extend(["-b", opts.background])
+        if opts.theme:
+            cmd.extend(["-t", opts.theme])
+        if opts.width:
+            cmd.extend(["-w", str(opts.width)])
+        if opts.height:
+            cmd.extend(["-H", str(opts.height)])
         return cmd
 
     def _run(self, cmd: list[str]) -> None:
@@ -185,21 +201,14 @@ class LocalRenderer:
     def render(
         self,
         diagram: object,
-        output_format: str = "svg",
-        background: str | None = None,
-        theme: str | None = None,
-        width: int | None = None,
-        height: int | None = None,
+        opts: RenderOptions = RenderOptions(),
     ) -> bytes:
         """Render a diagram to bytes.
 
         Args:
             diagram: Builder, model, or raw mermaid string.
-            output_format: ``"svg"``, ``"png"``, or ``"pdf"``.
-            background: Background color (e.g. ``"white"``, ``"transparent"``).
-            theme: Mermaid theme (``"default"``, ``"forest"``, ``"dark"``, ``"neutral"``).
-            width: Output width in pixels (PNG only).
-            height: Output height in pixels (PNG only).
+            opts: Visual rendering options (format, background, theme, width, height).
+                  Defaults to SVG with no background, theme, or size override.
 
         Returns:
             Rendered diagram bytes.
@@ -210,8 +219,10 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
+        output_format = opts.output_format or "svg"
+
         mermaid_text = self._get_mermaid_text(diagram)
-        if theme == "dark":
+        if opts.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
 
@@ -223,7 +234,7 @@ class LocalRenderer:
             out = pathlib.Path(tmpdir) / f"output.{output_format}"
             inp.write_text(mermaid_text)
 
-            cmd = self._build_command(str(inp), str(out), background, theme, width, height)
+            cmd = self._build_command(str(inp), str(out), opts)
             self._run(cmd)
 
             if not out.exists():
@@ -234,22 +245,15 @@ class LocalRenderer:
         self,
         diagram: object,
         output_path: str,
-        output_format: str | None = None,
-        background: str | None = None,
-        theme: str | None = None,
-        width: int | None = None,
-        height: int | None = None,
+        opts: RenderOptions = RenderOptions(),
     ) -> str:
         """Render a diagram directly to a file on disk.
 
         Args:
             diagram: Builder, model, or raw mermaid string.
             output_path: Destination file path.
-            output_format: Format override; inferred from extension when None.
-            background: Background color.
-            theme: Mermaid theme.
-            width: Width in pixels (PNG only).
-            height: Height in pixels (PNG only).
+            opts: Visual rendering options (format, background, theme, width, height).
+                  output_format is inferred from the output extension when None.
 
         Returns:
             The output path.
@@ -261,20 +265,28 @@ class LocalRenderer:
         import pathlib
         import tempfile
 
-        if output_format is None:
-            output_format = self._infer_format(output_path)
+        output_format = opts.output_format if opts.output_format is not None else self._infer_format(output_path)
 
         mermaid_text = self._get_mermaid_text(diagram)
-        if theme == "dark":
+        if opts.theme == "dark":
             from .dark_mode import apply_dark_mode_fixes
             mermaid_text = apply_dark_mode_fixes(mermaid_text)
+
+        # Build opts with the resolved format for _build_command (theme/background/size only).
+        build_opts = RenderOptions(
+            output_format=output_format,
+            background=opts.background,
+            theme=opts.theme,
+            width=opts.width,
+            height=opts.height,
+        )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False) as f:
             f.write(mermaid_text)
             tmp_input = f.name
 
         try:
-            cmd = self._build_command(tmp_input, output_path, background, theme, width, height)
+            cmd = self._build_command(tmp_input, output_path, build_opts)
             self._run(cmd)
             return output_path
         finally:
@@ -287,7 +299,7 @@ class LocalRenderer:
             ``(True, None)`` on success; ``(False, error_message)`` on failure.
         """
         try:
-            self.render(diagram, "svg")
+            self.render(diagram, RenderOptions(output_format="svg"))
             return True, None
         except LocalRendererError as e:
             return False, str(e)
@@ -311,15 +323,14 @@ class RenderDiagramProcessor(SafeProcessor[RenderRequest, RenderResult]):
         output_format=None defers format inference to LocalRenderer._infer_format().
         """
         renderer = LocalRenderer(timeout=payload.timeout)
-        renderer.render_to_file(
-            payload.source,
-            payload.output,
+        opts = RenderOptions(
             output_format=payload.output_format,
             background=payload.background,
             theme=payload.theme,
             width=payload.width,
             height=payload.height,
         )
+        renderer.render_to_file(payload.source, payload.output, opts)
         size = Path(payload.output).stat().st_size
         return RenderResult(output_path=payload.output, size_bytes=size)
 

@@ -34,6 +34,15 @@ class ValidationIssue:
     message: str
 
 
+@dataclass
+class _FolderValidationCtx:
+    """Shared context threaded through folder validation helpers."""
+
+    dock_set: set[str]
+    all_bundle_ids: list[str]
+    issues: list[ValidationIssue]
+
+
 def _is_bundle_id(value: str) -> bool:
     return bool(_BUNDLE_ID_RE.match(value))
 
@@ -65,20 +74,18 @@ def _validate_dock(dock: object, issues: list[ValidationIssue]) -> set[str]:
 def _validate_bundle_id(
     app: str,
     context: str,
-    dock_set: set[str],
-    all_bundle_ids: list[str],
-    issues: list[ValidationIssue],
+    ctx: _FolderValidationCtx,
 ) -> None:
-    """Check a single bundle ID and record it in all_bundle_ids."""
-    all_bundle_ids.append(app)
+    """Check a single bundle ID and record it in ctx.all_bundle_ids."""
+    ctx.all_bundle_ids.append(app)
     if not _is_bundle_id(app):
-        issues.append(
+        ctx.issues.append(
             ValidationIssue(
                 "warning", f"'{app}' does not look like a bundle ID (no dot)"
             )
         )
-    if app in dock_set:
-        issues.append(
+    if app in ctx.dock_set:
+        ctx.issues.append(
             ValidationIssue("error", f"'{app}' appears in both dock and {context}")
         )
 
@@ -87,13 +94,11 @@ def _validate_folder_page(
     folder_name: str,
     page_index: int,
     page: list,
-    dock_set: set[str],
-    all_bundle_ids: list[str],
-    issues: list[ValidationIssue],
+    ctx: _FolderValidationCtx,
 ) -> None:
     """Validate a single folder page (list of bundle IDs)."""
     if len(page) > _MAX_FOLDER_PAGE_APPS:
-        issues.append(
+        ctx.issues.append(
             ValidationIssue(
                 "warning",
                 f"folder '{folder_name}' page {page_index} has {len(page)} apps; "
@@ -101,7 +106,7 @@ def _validate_folder_page(
             )
         )
     if len(page) == 0:
-        issues.append(
+        ctx.issues.append(
             ValidationIssue(
                 "warning", f"folder '{folder_name}' page {page_index} is empty"
             )
@@ -109,24 +114,20 @@ def _validate_folder_page(
 
     for app in page:
         if isinstance(app, str):
-            _validate_bundle_id(
-                app, f"folder '{folder_name}'", dock_set, all_bundle_ids, issues
-            )
+            _validate_bundle_id(app, f"folder '{folder_name}'", ctx)
 
 
 def _validate_folder(
     folder: object,
-    dock_set: set[str],
-    all_bundle_ids: list[str],
-    issues: list[ValidationIssue],
+    ctx: _FolderValidationCtx,
 ) -> None:
     """Validate a folder element: [\"Name\", [page_apps], ...]."""
     if not isinstance(folder, list) or len(folder) < 1:
-        issues.append(ValidationIssue("error", "folder must be a non-empty list"))
+        ctx.issues.append(ValidationIssue("error", "folder must be a non-empty list"))
         return
 
     if not isinstance(folder[0], str):
-        issues.append(
+        ctx.issues.append(
             ValidationIssue(
                 "error",
                 f"folder first element must be a string name, got: {type(folder[0]).__name__}",
@@ -138,7 +139,7 @@ def _validate_folder(
 
     for i, item in enumerate(folder[1:], start=1):
         if isinstance(item, str):
-            issues.append(
+            ctx.issues.append(
                 ValidationIssue(
                     "error",
                     f"folder '{folder_name}' item {i} is a string ('{item}'); "
@@ -146,11 +147,9 @@ def _validate_folder(
                 )
             )
         elif isinstance(item, list):
-            _validate_folder_page(
-                folder_name, i, item, dock_set, all_bundle_ids, issues
-            )
+            _validate_folder_page(folder_name, i, item, ctx)
         else:
-            issues.append(
+            ctx.issues.append(
                 ValidationIssue(
                     "warning",
                     f"folder '{folder_name}' item {i} is unexpected type: {type(item).__name__}",
@@ -161,17 +160,15 @@ def _validate_folder(
 def _validate_page_item(
     item: object,
     page_idx: int,
-    dock_set: set[str],
-    all_bundle_ids: list[str],
-    issues: list[ValidationIssue],
+    ctx: _FolderValidationCtx,
 ) -> None:
     """Validate a single item within a page (string app or folder list)."""
     if isinstance(item, str):
-        _validate_bundle_id(item, f"page {page_idx}", dock_set, all_bundle_ids, issues)
+        _validate_bundle_id(item, f"page {page_idx}", ctx)
     elif isinstance(item, list):
-        _validate_folder(item, dock_set, all_bundle_ids, issues)
+        _validate_folder(item, ctx)
     else:
-        issues.append(
+        ctx.issues.append(
             ValidationIssue(
                 "warning",
                 f"page {page_idx} contains unexpected item type: {type(item).__name__}",
@@ -182,18 +179,16 @@ def _validate_page_item(
 def _validate_page(
     page: object,
     page_idx: int,
-    dock_set: set[str],
-    all_bundle_ids: list[str],
-    issues: list[ValidationIssue],
+    ctx: _FolderValidationCtx,
 ) -> None:
     """Validate a single page entry (string or list)."""
     if isinstance(page, str):
-        _validate_bundle_id(page, f"page {page_idx}", dock_set, all_bundle_ids, issues)
+        _validate_bundle_id(page, f"page {page_idx}", ctx)
     elif isinstance(page, list):
         for item in page:
-            _validate_page_item(item, page_idx, dock_set, all_bundle_ids, issues)
+            _validate_page_item(item, page_idx, ctx)
     else:
-        issues.append(
+        ctx.issues.append(
             ValidationIssue(
                 "error",
                 f"page {page_idx} must be a string or list, got: {type(page).__name__}",
@@ -252,9 +247,10 @@ def validate_layout_json(
 
     dock_set = _validate_dock(dock, issues)
     all_bundle_ids: list[str] = list(dock_set)
+    ctx = _FolderValidationCtx(dock_set=dock_set, all_bundle_ids=all_bundle_ids, issues=issues)
 
     for page_idx, page in enumerate(pages, start=1):
-        _validate_page(page, page_idx, dock_set, all_bundle_ids, issues)
+        _validate_page(page, page_idx, ctx)
 
     _check_duplicates(all_bundle_ids, issues)
 

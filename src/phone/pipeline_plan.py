@@ -242,7 +242,6 @@ class ManifestInstallProcessor(
                 display_name=prof.get("display_name", _defaults.display_name),
                 organization=prof.get("organization"),
             ),
-            dock_count=4,
         )
 
         out_path = _determine_profile_path(payload.out_path, man)

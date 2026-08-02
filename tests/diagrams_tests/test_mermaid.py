@@ -175,8 +175,9 @@ class TestSequenceDiagramBuilderExtra(unittest.TestCase):
         self.assertIn("A->>B: hello", result)
 
     def test_message_custom_arrow(self):
+        from diagrams.mermaid import MessageOptions
         builder = SequenceDiagramBuilder()
-        builder.message("A", "B", "sync", arrow="->")
+        builder.message("A", "B", "sync", MessageOptions(arrow="->"))
         result = builder.render()
         self.assertIn("A->B: sync", result)
 
@@ -205,12 +206,13 @@ class TestSequenceDiagramBuilderExtra(unittest.TestCase):
         self.assertIn("Note over A,B: both", result)
 
     def test_full_sequence_diagram(self):
+        from diagrams.mermaid import MessageOptions
         builder = SequenceDiagramBuilder()
         (builder
             .participant("Client", alias="User")
             .participant("Server")
             .message("Client", "Server", "request")
-            .message("Server", "Client", "response", arrow="-->>")
+            .message("Server", "Client", "response", MessageOptions(arrow="-->>"))
          )
         result = builder.render()
         self.assertIn("sequenceDiagram", result)

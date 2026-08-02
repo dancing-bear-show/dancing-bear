@@ -350,35 +350,39 @@ def _reap_resolve_start_time(data: dict[str, object], p: Path) -> datetime | Non
     return started
 
 
-def _reap_move_to_pending(
-    p: Path,
-    paths: dict[str, Path],
-    data: dict[str, object],
-    age: int,
-    job_timeout: int,
-    job_id: str,
-    log: object,
-) -> bool:
+@dataclass(frozen=True)
+class ReapJobContext:
+    """Bundle of state for moving a single stale processing job back to pending."""
+
+    p: Path
+    paths: dict[str, Path]
+    data: dict[str, object]
+    age: int
+    job_timeout: int
+    job_id: str
+
+
+def _reap_move_to_pending(ctx: ReapJobContext, log: object) -> bool:
     """Rename a stale processing job to pending/ and update its metadata."""
     import logging as _logging
 
     _log: _logging.Logger = log  # type: ignore[assignment]
-    new_path = _job_path(paths["pending"], job_id)
+    new_path = _job_path(ctx.paths["pending"], ctx.job_id)
     try:
-        _rename(p, new_path)
+        _rename(ctx.p, new_path)
     except FileNotFoundError:
-        _log.debug("Stale job %s already gone before reap rename; skipping", job_id)
+        _log.debug("Stale job %s already gone before reap rename; skipping", ctx.job_id)
         return False
     except Exception as exc:
-        _log.debug("Failed to reap stale job %s: %s", job_id, exc)
+        _log.debug("Failed to reap stale job %s: %s", ctx.job_id, exc)
         return False
     try:
-        data["status"] = "pending"
-        data[FIELD_UPDATED_AT] = iso_now()
-        data["last_error"] = f"reaped after {age}s (timeout {job_timeout}s)"
-        atomic_write_json(new_path, data)
+        ctx.data["status"] = "pending"
+        ctx.data[FIELD_UPDATED_AT] = iso_now()
+        ctx.data["last_error"] = f"reaped after {ctx.age}s (timeout {ctx.job_timeout}s)"
+        atomic_write_json(new_path, ctx.data)
     except Exception as exc:
-        _log.debug("Failed to update metadata for reaped job %s: %s", job_id, exc)
+        _log.debug("Failed to update metadata for reaped job %s: %s", ctx.job_id, exc)
         # job is in pending/ regardless; count it as reaped
     return True
 
@@ -419,7 +423,15 @@ def reap_stale_processing_jobs(
             age,
             effective_timeout,
         )
-        if _reap_move_to_pending(p, paths, data, age, effective_timeout, job_id, _log):
+        reap_ctx = ReapJobContext(
+            p=p,
+            paths=paths,
+            data=data,
+            age=age,
+            job_timeout=effective_timeout,
+            job_id=job_id,
+        )
+        if _reap_move_to_pending(reap_ctx, _log):
             reaped.append(job_id)
 
     return reaped

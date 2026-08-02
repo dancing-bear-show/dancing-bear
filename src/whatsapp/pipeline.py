@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from core.cli_output import OutputFormat, OutputWriter
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
-from .search import MessageRow, format_rows_json, format_rows_text, search_messages
+from .search import MessageQuery, MessageRow, format_rows_json, format_rows_text, search_messages
 
 
 @dataclass
@@ -42,12 +42,14 @@ class SearchProcessor(SafeProcessor[SearchRequest, SearchResult]):
     def _process_safe(self, payload: SearchRequest) -> SearchResult:
         rows = search_messages(
             db_path=payload.db_path,
-            contains=payload.contains,
-            match_all=payload.match_all,
-            contact=payload.contact,
-            from_me=payload.from_me,
-            since_days=payload.since_days,
-            limit=payload.limit,
+            query=MessageQuery(
+                contains=payload.contains,
+                match_all=payload.match_all,
+                contact=payload.contact,
+                from_me=payload.from_me,
+                since_days=payload.since_days,
+                limit=payload.limit,
+            ),
         )
         return SearchResult(rows=rows, output_format=payload.output_format)
 

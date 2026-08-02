@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 _END = "    end"
+
+
+@dataclass(frozen=True)
+class MessageOptions:
+    """Options for SequenceDiagramBuilder.message().
+
+    arrow: Mermaid arrow type (``"->>"`` solid, ``"-->>"`` dashed, etc.).
+    activate: Emit ``+`` suffix to activate the destination participant.
+    deactivate: Emit explicit ``deactivate`` for the source after the message.
+    """
+
+    arrow: str = "->>"
+    activate: bool = False
+    deactivate: bool = False
 
 
 class FlowchartBuilder:
@@ -189,24 +205,29 @@ class SequenceDiagramBuilder:
         src: str,
         dst: str,
         text: str,
-        arrow: str = "->>",
-        activate: bool = False,
-        deactivate: bool = False,
+        opts: MessageOptions = MessageOptions(),
     ) -> SequenceDiagramBuilder:
-        """Add a message between participants."""
-        suffix = "+" if activate else ""
-        self._steps.append(f"    {src}{arrow}{suffix}{dst}: {text}")
-        if deactivate:
+        """Add a message between participants.
+
+        Args:
+            src: Source participant name.
+            dst: Destination participant name.
+            text: Message label text.
+            opts: Arrow style, activation, and deactivation options.
+        """
+        suffix = "+" if opts.activate else ""
+        self._steps.append(f"    {src}{opts.arrow}{suffix}{dst}: {text}")
+        if opts.deactivate:
             self._steps.append(f"    deactivate {src}")
         return self
 
     def request(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
         """Add a request message (solid arrow ->>  with receiver activation)."""
-        return self.message(src, dst, text, "->>", activate=True)
+        return self.message(src, dst, text, MessageOptions(arrow="->>", activate=True))
 
     def response(self, src: str, dst: str, text: str) -> SequenceDiagramBuilder:
         """Add a response message (dashed arrow -->>  with sender deactivation)."""
-        return self.message(src, dst, text, "-->>", deactivate=True)
+        return self.message(src, dst, text, MessageOptions(arrow="-->>", deactivate=True))
 
     def activate(self, participant: str) -> SequenceDiagramBuilder:
         """Emit an explicit activate directive for a participant."""

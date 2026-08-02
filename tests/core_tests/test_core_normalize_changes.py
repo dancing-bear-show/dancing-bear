@@ -88,16 +88,13 @@ class TestBuildOutlookServiceConsolidation(unittest.TestCase):
     @patch("core.auth.resolve_outlook_credentials")
     def test_build_outlook_service_uses_resolved_credentials(self, mock_resolve):
         """build_outlook_service() passes resolved creds to the context class."""
-        from core.auth import build_outlook_service
+        from core.auth import OutlookServiceConfig, build_outlook_service
 
         mock_resolve.return_value = ("cid", "tenant", "/tok.json")
         mock_context_cls, mock_service_cls, _ = self._make_stubs()
 
         build_outlook_service(
-            profile="p",
-            client_id="cid",
-            tenant="t",
-            token_path="/t.json",
+            OutlookServiceConfig(profile="p", client_id="cid", tenant="t", token_path="/t.json"),
             context_cls=mock_context_cls,
             service_cls=mock_service_cls,
         )
@@ -148,7 +145,7 @@ class TestBuildOutlookServiceConsolidation(unittest.TestCase):
         mock_svc = MagicMock(return_value=MagicMock())
 
         build_outlook_service(
-            profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json",
+            OutlookServiceConfig(profile="x", client_id="cid3", tenant="t3", token_path="/tok3.json"),
             context_cls=tracking_context_cls_direct,
             service_cls=mock_svc,
         )
