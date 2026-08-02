@@ -341,8 +341,8 @@ class CLIApp:
             parser.add_argument(*arg.name_or_flags, **arg.kwargs)
 
     @staticmethod
-    def _normalize_argv(argv: Sequence[str]) -> list[str]:
-        """Strip a single leading '--' used as the optional subcommand/flag separator.
+    def normalize_argv(argv: Sequence[str]) -> list[str]:
+        """Strip the first bare '--' used as the optional subcommand/flag separator.
 
         CLAUDE.md documents '--' as optional (not required) for CLIApp-based
         CLIs: ``foo bar -- --flag value`` and ``foo bar --flag value`` should
@@ -402,7 +402,7 @@ class CLIApp:
             post_build_hook(parser)
         assistant.add_agentic_flags(parser)
 
-        _argv = self._normalize_argv(argv if argv is not None else sys.argv[1:])
+        _argv = self.normalize_argv(argv if argv is not None else sys.argv[1:])
         args = parser.parse_args(_argv)
 
         # Handle agentic output if requested
@@ -427,11 +427,21 @@ class CLIApp:
                 result = handle_error(e, verbose=getattr(args, "verbose", False))
         return result
 
-    def run(self, argv: Optional[Sequence[str]] = None) -> int:
+    def run(
+        self,
+        argv: Optional[Sequence[str]] = None,
+        *,
+        on_no_command: Optional[Callable[[], int]] = None,
+    ) -> int:
         """Run the CLI application.
 
         Args:
             argv: Command-line arguments (defaults to sys.argv[1:]).
+            on_no_command: Optional callback invoked instead of the default
+                "print full help, return ExitCode.USAGE" behavior when no
+                subcommand is given. Lets a caller preserve a legacy
+                one-line usage message/exit code without pre-parsing argv
+                itself (which would otherwise normalize+parse it twice).
 
         Returns:
             Exit code.
@@ -439,21 +449,27 @@ class CLIApp:
         parser = self._parser
         if parser is None:
             parser = self.build_parser()
-        _argv = self._normalize_argv(argv if argv is not None else sys.argv[1:])
+        _argv = self.normalize_argv(argv if argv is not None else sys.argv[1:])
         args = parser.parse_args(_argv)
 
-        # Set up output writer
-        output_format = OutputFormat(getattr(args, "output", "text"))
-        output_config = OutputConfig(
-            format=output_format,
-            verbose=getattr(args, "verbose", False),
-            quiet=getattr(args, "quiet", False),
-        )
-        args._output = OutputWriter(output_config)
+        # Set up output writer. args.output only means "output format" when
+        # this app added the common --output flag itself (_add_common_arguments);
+        # with add_common_args=False a CLI's own --output may hold unrelated
+        # data (e.g. a file path), so OutputFormat(...) would raise on it.
+        if self.add_common_args:
+            output_format = OutputFormat(getattr(args, "output", "text"))
+            output_config = OutputConfig(
+                format=output_format,
+                verbose=getattr(args, "verbose", False),
+                quiet=getattr(args, "quiet", False),
+            )
+            args._output = OutputWriter(output_config)
 
         # Get the command function
         cmd_func = getattr(args, "_cmd_func", None)
         if cmd_func is None:
+            if on_no_command is not None:
+                return on_no_command()
             self._parser.print_help()
             return ExitCode.USAGE
 

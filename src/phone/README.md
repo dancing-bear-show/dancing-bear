@@ -1,5 +1,78 @@
 # Phone
 
+## Repeatable Reorg (recommended)
+
+One-shot command to reorganize your iPhone Home Screen — export, merge folders, build profile, and copy to device.
+
+The target device is resolved in this order:
+1. `--udid <UDID>` or `$IOS_DEVICE_UDID` — explicit, wins.
+2. `--device-label <label>` — looked up in `[ios_devices]` in credentials.ini; if given but not found → error.
+3. `[ios_devices] default = <label>` in credentials.ini — the configured default.
+4. No configuration → cfgutil auto-detects the single attached device.
+
+Configure your device once in `~/.config/credentials.ini`:
+
+```ini
+[ios_devices]
+default = bcsphone            # which label reorg targets when no flag is passed
+bcsphone = 00008150-000578D421D8401C
+ipadbiggest = 00008132-001645323C05001C
+```
+
+```bash
+# Full reorg — uses [ios_devices] default from credentials.ini
+./bin/phone-assistant reorg
+
+# Target a non-default device by label
+./bin/phone-assistant reorg --device-label ipadbiggest
+
+# Plan only, from an existing export (no device, no build, no install)
+./bin/phone-assistant reorg --dry-run
+
+# Build the profile but do not copy it to the device
+./bin/phone-assistant reorg --no-install
+
+# Install an already-built profile (skip export/merge/build)
+./bin/phone-assistant reorg --install-only
+./bin/phone-assistant reorg --install-only --profile-path out/ios.merged.mobileconfig
+
+# Or step by step:
+./bin/phone-assistant export-device --out out/ios.IconState.yaml
+./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
+./bin/phone-assistant profile build --plan out/ios.plan.merged.yaml --layout out/ios.IconState.yaml --folder-page-size 9 --out out/ios.merged.mobileconfig
+cfgutil install-profile out/ios.merged.mobileconfig   # then tap Install on the device
+```
+
+### `--install-only` mode
+
+Use `--install-only` to copy an already-built profile to the device without re-running the
+export/merge/build stages. Requires the profile to exist (default: `out/ios.merged.mobileconfig`;
+override with `--profile`). The same fail-fast UDID resolution and Code 625 handling apply.
+
+`--install-only` and `--no-install` are mutually exclusive.
+
+### Code 625 is success
+
+`cfgutil install-profile` reports "User interaction on the device is required" (Code 625) on macOS 26 — the process exits non-zero (1), and `reorg` detects this phrase and treats it as success. **This is the expected, correct outcome.** It means the profile was copied to the device and is waiting for you to tap Install.
+
+After the reorg reports the profile was copied:
+1. On your iPhone: Settings → General → VPN & Device Management
+2. Tap the pending profile → Install
+
+**Silent install via cfgutil `-C`/`-K` is permanently broken on macOS 26** (Apple removed `SecKeyCreateFromData`). The copy-then-tap flow is the only supported path.
+
+### merge-folders behavior
+
+`merge-folders` preserves your existing folder taxonomy:
+- Dock: unchanged
+- Page 1: all apps stay as loose pins
+- Loose apps on pages >= 2: filed into best-fit existing folder
+- Apps in dump folders (default: `Other`): redistributed into best-fit existing folder
+- All other existing folders: contents preserved exactly
+- Conservation invariant: every app in the input appears exactly once in the output
+
+---
+
 - Local-only CLI for iOS/iPadOS layout exports, plan scaffolds, manifests, and identity verification.
 - Entry point: `./bin/phone` (includes `export-device`, `iconmap`, `plan`, `checklist`, `manifest`, `identity`, etc.; `export` is deprecated).
 - Icon map helper: `./bin/ios-iconmap-refresh` (cfgutil JSON + YAML export).
@@ -80,8 +153,17 @@ Key points:
 
 ## Device labels (credentials.ini)
 
-- `ipadBiggest` → UDID `00008132-001645323C05001C` (new iPad 16,5). Used by `--device-label ipadBiggest` for verify/install commands.
-- `bcsphone` → UDID `00008150-000578D421D8401C` (iPhone; managed layout above). Used by `--device-label bcsphone`.
+Labels and UDIDs live in `~/.config/credentials.ini` under `[ios_devices]`. The `default` key sets which label `reorg` targets when no flag is passed.
+
+```ini
+[ios_devices]
+default = bcsphone
+bcsphone = 00008150-000578D421D8401C
+ipadBiggest = 00008132-001645323C05001C
+```
+
+- `bcsphone` → UDID `00008150-000578D421D8401C` (iPhone; managed layout above). Default reorg target.
+- `ipadBiggest` → UDID `00008132-001645323C05001C` (iPad 16,5). Used by `--device-label ipadBiggest` for verify/install commands.
 
 ## CLI helpers recap
 

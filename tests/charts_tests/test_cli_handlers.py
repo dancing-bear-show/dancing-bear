@@ -726,6 +726,35 @@ class TestMainDispatch(unittest.TestCase):
         output = captured.getvalue()
         self.assertIn("Smoke", output)
 
+    def test_leading_separator_is_optional(self):
+        """A post-subcommand '--' — the shape workflow.compiler._build_cli_command
+        actually emits (subcommand, then '--', then flags) — and its absence
+        must dispatch identically. Regression test for CLIApp's optional-
+        separator normalization not being applied in main()."""
+        from charts.cli import main
+
+        rows = [{"ts": "2024-01-01", "val": 5.0}]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(rows, f)
+            fpath = f.name
+
+        try:
+            flags = ["--input", fpath, "--x", "ts", "--y", "val", "--format", "json"]
+
+            captured_with_sep = io.StringIO()
+            with patch("sys.stdout", captured_with_sep):
+                result_with_sep = main(["reshape", "--"] + flags)
+
+            captured_without_sep = io.StringIO()
+            with patch("sys.stdout", captured_without_sep):
+                result_without_sep = main(["reshape"] + flags)
+        finally:
+            Path(fpath).unlink(missing_ok=True)
+
+        self.assertEqual(result_with_sep, 0)
+        self.assertEqual(result_with_sep, result_without_sep)
+        self.assertEqual(captured_with_sep.getvalue(), captured_without_sep.getvalue())
+
     def test_render_dispatch_clierror_exits(self):
         """main(['render', ...]) raises SystemExit when _require_matplotlib raises CLIError."""
         from charts.cli import main

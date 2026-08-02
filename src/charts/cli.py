@@ -8,7 +8,17 @@ import sys
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode, handle_error
+from core.cli_framework import CLIApp
 from core.cli_output import OutputWriter, OutputConfig, OutputFormat
+
+# add_common_args=False: charts has no --profile/--dry-run, and its own
+# --output/-o means output *path* (not the CLIApp built-in output *format*
+# flag), so the common args would collide with the per-command --output.
+app = CLIApp(
+    "charts",
+    "charts — render time-series charts from JSON.",
+    add_common_args=False,
+)
 
 
 def _require_matplotlib() -> None:
@@ -131,6 +141,17 @@ def _load_panel_specs(cfg, json_to_spec_fn):
     return specs
 
 
+@app.command("render", help="Render a single chart from a JSON spec.")
+@app.argument("--input", "-i", dest="input_path", default="-",
+              help="JSON input file (default: stdin).")
+@app.argument("--output", "-o", dest="output_path", required=True,
+              help="Output path (.png or .svg).")
+@app.argument("--theme", choices=["dark", "light"], default="dark",
+              help="Color theme (default: dark).")
+@app.argument("--dpi", type=int, default=None,
+              help="Override DPI (default: from spec).")
+@app.argument("--svg", action="store_true", default=False,
+              help="Force SVG output regardless of --output extension.")
 def _handle_render(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     _require_matplotlib()
 
@@ -166,6 +187,15 @@ def _handle_render(args: argparse.Namespace, writer: OutputWriter | None = None)
     return 0
 
 
+@app.command("grid", help="Render a multi-panel grid from a YAML config.")
+@app.argument("--config", "-c", dest="config_path", required=True,
+              help="YAML grid config file.")
+@app.argument("--output", "-o", dest="output_path", default=None,
+              help="Override output path from config.")
+@app.argument("--theme", choices=["dark", "light"], default=None,
+              help="Override theme from config.")
+@app.argument("--svg", action="store_true", default=False,
+              help="Force SVG output.")
 def _handle_grid(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     _require_matplotlib()
 
@@ -194,6 +224,22 @@ def _handle_grid(args: argparse.Namespace, writer: OutputWriter | None = None) -
     return 0
 
 
+@app.command(
+    "reshape",
+    help="Normalise arbitrary row data into the charts JSON contract, writes to stdout.",
+)
+@app.argument("--input", "-i", dest="input_path", default="-",
+              help="Input file (default: stdin).")
+@app.argument("--x", dest="x_field", required=True,
+              help="Field to use as x-axis.")
+@app.argument("--y", dest="y_field", required=True,
+              help="Field to use as value (y-axis).")
+@app.argument("--group-by", dest="group_by", default=None,
+              help="Field to split into series.")
+@app.argument("--title", default="Chart",
+              help="Chart title (default: Chart).")
+@app.argument("--format", dest="fmt", choices=["json", "yaml"], default="json",
+              help="Output format (default: json).")
 def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None) -> int:
     fmt = OutputFormat.YAML if args.fmt == "yaml" else OutputFormat.JSON
     out = writer or OutputWriter(OutputConfig(format=fmt))
@@ -217,66 +263,16 @@ def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None
 
 def main(argv: list[str] | None = None) -> int:
     """charts CLI entry point."""
-    parser = argparse.ArgumentParser(
-        prog="charts",
-        description="charts — render time-series charts from JSON.",
-    )
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    parser = app.build_parser()
+    _argv = app.normalize_argv(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(_argv)
 
-    # render
-    p_render = subparsers.add_parser("render", help="Render a single chart from a JSON spec.")
-    p_render.add_argument("--input", "-i", dest="input_path", default="-",
-                          help="JSON input file (default: stdin).")
-    p_render.add_argument("--output", "-o", dest="output_path", required=True,
-                          help="Output path (.png or .svg).")
-    p_render.add_argument("--theme", choices=["dark", "light"], default="dark",
-                          help="Color theme (default: dark).")
-    p_render.add_argument("--dpi", type=int, default=None,
-                          help="Override DPI (default: from spec).")
-    p_render.add_argument("--svg", action="store_true", default=False,
-                          help="Force SVG output regardless of --output extension.")
+    cmd_func = getattr(args, "_cmd_func", None)
+    if cmd_func is None:
+        parser.print_help()
+        return 1
 
-    # grid
-    p_grid = subparsers.add_parser("grid", help="Render a multi-panel grid from a YAML config.")
-    p_grid.add_argument("--config", "-c", dest="config_path", required=True,
-                        help="YAML grid config file.")
-    p_grid.add_argument("--output", "-o", dest="output_path", default=None,
-                        help="Override output path from config.")
-    p_grid.add_argument("--theme", choices=["dark", "light"], default=None,
-                        help="Override theme from config.")
-    p_grid.add_argument("--svg", action="store_true", default=False,
-                        help="Force SVG output.")
-
-    # reshape
-    p_reshape = subparsers.add_parser(
-        "reshape",
-        help="Normalise arbitrary row data into the charts JSON contract, writes to stdout.",
-    )
-    p_reshape.add_argument("--input", "-i", dest="input_path", default="-",
-                           help="Input file (default: stdin).")
-    p_reshape.add_argument("--x", dest="x_field", required=True,
-                           help="Field to use as x-axis.")
-    p_reshape.add_argument("--y", dest="y_field", required=True,
-                           help="Field to use as value (y-axis).")
-    p_reshape.add_argument("--group-by", dest="group_by", default=None,
-                           help="Field to split into series.")
-    p_reshape.add_argument("--title", default="Chart",
-                           help="Chart title (default: Chart).")
-    p_reshape.add_argument("--format", dest="fmt", choices=["json", "yaml"], default="json",
-                           help="Output format (default: json).")
-
-    args = parser.parse_args(argv)
-
-    handlers = {
-        "render": _handle_render,
-        "grid": _handle_grid,
-        "reshape": _handle_reshape,
-    }
-    handler = handlers.get(args.command)
-    if handler:
-        try:
-            return handler(args)
-        except CLIError as exc:
-            sys.exit(handle_error(exc))
-    parser.print_help()
-    return 1
+    try:
+        return cmd_func(args)
+    except CLIError as exc:
+        sys.exit(handle_error(exc))

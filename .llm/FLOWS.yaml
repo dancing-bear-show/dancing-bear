@@ -120,9 +120,15 @@ curated:
       cmd: python3 -m unittest -v
 
   ios_phone:
+    - id: ios_reorg
+      desc: "One-shot reorg: export → merge Other/loose into existing folders → build profile → copy to device (tap Install). Target device from [ios_devices] default in credentials.ini; override with --device-label or --udid."
+      cmd: ./bin/phone-assistant reorg
+    - id: ios_merge_folders
+      desc: Redistribute the Other dump folder + loose apps into existing folders (conservation-checked)
+      cmd: ./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
     - id: ios_export_layout
-      desc: Export current Home Screen layout from Finder backup
-      cmd: ./bin/phone-assistant export --out out/ios.IconState.yaml
+      desc: Export current Home Screen layout from connected device
+      cmd: ./bin/phone-assistant export-device --out out/ios.IconState.yaml
     - id: ios_scaffold_plan
       desc: Scaffold plan (pins + folders) from exported layout
       cmd: ./bin/phone-assistant plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml

@@ -34,7 +34,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_done_only(self):
         from worker import queue as q
-        from worker.cli import WorkerApp
+        from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         # create done and error with old mtime
@@ -46,7 +46,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
             past = time.time() - 3600
             os.utime(p, (past, past))
         # purge only done
-        rc, out = _capture_stdout(WorkerApp().main, ["purge", "--older-than", "30m", "--folders", "done"])
+        rc, out = _capture_stdout(main, ["purge", "--older-than", "30m", "--folders", "done"])
         self.assertEqual(rc, 0)
         res = _parse_json(out)
         self.assertGreaterEqual(res.get("done", 0), 1)
@@ -56,7 +56,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_error_only(self):
         from worker import queue as q
-        from worker.cli import WorkerApp
+        from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         err = q.QUEUE_ROOT / "error" / "e3.json"
@@ -64,7 +64,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
         err.write_text(json.dumps({"id": "e3", "type": "noop"}), encoding="utf-8")
         past = time.time() - 3600
         os.utime(err, (past, past))
-        rc, out = _capture_stdout(WorkerApp().main, ["purge", "--older-than", "30m", "--folders", "error"])
+        rc, out = _capture_stdout(main, ["purge", "--older-than", "30m", "--folders", "error"])
         self.assertEqual(rc, 0)
         res = _parse_json(out)
         self.assertGreaterEqual(res.get("error", 0), 1)

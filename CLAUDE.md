@@ -65,7 +65,7 @@ Read in order for best context:
 
 ## CLI Argument Conventions
 
-All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly. Most CLIs accept a `--` separator before flags (used by the workflow engine in `src/workflow/compiler.py`); a small set (`llm`, `docs`, `workflow`) omit it.
+All CLIs use argparse with positional subcommand dispatch. Arguments are passed directly. Most CLIs accept a `--` separator before flags (used by the workflow engine in `src/workflow/compiler.py`); a small set (`llm`, `docs`) omit it.
 
 **Dispatch model**: `./bin/assistant <app> <subcommand> [flags]`
 
@@ -82,9 +82,10 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Subcommands are positional, not flag-prefixed
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
-- The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm`, `docs`, and `workflow` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
-- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, metals); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs`/`workflow` remains unchanged.
-- Auto-derived agentic schema: all CLIApp CLIs support `--agentic --agentic-format json` to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group
+- The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
+- `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, metals, workflow); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
+- Auto-derived agentic schema: mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, and metals support `--agentic --agentic-format json` (via `CLIApp.run_with_assistant`) to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group.
+- charts, diagrams, worker, and workflow build their parser via `CLIApp.build_parser()` but skip `run_with_assistant()`, so none of the four support `--agentic`. charts and diagrams dispatch commands directly (never call `CLIApp.run()`) solely to preserve their own legacy no-subcommand exit codes/messages — `CLIApp.run()`'s `--output`-as-format parsing is guarded behind `add_common_args`, so it no longer crashes on diagrams' file-path-valued `--output`. worker and workflow call `CLIApp.run(argv, on_no_command=...)`, using that hook to preserve their own legacy no-subcommand exit codes/messages while still normalizing and parsing argv exactly once.
 
 ## Development Rules
 

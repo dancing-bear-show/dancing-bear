@@ -75,6 +75,47 @@ class TestCLIApp(unittest.TestCase):
             result = app.run([])
             self.assertEqual(result, ExitCode.USAGE)
 
+    def test_run_without_command_uses_on_no_command_hook(self):
+        """The on_no_command callback overrides the default help+USAGE
+        behavior — used by CLIs preserving a legacy one-line usage message."""
+        app = CLIApp("test", "Test", add_common_args=False)
+
+        @app.command("foo", help="Foo command")
+        def cmd_foo(args):
+            return 0
+
+        result = app.run([], on_no_command=lambda: 1)
+        self.assertEqual(result, 1)
+
+    def test_run_sets_output_writer_when_common_args_enabled(self):
+        """add_common_args=True (the default) means --output is the
+        framework's own format flag, so run() must attach _output."""
+        app = CLIApp("test", "Test")  # add_common_args defaults to True
+
+        @app.command("foo", help="Foo command")
+        def cmd_foo(args):
+            self.assertTrue(hasattr(args, "_output"))
+            return 0
+
+        result = app.run(["--output", "json", "foo"])
+        self.assertEqual(result, ExitCode.SUCCESS)
+
+    def test_run_does_not_crash_on_custom_output_flag(self):
+        """Regression test: add_common_args=False lets a CLI define its own
+        --output with non-format semantics (e.g. a file path). run() must
+        not try to parse that value as an OutputFormat."""
+        app = CLIApp("test", "Test", add_common_args=False)
+
+        @app.command("render", help="Render command")
+        @app.argument("--output", "-o", dest="output", required=True)
+        def cmd_render(args):
+            self.assertEqual(args.output, "out.svg")
+            self.assertFalse(hasattr(args, "_output"))
+            return 0
+
+        result = app.run(["render", "--output", "out.svg"])
+        self.assertEqual(result, ExitCode.SUCCESS)
+
     def test_command_with_parent(self):
         app = CLIApp("test", "Test", add_common_args=False)
 
@@ -120,38 +161,38 @@ class TestCLIApp(unittest.TestCase):
 
 
 class TestNormalizeArgv(unittest.TestCase):
-    """Test CLIApp._normalize_argv() '--' separator handling."""
+    """Test CLIApp.normalize_argv() '--' separator handling."""
 
     def test_no_separator_unchanged(self):
         argv = ["search", "--contains", "test"]
-        self.assertEqual(CLIApp._normalize_argv(argv), argv)
+        self.assertEqual(CLIApp.normalize_argv(argv), argv)
 
     def test_strips_first_bare_separator(self):
         argv = ["search", "--", "--contains", "test"]
         self.assertEqual(
-            CLIApp._normalize_argv(argv), ["search", "--contains", "test"]
+            CLIApp.normalize_argv(argv), ["search", "--contains", "test"]
         )
 
     def test_trailing_separator_preserved(self):
         argv = ["search", "--contains", "test", "--"]
-        self.assertEqual(CLIApp._normalize_argv(argv), argv)
+        self.assertEqual(CLIApp.normalize_argv(argv), argv)
 
     def test_only_first_separator_stripped_second_preserved(self):
         # The first '--' is the optional subcommand/flag separator; a second
         # '--' still guards a positional value that looks like a flag.
         argv = ["cmd", "--", "--opt", "--", "--literal-value"]
         self.assertEqual(
-            CLIApp._normalize_argv(argv),
+            CLIApp.normalize_argv(argv),
             ["cmd", "--opt", "--", "--literal-value"],
         )
 
     def test_empty_argv(self):
-        self.assertEqual(CLIApp._normalize_argv([]), [])
+        self.assertEqual(CLIApp.normalize_argv([]), [])
 
     def test_single_trailing_separator_preserved(self):
         # A lone '--' with nothing after it carries no separator information
         # here and is left untouched, same as any other trailing '--'.
-        self.assertEqual(CLIApp._normalize_argv(["--"]), ["--"])
+        self.assertEqual(CLIApp.normalize_argv(["--"]), ["--"])
 
 
 class TestHelpfulArgumentParser(unittest.TestCase):
