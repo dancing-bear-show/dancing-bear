@@ -1,9 +1,10 @@
 """Workflow engine CLI — thin shim.
 
 The ``app`` (CLIApp) wiring and ``main`` live here; command handlers and cache
-logic are in ``cli_dispatch`` and ``cli_compile``.  Everything that was
-previously defined here is still importable from this module for backwards
-compatibility.
+logic are in ``cli_dispatch`` and ``cli_compile``.  The ``_cmd_*``/``_build_*``
+helpers re-exported below remain importable from this module for backwards
+compatibility; ``build_parser()`` and ``_add_format_argument()`` were removed
+as part of the CLIApp migration (no code outside this module referenced them).
 
 Built on ``core.cli_framework.CLIApp``, matching the pattern used by the other
 domain CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi,

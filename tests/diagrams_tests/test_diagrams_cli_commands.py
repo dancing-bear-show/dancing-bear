@@ -202,6 +202,24 @@ class TestDiagramsMain(unittest.TestCase):
                 rc = main(["telemetry", "timeline"])
         self.assertEqual(rc, 0)
 
+    def test_leading_separator_is_optional(self):
+        """A leading '--' (as the workflow compiler inserts) and its absence
+        must dispatch identically — regression test for CLIApp's optional-
+        separator normalization."""
+        sessions = [make_session()]
+        with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
+            buf_with_sep = StringIO()
+            with patch("sys.stdout", buf_with_sep):
+                rc_with_sep = main(["--", "telemetry", "token-pie"])
+
+            buf_without_sep = StringIO()
+            with patch("sys.stdout", buf_without_sep):
+                rc_without_sep = main(["telemetry", "token-pie"])
+
+        self.assertEqual(rc_with_sep, 0)
+        self.assertEqual(rc_with_sep, rc_without_sep)
+        self.assertEqual(buf_with_sep.getvalue(), buf_without_sep.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

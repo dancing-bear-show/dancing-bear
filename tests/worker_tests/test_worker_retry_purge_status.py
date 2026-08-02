@@ -54,10 +54,10 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_retry_single_job(self):
         from worker import queue as q
-        from worker.cli import WorkerApp
+        from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         self._mk_error_job("r1")
-        rc, _ = _capture_stdout(WorkerApp().main, ["retry", "r1", "--reset-attempts", "--delay", "1"])
+        rc, _ = _capture_stdout(main, ["retry", "r1", "--reset-attempts", "--delay", "1"])
         self.assertEqual(rc, 0)
         # moved from error to pending
         c = q.counts(root=q.QUEUE_ROOT)
@@ -66,14 +66,14 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_requeue_errors_since_and_match(self):
         from worker import queue as q
-        from worker.cli import WorkerApp
+        from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         now = datetime.now(UTC)
         old_ts = (now - timedelta(minutes=10, seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
         recent_ts = (now - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._mk_error_job("e_old", updated_at=old_ts, err="timeout error")
         self._mk_error_job("e_new", updated_at=recent_ts, err="timeout error")
-        rc, out = _capture_stdout(WorkerApp().main, ["requeue-errors", "--since", "9m", "--match", "timeout"])
+        rc, out = _capture_stdout(main, ["requeue-errors", "--since", "9m", "--match", "timeout"])
         self.assertEqual(rc, 0)
         payload = _parse_json(out)
         self.assertEqual(payload.get("requeued"), 1)
@@ -84,7 +84,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
 
     def test_purge_done_error(self):
         from worker import queue as q
-        from worker.cli import WorkerApp
+        from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         done = q.QUEUE_ROOT / "done" / "d1.json"
@@ -94,14 +94,14 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
             p.write_text(json.dumps({"id": p.stem, "type": "noop"}), encoding="utf-8")
             past = time.time() - 3600
             os.utime(p, (past, past))
-        rc, out = _capture_stdout(WorkerApp().main, ["purge", "--older-than", "30m", "--folders", "done,error"])
+        rc, out = _capture_stdout(main, ["purge", "--older-than", "30m", "--folders", "done,error"])
         self.assertEqual(rc, 0)
         res = _parse_json(out)
         self.assertGreaterEqual(res.get("done", 0), 1)
         self.assertGreaterEqual(res.get("error", 0), 1)
 
     def test_status_with_throughput(self):
-        from worker.cli import WorkerApp
+        from worker.cli import main
         from worker._helpers import DATE_FORMAT_YMD
         cwd = os.getcwd()
         try:
@@ -116,7 +116,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
             with p.open("a", encoding="utf-8") as f:
                 for e in entries:
                     f.write(json.dumps(e) + "\n")
-            rc, out = _capture_stdout(WorkerApp().main, ["status", "--text", "--with-throughput"])
+            rc, out = _capture_stdout(main, ["status", "--text", "--with-throughput"])
             self.assertEqual(rc, 0)
             self.assertIn("Throughput", out)
         finally:

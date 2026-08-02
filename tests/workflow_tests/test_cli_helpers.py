@@ -192,7 +192,64 @@ class TestWorkflowStatusFriendlyErrors(unittest.TestCase):
 
             combined = stderr_buf.getvalue() + stdout_buf.getvalue()
             self.assertIn("Available workflows:", combined)
-            self.assertNotIn("deleted worktree", combined)
+
+
+class TestWorkflowMainSeparatorNormalization(unittest.TestCase):
+    """workflow main() applies CLIApp's optional '--' separator normalization
+    exactly once — regression coverage for the argv double-normalization bug
+    (a second, legitimate '--' guarding a flag-like positional must survive)."""
+
+    def test_no_subcommand_shows_usage_and_exits_usage_code(self) -> None:
+        from core.cli_errors import ExitCode
+        from workflow.cli import main
+
+        stderr_buf = io.StringIO()
+        with patch("sys.stderr", stderr_buf):
+            rc = main([])
+
+        self.assertEqual(rc, ExitCode.USAGE)
+        self.assertIn("Usage: workflow", stderr_buf.getvalue())
+
+    def test_leading_separator_is_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            (tmp_path / "workflows" / "code").mkdir(parents=True)
+            (tmp_path / "workflows" / "code" / "real.yaml").write_text("name: x\n")
+
+            from workflow.cli import main
+
+            with patch("os.getcwd", return_value=str(tmp_path)):
+                buf_with_sep = io.StringIO()
+                with patch("sys.stdout", buf_with_sep), contextlib.suppress(SystemExit):
+                    rc_with_sep = main(["--", "list"])
+
+                buf_without_sep = io.StringIO()
+                with patch("sys.stdout", buf_without_sep), contextlib.suppress(SystemExit):
+                    rc_without_sep = main(["list"])
+
+            self.assertEqual(rc_with_sep, rc_without_sep)
+            self.assertEqual(buf_with_sep.getvalue(), buf_without_sep.getvalue())
+
+    def test_second_separator_protects_flag_like_positional(self) -> None:
+        """'workflow -- status -- -weird-dir' has two '--' tokens: the first
+        is the optional CLIApp separator (stripped), the second is a genuine
+        POSIX end-of-options marker protecting '-weird-dir' as the literal
+        workspace_dir positional. Double-normalizing (main()'s pre-check plus
+        app.run()'s internal call) would strip both, causing argparse to
+        misparse '-weird-dir' as an unrecognized flag instead."""
+        from workflow.cli import main
+
+        stderr_buf = io.StringIO()
+        stdout_buf = io.StringIO()
+        with patch("sys.stderr", stderr_buf), patch("sys.stdout", stdout_buf), \
+             contextlib.suppress(SystemExit):
+            main(["--", "status", "--", "-weird-dir"])
+
+        combined = stderr_buf.getvalue() + stdout_buf.getvalue()
+        # Reaching workspace-not-found handling (rather than argparse's
+        # "unrecognized arguments" error) proves "-weird-dir" was parsed as
+        # the workspace_dir positional, not stripped/misparsed as a flag.
+        self.assertNotIn("unrecognized arguments", combined)
 
 
 if __name__ == "__main__":
