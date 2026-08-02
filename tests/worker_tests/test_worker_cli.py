@@ -241,28 +241,28 @@ class TestWorkerMain(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_main_separator_normalization_is_idempotent(self):
-        """A leading '--' separator and its absence must parse identically,
-        and a later '--' guarding a flag-like positional must survive
-        app.run()'s internal normalization (no double-stripping)."""
-        with patch("worker.cli.ShowCommand.run", return_value=0) as mock_show:
-            main(["--", "show", "job-123"])
-            first_call_args = mock_show.call_args[0][0]
+        """A post-subcommand '--' — the shape workflow.compiler._build_cli_command
+        actually emits (subcommand, then '--', then flags) — and its absence
+        must dispatch identically (no double-stripping in app.run())."""
+        with patch("worker.cli.StatusCommand.run", return_value=0) as mock_status:
+            main(["status", "--", "--json"])
+            first_call_args = mock_status.call_args[0][0]
 
-        with patch("worker.cli.ShowCommand.run", return_value=0) as mock_show:
-            main(["show", "job-123"])
-            second_call_args = mock_show.call_args[0][0]
+        with patch("worker.cli.StatusCommand.run", return_value=0) as mock_status:
+            main(["status", "--json"])
+            second_call_args = mock_status.call_args[0][0]
 
-        self.assertEqual(first_call_args.id, second_call_args.id)
+        self.assertEqual(first_call_args.json, second_call_args.json)
 
     def test_main_preserves_second_separator_as_end_of_options(self):
-        """'worker -- show -- -my-job-id' has two '--' tokens: the first is
+        """'worker show -- -- -my-job-id' has two '--' tokens: the first is
         the optional CLIApp separator (stripped), the second is a genuine
         POSIX end-of-options marker protecting '-my-job-id' as the literal
         positional value. Double-normalizing (main()'s pre-check plus
         app.run()'s internal call) would incorrectly strip both, causing
         argparse to treat '-my-job-id' as an unrecognized flag instead."""
         with patch("worker.cli.ShowCommand.run", return_value=0) as mock_show:
-            result = main(["--", "show", "--", "-my-job-id"])
+            result = main(["show", "--", "--", "-my-job-id"])
 
         self.assertEqual(result, 0)
         mock_show.assert_called_once()

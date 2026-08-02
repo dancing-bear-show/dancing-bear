@@ -203,18 +203,19 @@ class TestDiagramsMain(unittest.TestCase):
         self.assertEqual(rc, 0)
 
     def test_leading_separator_is_optional(self):
-        """A leading '--' (as the workflow compiler inserts) and its absence
-        must dispatch identically — regression test for CLIApp's optional-
+        """A post-subcommand '--' — the shape workflow.compiler._build_cli_command
+        actually emits (subcommand, then '--', then flags) — and its absence
+        must dispatch identically. Regression test for CLIApp's optional-
         separator normalization."""
         sessions = [make_session()]
         with patch("diagrams.cli._load_telemetry", return_value=(sessions, compute_cost, model_tier)):
             buf_with_sep = StringIO()
             with patch("sys.stdout", buf_with_sep):
-                rc_with_sep = main(["--", "telemetry", "token-pie"])
+                rc_with_sep = main(["telemetry", "--", "token-pie", "--days", "14"])
 
             buf_without_sep = StringIO()
             with patch("sys.stdout", buf_without_sep):
-                rc_without_sep = main(["telemetry", "token-pie"])
+                rc_without_sep = main(["telemetry", "token-pie", "--days", "14"])
 
         self.assertEqual(rc_with_sep, 0)
         self.assertEqual(rc_with_sep, rc_without_sep)

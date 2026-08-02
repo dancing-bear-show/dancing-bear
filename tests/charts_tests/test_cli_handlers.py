@@ -727,8 +727,9 @@ class TestMainDispatch(unittest.TestCase):
         self.assertIn("Smoke", output)
 
     def test_leading_separator_is_optional(self):
-        """A leading '--' (as the workflow compiler inserts) and its absence
-        must dispatch identically — regression test for CLIApp's optional-
+        """A post-subcommand '--' — the shape workflow.compiler._build_cli_command
+        actually emits (subcommand, then '--', then flags) — and its absence
+        must dispatch identically. Regression test for CLIApp's optional-
         separator normalization not being applied in main()."""
         from charts.cli import main
 
@@ -738,15 +739,15 @@ class TestMainDispatch(unittest.TestCase):
             fpath = f.name
 
         try:
-            base_argv = ["reshape", "--input", fpath, "--x", "ts", "--y", "val", "--format", "json"]
+            flags = ["--input", fpath, "--x", "ts", "--y", "val", "--format", "json"]
 
             captured_with_sep = io.StringIO()
             with patch("sys.stdout", captured_with_sep):
-                result_with_sep = main(["--"] + base_argv)
+                result_with_sep = main(["reshape", "--"] + flags)
 
             captured_without_sep = io.StringIO()
             with patch("sys.stdout", captured_without_sep):
-                result_without_sep = main(base_argv)
+                result_without_sep = main(["reshape"] + flags)
         finally:
             Path(fpath).unlink(missing_ok=True)
 
