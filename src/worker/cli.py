@@ -89,10 +89,6 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
 @app.command("run-once", help="Process up to N pending jobs once")
 @app.argument("--max", type=int, default=5, help="Max jobs to process this run")
 @app.argument("--backoff", type=int, default=60, help="Retry backoff seconds (default 60)")
-@app.argument("--interval", default="5", help="Poll interval seconds (default 5)")
-@app.argument("--max-per-tick", type=int, default=3)
-@app.argument("--max-inflight", type=int, default=0, help="Hard cap of concurrent processing jobs; 0 disables clamping")
-@app.argument("--job-timeout", type=int, default=0, help="Job timeout in seconds; 0 disables timeout (default 0)")
 def cmd_run_once(args: argparse.Namespace) -> int:
     """Process up to N pending jobs once."""
     return _run_processor(args, "run-once")

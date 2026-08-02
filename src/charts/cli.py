@@ -264,7 +264,8 @@ def _handle_reshape(args: argparse.Namespace, writer: OutputWriter | None = None
 def main(argv: list[str] | None = None) -> int:
     """charts CLI entry point."""
     parser = app.build_parser()
-    args = parser.parse_args(argv)
+    _argv = app._normalize_argv(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(_argv)
 
     cmd_func = getattr(args, "_cmd_func", None)
     if cmd_func is None:
