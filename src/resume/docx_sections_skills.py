@@ -1,112 +1,17 @@
-"""Simple list section renderers for DOCX resume output.
+"""Skills, summary, and technologies section renderers for DOCX resume output.
 
-Extracted from docx_sections. Provides:
-  - InterestsSectionRenderer, TeachingSectionRenderer, LanguagesSectionRenderer
-  - CourseworkSectionRenderer, CertificationsSectionRenderer, PresentationsSectionRenderer
-  - SummarySectionRenderer, SkillsSectionRenderer, TechnologiesSectionRenderer
+Provides:
+  - SummarySectionRenderer: summary/profile section (string or list)
+  - SkillsSectionRenderer: skills with groups or flat list
+  - TechnologiesSectionRenderer: technologies (extends SkillsSectionRenderer)
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
 
 _DEFAULT_BULLET_STYLE = "List Bullet"
-
-
-class InterestsSectionRenderer(ListSectionRenderer):
-    """Renders interests section."""
-
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
-        items = data.get("interests") or []
-        return self.render_simple_list(items, sec)
-
-
-class TeachingSectionRenderer(ListSectionRenderer):
-    """Renders teaching/instruction section."""
-
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
-        items = data.get("teaching") or []
-        return self.render_simple_list(items, sec)
-
-
-class LanguagesSectionRenderer(ListSectionRenderer):
-    """Renders languages section with proficiency levels."""
-
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
-        items = data.get("languages") or []
-        return self.render_simple_list(
-            items,
-            sec,
-            name_keys=("name", "language", "title"),
-            desc_key="level",
-            desc_sep=" — ",
-        )
-
-
-class CourseworkSectionRenderer(ListSectionRenderer):
-    """Renders coursework section."""
-
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
-        items = data.get("coursework") or []
-        return self.render_simple_list(
-            items,
-            sec,
-            name_keys=("name", "course", "title"),
-            desc_key="desc",
-            desc_sep=" — ",
-        )
-
-
-class CertificationsSectionRenderer(ListSectionRenderer):
-    """Renders certifications section."""
-
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
-        items = data.get("certifications") or []
-        return self.render_simple_list(
-            items,
-            sec,
-            name_keys=("name", "title", "cert"),
-            desc_key="year",
-            desc_sep=" — ",
-        )
-
-
-class PresentationsSectionRenderer(ListSectionRenderer):
-    """Renders presentations/talks section."""
-
-    @staticmethod
-    def _format_presentation_dict(it: Dict[str, Any]) -> str:
-        """Format a presentation dict to a display line."""
-        title = str(it.get("title") or it.get("name") or "").strip()
-        event = str(it.get("event") or "").strip()
-        year = str(it.get("year") or "").strip()
-        link = str(it.get("link") or "").strip()
-        parts = [p for p in [title or event, event if title else "", year] if p]
-        line = " — ".join(parts)
-        if link:
-            line = f"{line} ({link})" if line else link
-        return line
-
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
-        items_raw = data.get("presentations") or []
-        lines: List[str] = []
-
-        for it in items_raw:
-            if isinstance(it, dict):
-                line = self._format_presentation_dict(it)
-                if line:
-                    lines.append(self.text.clean_inline(line))
-            else:
-                s = str(it).strip()
-                if s:
-                    lines.append(self.text.clean_inline(s))
-
-        if lines:
-            plain, glyph = self.bullets.get_bullet_config(sec)
-            self.bullets.add_bullets(lines, plain=plain, glyph=glyph)
-
-        return lines
 
 
 class SummarySectionRenderer(ListSectionRenderer):
@@ -114,10 +19,10 @@ class SummarySectionRenderer(ListSectionRenderer):
 
     def render(
         self,
-        data: Dict[str, Any],
-        sec: Optional[Dict[str, Any]] = None,
-        keywords: Optional[List[str]] = None,
-    ):
+        data: dict,
+        sec: dict | None = None,
+        keywords: list[str] | None = None,
+    ) -> None:
         summary = data.get("summary") or data.get("headline") or ""
         cfg = sec or {}
 
@@ -132,9 +37,9 @@ class SummarySectionRenderer(ListSectionRenderer):
         elif isinstance(summary, str) and summary.strip():
             self._render_string_summary(summary, cfg, keywords)
 
-    def _normalize_list_items(self, summary: List[Any]) -> List[str]:
+    def _normalize_list_items(self, summary: list[Any]) -> list[str]:
         """Extract text items from a list of strings or dicts."""
-        items: List[str] = []
+        items: list[str] = []
         for it in summary:
             if isinstance(it, dict):
                 s = str(it.get("text") or it.get("line") or it.get("desc") or "").strip()
@@ -147,24 +52,12 @@ class SummarySectionRenderer(ListSectionRenderer):
     def _render_string_summary(
         self,
         text: str,
-        cfg: Dict[str, Any],
-        keywords: Optional[List[str]],
-    ):
+        cfg: dict,
+        keywords: list[str] | None,
+    ) -> None:
         """Render a string summary (optionally as bullets)."""
         if cfg.get("bulleted"):
-            raw_items = [s.strip() for s in text.replace("\n", " ").split(".")]
-            items = [s for s in raw_items if s]
-            try:
-                max_sent = int(cfg.get("max_sentences", 0) or 0)
-            except Exception:
-                max_sent = 0
-            if max_sent > 0:
-                items = items[:max_sent]
-            norm_items = [self.text.normalize_bullet(it) for it in items]
-            plain, glyph = self.bullets.get_bullet_config(cfg)
-            self.bullets.add_bullets(
-                norm_items, keywords=keywords, plain=plain, glyph=glyph
-            )
+            self._render_bulleted_string(text, cfg, keywords)
         else:
             p = self.doc.add_paragraph()
             self.bullets.styles.tight_paragraph(p, after_pt=2)
@@ -173,19 +66,40 @@ class SummarySectionRenderer(ListSectionRenderer):
             else:
                 p.add_run(text)
 
+    def _render_bulleted_string(
+        self,
+        text: str,
+        cfg: dict,
+        keywords: list[str] | None,
+    ) -> None:
+        """Split a string summary into bullet sentences."""
+        raw_items = [s.strip() for s in text.replace("\n", " ").split(".")]
+        items = [s for s in raw_items if s]
+        try:
+            max_sent = int(cfg.get("max_sentences", 0) or 0)
+        except Exception:  # nosec B110 - invalid config value; fall back to no limit
+            max_sent = 0
+        if max_sent > 0:
+            items = items[:max_sent]
+        norm_items = [self.text.normalize_bullet(it) for it in items]
+        plain, glyph = self.bullets.get_bullet_config(cfg)
+        self.bullets.add_bullets(
+            norm_items, keywords=keywords, plain=plain, glyph=glyph
+        )
+
 
 class SkillsSectionRenderer(ListSectionRenderer):
     """Renders skills section with groups or flat list."""
 
-    def __init__(self, doc, page_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, doc: Any, page_cfg: dict | None = None) -> None:
         super().__init__(doc, page_cfg)
         self.headers = HeaderRenderer(doc)
 
     def render(
         self,
-        data: Dict[str, Any],
-        sec: Optional[Dict[str, Any]] = None,
-    ):
+        data: dict,
+        sec: dict | None = None,
+    ) -> None:
         groups = data.get("skills_groups") or []
         skills = [self.text.clean_inline(str(s)) for s in (data.get("skills") or [])]
         cfg = sec or {}
@@ -195,7 +109,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
         elif skills:
             self._render_flat_skills(skills, cfg)
 
-    def _render_groups(self, groups: List[Dict[str, Any]], cfg: Dict[str, Any]):
+    def _render_groups(self, groups: list[dict], cfg: dict) -> None:
         """Render skills organized by groups."""
         as_bullets = bool(cfg.get("bullets", False))
         sep = cfg.get("separator") or " • "
@@ -220,10 +134,10 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 self._render_inline_items(title, items, cfg, sep)
 
     def _normalize_group_items(
-        self, raw_items: List[Any], show_desc: bool, desc_sep: str
-    ) -> List[str]:
+        self, raw_items: list[Any], show_desc: bool, desc_sep: str
+    ) -> list[str]:
         """Normalize items from a skills group."""
-        result: List[str] = []
+        result: list[str] = []
         for x in raw_items:
             if isinstance(x, dict):
                 name = x.get("name") or x.get("title") or x.get("label") or ""
@@ -236,7 +150,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 result.append(self.text.clean_inline(str(x)))
         return result
 
-    def _render_bullet_items(self, items: List[str], cfg: Dict[str, Any]):
+    def _render_bullet_items(self, items: list[str], cfg: dict) -> None:
         """Render items as bullets."""
         plain, glyph = self.bullets.get_bullet_config(cfg)
         desc_sep = str(cfg.get("desc_separator") or ": ")
@@ -254,8 +168,8 @@ class SkillsSectionRenderer(ListSectionRenderer):
                 p.add_run(it)
 
     def _render_inline_items(
-        self, title: str, items: List[str], cfg: Dict[str, Any], sep: str
-    ):
+        self, title: str, items: list[str], cfg: dict, sep: str
+    ) -> None:
         """Render items inline with optional title."""
         compact = bool(cfg.get("compact", True))
         if title:
@@ -265,7 +179,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
         p = self.doc.add_paragraph(text)
         self.bullets.styles.tight_paragraph(p, after_pt=0)
 
-    def _render_flat_skills(self, skills: List[str], cfg: Dict[str, Any]):
+    def _render_flat_skills(self, skills: list[str], cfg: dict) -> None:
         """Render a flat list of skills."""
         as_bullets = bool(cfg.get("bullets", False))
         sep = cfg.get("separator") or " • "
@@ -282,7 +196,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
 class TechnologiesSectionRenderer(SkillsSectionRenderer):
     """Renders technologies section (similar to skills)."""
 
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
+    def render(self, data: dict, sec: dict | None = None) -> None:
         tech_items = self._collect_tech_items(data, sec)
         if not tech_items:
             return
@@ -290,7 +204,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         cfg = sec or {}
         try:
             max_items = int(cfg.get("max_items", 0) or 0)
-        except Exception:
+        except Exception:  # nosec B110 - invalid config value; fall back to no limit
             max_items = 0
         if max_items > 0:
             tech_items = tech_items[:max_items]
@@ -305,21 +219,19 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
             self.bullets.styles.tight_paragraph(p, after_pt=2)
 
     def _collect_tech_items(
-        self, data: Dict[str, Any], sec: Optional[Dict[str, Any]]
-    ) -> List[str]:
+        self, data: dict, sec: dict | None
+    ) -> list[str]:
         """Collect technology items from data sources."""
         cfg = sec or {}
         desc_sep = str(cfg.get("desc_separator") or ": ")
         show_desc = bool(cfg.get("show_desc", False))
-        tech_items: List[str] = []
+        tech_items: list[str] = []
 
-        # From data.technologies
         for t in data.get("technologies") or []:
             item = self._normalize_tech_item(t, show_desc, desc_sep)
             if item:
                 tech_items.append(item)
 
-        # Fallback to skills_groups with technology-related titles
         if not tech_items:
             tech_items = self._extract_from_skills_groups(data, show_desc, desc_sep)
 
@@ -327,7 +239,7 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
 
     def _normalize_tech_item(
         self, t: Any, show_desc: bool, desc_sep: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Normalize a single technology item."""
         if isinstance(t, dict):
             nm = t.get("name") or t.get("title") or t.get("label") or ""
@@ -339,11 +251,11 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         return self.text.clean_inline(str(t))
 
     def _extract_from_skills_groups(
-        self, data: Dict[str, Any], show_desc: bool, desc_sep: str
-    ) -> List[str]:
+        self, data: dict, show_desc: bool, desc_sep: str
+    ) -> list[str]:
         """Extract tech items from skills_groups with technology titles."""
         tech_titles = {"technology", "technologies", "tooling", "tools"}
-        items: List[str] = []
+        items: list[str] = []
 
         for g in data.get("skills_groups") or []:
             title = str(g.get("title") or "").strip().lower()

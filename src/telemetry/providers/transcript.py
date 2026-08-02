@@ -1,38 +1,34 @@
-"""TranscriptProvider: parses Claude Code JSONL transcript files."""
+"""TranscriptProvider: reads and parses Claude Code JSONL transcript files.
 
-import json
+Session discovery and windowed-aggregation entry points.  Low-level JSONL
+record parsing lives in ``transcript_parse``.  Agent token accumulation
+lives in ``transcript_aggregate``.
+"""
+
 import logging
-from collections import defaultdict
 from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from telemetry.timeutil import parse_iso_utc
 from telemetry.models import AgentSummary, AgentTokenRow, SessionEvent, SessionSummary
 from telemetry.pricing import TokenMetrics, compute_cost
+from telemetry.providers.transcript_aggregate import (
+    TokenAccumulators,
+    accumulate_agent_tokens,
+    build_agent_row,
+)
+from telemetry.providers.transcript_parse import (
+    iter_jsonl_files,
+    parse_assistant_record,
+    parse_session_file,
+    parse_user_record,
+)
 
 
 logger = logging.getLogger(__name__)
 
 _JSONL_GLOB = "*.jsonl"
-# Old subdirectory format: <project>/<session-uuid>/subagents/<agent-id>.jsonl
 _SUBDIR_GLOB = "*/subagents/*.jsonl"
-
-
-@dataclass
-class TokenAccumulators:
-    """Mutable per-agent, per-model token count accumulators.
-
-    Each dict keyed by (agent_name, model) except call_count which is keyed by agent_name.
-    Fields hold defaultdict(int) so callers can increment without a membership check.
-    """
-
-    input: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
-    output: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
-    cache_read: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
-    cache_write: dict[tuple[str, str], int] = field(default_factory=lambda: defaultdict(int))
-    call_count: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
 
 class TranscriptProvider:
@@ -74,61 +70,9 @@ class TranscriptProvider:
 
         Returns (new_events, updated_sequence).
         """
-        new_events: list[SessionEvent] = []
-        session_id = record.get("sessionId", "")
-        ts = parse_iso_utc(record.get("timestamp", "")) or datetime.now(timezone.utc)
-        msg = record.get("message", {})
-        usage = msg.get("usage", {})
-        model = msg.get("model", "")
-        content = msg.get("content", [])
-
-        input_tokens = usage.get("input_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0)
-        cache_read = usage.get("cache_read_input_tokens", 0)
-        cache_create = usage.get("cache_creation_input_tokens", 0)
-
-        cost = 0.0
-        if usage:
-            cost = self._compute_token_cost(
-                model, input_tokens, output_tokens, cache_read, cache_create
-            )
-            sequence += 1
-            new_events.append(SessionEvent(
-                timestamp=ts,
-                event_type="api_request",
-                sequence=sequence,
-                session_id=session_id,
-                model=model,
-                cost_usd=cost,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_read_tokens=cache_read,
-                cache_creation_tokens=cache_create,
-            ))
-
-        tool_blocks = [b for b in content if b.get("type") == "tool_use"]
-        per_tool_cost = cost / len(tool_blocks) if usage and tool_blocks else 0.0
-
-        for block in tool_blocks:
-            tool_name = block.get("name", "")
-            tool_id = block.get("id", "")
-            tool_input = block.get("input", {})
-            if tool_name == "Agent":
-                agent_tool_inputs[tool_id] = tool_input
-            sequence += 1
-            new_events.append(SessionEvent(
-                timestamp=ts,
-                event_type="tool_use",
-                sequence=sequence,
-                session_id=session_id,
-                tool_name=tool_name,
-                tool_input=tool_input,
-                model=model,
-                cost_usd=per_tool_cost,
-                cost_is_estimated=True,
-            ))
-
-        return new_events, sequence
+        return parse_assistant_record(
+            record, agent_tool_inputs, sequence, self._compute_token_cost
+        )
 
     def _parse_user_record(
         self,
@@ -136,47 +80,9 @@ class TranscriptProvider:
         agent_tool_inputs: dict[str, dict],
     ) -> AgentSummary | None:
         """Parse one user JSONL record into an AgentSummary, or None if not an agent result."""
-        tool_use_result = record.get("toolUseResult")
-        if not tool_use_result or "agentId" not in tool_use_result:
-            return None
+        return parse_user_record(record, agent_tool_inputs, self._compute_token_cost)
 
-        agent_id = tool_use_result["agentId"]
-        agent_type = tool_use_result.get("agentType", "")
-        total_tokens = tool_use_result.get("totalTokens", 0)
-        total_tool_uses = tool_use_result.get("totalToolUseCount", 0)
-        duration_ms = tool_use_result.get("totalDurationMs", 0)
-        sub_usage = tool_use_result.get("usage", {})
-
-        sub_input = sub_usage.get("input_tokens", 0)
-        sub_output = sub_usage.get("output_tokens", 0)
-        sub_cache_read = sub_usage.get("cache_read_input_tokens", 0)
-        sub_cache_create = sub_usage.get("cache_creation_input_tokens", 0)
-
-        # Resolve description from the originating Agent tool_use block
-        content_blocks = record.get("message", {}).get("content", [])
-        tool_use_id = next(
-            (b.get("tool_use_id") for b in content_blocks if b.get("type") == "tool_result"),
-            None,
-        )
-        agent_input = agent_tool_inputs.get(tool_use_id or "", {})
-        description = agent_input.get("description", "")
-        agent_model = agent_input.get("model", "")
-
-        cost = self._compute_token_cost(
-            agent_model, sub_input, sub_output, sub_cache_read, sub_cache_create
-        )
-        return AgentSummary(
-            agent_id=agent_id,
-            agent_type=agent_type,
-            description=description,
-            model=agent_model,
-            duration_ms=duration_ms,
-            total_tokens=total_tokens,
-            total_tool_uses=total_tool_uses,
-            cost_usd=cost,
-        )
-
-    def parse_session_with_agents(  # noqa: S3776 - JSONL file parser; loop+try/except+message-type dispatch is irreducible
+    def parse_session_with_agents(
         self, path: Path
     ) -> tuple[list[SessionEvent], list[AgentSummary]]:
         """Parse a JSONL transcript and return (events, agents).
@@ -190,33 +96,7 @@ class TranscriptProvider:
         input field (line where the assistant calls the Agent tool), not from
         the toolUseResult.
         """
-        events: list[SessionEvent] = []
-        agents: list[AgentSummary] = []
-        agent_tool_inputs: dict[str, dict] = {}
-        sequence = 0
-
-        with open(path, "r", encoding="utf-8") as fh:
-            for raw_line in fh:
-                raw_line = raw_line.strip()
-                if not raw_line:
-                    continue
-                try:
-                    record = json.loads(raw_line)
-                except json.JSONDecodeError:
-                    continue
-
-                msg_type = record.get("type")
-                if msg_type == "assistant":
-                    new_evts, sequence = self._parse_assistant_record(
-                        record, agent_tool_inputs, sequence
-                    )
-                    events.extend(new_evts)
-                elif msg_type == "user":
-                    agent = self._parse_user_record(record, agent_tool_inputs)
-                    if agent is not None:
-                        agents.append(agent)
-
-        return events, agents
+        return parse_session_file(path, self._compute_token_cost)
 
     def parse_session(self, path: Path) -> list[SessionEvent]:
         """Parse a transcript, returning only the events list."""
@@ -265,13 +145,7 @@ class TranscriptProvider:
         - Old (pre-Apr 2026): ``<project>/<session-uuid>/subagents/<agent-id>.jsonl``
           session_id = the ``<session-uuid>`` directory name
         """
-        for jsonl_file in project_dir.glob(_JSONL_GLOB):
-            yield jsonl_file, jsonl_file.stem
-        for jsonl_file in project_dir.glob(_SUBDIR_GLOB):
-            # path is <project>/<session-uuid>/subagents/<agent-id>.jsonl
-            # parent is <project>/<session-uuid>/subagents
-            # parent.parent is <project>/<session-uuid>
-            yield jsonl_file, jsonl_file.parent.parent.name
+        return iter_jsonl_files(project_dir)
 
     def _session_summary_from_old_format(
         self, session_id: str, jsonl_files: list[Path], project_path: str
@@ -392,7 +266,7 @@ class TranscriptProvider:
 
     def _accumulate_windowed_event(
         self,
-        e: "SessionEvent",
+        e: SessionEvent,
         bucket_start: datetime,
         num_slots: int,
         totals: dict,
@@ -551,86 +425,14 @@ class TranscriptProvider:
         agent_name: str,
         accs: TokenAccumulators,
     ) -> AgentTokenRow:
-        """Collapse per-(agent, model) accumulators into one AgentTokenRow for agent_name.
+        """Collapse per-(agent, model) accumulators into one AgentTokenRow for agent_name."""
+        return build_agent_row(agent_name, accs)
 
-        Single pass: collect per-model token totals, then compute cost once per model.
-        """
-        # Collect per-model token counts in one pass over input keys.
-        # Other accs share the same key set, so we only need to iterate once.
-        per_model: dict[str, list[int]] = {}  # model -> [in, out, cr, cw]
-        for (n, m) in accs.input:
-            if n != agent_name:
-                continue
-            if m not in per_model:
-                per_model[m] = [0, 0, 0, 0]
-            per_model[m][0] += accs.input[n, m]
-            per_model[m][1] += accs.output.get((n, m), 0)
-            per_model[m][2] += accs.cache_read.get((n, m), 0)
-            per_model[m][3] += accs.cache_write.get((n, m), 0)
-
-        models_used = sorted(m for m in per_model if m)
-        total_input = sum(v[0] for v in per_model.values())
-        total_output = sum(v[1] for v in per_model.values())
-        total_cr = sum(v[2] for v in per_model.values())
-        total_cw = sum(v[3] for v in per_model.values())
-
-        if per_model:
-            cost = sum(
-                compute_cost(TokenMetrics(v[0], v[1], v[2], v[3]), m)
-                for m, v in per_model.items()
-            )
-        else:
-            cost = 0.0
-
-        return AgentTokenRow(
-            agent=agent_name,
-            calls=accs.call_count[agent_name],
-            input_tokens=total_input,
-            output_tokens=total_output,
-            cache_read_tokens=total_cr,
-            cache_write_tokens=total_cw,
-            models=models_used,
-            est_cost=cost,
-        )
-
-    def _accumulate_agent_tokens(  # noqa: S3776 - JSONL line-by-line accumulator; dispatch is irreducible
+    def _accumulate_agent_tokens(
         self,
         jsonl_file: Path,
         since: datetime,
         accs: TokenAccumulators,
     ) -> None:
         """Parse one JSONL file and accumulate token counts into accs."""
-        try:
-            with open(jsonl_file, encoding="utf-8") as fh:
-                for raw_line in fh:
-                    raw_line = raw_line.strip()
-                    if not raw_line:
-                        continue
-                    try:
-                        record = json.loads(raw_line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    if record.get("type") != "assistant":
-                        continue
-
-                    msg = record.get("message", {})
-                    usage = msg.get("usage")
-                    if not usage:
-                        continue
-
-                    ts = parse_iso_utc(record.get("timestamp", ""))
-                    if ts is not None and ts < since:
-                        continue
-
-                    agent_name = record.get("agentName") or "(orchestrator)"
-                    model = msg.get("model", "") or ""
-                    key = (agent_name, model)
-
-                    accs.input[key] += usage.get("input_tokens", 0)
-                    accs.output[key] += usage.get("output_tokens", 0)
-                    accs.cache_read[key] += usage.get("cache_read_input_tokens", 0)
-                    accs.cache_write[key] += usage.get("cache_creation_input_tokens", 0)
-                    accs.call_count[agent_name] += 1
-        except OSError as exc:  # nosec B110 - non-fatal; log and continue
-            logger.warning("Could not read JSONL file: %s", exc)
+        accumulate_agent_tokens(jsonl_file, since, accs)

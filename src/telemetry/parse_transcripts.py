@@ -3,47 +3,24 @@
 Pre-parses transcripts so workflow stages can read a compact index instead
 of streaming raw JSONL inline, eliminating the INLINE_LARGE_DATA anti-pattern.
 
-This module is a thin re-export shim. Implementation lives in:
-  - parse_transcripts_emit.py  — ParseResult, _token_estimate, _emit_rows
-  - parse_transcripts_io.py    — file I/O, record parsing, run_parse_transcripts
+Implementation lives in:
+  - parse_transcripts_emit.py        — ParseResult, _token_estimate, _emit_rows
+  - _transcript_record_parser.py     — pure record-parsing helpers (no I/O)
+  - parse_transcripts_io.py          — file I/O, session management, run_parse_transcripts
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path  # noqa: F401 — re-exported; tests patch telemetry.parse_transcripts.Path
+from pathlib import Path  # noqa: F401 — tests patch telemetry.parse_transcripts.Path
 from typing import Any
 
 import click
 
 from core.cli_output import OutputWriter
 from core.pipeline import BaseProducer, RequestConsumer, SafeProcessor
-from telemetry.parse_transcripts_emit import (  # noqa: F401
-    ParseResult,
-    _emit_rows,
-    _token_estimate,
-)
-from telemetry.parse_transcripts_io import (  # noqa: F401
-    DEFAULT_INDEX_DIR,
-    INPUT_PREVIEW_LEN,
-    LOCK_FILE,
-    STATE_FILE,
-    _append_bash_command,
-    _extract_tool_preview,
-    _find_jsonl_files,
-    _load_json_nullable,
-    _load_or_init_session_index,
-    _parse_content_blocks,
-    _parse_since_window,
-    _process_jsonl_file,
-    _process_one_file,
-    _process_one_record,
-    _process_tool_use_blocks,
-    _process_user_role_record,
-    _safe_mtime,
-    _session_id_from_path,
-    run_parse_transcripts,
-)
+from telemetry.parse_transcripts_emit import ParseResult, _emit_rows
+from telemetry.parse_transcripts_io import DEFAULT_INDEX_DIR, run_parse_transcripts
 
 
 @dataclass(frozen=True)

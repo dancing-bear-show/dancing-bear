@@ -1,6 +1,7 @@
-"""File-level I/O and record parsing helpers for parse-transcripts.
+"""File-level I/O, session management, and orchestration for parse-transcripts.
 
 Extracted from parse_transcripts.py to reduce complexity.
+Record-parsing helpers (no I/O) live in _transcript_record_parser.py.
 """
 
 from __future__ import annotations
@@ -11,17 +12,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from telemetry.fileutil import atomic_write_json, safe_load_json
-from telemetry.timeutil import now_utc, parse_window
-
 import click
 
-from telemetry.parse_transcripts_emit import ParseResult, _token_estimate
+from telemetry.fileutil import atomic_write_json, safe_load_json
+from telemetry.timeutil import now_utc, parse_window
+from telemetry.parse_transcripts_emit import ParseResult
+from telemetry._transcript_record_parser import _process_one_record
 
 DEFAULT_INDEX_DIR = Path.home() / ".config" / "dancing-bear" / "work" / "prompt-index"
 STATE_FILE = ".state.json"
 LOCK_FILE = ".lock"
-INPUT_PREVIEW_LEN = 200
 
 
 def _load_json_nullable(path: Path) -> dict[str, object] | None:
@@ -90,158 +90,44 @@ def _find_jsonl_files(projects_dir: Path, since_dt: datetime | None) -> list[Pat
     return files
 
 
-def _extract_tool_preview(raw_input: object) -> str:
-    """Serialize raw_input to a truncated string preview for indexing."""
+def _session_id_from_path(path: Path) -> str:
+    """Derive a session_id from the JSONL filename stem."""
+    return path.stem
+
+
+def _safe_mtime(p: Path) -> float:
+    """Return p's mtime, or 0.0 if the file no longer exists (TOCTOU guard)."""
     try:
-        input_str = json.dumps(raw_input) if isinstance(raw_input, dict) else str(raw_input)
-    except (TypeError, ValueError):
-        input_str = ""
-    return input_str[:INPUT_PREVIEW_LEN]
+        return p.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
-def _append_bash_command(
-    name: str,
-    raw_input: object,
-    session_index: dict[str, object],
-) -> int:
-    """Append a Bash command to session_index if name is 'Bash' and command is non-empty.
-
-    Returns 1 if a command was appended, 0 otherwise.
-    """
-    if name != "Bash":
-        return 0
-    cmd = str((raw_input if isinstance(raw_input, dict) else {}).get("command", ""))
-    if not cmd:
-        return 0
-    bash_commands = session_index["bash_commands"]
-    assert isinstance(bash_commands, list)  # nosec B101 - type narrowing; caller always initializes this list
-    bash_commands.append(cmd)
-    return 1
-
-
-def _process_tool_use_blocks(
-    content_blocks: list[object],
-    session_index: dict[str, object],
-) -> int:
-    """Iterate tool_use blocks in content_blocks and append to session_index.
-
-    Returns bash_added count.
-    """
-    bash_added = 0
-    for block in content_blocks:
-        if not isinstance(block, dict):
-            continue
-        if block.get("type") != "tool_use":
-            continue
-        name = str(block.get("name") or "")
-        raw_input = block.get("input") or {}
-        preview = _extract_tool_preview(raw_input)
-        tool_calls = session_index["tool_calls"]
-        assert isinstance(tool_calls, list)  # nosec B101 - type narrowing; caller always initializes this list
-        tool_calls.append({"name": name, "input_preview": preview})
-        bash_added += _append_bash_command(name, raw_input, session_index)
-    return bash_added
-
-
-def _process_user_role_record(
-    record: dict[str, object],
-    session_index: dict[str, object],
-    prompt_index_base: int,
-    prompts_added: int,
-) -> int:
-    """Handle a role == "user" record and append prompt entries to session_index.
-
-    Returns the number of prompts added by this record.
-
-    Claude Code JSONL user records have message.content as a plain str (the prompt
-    text). Tool-result records (also role=user) have content as a list of tool_result
-    blocks — those are skipped here since they contain no user-authored text.
-    """
-    msg = record.get("message") or {}
-    if not isinstance(msg, dict):
-        msg = {}
-    content = msg.get("content") or record.get("content")
-
-    # Plain-string content — the normal user-prompt case.
-    if isinstance(content, str):
-        text = content.strip()
-        if not text:
-            return 0
-        prompts = session_index["prompts"]
-        assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
-        prompts.append({
-            "prompt_index": prompt_index_base + prompts_added,
-            "text": text,
-            "token_estimate": _token_estimate(text),
-            "tool_calls_after": 0,
-        })
-        return 1
-
-    # List content — may be tool_result blocks; extract any text blocks present.
-    if not isinstance(content, list):
-        return 0
-    added = 0
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        if block.get("type") != "text":
-            continue
-        text = str(block.get("text") or "").strip()
-        if not text:
-            continue
-        prompts = session_index["prompts"]
-        assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
-        prompts.append({
-            "prompt_index": prompt_index_base + prompts_added + added,
-            "text": text,
-            "token_estimate": _token_estimate(text),
-            "tool_calls_after": 0,
-        })
-        added += 1
-    return added
-
-
-def _parse_content_blocks(record: dict[str, object], msg: dict[str, object]) -> list[object]:
-    """Extract content as a list of blocks from a message dict.
-
-    Assistant records have message.content as a list of typed blocks.
-    Returns [] for plain-string content (user prompts) — those are handled
-    by _process_user_role_record instead.
-    """
-    raw = (msg.get("content") or []) if msg else (record.get("content") or [])
-    return raw if isinstance(raw, list) else []
-
-
-def _process_one_record(
-    record: dict[str, object],
-    session_index: dict[str, object],
-    prompt_index_base: int,
-    prompts_added: int,
-) -> tuple[int, int]:
-    """Dispatch a single parsed JSONL record into session_index.
-
-    Returns (prompts_delta, bash_delta) for this record.
-
-    Claude Code JSONL wraps role inside message: record["message"]["role"].
-    """
-    msg = record.get("message") or {}
-    if not isinstance(msg, dict):
-        msg = {}
-
-    role = msg.get("role") or record.get("role")
-    if not role:
-        return 0, 0
-
-    prompts_delta = 0
-    if role == "user":
-        prompts_delta = _process_user_role_record(
-            record, session_index, prompt_index_base, prompts_added
-        )
-
-    # Tool-use blocks live in assistant records' content list.
-    content_blocks = _parse_content_blocks(record, msg)
-    bash_delta = _process_tool_use_blocks(content_blocks, session_index)
-    return prompts_delta, bash_delta
+def _load_or_init_session_index(index_dir: Path, session_id: str) -> dict[str, object]:
+    index_path = index_dir / f"{session_id}.json"
+    idx: dict[str, object] = _load_json_nullable(index_path) or {}
+    if idx:
+        # Ensure list fields exist for safe appending
+        for key in ("prompts", "bash_commands", "tool_calls"):
+            if not isinstance(idx.get(key), list):
+                idx[key] = []
+        # Coerce scalar counts — a corrupted JSON value (e.g. str) would break arithmetic.
+        for key, list_key in (("prompt_count", "prompts"), ("bash_count", "bash_commands")):
+            try:
+                idx[key] = int(idx.get(key) or len(idx[list_key]))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                idx[key] = len(idx[list_key])  # type: ignore[arg-type]
+        return idx
+    return {
+        "session_id": session_id,
+        "project_path": "",
+        "last_updated": "",
+        "prompts": [],
+        "bash_commands": [],
+        "tool_calls": [],
+        "prompt_count": 0,
+        "bash_count": 0,
+    }
 
 
 def _process_jsonl_file(
@@ -302,46 +188,6 @@ def _process_jsonl_file(
     session_index["project_path"] = project_path
 
     return prompts_added, bash_added, bytes_processed, new_offset
-
-
-def _session_id_from_path(path: Path) -> str:
-    """Derive a session_id from the JSONL filename stem."""
-    return path.stem
-
-
-def _safe_mtime(p: Path) -> float:
-    """Return p's mtime, or 0.0 if the file no longer exists (TOCTOU guard)."""
-    try:
-        return p.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
-def _load_or_init_session_index(index_dir: Path, session_id: str) -> dict[str, object]:
-    index_path = index_dir / f"{session_id}.json"
-    idx: dict[str, object] = _load_json_nullable(index_path) or {}
-    if idx:
-        # Ensure list fields exist for safe appending
-        for key in ("prompts", "bash_commands", "tool_calls"):
-            if not isinstance(idx.get(key), list):
-                idx[key] = []
-        # Coerce scalar counts — a corrupted JSON value (e.g. str) would break arithmetic.
-        for key, list_key in (("prompt_count", "prompts"), ("bash_count", "bash_commands")):
-            try:
-                idx[key] = int(idx.get(key) or len(idx[list_key]))  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                idx[key] = len(idx[list_key])  # type: ignore[arg-type]
-        return idx
-    return {
-        "session_id": session_id,
-        "project_path": "",
-        "last_updated": "",
-        "prompts": [],
-        "bash_commands": [],
-        "tool_calls": [],
-        "prompt_count": 0,
-        "bash_count": 0,
-    }
 
 
 def _process_one_file(

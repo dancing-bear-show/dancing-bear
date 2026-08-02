@@ -5,11 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from core.outlook.calendar import (
-    OutlookCalendarMixin,
-    _parse_location,
-    _normalize_days,
-)
+from core.outlook.calendar import OutlookCalendarMixin
+from core.outlook._location import _normalize_days, _parse_location
 from core.outlook.models import EventCreationParams, RecurringEventCreationParams
 
 
