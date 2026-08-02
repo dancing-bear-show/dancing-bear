@@ -42,13 +42,17 @@ stages:
     kind: gather
     depends_on: []
     description: >
-      Export current device layout to YAML via cfgutil.
+      Export current device layout to YAML via cfgutil. export-device
+      targets by --udid/--ecid (or auto-detects the single attached
+      device); it does NOT accept --device-label. To target {device_label}
+      explicitly, resolve it to a UDID from [ios_devices] in
+      credentials.ini first:
 
-        ./bin/phone-assistant export-device \
-          --device-label "{device_label}" \
+        UDID=$(awk -F' *= *' '/^\[ios_devices\]/{f=1;next} /^\[/{f=0} f&&$1=="{device_label}"{print $2;exit}' ~/.config/credentials.ini)
+        ./bin/phone-assistant export-device ${UDID:+--udid "$UDID"} \
           --out out/ios.IconState.yaml
 
-      ({device_label} is the trigger param, default bcsphone.)
+      (With a single iPhone attached, the --udid is optional.)
       Must exit 0. Writes out/ios.IconState.yaml.
     agent:
       role: researcher
