@@ -278,8 +278,24 @@ class WorkerApp:
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for bin/worker."""
-    return app.run(argv)
+    """Entry point for bin/worker.
+
+    Preserves the legacy no-subcommand behavior (one-line usage to stderr,
+    exit 1) rather than CLIApp's default (full --help, ExitCode.USAGE),
+    since this is a public CLI surface.
+    """
+    parser = app.build_parser()
+    _argv = app._normalize_argv(argv if argv is not None else sys.argv[1:])
+    args = parser.parse_args(_argv)
+
+    if getattr(args, "_cmd_func", None) is None:
+        print(
+            "Usage: worker {enqueue|run-once|daemon|list|status|show|requeue-errors|retry|purge} --help",
+            file=sys.stderr,
+        )
+        return 1
+
+    return app.run(_argv)
 
 
 if __name__ == "__main__":  # pragma: no cover
