@@ -1,0 +1,793 @@
+name: complexity-fanout-generate
+version: "1.0"
+description: >
+  Scan the codebase for qlty "High total complexity" (file-complexity) smells,
+  triage each flagged file into a reduction strategy, gate on human review of
+  that triage, then EMIT one runnable child workflow per top-level source
+  directory into workflows/code/complexity/.
+
+  This workflow generates workflows. It never modifies source files. After it
+  completes you run each emitted child yourself:
+    ./bin/workflow run workflows/code/complexity/<group>.yaml
+  Children are independent and independently revertable — run them one at a
+  time, review, commit, move on.
+
+  WHY THIS EXISTS RATHER THAN ANOTHER SPLIT SWEEP
+  ------------------------------------------------
+  qlty's file-complexity score is the SUM of per-function cognitive complexity
+  in a file. Splitting a file redistributes that sum across two files without
+  reducing any function's complexity, so both halves tend to land back above
+  the threshold. This is not theoretical: PR #152 ("refactor: split
+  high-complexity modules flagged by qlty") ran a split-based sweep, and 20 of
+  the 71 files currently flagged were CREATED by that PR.
+
+  Corroborating evidence from the current scan (71 flagged files):
+    - median flagged file is ~340 lines — these are not oversized files
+    - only 3 of 71 files carry any function-complexity smell — complexity is
+      spread thin across many moderate functions, not concentrated in monsters
+    - src/resume/keyword_match.py scores 94 with 2 top-level symbols in 259
+      lines — there is literally nothing to split
+
+  So the default strategy here is REDUCE IN PLACE (dispatch tables, guard
+  clauses, extracted predicates), and splitting is reserved for files that
+  genuinely hold unrelated responsibilities.
+
+  Stage dependency graph:
+
+    scan
+      |
+    triage
+      |
+    review-triage  [human gate]
+      |
+    emit-workflows
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-05"
+
+trigger:
+  source: manual
+  params:
+    complexity_floor: "50"     # qlty file-complexity value at/above which a file is a candidate
+    min_symbols_to_split: "4"  # below this top-level symbol count, splitting is forbidden
+    output_dir: "workflows/code/complexity"
+    prior_split_ref: "146836d" # commit of the previous split-based sweep (PR #152, "refactor:
+                               # split high-complexity modules flagged by qlty"). Files ADDED by
+                               # that commit are regrowth: splitting already failed on them, so
+                               # GATE 2 bars splitting them again. scan hard-fails if this ref
+                               # does not resolve — see scan Step 6.
+    # NOTE — do NOT add params named group, targets_file, work_dir, or workspace.
+    # emit-workflows embeds a child template in its description, and resolve_params
+    # (compiler.py) substitutes from one flat dict with no scoping, so any such name
+    # would be replaced in the template before the agent reads it, silently corrupting
+    # every emitted child. See the COLLISION HAZARD note in emit-workflows Step 3.
+
+workspace_dir: "{work_dir}/complexity-fanout-generate"
+
+stages:
+
+  # ===========================================================================
+  # G0: Scan — collect the raw complexity signal, read-only
+  # ===========================================================================
+
+  - name: scan
+    kind: gather
+    depends_on: []
+    description: >
+      Collect every file-complexity smell plus the per-file signals triage
+      needs to distinguish "split this" from "reduce this in place".
+
+      Step 1 — run the scan:
+        ~/.qlty/bin/qlty smells --all --json > {workspace}/outputs/qlty-smells.json
+
+      Step 2 — extract file-complexity entries:
+        Parse the JSON array. Keep entries where ruleKey == "file-complexity"
+        and value >= {complexity_floor}. Each entry's path is at
+        location.path, its score at value.
+
+      Step 3 — build the function-complexity index:
+        From the SAME JSON, collect entries where ruleKey ==
+        "function-complexity", keyed by location.path. Record the max and the
+        count per file. This is the single most important triage signal: a
+        file with a high total but NO function-complexity entries has its
+        complexity spread across many moderate functions, which splitting
+        cannot fix.
+
+      Step 4 — per-file structural signals. For each candidate:
+          wc -l <path>                                    -> line_count
+          grep -c "^class \|^def " <path>                 -> top_level_symbols
+          grep -n "^class \|^def " <path> | head -40      -> symbol_names
+        Derive lines_per_symbol = line_count / max(top_level_symbols, 1).
+        A high lines_per_symbol with few symbols means large cohesive units —
+        a reduce-in-place signal, not a split signal.
+
+      Step 5 — group by top-level source directory:
+        For "src/<group>/..." paths the group is <group>.
+        For "bin/..." paths the group is "bin".
+
+      Step 6 — regrowth check, the highest-signal input to triage:
+        Determine which candidates were CREATED by the previous split-based
+        sweep, identified by {prior_split_ref}.
+
+        FIRST confirm the ref resolves — this check fails silently otherwise:
+          git rev-parse --verify --quiet {prior_split_ref}^{{commit}}
+        If it does not resolve (history rewritten, squashed, shallow clone in
+        CI), HARD FAIL this stage with a clear error. Do NOT continue with an
+        empty result: an unresolvable ref makes the git log below return no
+        files, which sets created_by_prior_split to false for EVERY candidate,
+        silently disabling GATE 2's regrowth clause and shifting the whole
+        triage toward splitting — the exact failure this workflow exists to
+        prevent. A loud failure is required.
+
+        Then list the files that commit ADDED, using an empty --format so the
+        output contains paths only:
+          git log --format= --diff-filter=A --name-only {prior_split_ref} -1
+        Do NOT use --format=%h here: it prints the commit hash as the first
+        line followed by a blank line, and a naive "every line is a path"
+        read would treat "146836d" as an added file and pollute the set.
+        With --format= the output is purely paths (filter out any empty
+        lines). Sanity-check that every line ends in .py before using it.
+
+        Any candidate path appearing in that added-files list gets
+        "created_by_prior_split": true. These files are proof that splitting
+        did not work for them; triage must not propose splitting them again.
+        Record the resolved SHA and the count of matched files in
+        candidates.json so a reader can confirm the check actually ran.
+
+      Step 7 — write {workspace}/outputs/candidates.json:
+        {
+          "complexity_floor": {complexity_floor},
+          "scanned_at": "<ISO-8601>",
+          "total_flagged": <count>,
+          "candidates": [
+            {
+              "path": "src/wifi/diagnostics_report.py",
+              "group": "wifi",
+              "complexity": 81,
+              "line_count": 280,
+              "top_level_symbols": 12,
+              "lines_per_symbol": 23.3,
+              "max_function_complexity": 0,
+              "function_complexity_count": 0,
+              "symbol_names": ["def derive_report", "class ReportRenderer"],
+              "created_by_prior_split": false
+            }
+          ],
+          "by_group": {"telemetry": 12, "metals": 9, "...": 0}
+        }
+
+      If no candidates are found, write candidates.json with an empty list and
+      note "no files at or above complexity_floor".
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: candidates
+        mode: generate
+        description: >
+          candidates.json with every flagged file, its structural signals,
+          function-complexity index, and prior-split provenance.
+    validates_output:
+      - path: outputs/candidates.json
+        checks: [is_json, is_dict, has_key:candidates]
+    required: true
+    writes_to:
+      - outputs/qlty-smells.json
+      - outputs/candidates.json
+
+  # ===========================================================================
+  # G1: Triage — assign a strategy per file, with numeric justification
+  # ===========================================================================
+
+  - name: triage
+    kind: propose
+    depends_on: [scan]
+    reads_from: [scan]
+    description: >
+      Read {workspace}/outputs/candidates.json and assign exactly one strategy
+      to every candidate. Every assignment must cite the numbers that drove it.
+      This stage writes no source changes — it produces the decision table the
+      human reviews next.
+
+      ORDERED DECISION PROCEDURE — apply these gates to each file IN ORDER
+      and stop at the first one that fires. This is a decision list, not a
+      set of competing criteria: precedence is what makes the outcome
+      deterministic. Do NOT evaluate "does it look splittable" first and
+      work backwards.
+
+      Measured against the current tree: the scan flagged 71 files, of which
+      exactly one (bin/pr-assistant) is under bin/, leaving 70 non-bin
+      candidates. Of those 70, 26 satisfy the surface conditions for BOTH
+      reduce and split. Without the ordering below, more than a third of the
+      sweep would be decided by whichever rule the reader weighed first —
+      which is exactly how a split-heavy triage (and a repeat of PR #152)
+      happens. These counts describe the tree at authoring time; recompute
+      them from candidates.json rather than assuming they still hold.
+
+        GATE 1 — defer. Fires when ANY of:
+          - path starts with "bin/". Public CLI entry points are never split
+            or restructured per project rules. bin/pr-assistant (score 94) is
+            ALWAYS defer, regardless of every other signal.
+          - the file is generated or vendored
+        Both conditions are objectively checkable from the path and file
+        content. There is deliberately NO "complexity is irreducible" clause
+        here: that is a judgement about a counterfactual refactor nobody has
+        attempted, it cannot be established from the structural signals scan
+        collects, and because GATE 1 STOPs the list it would let any file be
+        excluded with one plausible sentence. Irreducibility is a real
+        outcome, but it is DISCOVERED by the reduce stage after a genuine
+        attempt — that stage already accepts an honest "irreducible without
+        behavior change" as a valid result. Do not pre-judge it here.
+        If GATE 1 fires, assign "defer" and STOP.
+
+        GATE 2 — reduce-in-place is MANDATORY. Fires when ANY of:
+          - top_level_symbols < {min_symbols_to_split}
+            (nothing to split — e.g. src/resume/keyword_match.py: 94
+            complexity across 2 symbols in 259 lines)
+          - created_by_prior_split == true
+            (splitting was already tried on this file and it is flagged
+            again; 20 of the current candidates are in this category)
+        If GATE 2 fires, assign "reduce-in-place" and STOP. These are
+        prohibitions on splitting, so they outrank every split signal below.
+
+        GATE 3 — split-by-responsibility. Requires ALL of:
+          - top_level_symbols >= {min_symbols_to_split}
+          - line_count >= 350
+          - AND the naming test, which is the real gate: you can NAME two or
+            more distinct, UNRELATED responsibilities in this file and list
+            exactly which symbols go to which sibling. "Parsing and
+            rendering" qualifies. "The first half and the second half",
+            "helpers and main logic", or "it is big" do not.
+        The naming test is what decides GATE 3 — not the numeric thresholds,
+        which merely make a file eligible to be considered. If you cannot
+        write the cluster names and their symbol assignments into the
+        justification field, GATE 3 does NOT fire.
+
+        Because the naming test is a self-report you author and are then
+        graded against, it needs a falsifiable component. For every GATE 3
+        file, the justification MUST also state why the proposed clusters are
+        genuinely independent:
+          - they do not call each other, and
+          - they do not share module-level mutable state
+        Both claims are reviewable against symbol_names from candidates.json
+        and a quick read of the file, so a reviewer can contradict them. A
+        split justification asserting only that two clusters "are different
+        concerns", without this independence claim, is invalid.
+
+        GATE 4 — default. Anything reaching this point is "reduce-in-place".
+        A file with a high score and no nameable split is the normal case,
+        not an anomaly.
+
+        GATE 4 still requires POSITIVE evidence, for a specific reason: GATE 3
+        must be justified with named clusters, while GATE 4 would otherwise
+        need only an assertion of absence. That asymmetry means a file that
+        SHOULD have fired GATE 3 can be recorded as GATE 4 with "no unrelated
+        responsibilities to name" and pass every downstream consistency check,
+        because you cannot falsify an unfalsifiable negative. So for every
+        GATE 4 file, record in the justification:
+          - the file's top-level symbol names (from symbol_names), and
+          - one sentence naming the SINGLE responsibility they share.
+        A reviewer can then judge whether that grouping is plausible. If you
+        find you cannot state a single shared responsibility, that is evidence
+        the file belongs in GATE 3 — go back and apply the naming test
+        honestly rather than defaulting here.
+
+      WHY reduce-in-place is the default (measured, not assumed):
+        qlty file-complexity is a pure SUM of per-function cognitive
+        complexity with no file-level structural term. Verified by probe:
+        6 identical functions scored 90, 12 scored 180, 24 scored 360 —
+        exactly 15 per function, perfectly linear. Splitting a 24-function
+        file into two 12-function files yields 180 + 180: the flagged file's
+        score halves, but total complexity is unchanged and BOTH halves stay
+        flagged. Flattening the same 24 functions' nesting in place yielded
+        96 — a 73% reduction. Splitting relocates complexity; only
+        per-function reduction removes it.
+
+      HARD RULES — violating any of these makes the triage invalid:
+        1. Every bin/ path MUST be defer (GATE 1).
+        2. A file with top_level_symbols < {min_symbols_to_split} MUST NOT be
+           assigned split-by-responsibility (GATE 2).
+        3. A file with created_by_prior_split == true MUST NOT be assigned
+           split-by-responsibility (GATE 2).
+        4. A split assignment MUST carry named clusters and their symbol
+           assignments in its justification. A split without them is invalid.
+        5. Every entry MUST carry a justification citing the specific numbers
+           used (symbols, LOC, max function complexity) and the gate that fired.
+
+      Record the firing gate per file in the "gate" field so the human
+      reviewer can audit the decision path rather than re-deriving it.
+
+      EMPTY-CANDIDATE PATH: if candidates.json contains zero candidates, still
+      write BOTH declared outputs — triage.json with empty "groups" and a
+      summary of all zeros, and triage-table.md containing the single line
+      "No candidates at or above the complexity floor — nothing to triage."
+      Every declared artifact must exist on every path, including this one, so
+      downstream stages read an empty result rather than a missing file.
+
+      Sanity check before writing: given the gate ordering, expect split to
+      land well under 25% of candidates. If it exceeds that, GATE 3's naming
+      test was applied too loosely — re-examine every split assignment and
+      confirm each names genuinely unrelated responsibilities.
+
+      Write {workspace}/outputs/triage.json:
+        {
+          "generated_at": "<ISO-8601>",
+          "complexity_floor": {complexity_floor},
+          "summary": {
+            "reduce_in_place": 0, "split": 0, "defer": 0,
+            "split_pct": 0.0,
+            "by_gate": {"1": 0, "2": 0, "3": 0, "4": 0}
+          },
+          "groups": [
+            {
+              "group": "wifi",
+              "file_count": 2,
+              "total_complexity": 163,
+              "files": [
+                {
+                  "path": "src/wifi/diagnostics_report.py",
+                  "complexity": 81,
+                  "line_count": 280,
+                  "top_level_symbols": 12,
+                  "max_function_complexity": 0,
+                  "created_by_prior_split": false,
+                  "strategy": "reduce-in-place",
+                  "gate": 4,
+                  "justification": "GATE 4 default: 12 symbols across 280 lines, zero function-complexity smells - score is the sum of many moderate functions; no unrelated responsibilities to name. Plan: dispatch table on report kind plus guard clauses",
+                  "proposed_siblings": []
+                }
+              ]
+            }
+          ]
+        }
+        The "groups" array drives child-workflow emission — one child per group.
+        Groups whose files are ALL defer must still appear, with a note; the
+        emit stage will skip them.
+
+      Also write {workspace}/outputs/triage-table.md — the same data as a
+      human-readable table sorted by complexity descending, with columns:
+        File | Group | Cx | LOC | Syms | MaxFn | Gate | Strategy | Justification
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    outputs:
+      - name: triage
+        mode: generate
+        description: >
+          triage.json with a strategy and numeric justification per file,
+          grouped by directory; plus triage-table.md for human review.
+    validates_output:
+      - path: outputs/triage.json
+        checks: [is_json, is_dict, has_key:groups]
+    required: true
+    writes_to:
+      - outputs/triage.json
+      - outputs/triage-table.md
+
+  # ===========================================================================
+  # G2: Review triage — the explicit control point, before anything is emitted
+  # ===========================================================================
+
+  - name: review-triage
+    kind: validate
+    human_gate: true
+    depends_on: [triage]
+    reads_from: [triage, scan]
+    description: >
+      Present the triage decisions for approval. Nothing has been emitted and
+      no source file has been touched. This is the point where the human
+      steers the entire sweep.
+
+      Display {workspace}/outputs/triage-table.md in full, then summarize:
+        - Counts: reduce-in-place / split / defer, and split as a percentage
+        - Per-group file counts and total complexity, sorted by total desc
+        - Every split-by-responsibility file, with its named clusters — these
+          warrant the most scrutiny, since splitting is what failed before
+        - Every file with created_by_prior_split == true, flagged as regrowth
+          from PR #152
+
+      Then run these consistency checks and report violations prominently:
+        - any split entry with top_level_symbols < {min_symbols_to_split}
+          (GATE 2 should have caught it)
+        - any split entry with created_by_prior_split == true
+          (GATE 2 should have caught it)
+        - any bin/ path not marked defer (GATE 1 should have caught it)
+        - any split entry whose justification does NOT name its clusters and
+          their symbol assignments — the GATE 3 naming test is the real gate,
+          and a split without named clusters is invalid by rule 4
+        - any split entry whose justification omits the independence claim
+          (clusters do not call each other, do not share module-level state)
+        - any GATE 4 entry whose justification omits the file's symbol names
+          and a single shared responsibility — without that positive evidence
+          a misfiled GATE 3 file is indistinguishable from a real GATE 4 one
+        - any entry missing a justification or a gate number
+        - any entry whose recorded gate is inconsistent with its strategy
+          (gate 1 -> defer, gate 2 or 4 -> reduce-in-place, gate 3 -> split)
+      A violation means triage misapplied its own rules. Report it rather than
+      silently correcting it — the user decides whether to re-run triage.
+
+      Report the gate distribution (how many files fired each gate). A healthy
+      run is dominated by gates 2 and 4. A run heavy on gate 3 means the
+      naming test was applied loosely.
+
+      State plainly if the split percentage looks high relative to the
+      evidence, rather than presenting the triage as settled.
+
+      Ask the user:
+        A) Approve — emit child workflows for all non-defer groups
+        B) Adjust — change specific files' strategies, or drop files/groups
+           entirely; record the overrides
+        C) Scope down — emit only the top N groups by total complexity
+           (useful for validating the approach on one group before committing
+           to every group; state the actual group count from triage.json when
+           presenting this option rather than a remembered number)
+        D) Abort — stop; nothing has been written
+
+      Write TWO files — a structured decision the emit stage parses, and a
+      narrative for humans. Prose is not a contract: emit-workflows must never
+      have to infer intent from free text.
+
+      1. {workspace}/validation/triage-decision.json — THE machine contract:
+        {
+          "decision": "approve|adjust|scope_down|abort",
+          "scope_top_n": null,
+          "overrides": [
+            {"path": "src/foo/bar.py", "strategy": "reduce-in-place|split-by-responsibility|defer",
+             "reason": "<why the human changed it>"}
+          ],
+          "dropped_paths": [],
+          "dropped_groups": []
+        }
+        Rules:
+          - "approve"     — emit every non-defer group as triaged.
+          - "adjust"      — apply "overrides" and remove "dropped_paths" /
+                            "dropped_groups", then emit.
+          - "scope_down"  — set scope_top_n to the integer N the human chose;
+                            emit only the top N groups by total complexity.
+          - "abort"       — emit NOTHING.
+        Write this file on every path, including abort. A missing or
+        unparseable file is itself a hard stop for emit-workflows.
+
+      2. {workspace}/validation/triage-approval.md — the human-readable
+         narrative: what was presented, what the human said, and why. This is
+         documentation only; emit-workflows must NOT parse it for decisions.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    validates_output:
+      - path: validation/triage-decision.json
+        checks: [is_json, is_dict, has_key:decision]
+    required: true
+    writes_to:
+      - validation/triage-decision.json
+      - validation/triage-approval.md
+
+  # ===========================================================================
+  # G3: Emit — write one runnable child workflow per group
+  # ===========================================================================
+
+  - name: emit-workflows
+    kind: execute
+    depends_on: [review-triage]
+    reads_from: [review-triage, triage]
+    description: >
+      Write one child workflow YAML per approved group into {output_dir}.
+      Each child is a thin wrapper that includes the shared reduction fragment
+      and points it at that group's target list.
+
+      Step 1 — read the decision. THIS IS A GATE, NOT A FORMALITY.
+
+        Read {workspace}/validation/triage-decision.json — the structured
+        contract. Do NOT parse triage-approval.md for decisions; it is
+        narrative only.
+
+        HARD STOP conditions — if ANY of these holds, write
+        {workspace}/outputs/emitted.json with {"emitted": [], "aborted": true,
+        "abort_reason": "<which condition>"} , write no child workflows, no
+        targets files, and no RUNBOOK.md, and finish:
+          - the file is missing
+          - the file is not valid JSON, or has no "decision" key
+          - decision == "abort"
+        Note that this stage merely depends_on review-triage, and depends_on
+        encodes ORDERING, not veto — nothing in the engine prevents this stage
+        from running after a rejection. This check is the only thing that
+        makes "abort" mean anything. Emitting after an abort would hand the
+        user a set of runnable workflows they explicitly refused.
+
+        Otherwise read {workspace}/outputs/triage.json for the data and apply
+        the decision:
+          - "approve"    — emit every non-defer group as triaged.
+          - "adjust"     — apply every entry in "overrides" (replacing that
+                           file's strategy), then remove any path in
+                           "dropped_paths" and any group in "dropped_groups".
+          - "scope_down" — sort groups by total complexity descending and emit
+                           only the first scope_top_n. If scope_top_n is null
+                           or not a positive integer, HARD STOP as above.
+        Then skip any group whose files are all defer.
+
+      Step 2 — write per-group target files.
+        For each approved group, write {output_dir}/targets/<group>.json:
+          {
+            "group": "wifi",
+            "complexity_floor": {complexity_floor},
+            "files": [
+              {
+                "path": "src/wifi/diagnostics_report.py",
+                "complexity": 81,
+                "line_count": 280,
+                "top_level_symbols": 12,
+                "strategy": "reduce-in-place",
+                "justification": "...",
+                "proposed_siblings": []
+              }
+            ]
+          }
+        Include ONLY non-defer files. This file is read DIRECTLY by the
+        child's load-targets stage (which rescores it into the child's own
+        {workspace}/outputs/targets.json); the fragment's reduce stage then
+        reads that rescored copy, not this file. Either way it must be
+        self-contained — the child must never need the generator's workspace.
+
+        EMPTY-CANDIDATE PATH: if no groups survive, emit no children and no
+        targets files, but still write RUNBOOK.md (noting zero groups) and
+        emitted.json (with an empty "emitted" array), so every declared
+        artifact exists.
+
+      Step 3 — write the child workflow.
+
+        READ THIS FIRST — how placeholders in the template below behave.
+        The workflow engine resolves {param} placeholders in this stage
+        description via a blind string replace (compiler.py: resolve_params)
+        BEFORE you ever read it. It cannot tell a live reference from template
+        text. So in the template below:
+          - {output_dir} and {complexity_floor} have ALREADY been replaced with
+            their literal values by the time you read this. Copy them through
+            verbatim — they are correct as-is. Do NOT re-wrap them in braces.
+          - {work_dir} and {workspace} are engine-provided, NOT trigger params,
+            so they survive unreplaced and MUST be written into the child
+            literally as "{work_dir}" / "{workspace}". The child's own engine
+            run resolves them.
+          - {group} and {targets_file} appear as literal braces in the child's
+            own stage text — write them through unchanged so the CHILD's
+            substitution pass resolves them from the child's trigger.params.
+        Placeholders written with <angle brackets> (<group>, <file_count>,
+        <total_complexity>) are YOUR substitutions — replace each with the
+        actual value for the group you are emitting.
+
+        COLLISION HAZARD — verify this BEFORE emitting anything. Because
+        resolve_params replaces from a single flat param dict with no scoping,
+        any trigger param of THIS generator whose name matches a placeholder
+        meant for the child will be substituted here, silently, and the child
+        will be emitted with a literal value baked in where a placeholder
+        belongs. Reproduced: adding a "group" param to this workflow rewrites
+        the child's "for group {group}" into "for group ALL" before you read
+        it. The Step 4 greps CANNOT catch this — the brace-presence check
+        looks for {group} and finds it absent, which reads as corruption of a
+        different kind, while the zero-hit check still passes clean. Both
+        gates go green on a broken child.
+
+        So check explicitly: this workflow's trigger.params must NOT declare
+        any of group, targets_file, work_dir, or workspace. Those four names
+        belong to the emitted child and must survive as literal placeholders.
+        If any is present, STOP and report the collision instead of emitting —
+        the template is unsafe to copy. Any OTHER param name is fine and is
+        expected to grow over time (the current set is complexity_floor,
+        min_symbols_to_split, output_dir, and prior_split_ref); do not treat
+        an unlisted-but-harmless param as a collision.
+
+        For each group emit {output_dir}/<group>.yaml with EXACTLY this
+        structure:
+
+          name: complexity-reduce-<group>
+          version: "1.0"
+          description: >
+            Reduce qlty file-complexity for the <file_count> flagged files in
+            src/<group>/ (total complexity <total_complexity>).
+
+            GENERATED by workflows/code/complexity-fanout-generate.yaml on
+            <ISO-8601 date>. Edit the targets file rather than this wrapper;
+            regenerating overwrites both.
+
+            Targets:
+              | File | Cx | Strategy |
+              | src/wifi/diagnostics_report.py | 81 | reduce-in-place |
+              ...
+
+            Strategy rationale: file-complexity is the SUM of per-function
+            complexity, so splitting redistributes rather than reduces it.
+            Default is reduce-in-place; see the fragment for technique order.
+
+          metadata:
+            author: dancing-bear
+            created: "<ISO-8601 date>"
+            generated_by: complexity-fanout-generate
+
+          trigger:
+            source: manual
+            params:
+              group: "<group>"
+              targets_file: "<output_dir>/targets/<group>.json"
+              complexity_floor: "{complexity_floor}"
+
+          workspace_dir: "{work_dir}/complexity-reduce-<group>"
+
+          stages:
+            - name: load-targets
+              kind: gather
+              depends_on: []
+              description: >
+                Read {targets_file} and confirm every listed path still
+                exists and still carries the recorded complexity score.
+                Files may have moved or already been reduced since the
+                generator ran.
+
+                Read the floor from the targets file's own "complexity_floor"
+                field — NOT from the {complexity_floor} trigger param. The
+                targets file is the single source of truth: it was written
+                with the floor the triage decision was actually made under.
+                The trigger param is a default that a caller can override at
+                run time, which would silently apply a different floor than
+                the one the recorded plan assumed. If the two disagree, note
+                it and use the targets file's value.
+
+                For each entry, verify the path exists. Rescore it, keeping
+                stderr so a tool failure is visible:
+                  ~/.qlty/bin/qlty smells <path> --json 2>&1 | \
+                    python3 -c "import json,sys; d=json.load(sys.stdin); \
+                      [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
+
+                Classify each entry into exactly one of three outcomes — do
+                NOT collapse the last two:
+                  - keep    — file exists and scores at or above the floor
+                  - drop    — file is gone, or genuinely scores below the
+                              floor (already fixed by an earlier group)
+                  - ERROR   — qlty failed, returned unparseable output, or
+                              emitted no file-complexity entry for a file
+                              that still exists
+                An ERROR is NOT a drop. Suppressing stderr and treating empty
+                output as "below floor" would silently remove a live target
+                from the sweep and report it as already resolved. Record every
+                ERROR entry in the output with its stderr text, keep it in the
+                file list, and flag it so the reduce stage can decide.
+
+                Write {workspace}/outputs/targets.json with the surviving
+                file list, each entry keeping path, complexity (rescored),
+                line_count, top_level_symbols, strategy, justification, and
+                proposed_siblings, plus "rescore_status": "keep|error" and
+                "rescore_error" (stderr text, or null). Include a top-level
+                "complexity_floor" (the value actually used), "dropped"
+                (array of {path, reason}), and "errors" (array of paths whose
+                rescore failed).
+              agent:
+                role: researcher
+                model: sonnet
+                tools: [Bash, Read, Write]
+                access: read-only
+              validates_output:
+                - path: outputs/targets.json
+                  checks: [is_json, is_dict, has_key:files]
+              required: true
+              writes_to:
+                - outputs/targets.json
+
+          include:
+            - path: workflows/shared/complexity-reduce.yaml
+              prefix: cx
+              depends_on: [load-targets]
+              reads_from: [load-targets]
+
+        The child carries exactly ONE stage of its own (load-targets); the
+        remaining five come from the fragment, so all children share one
+        reviewed body and differ only in their params and target list. The
+        engine requires a non-empty stages: block — an include-only child
+        fails to parse with "'stages' must be a non-empty list", so
+        load-targets is structurally required, not optional.
+
+        Resulting stage names, verified: load-targets, cx-reduce,
+        cx-verify-tests, cx-validate-callsites, cx-recheck, cx-human-gate.
+
+      Step 4 — lint every emitted child. This is a hard gate:
+          ./bin/workflow lint {output_dir}/<group>.yaml
+        for each file. Any child that fails to lint must be fixed and
+        re-linted before this stage completes. Record each result.
+        ./bin/workflow lint exits 1 when the YAML is invalid and 0 when it is
+        valid (cli_dispatch.py _cmd_lint: `return 0 if result.valid else 1`),
+        so $? is a reliable gate. Still read the output too: a lint can pass
+        while emitting warnings that matter (e.g. undeclared-variable
+        warnings), and the errors list names the specific failure.
+        Treat exit != 0, "valid: false", or a non-empty "errors:" list as
+        failure; fix and re-lint before continuing.
+
+        Placeholder sanity check on each emitted child, catching the
+        substitution hazard described in Step 3:
+          grep -n '{work_dir}\|{workspace}\|{group}\|{targets_file}' <child>
+        Expect {work_dir} in workspace_dir, and {group}/{targets_file} inside
+        the load-targets description — these MUST still have literal braces.
+          grep -n '{output_dir}\|{complexity_floor}\|<group>\|<file_count>' <child>
+        Expect ZERO hits: {output_dir} and {complexity_floor} should already
+        be literal values, and no <angle bracket> placeholder should survive
+        into an emitted file. Any hit means the template was copied without
+        substitution — fix it before continuing.
+
+        Then confirm each parses and resolves its include:
+          ./bin/workflow parse {output_dir}/<group>.yaml --format json
+        Confirm exactly six stages resolve, in order: load-targets,
+        cx-reduce, cx-verify-tests, cx-validate-callsites, cx-recheck,
+        cx-human-gate. A child resolving to only one stage means the include
+        failed to expand — fix the fragment path before continuing.
+
+      Step 5 — write {output_dir}/RUNBOOK.md:
+          # Complexity Reduction Runbook
+          Generated <date> from <total_flagged> flagged files.
+          <N> groups emitted, <M> files targeted, <D> deferred.
+
+          Run groups one at a time, reviewing and committing between each.
+          Each child ends in a human gate before anything is committed.
+
+          | # | Group | Files | Total Cx | Command |
+          |---|-------|-------|----------|---------|
+          | 1 | telemetry | 12 | 866 | ./bin/workflow run workflows/code/complexity/telemetry.yaml |
+          ...
+
+          ## Deferred files (not targeted by any group)
+          | File | Cx | Reason |
+
+          ## Notes
+          - Children are independent; a failed group does not block others.
+          - Each child runs the FULL test suite, so cross-group regressions
+            surface even though children are scoped to one directory.
+          - Re-run the generator after landing groups to rescore the tree.
+
+        Order groups by total complexity descending, so the highest-yield
+        group is run first.
+
+      Step 6 — write {workspace}/outputs/emitted.json:
+        {
+          "output_dir": "{output_dir}",
+          "emitted": [
+            {"group": "wifi", "path": "workflows/code/complexity/wifi.yaml",
+             "targets": "workflows/code/complexity/targets/wifi.json",
+             "file_count": 2, "total_complexity": 163, "lint": "PASS"}
+          ],
+          "skipped_all_defer": [],
+          "total_files_targeted": 0,
+          "lint_failures": []
+        }
+
+      Do NOT run any child workflow. Emission ends this workflow; the user
+      runs children from the runbook.
+    agent:
+      role: workflow-author
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Every emitted child passes ./bin/workflow lint with errors == []
+        - Every emitted child parses to six stages: load-targets plus five cx-*
+        - Every emitted child has a matching targets/<group>.json
+        - No defer-marked file appears in any targets file
+        - No bin/ path appears in any targets file
+        - RUNBOOK.md lists every emitted group, ordered by total complexity
+      max_revisions: 2
+    outputs:
+      - name: emitted
+        mode: generate
+        description: >
+          One child workflow YAML plus targets JSON per approved group in
+          {output_dir}, a RUNBOOK.md with ordered run commands, and
+          emitted.json summarizing what was written.
+    validates_output:
+      - path: outputs/emitted.json
+        checks: [is_json, is_dict, has_key:emitted]
+    required: true
+    writes_to:
+      - outputs/emitted.json
