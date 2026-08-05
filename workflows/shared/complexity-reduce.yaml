@@ -1,0 +1,580 @@
+# Shared workflow fragment — not runnable standalone.
+# Include via:
+#   include:
+#     - path: workflows/shared/complexity-reduce.yaml
+#       prefix: cx
+#       depends_on: []
+#       reads_from: []
+#
+# Stages injected:
+#   {prefix}-reduce → {prefix}-verify-tests → {prefix}-validate-callsites
+#     → {prefix}-recheck → {prefix}-human-gate
+#
+# Caller must set trigger.params: group, targets_file, complexity_floor
+#
+# These MUST be declared in the including workflow's own trigger.params.
+# Do NOT reach for `include: params:` — src/workflow/include.py parses that
+# key into IncludeSpec.params, but NOTHING in src/ ever reads it (verified:
+# zero consumers). Params supplied there are silently ignored, and the
+# fragment's {group}/{targets_file}/{complexity_floor} would resolve to
+# nothing. Fragments share the parent's flat param namespace.
+#
+# USED BY: workflows/code/complexity/<group>.yaml — N generated children,
+# one per source directory, emitted by workflows/code/complexity-fanout-generate.yaml.
+# Those children do not exist in the repo until the generator runs, so this
+# fragment has no statically discoverable caller list.
+# BLAST RADIUS: editing this file changes the behavior of every ALREADY-EMITTED
+# child immediately, without regenerating them — a child is a thin wrapper that
+# includes this file by path at parse time. Re-run the generator after any
+# change here if the children's recorded plans depend on the edited behavior.
+#
+# Intent: LOWER PER-FUNCTION COMPLEXITY IN PLACE. This fragment is the body of
+# every generated per-directory child workflow.
+#
+# Why in-place and not splitting, stated precisely:
+#
+# qlty's file-complexity score is a pure SUM of per-function cognitive
+# complexity, with no file-level structural term. Verified by controlled
+# probe: 6 identical functions scored 90, 12 scored 180, 24 scored 360 —
+# exactly 15 per function, perfectly linear.
+#
+# The precise consequence — splitting DOES lower the flagged file's score, by
+# moving functions out of it. What it does not do is reduce total complexity.
+# The same probe: a 24-function file at 360, split into two 12-function files,
+# yields 180 + 180. The original path's score halved, the sum is unchanged,
+# and BOTH halves remain flagged. Flattening the same 24 functions' nesting in
+# place yielded 96 — a 73% real reduction.
+#
+# So splitting relocates complexity across the tree while appearing to fix the
+# file you were looking at; only per-function reduction removes it. PR #152 ran
+# a split-based sweep and 20 of the files it CREATED are flagged again today —
+# the predicted outcome. Splitting is therefore permitted here only where a
+# file genuinely holds unrelated responsibilities (a design fix that happens to
+# also move score), never as the default response to a high number.
+fragment: true
+name: complexity-reduce
+version: "1.0"
+description: >
+  Shared complexity-reduction fragment. Reduces per-function cognitive
+  complexity for one directory group's flagged files, verifies tests, checks
+  call-site parity, rechecks qlty scores, then gates on a human.
+
+  Params consumed from trigger.params: {group}, {targets_file},
+  {complexity_floor}.
+
+stages:
+
+  # ===========================================================================
+  # Reduce: lower per-function complexity for this group's files
+  # ===========================================================================
+
+  - name: reduce
+    kind: execute
+    # CONSTRAINT — this must remain the ONLY stage in this fragment with an
+    # empty depends_on. include.py:_inline_frag_stages applies the includer's
+    # depends_on/reads_from to EVERY stage whose depends_on is () — not just
+    # the first one. A second root stage added here would be silently wired to
+    # the includer's upstream instead of to this fragment's chain, producing a
+    # workflow that parses cleanly and runs in the wrong order. Every other
+    # stage below declares an explicit intra-fragment dependency, which the
+    # rename map rewrites to the prefixed name (reduce -> cx-reduce).
+    depends_on: []      # overridden by include.depends_on
+    reads_from: []      # overridden by include.reads_from
+    description: >
+      Reduce cognitive complexity for every file listed in {targets_file}
+      for group {group}.
+
+      IMPORTANT — set PYTHONPATH explicitly before any python3 command:
+        export PYTHONPATH="$(pwd)/src"
+      This repo's venv may be editable-installed against a different worktree;
+      without this override you can silently import stale modules from another
+      checkout and chase false failures.
+
+      Step 1 — read the target list:
+        Read {workspace}/outputs/targets.json — the rescored, existence-checked
+        list written by the preceding load-targets stage. Prefer it over the
+        raw {targets_file}, which may name files that have since moved or
+        already dropped below the floor.
+        It contains a "files" array; each entry has:
+          path, complexity, line_count, top_level_symbols, strategy,
+          justification, and (for split entries) proposed_siblings.
+        If it is empty, every target was already resolved — write the summary
+        noting that and finish without changing any file.
+        Handle ONLY entries whose strategy is "reduce-in-place" or
+        "split-by-responsibility". Skip any entry marked "defer" — the
+        justification field explains why; do not second-guess it.
+
+      Step 2 — for each "reduce-in-place" file (the expected majority):
+
+        a. Read the file in full.
+        b. Identify the highest-complexity functions. Complexity accrues from
+           nesting depth and branch count, so target these patterns in order:
+
+           dispatch table
+             — A long if/elif chain (or match) that maps a value to a handler.
+               Replace with a module-level dict mapping key -> callable, then
+               a single lookup. This is the highest-yield transform in this
+               codebase; prefer it wherever the chain dispatches on one value.
+
+           guard clauses / early return
+             — Deeply nested if blocks where the body only runs in the happy
+               path. Invert the condition and return early to flatten nesting.
+               Each level of nesting removed is a direct score reduction.
+
+           extract predicate
+             — A multi-clause boolean condition inline in an if. Extract to a
+               named helper (`def _is_eligible(...) -> bool:`) with a
+               docstring. Improves readability and moves branch weight out of
+               the caller.
+
+           extract branch body
+             — A branch body over ~15 lines. Extract to a private helper in
+               the SAME file. Note: this moves complexity within the file and
+               only helps if it also removes nesting — do not extract purely
+               to shorten a function.
+
+           collapse duplicated branches
+             — Two branches differing only by a constant. Parameterize.
+
+        c. Constraints — these are hard:
+           - NEVER create, delete, or modify any file under tests/. This stage
+             has Edit access to the whole tree, but the test suite is the only
+             independent evidence that a refactor preserved behavior. Editing
+             a test to accommodate a transform destroys that evidence. If a
+             test fails, the transform is wrong — revert the transform.
+           - Do NOT rename any public class, function, or module.
+           - Do NOT change any function signature that is called from another
+             file. Private helpers you create are free.
+           - Do NOT alter behavior. This is a pure refactor; every existing
+             test must pass unchanged.
+           - New private helpers stay in the same file unless the file is also
+             marked for splitting.
+
+        c2. Semantic traps — these transforms are NOT unconditionally safe.
+           Check each before applying:
+
+           condition inversion (guard clauses)
+             — `if x:` is not the negation of `if x is None:`. Inverting a
+               truthiness test silently changes behavior when the value can be
+               0, "", [], {}, or 0.0 — all falsy but not None. Read what the
+               condition actually distinguishes before inverting it.
+             — Early-returning out of a try/finally or a with-block changes
+               when cleanup runs. Do not hoist a return past either.
+
+           predicate extraction
+             — Python's `and`/`or` short-circuit. Extracting
+               `if a() and b():` into a helper that receives both values
+               EAGERLY evaluates b(), which changes behavior when b() has a
+               side effect, raises, is expensive, or consumes an iterator.
+               Pass callables or keep the expression inline instead.
+             — Extracting a condition that mutates state (walrus, .pop(),
+               next()) changes evaluation order. Leave those inline.
+
+           dispatch table
+             — Table values are evaluated at module import time. A branch body
+               that referenced a local or a late-bound global cannot simply
+               become a table entry; bind it as a function, not a call.
+             — An if/elif chain with overlapping conditions is ORDERED. A dict
+               lookup is not. Only convert chains whose conditions are mutually
+               exclusive equality tests on a single value.
+
+           If any of these applies and you cannot prove the transform is
+           behavior-preserving, skip it and note why. A file left at its
+           original score is a valid outcome; a silently broken one is not.
+
+        d. After each file, confirm it still imports:
+             python3 -c "import <module_path>" 2>&1
+           Derive module_path from the path relative to src/: strip the src/
+           prefix, replace / with ., strip .py.
+
+        e. Re-score the file:
+             ~/.qlty/bin/qlty smells <path> --json 2>/dev/null | \
+               python3 -c "import json,sys; d=json.load(sys.stdin); \
+                 [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
+           Record before and after. If the score did not drop, note why — an
+           honest "complexity is irreducible without behavior change" is an
+           acceptable outcome and is better than a contrived refactor.
+
+      Step 3 — for each "split-by-responsibility" file (expected to be rare):
+
+        - Create sibling modules in the same directory, one per responsibility
+          cluster named in proposed_siblings.
+        - Move each cluster's symbols to its sibling.
+        - CRITICAL — no backward-compat re-export shims. Do NOT leave
+          `# noqa: F401` re-export blocks in the original module. Update every
+          call site directly:
+            grep -rn "<module_path>" --include="*.py" src/ tests/ bin/
+          Update each import to the new module path, and update every
+          unittest.mock.patch target string that names the moved symbol.
+          Patch strings are the most common miss — they fail at runtime, not
+          import time, so grep for them explicitly:
+            grep -rn "patch(.*<module_path>" --include="*.py" tests/
+        - Public CLI entry points under bin/ must keep working: update their
+          imports, never their interfaces.
+        - Watch for circular imports: if sibling A needs a symbol moving to
+          sibling B, extract the shared type to a third small sibling both
+          import from.
+
+      Step 4 — run this group's tests before handing off:
+        Determine the test directory:
+          - tests/{group}_tests/ if it exists
+          - else tests/{group}/
+          - else tests/test_{group}*.py at top level
+          - else note "no tests for {group}"
+        Run:
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -p "test_*.py" -q 2>&1
+        Fix anything you broke before writing the summary.
+
+      Step 5 — write {workspace}/outputs/reduce-summary.md:
+        ## {group} Complexity Reduction
+        | File | Strategy | Techniques Applied | Before | After | Import |
+        |------|----------|--------------------|--------|-------|--------|
+        | src/wifi/diagnostics_report.py | reduce-in-place | dispatch table, 3x guard clause | 81 | 44 | PASS |
+
+        ## Files Not Improved
+        | File | Before | After | Why |
+
+        ## Call Sites Updated (split entries only)
+        | Moved Symbol | New Module | Importers Updated | Patch Targets Updated |
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/reduce-summary.md
+
+  # ===========================================================================
+  # Verify tests: full suite, catch cross-group regressions
+  # ===========================================================================
+
+  - name: verify-tests
+    kind: validate
+    depends_on: [reduce]
+    reads_from: [reduce]
+    description: >
+      Confirm the reductions in group {group} broke nothing, locally or
+      elsewhere in the tree.
+
+      IMPORTANT: export PYTHONPATH="$(pwd)/src" before every test command.
+
+      Step 1 — re-run this group's suite:
+        Read {workspace}/outputs/reduce-summary.md for the files touched.
+        Resolve the test directory as in the reduce stage and run:
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -p "test_*.py" -q 2>&1
+        Record the resolved test dir in the results table — later stages reuse
+        this exact path rather than re-deriving it.
+
+      Step 2 — run the full suite to catch cross-group regressions:
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1 | tail -20
+        A refactor in one directory can break another directory's mocks, so
+        the full suite is required even though this workflow is scoped to one
+        group.
+
+      Step 3 — fix failures, up to 3 cycles:
+        HARD CONSTRAINT — you MUST NOT create, delete, or modify any file
+        under tests/. Every fix in this stage lands in src/ or bin/ only.
+        "Make the suite green" is NOT the goal; "prove the refactor preserved
+        behavior" is, and a green suite only means that if the tests are
+        untouched. Weakening an assertion or deleting a case to clear a cycle
+        defeats the entire purpose of this stage.
+
+        - AttributeError / NameError on a moved symbol: a call site or a
+          mock.patch target was missed. Fix it in src/.
+        - Behavior change: the refactor was not behavior-preserving. Revert
+          that specific transform. The test encodes the contract — it is the
+          transform that is wrong, never the test.
+        - After each fix, re-run. If still red after 3 cycles, mark FAIL and
+          document the blocker. Leaving a documented failure is correct;
+          editing a test to hide it is not.
+
+        Before writing results, verify you honored the constraint:
+          git diff --name-only -- tests/
+        This MUST print nothing. If it prints any path, you modified a test —
+        revert those files with `git checkout -- tests/` and re-run, then
+        record the violation in the results table.
+
+      Step 4 — write {workspace}/validation/test-results.md:
+        | Scope | Test Dir | Tests Run | Status | Notes |
+        |-------|----------|-----------|--------|-------|
+        | {group} | tests/{group}_tests/ | 47 | PASS | |
+        | full suite | tests/ | 1203 | PASS | |
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    validation:
+      strategy: deliverable
+      criteria:
+        - Full unittest discover (with PYTHONPATH=src) exits 0
+        - git diff --name-only -- tests/ prints nothing (no test file was
+          created, deleted, or modified by this workflow)
+        - Group test run passes or failures documented with blockers
+        - No behavior changes introduced by the refactor
+      max_revisions: 3
+    required: true
+    writes_to:
+      - validation/test-results.md
+
+  # ===========================================================================
+  # Validate call sites: no-shim parity check
+  # ===========================================================================
+
+  - name: validate-callsites
+    kind: validate
+    depends_on: [verify-tests]
+    reads_from: [verify-tests, reduce]
+    description: >
+      Confirm no import or patch target was left dangling. This stage matters
+      more than it would in a shim-based refactor: with no backward-compat
+      re-export layer, a missed call site is a hard runtime failure with no
+      safety net.
+
+      IMPORTANT: export PYTHONPATH="$(pwd)/src" before any python3 -c check.
+
+      Step 1 — enumerate what changed:
+        Read {workspace}/outputs/reduce-summary.md.
+        Run: git diff --name-only
+        Cross-reference: every file in the diff should be accounted for in
+        the reduce summary. Flag anything unexpected.
+
+      Step 2 — import every touched module:
+        For each modified or created .py file:
+          python3 -c "import <module_path>" 2>&1
+
+      Step 3 — export parity against git HEAD:
+        For each touched file, confirm no public symbol vanished:
+          a. git show HEAD:<path> | grep -n "^class \|^def "
+          b. python3 -c "import <m>; print([n for n in dir(<m>) if not n.startswith('_')])"
+          c. Any pre-existing public symbol now missing from the module and
+             not relocated-with-call-sites-updated is a regression.
+        If the file declared __all__, confirm it still resolves.
+
+      Step 4 — hunt dangling references (split entries only):
+        For every symbol that moved modules:
+          grep -rn "from <old_module> import\|import <old_module>" \
+            --include="*.py" src/ tests/ bin/ \
+            --exclude-dir=.venv --exclude-dir=.claude \
+            --exclude-dir=personal_assistants.egg-info
+        Expect ZERO hits on the old path. Any hit is an unupdated call site.
+
+        Then the failure mode that import checks cannot catch:
+          grep -rn "patch(" --include="*.py" tests/ | grep "<old_module>"
+        mock.patch targets are strings — they resolve at test runtime, so a
+        stale one passes import but fails the test. Expect zero hits.
+
+      Step 4b — STRING-TABLE DISPATCH (the blind spot that import-statement
+      greps structurally cannot see). This repo dispatches modules by dotted
+      path stored as a STRING, then imports it at runtime. There is no import
+      statement to find, and the table's own module still imports fine, so
+      every check above passes while the CLI path is broken. Confirmed
+      instances:
+        src/core/llm_handlers.py       _APP_MODULES maps app -> "mail.llm_cli" etc.
+        src/core/assistant_cli.py      APP_MODULES + import_module + getattr(module, "main")
+        src/telemetry/otel/cli/__init__.py  _SUBCOMMANDS maps 17 subcommands to dotted paths
+        src/maker/pipeline.py          getattr(mod, payload.entry_point) — attribute name is runtime data
+
+      For EVERY module path that moved, search for it as a bare quoted string
+      across code and config, not just as an import:
+        grep -rn "['\"]<old_module>" \
+          --include="*.py" --include="*.yaml" --include="*.yml" \
+          --include="*.json" --include="*.toml" --include="*.md" \
+          src/ tests/ bin/ .llm/ workflows/ concerns/ pyproject.toml 2>/dev/null
+      Also check the parent package path, since tables often name a package
+      rather than a module. Expect ZERO hits on any stale path; every hit is
+      a runtime break that no test may cover.
+
+      Then exercise the dispatchers for any touched group:
+        ./bin/llm --app <app> --help   (for src/core/llm_handlers.py paths)
+        ./bin/telemetry otel --help    (for telemetry.otel.cli paths)
+      A non-zero exit or a traceback here is a real failure even if the whole
+      unit-test suite is green.
+
+      Step 5 — bin/ entry point smoke check:
+        If any touched module is reachable from bin/, run the wrapper's
+        --help to confirm it still starts:
+          ./bin/<wrapper> --help >/dev/null 2>&1; echo "exit=$?"
+
+      Step 6 — write {workspace}/validation/callsite-check.json:
+        {
+          "modules_importable": [{"path": "...", "importable": true}],
+          "export_parity": [{"path": "...", "missing_symbols": [], "match": true}],
+          "dangling_imports": [],
+          "dangling_patch_targets": [],
+          "bin_entrypoints_ok": true,
+          "overall": "PASS|ISSUES"
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Every touched module imports without error
+        - No public symbol lost without its call sites updated
+        - Zero dangling imports of moved modules
+        - Zero stale mock.patch target strings
+        - Zero stale dotted module paths in string-dispatch tables or configs
+        - Dispatcher CLIs for touched groups start without traceback
+        - bin/ entry points still start
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/callsite-check.json
+
+  # ===========================================================================
+  # Recheck: did the complexity score actually move?
+  # ===========================================================================
+
+  - name: recheck
+    kind: validate
+    depends_on: [validate-callsites]
+    reads_from: [validate-callsites, reduce]
+    description: >
+      Confirm the reduction achieved its purpose and left the tree clean.
+
+      Step 1 — qlty lint on touched files:
+        ~/.qlty/bin/qlty check <space-separated .py files from the diff>
+        Attempt auto-fix on anything critical:
+          ~/.qlty/bin/qlty check --fix <file>
+
+        NOTE — auto-fix mutates source AFTER validate-callsites already
+        certified call-site parity, so any mutation here invalidates
+        callsite-check.json. If (and only if) --fix changed any file:
+          a. Re-run the import smoke check for each mutated module:
+               PYTHONPATH="$(pwd)/src" python3 -c "import <module_path>"
+          b. Re-run the string-table sweep from validate-callsites Step 4b for
+             any module path that moved.
+          c. Set "callsite_evidence_refreshed": true in recheck.json and list
+             the mutated files.
+        If --fix changed nothing, set "callsite_evidence_refreshed": false —
+        the parity evidence from validate-callsites still stands.
+        The same tests/ prohibition applies here: never --fix a test file.
+
+      Step 2 — complexity rescore, the actual success measure:
+        ~/.qlty/bin/qlty smells --all --json 2>/dev/null | \
+          python3 -c "import json,sys; d=json.load(sys.stdin); \
+            [print(i['value'], i['location']['path']) for i in d \
+             if i['ruleKey']=='file-complexity']" | sort -rn
+
+        For every file this workflow touched, compare against the "before"
+        value in {targets_file}:
+          - improved  — score dropped
+          - cleared   — score dropped below {complexity_floor} (no longer flagged)
+          - flat      — unchanged
+          - REGRESSED — score rose. This is a failure; investigate.
+
+        Also confirm this group's work did not push any UNTOUCHED file's score
+        up (possible if helpers were moved across files during a split).
+
+        For split entries specifically, a dropped score on the original path
+        is NOT by itself evidence of success — moving functions out lowers it
+        mechanically. Report the sum across the original file AND every
+        sibling created from it, and compare that sum to the pre-split value:
+          - a roughly flat sum means complexity was relocated, not reduced;
+            say so plainly rather than reporting the original file's drop as
+            an improvement
+          - a lower sum means real reduction happened alongside the split
+        Record both numbers so the human gate sees the honest picture.
+
+        Do not chase zero. A file landing in the 40-60 band after a real
+        reduction is a good outcome; contorting code to clear an arbitrary
+        threshold is not.
+
+      Step 3 — full suite once more:
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1
+
+      Step 4 — write {workspace}/validation/recheck.json:
+        {
+          "test_exit": 0,
+          "test_status": "PASS|FAIL",
+          "qlty_exit": 0,
+          "qlty_status": "PASS|ISSUES",
+          "callsite_evidence_refreshed": false,
+          "qlty_fix_mutated": [],
+          "complexity_delta": [
+            {"path": "...", "before": 81, "after": 44, "verdict": "cleared",
+             "strategy": "reduce-in-place"}
+          ],
+          "split_sums": [
+            {"original": "...", "before": 120,
+             "after_original": 60, "siblings": {"...": 58},
+             "sum_after": 118, "relocated_not_reduced": true}
+          ],
+          "files_cleared": 0,
+          "files_improved": 0,
+          "files_flat": 0,
+          "files_regressed": 0,
+          "new_flags_introduced": [],
+          "ready_for_commit": true
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - Full unittest discover exits 0
+        - qlty check exits 0 on all touched files
+        - No touched file regressed to a higher complexity score
+        - No previously-unflagged file became flagged
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/recheck.json
+
+  # ===========================================================================
+  # Human gate: present before/after, decide commit
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    human_gate: true
+    depends_on: [recheck]
+    reads_from: [recheck, reduce, validate-callsites]
+    description: >
+      Present this group's results and ask how to proceed.
+
+      Read and display:
+        {workspace}/outputs/reduce-summary.md          — what changed and why
+        {workspace}/validation/test-results.md         — test outcomes
+        {workspace}/validation/callsite-check.json     — call-site parity
+        {workspace}/validation/recheck.json            — score deltas
+
+      Surface, in this order:
+        - Complexity before/after per file, with verdict, sorted by delta
+        - Headline: N cleared, N improved, N flat, N regressed
+        - Files not improved, with the stated reason
+        - Test status: PASS / FAIL with blockers
+        - Any dangling call sites or stale patch targets (should be zero)
+
+      Be honest about flat results. A group where most files came back "flat"
+      means the complexity is structural and this approach did not fit — say
+      so plainly rather than presenting motion as progress.
+
+      Ask the user:
+        A) Commit this group — the user stages and commits the touched files
+        B) Fix a specific file — the user names it and what needs changing;
+           the fix happens in a follow-up run, not in this stage
+        C) Revert — the user discards this group's changes (git checkout)
+
+      This stage is read-only: it RECORDS the decision, it does not execute
+      it. None of the three options are performed by this workflow — each is
+      an action the user takes afterward. Do not imply otherwise in the
+      prompt you present.
+
+      Write {workspace}/validation/human-gate-decision.md with the decision.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md
