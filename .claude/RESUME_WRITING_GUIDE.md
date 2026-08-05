@@ -23,7 +23,9 @@ stacks, no filler. Those anti-patterns from `WRITING_GUIDE.md` apply here too.
 ## Voice
 
 - **Implied first person** — "Built X", never "I built X" and never "Brian built X"
-- **Past tense for prior roles**, present tense for the current role
+- **Past tense for prior roles.** In the current role, both are correct: present
+  tense for ongoing duties ("Operate Kafka clusters"), past tense for completed
+  accomplishments ("Delivered $300K in savings"). Don't force one or the other.
 - **Active voice throughout** — "Cut $1M in spend", not "Spend was reduced"
 - **No articles at bullet start** — "Built the pipeline" not "A pipeline was built"
 - Third person is acceptable in a LinkedIn About section only if used consistently;

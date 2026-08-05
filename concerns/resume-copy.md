@@ -25,7 +25,11 @@ a parser with deliberately malformed input.
   "Helped", "Assisted", "Worked on", "Involved in", "Participated in", "Tasked with",
   "Duties included", "Contributed to". Also triggers on a bullet opening with an
   article ("A", "An", "The") or a gerund ("Building", "Managing") rather than a
-  past-tense verb.
+  finite verb.
+- **tense**: Do NOT flag tense on the current role (the entry with `end: Present`).
+  Both readings are correct there — ongoing duties take present tense ("Operate
+  Kafka clusters"), completed accomplishments take past tense ("Delivered $300K in
+  savings"). Only flag a present-tense opener on a role that has *ended*.
 - **example**: `- Responsible for maintaining the Kafka clusters` — describes
   proximity to the work, not ownership of it. Rewrite: `- Operated Kafka clusters
   serving 40K msg/sec across three regions`.
@@ -97,12 +101,20 @@ a parser with deliberately malformed input.
 - **check**: Verify technology names use canonical vendor spelling and stay
   consistent across the profile. Recruiter and ATS keyword matching is literal, so
   a non-canonical spelling can drop the candidate from a search.
-- **triggers**: Non-canonical spellings such as "k8s" (Kubernetes), "postgres"
-  (PostgreSQL), "OTEL"/"otel" (OpenTelemetry), "terraform" (Terraform), "kafka"
-  (Kafka), "javascript" (JavaScript), "github" (GitHub); or the same technology
-  spelled two different ways within one profile directory.
-- **example**: `skills_groups.yaml` lists "Kubernetes" while `experience.yaml`
-  bullets say "k8s" — normalize both to "Kubernetes".
+- **triggers**: Miscased or misspelled vendor names anywhere — "terraform"
+  (Terraform), "kafka" (Kafka), "javascript" (JavaScript), "github" (GitHub),
+  "postgres" (PostgreSQL). Also: an abbreviation such as "k8s" or "OTEL" used in a
+  skills list or section heading, where the canonical name is what a recruiter
+  search matches.
+- **abbreviation exception**: Per `.claude/RESUME_WRITING_GUIDE.md`, an
+  abbreviation is acceptable *inside a bullet* once the canonical name has appeared
+  earlier in the same document. Do NOT flag "k8s" in a bullet if "Kubernetes"
+  appears in the skills list or an earlier bullet. Flag it only when no canonical
+  mention exists anywhere in the profile.
+- **example**: `experience.yaml` bullets say "k8s" and no file in the profile
+  directory ever says "Kubernetes" — the profile will miss a literal recruiter
+  search for Kubernetes. Add the canonical name to the skills list, or use it on
+  first mention.
 
 ### resume-date-inconsistency
 - **severity**: major
@@ -121,8 +133,8 @@ a parser with deliberately malformed input.
 ### resume-unverifiable-metric
 - **severity**: critical
 - **check**: Verify that quantified claims added or modified in a diff are
-  plausible and internally consistent. Inflated or invented metrics are the highest
-  -consequence defect in this genre — they survive review and fail in a
+  plausible and internally consistent. Inflated or invented metrics are the
+  highest-consequence defect in this genre — they survive review and fail in a
   reference check.
 - **triggers**: A metric changed in the diff without a corresponding source change
   (e.g. `$300K` becomes `$3M`); a metric that contradicts another bullet in the

@@ -57,7 +57,7 @@ command: |
         "check": "imperative sentence",
         "triggers": "what in the diff makes it relevant",
         "severity": "critical|major|minor",
-        "category": "correctness|security|tests|patterns|workflow",
+        "category": "correctness|security|tests|patterns|workflow|docs|resume-copy",
         "pr_count": N,
         "example_prs": [N, N, N]
       },
@@ -76,6 +76,7 @@ command: |
     tests       → concerns/tests.md
     patterns    → concerns/patterns.md
     workflow    → concerns/workflow.md, concerns/workflow-stages.md
+    docs        → concerns/docs.md
     resume-copy → concerns/resume-copy.md
 
   Read the target file and append the new concern using the same format:
