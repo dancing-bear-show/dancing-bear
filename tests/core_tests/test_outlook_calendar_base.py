@@ -193,6 +193,11 @@ class TestApplyReminder(unittest.TestCase):
         OutlookCalendarMixin._apply_reminder(payload, no_reminder=False, reminder_minutes=None)
         self.assertEqual(payload, {"existing": "value"})
 
+    def test_apply_reminder_non_numeric_minutes_raises_value_error(self):
+        payload = {}
+        with self.assertRaises(ValueError):
+            OutlookCalendarMixin._apply_reminder(payload, no_reminder=False, reminder_minutes="soon")
+
 
 class TestBuildRecurrencePattern(unittest.TestCase):
     """Tests for _build_recurrence_pattern static method."""
@@ -267,6 +272,10 @@ class TestBuildRecurrenceRange(unittest.TestCase):
         result = OutlookCalendarMixin._build_recurrence_range("2025-01-01", "2025-06-01", 10)
         self.assertEqual(result["type"], "endDate")
         self.assertNotIn("numberOfOccurrences", result)
+
+    def test_build_recurrence_range_non_numeric_count_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            OutlookCalendarMixin._build_recurrence_range("2025-01-01", None, "many")
 
 
 if __name__ == "__main__":

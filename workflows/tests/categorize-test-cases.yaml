@@ -1,0 +1,315 @@
+name: categorize-test-cases
+version: "1.1"
+description: >
+  Sweep every test_* method across tests/ and classify each as happy-path,
+  sad-path (error/edge), or unassigned (ambiguous intent). Map methods back to
+  the source symbols they exercise and emit a gap matrix identifying symbols
+  that have happy-path coverage but no sad-path coverage. The output matrix
+  (sad-path-gaps.json) is the fan_out source for fill-sad-path-gaps.yaml.
+
+  Static analysis only — no coverage tool and no test execution.
+
+  v1.1 folds in the adversarial critique (B1-B5): classification fans out over
+  fixed-size FILE BATCHES (not one agent per file); only real test_* methods
+  are counted; source-symbol modules are normalized to one canonical dotted
+  form; a method may carry MULTIPLE categories (subTest/parametrized loops);
+  the gap matrix records the git SHA it was computed against; and a validate
+  stage schema-checks the matrix before the human gate.
+
+metadata:
+  author: brian
+  created: "2026-08-02"
+
+trigger:
+  source: manual
+  params:
+    batch_size: "20"   # test files per classify agent (fan-out cardinality control)
+
+stages:
+  # ===========================================================================
+  # 1. Inventory every test method across the whole suite.
+  # ===========================================================================
+  - name: gather-test-methods
+    kind: gather
+    description: >
+      Produce a flat inventory of every test method in the repo.
+
+      Steps:
+        1. Run: find tests -name "test_*.py" -not -name "__init__.py"
+        2. For each file, extract every "def test_*" method name with its line
+           number. Track the enclosing "class Test*" name where present. Use the
+           ast module for correct class nesting; do NOT hand-transcribe (~9k
+           methods across ~440 files).
+        3. Aggregate into a JSON object with a top-level "methods" list. Each
+           entry has:
+             - file    (repo-relative path, e.g. tests/test_charts_cli.py)
+             - cls     (enclosing class name, or null if module-level)
+             - method  (the test method name)
+             - line    (1-indexed line of the def)
+        4. Only include names that start with "test_". Do NOT include setUp,
+           tearDown, or private helper methods — they are not test cases.
+        5. Do not read method bodies in this stage; names and locations only.
+
+      Write the result to {workspace}/outputs/test-methods.json.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Read, Bash, Grep]
+      access: read-only
+    outputs:
+      - name: test-methods
+        mode: generate
+        description: >
+          JSON object with key "methods": flat list of
+          {{file, cls, method, line}} for every test_* method.
+    validates_output:
+      - path: outputs/test-methods.json
+        checks: [is_json, has_key:methods]
+    writes_to:
+      - outputs/test-methods.json
+
+  # ===========================================================================
+  # 2. Partition files into fixed-size BATCHES (B3: bound fan-out cardinality).
+  # ===========================================================================
+  - name: partition-batches
+    kind: gather
+    depends_on: [gather-test-methods]
+    reads_from: [gather-test-methods]
+    description: >
+      Read {workspace}/outputs/test-methods.json and produce the fan_out work
+      list: distinct test files grouped into batches of {batch_size} files each.
+
+      Write {workspace}/outputs/batch-list.json with a top-level "items" array.
+      Each item is one batch:
+        - batch  (integer index, e.g. 0)
+        - files  (list of {{file, slug}} where slug = file with "/" and "."
+                  replaced by "_", e.g. tests_test_charts_cli_py)
+
+      One agent will be spawned per batch (not per file), so ~440 files at
+      batch_size=20 becomes ~22 agents. The top-level array MUST be named
+      "items" so downstream fan_out `field: items` resolves.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Read, Write]
+      access: read-only
+    outputs:
+      - name: batch-list
+        mode: generate
+        description: >
+          JSON object with key "items": list of {{batch, files:[{{file,slug}}]}}
+          — one entry per fan-out batch.
+    validates_output:
+      - path: outputs/batch-list.json
+        checks: [is_json, has_key:items]
+    writes_to:
+      - outputs/batch-list.json
+
+  - name: classify-methods
+    kind: execute
+    depends_on: [partition-batches]
+    reads_from: [gather-test-methods, partition-batches]
+    description: >
+      Classify every test method in one BATCH of test files (batch {batch}).
+
+      Read the batch's file list from the item's "files" array. For EACH file,
+      Read it and classify EVERY test_* method. A method may exercise more than
+      one path (e.g. a subTest / parametrized loop over valid AND invalid
+      inputs), so assign a SET of categories, "categories", drawn from:
+
+        happy       Exercises the normal/expected path: valid input producing a
+                    correct result; asserts a success value, transform, or state.
+
+        sad         Exercises an error/failure/edge path: assertRaises /
+                    pytest.raises, asserts a non-zero exit / error message,
+                    feeds invalid/empty/malformed/boundary/missing input, or
+                    verifies a rejection/validation-failure. Follow one level of
+                    local helper calls (e.g. _assert_rejects, run_cli_with_capture)
+                    to find the real assertion before deciding. Note: a CLI test
+                    asserting exit code 0 is happy; --help/usage asserting exit 2
+                    is NOT sad — it is happy (expected usage output).
+
+        unassigned  Genuinely ambiguous from name AND body (idempotency /
+                    round-trip / config-plumbing asserting neither success nor
+                    error; or a pass-only / smoke body). Use ONLY when the method
+                    fits neither happy nor sad. A method with categories
+                    ["happy","sad"] is NOT unassigned.
+
+      Record which source symbol(s) the method exercises as "targets":
+        - Infer from the file's imports and the call(s) under assertion.
+        - module: normalize to CANONICAL DOTTED form — strip a leading "src/",
+          drop the ".py" suffix, replace "/" with "." (so src/charts/cli.py and
+          charts/cli.py and charts.cli all become "charts.cli"). This is
+          mandatory — inconsistent module forms split one symbol into two and
+          corrupt the gap matrix.
+        - symbol: the function/class/method under test (e.g. parse_row, or
+          OutlookMailMixin.create_filter for a method).
+        - confidence: "high" | "low" — low if you are guessing the symbol.
+        - Do NOT attribute tests to an abstract base TestCase class's file;
+          attribute to the concrete symbol under test.
+        - Empty list if undeterminable.
+
+      This is a PER-BATCH stage: {batch} is the only substituted fan-out token.
+      There is NO single {slug} for the batch — each file carries its own slug in
+      the item's "files" list. For EACH file in files, write a separate shard to
+      {workspace}/outputs/shards/<that file's slug>.json (loop over files; do not
+      treat "slug" as one value for the whole batch):
+        {
+          "file": "<file>",
+          "methods": [
+            {
+              "cls": "TestFoo" | null,
+              "method": "test_parse_row_invalid",
+              "line": 42,
+              "categories": ["sad"],
+              "reason": "asserts SystemExit on malformed JSON",
+              "targets": [{"module":"charts.cli","symbol":"parse_row","confidence":"high"}]
+            }
+          ]
+        }
+
+      Every test_* method in each file appears exactly once. Do NOT emit entries
+      for non-test_* helpers. Name each shard by its own file's slug.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Grep]
+      access: read-only
+    required: true
+    fan_out:
+      source: partition-batches
+      field: items
+      key: batch
+      mode: agent
+    writes_to:
+      - outputs/shards/
+
+  # ===========================================================================
+  # 3. Consolidate shards into the classification report + the sad-path gap
+  #    matrix that drives the fix workflow.
+  # ===========================================================================
+  - name: build-matrix
+    kind: propose
+    depends_on: [classify-methods]
+    reads_from: [classify-methods, gather-test-methods]
+    description: >
+      Consolidate every per-file shard into two artifacts. Glob the shard
+      directory yourself ({workspace}/outputs/shards/*.json) — do NOT rely on
+      the orchestrator inlining hundreds of shards into your prompt. Prefer a
+      short python3 script for the aggregation; it is deterministic.
+
+      Count ONLY methods whose name starts with test_. Track a
+      non_test_methods_skipped integer for any stray non-test entries.
+
+      Artifact A — {workspace}/outputs/classification.json:
+        {
+          "totals": {"happy":N,"sad":N,"unassigned":N,"methods":N,"files":N},
+          "by_file": [{"file":"...","happy":N,"sad":N,"unassigned":N}],
+          "unassigned": [{"file":"...","cls":"...","method":"...","line":N,"reason":"..."}],
+          "non_test_methods_skipped": N
+        }
+        A method counts toward EACH category in its "categories" set for the
+        totals, but by_file counts and the unassigned list follow the primary
+        signal; a method is "unassigned" only if categories == ["unassigned"].
+
+      Artifact B — {workspace}/outputs/sad-path-gaps.json:
+        Aggregate targets into a per-symbol matrix keyed by the CANONICAL
+        (module, symbol). For each distinct symbol:
+          - happy_tests: [{{file,method}}] where any targeting method has
+            "happy" in its categories
+          - sad_tests:   same for "sad"
+          - GAP iff len(happy_tests) >= 1 AND len(sad_tests) == 0.
+
+        Emit ONLY gap symbols, most-happy-first, into a top-level "items" array:
+        {
+          "items": [
+            {
+              "slug": "<module>__<symbol> slugified, filename-safe>",
+              "module": "charts.cli",
+              "symbol": "parse_row",
+              "test_file": "tests/test_charts_cli.py",
+              "happy_test_count": 3,
+              "happy_examples": ["test_valid_row_returns_dict"],
+              "suggested_sad_cases": ["malformed input raises/exits",
+                                      "missing required field",
+                                      "empty / boundary input"]
+            }
+          ],
+          "gap_count": N,
+          "distinct_symbols": N,
+          "skipped_unassigned_only": N,
+          "source_sha": "<output of: git rev-parse HEAD>"
+        }
+
+        slug MUST be filename-safe (replace ".", "/", ":" with "_") — it becomes
+        the fill workflow's per-item shard filename and fan-out key, so bare
+        symbol names like "main" in two modules must not collide.
+        test_file = the file with the most happy methods for that symbol; never
+        an abstract base class file. gap_count MUST equal len(items).
+        source_sha pins the tree the matrix was computed against so the fill
+        workflow can refuse a stale matrix.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-only
+    required: true
+    outputs:
+      - name: classification
+        mode: generate
+        description: Classification report — totals, per-file counts, unassigned list.
+      - name: sad-path-gaps
+        mode: generate
+        description: >
+          JSON with key "items": per-symbol gap list (happy, no sad) plus
+          gap_count, distinct_symbols, skipped_unassigned_only, source_sha.
+    writes_to:
+      - outputs/classification.json
+      - outputs/sad-path-gaps.json
+
+  # ===========================================================================
+  # 4. Validate the matrix mechanically BEFORE the human gate (B3/B5).
+  # ===========================================================================
+  # NOTE: kind is `execute`, not `validate`, on purpose. The workflow engine
+  # (src/workflow/dispatch.py::_validate) builds a validate-stage prompt ONLY
+  # from validation.criteria and reads_from data — it never reads a validate
+  # stage's `description`. The full procedure below (the 5 checks + the gate
+  # presentation) must therefore live in an execute stage so nothing is dropped.
+  - name: validate-matrix
+    kind: execute
+    human_gate: true
+    depends_on: [build-matrix]
+    reads_from: [build-matrix]
+    description: >
+      Schema- and consistency-check the matrix, write a gate summary, then pause
+      for approval.
+
+      Read {workspace}/outputs/sad-path-gaps.json and classification.json and
+      confirm (write a PASS/FAIL line per check into the summary):
+        1. sad-path-gaps.json is a dict with a non-empty (or explicitly empty)
+           "items" list; gap_count == len(items).
+        2. Every item has: slug, module (dotted, no "/" or ".py"), symbol,
+           test_file (exists on disk, not an abstract base), happy_test_count>=1,
+           suggested_sad_cases (non-empty).
+        3. No two items share a slug (collision check).
+        4. classification totals: happy+sad counts are internally consistent
+           with by_file; non_test_methods_skipped is reported.
+        5. source_sha is present and equals the current git rev-parse HEAD
+           (warn loudly if it differs — the tree moved since classification).
+
+      Write {workspace}/outputs/gate-summary.md with: per-check PASS/FAIL,
+      totals, gap_count, the top 15 gap symbols, and the full unassigned list
+      for triage. This markdown is what the human reviews at the gate.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-only
+    required: true
+    validates_output:
+      - path: outputs/sad-path-gaps.json
+        checks: [is_json, has_key:items]
+      - path: outputs/classification.json
+        checks: [is_json, has_key:totals]
+    writes_to:
+      - outputs/gate-summary.md

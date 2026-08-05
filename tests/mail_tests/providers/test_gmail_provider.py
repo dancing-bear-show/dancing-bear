@@ -341,6 +341,103 @@ class TestGmailProviderCapabilities(unittest.TestCase):
             with self.subTest(cap=cap):
                 self.assertIn(cap, provider.capabilities())
 
+    def test_capabilities_does_not_contain_unexpected_value(self):
+        provider, _ = _make_provider()
+        self.assertNotIn("messages", provider.capabilities())
+
+
+class TestGmailProviderCapabilitiesSad(unittest.TestCase):
+    """capabilities() is a static literal; verify it stays independent of client state."""
+
+    def test_capabilities_unaffected_by_client_error(self):
+        # capabilities() never touches self._client, so even a client that raises
+        # on every call must not prevent capabilities() from returning normally.
+        provider, client = _make_provider()
+        client.list_labels.side_effect = RuntimeError("boom")
+        caps = provider.capabilities()
+        self.assertEqual(caps, {"labels", "filters", "sweep", "forwarding", "signatures"})
+
+
+class TestGmailProviderInitSad(unittest.TestCase):
+    """Constructor propagates GmailClient construction failures verbatim."""
+
+    def test_init_propagates_client_construction_error(self):
+        from mail.providers.gmail import GmailProvider
+
+        with patch("mail.providers.gmail.GmailClient") as mock_cls:
+            mock_cls.side_effect = OSError("cannot init client")
+            with self.assertRaises(OSError):
+                GmailProvider(
+                    credentials_path="/creds.json",  # nosec B106
+                    token_path="/tok.json",  # nosec B106
+                )
+
+    def test_init_propagates_cache_dir_makedirs_error(self):
+        from mail.providers.gmail import GmailProvider
+
+        with patch("mail.providers.gmail.GmailClient") as mock_cls, \
+             patch("mail.providers.base.MailCache") as mock_cache_cls:
+            mock_cls.return_value = MagicMock()
+            mock_cache_cls.side_effect = PermissionError("cannot create cache dir")
+            with self.assertRaises(PermissionError):
+                GmailProvider(
+                    credentials_path="/creds.json",  # nosec B106
+                    token_path="/tok.json",  # nosec B106
+                    cache_dir="/no/write/access",
+                )
+
+
+class TestGmailProviderLabelsSad(unittest.TestCase):
+    def test_list_labels_propagates_client_error(self):
+        provider, client = _make_provider()
+        client.list_labels.side_effect = RuntimeError("not authenticated")
+        with self.assertRaisesRegex(RuntimeError, "not authenticated"):
+            provider.list_labels()
+
+    def test_list_labels_propagates_http_error(self):
+        provider, client = _make_provider()
+        client.list_labels.side_effect = TimeoutError("upstream timeout")
+        with self.assertRaises(TimeoutError):
+            provider.list_labels(use_cache=True, ttl=60)
+
+    def test_delete_label_propagates_client_error(self):
+        provider, client = _make_provider()
+        client.delete_label.side_effect = RuntimeError("label not found")
+        with self.assertRaisesRegex(RuntimeError, "label not found"):
+            provider.delete_label("Label_missing")
+
+    def test_delete_label_propagates_error_for_empty_id(self):
+        provider, client = _make_provider()
+        client.delete_label.side_effect = ValueError("invalid label id")
+        with self.assertRaises(ValueError):
+            provider.delete_label("")
+
+
+class TestGmailProviderFiltersSad(unittest.TestCase):
+    def test_list_filters_propagates_client_error(self):
+        provider, client = _make_provider()
+        client.list_filters.side_effect = RuntimeError("not authenticated")
+        with self.assertRaisesRegex(RuntimeError, "not authenticated"):
+            provider.list_filters()
+
+    def test_list_filters_propagates_http_error(self):
+        provider, client = _make_provider()
+        client.list_filters.side_effect = TimeoutError("upstream timeout")
+        with self.assertRaises(TimeoutError):
+            provider.list_filters(use_cache=True, ttl=60)
+
+    def test_delete_filter_propagates_client_error(self):
+        provider, client = _make_provider()
+        client.delete_filter.side_effect = RuntimeError("filter not found")
+        with self.assertRaisesRegex(RuntimeError, "filter not found"):
+            provider.delete_filter("f_missing")
+
+    def test_delete_filter_propagates_error_for_empty_id(self):
+        provider, client = _make_provider()
+        client.delete_filter.side_effect = ValueError("invalid filter id")
+        with self.assertRaises(ValueError):
+            provider.delete_filter("")
+
 
 if __name__ == "__main__":
     unittest.main()

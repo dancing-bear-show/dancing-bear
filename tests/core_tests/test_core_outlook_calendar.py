@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from core.outlook.calendar import OutlookCalendarMixin
 from core.outlook._location import _normalize_days, _parse_location
 from core.outlook.models import EventCreationParams, RecurringEventCreationParams
@@ -610,6 +612,23 @@ class TestEventOperations(OutlookCalendarTestBase):
         self.assertTrue(payload.get("isReminderOn"))
         self.assertEqual(payload.get("reminderMinutesBeforeStart"), 30)
 
+    @patch("core.outlook.calendar._requests")
+    def test_create_event_api_error_propagates(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        error_response = make_mock_response(status_code=400, text="Bad Request")
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "400 Bad Request", response=error_response
+        )
+        mock_requests.post.return_value = error_response
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            OutlookCalendarMixin.create_event(
+                FakeClient(timezone="America/Toronto"),
+                EventCreationParams(
+                    subject="Meeting", start_iso="2025-01-15T10:00:00", end_iso="2025-01-15T11:00:00",
+                ),
+            )
+
 
 class TestRecurringEvents(OutlookCalendarTestBase):
     """Tests for recurring event creation."""
@@ -706,6 +725,21 @@ class TestEventUpdates(OutlookCalendarTestBase):
         self.assertEqual(payload["reminderMinutesBeforeStart"], 15)
 
     @patch("core.outlook.calendar._requests")
+    def test_update_event_reminder_api_error_propagates(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        error_response = make_mock_response(status_code=404, text="Not Found")
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "404 Not Found", response=error_response
+        )
+        mock_requests.patch.return_value = error_response
+
+        from core.outlook.models import UpdateEventReminderRequest
+        with self.assertRaises(requests.exceptions.HTTPError):
+            OutlookCalendarMixin.update_event_reminder(
+                FakeClient(), UpdateEventReminderRequest(event_id="missing-event", is_on=True, minutes_before_start=15)
+            )
+
+    @patch("core.outlook.calendar._requests")
     def test_update_event_settings(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
@@ -739,6 +773,18 @@ class TestEventUpdates(OutlookCalendarTestBase):
 
         self.assertEqual(mock_requests.patch.call_args.kwargs["json"]["subject"], "New Title")
 
+    @patch("core.outlook.calendar._requests")
+    def test_update_event_subject_api_error_propagates(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        error_response = make_mock_response(status_code=500, text="Internal Server Error")
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "500 Internal Server Error", response=error_response
+        )
+        mock_requests.patch.return_value = error_response
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            OutlookCalendarMixin.update_event_subject(FakeClient(), event_id="event-1", subject="New Title")
+
 
 class TestEventDeletion(OutlookCalendarTestBase):
     """Tests for event deletion methods."""
@@ -760,6 +806,18 @@ class TestEventDeletion(OutlookCalendarTestBase):
         OutlookCalendarMixin.delete_event(FakeClient(), "event-1", calendar_id="cal-1")
 
         self.assertIn("cal-1", mock_requests.delete.call_args[0][0])
+
+    @patch("core.outlook.calendar._requests")
+    def test_delete_event_non_success_status_raises(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        error_response = make_mock_response(status_code=404, text="Not Found")
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "404 Not Found", response=error_response
+        )
+        mock_requests.delete.return_value = error_response
+
+        with self.assertRaises(requests.exceptions.HTTPError):
+            OutlookCalendarMixin.delete_event(FakeClient(), "missing-event")
 
     @patch("core.outlook.calendar._requests")
     def test_delete_event_by_id_success(self, mock_requests_fn):
@@ -808,6 +866,21 @@ class TestListEvents(OutlookCalendarTestBase):
         self.assertNotIn("Lunch Break", subjects)
 
     @patch("core.outlook.calendar._requests")
+    def test_list_events_in_range_api_error_propagates(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        error_response = make_mock_response(status_code=401, text="Unauthorized")
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "401 Unauthorized", response=error_response
+        )
+        mock_requests.get.return_value = error_response
+
+        from core.outlook.models import ListEventsRequest
+        with self.assertRaises(requests.exceptions.HTTPError):
+            OutlookCalendarMixin.list_events_in_range(
+                FakeClient(), ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+            )
+
+    @patch("core.outlook.calendar._requests")
     def test_list_calendar_view(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": [{"id": "e1"}, {"id": "e2"}]})
@@ -830,6 +903,21 @@ class TestListEvents(OutlookCalendarTestBase):
         )
 
         self.assertIn("cal-123", mock_requests.get.call_args[0][0])
+
+    @patch("core.outlook.calendar._requests")
+    def test_list_calendar_view_api_error_propagates(self, mock_requests_fn):
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        error_response = make_mock_response(status_code=503, text="Service Unavailable")
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "503 Service Unavailable", response=error_response
+        )
+        mock_requests.get.return_value = error_response
+
+        from core.outlook.models import ListCalendarViewRequest
+        with self.assertRaises(requests.exceptions.HTTPError):
+            OutlookCalendarMixin.list_calendar_view(
+                FakeClient(), ListCalendarViewRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59"),
+            )
 
 
 if __name__ == "__main__":

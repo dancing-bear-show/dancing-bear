@@ -158,6 +158,38 @@ class TestSkillDispatcherResumeWithExistingResult(unittest.TestCase):
             self.assertTrue((tmp_path / "dispatch" / "001-done-stage.json").exists())
 
 
+class TestSkillDispatcherDispatchFileBlockedByExistingFile(unittest.TestCase):
+    """If 'dispatch' exists as a file (not a dir), mkdir raises FileExistsError."""
+
+    def test_dispatch_raises_file_exists_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            (tmp_path / "dispatch").write_text("not a directory", encoding="utf-8")
+            spec = make_stage_spec(name="blocked-stage")
+            stage = make_resolved_stage(spec=spec, index=0)
+            dispatcher = SkillDispatcher("test-workflow")
+
+            with self.assertRaises(FileExistsError):
+                dispatcher.dispatch(stage, tmp_path)
+
+
+class TestSkillDispatcherDispatchGroupPropagatesFailure(unittest.TestCase):
+    """dispatch_group aborts and propagates if any stage's dispatch raises."""
+
+    def test_one_bad_stage_raises_and_stops_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            (tmp_path / "dispatch").write_text("not a directory", encoding="utf-8")
+            good_spec = make_stage_spec(name="good-stage")
+            bad_spec = make_stage_spec(name="bad-stage")
+            good_stage = make_resolved_stage(spec=good_spec, index=0)
+            bad_stage = make_resolved_stage(spec=bad_spec, index=1)
+            dispatcher = SkillDispatcher("test-workflow")
+
+            with self.assertRaises(FileExistsError):
+                dispatcher.dispatch_group([good_stage, bad_stage], tmp_path)
+
+
 class TestSkillDispatcherDispatchGroup(unittest.TestCase):
     """3 stages → 3 dispatch files written."""
 
@@ -505,6 +537,93 @@ class TestCompositeDispatcherTriggerParams(unittest.TestCase):
     def test_constructor_defaults_to_empty_trigger_params(self) -> None:
         dispatcher = CompositeDispatcher("test-workflow")
         self.assertEqual(dispatcher._worker_queue._trigger_params, {})
+
+
+class TestCompositeDispatcherRaisesOnInlineExecutor(unittest.TestCase):
+    """executor='inline' is not supported by the Python dispatcher → NotImplementedError."""
+
+    def test_inline_executor_raises_not_implemented(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            spec = make_stage_spec(name="inline-stage", executor="inline")
+            stage = make_resolved_stage(spec=spec)
+            dispatcher = CompositeDispatcher("test-workflow")
+
+            with self.assertRaisesRegex(NotImplementedError, "inline-stage"):
+                dispatcher.dispatch(stage, tmp_path)
+
+    def test_inline_executor_error_mentions_agent_executor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            spec = make_stage_spec(name="inline-stage-2", executor="inline")
+            stage = make_resolved_stage(spec=spec)
+            dispatcher = CompositeDispatcher("test-workflow")
+
+            with self.assertRaisesRegex(NotImplementedError, "executor='agent'"):
+                dispatcher.dispatch(stage, tmp_path)
+
+
+class TestCompositeDispatcherPropagatesSkillDispatchFailure(unittest.TestCase):
+    """A sub-dispatcher failure (SkillDispatcher) propagates out of dispatch()."""
+
+    def test_skill_dispatch_error_propagates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            output = make_output_spec(name="report", mode=OutputMode.generate)
+            spec = make_stage_spec(name="gen-stage", outputs=(output,))
+            stage = make_resolved_stage(spec=spec)
+            dispatcher = CompositeDispatcher("test-workflow")
+
+            with patch.object(
+                dispatcher._skill, "dispatch", side_effect=OSError("disk full"),
+            ):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    dispatcher.dispatch(stage, tmp_path)
+
+
+class TestCompositeDispatcherPropagatesLocalDispatchFailure(unittest.TestCase):
+    """A sub-dispatcher failure (LocalDispatcher) propagates out of dispatch()."""
+
+    def test_local_dispatch_error_propagates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            output = make_output_spec(name="data", mode=OutputMode.invoke)
+            spec = make_stage_spec(name="invoke-only", outputs=(output,))
+            stage = make_resolved_stage(spec=spec, cli_commands=("echo test",))
+            dispatcher = CompositeDispatcher("test-workflow")
+
+            with patch.object(
+                dispatcher._local, "dispatch", side_effect=RuntimeError("boom"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "boom"):
+                    dispatcher.dispatch(stage, tmp_path)
+
+
+class TestCompositeDispatcherDispatchGroupPropagatesFailure(unittest.TestCase):
+    """dispatch_group aborts and propagates if any routed stage raises (e.g. inline executor)."""
+
+    def test_inline_stage_in_group_raises_and_stops_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            good_output = make_output_spec(name="data", mode=OutputMode.invoke)
+            good_spec = make_stage_spec(name="good-stage", outputs=(good_output,))
+            good_stage = make_resolved_stage(
+                spec=good_spec, index=0, cli_commands=("echo hi",),
+            )
+
+            inline_spec = make_stage_spec(name="inline-stage", executor="inline")
+            inline_stage = make_resolved_stage(spec=inline_spec, index=1)
+
+            dispatcher = CompositeDispatcher("test-workflow")
+
+            with patch(
+                "workflow.dispatchers.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="hi", stderr="",
+                ),
+            ):
+                with self.assertRaises(NotImplementedError):
+                    dispatcher.dispatch_group([good_stage, inline_stage], tmp_path)
 
 
 if __name__ == "__main__":

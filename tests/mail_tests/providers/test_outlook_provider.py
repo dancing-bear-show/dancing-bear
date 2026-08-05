@@ -67,6 +67,13 @@ class TestOutlookProviderInit(unittest.TestCase):
         from mail.providers.outlook import OutlookProvider
         self.assertEqual(OutlookProvider._provider_name, "outlook")
 
+    def test_propagates_client_construction_failure(self):
+        with patch("mail.providers.outlook.OutlookClient") as mock_cls:
+            mock_cls.side_effect = RuntimeError("Failed to start device flow for Microsoft Graph")
+            from mail.providers.outlook import OutlookProvider
+            with self.assertRaisesRegex(RuntimeError, "Failed to start device flow for Microsoft Graph"):
+                OutlookProvider(client_id="cid")
+
 
 class TestOutlookProviderAuthenticate(unittest.TestCase):
     """Tests for OutlookProvider.authenticate."""
@@ -90,6 +97,14 @@ class TestOutlookProviderGetProfile(unittest.TestCase):
         provider.get_profile()
         mock_client.get_profile.assert_not_called()
 
+    def test_ignores_client_configured_to_raise(self):
+        # get_profile never touches self._client, so even a client rigged to
+        # blow up on any attribute access must not affect the result.
+        provider, mock_client = _make_provider()
+        mock_client.get_profile.side_effect = RuntimeError("OutlookClient not authenticated")
+        result = provider.get_profile()
+        self.assertEqual(result, {"provider": "outlook"})
+
 
 class TestOutlookProviderListLabels(unittest.TestCase):
     """Tests for OutlookProvider.list_labels."""
@@ -106,6 +121,13 @@ class TestOutlookProviderListLabels(unittest.TestCase):
         mock_client.list_labels.return_value = []
         provider.list_labels(use_cache=True, ttl=60)
         mock_client.list_labels.assert_called_once_with(use_cache=True, ttl=60)
+
+    def test_propagates_client_http_error(self):
+        import requests
+        provider, mock_client = _make_provider()
+        mock_client.list_labels.side_effect = requests.HTTPError("500 Server Error")
+        with self.assertRaises(requests.HTTPError):
+            provider.list_labels()
 
 
 class TestOutlookProviderGetLabelIdMap(unittest.TestCase):
@@ -149,6 +171,23 @@ class TestOutlookProviderCreateLabel(unittest.TestCase):
         call_kwargs = mock_client.create_label.call_args.kwargs
         self.assertIsNone(call_kwargs["color"])
 
+    def test_name_none_when_no_name_or_displayName(self):
+        # No real validation exists at this layer: with neither `name` nor
+        # `displayName` supplied, name=None is forwarded to the client, which
+        # is the real failure mode (client rejects the None name, not this method).
+        provider, mock_client = _make_provider()
+        mock_client.create_label.return_value = {}
+        provider.create_label(color="red")
+        call_kwargs = mock_client.create_label.call_args.kwargs
+        self.assertIsNone(call_kwargs["name"])
+
+    def test_propagates_client_http_error(self):
+        import requests
+        provider, mock_client = _make_provider()
+        mock_client.create_label.side_effect = requests.HTTPError("409 Conflict")
+        with self.assertRaises(requests.HTTPError):
+            provider.create_label(name="Duplicate")
+
 
 class TestOutlookProviderUpdateLabel(unittest.TestCase):
     """Tests for OutlookProvider.update_label."""
@@ -176,6 +215,19 @@ class TestOutlookProviderEnsureLabel(unittest.TestCase):
         mock_client.ensure_label.return_value = "id"
         provider.ensure_label("Work", color="blue")
         mock_client.ensure_label.assert_called_once_with("Work", color="blue")
+
+    def test_propagates_client_http_error(self):
+        import requests
+        provider, mock_client = _make_provider()
+        mock_client.ensure_label.side_effect = requests.HTTPError("500 Server Error")
+        with self.assertRaises(requests.HTTPError):
+            provider.ensure_label("Work")
+
+    def test_propagates_unauthenticated_error(self):
+        provider, mock_client = _make_provider()
+        mock_client.ensure_label.side_effect = RuntimeError("OutlookClient not authenticated")
+        with self.assertRaisesRegex(RuntimeError, "OutlookClient not authenticated"):
+            provider.ensure_label("Work")
 
 
 class TestOutlookProviderDeleteLabel(unittest.TestCase):
@@ -323,6 +375,16 @@ class TestOutlookProviderCapabilities(unittest.TestCase):
     def test_returns_set(self):
         provider, _ = _make_provider()
         self.assertIsInstance(provider.capabilities(), set)
+
+    def test_mutating_returned_set_does_not_affect_next_call(self):
+        # capabilities() must hand back an independent set each call; if the
+        # implementation ever returns a shared literal, mutating one result
+        # would silently corrupt every subsequent caller's view.
+        provider, _ = _make_provider()
+        first = provider.capabilities()
+        first.add("sweep")
+        second = provider.capabilities()
+        self.assertNotIn("sweep", second)
 
 
 if __name__ == "__main__":

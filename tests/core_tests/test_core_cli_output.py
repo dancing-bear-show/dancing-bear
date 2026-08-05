@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+import unittest.mock
 from dataclasses import dataclass
 from enum import Enum
 from io import StringIO
@@ -409,6 +410,61 @@ class TestToRows(unittest.TestCase):
     def test_other_wrapped_in_list(self):
         result = self.writer._to_rows("string")
         self.assertEqual(result, ["string"])
+
+
+class TestOutputWriterPrintSadPath(unittest.TestCase):
+    def test_print_raises_on_invalid_file_kwarg(self):
+        writer = OutputWriter()
+
+        class NoWrite:
+            """Object without a write() method, invalid as a print() file target."""
+
+        with self.assertRaises(AttributeError):
+            writer.print("hello", file=NoWrite())
+
+
+class TestOutputWriterListSadPath(unittest.TestCase):
+    def test_print_list_raises_on_none_items(self):
+        buf = StringIO()
+        config = OutputConfig(file=buf)
+        writer = OutputWriter(config)
+        with self.assertRaises(TypeError):
+            writer.print_list(None)
+
+
+class TestOutputWriterDictSadPath(unittest.TestCase):
+    def test_print_dict_raises_on_non_dict_data(self):
+        buf = StringIO()
+        config = OutputConfig(file=buf)
+        writer = OutputWriter(config)
+        with self.assertRaises(AttributeError):
+            writer.print_dict("not a dict")
+
+    def test_print_dict_raises_on_none_data(self):
+        buf = StringIO()
+        config = OutputConfig(file=buf)
+        writer = OutputWriter(config)
+        with self.assertRaises(AttributeError):
+            writer.print_dict(None)
+
+
+class TestToRowsSadPath(unittest.TestCase):
+    def setUp(self):
+        self.writer = OutputWriter()
+
+    def test_to_rows_raises_on_dataclass_type_not_instance(self):
+        # SampleData the class itself (not an instance) is_dataclass()==True,
+        # but asdict() requires an instance and raises TypeError.
+        with self.assertRaises(TypeError):
+            self.writer._to_rows(SampleData)
+
+
+class TestOutputTableSadPath(unittest.TestCase):
+    def test_output_table_raises_on_dataclass_type_not_instance(self):
+        buf = StringIO()
+        with unittest.mock.patch("sys.stdout", buf):
+            with self.assertRaises(TypeError):
+                output_table(SampleData)
 
 
 if __name__ == "__main__":
