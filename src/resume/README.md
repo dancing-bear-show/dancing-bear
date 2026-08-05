@@ -13,7 +13,7 @@ CLI to extract and summarize resume data from LinkedIn profiles and existing res
 title: Resume CLI Commands
 ---
 flowchart LR
-    cli["./bin/resume"]
+    cli["./bin/assistant resume\n(python3 -m resume)"]
     app["CLIApp\ncli/main.py"]
     extract["extract"]
     summarize["summarize"]
@@ -46,10 +46,10 @@ title: Resume Processing Pipeline
 flowchart TB
     src["Sources\n(LinkedIn txt, resume docx/pdf/txt)"]
     extract["extract\nparse_linkedin_text / parse_resume_text\nparse_resume_docx / parse_resume_pdf\nmerge_profiles()"]
-    data["data.json\n(CandidateData)"]
+    data["data.json\n(CandidateData = Dict[str, Any]\nmodel.py)"]
     overlays["overlays.py\napply_profile_overlays()\nconfig/profiles/<prefix>/"]
     align["align\nalign_candidate_to_job()\nbuild_tailored_candidate()\naligner.py + keyword_matcher.py"]
-    job["job.yaml\n(KeywordSpec)"]
+    job["job.yaml\njob.py build_keyword_spec()"]
     alignment_json["alignment.json\ntailored.json"]
     filterpipeline["FilterPipeline\npipeline.py\n.with_profile_overlays()\n.with_skill_filter()\n.with_experience_filter()\n.with_priority_filter()"]
     summarize["summarize\nbuild_summary()\nsummarizer.py"]

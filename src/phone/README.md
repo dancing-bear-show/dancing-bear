@@ -20,7 +20,7 @@ flowchart TB
     mobileconfig["out/ios.merged.mobileconfig"]
     install["cfgutil install-profile\n(Code 625 = tap Install on device)"]
     device["iOS Device"]
-    reorg["reorg\ncmd_reorg()\ncmd_merge.py"]
+    reorg["reorg\ncmd_reorg()\ncli/cmd_merge.py"]
 
     cli --> app
     app --> export_dev

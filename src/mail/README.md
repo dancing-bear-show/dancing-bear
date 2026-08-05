@@ -14,10 +14,10 @@ title: Mail Module Architecture
 ---
 flowchart TB
     bin["./bin/mail-assistant"]
-    cli["cli/main.py\nCLIApp + CLIGroups"]
+    cli["cli/main.py\nCLIApp"]
     subgraph groups["Command Groups"]
-        g_labels["labels\n(LabelSync)"]
-        g_filters["filters\n(FiltersPlan/Sync/Export)"]
+        g_labels["labels\n(LabelsPlan/Sync/Export\nProcessors)"]
+        g_filters["filters\n(FiltersPlan/Sync/Export\nProcessors)"]
         g_messages["messages\n(search/summarize/reply)"]
         g_outlook["outlook\n(auth/rules/categories/folders)"]
         g_auto["auto\n(propose/apply/summary)"]
@@ -30,7 +30,8 @@ flowchart TB
         p_outlook["providers/outlook.py\nOutlookProvider"]
     end
     subgraph pipeline["Pipeline (core/pipeline.py)"]
-        proc["SafeProcessor\n(FiltersPlanProcessor\nFiltersSyncProcessor\nFiltersExportProcessor)"]
+        proc["SafeProcessor\n(FiltersPlanProcessor\nFiltersExportProcessor)"]
+        proc_plain["Processor\n(FiltersSyncProcessor\nLabelsPlan/SyncProcessor)"]
         prod["BaseProducer\n→ OutputWriter"]
     end
     api_gmail["Gmail API\n(gmail_api.py)"]
@@ -45,8 +46,8 @@ flowchart TB
     g_auto --> pipeline
     g_accounts --> pipeline
     pipeline --> providers
-    providers --> api_gmail
-    providers --> api_outlook
+    p_gmail --> api_gmail
+    p_outlook --> api_outlook
 ```
 
 Filter config data flow (unified YAML → provider sync):
@@ -57,7 +58,7 @@ title: Filter Sync Data Flow
 ---
 flowchart LR
     unified["config/filters_unified.yaml"]
-    derive["config derive.filters"]
+    derive["config derive filters\n--in / --out-gmail / --out-outlook"]
     gmail_yaml["out/filters.gmail.yaml"]
     outlook_yaml["out/filters.outlook.yaml"]
     plan["filters plan\nFiltersPlanProcessor"]
@@ -79,7 +80,7 @@ Key modules:
 - `outlook_api/client.py` — Graph API client (lazy import, MSAL auth)
 - `filters/processors_plan.py` — `FiltersPlanProcessor`, `FiltersSyncProcessor`, `FiltersExportProcessor`
 - `filters/processors_sweep.py` — `FiltersSweepProcessor`, `FiltersPruneProcessor`
-- `labels/processors.py` — `LabelSyncProcessor` / `LabelSyncProducer`
+- `labels/processors.py` — `LabelsPlanProcessor`, `LabelsSyncProcessor`; producers in `labels/producers.py` (`LabelsPlanProducer`, `LabelsSyncProducer`, `LabelsExportProducer`)
 - `auto/processors.py` — `AutoProposeProcessor`, `AutoApplyProcessor`
 - `accounts/pipeline.py` — multi-account fan-out over configured providers
 - `config_cli/pipeline_derive.py` — unified YAML → per-provider YAML derivation

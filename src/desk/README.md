@@ -55,7 +55,7 @@ rules:
 title: desk CLI flow
 ---
 flowchart LR
-    cli["./bin/desk-assistant (cli.py)"]
+    cli["python3 -m desk (cli.py)"]
     subgraph commands
         scan[scan]
         plan[plan]

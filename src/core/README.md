@@ -16,7 +16,7 @@ flowchart TB
     dispatch --> handler[command handler\ne.g. cmd_list]
     handler --> writer[OutputWriter\ncli_output.py]
     writer --> stdout[stdout / stderr]
-    parse -->|error| suggest[_suggestions_for_error\ncli_suggestions.py]
+    parse -->|error| suggest[_HelpfulArgumentParser\n._suggestions_for_error\n→ cli_suggestions.py\nsuggest_command / suggest_flags]
     suggest --> stderr[stderr hint]
 ```
 

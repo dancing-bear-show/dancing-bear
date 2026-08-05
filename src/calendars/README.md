@@ -50,7 +50,7 @@ flowchart TB
     i_base --> i_csv
     i_base --> i_xlsx
     i_base --> i_web
-    pipelines --> svc_outlook
+    o_pipelines --> svc_outlook
     g_pipelines --> svc_gmail
 ```
 
@@ -62,7 +62,7 @@ Key modules:
 - `gmail_pipelines.py` — `GmailScanProducer`; shared scan output for Gmail-based commands
 - `importer/base.py` — `CalendarProvider(Protocol)` and `ScheduleParser(ABC)`; provider-agnostic event model
 - `importer/csv_parser.py`, `xlsx_parser.py`, `web_parser_vendors.py` — concrete parsers for schedule-import sources
-- `model.py` / `gmail_pipelines.py` — `CalendarEvent` dataclass (shared event model)
+- `gmail_pipelines.py` — `CalendarEvent` dataclass (shared event model)
 
  Key Commands
 - Add single: `./bin/calendar --profile outlook_personal outlook add --subject "Soccer" --calendar "Your Family" --start 2025-10-10T17:00 --end 2025-10-10T18:00 --location "Venue (street, city, ST POSTAL)"`
