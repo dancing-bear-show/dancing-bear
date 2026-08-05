@@ -29,7 +29,7 @@ flowchart LR
     processor --> result[valid / invalid]
 ```
 
-`cmd_render` routes through `SafeProcessor`/`BaseProducer` via `run_pipeline`. `cmd_validate` calls `RenderDiagramProcessor().process()` directly against a temp SVG and suppresses success output.
+`cmd_render` routes through `SafeProcessor`/`BaseProducer` via `run_pipeline`. `cmd_validate` calls `RenderDiagramProcessor().process()` directly against a throwaway SVG in a temp dir — the rendered artifact is discarded, and only a `Valid:`/`Invalid:` line is written to stderr.
 
 Key Modules
 - `cli.py` — command dispatch; `cmd_render` uses `run_pipeline(request, RenderDiagramProcessor, RenderDiagramProducer)`

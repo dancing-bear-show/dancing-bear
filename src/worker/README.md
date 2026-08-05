@@ -20,7 +20,7 @@ title: Worker — enqueue to dispatch flow
 flowchart TB
     cli[./bin/worker enqueue] --> enqueue[queue_ops.py\nenqueue]
     enqueue --> pending[pending/\njob JSON file]
-    pending --> daemon[commands.py\nDaemonCommand loop]
+    pending --> daemon[commands.py\nDaemonRunner loop]
     daemon --> processing[processing/\n rename]
     processing --> safe[JobSafeProcessor\n_process_safe]
     safe --> registry[handlers.py\nREGISTRY lookup]
@@ -33,7 +33,7 @@ Jobs are file-based JSON under `QUEUE_ROOT`; atomicity is via write-to-temp + re
 
 Key Modules
 - `cli.py` — CLIApp-based CLI dispatch; `main()` calls `app.run()`, which catches `CLIError`, `KeyboardInterrupt`, and other exceptions via `handle_error()`
-- `commands.py` — command implementations: `ShowCommand`, `StatusCommand`, `RetryCommand`; `JobSafeProcessor`/`JobResultProducer` for job execution
+- `commands.py` — command implementations: `ShowCommand`, `StatusCommand`, `RetryCommand`; `DaemonRunner` for the poll loop; `JobSafeProcessor`/`JobResultProducer` for job execution
 - `handlers.py` — job type handlers; `ShellJobProcessor`/`ShellJobResult` for subprocess jobs
 - `helpers.py` — `QueueRootIsolationMixin` for test queue isolation
 
