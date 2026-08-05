@@ -1,7 +1,42 @@
 # Core Modules
 
 Shared scaffolding for all assistants plus lightweight utilities used across CLIs.
-Modules:
+
+## Architecture
+
+```mermaid
+---
+title: Core — CLIApp dispatch
+---
+flowchart TB
+    argv[argv] --> app[CLIApp.run\ncli_framework.py]
+    app --> strip[strip bare --\nnormalize argv]
+    strip --> parse[_HelpfulArgumentParser\n.parse_args]
+    parse --> dispatch[dispatch to\nCommandDef.func]
+    dispatch --> handler[command handler\ne.g. cmd_list]
+    handler --> writer[OutputWriter\ncli_output.py]
+    writer --> stdout[stdout / stderr]
+    parse -->|error| suggest[_HelpfulArgumentParser\n._suggestions_for_error\n→ cli_suggestions.py\nsuggest_command / suggest_flags]
+    suggest --> stderr[stderr hint]
+```
+
+```mermaid
+---
+title: Core — SafeProcessor / BaseProducer pipeline
+---
+flowchart LR
+    request[Request dataclass] --> consumer[RequestConsumer\n.consume]
+    consumer --> processor[SafeProcessor\n._process_safe]
+    processor -->|success| envelope[ResultEnvelope\nstatus=success]
+    processor -->|CLIError / Exception| envelope2[ResultEnvelope\nstatus=error]
+    envelope --> producer[BaseProducer\n.produce]
+    envelope2 --> producer
+    producer --> writer[OutputWriter\nprint / print_error]
+```
+
+`CLIApp` (first diagram) is the command-registration + dispatch layer used by all domain CLIs. The `SafeProcessor`/`BaseProducer` pipeline (second diagram) is used within command handlers for I/O-bound operations (subprocess, network, file rendering).
+
+## Modules
 
 - `pipeline.py` — pipeline patterns: `SafeProcessor` (automatic error handling), `BaseProducer` (template method for output), `ResultEnvelope`, and `RequestConsumer` type alias.
 - `context.py` — lightweight `AppContext` used to pass args/config/root paths.

@@ -10,6 +10,28 @@ Key Commands
 - List workflows: `./bin/workflow list`
 - Show status: `./bin/workflow status out/my-workflow-run`
 
+Architecture
+
+```mermaid
+---
+title: Workflow Engine — DAG execution pipeline
+---
+flowchart TB
+    YAML[workflow.yaml] --> parse[parser.py\nparse_workflow]
+    parse --> validate[parser_validate.py\n_validate_dag]
+    validate --> compile[compiler.py\ncompile_workflow]
+    compile --> manifest[WorkflowManifest\nparallel groups]
+    manifest --> orchestrator[orchestrator.py\nWorkflowOrchestrator]
+    orchestrator --> group1[parallel group N]
+    group1 --> dispatcher[dispatchers.py\nLocalDispatcher]
+    dispatcher --> stage[ResolvedStage\nCLI command]
+    stage --> persist[persistence.py\nwrite_stage_result]
+    persist --> orchestrator
+    orchestrator --> done[WorkflowRun complete]
+```
+
+`compiler.py` performs BFS topological sort to produce parallel groups; `orchestrator.py` walks groups and pauses on human gates.
+
 Key Modules
 - `cli.py` — command dispatch; `_emit_one`/`_emit_rows` delegate to `core.cli_output`
 - `cli_dispatch.py` — argument resolution; errors raise `CLIError` (not `SystemExit`)

@@ -18,6 +18,43 @@ Key Modules
 - `excel_chart.py` — Excel summary generation
 - `outlook_scan.py` — Outlook cost scanning
 
+Architecture
+
+```mermaid
+---
+title: metals CLI flow
+---
+flowchart LR
+    cli["./bin/metals (cli/main.py)"]
+    subgraph commands
+        extract_gmail[extract gmail]
+        extract_outlook[extract outlook]
+        costs_gmail[costs gmail]
+        spot_fetch[spot fetch]
+        premium[premium calc]
+        excel[excel merge]
+    end
+    subgraph pipeline ["pipeline.py"]
+        GmailExtractProcessor
+        OutlookExtractProcessor
+        SpotPriceProcessor
+    end
+    gmail[(Gmail)]
+    outlook[(Outlook)]
+    spot[(spot price API)]
+    out_yaml[out/metals.yaml]
+    out_xlsx[portfolio.xlsx]
+    cli --> extract_gmail --> GmailExtractProcessor --> gmail
+    cli --> extract_outlook --> OutlookExtractProcessor --> outlook
+    cli --> spot_fetch --> SpotPriceProcessor --> spot
+    GmailExtractProcessor --> out_yaml
+    OutlookExtractProcessor --> out_yaml
+    SpotPriceProcessor --> out_yaml
+    cli --> costs_gmail
+    cli --> premium
+    cli --> excel --> out_xlsx
+```
+
 Pipeline Pattern
 - Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
 - Missing credentials raise `CLIError`; bare `except` blocks annotated `# nosec B110/B112`.

@@ -1,10 +1,41 @@
-Schedule Assistant
+# Schedule Assistant
 
-Overview
-- Lightweight plan/verify/sync helpers for schedule plans (Outlook-focused).
-- For bulk imports, use the Calendar CLI schedule import to create Outlook events from CSV/XLSX/PDF/website inputs.
+## Overview
 
-Recommended Commands
+Lightweight plan/verify/sync helpers for schedule plans (Outlook-focused). For bulk imports, use the Calendar CLI schedule import to create Outlook events from CSV/XLSX/PDF/website inputs.
+
+## Architecture
+
+```mermaid
+---
+title: Schedule Pipeline
+---
+flowchart TB
+    src["Source\n(CSV/XLSX/PDF/website)"]
+    plan_cmd["plan\nPlanProcessor → PlanProducer\ncalendars.importer.load_schedule()"]
+    plan_yaml["out/schedule.plan.yaml"]
+    verify_cmd["verify\nVerifyProcessor → VerifyProducer\npipeline_verify.py"]
+    sync_cmd["sync\nSyncProcessor → SyncProducer\npipeline_verify.py + pipeline_expand.py"]
+    apply_cmd["apply\nApplyProcessor → ApplyProducer\npipeline.py"]
+    compress_cmd["compress\ncmd_compress()\ngroup one-offs → weekly series"]
+    export_cmd["export\nExportScheduleProcessor\nOutlook → YAML backup"]
+    outlook["Outlook Calendar API"]
+
+    src --> plan_cmd
+    plan_cmd --> plan_yaml
+    plan_yaml --> verify_cmd
+    plan_yaml --> sync_cmd
+    plan_yaml --> apply_cmd
+    plan_yaml --> compress_cmd
+    verify_cmd --> outlook
+    sync_cmd --> outlook
+    apply_cmd --> outlook
+    export_cmd --> outlook
+```
+
+All commands route through `SafeProcessor`/`BaseProducer` from `core/pipeline.py`. Errors raise `CLIError`; apply defaults to dry-run unless `--apply` is passed.
+
+## Recommended Commands
 - Import schedules into a dedicated calendar:
   - `./bin/calendar --profile outlook_personal outlook schedule-import --calendar "Community Centre" --source schedules/fall.csv --kind csv --tz America/Toronto`
 - Plan to YAML (ephemeral):

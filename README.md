@@ -74,18 +74,20 @@ flowchart TB
     user([You - CLI or Claude Code])
     assistant[./bin/assistant]
     bins[bin/* wrappers]
-    mail[mail/]
-    calendars[calendars/]
-    schedule[schedule/]
-    resume[resume/]
-    phone[phone/]
-    whatsapp[whatsapp/]
-    other[wifi/, metals/, apple_music/, maker/]
-    core[core/ - shared helpers, CLI framework]
-    workflow[workflow/ - YAML DAG engine]
+    mail[src/mail/]
+    calendars[src/calendars/]
+    schedule[src/schedule/]
+    resume[src/resume/]
+    phone[src/phone/]
+    whatsapp[src/whatsapp/]
+    other["src/wifi/ src/metals/ src/apple_music/ src/maker/"]
+    desk["src/desk/ (python3 -m desk)"]
+    core[src/core/ - shared helpers and CLI framework]
+    workflow[src/workflow/ - YAML DAG engine]
     providers[Gmail, Outlook, iOS, local APIs]
     user -->|dispatch| assistant
     user -->|direct| bins
+    user -->|direct| desk
     assistant --> mail
     assistant --> calendars
     assistant --> schedule
@@ -106,6 +108,7 @@ flowchart TB
     resume --> core
     phone --> core
     whatsapp --> core
+    desk --> core
     mail --> providers
     calendars --> providers
     schedule --> providers

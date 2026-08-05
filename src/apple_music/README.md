@@ -16,6 +16,40 @@ Key Modules
 - `cli_playlist.py` — playlist mutation commands
 - `client.py` — AppleScript-based music client; `AppleMusicCLIError` subclasses `CLIError`
 
+Architecture
+
+```mermaid
+---
+title: apple_music CLI flow
+---
+flowchart LR
+    cli["./bin/apple-music-assistant (cli.py)"]
+    subgraph commands
+        ping[ping]
+        list_cmd[list]
+        tracks[tracks]
+        export[export]
+        create[create]
+        dedupe[dedupe]
+    end
+    client["client.py (AppleMusicClient, AppleScript)"]
+    subgraph processors
+        ListPlaylistsProcessor
+        TracksProcessor
+        ExportProcessor
+    end
+    out[stdout / --out file]
+    credentials["~/.config/credentials.ini"]
+    cli --> ping --> client
+    cli --> list_cmd --> ListPlaylistsProcessor --> client
+    cli --> tracks --> TracksProcessor --> client
+    cli --> export --> ExportProcessor --> client
+    cli --> create --> client
+    cli --> dedupe --> client
+    client --> out
+    credentials --> client
+```
+
 Pipeline Pattern
 - Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
 - Request types: `ListPlaylistsRequest`, `TracksRequest`, `ExportRequest`.

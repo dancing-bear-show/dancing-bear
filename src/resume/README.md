@@ -1,11 +1,83 @@
-Resume Assistant
+# Resume Assistant
 
-Overview
-- CLI to extract and summarize resume data from LinkedIn profile text and existing resumes, and render a tailored DOCX resume from a simple YAML template.
- - Formatting emphasizes compact, one‑page output with no unused whitespace.
- - Header and bullet rendering are abstracted for consistent, tunable styling.
+## Overview
 
-Quick Start
+CLI to extract and summarize resume data from LinkedIn profiles and existing resumes, and render a tailored DOCX from a YAML template. Formatting targets compact, one-page output. Header and bullet rendering are abstracted for consistent, tunable styling.
+
+## Architecture
+
+### CLI Dispatch
+
+```mermaid
+---
+title: Resume CLI Commands
+---
+flowchart LR
+    cli["./bin/assistant resume\n(python3 -m resume)"]
+    app["CLIApp\ncli/main.py"]
+    extract["extract"]
+    summarize["summarize"]
+    render["render"]
+    align["align"]
+    structure["structure"]
+    candidate["candidate-init"]
+    stylebuild["style build"]
+    experience["experience export"]
+    files["files tidy"]
+
+    cli --> app
+    app --> extract
+    app --> summarize
+    app --> render
+    app --> align
+    app --> structure
+    app --> candidate
+    app --> stylebuild
+    app --> experience
+    app --> files
+```
+
+### Pipeline (extract → align → filter → render)
+
+```mermaid
+---
+title: Resume Processing Pipeline
+---
+flowchart TB
+    src["Sources\n(LinkedIn txt, resume docx/pdf/txt)"]
+    extract["extract\nparse_linkedin_text / parse_resume_text\nparse_resume_docx / parse_resume_pdf\nmerge_profiles()"]
+    data["data.json\n(CandidateData = Dict[str, Any]\nmodel.py)"]
+    overlays["overlays.py\napply_profile_overlays()\nconfig/profiles/<prefix>/"]
+    align["align\nalign_candidate_to_job()\nbuild_tailored_candidate()\naligner.py + keyword_matcher.py"]
+    job["job.yaml\njob.py build_keyword_spec()"]
+    alignment_json["alignment.json\ntailored.json"]
+    filterpipeline["FilterPipeline\npipeline.py\n.with_profile_overlays()\n.with_skill_filter()\n.with_experience_filter()\n.with_priority_filter()"]
+    summarize["summarize\nbuild_summary()\nsummarizer.py"]
+    render["render\nwrite_resume_docx()\ndocx_writer.py\ndocx_sections.py\ndocx_sidebar.py"]
+    template["template.yaml\n(sections, page config)"]
+    structure["structure\ninfer_structure_from_docx()\nstructure.py"]
+    ref_docx["reference.docx\n(optional)"]
+    out_docx["out/<prefix>/resume.docx"]
+    out_summary["out/<prefix>/summary.md"]
+
+    src --> extract
+    extract --> data
+    data --> overlays
+    overlays --> filterpipeline
+    job --> align
+    data --> align
+    align --> alignment_json
+    alignment_json --> filterpipeline
+    filterpipeline --> summarize
+    filterpipeline --> render
+    template --> render
+    ref_docx --> structure
+    structure --> render
+    summarize --> out_summary
+    render --> out_docx
+```
+
+## Quick Start
 - Repo path: `cd resume`
 - Show help: `./bin/resume-assistant -h` (preferred) or `python -m resume -h`
 - Make targets:
