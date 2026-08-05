@@ -7,6 +7,7 @@ Provides renderers for sections that delegate directly to render_simple_list:
 """
 from __future__ import annotations
 
+from .docx_links import add_hyperlink, display_url, normalize_link_url
 from .docx_renderers import ListSectionRenderer
 
 
@@ -72,34 +73,55 @@ class PresentationsSectionRenderer(ListSectionRenderer):
     """Renders presentations/talks section."""
 
     @staticmethod
-    def _format_presentation_dict(it: dict) -> str:
-        """Format a presentation dict to a display line."""
+    def _format_presentation_dict(it: dict) -> tuple[str, str]:
+        """Return (display_line, link_url) for a presentation dict.
+
+        display_line is the plain text (title, event, year). link_url is the
+        resolved URL from the `link` field, or empty string if absent.
+        """
         title = str(it.get("title") or it.get("name") or "").strip()
         event = str(it.get("event") or "").strip()
         year = str(it.get("year") or "").strip()
         link = str(it.get("link") or "").strip()
         parts = [p for p in [title or event, event if title else "", year] if p]
         line = " — ".join(parts)
-        if link:
-            line = f"{line} ({link})" if line else link
-        return line
+        url = normalize_link_url(link) if link else ""
+        return line, url
+
+    def _render_dict_item(self, it: dict, glyph: str) -> str | None:
+        """Render a single dict presentation item; return display text or None."""
+        line, url = self._format_presentation_dict(it)
+        cleaned = self.text.clean_inline(line) if line else ""
+        if not cleaned and not url:
+            return None
+        display = cleaned or url
+        p = self.bullets.add_bullet_line(display, glyph=glyph)
+        if url:
+            p.add_run(" ")
+            add_hyperlink(p, url, display_url(url))
+        return display
+
+    def _render_str_item(self, it: object, glyph: str) -> str | None:
+        """Render a single string presentation item; return display text or None."""
+        s = str(it).strip()
+        if not s:
+            return None
+        cleaned = self.text.clean_inline(s)
+        self.bullets.add_bullet_line(cleaned, glyph=glyph)
+        return cleaned
 
     def render(self, data: dict, sec: dict | None = None) -> list[str]:
         items_raw = data.get("presentations") or []
+        _, glyph = self.bullets.get_bullet_config(sec)
         lines: list[str] = []
 
         for it in items_raw:
-            if isinstance(it, dict):
-                line = self._format_presentation_dict(it)
-                if line:
-                    lines.append(self.text.clean_inline(line))
-            else:
-                s = str(it).strip()
-                if s:
-                    lines.append(self.text.clean_inline(s))
-
-        if lines:
-            plain, glyph = self.bullets.get_bullet_config(sec)
-            self.bullets.add_bullets(lines, plain=plain, glyph=glyph)
+            display = (
+                self._render_dict_item(it, glyph)
+                if isinstance(it, dict)
+                else self._render_str_item(it, glyph)
+            )
+            if display:
+                lines.append(display)
 
         return lines

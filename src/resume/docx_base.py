@@ -17,6 +17,7 @@ from .docx_styles import (
     _is_dark,
     _format_link_display,
 )
+from .docx_links import normalize_link_url
 
 
 STYLE_HEADING_1 = "Heading 1"
@@ -197,16 +198,20 @@ class ResumeWriterBase(ABC):
 
     def _collect_link_extras(self) -> List[str]:
         """Collect formatted link extras (website, linkedin, github, links list)."""
-        extras = []
+        return [display for display, _url in self._collect_link_extra_items()]
+
+    def _collect_link_extra_items(self) -> List[tuple[str, str]]:
+        """Collect link extras as (display, url) pairs for hyperlink rendering."""
+        items: List[tuple[str, str]] = []
         for field in ["website", "linkedin", "github"]:
             val = self._get_contact_field(field)
             if val:
-                extras.append(_format_link_display(val))
+                items.append((_format_link_display(val), normalize_link_url(val)))
         links_list = self._get_contact_field("links") or []
         for val in (links_list if isinstance(links_list, list) else []):
             if isinstance(val, str) and val.strip():
-                extras.append(_format_link_display(val))
-        return extras
+                items.append((_format_link_display(val), normalize_link_url(val)))
+        return items
 
     # -------------------------------------------------------------------------
     # Paragraph helpers
