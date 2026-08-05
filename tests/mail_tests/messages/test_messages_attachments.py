@@ -109,6 +109,35 @@ def _make_nested_attachment_msg(msg_id: str = "MSG3") -> dict:
     }
 
 
+def _make_duplicate_name_msg(msg_id: str = "MSG4") -> dict:
+    """Build a Gmail message dict with two attachments sharing a filename."""
+    return {
+        msg_id: {
+            "id": msg_id,
+            "threadId": "T4",
+            "payload": {
+                "mimeType": "multipart/mixed",
+                "parts": [
+                    {
+                        "mimeType": "application/pdf",
+                        "filename": "scan.pdf",
+                        "body": {"attachmentId": "ATT_DUP1", "size": 10},
+                    },
+                    {
+                        "mimeType": "application/pdf",
+                        "filename": "scan.pdf",
+                        "body": {"attachmentId": "ATT_DUP2", "size": 20},
+                    },
+                ],
+            },
+            "_attachments": {
+                "ATT_DUP1": b"first",
+                "ATT_DUP2": b"second",
+            },
+        }
+    }
+
+
 class TestListMessageAttachments(unittest.TestCase):
     def test_returns_attachment_info_for_part_with_filename(self):
         msg_data = _make_attachment_msg()
@@ -160,6 +189,21 @@ class TestSanitizeFilename(unittest.TestCase):
 
     def test_path_traversal_attempt(self):
         self.assertEqual(_sanitize_filename("../../etc/passwd"), "passwd")
+
+    def test_dotdot_falls_back_to_placeholder(self):
+        self.assertEqual(_sanitize_filename(".."), "attachment")
+
+    def test_single_dot_falls_back_to_placeholder(self):
+        self.assertEqual(_sanitize_filename("."), "attachment")
+
+    def test_empty_falls_back_to_placeholder(self):
+        self.assertEqual(_sanitize_filename(""), "attachment")
+
+    def test_trailing_separator_falls_back_to_placeholder(self):
+        self.assertEqual(_sanitize_filename("foo/"), "attachment")
+
+    def test_whitespace_only_falls_back_to_placeholder(self):
+        self.assertEqual(_sanitize_filename("   "), "attachment")
 
 
 class TestRunMessagesListAttachments(unittest.TestCase):
@@ -328,6 +372,117 @@ class TestRunMessagesDownloadAttachment(unittest.TestCase):
                 )
                 rc = run_messages_download_attachment(args)
         self.assertEqual(rc, 1)
+
+    def test_both_selectors_exits_1_without_writing(self):
+        client = FakeGmailClient(messages=_make_multi_attachment_msg("MSG2"))
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with tempfile.TemporaryDirectory() as td:
+                args = make_args(
+                    id="MSG2",
+                    attachment_id="ATT_A",
+                    filename="image.png",
+                    out=None,
+                    out_dir=td,
+                )
+                rc = run_messages_download_attachment(args)
+                self.assertEqual(rc, 1)
+                self.assertEqual(os.listdir(td), [])
+
+    def test_duplicate_filenames_exit_1_without_writing(self):
+        client = FakeGmailClient(messages=_make_duplicate_name_msg("MSG4"))
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with tempfile.TemporaryDirectory() as td:
+                args = make_args(
+                    id="MSG4",
+                    attachment_id=None,
+                    filename="scan.pdf",
+                    out=None,
+                    out_dir=td,
+                )
+                rc = run_messages_download_attachment(args)
+                self.assertEqual(rc, 1)
+                self.assertEqual(os.listdir(td), [])
+
+    def test_duplicate_filenames_resolvable_by_attachment_id(self):
+        client = FakeGmailClient(messages=_make_duplicate_name_msg("MSG4"))
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with tempfile.TemporaryDirectory() as td:
+                args = make_args(
+                    id="MSG4",
+                    attachment_id="ATT_DUP2",
+                    filename=None,
+                    out=None,
+                    out_dir=td,
+                )
+                with capture_stdout():
+                    rc = run_messages_download_attachment(args)
+                self.assertEqual(rc, 0)
+                with open(os.path.join(td, "scan.pdf"), "rb") as fh:
+                    self.assertEqual(fh.read(), b"second")
+
+    def test_fetch_failure_exits_1_without_writing(self):
+        client = FakeGmailClient(messages=_make_attachment_msg("MSG1"))
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with tempfile.TemporaryDirectory() as td:
+                args = make_args(
+                    id="MSG1",
+                    attachment_id=None,
+                    filename=None,
+                    out=None,
+                    out_dir=td,
+                )
+                with patch.object(
+                    client, "get_attachment", side_effect=RuntimeError("boom")
+                ):
+                    rc = run_messages_download_attachment(args)
+                self.assertEqual(rc, 1)
+                self.assertEqual(os.listdir(td), [])
+
+    def test_write_failure_exits_1(self):
+        client = FakeGmailClient(messages=_make_attachment_msg("MSG1"))
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with tempfile.TemporaryDirectory() as td:
+                # Point --out at the directory itself so write_bytes fails.
+                args = make_args(
+                    id="MSG1",
+                    attachment_id=None,
+                    filename=None,
+                    out=None,
+                    out_dir=td,
+                )
+                with patch(
+                    "pathlib.Path.write_bytes", side_effect=OSError("disk full")
+                ):
+                    rc = run_messages_download_attachment(args)
+                self.assertEqual(rc, 1)
+
+    def test_message_fetch_failure_exits_1(self):
+        client = FakeGmailClient(messages=_make_attachment_msg("MSG1"))
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            with tempfile.TemporaryDirectory() as td:
+                args = make_args(
+                    id="MSG1",
+                    attachment_id=None,
+                    filename=None,
+                    out=None,
+                    out_dir=td,
+                )
+                with patch.object(
+                    client, "get_message", side_effect=RuntimeError("api down")
+                ):
+                    rc = run_messages_download_attachment(args)
+                self.assertEqual(rc, 1)
+
+
+class TestFakeGmailClientGetAttachment(unittest.TestCase):
+    def test_unknown_attachment_id_raises(self):
+        client = FakeGmailClient(messages=_make_attachment_msg("MSG1"))
+        with self.assertRaises(KeyError):
+            client.get_attachment("MSG1", "NOPE")
+
+    def test_known_attachment_id_returns_bytes(self):
+        client = FakeGmailClient(messages=_make_attachment_msg("MSG1"))
+        self.assertEqual(client.get_attachment("MSG1", "ATT1"), b"%PDF-1.4 fake")
 
 
 if __name__ == "__main__":

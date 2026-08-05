@@ -71,10 +71,18 @@ class FakeGmailClient:
         return msg.get("text", "Message body text.")
 
     def get_attachment(self, msg_id: str, attachment_id: str) -> bytes:
-        """Return fake attachment bytes keyed by attachment_id."""
+        """Return fake attachment bytes keyed by attachment_id.
+
+        Raises KeyError for unknown ids so tests fail loudly when the code
+        under test requests an attachment that was never registered.
+        """
         msg = self.messages.get(msg_id, {})
         attachments = msg.get("_attachments") or {}
-        return attachments.get(attachment_id) or b"fake-attachment-data"
+        if attachment_id not in attachments:
+            raise KeyError(
+                f"FakeGmailClient: no attachment '{attachment_id}' on message '{msg_id}'"
+            )
+        return attachments[attachment_id]
 
     def get_profile(self) -> Dict[str, str]:
         return {"emailAddress": "test@example.com"}
