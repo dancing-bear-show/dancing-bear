@@ -2,6 +2,10 @@
 
 Standards for all LLM-generated text in this project: commit messages, PR descriptions, documentation, code comments, and CLI output.
 
+For resume and professional-profile copy (`src/resume/config/profiles/**`, rendered
+DOCX, LinkedIn surfaces), see `.claude/RESUME_WRITING_GUIDE.md` — a different genre
+with partly contradictory rules.
+
 ## Core Principles
 
 1. **Professional neutral tone** — no drama, no hype, no judgment

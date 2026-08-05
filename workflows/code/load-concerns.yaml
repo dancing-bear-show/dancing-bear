@@ -22,6 +22,7 @@ description: >
   Guide selection:
     - file_paths contains .py  → correctness.md, security.md, patterns.md, reuse.md, complexity.md (+ tests.md if test files)
     - file_paths contains .yaml → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
+    - file_paths contains src/resume/config/ or src/resume/examples/ → resume-copy.md (instead of the workflow guides)
     - file_paths contains SKILL.md → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
     - task_type = "feature"    → correctness.md, patterns.md, security.md, reuse.md
     - task_type = "test"       → tests.md, correctness.md
@@ -63,6 +64,9 @@ stages:
         - file_paths contains ".py" (and not test_) → correctness.md, security.md, patterns.md, reuse.md, complexity.md
         - file_paths contains "test_" or "/tests/"  → tests.md, correctness.md
         - file_paths contains ".yaml" or ".yml"     → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
+        - file_paths under "src/resume/config/" or "src/resume/examples/" → resume-copy.md
+          (resume profile YAML is content, not workflow DAGs — prefer resume-copy.md
+           over the workflow guides for these paths)
         - file_paths contains "SKILL.md"            → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
         - file_paths contains iOS layout files      → phone-layout.md
         - task_type == "feature"                    → correctness.md, patterns.md, security.md, reuse.md
