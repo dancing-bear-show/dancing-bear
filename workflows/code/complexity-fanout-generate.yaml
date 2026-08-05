@@ -120,9 +120,16 @@ stages:
         triage toward splitting — the exact failure this workflow exists to
         prevent. A loud failure is required.
 
-        Then:
-          git log --format=%h --diff-filter=A --name-only {prior_split_ref} -1
-        Any candidate path appearing in that commit's added-files list gets
+        Then list the files that commit ADDED, using an empty --format so the
+        output contains paths only:
+          git log --format= --diff-filter=A --name-only {prior_split_ref} -1
+        Do NOT use --format=%h here: it prints the commit hash as the first
+        line followed by a blank line, and a naive "every line is a path"
+        read would treat "146836d" as an added file and pollute the set.
+        With --format= the output is purely paths (filter out any empty
+        lines). Sanity-check that every line ends in .py before using it.
+
+        Any candidate path appearing in that added-files list gets
         "created_by_prior_split": true. These files are proof that splitting
         did not work for them; triage must not propose splitting them again.
         Record the resolved SHA and the count of matched files in
@@ -566,10 +573,14 @@ stages:
         different kind, while the zero-hit check still passes clean. Both
         gates go green on a broken child.
 
-        So check explicitly: this workflow's trigger.params must contain ONLY
-        complexity_floor, min_symbols_to_split, and output_dir. If it declares
-        any of group, targets_file, work_dir, or workspace, STOP and report
-        the collision instead of emitting — the template is unsafe to copy.
+        So check explicitly: this workflow's trigger.params must NOT declare
+        any of group, targets_file, work_dir, or workspace. Those four names
+        belong to the emitted child and must survive as literal placeholders.
+        If any is present, STOP and report the collision instead of emitting —
+        the template is unsafe to copy. Any OTHER param name is fine and is
+        expected to grow over time (the current set is complexity_floor,
+        min_symbols_to_split, output_dir, and prior_split_ref); do not treat
+        an unlisted-but-harmless param as a collision.
 
         For each group emit {output_dir}/<group>.yaml with EXACTLY this
         structure:
@@ -686,10 +697,13 @@ stages:
           ./bin/workflow lint {output_dir}/<group>.yaml
         for each file. Any child that fails to lint must be fixed and
         re-linted before this stage completes. Record each result.
-        Note ./bin/workflow lint exits 0 even when the YAML is invalid — it
-        reports status in its output, not its exit code. So parse the output
-        and treat a non-empty "errors:" list or "valid: false" as failure;
-        do not rely on $?.
+        ./bin/workflow lint exits 1 when the YAML is invalid and 0 when it is
+        valid (cli_dispatch.py _cmd_lint: `return 0 if result.valid else 1`),
+        so $? is a reliable gate. Still read the output too: a lint can pass
+        while emitting warnings that matter (e.g. undeclared-variable
+        warnings), and the errors list names the specific failure.
+        Treat exit != 0, "valid: false", or a non-empty "errors:" list as
+        failure; fix and re-lint before continuing.
 
         Placeholder sanity check on each emitted child, catching the
         substitution hazard described in Step 3:
