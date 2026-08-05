@@ -103,6 +103,11 @@ settings.init
 /config/**/private*.yaml
 
 # Resume profiles (PII) - ignore all except sample/example
+# NOTE: src/resume/.gitignore already ignores all of src/resume/_data/, which
+# covers _data/profiles/ and everything else under it. The narrower rule below
+# is redundant but kept as a belt-and-braces signal; do not read it as implying
+# other _data/ paths are tracked.
+src/resume/_data/
 src/resume/_data/profiles_private/
 src/resume/config/profiles/*
 !src/resume/config/profiles/sample/

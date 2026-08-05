@@ -1,0 +1,103 @@
+# LinkedIn profile schema — example / redacted.
+#
+# Records the current live state of a LinkedIn profile so it can be diffed
+# against the resume. Enforced by concerns/resume-copy.md
+# (linkedin-surface-over-limit, linkedin-resume-drift); standards are in
+# .claude/RESUME_WRITING_GUIDE.md.
+#
+# PII: keep REAL profiles under src/resume/_data/profiles/<name>/linkedin.yaml.
+# That path is ignored by src/resume/.gitignore line 2 (`_data/`), which covers
+# the whole _data/ tree — not by the narrower `_data/profiles_private/` entry in
+# the root .gitignore. Confirm with: git check-ignore -v <path>
+# Only this redacted example belongs in config/.
+# See "PII Handling" in src/resume/README.md.
+#
+# Intent: record what the profile SAYS TODAY, not the corrected copy you plan
+# to write. Drift is only detectable if this file tracks live state. After
+# editing the live profile, update this file to match.
+#
+# Provenance: LinkedIn blocks unauthenticated fetches, so a capture is usually
+# partial. Tag every field you could not read as unverified rather than
+# guessing — an invented value defeats drift detection.
+
+source:
+  url: https://www.linkedin.com/in/example
+  captured: 2026-01-01
+  method: unauthenticated public preview (partial)
+
+# Limit: 220 chars. Over-limit copy is silently truncated mid-word in search.
+headline:
+  text: Staff Site Reliability Engineer | Kafka, Kubernetes, OpenTelemetry
+  chars: 66
+
+# Limit: 2,600 chars. First person, prose not bullets, 3-5 short paragraphs.
+about:
+  status: verified          # verified | unverified | unverified-possibly-empty
+  text: |
+    I build systems that take humans out of the loop safely.
+
+    Most recently I have focused on reliability automation and cost
+    efficiency for large-scale streaming infrastructure.
+
+# Every role on the resume should appear here. A role present in one source
+# and absent from the other triggers linkedin-resume-drift.
+experience:
+  - company: ExampleCo
+    title: Staff Site Reliability Engineer
+    title_source: verified          # verified | unverified
+    start: May 2025
+    end: Present
+    dates_source: linkedin          # linkedin | resume-not-linkedin
+    bullets:
+      - Cut cloud spend 22% by right-sizing node groups across three clusters
+    bullets_status: verified
+
+  - company: Acme Corp
+    title: Senior Site Reliability Engineer
+    title_source: verified
+    start: November 2020
+    end: May 2025
+    dates_source: linkedin
+    bullets: []
+    bullets_status: unverified
+    # presence_on_linkedin: absent-in-preview   # set when a resume role is missing here
+
+education:
+  - school: Example University
+    start: 2003
+    end: 2007
+    degrees_listed_on_linkedin:
+      - Bachelor of Science in Computer Science
+
+# Limit: 50 entries. Top 3 are pinned and weighted most in recruiter search.
+skills:
+  status: verified
+  pinned_top_3:
+    - Site Reliability Engineering (SRE)
+    - Kubernetes
+    - Large Language Models (LLM)
+  all:
+    - Site Reliability Engineering (SRE)
+    - Kubernetes
+    - Apache Kafka
+    - OpenTelemetry
+
+featured:
+  status: verified
+  candidates:
+    - title: Example Engineering Blog Post
+      venue: Company Engineering Blog
+      date: July 2015
+
+languages:
+  - language: English
+    proficiency: Native/Bilingual
+
+certifications: []
+
+# Optional. Differences between this file and the resume that you have
+# observed but not yet fixed. Useful as a worklist; linkedin-resume-drift
+# flags them independently of whether they are listed here.
+known_drift:
+  - field: headline
+    issue: Omits the current focus area that leads the resume.

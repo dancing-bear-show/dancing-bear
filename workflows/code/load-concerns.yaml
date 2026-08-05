@@ -21,7 +21,8 @@ description: >
 
   Guide selection:
     - file_paths contains .py  → correctness.md, security.md, patterns.md, reuse.md, complexity.md (+ tests.md if test files)
-    - file_paths contains .yaml → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
+    - file_paths contains .yaml → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md (except resume paths below)
+    - file_paths under src/resume/config/, src/resume/examples/, or named linkedin*.yaml → resume-copy.md (overrides the generic .yaml rule for those paths)
     - file_paths contains SKILL.md → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
     - task_type = "feature"    → correctness.md, patterns.md, security.md, reuse.md
     - task_type = "test"       → tests.md, correctness.md
@@ -63,6 +64,13 @@ stages:
         - file_paths contains ".py" (and not test_) → correctness.md, security.md, patterns.md, reuse.md, complexity.md
         - file_paths contains "test_" or "/tests/"  → tests.md, correctness.md
         - file_paths contains ".yaml" or ".yml"     → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md
+          EXCEPT paths under "src/resume/config/", "src/resume/examples/", or named
+          "linkedin*.yaml", which are content rather than workflow DAGs — for those
+          paths this rule does not apply and the resume-copy rule below governs.
+        - file_paths under "src/resume/config/", "src/resume/examples/", or named
+          "linkedin*.yaml" → resume-copy.md
+          (overrides the generic .yaml rule above rather than adding to it; if the
+           diff ALSO touches genuine workflow YAML elsewhere, both sets load)
         - file_paths contains "SKILL.md"            → workflow.md, workflow-stages.md, workflow-fanout.md, workflow-fragments.md, patterns.md, docs.md
         - file_paths contains iOS layout files      → phone-layout.md
         - task_type == "feature"                    → correctness.md, patterns.md, security.md, reuse.md
