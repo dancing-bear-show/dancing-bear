@@ -159,7 +159,7 @@ class TestListFilters(OutlookMailTestBase):
         self.assertEqual(result[0]["criteria"]["from"], "a@test.com OR b@test.com")
         self.assertEqual(result[0]["criteria"]["to"], "to@test.com")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_raises_on_api_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_error_response(status_code=500)
@@ -167,7 +167,7 @@ class TestListFilters(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().list_filters()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_raises_on_unauthorized(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_error_response(status_code=401, text="Unauthorized")
@@ -247,7 +247,7 @@ class TestCreateFilter(OutlookMailTestBase):
         self.assertTrue(call_json["isEnabled"])
         self.assertTrue(call_json["stopProcessingRules"])
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_raises_on_api_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_error_response(status_code=400, text="Bad Request")
@@ -255,7 +255,7 @@ class TestCreateFilter(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().create_filter(criteria={"from": "sender@example.com"}, action={})
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_raises_on_server_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_error_response(status_code=503, text="Service Unavailable")
@@ -278,7 +278,7 @@ class TestDeleteFilter(OutlookMailTestBase):
         self.assertIn("rule-1", mock_requests.delete.call_args[0][0])
         self.assertIn("messageRules", mock_requests.delete.call_args[0][0])
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_delete_filter_raises_on_not_found(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.delete.return_value = make_error_response(status_code=404, text="Not Found")
@@ -286,7 +286,7 @@ class TestDeleteFilter(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().delete_filter("missing-rule")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_delete_filter_raises_on_server_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.delete.return_value = make_error_response(status_code=500)
@@ -322,7 +322,7 @@ class TestListFolders(OutlookMailTestBase):
         self.assertEqual(len(result), 2)
         self.assertEqual(mock_requests.get.call_count, 2)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_folders_raises_on_api_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_error_response(status_code=500)
@@ -330,7 +330,7 @@ class TestListFolders(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().list_folders()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_folders_raises_on_pagination_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -451,7 +451,7 @@ class TestListAllFolders(OutlookMailTestBase):
 
         self.assertEqual(len(result), 2)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_all_folders_raises_on_root_fetch_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_error_response(status_code=500)
@@ -459,7 +459,7 @@ class TestListAllFolders(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().list_all_folders()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_all_folders_raises_on_child_fetch_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -502,7 +502,7 @@ class TestGetFolderPathMap(OutlookMailTestBase):
         self.assertIn("Inbox", result)
         self.assertIn("Inbox/SubFolder", result)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_get_folder_path_map_raises_on_api_error(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_error_response(status_code=500)
@@ -510,7 +510,7 @@ class TestGetFolderPathMap(OutlookMailTestBase):
         with self.assertRaises(requests.exceptions.HTTPError):
             FakeMailClient().get_folder_path_map()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_get_folder_path_map_handles_cyclic_parent_chain(self, mock_requests_fn):
         # Two folders whose parentFolderId fields point at each other, forming a
         # cycle. build_path()'s `seen` guard must terminate rather than recurse
