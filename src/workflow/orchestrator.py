@@ -22,6 +22,7 @@ from workflow.dispatchers import (
 from workflow.models import (
     ResolvedStage,
     StageResult,
+    StageResultExtras,
     StageStatus,
     WorkflowManifest,
     WorkflowRun,
@@ -171,8 +172,10 @@ class WorkflowOrchestrator:
         if self._dry_run:
             return make_stage_result(
                 resolved, started_at, StageStatus.skipped,
-                data={"dry_run": True},
-                metadata={"run_id": self._run_id, "dry_run": self._dry_run},
+                StageResultExtras(
+                    data={"dry_run": True},
+                    metadata={"run_id": self._run_id, "dry_run": self._dry_run},
+                ),
             )
 
         try:
@@ -183,8 +186,10 @@ class WorkflowOrchestrator:
             logger.warning("Stage '%s' failed: %s", stage_name, exc)
             result = make_stage_result(
                 resolved, started_at, StageStatus.failed,
-                errors=[f"Stage execution failed: {exc}"],
-                metadata={"run_id": self._run_id, "dry_run": self._dry_run},
+                StageResultExtras(
+                    errors=[f"Stage execution failed: {exc}"],
+                    metadata={"run_id": self._run_id, "dry_run": self._dry_run},
+                ),
             )
 
         self._results[stage_name] = result
@@ -295,7 +300,7 @@ class WorkflowOrchestrator:
         logger.info("Stage '%s' skipped — when condition false: %r", stage.spec.name, stage.spec.when)
         return make_stage_result(
             stage, started_at, StageStatus.skipped,
-            data={"skipped_by_when": stage.spec.when},
+            StageResultExtras(data={"skipped_by_when": stage.spec.when}),
         )
 
     def _run_group(self, group: tuple[str, ...]) -> dict[str, StageResult]:

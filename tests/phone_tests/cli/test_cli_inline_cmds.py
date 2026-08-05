@@ -341,7 +341,7 @@ class TestInlineCommands(unittest.TestCase):
         result = cmd_profile_build(args)
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_build.call_args.kwargs["folder_page_size"], 9)
+        self.assertEqual(mock_build.call_args.kwargs["options"].folder_page_size, 9)
 
     @patch("phone.cli.cmd_profile.read_yaml")
     @patch("phone.cli.cmd_profile.build_mobileconfig")

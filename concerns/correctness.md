@@ -395,3 +395,9 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
       producer.produce(bad_envelope)
   assert 'Pipeline error' in buf.getvalue()
   ```
+
+### bare-except-missing-nosec
+- **severity**: major
+- **check**: Verify that every `except Exception` block that *swallows* the error — `pass`, `continue`, or a sentinel return (`return None`/`{}`/`[]`) — carries a `# nosec B110` or `# nosec B112` comment with an inline rationale. Blocks that re-raise or convert the exception into a domain error (e.g. `raise CLIError(...) from exc`) do not swallow it and need no annotation.
+- **triggers**: `except Exception` / `except Exception as e` blocks in `.py` source files whose body is `pass`, `continue`, or a bare sentinel return, and that lack a `# nosec` annotation; `_process_safe`, `consume()`, or loader methods that catch `Exception` broadly and continue past the failure. Do NOT trigger on blocks whose body re-raises or raises a domain-specific error.
+- **example**: `except Exception: return None` with no annotation — Bandit flags this and reviewers cannot tell whether swallowing the error is intentional or an oversight. Fix: `except Exception:  # nosec B110 - <reason why this is best-effort and not hiding real bugs>`. By contrast, `except Exception as exc: raise CLIError(...) from exc` converts rather than swallows and correctly needs no `# nosec`.

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .client import OutlookClientBase, _requests
 from .models import (
@@ -15,7 +14,12 @@ from .models import (
     UpdateEventReminderRequest,
 )
 from core.constants import DAY_START_TIME, DAY_END_TIME, GRAPH_API_URL
-from core.date_utils import RRULE_CODE_TO_DAY_NAME
+from core.outlook._location import _parse_location
+from core.outlook._recurrence import (
+    _apply_reminder,
+    _build_recurrence_pattern,
+    _build_recurrence_range,
+)
 
 
 class OutlookCalendarMixin:
@@ -27,9 +31,9 @@ class OutlookCalendarMixin:
     # -------------------- Internal helpers --------------------
     def _resolve_calendar_id(
         self: OutlookClientBase,
-        calendar_id: Optional[str],
-        calendar_name: Optional[str],
-    ) -> Optional[str]:
+        calendar_id: str | None,
+        calendar_name: str | None,
+    ) -> str | None:
         """Resolve calendar_id from either explicit ID or name lookup."""
         if calendar_id:
             return calendar_id
@@ -37,9 +41,9 @@ class OutlookCalendarMixin:
             return self.get_calendar_id_by_name(calendar_name)
         return None
 
-    def _paginated_get(self: OutlookClientBase, url: str) -> List[Dict[str, Any]]:
+    def _paginated_get(self: OutlookClientBase, url: str) -> list[dict[str, Any]]:
         """Fetch all pages from a paginated Graph API endpoint."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         while url:
             r = _requests().get(url, headers=self._headers())
             r.raise_for_status()
@@ -49,7 +53,7 @@ class OutlookCalendarMixin:
         return out
 
     @staticmethod
-    def _event_endpoint(calendar_id: Optional[str], event_id: Optional[str] = None) -> str:
+    def _event_endpoint(calendar_id: str | None, event_id: str | None = None) -> str:
         """Build Graph API endpoint for events."""
         if calendar_id:
             base = f"{GRAPH_API_URL}/me/calendars/{calendar_id}/events"
@@ -58,19 +62,15 @@ class OutlookCalendarMixin:
         return f"{base}/{event_id}" if event_id else base
 
     @staticmethod
-    def _apply_reminder(payload: Dict[str, Any], no_reminder: bool, reminder_minutes: Optional[int]) -> None:
+    def _apply_reminder(payload: dict[str, Any], no_reminder: bool, reminder_minutes: int | None) -> None:
         """Apply reminder settings to an event payload."""
-        if no_reminder:
-            payload["isReminderOn"] = False
-        elif reminder_minutes is not None:
-            payload["isReminderOn"] = True
-            payload["reminderMinutesBeforeStart"] = int(reminder_minutes)
+        _apply_reminder(payload, no_reminder, reminder_minutes)
 
     # -------------------- Calendars --------------------
-    def list_calendars(self: OutlookClientBase) -> List[Dict[str, Any]]:
+    def list_calendars(self: OutlookClientBase) -> list[dict[str, Any]]:
         return self._paginated_get(f"{GRAPH_API_URL}/me/calendars")
 
-    def create_calendar(self: OutlookClientBase, name: str) -> Dict[str, Any]:
+    def create_calendar(self: OutlookClientBase, name: str) -> dict[str, Any]:
         body = {"name": name}
         r = _requests().post(f"{GRAPH_API_URL}/me/calendars", headers=self._headers(), json=body)
         r.raise_for_status()
@@ -91,10 +91,10 @@ class OutlookCalendarMixin:
     def ensure_calendar_exists(self: OutlookClientBase, name: str) -> str:
         return self.ensure_calendar(name)
 
-    def find_calendar_id(self: OutlookClientBase, name: str) -> Optional[str]:
+    def find_calendar_id(self: OutlookClientBase, name: str) -> str | None:
         return self.get_calendar_id_by_name(name)
 
-    def get_calendar_id_by_name(self: OutlookClientBase, name: str) -> Optional[str]:
+    def get_calendar_id_by_name(self: OutlookClientBase, name: str) -> str | None:
         target = (name or "").strip().lower()
         if not target:
             return None
@@ -107,7 +107,7 @@ class OutlookCalendarMixin:
         return None
 
     # -------------------- Calendar Sharing --------------------
-    def list_calendar_permissions(self: OutlookClientBase, calendar_id: str) -> List[Dict[str, Any]]:
+    def list_calendar_permissions(self: OutlookClientBase, calendar_id: str) -> list[dict[str, Any]]:
         url = f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
@@ -115,7 +115,7 @@ class OutlookCalendarMixin:
 
     def _update_calendar_permission(
         self: OutlookClientBase, calendar_id: str, perm_id: str, role: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Patch an existing calendar permission to a new role."""
         rr = _requests().patch(
             f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions/{perm_id}",
@@ -130,7 +130,7 @@ class OutlookCalendarMixin:
         calendar_id: str,
         email: str,
         role: str = "write"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Ensure a calendar permission exists for an external email with the given role.
 
         role: one of read | write | limitedRead | freeBusyRead | delegateWithoutPrivateEventAccess | delegateWithPrivateEventAccess
@@ -157,8 +157,8 @@ class OutlookCalendarMixin:
     # -------------------- Events --------------------
     def list_events_in_range(
         self: OutlookClientBase,
-        params: "ListEventsRequest",
-    ) -> List[Dict[str, Any]]:
+        params: ListEventsRequest,
+    ) -> list[dict[str, Any]]:
         """List events for a calendar within [start_iso, end_iso].
 
         Uses calendarView which expands recurring series. Optional subject_filter
@@ -174,13 +174,13 @@ class OutlookCalendarMixin:
 
     def list_calendar_view(
         self: OutlookClientBase,
-        params: "ListCalendarViewRequest",
-    ) -> List[Dict[str, Any]]:
+        params: ListCalendarViewRequest,
+    ) -> list[dict[str, Any]]:
         """List calendar view (expanded occurrences) for a date range."""
         base = f"{GRAPH_API_URL}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{GRAPH_API_URL}/me/calendarView"
         return self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
 
-    def _resolve_tz(self: OutlookClientBase, tz: Optional[str]) -> str:
+    def _resolve_tz(self: OutlookClientBase, tz: str | None) -> str:
         if tz and tz.strip():
             return tz.strip()
         mbx = self.get_mailbox_timezone()
@@ -188,11 +188,11 @@ class OutlookCalendarMixin:
             return mbx
         return "America/Toronto"
 
-    def create_event(self: OutlookClientBase, params: EventCreationParams) -> Dict[str, Any]:
+    def create_event(self: OutlookClientBase, params: EventCreationParams) -> dict[str, Any]:
         """Create a one-time event."""
         tz_final = self._resolve_tz(params.tz)
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "subject": params.subject,
             "start": {"dateTime": params.start_iso, "timeZone": tz_final},
             "end": {"dateTime": params.end_iso, "timeZone": tz_final},
@@ -203,25 +203,25 @@ class OutlookCalendarMixin:
             payload["location"] = _parse_location(params.location)
         if params.all_day:
             payload["isAllDay"] = True
-        self._apply_reminder(payload, params.no_reminder, params.reminder_minutes)
+        _apply_reminder(payload, params.no_reminder, params.reminder_minutes)
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
         return r.json()
 
     def create_recurring_event(
         self: OutlookClientBase, params: RecurringEventCreationParams
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create a recurring event series."""
         tz_final = self._resolve_tz(params.tz)
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
 
-        pattern = self._build_recurrence_pattern(params.repeat, params.interval, params.byday)
-        rng = self._build_recurrence_range(params.range_start_date, params.range_until, params.count)
+        pattern = _build_recurrence_pattern(params.repeat, params.interval, params.byday)
+        rng = _build_recurrence_range(params.range_start_date, params.range_until, params.count)
 
         start_iso = f"{params.range_start_date}T{params.start_time}"
         end_iso = f"{params.range_start_date}T{params.end_time}"
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "subject": params.subject,
             "start": {"dateTime": start_iso, "timeZone": tz_final},
             "end": {"dateTime": end_iso, "timeZone": tz_final},
@@ -231,7 +231,7 @@ class OutlookCalendarMixin:
             payload["body"] = {"contentType": "HTML", "content": params.body_html}
         if params.location:
             payload["location"] = _parse_location(params.location)
-        self._apply_reminder(payload, params.no_reminder, params.reminder_minutes)
+        _apply_reminder(payload, params.no_reminder, params.reminder_minutes)
 
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
         r.raise_for_status()
@@ -247,41 +247,21 @@ class OutlookCalendarMixin:
         return series
 
     @staticmethod
-    def _build_recurrence_pattern(repeat: str, interval: int, byday: Optional[List[str]]) -> Dict[str, Any]:
+    def _build_recurrence_pattern(repeat: str, interval: int, byday: list[str] | None) -> dict[str, Any]:
         """Build recurrence pattern for Graph API."""
-        rpt = (repeat or "").strip().lower()
-        pattern: Dict[str, Any] = {"interval": max(1, int(interval))}
-        if rpt == "daily":
-            pattern["type"] = "daily"
-        elif rpt == "weekly":
-            pattern["type"] = "weekly"
-            pattern["daysOfWeek"] = _normalize_days(byday or [])
-        elif rpt in ("monthly", "absolutemonthly"):
-            pattern["type"] = "absoluteMonthly"
-        else:
-            raise ValueError("Unsupported repeat; use daily|weekly|monthly")
-        return pattern
+        return _build_recurrence_pattern(repeat, interval, byday)
 
     @staticmethod
-    def _build_recurrence_range(start_date: str, until: Optional[str], count: Optional[int]) -> Dict[str, Any]:
+    def _build_recurrence_range(start_date: str, until: str | None, count: int | None) -> dict[str, Any]:
         """Build recurrence range for Graph API."""
-        rng: Dict[str, Any] = {"startDate": start_date}
-        if until:
-            rng["type"] = "endDate"
-            rng["endDate"] = until
-        elif count:
-            rng["type"] = "numbered"
-            rng["numberOfOccurrences"] = int(count)
-        else:
-            rng["type"] = "noEnd"
-        return rng
+        return _build_recurrence_range(start_date, until, count)
 
     def _apply_exdate_deletions(
         self: OutlookClientBase,
-        calendar_id: Optional[str],
+        calendar_id: str | None,
         series_id: str,
-        exdates: List[str],
-        rng: Dict[str, Any],
+        exdates: list[str],
+        rng: dict[str, Any],
     ) -> None:
         start_date = rng.get("startDate")
         end_date = rng.get("endDate") or start_date
@@ -300,10 +280,10 @@ class OutlookCalendarMixin:
     def _patch_event(
         self: OutlookClientBase,
         event_id: str,
-        calendar_id: Optional[str],
-        calendar_name: Optional[str],
-        body: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        calendar_id: str | None,
+        calendar_name: str | None,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
         """Patch an event and return the result."""
         cal_id = self._resolve_calendar_id(calendar_id, calendar_name)
         r = _requests().patch(self._event_endpoint(cal_id, event_id), headers=self._headers(), json=body)
@@ -314,10 +294,10 @@ class OutlookCalendarMixin:
         self: OutlookClientBase,
         *,
         event_id: str,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
+        calendar_id: str | None = None,
+        calendar_name: str | None = None,
         location_str: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Patch the location of an event or series master."""
         if not (location_str and location_str.strip()):
             raise ValueError("Must provide location_str")
@@ -326,20 +306,20 @@ class OutlookCalendarMixin:
 
     def update_event_reminder(
         self: OutlookClientBase,
-        params: "UpdateEventReminderRequest",
-    ) -> Dict[str, Any]:
+        params: UpdateEventReminderRequest,
+    ) -> dict[str, Any]:
         """Patch event reminder fields."""
-        body: Dict[str, Any] = {"isReminderOn": bool(params.is_on)}
+        body: dict[str, Any] = {"isReminderOn": bool(params.is_on)}
         if params.minutes_before_start is not None:
             body["reminderMinutesBeforeStart"] = int(params.minutes_before_start)
         return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, body)
 
     def update_event_settings(
         self: OutlookClientBase,
-        params: "EventSettingsPatch",
-    ) -> Dict[str, Any]:
+        params: EventSettingsPatch,
+    ) -> dict[str, Any]:
         """Patch selected event fields in one request."""
-        body: Dict[str, Any] = {}
+        body: dict[str, Any] = {}
         if params.categories is not None:
             body["categories"] = list(params.categories)
         if params.show_as:
@@ -358,17 +338,17 @@ class OutlookCalendarMixin:
         self: OutlookClientBase,
         *,
         event_id: str,
-        calendar_id: Optional[str] = None,
-        calendar_name: Optional[str] = None,
+        calendar_id: str | None = None,
+        calendar_name: str | None = None,
         subject: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Patch the subject/title of an event or series master."""
         return self._patch_event(event_id, calendar_id, calendar_name, {"subject": subject})
 
     def delete_event(
         self: OutlookClientBase,
         event_id: str,
-        calendar_id: Optional[str] = None
+        calendar_id: str | None = None
     ) -> None:
         r = _requests().delete(self._event_endpoint(calendar_id, event_id), headers=self._headers())
         if r.status_code not in (200, 202, 204):
@@ -377,7 +357,7 @@ class OutlookCalendarMixin:
     def delete_event_by_id(
         self: OutlookClientBase,
         event_id: str,
-        calendar_id: Optional[str] = None
+        calendar_id: str | None = None
     ) -> bool:
         """Delete an event by ID, return True if successful."""
         try:
@@ -385,142 +365,3 @@ class OutlookCalendarMixin:
             return True
         except Exception:
             return False
-
-
-# -------------------- Location parsing --------------------
-def _split_name_and_addr(s: str) -> Tuple[str, str]:
-    """Split a location string into (name, address) pair."""
-    if "(" in s and ")" in s:
-        try:
-            nm, rest = s.split("(", 1)
-            addr = rest.rsplit(")", 1)[0]
-            return nm.strip(), addr.strip()
-        except Exception:  # nosec B110 - malformed parens, try other patterns
-            pass
-    if " at " in s:
-        head, addr = s.rsplit(" at ", 1)
-        return head.strip(), addr.strip()
-    m = re.search(r"\b\d+\b", s)
-    if m:
-        return s[:m.start()].strip(), s[m.start():].strip()
-    return s.strip(), ""
-
-
-def _is_word_city(w: str) -> bool:
-    """Return True if word looks like a city name part (alpha, no digits)."""
-    return any(ch.isalpha() for ch in w) and not any(ch.isdigit() for ch in w)
-
-
-def _parse_addr_two_parts(parts: list, street: str) -> Tuple[str, str, str, str]:
-    """Parse city/state/postal from a two-part address. Returns (city, state, postal, street)."""
-    city = state = postal = ""
-    tail = parts[1]
-    toks = tail.split()
-    if len(toks) >= 2 and re.match(r"^[A-Z]{2}$", toks[0]) and re.match(
-        r"^[A-Z]\d[A-Z]$|^[A-Z]\d[A-Z]\s\d[A-Z]\d$",
-        (" ".join(toks[1:])).upper()
-    ):
-        state = toks[0]
-        rest = " ".join(toks[1:]).upper()
-        mpc = re.search(r"[A-Z]\d[A-Z]\s?\d[A-Z]\d", rest)
-        if mpc:
-            postal = rest[mpc.start():mpc.end()].replace(" ", " ")
-        words = [w for w in parts[0].strip().split() if w]
-        if len(words) >= 2 and _is_word_city(words[-1]) and _is_word_city(words[-2]):
-            city = f"{words[-2]} {words[-1]}"
-            street = " ".join(words[:-2]) or street
-        elif words and _is_word_city(words[-1]):
-            city = words[-1]
-            street = " ".join(words[:-1]) or street
-    else:
-        city = parts[1]
-    return city, state, postal, street
-
-
-def _parse_addr_multi_parts(parts: list) -> Tuple[str, str, str, str]:
-    """Parse city/state/postal/country from 3+ part address. Returns (city, state, postal, country)."""
-    city = parts[-2]
-    state = postal = country = ""
-    tail = parts[-1]
-    toks = tail.split()
-    canada_pc = None
-    if len(toks) >= 2:
-        pair = (toks[-2] + " " + toks[-1]).upper()
-        if re.match(r"^[A-Z]\d[A-Z]\s\d[A-Z]\d$", pair):
-            canada_pc = pair
-            toks = toks[:-2]
-    if canada_pc:
-        postal = canada_pc
-    for t in toks:
-        tt = t.strip().strip(",")
-        if len(tt) == 2 and tt.isalpha():
-            state = tt
-    if not postal:
-        for t in reversed(toks):
-            if any(ch.isdigit() for ch in t):
-                postal = t
-                break
-    if len(parts) >= 4:
-        country = parts[-1]
-    return city, state, postal, country
-
-
-def _parse_addr_parts(parts: list, street: str) -> Tuple[str, str, str, str, str]:
-    """Dispatch to two-part or multi-part address parser. Returns (street, city, state, postal, country)."""
-    city = state = postal = country = ""
-    if len(parts) == 2:
-        city, state, postal, street = _parse_addr_two_parts(parts, street)
-    elif len(parts) >= 3:
-        city, state, postal, country = _parse_addr_multi_parts(parts)
-    return street, city, state, postal, country
-
-
-def _parse_addr(addr: str) -> Dict[str, Any]:
-    """Parse an address string into a structured dict for Graph API."""
-    parts = [p.strip() for p in (addr or "").split(",") if p.strip()]
-    street = parts[0] if parts else ""
-    street, city, state, postal, country = _parse_addr_parts(parts, street)
-    addr_obj: Dict[str, Any] = {}
-    for key, val in [("street", street), ("city", city), ("state", state),
-                     ("postalCode", postal), ("countryOrRegion", country)]:
-        if val:
-            addr_obj[key] = val
-    return addr_obj
-
-
-def _parse_location(loc: str) -> Dict[str, Any]:
-    """Parse a location string into Outlook location with structured address when possible."""
-    disp = (loc or "").strip()
-    name, addr = _split_name_and_addr(disp)
-    if addr:
-        try:
-            addr_obj = _parse_addr(addr)
-        except Exception:  # nosec B110 - malformed address, skip structured parsing
-            addr_obj = {}
-    else:
-        addr_obj = {}
-
-    loc_obj: Dict[str, Any] = {"displayName": name or disp}
-    if addr_obj:
-        loc_obj["address"] = addr_obj
-    return loc_obj
-
-
-def _normalize_days(days: List[str]) -> List[str]:
-    """Map MO,TU,WE,TH,FR,SA,SU -> monday,tuesday,... as Graph expects."""
-    out: List[str] = []
-    for d in days:
-        if not d:
-            continue
-        dd = d.strip()
-        if len(dd) == 2:
-            out.append(RRULE_CODE_TO_DAY_NAME.get(dd.upper(), dd.lower()))
-        else:
-            out.append(dd.lower())
-    seen = set()
-    uniq = []
-    for d in out:
-        if d not in seen:
-            uniq.append(d)
-            seen.add(d)
-    return uniq

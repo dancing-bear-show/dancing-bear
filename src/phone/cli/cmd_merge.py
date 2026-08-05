@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..device import find_cfgutil_path, map_udid_to_ecid
@@ -128,7 +129,16 @@ def cmd_reorg(args) -> int:
     if rc != 0:
         return rc
 
-    _reorg_summary(plan_obj, dump_eliminated, loose_filed, out_profile, no_install, dry_run)
+    _reorg_summary(
+        ReorgSummary(
+            plan_obj=plan_obj,
+            dump_eliminated=dump_eliminated,
+            loose_filed=loose_filed,
+            out_profile=out_profile,
+            no_install=no_install,
+            dry_run=dry_run,
+        )
+    )
     return 0
 
 
@@ -313,16 +323,28 @@ def _default_device_label() -> str | None:
     return _ios_devices_option("default")
 
 
-def _reorg_summary(plan_obj, dump_eliminated: bool, loose_filed: int, out_profile: Path, no_install: bool, dry_run: bool) -> None:
+@dataclass(frozen=True)
+class ReorgSummary:
+    """Bundle of reorg-result fields for the summary printout."""
+
+    plan_obj: object
+    dump_eliminated: bool
+    loose_filed: int
+    out_profile: Path
+    no_install: bool
+    dry_run: bool
+
+
+def _reorg_summary(summary: ReorgSummary) -> None:
     """Print reorg summary."""
     print()
     print("=== reorg summary ===")
-    print(f"  folders: {len(plan_obj.folders)}")
-    print(f"  Other eliminated: {'yes' if dump_eliminated else 'no'}")
-    print(f"  loose apps filed: {loose_filed}")
+    print(f"  folders: {len(summary.plan_obj.folders)}")
+    print(f"  Other eliminated: {'yes' if summary.dump_eliminated else 'no'}")
+    print(f"  loose apps filed: {summary.loose_filed}")
     print("  conservation: PASS")
-    print(f"  profile: {out_profile}")
-    if not no_install and not dry_run:
+    print(f"  profile: {summary.out_profile}")
+    if not summary.no_install and not summary.dry_run:
         print("  install: sent to device (tap Install in Settings)")
 
 

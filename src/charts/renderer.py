@@ -33,6 +33,8 @@ from charts.types.line import LineChartSpec
 # ---------------------------------------------------------------------------
 from charts.renderer_line_area import (  # noqa: F401
     _RIGHT_AXIS,
+    DualSeriesContext,
+    LineSeriesStyle,
     _apply_labels,
     _apply_secondary_axis_style,
     _apply_theme,

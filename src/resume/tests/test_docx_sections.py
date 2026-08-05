@@ -3,6 +3,8 @@
 import unittest
 from unittest.mock import MagicMock
 
+from resume.render_config import HeaderLineConfig
+
 
 class MockParagraph:
     """Mock paragraph object for testing."""
@@ -142,14 +144,14 @@ class TestHeaderRenderer(unittest.TestCase):
     def test_add_header_line_with_title_only(self):
         from resume.docx_sections import HeaderRenderer
         renderer = HeaderRenderer(self.doc)
-        p = renderer.add_header_line(title_text="Software Engineer")
+        p = renderer.add_header_line(HeaderLineConfig(title_text="Software Engineer"))
         self.assertEqual(len(self.doc.paragraphs), 1)
         self.assertTrue(p.runs[0].bold)
 
     def test_add_header_line_with_company(self):
         from resume.docx_sections import HeaderRenderer
         renderer = HeaderRenderer(self.doc)
-        p = renderer.add_header_line(title_text="Engineer", company_text="Acme Corp")
+        p = renderer.add_header_line(HeaderLineConfig(title_text="Engineer", company_text="Acme Corp"))
         # Should have "at" separator
         texts = [r.text for r in p.runs]
         self.assertIn(" at ", texts)
@@ -157,7 +159,7 @@ class TestHeaderRenderer(unittest.TestCase):
     def test_add_header_line_with_location(self):
         from resume.docx_sections import HeaderRenderer
         renderer = HeaderRenderer(self.doc)
-        p = renderer.add_header_line(title_text="Engineer", loc_text="NYC")
+        p = renderer.add_header_line(HeaderLineConfig(title_text="Engineer", loc_text="NYC"))
         texts = [r.text for r in p.runs]
         self.assertIn(" — ", texts)
         self.assertIn("[", texts)
@@ -167,14 +169,17 @@ class TestHeaderRenderer(unittest.TestCase):
         from resume.docx_sections import HeaderRenderer
         renderer = HeaderRenderer(self.doc)
         sec = {"location_brackets": False}
-        p = renderer.add_header_line(title_text="Engineer", loc_text="NYC", sec=sec)
+        p = renderer.add_header_line(
+            HeaderLineConfig(title_text="Engineer", loc_text="NYC"),
+            sec=sec,
+        )
         texts = [r.text for r in p.runs]
         self.assertNotIn("[", texts)
 
     def test_add_header_line_with_duration(self):
         from resume.docx_sections import HeaderRenderer
         renderer = HeaderRenderer(self.doc)
-        p = renderer.add_header_line(title_text="Engineer", span_text="2020-2023")
+        p = renderer.add_header_line(HeaderLineConfig(title_text="Engineer", span_text="2020-2023"))
         texts = [r.text for r in p.runs]
         self.assertIn("(", texts)
         self.assertIn(")", texts)

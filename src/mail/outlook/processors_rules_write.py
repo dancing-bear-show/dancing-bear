@@ -333,7 +333,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
         self, client: Any, query: str, payload: OutlookRulesSweepPayload
     ) -> list[str]:
         """Search for messages matching query."""
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         try:
             return client.search_inbox_messages(
                 SearchParams(

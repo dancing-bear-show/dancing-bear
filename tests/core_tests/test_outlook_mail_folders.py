@@ -94,7 +94,7 @@ class OutlookMailTestBase(unittest.TestCase):
 class TestListFilters(OutlookMailTestBase):
     """Tests for list_filters method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_basic(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": RULES_LIST})
@@ -106,7 +106,7 @@ class TestListFilters(OutlookMailTestBase):
         self.assertEqual(result[0]["criteria"]["from"], "sender@example.com")
         self.assertEqual(result[0]["action"]["addLabelIds"], ["Work"])
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_with_forward_action(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": [RULE_WITH_FORWARD]})
@@ -117,7 +117,7 @@ class TestListFilters(OutlookMailTestBase):
         self.assertEqual(result[0]["action"]["forward"], "forward@example.com")
         self.assertEqual(result[0]["action"]["moveToFolderId"], "folder-123")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_with_cache_miss(self, mock_requests_fn):
         from tests.fixtures import test_path
         mock_requests = self._setup_mock_requests(mock_requests_fn)
@@ -129,7 +129,7 @@ class TestListFilters(OutlookMailTestBase):
         self.assertEqual(len(result), 2)
         self.assertIsNotNone(client._cfg_cache.get("rules_inbox"))
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_with_cache_hit(self, mock_requests_fn):
         from tests.fixtures import test_path
         mock_requests = self._setup_mock_requests(mock_requests_fn)
@@ -141,7 +141,7 @@ class TestListFilters(OutlookMailTestBase):
         self.assertEqual(len(result), 2)
         mock_requests.get.assert_not_called()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_list_filters_multiple_conditions(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         rule = {
@@ -179,7 +179,7 @@ class TestListFilters(OutlookMailTestBase):
 class TestCreateFilter(OutlookMailTestBase):
     """Tests for create_filter method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_with_from(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
@@ -194,7 +194,7 @@ class TestCreateFilter(OutlookMailTestBase):
         self.assertEqual(call_json["conditions"]["senderContains"], ["sender@example.com"])
         self.assertEqual(call_json["actions"]["assignCategories"], ["Work"])
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_with_multiple_from(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
@@ -207,7 +207,7 @@ class TestCreateFilter(OutlookMailTestBase):
         call_json = mock_requests.post.call_args.kwargs["json"]
         self.assertEqual(call_json["conditions"]["senderContains"], ["a@test.com", "b@test.com"])
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_with_forward(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
@@ -221,7 +221,7 @@ class TestCreateFilter(OutlookMailTestBase):
         self.assertEqual(call_json["conditions"]["subjectContains"], ["urgent"])
         self.assertEqual(len(call_json["actions"]["forwardTo"]), 2)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_with_move(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
@@ -234,7 +234,7 @@ class TestCreateFilter(OutlookMailTestBase):
         call_json = mock_requests.post.call_args.kwargs["json"]
         self.assertEqual(call_json["actions"]["moveToFolder"], "folder-123")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_create_filter_has_required_fields(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.post.return_value = make_mock_response({"id": "new-rule"})
@@ -267,7 +267,7 @@ class TestCreateFilter(OutlookMailTestBase):
 class TestDeleteFilter(OutlookMailTestBase):
     """Tests for delete_filter method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_labels._requests")
     def test_delete_filter(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.delete.return_value = make_mock_response(status_code=204, text="")
@@ -300,7 +300,7 @@ class TestDeleteFilter(OutlookMailTestBase):
 class TestListFolders(OutlookMailTestBase):
     """Tests for list_folders method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_folders(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": FOLDERS_LIST})
@@ -309,7 +309,7 @@ class TestListFolders(OutlookMailTestBase):
 
         self.assertEqual(len(result), 2)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_folders_pagination(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -345,7 +345,7 @@ class TestListFolders(OutlookMailTestBase):
 class TestGetFolderIdMap(OutlookMailTestBase):
     """Tests for get_folder_id_map method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_get_folder_id_map(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": FOLDERS_LIST})
@@ -359,7 +359,7 @@ class TestGetFolderIdMap(OutlookMailTestBase):
 class TestEnsureFolder(OutlookMailTestBase):
     """Tests for ensure_folder method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_ensure_folder_exists(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": FOLDERS_LIST})
@@ -369,7 +369,7 @@ class TestEnsureFolder(OutlookMailTestBase):
         self.assertEqual(result, "inbox-id")
         mock_requests.post.assert_not_called()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_ensure_folder_creates_new(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": []})
@@ -379,7 +379,7 @@ class TestEnsureFolder(OutlookMailTestBase):
 
         self.assertEqual(result, "new-folder-id")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_ensure_folder_conflict_returns_existing(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         # First get returns empty, second returns the folder after conflict
@@ -398,7 +398,7 @@ class TestEnsureFolder(OutlookMailTestBase):
 class TestListAllFolders(OutlookMailTestBase):
     """Tests for list_all_folders method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_all_folders_flat(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -412,7 +412,7 @@ class TestListAllFolders(OutlookMailTestBase):
 
         self.assertEqual(len(result), 2)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_all_folders_with_children(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -425,7 +425,7 @@ class TestListAllFolders(OutlookMailTestBase):
 
         self.assertEqual(len(result), 2)
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_all_folders_with_cache(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
 
@@ -436,7 +436,7 @@ class TestListAllFolders(OutlookMailTestBase):
         self.assertEqual(len(result), 2)
         mock_requests.get.assert_not_called()
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_list_all_folders_clear_cache(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -474,7 +474,7 @@ class TestListAllFolders(OutlookMailTestBase):
 class TestGetFolderPathMap(OutlookMailTestBase):
     """Tests for get_folder_path_map method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_get_folder_path_map_flat(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -488,7 +488,7 @@ class TestGetFolderPathMap(OutlookMailTestBase):
         self.assertEqual(result["Inbox"], "inbox-id")
         self.assertEqual(result["Archive"], "archive-id")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_get_folder_path_map_nested(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -534,7 +534,7 @@ class TestGetFolderPathMap(OutlookMailTestBase):
 class TestEnsureFolderPath(OutlookMailTestBase):
     """Tests for ensure_folder_path method."""
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_ensure_folder_path_single_level(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": FOLDERS_LIST})
@@ -543,7 +543,7 @@ class TestEnsureFolderPath(OutlookMailTestBase):
 
         self.assertEqual(result, "inbox-id")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_ensure_folder_path_nested_exists(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
@@ -555,7 +555,7 @@ class TestEnsureFolderPath(OutlookMailTestBase):
 
         self.assertEqual(result, "sub-id")
 
-    @patch("core.outlook.mail._requests")
+    @patch("core.outlook._mail_folders._requests")
     def test_ensure_folder_path_creates_nested(self, mock_requests_fn):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [

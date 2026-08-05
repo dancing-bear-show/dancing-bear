@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional
 
 from core.cli_errors import CLIError
-from core.http import HttpClient
+from core.http import HttpClient, HttpRequestBody
 
 
 class AppleMusicCLIError(CLIError):
@@ -56,7 +56,8 @@ class AppleMusicClient:
 
         path = self._make_path(path)
         try:
-            resp = self._http.request(method, path, params=params, headers=self._auth_headers(), json=json_body)
+            body = HttpRequestBody(json=json_body) if json_body is not None else None
+            resp = self._http.request(method, path, params=params, headers=self._auth_headers(), body=body)
         except _requests.exceptions.HTTPError as exc:
             r = exc.response
             status = r.status_code if r is not None else "?"

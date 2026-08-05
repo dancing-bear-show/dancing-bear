@@ -68,7 +68,7 @@ class TestSearchInboxMessages(OutlookMailTestBase):
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_basic(self, mock_requests_fn):
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
@@ -80,7 +80,7 @@ class TestSearchInboxMessages(OutlookMailTestBase):
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_with_days_filter(self, mock_requests_fn):
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 
@@ -93,7 +93,7 @@ class TestSearchInboxMessages(OutlookMailTestBase):
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_pagination(self, mock_requests_fn):
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.side_effect = [
             make_mock_response({"value": [{"id": "msg-1"}], "@odata.nextLink": "http://next"}),
@@ -109,7 +109,7 @@ class TestSearchInboxMessages(OutlookMailTestBase):
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_with_cache(self, mock_requests_fn):
-        from core.outlook.mail import SearchParams
+        from core.outlook.models import SearchParams
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
 

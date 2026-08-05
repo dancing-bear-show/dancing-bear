@@ -41,20 +41,23 @@ except ImportError:
 from telemetry._menubar_app import (
     TelemetryMenubarApp,  # noqa: F401
     _HAS_RUMPS,  # noqa: F401
-    _INSIGHTS_TIP_ROWS,  # noqa: F401
     _OTEL_WINDOWS,  # noqa: F401
     _PROJECTS_DIR,  # noqa: F401
     _STORAGE_WARN_DAYS,  # noqa: F401
     _WINDOWS,  # noqa: F401
     _app_version_cache,  # noqa: F401
-    _budget_score,  # noqa: F401
-    _icon_substitutions,  # noqa: F401
-    _icon_token_stream,  # noqa: F401
     _month_since,  # noqa: F401
     _project_short,  # noqa: F401
-    _render_icon_plain,  # noqa: F401
+)
+from telemetry._menubar_budget import (
+    _budget_score,  # noqa: F401
     _safe_float,  # noqa: F401
     _safe_int,  # noqa: F401
+)
+from telemetry._menubar_renderers import (
+    _icon_substitutions,  # noqa: F401
+    _icon_token_stream,  # noqa: F401
+    _render_icon_plain,  # noqa: F401
 )
 from telemetry._menubar_config import (
     _DEFAULT_COST_MULTIPLIER,  # noqa: F401

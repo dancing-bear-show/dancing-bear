@@ -38,6 +38,7 @@ __all__ = [
     "ResolvedStage",
     "WorkflowManifest",
     "StageResult",
+    "StageResultExtras",
     "WorkflowRun",
     "make_stage_result",
 ]
@@ -377,17 +378,29 @@ class StageResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class StageResultExtras:
+    """Optional data, errors, and metadata carried in a StageResult.
+
+    Groups the three optional output fields of make_stage_result so
+    the function signature stays at or below five parameters.
+    """
+
+    data: dict[str, Any] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 def make_stage_result(
     stage: ResolvedStage,
     started_at: str,
     status: StageStatus,
-    data: dict[str, Any] | None = None,
-    errors: list[str] | None = None,
-    metadata: dict[str, Any] | None = None,
+    extras: StageResultExtras | None = None,
 ) -> StageResult:
     """Build a StageResult with computed timing from ISO timestamps."""
     from workflow._timeutil import iso_now, parse_iso_utc_strict
 
+    _extras = extras if extras is not None else StageResultExtras()
     finished_at = iso_now()
     start_dt = parse_iso_utc_strict(started_at)
     end_dt = parse_iso_utc_strict(finished_at)
@@ -399,11 +412,11 @@ def make_stage_result(
         started_at=started_at,
         finished_at=finished_at,
         duration_ms=duration_ms,
-        data=data or {},
-        errors=errors or [],
+        data=_extras.data,
+        errors=_extras.errors,
         output_files=list(stage.spec.writes_to),
         input_stages=list(stage.spec.reads_from),
-        metadata=metadata or {},
+        metadata=_extras.metadata,
     )
 
 

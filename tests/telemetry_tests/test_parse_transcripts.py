@@ -11,25 +11,25 @@ from unittest.mock import patch
 import click
 from click.testing import CliRunner
 
-from telemetry.parse_transcripts import (
-    ParseResult,
+from telemetry._transcript_record_parser import (
     _append_bash_command,
-    _emit_rows,
     _extract_tool_preview,
-    _find_jsonl_files,
-    _load_json_nullable,
-    _load_or_init_session_index,
     _parse_content_blocks,
-    _parse_since_window,
-    _process_jsonl_file,
-    _process_one_file,
     _process_one_record,
     _process_tool_use_blocks,
     _process_user_role_record,
+)
+from telemetry.parse_transcripts import parse_transcripts
+from telemetry.parse_transcripts_emit import ParseResult, _emit_rows, _token_estimate
+from telemetry.parse_transcripts_io import (
+    _find_jsonl_files,
+    _load_json_nullable,
+    _load_or_init_session_index,
+    _parse_since_window,
+    _process_jsonl_file,
+    _process_one_file,
     _safe_mtime,
     _session_id_from_path,
-    _token_estimate,
-    parse_transcripts,
     run_parse_transcripts,
 )
 
@@ -894,11 +894,11 @@ class TestRunParseTranscripts(unittest.TestCase):
         self.assertTrue(new_index.exists())
 
     def test_none_projects_dir_defaults_to_home_claude(self):
-        # Patch Path.home to return our tmpdir so we don't touch real ~/.claude
+        # Patch Path.home in parse_transcripts_io where run_parse_transcripts reads it
         fake_home = self.tmpdir / "fakehome"
         fake_home.mkdir()
         (fake_home / ".claude" / "projects").mkdir(parents=True)
-        with patch("telemetry.parse_transcripts.Path.home", return_value=fake_home):
+        with patch("telemetry.parse_transcripts_io.Path.home", return_value=fake_home):
             results = run_parse_transcripts(
                 since="all",
                 projects_dir=None,

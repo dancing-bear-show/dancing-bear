@@ -1,6 +1,6 @@
 import unittest
 
-from phone.profile import ProfileMetadata, build_mobileconfig
+from phone.profile import MobileConfigOptions, ProfileMetadata, build_mobileconfig
 
 
 def _extract_folder_apps(folder_item):
@@ -63,7 +63,7 @@ class TestPhoneProfile(unittest.TestCase):
             "pages": {1: {"folders": ["Big"]}},
         }
 
-        profile = build_mobileconfig(plan=plan, folder_page_size=9)
+        profile = build_mobileconfig(plan=plan, options=MobileConfigOptions(folder_page_size=9))
 
         folder = profile["PayloadContent"][0]["Pages"][0][0]
         self.assertEqual(folder["DisplayName"], "Big")
@@ -79,7 +79,7 @@ class TestPhoneProfile(unittest.TestCase):
 
         for bad in (0, -1):
             with self.assertRaises(ValueError):
-                build_mobileconfig(plan=plan, folder_page_size=bad)
+                build_mobileconfig(plan=plan, options=MobileConfigOptions(folder_page_size=bad))
 
     def test_build_mobileconfig_default_folder_page_size_unchanged(self):
         apps = [f"com.example.app{i}" for i in range(20)]

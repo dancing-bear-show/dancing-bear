@@ -365,11 +365,13 @@ def trace_route(target: str, *, runner: CommandRunner, max_hops: int = 12) -> Tr
 
 
 def http_probe(url: str) -> HttpResult:
-    from core.http import HttpClient
+    from core.http import HttpClient, HttpRequestBody
 
     start = time.perf_counter()
     try:
-        resp = HttpClient("", timeout=5.0, retries=1).get(url, stream=True)
+        resp = HttpClient("", timeout=5.0, retries=1).get(
+            url, body=HttpRequestBody(stream=True)
+        )
         elapsed_ms = (time.perf_counter() - start) * 1000
         chunk = next(resp.iter_content(chunk_size=2048), b"")
         bytes_read = len(chunk)

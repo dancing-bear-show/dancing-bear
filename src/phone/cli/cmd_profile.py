@@ -30,7 +30,7 @@ from ..pipeline import (
     ManifestInstallProcessor,
     ManifestInstallRequest,
 )
-from ..profile import ProfileMetadata, build_mobileconfig
+from ..profile import MobileConfigOptions, ProfileMetadata, build_mobileconfig
 
 # Default values for profile configuration
 _DEFAULT_PROFILE_IDENTIFIER = "com.example.profile"
@@ -263,9 +263,11 @@ def cmd_profile_build(args) -> int:
             display_name=getattr(args, "display_name", _DEFAULT_DISPLAY_NAME),
             organization=getattr(args, "organization", None),
         ),
-        dock_count=max(0, int(getattr(args, "dock_count", 4))),
         all_apps_folder=all_apps_folder,
-        folder_page_size=int(getattr(args, "folder_page_size", 30)),
+        options=MobileConfigOptions(
+            dock_count=max(0, int(getattr(args, "dock_count", 4))),
+            folder_page_size=int(getattr(args, "folder_page_size", 30)),
+        ),
     )
 
     out_path = Path(args.out)
@@ -316,7 +318,6 @@ def cmd_manifest_build(args) -> int:
             display_name=prof.get("display_name", _DEFAULT_DISPLAY_NAME),
             organization=prof.get("organization"),
         ),
-        dock_count=4,
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

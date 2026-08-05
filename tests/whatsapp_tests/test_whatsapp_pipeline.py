@@ -133,14 +133,18 @@ class TestSearchProcessor(unittest.TestCase):
         processor = SearchProcessor()
         processor.process(SearchRequestConsumer(req).consume())
 
+        from whatsapp.search import MessageQuery
+
         mock_search.assert_called_once_with(
             db_path="/custom/path",
-            contains=["test"],
-            match_all=True,
-            contact="Bob",
-            from_me=False,
-            since_days=30,
-            limit=25,
+            query=MessageQuery(
+                contains=["test"],
+                match_all=True,
+                contact="Bob",
+                from_me=False,
+                since_days=30,
+                limit=25,
+            ),
         )
 
 

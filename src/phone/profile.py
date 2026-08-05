@@ -7,6 +7,16 @@ from uuid import uuid4
 from .classify import classify_app
 
 
+@dataclass(frozen=True)
+class MobileConfigOptions:
+    """Tuning knobs for build_mobileconfig that don't belong in the plan."""
+
+    dock_count: int = 4
+    folder_page_size: int = 30
+    auto_categories: list[str] | None = None
+    auto_categories_page: int = 2
+
+
 def _app_item(bundle_id: str) -> dict[str, Any]:
     return AppItem(bundle_id).as_spec()
 
@@ -411,16 +421,25 @@ def _add_auto_categorized_folders(
             builder.add_folder(target_page, cat, apps)
 
 
+def _merge_all_apps_cfg(
+    plan: dict[str, Any], all_apps_folder: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """Merge plan['all_apps_folder'] with an explicit all_apps_folder override."""
+    merged: dict[str, Any] | None = None
+    if isinstance(plan.get("all_apps_folder"), dict):
+        merged = dict(plan.get("all_apps_folder") or {})
+    if isinstance(all_apps_folder, dict):
+        merged = {**(merged or {}), **all_apps_folder}
+    return merged
+
+
 def build_mobileconfig(
     *,
     plan: dict[str, Any],
     layout_export: dict[str, Any] | None = None,
     profile_meta: ProfileMetadata | None = None,
-    dock_count: int = 4,
     all_apps_folder: dict[str, Any] | None = None,
-    auto_categories: list[str] | None = None,
-    auto_categories_page: int = 2,
-    folder_page_size: int = 30,
+    options: MobileConfigOptions | None = None,
 ) -> dict[str, Any]:
     """Return a Configuration profile dict suitable for plistlib.dump().
 
@@ -428,24 +447,26 @@ def build_mobileconfig(
     (profile_meta).  Defaults to ProfileMetadata() when omitted.
 
     Dock comes from `layout_export['dock']` when provided; otherwise, take
-    the first N from plan['pins'] (N=dock_count, default 4).
+    the first N from plan['pins'] (N=options.dock_count, default 4).
     Page 1 contains remaining pins, then folders. Folder contents are chunked
-    into sub-pages of folder_page_size apps each (default 30; use 9 for
-    iPhone 3x3 folder grids; must be >= 1).
-    Optionally place all remaining apps into a single folder (all_apps_folder) on a target page.
+    into sub-pages of options.folder_page_size apps each (default 30; use 9
+    for iPhone 3x3 folder grids; must be >= 1).
+    Optionally place all remaining apps into a single folder (all_apps_folder)
+    on a target page.  Pass a MobileConfigOptions instance to override defaults.
     """
-    _validate_folder_page_size(folder_page_size)
+    opts = options or MobileConfigOptions()
+    _validate_folder_page_size(opts.folder_page_size)
     meta = profile_meta or ProfileMetadata()
     pins: list[str] = list(plan.get("pins") or [])
     folders: dict[str, list[str]] = dict(plan.get("folders") or {})
 
     # Resolve dock configuration
-    dock = _resolve_dock(plan, layout_export, pins, dock_count)
+    dock = _resolve_dock(plan, layout_export, pins, opts.dock_count)
 
     # Initialize builder and configure dock
     builder = HomeScreenConfigBuilder(
         layout_export or {"dock": [], "pages": []},
-        folder_page_size=folder_page_size,
+        folder_page_size=opts.folder_page_size,
     )
     builder.set_dock(dock)
 
@@ -456,24 +477,19 @@ def build_mobileconfig(
     else:
         _build_default_pages(builder, pins, folders, dock)
 
-    # Merge all_apps_folder configuration
-    merged_all_apps_cfg: dict[str, Any] | None = None
-    if isinstance(plan.get("all_apps_folder"), dict):
-        merged_all_apps_cfg = dict(plan.get("all_apps_folder") or {})
-    if isinstance(all_apps_folder, dict):
-        merged_all_apps_cfg = {**(merged_all_apps_cfg or {}), **all_apps_folder}
-
-    # Add catch-all folder if configured
-    if merged_all_apps_cfg and layout_export and not auto_categories:
-        _add_all_apps_folder(builder, merged_all_apps_cfg, dock, pins, folders)
+    # Add catch-all folder if configured (unless auto-categorization is on)
+    if layout_export and not opts.auto_categories:
+        merged_all_apps_cfg = _merge_all_apps_cfg(plan, all_apps_folder)
+        if merged_all_apps_cfg:
+            _add_all_apps_folder(builder, merged_all_apps_cfg, dock, pins, folders)
 
     # Auto-categorize remaining apps if enabled
-    if auto_categories and layout_export:
+    if opts.auto_categories and layout_export:
         _add_auto_categorized_folders(
             builder,
             AutoCategorizeConfig(
-                auto_categories=auto_categories,
-                auto_categories_page=auto_categories_page,
+                auto_categories=opts.auto_categories,
+                auto_categories_page=opts.auto_categories_page,
                 layout_export=layout_export,
                 dock=dock,
                 pins=pins,

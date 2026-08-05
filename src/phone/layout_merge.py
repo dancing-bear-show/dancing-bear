@@ -329,23 +329,30 @@ def _collect_apps_to_file(
     return to_file
 
 
+@dataclass
+class _FolderAccumulator:
+    """Mutable folder-assignment state threaded through app redistribution."""
+
+    folders_by_name: dict[str, list[str]]
+    folder_page: dict[str, int]
+    existing_folders: set[str]
+    default_page: int
+
+
 def _file_apps_into_folders(
     to_file: list[str],
     keep_set: set[str],
-    folders_by_name: dict[str, list[str]],
-    folder_page: dict[str, int],
-    existing_folders: set[str],
-    default_page: int,
+    acc: _FolderAccumulator,
 ) -> None:
-    """Distribute apps from to_file into folders_by_name in place."""
+    """Distribute apps from to_file into acc.folders_by_name in place."""
     for bid in to_file:
         if bid in keep_set:
             continue
-        target = classify_to_folder(bid, existing_folders, fallback="Misc")
-        if target not in folders_by_name:
-            folders_by_name[target] = []
-            folder_page[target] = default_page
-        folders_by_name[target].append(bid)
+        target = classify_to_folder(bid, acc.existing_folders, fallback="Misc")
+        if target not in acc.folders_by_name:
+            acc.folders_by_name[target] = []
+            acc.folder_page[target] = acc.default_page
+        acc.folders_by_name[target].append(bid)
 
 
 def _build_pins(
@@ -439,8 +446,14 @@ def merge_folders(
 
     to_file = _collect_apps_to_file(pages_raw, dump_set, dock_set)
     _file_apps_into_folders(
-        to_file, effective_keep, folders_by_name, folder_page, existing_folders,
-        default_page=max(len(pages_raw), 2),
+        to_file,
+        effective_keep,
+        _FolderAccumulator(
+            folders_by_name=folders_by_name,
+            folder_page=folder_page,
+            existing_folders=existing_folders,
+            default_page=max(len(pages_raw), 2),
+        ),
     )
 
     pins = _build_pins(pages_raw, dock_set, effective_keep)

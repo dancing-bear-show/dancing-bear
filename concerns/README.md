@@ -4,11 +4,11 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 
 | File | Domain | Concerns |
 |------|--------|----------|
-| correctness.md | Python correctness, type safety, logic errors | ~38 |
+| correctness.md | Python correctness, type safety, logic errors | ~39 |
 | security.md | Security vulnerabilities, credential handling, input validation | ~4 |
-| tests.md | Test quality, coverage, fixture patterns (unittest) | ~19 |
+| tests.md | Test quality, coverage, fixture patterns (unittest) | ~20 |
 | patterns.md | Code patterns, CLI framework, lazy imports, plan/apply safety | ~28 |
-| reuse.md | DRY, intra-domain duplication, shared extraction | ~4 |
+| reuse.md | DRY, intra-domain duplication, shared extraction | ~5 |
 | complexity.md | Cognitive complexity, nesting depth, logging hygiene, file size, parameter count | ~6 |
 | workflow.md | FLOWS.yaml correctness, CLI references, plan/apply order | ~25 |
 | workflow-fragments.md | .llm/ context files, agent definitions, generated file integrity | ~17 |

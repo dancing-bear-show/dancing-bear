@@ -21,6 +21,7 @@ from phone.profile import (
     _list_apps_from_export,
     _normalize_pages_spec,
     _resolve_dock,
+    MobileConfigOptions,
     build_mobileconfig,
 )
 
@@ -434,8 +435,7 @@ class TestBuildMobileconfig(unittest.TestCase):
         profile = build_mobileconfig(
             plan=plan,
             layout_export=export,
-            auto_categories=["Utilities"],
-            auto_categories_page=2,
+            options=MobileConfigOptions(auto_categories=["Utilities"], auto_categories_page=2),
         )
         self.assertEqual(profile["PayloadType"], "Configuration")
 
