@@ -87,7 +87,7 @@ by the actual changes, so validators only spend time on relevant checks.
 | `concerns/complexity.md` | diff contains `.py` files |
 | `concerns/workflow.md`, `concerns/workflow-stages.md`, `concerns/workflow-fanout.md`, `concerns/workflow-fragments.md` | diff contains `.yaml`/`.yml` or `SKILL.md` files |
 | `concerns/docs.md` | diff contains `.md`, `README`, or `SKILL.md` files |
-| `concerns/resume-copy.md` | diff contains `src/resume/config/profiles/**`, `src/resume/config/*.yaml`, or `src/resume/examples/*` |
+| `concerns/resume-copy.md` | diff contains `src/resume/config/profiles/**`, `src/resume/config/*.yaml`, `src/resume/examples/*`, or any `linkedin*.yaml` |
 
 ## CLI Quick Reference
 

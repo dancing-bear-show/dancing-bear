@@ -321,6 +321,13 @@ PII Handling
   - Align: `./bin/resume align --data _data/candidate.yaml --job config/job.yaml --out _data/alignment.json --tailored _data/tailored.json`
   - Render: `./bin/resume render --data _data/tailored.json --template config/template.example.yaml --structure-from ~/Downloads/your_resume.docx --out _data/your_name.tailored.docx`
 - Keep `out/` gitignored for generated artifacts. Use `out/` for curated outputs you want to keep (tracked at repo root policy).
+- LinkedIn profiles: real captures go in `_data/profiles/<name>/linkedin.yaml` (gitignored). Only the redacted `config/linkedin.example.yaml` is committed.
+
+LinkedIn Profile Tracking
+- Record what a LinkedIn profile says **today** in a YAML following `config/linkedin.example.yaml`, so it can be diffed against the resume.
+- Reviewed by `concerns/resume-copy.md` (`linkedin-surface-over-limit`, `linkedin-resume-drift`); copy standards live in `.claude/RESUME_WRITING_GUIDE.md`.
+- Track live state, not aspirational copy — drift is only detectable if the file matches the live profile. After editing LinkedIn, update the YAML to match.
+- LinkedIn blocks unauthenticated fetches, so captures are usually partial. Tag unreadable fields `unverified` rather than guessing; the drift concern suppresses those and reports only observed differences.
 
 Workflow (skills-first → job → tailored)
 - Build skills input:

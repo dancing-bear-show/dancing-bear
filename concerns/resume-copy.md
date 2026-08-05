@@ -141,9 +141,12 @@ a parser with deliberately malformed input.
 - **triggers**: A headline value over 220 characters; an About/summary value over
   2,600 characters; a per-role LinkedIn bullet block over 2,000 characters; a
   skills list over 50 entries.
-- **status**: Partially dormant. Applies today to `profile.yaml` `headline` (which
-  feeds both surfaces). Full enforcement requires a checked-in LinkedIn profile
-  YAML; until one exists, only flag `headline`.
+- **applies to**: `profile.yaml` `headline`, and any LinkedIn profile YAML
+  following `src/resume/config/linkedin.example.yaml` — including gitignored real
+  profiles under `src/resume/_data/profiles/**`, which a local review will see even
+  though a PR diff will not.
+- **note**: Where a `chars:` field accompanies `headline`, verify it matches the
+  actual character count of `text:` — a stale count hides an over-limit headline.
 - **example**: A 340-character headline renders as roughly 220 characters plus an
   ellipsis in search results, cutting off the differentiator.
 
@@ -155,8 +158,15 @@ a parser with deliberately malformed input.
 - **triggers**: The same role carrying different titles, dates, or metrics between
   a resume profile and a LinkedIn profile YAML; a role present in one source and
   absent from the other.
-- **status**: Dormant until a LinkedIn profile YAML is checked into
-  `src/resume/config/profiles/**`. Do not report findings for this concern while no
-  such file exists.
+- **applies to**: any LinkedIn profile YAML following
+  `src/resume/config/linkedin.example.yaml`, compared against the resume profile in
+  the same tree. Real profiles live gitignored under `src/resume/_data/profiles/**`,
+  so this concern fires during local review but usually not from a PR diff alone.
+- **provenance rule**: Do NOT report drift against a field tagged `unverified`,
+  `unverified-possibly-empty`, or `dates_source: resume-not-linkedin` — those record
+  what could not be read, not what the profile says. Flagging them produces findings
+  about the capture rather than the profile. A field tagged `presence_on_linkedin:
+  absent-in-preview` IS reportable: a resume role missing from the profile is the
+  defect this concern exists to catch.
 - **example**: Resume says "Senior Staff Site Reliability Engineer, Nov 2020 – May
   2025"; LinkedIn says "Staff SRE, 2021 – 2025" — title and both dates disagree.
