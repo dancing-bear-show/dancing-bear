@@ -4,6 +4,86 @@ Overview
 - Gmail/Outlook CLI for labels, filters/rules, signatures and cache helpers.
 - Uses profiles in `~/.config/credentials.ini` (e.g., `--profile gmail_personal`, `--profile outlook_personal`).
 
+Architecture
+
+Module structure and CLI dispatch:
+
+```mermaid
+---
+title: Mail Module Architecture
+---
+flowchart TB
+    bin["./bin/mail-assistant"]
+    cli["cli/main.py\nCLIApp + CLIGroups"]
+    subgraph groups["Command Groups"]
+        g_labels["labels\n(LabelSync)"]
+        g_filters["filters\n(FiltersPlan/Sync/Export)"]
+        g_messages["messages\n(search/summarize/reply)"]
+        g_outlook["outlook\n(auth/rules/categories/folders)"]
+        g_auto["auto\n(propose/apply/summary)"]
+        g_accounts["accounts\n(multi-account)"]
+        g_sigs["signatures"]
+        g_fwd["forwarding"]
+    end
+    subgraph providers["Providers"]
+        p_gmail["providers/gmail.py\nGmailProvider"]
+        p_outlook["providers/outlook.py\nOutlookProvider"]
+    end
+    subgraph pipeline["Pipeline (core/pipeline.py)"]
+        proc["SafeProcessor\n(FiltersPlanProcessor\nFiltersSyncProcessor\nFiltersExportProcessor)"]
+        prod["BaseProducer\n→ OutputWriter"]
+    end
+    api_gmail["Gmail API\n(gmail_api.py)"]
+    api_outlook["outlook_api/client.py\nGraph API"]
+
+    bin --> cli
+    cli --> groups
+    g_labels --> pipeline
+    g_filters --> pipeline
+    g_messages --> pipeline
+    g_outlook --> pipeline
+    g_auto --> pipeline
+    g_accounts --> pipeline
+    pipeline --> providers
+    providers --> api_gmail
+    providers --> api_outlook
+```
+
+Filter config data flow (unified YAML → provider sync):
+
+```mermaid
+---
+title: Filter Sync Data Flow
+---
+flowchart LR
+    unified["config/filters_unified.yaml"]
+    derive["config derive.filters"]
+    gmail_yaml["out/filters.gmail.yaml"]
+    outlook_yaml["out/filters.outlook.yaml"]
+    plan["filters plan\nFiltersPlanProcessor"]
+    sync["filters sync\nFiltersSyncProcessor"]
+    gmail_api["Gmail Filters API"]
+    outlook_api["Outlook Rules API\n(Graph)"]
+
+    unified --> derive
+    derive --> gmail_yaml
+    derive --> outlook_yaml
+    gmail_yaml --> plan --> sync --> gmail_api
+    outlook_yaml --> plan --> sync --> outlook_api
+```
+
+Key modules:
+- `cli/main.py` — CLIApp wiring; all groups and subcommands registered here
+- `providers/gmail.py`, `providers/outlook.py` — `BaseProvider` subclasses; implement labels/filters/messages
+- `gmail_api.py` — low-level Gmail REST wrapper (lazy import)
+- `outlook_api/client.py` — Graph API client (lazy import, MSAL auth)
+- `filters/processors_plan.py` — `FiltersPlanProcessor`, `FiltersSyncProcessor`, `FiltersExportProcessor`
+- `filters/processors_sweep.py` — `FiltersSweepProcessor`, `FiltersPruneProcessor`
+- `labels/processors.py` — `LabelSyncProcessor` / `LabelSyncProducer`
+- `auto/processors.py` — `AutoProposeProcessor`, `AutoApplyProcessor`
+- `accounts/pipeline.py` — multi-account fan-out over configured providers
+- `config_cli/pipeline_derive.py` — unified YAML → per-provider YAML derivation
+
 Quick Start
 - Venv: `python3 -m venv .venv && source .venv/bin/activate && pip install -e .`
 - Help: `./bin/mail-assistant --help`
@@ -14,15 +94,15 @@ Quick Start
 - LLM inventory (JSON): `./bin/llm inventory --format json --stdout`
 - Gmail export filters: `./bin/mail-assistant --profile gmail_personal filters export --out out/filters.gmail.export.yaml`
 - Gmail sync filters: `./bin/mail-assistant --profile gmail_personal filters sync --config config/filters_unified.yaml --dry-run`
-- Outlook rules plan: `./bin/mail-assistant --profile outlook_personal outlook rules plan --config out/filters.outlook.yaml`
+- Outlook rules plan: `./bin/mail-assistant --profile outlook_personal outlook rules.plan --config out/filters.outlook.yaml`
 
 Outlook Authentication (first time)
 - Device-code flow (recommended):
-  - Start: `./bin/mail-assistant --profile outlook_personal outlook auth device-code`
+  - Start: `./bin/mail-assistant --profile outlook_personal outlook auth.device-code`
   - Complete the on-screen link/code, then persist token:
-    `./bin/mail-assistant --profile outlook_personal outlook auth poll --flow ~/.config/msal_flow.json --token ~/.config/outlook_token.json`
+    `./bin/mail-assistant --profile outlook_personal outlook auth.poll --flow ~/.config/msal_flow.json --token ~/.config/outlook_token.json`
 - One-liner (silent if cache exists):
-  - `./bin/mail-assistant --profile outlook_personal outlook auth ensure`
+  - `./bin/mail-assistant --profile outlook_personal outlook auth.ensure`
 
 Profiles
 - Configure credentials/token paths and Outlook client ID via `~/.config/credentials.ini` under sections:

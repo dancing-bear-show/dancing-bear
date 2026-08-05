@@ -1,5 +1,41 @@
 # Phone
 
+## Overview
+
+Local-only CLI for iOS/iPadOS Home Screen layout exports, plan scaffolds, folder merges, and mobileconfig profile building and installation.
+
+## Architecture
+
+```mermaid
+---
+title: Phone Layout Pipeline
+---
+flowchart TB
+    cli["./bin/phone"]
+    app["CLIApp\ncli/main.py"]
+    export_dev["export-device\ncfgutil → YAML\ncmd_export_device()"]
+    merge["merge-folders\nlayout_merge.py\nclassify.py"]
+    plan_yaml["out/ios.plan.merged.yaml"]
+    profile_build["profile build\nbuild_mobileconfig()\nprofile.py"]
+    mobileconfig["out/ios.merged.mobileconfig"]
+    install["cfgutil install-profile\n(Code 625 = tap Install on device)"]
+    device["iOS Device"]
+    reorg["reorg\ncmd_reorg()\ncmd_merge.py"]
+
+    cli --> app
+    app --> export_dev
+    app --> reorg
+    reorg --> export_dev
+    export_dev --> merge
+    merge --> plan_yaml
+    plan_yaml --> profile_build
+    profile_build --> mobileconfig
+    mobileconfig --> install
+    install --> device
+```
+
+`reorg` is a one-shot wrapper for the full pipeline: export-device → merge-folders → profile build → install. Each stage can also be run independently.
+
 ## Repeatable Reorg (recommended)
 
 One-shot command to reorganize your iPhone Home Screen — export, merge folders, build profile, and copy to device.

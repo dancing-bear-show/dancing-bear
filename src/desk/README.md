@@ -48,6 +48,36 @@ rules:
       move_to: "~/Downloads/Archives/DMGs"
 ```
 
+## Architecture
+
+```mermaid
+---
+title: desk CLI flow
+---
+flowchart LR
+    cli["./bin/desk-assistant (cli.py)"]
+    subgraph commands
+        scan[scan]
+        plan[plan]
+        apply[apply]
+        rules_export[rules export]
+    end
+    subgraph pipeline ["pipeline.py"]
+        ScanProcessor
+        PlanProcessor
+        ApplyProcessor
+    end
+    subgraph output
+        out_yaml[out/scan.yaml]
+        out_plan[out/plan.yaml]
+        trash["~/.Trash / dest dir"]
+    end
+    cli --> scan --> ScanProcessor --> out_yaml
+    cli --> plan --> PlanProcessor --> out_plan
+    cli --> apply --> ApplyProcessor --> trash
+    cli --> rules_export
+```
+
 ## Pipeline Pattern
 - Commands route through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
 - `apply_ops.py` routes output through `OutputWriter`; `planner.py` raises `NotFoundError` for missing config files.

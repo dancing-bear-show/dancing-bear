@@ -11,6 +11,26 @@ Key Commands
 - Retry a failed job: `./bin/worker retry <job-id>`
 - Purge completed jobs: `./bin/worker purge`
 
+Architecture
+
+```mermaid
+---
+title: Worker — enqueue to dispatch flow
+---
+flowchart TB
+    cli[./bin/worker enqueue] --> enqueue[queue_ops.py\nenqueue]
+    enqueue --> pending[pending/\njob JSON file]
+    pending --> daemon[commands.py\nDaemonCommand loop]
+    daemon --> processing[processing/\n rename]
+    processing --> safe[JobSafeProcessor\n_process_safe]
+    safe --> registry[handlers.py\nREGISTRY lookup]
+    registry --> shell[ShellJobProcessor\nsubprocess.run]
+    shell --> done_dir[done/ or error/\n rename]
+    done_dir --> produce[JobResultProducer\nOutputWriter]
+```
+
+Jobs are file-based JSON under `QUEUE_ROOT`; atomicity is via write-to-temp + rename. The daemon polls `pending/`, moves to `processing/` on claim, then to `done/` or `error/` on completion.
+
 Key Modules
 - `cli.py` — CLIApp-based CLI dispatch; `main()` calls `app.run()`, which catches `CLIError`, `KeyboardInterrupt`, and other exceptions via `handle_error()`
 - `commands.py` — command implementations: `ShowCommand`, `StatusCommand`, `RetryCommand`; `JobSafeProcessor`/`JobResultProducer` for job execution
