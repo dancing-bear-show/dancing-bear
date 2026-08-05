@@ -154,9 +154,10 @@ a parser with deliberately malformed input.
   2,600 characters; a per-role LinkedIn bullet block over 2,000 characters; a
   skills list over 50 entries.
 - **applies to**: `profile.yaml` `headline`, and any LinkedIn profile YAML
-  following `src/resume/config/linkedin.example.yaml` — including gitignored real
-  profiles under `src/resume/_data/profiles/**`, which a local review will see even
-  though a PR diff will not.
+  following `src/resume/config/linkedin.example.yaml` — including real profiles
+  under `src/resume/_data/profiles/**`, which a local review will see even though a
+  PR diff will not (that tree is ignored via `src/resume/.gitignore` line 2,
+  `_data/`).
 - **note**: Where a `chars:` field accompanies `headline`, verify it matches the
   actual character count of `text:` — a stale count hides an over-limit headline.
 - **example**: A 340-character headline renders as roughly 220 characters plus an
@@ -172,8 +173,9 @@ a parser with deliberately malformed input.
   absent from the other.
 - **applies to**: any LinkedIn profile YAML following
   `src/resume/config/linkedin.example.yaml`, compared against the resume profile in
-  the same tree. Real profiles live gitignored under `src/resume/_data/profiles/**`,
-  so this concern fires during local review but usually not from a PR diff alone.
+  the same tree. Real profiles live under `src/resume/_data/profiles/**`, ignored
+  via `src/resume/.gitignore` line 2 (`_data/`), so this concern fires during local
+  review but usually not from a PR diff alone.
 - **provenance rule**: Do NOT report drift against a field tagged `unverified`,
   `unverified-possibly-empty`, or `dates_source: resume-not-linkedin` — those record
   what could not be read, not what the profile says. Flagging them produces findings

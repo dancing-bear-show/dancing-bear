@@ -5,8 +5,11 @@
 # (linkedin-surface-over-limit, linkedin-resume-drift); standards are in
 # .claude/RESUME_WRITING_GUIDE.md.
 #
-# PII: keep REAL profiles under src/resume/_data/profiles/<name>/linkedin.yaml,
-# which is gitignored. Only this redacted example belongs in config/.
+# PII: keep REAL profiles under src/resume/_data/profiles/<name>/linkedin.yaml.
+# That path is ignored by src/resume/.gitignore line 2 (`_data/`), which covers
+# the whole _data/ tree — not by the narrower `_data/profiles_private/` entry in
+# the root .gitignore. Confirm with: git check-ignore -v <path>
+# Only this redacted example belongs in config/.
 # See "PII Handling" in src/resume/README.md.
 #
 # Intent: record what the profile SAYS TODAY, not the corrected copy you plan
