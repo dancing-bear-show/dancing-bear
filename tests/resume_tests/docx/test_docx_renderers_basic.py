@@ -338,6 +338,66 @@ class TestSectionRenderers(unittest.TestCase):
         result = renderer.render(data)
         self.assertEqual(len(result), 2)
 
+    def test_presentations_link_only_no_duplication(self):
+        """Link-only presentation (no title/event/year) renders a single hyperlink run.
+
+        Before the fix, _render_dict_item would set `display = url` (raw URL) then
+        add a bullet run with the raw URL AND append a hyperlink run — duplicating
+        the URL text. After the fix, only the hyperlink run is appended (with the
+        cleaned display URL), not the raw URL as plain text first.
+        """
+        from resume.docx_sections import PresentationsSectionRenderer
+        renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
+        data = {"presentations": [
+            {"link": "https://slides.example.com/my-talk"},
+        ]}
+        result = renderer.render(data)
+
+        # Exactly one item rendered.
+        self.assertEqual(len(result), 1)
+        # The returned display text should be the cleaned URL, not the raw URL.
+        self.assertEqual(result[0], "slides.example.com/my-talk")
+
+        # The bullet paragraph should NOT have a plain-text run equal to the raw URL.
+        # (add_hyperlink falls back to add_run in fake context, but the glyph run
+        # should be the only content run before the hyperlink — never the raw URL.)
+        bullet_para = doc.paragraphs[0]
+        raw_url = "https://slides.example.com/my-talk"
+        plain_runs_with_raw_url = [r for r in bullet_para.runs if r.text == raw_url]
+        self.assertEqual(
+            plain_runs_with_raw_url, [],
+            "Raw URL must not appear as a plain-text run — only as hyperlink display text.",
+        )
+
+    def test_presentations_unsafe_link_renders_as_plain_text(self):
+        """Presentation with a file: link must NOT create a w:hyperlink — renders plain."""
+        from resume.docx_sections import PresentationsSectionRenderer
+        renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
+        data = {"presentations": [
+            {"title": "Secret", "link": "file:///etc/passwd"},
+        ]}
+        result = renderer.render(data)
+        self.assertEqual(len(result), 1)
+        # The display should be the title, not any URL.
+        self.assertEqual(result[0], "Secret")
+        # No paragraph should contain a run with the file: URL.
+        for para in doc.paragraphs:
+            for r in para.runs:
+                self.assertNotIn("file:", r.text)
+
+    def test_presentations_honors_plain_bullet_config(self):
+        """When sec configures plain_bullets=False, paragraphs use 'List Bullet' style."""
+        from resume.docx_sections import PresentationsSectionRenderer
+        renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
+        sec = {"plain_bullets": False, "bullets": {"style": "list"}}
+        data = {"presentations": [
+            {"title": "My Talk", "event": "PyCon", "year": "2024"},
+        ]}
+        renderer.render(data, sec=sec)
+        # At least one paragraph should use 'List Bullet' style.
+        styles = [getattr(p.style, "name", None) for p in doc.paragraphs]
+        self.assertIn("List Bullet", styles, "Expected 'List Bullet' style for non-plain config.")
+
 
 if __name__ == "__main__":
     unittest.main()

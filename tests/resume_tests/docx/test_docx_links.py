@@ -124,10 +124,94 @@ class TestNormalizeLinkUrl(unittest.TestCase):
             "https://github.com/johndoe",
         )
 
+    def test_file_scheme_returns_empty(self):
+        """file: scheme is disallowed — normalize_link_url returns empty string."""
+        self.assertEqual(self._fn("file:///etc/passwd"), "")
+
+    def test_javascript_scheme_returns_empty(self):
+        """javascript: scheme is disallowed — normalize_link_url returns empty string."""
+        self.assertEqual(self._fn("javascript:alert(1)"), "")
+
+    def test_data_scheme_returns_empty(self):
+        """data: scheme is disallowed — normalize_link_url returns empty string."""
+        self.assertEqual(self._fn("data:text/html,<h1>hi</h1>"), "")
+
+    def test_ftp_scheme_returns_empty(self):
+        """ftp: scheme is disallowed — normalize_link_url returns empty string."""
+        self.assertEqual(self._fn("ftp://files.example.com/pub"), "")
+
+
+class TestIsSafeLinkUrl(unittest.TestCase):
+    """Tests for is_safe_link_url."""
+
+    def _fn(self, url: str) -> bool:
+        from resume.docx_links import is_safe_link_url
+        return is_safe_link_url(url)
+
+    def test_empty_returns_false(self):
+        self.assertFalse(self._fn(""))
+
+    def test_https_is_safe(self):
+        self.assertTrue(self._fn("https://example.com"))
+
+    def test_http_is_safe(self):
+        self.assertTrue(self._fn("http://example.com"))
+
+    def test_mailto_is_safe(self):
+        self.assertTrue(self._fn("mailto:user@example.com"))
+
+    def test_file_is_not_safe(self):
+        self.assertFalse(self._fn("file:///etc/passwd"))
+
+    def test_javascript_is_not_safe(self):
+        self.assertFalse(self._fn("javascript:alert(1)"))
+
+    def test_bare_url_no_scheme_is_safe(self):
+        """Bare URLs without a scheme are safe — normalize_link_url will prefix https://."""
+        self.assertTrue(self._fn("example.com"))
+
+    def test_bare_email_no_scheme_is_safe(self):
+        """Bare emails without a scheme are safe — normalize_link_url will prefix mailto:."""
+        self.assertTrue(self._fn("user@example.com"))
+
+
 
 # ---------------------------------------------------------------------------
 # Unit tests for add_hyperlink — using mocked docx internals
 # ---------------------------------------------------------------------------
+
+class TestAddHyperlinkUnsafeUrl(unittest.TestCase):
+    """add_hyperlink falls back to plain text for unsafe/empty URLs."""
+
+    def test_empty_url_renders_plain_text_without_relationship(self):
+        """An empty URL (e.g. from a rejected scheme) renders as plain text."""
+        from resume.docx_links import add_hyperlink
+        paragraph = MagicMock()
+        add_hyperlink(paragraph, "", "file display")
+        paragraph.add_run.assert_called_once_with("file display")
+        # part.relate_to must NOT be called — no external relationship created.
+        paragraph.part.relate_to.assert_not_called()
+
+    def test_file_scheme_via_normalize_does_not_create_relationship(self):
+        """file: URL normalized to '' means add_hyperlink renders plain text only."""
+        from resume.docx_links import add_hyperlink, normalize_link_url
+        url = normalize_link_url("file:///etc/passwd")
+        self.assertEqual(url, "")  # confirm rejected
+        paragraph = MagicMock()
+        add_hyperlink(paragraph, url, "secret file")
+        paragraph.add_run.assert_called_once_with("secret file")
+        paragraph.part.relate_to.assert_not_called()
+
+    def test_javascript_scheme_via_normalize_does_not_create_relationship(self):
+        """javascript: URL normalized to '' means add_hyperlink renders plain text."""
+        from resume.docx_links import add_hyperlink, normalize_link_url
+        url = normalize_link_url("javascript:alert(1)")
+        self.assertEqual(url, "")
+        paragraph = MagicMock()
+        add_hyperlink(paragraph, url, "xss")
+        paragraph.add_run.assert_called_once_with("xss")
+        paragraph.part.relate_to.assert_not_called()
+
 
 class TestAddHyperlinkFallback(unittest.TestCase):
     """Tests for add_hyperlink fallback to plain text when OXML is unavailable."""
@@ -407,6 +491,89 @@ class TestHyperlinkEndToEnd(unittest.TestCase):
         self.assertIn("youtube.com/watch?v=TmjY1HJemi4", doc_xml)
         # Target relationship: full URL preserved
         self.assertIn("https://www.youtube.com/watch?v=TmjY1HJemi4", rels_xml)
+
+    def test_file_scheme_link_does_not_produce_external_relationship(self):
+        """Presentation with a file: link must NOT create an external relationship.
+
+        file:// URLs are dangerous — they can expose local filesystem paths.
+        After scheme restriction, normalize_link_url returns "" and add_hyperlink
+        falls back to plain text, so no TargetMode="External" entry should appear.
+        """
+        data = {
+            "name": "Helen Test",
+            "presentations": [
+                {
+                    "title": "Internal Slides",
+                    "link": "file:///Users/helen/slides.pdf",
+                }
+            ],
+        }
+        template = {
+            "sections": [{"key": "presentations", "title": "Presentations"}],
+            "page": {"compact": False},
+        }
+
+        docx_bytes = self._render_resume(data, template)
+        rels_xml = self._get_zip_member(docx_bytes, "word/_rels/document.xml.rels")
+        doc_xml = self._get_zip_member(docx_bytes, "word/document.xml")
+
+        # No external relationship for the file: URL.
+        self.assertNotIn("file:///Users/helen/slides.pdf", rels_xml)
+        # Title should appear as plain text.
+        self.assertIn("Internal Slides", doc_xml)
+
+    def test_javascript_scheme_link_does_not_produce_external_relationship(self):
+        """Presentation with a javascript: link must NOT create an external relationship."""
+        data = {
+            "name": "Ivan Test",
+            "presentations": [
+                {
+                    "title": "XSS Demo",
+                    "link": "javascript:alert(document.cookie)",
+                }
+            ],
+        }
+        template = {
+            "sections": [{"key": "presentations", "title": "Presentations"}],
+            "page": {"compact": False},
+        }
+
+        docx_bytes = self._render_resume(data, template)
+        rels_xml = self._get_zip_member(docx_bytes, "word/_rels/document.xml.rels")
+
+        self.assertNotIn("javascript:", rels_xml)
+        self.assertNotIn("alert", rels_xml)
+
+    def test_link_only_presentation_no_duplication_e2e(self):
+        """Link-only presentation (no title/event/year) renders without URL duplication.
+
+        The cleaned display URL should appear as a hyperlink run text in document.xml,
+        and the raw URL must NOT appear as a separate plain-text run element alongside it.
+        """
+        data = {
+            "name": "Jane E2E",
+            "presentations": [
+                {"link": "https://slides.example.com/my-talk"},
+            ],
+        }
+        template = {
+            "sections": [{"key": "presentations", "title": "Presentations"}],
+            "page": {"compact": False},
+        }
+
+        docx_bytes = self._render_resume(data, template)
+        doc_xml = self._get_zip_member(docx_bytes, "word/document.xml")
+
+        # Hyperlink element must be present.
+        self.assertIn("w:hyperlink", doc_xml)
+        # Cleaned URL appears as the hyperlink display text.
+        self.assertIn("slides.example.com/my-talk", doc_xml)
+        # The raw URL must NOT appear as a standalone plain-text run (i.e. not in
+        # a w:t element separate from the hyperlink's own w:t).
+        # Count w:hyperlink occurrences — should be exactly 1 (no duplication).
+        hyperlink_count = doc_xml.count("w:hyperlink")
+        # Each hyperlink appears as opening and closing tag, so 2 occurrences per link.
+        self.assertEqual(hyperlink_count, 2, "Expected exactly one w:hyperlink element.")
 
 
 if __name__ == "__main__":

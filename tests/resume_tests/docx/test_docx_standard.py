@@ -129,9 +129,6 @@ class TestRenderDocumentHeader(unittest.TestCase):
     def test_renders_contact_line_with_email_and_phone(self):
         data = {"name": "Alice", "email": "alice@example.com", "phone": "555-1234"}
         writer = self._make_writer(data)
-        contact_para = MagicMock()
-        contact_para.paragraph_format = MagicMock()
-        contact_para._p = MagicMock()
 
         # Intercept _render_contact_runs to capture what paragraph it receives.
         captured: list = []

@@ -88,18 +88,37 @@ class PresentationsSectionRenderer(ListSectionRenderer):
         url = normalize_link_url(link) if link else ""
         return line, url
 
-    def _render_dict_item(self, it: dict, glyph: str) -> str | None:
+    def _render_dict_item(self, it: dict, glyph: str, plain: bool = True) -> str | None:
         """Render a single dict presentation item; return display text or None."""
         line, url = self._format_presentation_dict(it)
         cleaned = self.text.clean_inline(line) if line else ""
         if not cleaned and not url:
             return None
-        display = cleaned or url
-        p = self.bullets.add_bullet_line(display, glyph=glyph)
-        if url:
-            p.add_run(" ")
-            add_hyperlink(p, url, display_url(url))
-        return display
+        if cleaned:
+            # Normal case: render the title/event/year line, append link if present.
+            p = self._make_bullet_paragraph(cleaned, glyph=glyph, plain=plain)
+            if url:
+                p.add_run(" ")
+                add_hyperlink(p, url, display_url(url))
+            return cleaned
+        # Link-only: no title/event/year text — render a single hyperlink run
+        # (cleaned display of URL) without duplicating the raw URL as plain text.
+        link_display = display_url(url)
+        p = self._make_bullet_paragraph("", glyph=glyph, plain=plain)
+        add_hyperlink(p, url, link_display)
+        return link_display
+
+    def _make_bullet_paragraph(self, text: str, *, glyph: str, plain: bool):
+        """Create and return a single bullet paragraph honoring the *plain* flag."""
+        if plain:
+            return self.bullets.add_bullet_line(text, glyph=glyph)
+        # Non-plain: use Word list style so the presentation respects section config.
+        p = self.bullets.doc.add_paragraph(style="List Bullet")
+        self.bullets.styles.tight_paragraph(p, after_pt=0)
+        self.bullets.styles.compact_bullet(p)
+        if text:
+            p.add_run(text)
+        return p
 
     def _render_str_item(self, it: object, glyph: str) -> str | None:
         """Render a single string presentation item; return display text or None."""
@@ -112,12 +131,12 @@ class PresentationsSectionRenderer(ListSectionRenderer):
 
     def render(self, data: dict, sec: dict | None = None) -> list[str]:
         items_raw = data.get("presentations") or []
-        _, glyph = self.bullets.get_bullet_config(sec)
+        plain, glyph = self.bullets.get_bullet_config(sec)
         lines: list[str] = []
 
         for it in items_raw:
             display = (
-                self._render_dict_item(it, glyph)
+                self._render_dict_item(it, glyph, plain=plain)
                 if isinstance(it, dict)
                 else self._render_str_item(it, glyph)
             )

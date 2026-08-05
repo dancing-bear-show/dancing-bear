@@ -29,6 +29,28 @@ _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+\-.]*:")
 
 _DISPLAY_STRIP_RE = re.compile(r"^(?:https?://|mailto:)(?:www\.)?")
 
+# Only these URI schemes are permitted for clickable hyperlinks.
+_SAFE_SCHEMES = frozenset({"http", "https", "mailto"})
+
+
+def is_safe_link_url(url: str) -> bool:
+    """Return True iff *url* uses an allowed scheme (http, https, or mailto).
+
+    Only these three schemes produce safe, clickable external hyperlinks.
+    Schemes such as ``file:``, ``javascript:``, ``data:``, etc. return False
+    and must be rendered as plain text.
+    """
+    s = (url or "").strip()
+    if not s:
+        return False
+    m = _SCHEME_RE.match(s)
+    if not m:
+        # No scheme present — bare URLs / emails will be prefixed by
+        # normalize_link_url, so they are implicitly safe.
+        return True
+    scheme = s[: m.end() - 1].lower()  # strip trailing ":"
+    return scheme in _SAFE_SCHEMES
+
 
 def display_url(url: str) -> str:
     """Return a human-readable display form of *url*.
@@ -50,10 +72,13 @@ def display_url(url: str) -> str:
 
 
 def normalize_link_url(text: str) -> str:
-    """Return a fully-qualified URL or mailto: URI for *text*.
+    """Return a fully-qualified URL or mailto: URI for *text*, or "" for unsafe schemes.
 
     Rules:
-      - Already has a scheme (http://, https://, mailto:, ...) -> returned as-is.
+      - Already has a safe scheme (http, https, mailto) -> returned as-is.
+      - Has any other scheme (file:, javascript:, data:, ...) -> returns "" so
+        the caller falls back to plain text instead of creating an external
+        relationship.
       - Looks like an email address (contains @ but no scheme) -> prepend "mailto:".
       - Bare string with no scheme and not an email -> prepend "https://".
 
@@ -64,6 +89,11 @@ def normalize_link_url(text: str) -> str:
         if not s:
             return s
         if _SCHEME_RE.match(s):
+            # Reject schemes that are not in the safe allow-list.
+            m = _SCHEME_RE.match(s)
+            scheme = s[: m.end() - 1].lower()  # type: ignore[union-attr]
+            if scheme not in _SAFE_SCHEMES:
+                return ""
             return s
         if _EMAIL_RE.match(s):
             return f"mailto:{s}"
@@ -77,13 +107,18 @@ def add_hyperlink(paragraph, url: str, display: str) -> None:
 
     Attempts to build a ``<w:hyperlink r:id="...">`` element with blue+underline
     formatting using python-docx's low-level OXML API. Falls back to a plain-text
-    run if any step fails (e.g. unexpected python-docx version or mock objects).
+    run if any step fails (e.g. unexpected python-docx version or mock objects) or
+    if *url* is empty / uses a disallowed scheme (see ``is_safe_link_url``).
 
     Args:
         paragraph: python-docx Paragraph object to append the hyperlink to.
         url: Fully-qualified target URL (use normalize_link_url() first).
+             An empty string causes an immediate plain-text fallback.
         display: Text to show for the link.
     """
+    if not url:
+        paragraph.add_run(display)
+        return
     try:
         _add_hyperlink_impl(paragraph, url, display)
     except Exception:  # nosec B110 - fall back to plain text; caller must not crash
