@@ -626,5 +626,53 @@ class TestGmailClientCaching(unittest.TestCase):
         self.assertEqual(self.mock_service.users().settings().filters().list().execute.call_count, 1)
 
 
+class TestGmailClientGetAttachment(unittest.TestCase):
+    """Attachment fetch decodes unpadded base64url data returned by Gmail."""
+
+    def setUp(self):
+        self.client = GmailClient("/fake/creds.json", "/fake/token.json")
+        self.mock_service = MagicMock()
+        self.client._service = self.mock_service
+
+    def _set_response(self, data: str) -> None:
+        self.mock_service.users().messages().attachments().get().execute.return_value = {
+            "data": data
+        }
+
+    def _encoded_unpadded(self, raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def test_decodes_data_needing_two_padding_chars(self):
+        raw = b"a"  # encodes to 2 chars + "=="
+        self._set_response(self._encoded_unpadded(raw))
+        self.assertEqual(self.client.get_attachment("MSG1", "ATT1"), raw)
+
+    def test_decodes_data_needing_one_padding_char(self):
+        raw = b"ab"  # encodes to 3 chars + "="
+        self._set_response(self._encoded_unpadded(raw))
+        self.assertEqual(self.client.get_attachment("MSG1", "ATT1"), raw)
+
+    def test_decodes_data_needing_no_padding(self):
+        raw = b"abc"  # encodes to exactly 4 chars
+        self._set_response(self._encoded_unpadded(raw))
+        self.assertEqual(self.client.get_attachment("MSG1", "ATT1"), raw)
+
+    def test_decodes_already_padded_data(self):
+        raw = b"hello world"
+        self._set_response(base64.urlsafe_b64encode(raw).decode("ascii"))
+        self.assertEqual(self.client.get_attachment("MSG1", "ATT1"), raw)
+
+    def test_decodes_urlsafe_alphabet(self):
+        raw = bytes([0xFB, 0xFF, 0xBF])  # produces '-' and '_' in urlsafe base64
+        encoded = self._encoded_unpadded(raw)
+        self.assertTrue(set(encoded) & {"-", "_"})
+        self._set_response(encoded)
+        self.assertEqual(self.client.get_attachment("MSG1", "ATT1"), raw)
+
+    def test_missing_data_returns_empty_bytes(self):
+        self.mock_service.users().messages().attachments().get().execute.return_value = {}
+        self.assertEqual(self.client.get_attachment("MSG1", "ATT1"), b"")
+
+
 if __name__ == "__main__":
     unittest.main()

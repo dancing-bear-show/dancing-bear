@@ -363,6 +363,18 @@ class GmailClient(ConfigCacheMixin):
 
     # Note: filter methods defined above with optional caching; avoid duplicate declarations.
 
+    # --- Attachment helpers ---
+    def get_attachment(self, msg_id: str, attachment_id: str) -> bytes:
+        """Fetch and decode a message attachment, returning raw bytes."""
+        import base64
+        resp = self.service.users().messages().attachments().get(
+            userId="me", messageId=msg_id, id=attachment_id
+        ).execute()
+        data = resp.get("data") or ""
+        # Gmail returns unpadded base64url; restore padding before decoding.
+        padding = "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(data + padding)
+
     # --- Sending and drafts ---
     def _encode_message_raw(self, raw_bytes: bytes) -> str:
         import base64
