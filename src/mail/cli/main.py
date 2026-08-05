@@ -79,6 +79,8 @@ from ..messages_cli.commands import (
     run_messages_summarize,
     run_messages_reply,
     run_messages_apply_scheduled,
+    run_messages_list_attachments,
+    run_messages_download_attachment,
 )
 from ..config_cli.commands import (
     run_auth,
@@ -207,6 +209,27 @@ def cmd_messages_reply(args) -> int:
 @messages_group.argument("--profile", help="Only send for specific profile")
 def cmd_messages_apply_scheduled(args) -> int:
     return run_messages_apply_scheduled(args)
+
+
+@messages_group.command("list-attachments", help="List attachments in a Gmail message")
+@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
+@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--id", required=True, help="Message ID")
+@messages_group.argument("--json", action="store_true", help="Output JSON")
+def cmd_messages_list_attachments(args) -> int:
+    return run_messages_list_attachments(args)
+
+
+@messages_group.command("download-attachment", help="Download an attachment from a Gmail message")
+@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
+@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--id", required=True, help="Message ID")
+@messages_group.argument("--attachment-id", dest="attachment_id", help="Attachment ID (omit if exactly one attachment)")
+@messages_group.argument("--filename", help="Select attachment by filename instead of --attachment-id")
+@messages_group.argument("--out", help="Output file path; if a directory, writes <original_filename> inside it")
+@messages_group.argument("--out-dir", dest="out_dir", default=".", help="Output directory (default: .)")
+def cmd_messages_download_attachment(args) -> int:
+    return run_messages_download_attachment(args)
 
 
 # --- cache group ---

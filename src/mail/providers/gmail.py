@@ -97,6 +97,9 @@ class GmailProvider(BaseProvider):
     def get_message(self, msg_id: str, fmt: str = "full") -> dict[str, Any]:
         return self._client.get_message(msg_id, fmt=fmt)
 
+    def get_attachment(self, msg_id: str, attachment_id: str) -> bytes:
+        return self._client.get_attachment(msg_id, attachment_id)
+
     # --- messages metadata ---
     def get_messages_metadata(self, ids: list[str], use_cache: bool = True) -> list[dict[str, Any]]:
         return self._client.get_messages_metadata(ids, use_cache=use_cache)

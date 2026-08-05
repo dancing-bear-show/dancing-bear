@@ -70,6 +70,12 @@ class FakeGmailClient:
         msg = self.messages.get(msg_id, {})
         return msg.get("text", "Message body text.")
 
+    def get_attachment(self, msg_id: str, attachment_id: str) -> bytes:
+        """Return fake attachment bytes keyed by attachment_id."""
+        msg = self.messages.get(msg_id, {})
+        attachments = msg.get("_attachments") or {}
+        return attachments.get(attachment_id) or b"fake-attachment-data"
+
     def get_profile(self) -> Dict[str, str]:
         return {"emailAddress": "test@example.com"}
 

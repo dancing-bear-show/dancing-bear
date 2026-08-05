@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..utils.filters import build_gmail_query
@@ -327,3 +328,167 @@ def run_messages_apply_scheduled(args) -> int:
                 print(f"Failed to send to {to}: {e}")
     print(f"Scheduled send complete. Sent: {sent}, Errors: {errors}")
     return 1 if errors else 0
+
+
+@dataclass(frozen=True)
+class AttachmentInfo:
+    """Metadata for a single message attachment."""
+    filename: str
+    mime_type: str
+    attachment_id: str
+    size: int
+
+
+def list_message_attachments(message: dict) -> list[AttachmentInfo]:
+    """Return attachment metadata from a full Gmail message dict.
+
+    Recursively walks payload.parts and returns one AttachmentInfo per
+    part that has a non-empty filename and a body.attachmentId.
+    """
+    payload = message.get("payload") or {}
+    return _collect_attachment_parts(payload)
+
+
+def _collect_attachment_parts(part: dict) -> list[AttachmentInfo]:
+    """Recursively collect attachment parts from a message part."""
+    results: list[AttachmentInfo] = []
+    filename = (part.get("filename") or "").strip()
+    body = part.get("body") or {}
+    attachment_id = body.get("attachmentId") or ""
+    if filename and attachment_id:
+        results.append(AttachmentInfo(
+            filename=filename,
+            mime_type=part.get("mimeType") or "",
+            attachment_id=attachment_id,
+            size=int(body.get("size") or 0),
+        ))
+    for sub in (part.get("parts") or []):
+        results.extend(_collect_attachment_parts(sub))
+    return results
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Return basename only, stripping path separators to prevent path traversal."""
+    import os
+    return os.path.basename(filename.replace("\\", "/"))
+
+
+def run_messages_list_attachments(args) -> int:
+    """List attachments in a Gmail message."""
+    import json
+    import sys
+    from ..utils.cli_helpers import gmail_provider_from_args
+
+    msg_id = getattr(args, "id", None)
+    if not msg_id:
+        print("--id is required", file=sys.stderr)
+        return 1
+
+    client = gmail_provider_from_args(args)
+    client.authenticate()
+    msg = client.get_message(msg_id, fmt="full")
+    attachments = list_message_attachments(msg)
+
+    if not attachments:
+        print("No attachments found.")
+        return 0
+
+    if getattr(args, "json", False):
+        rows = [
+            {
+                "filename": a.filename,
+                "mimeType": a.mime_type,
+                "attachmentId": a.attachment_id,
+                "size": a.size,
+            }
+            for a in attachments
+        ]
+        print(json.dumps(rows, indent=2))
+    else:
+        for a in attachments:
+            print(f"{a.filename}  ({a.mime_type}, {a.size} bytes)  id={a.attachment_id}")
+    return 0
+
+
+def _resolve_attachment(
+    attachments: list[AttachmentInfo],
+    attachment_id: str | None,
+    filename_filter: str | None,
+) -> tuple[AttachmentInfo | None, int]:
+    """Select one attachment from a list.
+
+    Returns (chosen, 0) on success or (None, 1) on failure (error already printed).
+    """
+    import sys
+
+    if filename_filter:
+        matched = [a for a in attachments if a.filename == filename_filter]
+        if not matched:
+            print(f"No attachment with filename '{filename_filter}' found.", file=sys.stderr)
+            print("Available attachments:", file=sys.stderr)
+            for a in attachments:
+                print(f"  {a.filename}  id={a.attachment_id}", file=sys.stderr)
+            return None, 1
+        return matched[0], 0
+    if attachment_id:
+        matched = [a for a in attachments if a.attachment_id == attachment_id]
+        if not matched:
+            print(f"No attachment with id '{attachment_id}' found.", file=sys.stderr)
+            return None, 1
+        return matched[0], 0
+    if len(attachments) == 1:
+        return attachments[0], 0
+    print("Multiple attachments found; specify --attachment-id or --filename:", file=sys.stderr)
+    for a in attachments:
+        print(f"  {a.filename}  id={a.attachment_id}", file=sys.stderr)
+    return None, 1
+
+
+def _resolve_output_path(chosen: AttachmentInfo, out_arg: str | None, out_dir_arg: str) -> Path:
+    """Determine the output file path for a downloaded attachment."""
+    safe_name = _sanitize_filename(chosen.filename)
+    if out_arg:
+        out_path = Path(out_arg)
+        if out_path.is_dir():
+            return out_path / safe_name
+        return out_path
+    return Path(out_dir_arg) / safe_name
+
+
+def run_messages_download_attachment(args) -> int:
+    """Download an attachment from a Gmail message to disk."""
+    import sys
+    from ..utils.cli_helpers import gmail_provider_from_args
+
+    msg_id = getattr(args, "id", None)
+    if not msg_id:
+        print("--id is required", file=sys.stderr)
+        return 1
+
+    client = gmail_provider_from_args(args)
+    client.authenticate()
+    msg = client.get_message(msg_id, fmt="full")
+    attachments = list_message_attachments(msg)
+
+    if not attachments:
+        print("No attachments found in this message.", file=sys.stderr)
+        return 1
+
+    chosen, rc = _resolve_attachment(
+        attachments,
+        attachment_id=getattr(args, "attachment_id", None),
+        filename_filter=getattr(args, "filename", None),
+    )
+    if chosen is None:
+        return rc
+
+    out_path = _resolve_output_path(
+        chosen,
+        out_arg=getattr(args, "out", None),
+        out_dir_arg=getattr(args, "out_dir", None) or ".",
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    data = client.get_attachment(msg_id, chosen.attachment_id)
+    out_path.write_bytes(data)
+    print(f"Wrote {out_path} ({len(data)} bytes)")
+    return 0
