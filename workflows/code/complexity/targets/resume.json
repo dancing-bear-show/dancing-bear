@@ -1,0 +1,90 @@
+{
+  "group": "resume",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/resume/keyword_match.py",
+      "complexity": 94,
+      "line_count": 259,
+      "top_level_symbols": 2,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=2 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/resume/parsing_experience_docx.py",
+      "complexity": 92,
+      "line_count": 340,
+      "top_level_symbols": 16,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/resume/docx_sidebar_sections.py",
+      "complexity": 84,
+      "line_count": 341,
+      "top_level_symbols": 7,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/resume/docx_sections_skills.py",
+      "complexity": 83,
+      "line_count": 269,
+      "top_level_symbols": 3,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=3 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/resume/cli/main.py",
+      "complexity": 82,
+      "line_count": 494,
+      "top_level_symbols": 18,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is CLI subcommand handlers for the resume assistant (extract/summarize/render/structure/align/candidate-init/style build/files tidy/experience export), each a thin wrapper delegating to domain modules and sharing the module-level app/_resolve_out state; 9 subcommands is not a nameable 2-cluster split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/resume/parsing_experience_text.py",
+      "complexity": 82,
+      "line_count": 338,
+      "top_level_symbols": 14,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/resume/docx_renderers.py",
+      "complexity": 70,
+      "line_count": 325,
+      "top_level_symbols": 3,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=3 < 4, nothing to split.",
+      "proposed_siblings": []
+    }
+  ]
+}

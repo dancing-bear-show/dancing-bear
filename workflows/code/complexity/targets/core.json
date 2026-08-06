@@ -1,0 +1,92 @@
+{
+  "group": "core",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/core/agentic_schema.py",
+      "complexity": 84,
+      "line_count": 380,
+      "top_level_symbols": 25,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: cluster A 'argparse-to-schema builder' (_get_type_name, _skip_option_action, _action_to_entry, _extract_options, _get_subparsers_action, _matches_domain, _build_node_base, _build_subcommand_nodes, _build_node, _collect_leaf_options, _hoist_inherited_options, _strip_compact_fields, _ultra_remap_scalars, _ultra_compress_option, _ultra_compress_options, _ultra_compress_subcommands, _apply_ultra, build_schema_json) transforms an argparse.ArgumentParser into a schema dict; cluster B 'generic dict-to-YAML serializer' (_needs_quoting, _yaml_scalar, _yaml_dict_lines, _yaml_list_item_lines, _yaml_list_lines, _dict_to_yaml) only depends on generic dict/list input. build_schema_yaml calls _dict_to_yaml (one-directional), but the YAML serializer never calls back into schema-building code and shares no module-level mutable state with it. NOTE (orchestrator): cluster A REMAINS in the original file; proposed_siblings lists only the NEW file(s) to create.",
+      "proposed_siblings": [
+        "src/core/yaml_serializer.py"
+      ]
+    },
+    {
+      "path": "src/core/llm_staleness.py",
+      "complexity": 70,
+      "line_count": 246,
+      "top_level_symbols": 15,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/core/cli_output.py",
+      "complexity": 69,
+      "line_count": 334,
+      "top_level_symbols": 9,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=334 < 350. Single responsibility: output formatting/writing layer (OutputFormat/OutputConfig/OutputWriter/output()/emit_one()/emit_rows()).",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/core/outlook/calendar.py",
+      "complexity": 67,
+      "line_count": 367,
+      "top_level_symbols": 1,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=1 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/core/llm_handlers.py",
+      "complexity": 62,
+      "line_count": 455,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/core/cli_framework.py",
+      "complexity": 57,
+      "line_count": 593,
+      "top_level_symbols": 6,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is a declarative CLI application framework; CLIApp uses CommandDef and _HelpfulArgumentParser directly, CommandGroup is created by and populates CLIApp._commands, quick_cli instantiates CLIApp \u2014 every part depends on every other part, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/core/outlook/_location.py",
+      "complexity": 54,
+      "line_count": 155,
+      "top_level_symbols": 8,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=155 < 350. Single responsibility: parse free-text location/address strings into structured fields.",
+      "proposed_siblings": []
+    }
+  ]
+}
