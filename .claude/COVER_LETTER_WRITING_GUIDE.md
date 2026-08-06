@@ -31,7 +31,7 @@ swapped, it has failed — delete it and start from the role.
 
 ## Structure
 
-Four paragraphs, in this order:
+Three or four paragraphs, in this order (the hook and proof may share a paragraph in a shorter letter):
 
 1. **The hook** — open on what the role needs and the candidate's honest match for
    it. Mirror one specific line from the job description. Never open with "I am
@@ -75,8 +75,8 @@ interview. Run each check:
   published, or discussable in depth. If it cannot be defended in a deep-dive, soften
   or cut it.
 - **Personal vs. professional.** Portfolio and side projects are legitimate proof,
-  but label them as such ("a personal project"). Do not let them read as paid,
-  production, or team work.
+  but label them as such ("a personal project"). Do not let them read as paid or
+  production work, or as a team effort.
 - **Lead with strengths, don't hide gaps dishonestly.** A letter need not enumerate
   every gap, but it must not imply a capability the candidate lacks. Genuine gaps
   belong in the interview or a single honest line, never in a fabricated claim.
@@ -119,11 +119,13 @@ interview. Run each check:
 
 ## Length
 
-- **200–320 words.** Long enough for one real story, short enough to read in under a
-  minute. A fast-moving team reads the first two sentences and the close.
+- **200–320 words is the usual target.** Long enough for one real story, short
+  enough to read in under a minute. A fast-moving team reads the first two sentences
+  and the close.
 - **3–4 paragraphs.** More than four and the argument has diffused.
-- If the resume and linked artifacts are strong, a shorter letter (150–200 words)
-  that points to them can outperform a longer one.
+- **Shorter is fine when the evidence carries it.** If the resume and linked
+  artifacts are strong, a 150–200 word letter that points to them can outperform a
+  longer one. Length serves the argument, not the reverse — never pad to hit a count.
 
 ## Output
 
