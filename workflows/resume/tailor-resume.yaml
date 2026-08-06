@@ -1,0 +1,385 @@
+# Generate a job-tailored resume from a job description.
+#
+# Reorders and reweights existing experience to match a posting. Never invents
+# experience: unsupported keywords are reported as gaps for the human to decide
+# on, not silently written into the resume.
+#
+# DAG:
+#   init
+#     |
+#   parse-posting (agent — job description text -> job YAML)
+#     |
+#   extract-baseline (execute — resume DOCX -> candidate JSON)
+#     |
+#   score-alignment (execute — align candidate against job YAML)
+#     |
+#   draft-tailored (agent — reweight bullets, write data YAML)
+#     |
+#   check-copy (validate — enforce RESUME_WRITING_GUIDE + report coverage)
+#     |
+#   gap-report (propose, human_gate — surface gaps, get a decision)
+#     |
+#   render (execute — DOCX)
+#     |
+#   verify-render (validate — extract text, confirm sections landed)
+
+name: tailor-resume
+version: "1.0"
+description: >
+  Produces a job-tailored resume DOCX from a job description plus a baseline
+  resume. Encodes the posting as a job YAML, scores the candidate against it,
+  reweights bullets toward what the posting rewards, enforces
+  .claude/RESUME_WRITING_GUIDE.md, and reports measured keyword coverage.
+
+  The human gate is load-bearing. Tailoring means reordering and reweighting
+  TRUE experience — never adding experience the candidate does not have. Any
+  posting keyword unsupported by the baseline resume is reported as a gap for a
+  human decision rather than written into the document. A fabricated metric is
+  the one resume defect that survives review and fails a reference check.
+
+  Outputs (all under the workspace, which should be a gitignored _data/ path
+  because resumes are PII):
+    - job.yaml              the posting, encoded
+    - candidate.json        baseline extracted from the source resume
+    - alignment.json        per-keyword and per-role scores
+    - data-tailored.yaml    render input
+    - coverage.md           keyword coverage + guide violations + gaps
+    - <name>.docx           the tailored resume
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-06"
+
+trigger:
+  source: manual
+  params:
+    posting_file: ""        # REQUIRED: path to a file holding the job description text
+    resume_file: ""         # REQUIRED: baseline resume DOCX/PDF to tailor from
+    company: "company"      # short slug used in output filenames, e.g. "okta"
+    out_dir: "src/resume/_data/tailored"   # gitignored per the PII policy
+    template: "src/resume/config/template.brian.yaml"
+    max_bullets: "5"        # max bullets per role in the tailored output
+
+workspace_dir: "{out_dir}/{company}"
+
+stages:
+
+  # ==========================================================================
+  # Stage 1: init — workspace
+  # ==========================================================================
+  - name: init
+    kind: gather
+    description: >
+      Create the workspace:
+
+        mkdir -p {workspace}
+
+      Then confirm the PII placement is safe. Run:
+
+        git check-ignore -v {workspace}
+
+      If the path is NOT ignored, STOP and report it. Resumes carry a name,
+      phone number, and email; writing them to a tracked path would commit PII.
+      Do not proceed on an unignored path.
+
+      Also verify both required params are set and the files exist:
+      {posting_file} and {resume_file}. Fail loudly if either is missing.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to: []
+
+  # ==========================================================================
+  # Stage 2: parse-posting — job description text -> job YAML
+  # ==========================================================================
+  - name: parse-posting
+    kind: execute
+    depends_on: [init]
+    description: >
+      Read the job description at {posting_file} and encode it as a job YAML at
+      {workspace}/job.yaml, following the schema in
+      src/resume/config/job.rbc_sre.yaml and the "Job Posting YAML" section of
+      src/resume/README.md.
+
+      Required structure: title, company, keywords.required[], keywords.preferred[],
+      keywords.soft_skills[], keywords.tech_skills[], keywords.technologies[],
+      keywords.synonyms{}.
+
+      Rules:
+        - Weight 3 = named in a "Required" / "must have" list, or repeated
+          throughout the posting. Weight 2 = named once in required, or in
+          "nice to have". Weight 1 = mentioned in passing.
+        - Put every technology named anywhere into tech_skills or technologies,
+          even low-weight ones — ATS matching is literal.
+        - Populate synonyms generously: recruiters and ATS match on exact
+          strings, so map "k8s"->Kubernetes, "OTel"->OpenTelemetry, and any
+          abbreviation the posting itself uses.
+        - Add an `emphasis:` list (free text) capturing what the posting
+          actually rewards, beyond the keyword list. Read the "About the Team"
+          and "Responsibilities" prose, not just the bullet lists.
+
+      Exit non-zero if the posting file is empty or unparseable.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/job.yaml"
+
+  # ==========================================================================
+  # Stage 3: extract-baseline — source resume -> candidate JSON
+  # ==========================================================================
+  - name: extract-baseline
+    kind: execute
+    depends_on: [init]
+    description: >
+      Extract the baseline resume into structured data:
+
+        ./bin/assistant resume extract --resume {resume_file} \
+          --out {workspace}/candidate.json
+
+      Then VALIDATE the extraction before continuing — this parser has produced
+      silently wrong output before. Check:
+        - role count is plausible (compare against the source document)
+        - no role title starts with a bullet glyph (•, -, *)
+        - each role has a non-empty company and at least one bullet
+
+      If any check fails, report the specific defect and STOP. Downstream stages
+      would tailor corrupted data into a document that looks correct.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/candidate.json"
+
+  # ==========================================================================
+  # Stage 4: score-alignment — candidate vs job
+  # ==========================================================================
+  - name: score-alignment
+    kind: execute
+    depends_on: [parse-posting, extract-baseline]
+    reads_from: [parse-posting, extract-baseline]
+    description: >
+      Score the candidate against the posting:
+
+        ./bin/assistant resume align \
+          --data {workspace}/candidate.json \
+          --job {workspace}/job.yaml \
+          --out {workspace}/alignment.json \
+          --tailored {workspace}/tailored-auto.json \
+          --max-bullets {max_bullets}
+
+      Report matched keywords, missing keywords, and per-role scores. The
+      tailored-auto.json output is an input to the next stage, not the final
+      answer — the drafting stage applies judgment the scorer cannot.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/alignment.json"
+      - "{workspace}/tailored-auto.json"
+
+  # ==========================================================================
+  # Stage 5: draft-tailored — reweight into render-ready data
+  # ==========================================================================
+  - name: draft-tailored
+    kind: execute
+    depends_on: [score-alignment]
+    reads_from: [score-alignment, parse-posting, extract-baseline]
+    description: >
+      Write {workspace}/data-tailored.yaml — the render input — by reweighting
+      the baseline toward what the posting rewards.
+
+      READ FIRST: .claude/RESUME_WRITING_GUIDE.md. Every rule there applies.
+
+      THE HARD RULE: reorder and reweight, never invent. Every bullet must trace
+      to the baseline resume. If a posting keyword has no support in the
+      baseline, it goes in the gap report — not in the resume. Do not stretch an
+      adjacent skill to cover a named one (operating Kafka is not Flink
+      experience; tuning a JVM is not Java application development).
+
+      Tailoring moves that ARE legitimate:
+        - reorder bullets so posting-relevant ones lead
+        - reorder and retitle skill groups around the posting's vocabulary
+        - promote a real accomplishment buried in a later role
+        - rewrite a true bullet to use the posting's exact terminology
+        - drop bullets irrelevant to this posting
+        - set the headline to the target role's framing
+
+      SCHEMA — the renderer is strict; these shapes are load-bearing:
+        - skills_groups: a LIST of {title, items[{name, desc}]}. NOT wrapped in
+          a `groups:` key — that shape is for overlay files and renders as an
+          unlabelled flat list.
+        - technologies: a FLAT list of {name, desc}. NOT grouped — a grouped
+          value renders as a title with no items.
+        - education: {degree, institution, year}. NOT school/start/end — those
+          render with no dates.
+        - experience: {title, company, location, start, end, bullets[]}
+
+      Write the file, then confirm it parses with yaml.safe_load before exiting.
+    agent:
+      role: code-writer
+      model: inherit
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/data-tailored.yaml"
+
+  # ==========================================================================
+  # Stage 6: check-copy — enforce the writing guide, measure coverage
+  # ==========================================================================
+  - name: check-copy
+    kind: validate
+    depends_on: [draft-tailored]
+    reads_from: [draft-tailored, parse-posting, score-alignment]
+    description: >
+      Write {workspace}/coverage.md with three sections. Compute, do not estimate.
+
+      1. GUIDE COMPLIANCE — check every bullet in data-tailored.yaml against
+         concerns/resume-copy.md:
+           - resume-bullet-weak-opener (no "Responsible for", "Helped", "Worked
+             on", "Participated in", articles, or gerunds as openers; do not
+             flag tense on a role with end: Present)
+           - resume-banned-phrase ("utilize", "leverage", "facilitate",
+             "spearheaded", "results-driven", "various", ...)
+           - resume-bullet-too-long (>28 words)
+           - resume-bullet-terminal-period (bullets take no trailing period)
+           - resume-first-person-pronoun (no "I"/"my" in resume bullets)
+           - resume-bullet-unquantified (report per-role ratio; target >= 50%)
+         Report every violation with role and bullet text.
+
+      2. KEYWORD COVERAGE — for each keyword in job.yaml, check whether the
+         tailored resume contains it directly or via a declared synonym. Report:
+           - covered / total, and weighted covered / weighted total
+           - a table of every MISS with its weight
+         Use the synonyms map from job.yaml. Match case-insensitively.
+
+      3. UNSUPPORTED CLAIMS — the integrity check. For every bullet in
+         data-tailored.yaml, confirm it traces to candidate.json. Flag anything
+         that appears newly invented, and flag any metric whose value differs
+         from the baseline. This stage is the backstop against fabrication.
+
+      Exit non-zero if section 3 finds anything. A fabricated claim is a
+      blocking defect, not a warning.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/coverage.md"
+
+  # ==========================================================================
+  # Stage 7: gap-report — human decision on the gaps
+  # ==========================================================================
+  - name: gap-report
+    kind: propose
+    human_gate: true
+    depends_on: [check-copy]
+    reads_from: [check-copy, score-alignment, parse-posting]
+    description: >
+      Present the decision, then STOP for the human.
+
+      Show:
+        - measured keyword coverage (raw and weighted)
+        - every missed keyword with its weight, and one line on why it is
+          missing — genuinely absent from the baseline, versus present but
+          not yet surfaced
+        - any guide violations from check-copy
+        - an honest fit assessment: what is strong, what is weak, and which
+          objection the candidate should expect in a screen
+
+      Ask the human to decide:
+        (a) accept and render
+        (b) supply missing experience that is real but absent from the baseline
+            resume — the highest-leverage change available
+        (c) abandon: the gaps are large enough that the application is not worth
+            submitting
+
+      Do NOT paper over a gap to raise the coverage number. Reporting 72% with
+      an honest gap list is more useful than 95% built on stretched claims.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash]
+      access: read-only
+    required: true
+    writes_to: []
+
+  # ==========================================================================
+  # Stage 8: render — DOCX
+  # ==========================================================================
+  - name: render
+    kind: execute
+    depends_on: [gap-report]
+    reads_from: [draft-tailored]
+    description: >
+      Render the tailored resume:
+
+        ./bin/assistant resume render \
+          --data {workspace}/data-tailored.yaml \
+          --template {template} \
+          --out {workspace}/resume-{company}.docx
+
+      The renderer exits non-zero and writes nothing on failure, so a stale file
+      from an earlier run can survive a failed render. Delete any existing
+      output first so a stale file cannot be mistaken for a fresh one, and treat
+      a non-zero exit as fatal.
+    agent:
+      role: researcher
+      model: haiku
+      tools: [Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/resume-{company}.docx"
+
+  # ==========================================================================
+  # Stage 9: verify-render — confirm the document is actually right
+  # ==========================================================================
+  - name: verify-render
+    kind: validate
+    depends_on: [render]
+    reads_from: [render, draft-tailored]
+    description: >
+      A zero exit code does not prove the document is correct. Extract the text
+      and check it:
+
+        python3 -c "
+        import zipfile,re,html
+        z=zipfile.ZipFile('{workspace}/resume-{company}.docx')
+        x=z.read('word/document.xml').decode('utf-8')
+        x=re.sub(r'</w:p>','\n',x); x=re.sub(r'<[^>]+>','',x)
+        print(html.unescape(x))"
+
+      Confirm ALL of the following, and report any that fail:
+        - the candidate name and headline appear
+        - every skill group TITLE appears, not just its items (a missing title
+          means skills_groups had the wrong shape and the groups silently
+          flattened)
+        - every role title, company, and date range appears
+        - education shows institution AND year
+        - no section heading is present with no content beneath it
+        - bullet counts per role match data-tailored.yaml
+
+      Report the output path and a one-line summary of what shipped.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Bash, Read]
+      access: read-only
+    required: true
+    writes_to: []
