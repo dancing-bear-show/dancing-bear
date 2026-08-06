@@ -50,7 +50,12 @@ stages:
 
       For each entry, verify the path exists. Rescore it, keeping stderr so a
       tool failure is visible:
-        ~/.qlty/bin/qlty smells <path> --json 2>&1 | python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
+        ~/.qlty/bin/qlty smells <path> --json 2>/tmp/qlty-err.txt | python3 -c "import json,sys; d=json.load(sys.stdin); [print(i['value']) for i in d if i['ruleKey']=='file-complexity']"
+                      # stderr goes to a SEPARATE file, never merged into stdout:
+                      # qlty writes progress spinners ("[0/3] Analyzing...") to stderr,
+                      # and merging them corrupts the JSON stream so EVERY file fails to
+                      # parse. On a parse failure or empty output, read /tmp/qlty-err.txt
+                      # for the real error and classify the entry as ERROR (never "drop").
 
       Classify each entry into exactly one of three outcomes:
         keep  — file exists and scores at or above the floor
