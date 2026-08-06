@@ -366,6 +366,28 @@ class TestProcessExpParagraph(unittest.TestCase):
         self.assertEqual(completed, existing)
         self.assertEqual(current["title"], "Manager")
 
+    def test_bullet_line_with_role_pattern_stays_a_bullet(self):
+        """A bullet phrased '<verb> ... at <Company>' must not become a role.
+
+        Regression: such bullets matched the role-header pattern and were
+        promoted to standalone roles, splitting one real role into several
+        phantom entries whose titles were bullet text.
+        """
+        current = {"title": "Staff SRE", "company": "Confluent", "bullets": []}
+        new_current, _, completed = _process_exp_paragraph(
+            style="list paragraph",
+            text="• Improve Kafka reliability and on-call quality at Confluent",
+            current=current,
+            last_company="",
+            is_next_h2=False,
+        )
+        self.assertIsNone(completed)
+        self.assertEqual(new_current["title"], "Staff SRE")
+        self.assertEqual(
+            new_current["bullets"],
+            ["Improve Kafka reliability and on-call quality at Confluent"],
+        )
+
     def test_list_style_adds_bullet(self):
         current = {"title": "Engineer", "company": "Corp", "bullets": []}
         new_current, _, completed = _process_exp_paragraph(
