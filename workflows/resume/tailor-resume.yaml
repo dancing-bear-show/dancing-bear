@@ -93,6 +93,49 @@ stages:
     writes_to: []
 
   # ==========================================================================
+  # Stage 1b: load-guides — pull the writing standards into the workspace
+  # ==========================================================================
+  - name: load-guides
+    kind: gather
+    depends_on: [init]
+    description: >
+      Extract the copy rules that draft-tailored and check-copy must enforce,
+      and write them to {workspace}/guides.md.
+
+      Read these two files:
+        - .claude/RESUME_WRITING_GUIDE.md   (the prescriptive standard)
+        - concerns/resume-copy.md           (the enforceable checks)
+
+      Write a single condensed sheet containing:
+        1. VOICE + BULLET RULES from RESUME_WRITING_GUIDE.md — implied first
+           person, strong-verb openers, the tense rule (both tenses are correct
+           on a current role; only flag present tense on an ended role), the
+           28-word ceiling, no terminal periods, the >=50% quantification
+           target, and the "reorder and reweight, never fabricate" rule from
+           the Tailoring section.
+        2. THE BANNED PHRASE TABLE, verbatim — both columns. Downstream agents
+           need the replacement, not just the prohibition.
+        3. EVERY CONCERN ID from concerns/resume-copy.md with its severity and
+           one-line check, including each scope exception and provenance rule.
+           The exceptions matter as much as the checks: flagging valid copy is
+           as bad as missing invalid copy.
+
+      Copy the rules; do not paraphrase them into something looser. This file
+      is the contract both downstream stages are held to, so drift here becomes
+      drift in the resume.
+
+      Exit non-zero if either source file is missing — running without the
+      guides would silently produce unchecked copy.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Write, Bash]
+      access: read-write
+    required: true
+    writes_to:
+      - "{workspace}/guides.md"
+
+  # ==========================================================================
   # Stage 2: parse-posting — job description text -> job YAML
   # ==========================================================================
   - name: parse-posting
@@ -195,13 +238,16 @@ stages:
   # ==========================================================================
   - name: draft-tailored
     kind: execute
-    depends_on: [score-alignment]
-    reads_from: [score-alignment, parse-posting, extract-baseline]
+    depends_on: [score-alignment, load-guides]
+    reads_from: [score-alignment, parse-posting, extract-baseline, load-guides]
     description: >
       Write {workspace}/data-tailored.yaml — the render input — by reweighting
       the baseline toward what the posting rewards.
 
-      READ FIRST: .claude/RESUME_WRITING_GUIDE.md. Every rule there applies.
+      READ FIRST: {workspace}/guides.md. Every rule in it applies to every
+      bullet you write. It is the condensed contract from
+      .claude/RESUME_WRITING_GUIDE.md and concerns/resume-copy.md; check-copy
+      enforces the same file, so anything violating it will come straight back.
 
       THE HARD RULE: reorder and reweight, never invent. Every bullet must trace
       to the baseline resume. If a posting keyword has no support in the
@@ -242,13 +288,18 @@ stages:
   # ==========================================================================
   - name: check-copy
     kind: validate
-    depends_on: [draft-tailored]
-    reads_from: [draft-tailored, parse-posting, score-alignment]
+    depends_on: [draft-tailored, load-guides]
+    reads_from: [draft-tailored, parse-posting, score-alignment, load-guides]
     description: >
       Write {workspace}/coverage.md with three sections. Compute, do not estimate.
 
+      Enforce {workspace}/guides.md — the same file draft-tailored wrote
+      against. Apply its scope exceptions and provenance rules too, not only
+      its checks: flagging valid copy wastes the human's attention at the gate
+      as surely as missing invalid copy does.
+
       1. GUIDE COMPLIANCE — check every bullet in data-tailored.yaml against
-         concerns/resume-copy.md:
+         the concern IDs in guides.md:
            - resume-bullet-weak-opener (no "Responsible for", "Helped", "Worked
              on", "Participated in", articles, or gerunds as openers; do not
              flag tense on a role with end: Present)
@@ -266,13 +317,33 @@ stages:
            - a table of every MISS with its weight
          Use the synonyms map from job.yaml. Match case-insensitively.
 
-      3. UNSUPPORTED CLAIMS — the integrity check. For every bullet in
-         data-tailored.yaml, confirm it traces to candidate.json. Flag anything
-         that appears newly invented, and flag any metric whose value differs
-         from the baseline. This stage is the backstop against fabrication.
+      3. UNSUPPORTED CLAIMS — the integrity check, and the reason this stage
+         can block. For every bullet in data-tailored.yaml, confirm it traces to
+         candidate.json.
 
-      Exit non-zero if section 3 finds anything. A fabricated claim is a
-      blocking defect, not a warning.
+         Compare on MEANING, not string equality. Rewording a true bullet into
+         the posting's vocabulary is the whole point of tailoring; only new
+         substance is a defect. Classify each bullet as:
+           - SUPPORTED: same claim as a baseline bullet, reworded or reordered
+           - NEW METRIC: contains a number with no counterpart in the baseline
+           - NEW CLAIM: asserts work absent from the baseline entirely
+
+         Extract numbers as whole tokens ("$300K", "150+", "1 to 9"), not by
+         splitting on punctuation — "$300K" and "$300" are the same figure and
+         must not be reported as a mismatch. Search the WHOLE baseline
+         (summary, skills, every role), not just the bullets of the role being
+         checked: a metric may legitimately move between sections during
+         tailoring.
+
+         Report NEW METRIC and NEW CLAIM separately, each with the bullet text
+         and the role. State plainly for each whether it is unverifiable from
+         the baseline alone.
+
+      Exit non-zero if section 3 reports any NEW METRIC or NEW CLAIM. These are
+      not always fabrications — the candidate may be supplying something true
+      that the baseline resume omits — but that is a human's call at the gate,
+      never the drafting agent's. A fabricated metric survives review and fails
+      in a reference check, so the default must be to stop.
     agent:
       role: reviewer
       model: sonnet
