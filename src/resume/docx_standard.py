@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .docx_base import ResumeWriterBase
+from .docx_links import add_hyperlink, normalize_link_url
 from .docx_styles import (
     _parse_hex_color,
     _tight_paragraph,
@@ -99,14 +100,49 @@ class StandardResumeWriter(ResumeWriterBase):
             _tight_paragraph(p_head, after_pt=2)
             self._center_paragraph(p_head)
 
-        # Contact line with links
-        subtitle_parts = [p for p in [email, display_phone, location] if p]
-        subtitle_parts.extend(self._collect_link_extras())
+        # Contact line: email (mailto: hyperlink) | phone | location | link extras
+        plain_parts = [p for p in [display_phone, location] if p]
+        link_items = self._collect_link_extra_items()
 
-        if subtitle_parts:
-            p = self.doc.add_paragraph(" | ".join(subtitle_parts))
+        has_content = email or plain_parts or link_items
+        if has_content:
+            p = self.doc.add_paragraph()
             _tight_paragraph(p, after_pt=6)
             self._center_paragraph(p)
+            self._render_contact_runs(p, email, plain_parts, link_items)
+
+    def _render_contact_runs(
+        self,
+        paragraph,
+        email: str,
+        plain_parts: List[str],
+        link_items: List[tuple[str, str]],
+    ) -> None:
+        """Build the contact-line paragraph run-by-run with hyperlinks.
+
+        Email renders as a mailto: hyperlink. URL link extras render as external
+        hyperlinks. Phone and location remain plain text. Falls back to plain text
+        for any part that fails.
+        """
+        first = True
+
+        def _sep() -> None:
+            nonlocal first
+            if not first:
+                paragraph.add_run(" | ")
+            first = False
+
+        if email:
+            _sep()
+            add_hyperlink(paragraph, normalize_link_url(email), email)
+
+        for part in plain_parts:
+            _sep()
+            paragraph.add_run(part)
+
+        for display, url in link_items:
+            _sep()
+            add_hyperlink(paragraph, url, display)
 
     def _resolve_sections(self) -> List[Dict[str, Any]]:
         """Resolve section order and configuration from template."""

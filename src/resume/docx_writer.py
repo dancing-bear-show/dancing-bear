@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .io_utils import safe_import
+from .docx_links import add_hyperlink, normalize_link_url
 from .docx_styles import (
     _parse_hex_color,
     _tight_paragraph,
@@ -86,16 +87,21 @@ def _get_contact_field(data: Dict[str, Any], field: str) -> str:
 
 def _collect_link_extras(data: Dict[str, Any]) -> List[str]:
     """Collect formatted link extras (website, linkedin, github, links list)."""
-    extras = []
+    return [display for display, _url in _collect_link_extra_items(data)]
+
+
+def _collect_link_extra_items(data: Dict[str, Any]) -> List[tuple[str, str]]:
+    """Collect link extras as (display, url) pairs for hyperlink rendering."""
+    items: List[tuple[str, str]] = []
     for field in ["website", "linkedin", "github"]:
         val = _get_contact_field(data, field)
         if val:
-            extras.append(_format_link_display(val))
+            items.append((_format_link_display(val), normalize_link_url(val)))
     links_list = _get_contact_field(data, "links") or []
     for val in (links_list if isinstance(links_list, list) else []):
         if isinstance(val, str) and val.strip():
-            extras.append(_format_link_display(val))
-    return extras
+            items.append((_format_link_display(val), normalize_link_url(val)))
+    return items
 
 
 def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
@@ -117,6 +123,39 @@ def _center_paragraph(para) -> None:
     StyleManager.center_paragraph(para)
 
 
+def _render_contact_runs(
+    paragraph,
+    email: str,
+    plain_parts: List[str],
+    link_items: List[tuple[str, str]],
+) -> None:
+    """Build the contact-line paragraph run-by-run with hyperlinks.
+
+    Email renders as a mailto: hyperlink. URL link extras render as external
+    hyperlinks. Phone and location remain plain text. Falls back to plain text
+    for any part that fails (add_hyperlink handles that internally).
+    """
+    first = True
+
+    def _sep() -> None:
+        nonlocal first
+        if not first:
+            paragraph.add_run(" | ")
+        first = False
+
+    if email:
+        _sep()
+        add_hyperlink(paragraph, normalize_link_url(email), email)
+
+    for part in plain_parts:
+        _sep()
+        paragraph.add_run(part)
+
+    for display, url in link_items:
+        _sep()
+        add_hyperlink(paragraph, url, display)
+
+
 def _render_document_header(doc, data: Dict[str, Any]) -> None:
     """Render the name, headline, and contact line at the top of the resume."""
     name = _get_contact_field(data, "name")
@@ -136,13 +175,16 @@ def _render_document_header(doc, data: Dict[str, Any]) -> None:
         _tight_paragraph(p_head, after_pt=2)
         _center_paragraph(p_head)
 
-    subtitle_parts = [p for p in [email, display_phone, location] if p]
-    subtitle_parts.extend(_collect_link_extras(data))
+    # Contact line: email (mailto: hyperlink) | phone | location | link extras
+    plain_parts = [p for p in [display_phone, location] if p]
+    link_items = _collect_link_extra_items(data)
 
-    if subtitle_parts:
-        p = doc.add_paragraph(" | ".join(subtitle_parts))
+    has_content = email or plain_parts or link_items
+    if has_content:
+        p = doc.add_paragraph()
         _tight_paragraph(p, after_pt=6)
         _center_paragraph(p)
+        _render_contact_runs(p, email, plain_parts, link_items)
 
 
 def _resolve_sections(template: Dict[str, Any], structure: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:

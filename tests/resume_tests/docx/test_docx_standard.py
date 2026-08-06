@@ -129,12 +129,23 @@ class TestRenderDocumentHeader(unittest.TestCase):
     def test_renders_contact_line_with_email_and_phone(self):
         data = {"name": "Alice", "email": "alice@example.com", "phone": "555-1234"}
         writer = self._make_writer(data)
+
+        # Intercept _render_contact_runs to capture what paragraph it receives.
+        captured: list = []
+        orig = writer._render_contact_runs
+
+        def _spy(paragraph, email, plain_parts, link_items):
+            captured.append({"para": paragraph, "email": email, "plain": plain_parts})
+            orig(paragraph, email, plain_parts, link_items)
+
+        writer._render_contact_runs = _spy
         writer._render_document_header()
-        # Contact line should be in add_paragraph calls
-        para_texts = [
-            str(call) for call in writer.doc.add_paragraph.call_args_list
-        ]
-        self.assertTrue(any("alice@example.com" in t for t in para_texts))
+
+        # A contact line was assembled.
+        self.assertTrue(captured, "Expected _render_contact_runs to be called")
+        call = captured[0]
+        self.assertEqual(call["email"], "alice@example.com")
+        self.assertIn("555-1234", call["plain"])  # formatted phone
 
     def test_no_name_skips_name_heading(self):
         data = {"email": "alice@example.com"}
