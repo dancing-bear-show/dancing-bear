@@ -95,6 +95,65 @@ def _set_category(cp, locs: List[str]) -> None:
         pass
 
 
+_OPC_PROPERTY_MAX = 255
+
+
+def _fit_property(items: List[str], sep: str = "; ") -> str:
+    """Join items into an OPC core property, dropping any that overflow.
+
+    OPC caps core properties at 255 characters and python-docx raises
+    ValueError rather than truncating, so an over-long keyword list would
+    abort metadata assignment entirely.
+    """
+    out = ""
+    for item in items:
+        candidate = f"{out}{sep}{item}" if out else str(item)
+        if len(candidate) > _OPC_PROPERTY_MAX:
+            break
+        out = candidate
+    return out
+
+
+def _metadata_title(
+    page_cfg: Dict[str, Any], name: str, contact_parts: List[str], include_pii: bool
+) -> str:
+    """Build the core-properties title, honoring an override and the PII flag."""
+    override = page_cfg.get("metadata_title")
+    if override:
+        return str(override)
+    if include_pii:
+        contact_line = " | ".join([p for p in contact_parts if p])
+        return " - ".join([p for p in [name, contact_line] if p]) or "Resume"
+    return " - ".join([p for p in [name, "Resume"] if p]) or "Resume"
+
+
+def _metadata_keywords(
+    cp,
+    data: Dict[str, Any],
+    page_cfg: Dict[str, Any],
+    identity_parts: List[str],
+    include_pii: bool,
+) -> List[str]:
+    """Build the keyword list, honoring an override and the PII flag.
+
+    Also sets the category property when locations are included.
+    """
+    override = page_cfg.get("metadata_keywords")
+    if override:
+        if isinstance(override, list):
+            return [str(k).strip() for k in override]
+        return [str(override)]
+
+    name = identity_parts[0] if identity_parts else ""
+    kw = [k for k in identity_parts if k] if include_pii else [k for k in [name] if k]
+    if bool(page_cfg.get("metadata_include_locations", True)):
+        uniq_locs = _extract_locations(data)
+        kw.extend(uniq_locs)
+        if uniq_locs:
+            _set_category(cp, uniq_locs)
+    return kw
+
+
 def set_document_metadata_on_doc(
     doc, data: Dict[str, Any], page_cfg: Dict[str, Any]
 ) -> None:
@@ -110,20 +169,40 @@ def set_document_metadata_on_doc(
         location = data.get("location") or contact.get("location") or ""
 
         cp = doc.core_properties
-        contact_line = " | ".join([p for p in [email, phone, location] if p])
-        cp.title = " - ".join([p for p in [name, contact_line] if p]) or "Resume"
-        cp.subject = "Resume"
+
+        # metadata_pii: when False, keep contact details out of core properties.
+        # Metadata survives PDF export and is read by ATS and anyone opening
+        # Properties, so duplicating a phone number there exposes it in a field
+        # the author cannot see. The body already carries the contact line.
+        include_pii = bool(page_cfg.get("metadata_pii", True))
+
+        cp.title = _metadata_title(page_cfg, name, [email, phone, location], include_pii)
+        cp.subject = str(page_cfg.get("metadata_subject") or "Resume")
         if name:
             cp.author = name
 
-        kw = [k for k in [name, email, phone, location] if k]
-        if bool(page_cfg.get("metadata_include_locations", True)):
-            uniq_locs = _extract_locations(data)
-            kw.extend(uniq_locs)
-            if uniq_locs:
-                _set_category(cp, uniq_locs)
+        comments = page_cfg.get("metadata_comments")
+        if comments is not None:
+            cp.comments = str(comments)
 
-        cp.keywords = "; ".join(kw)
+        kw = _metadata_keywords(
+            cp, data, page_cfg, [name, email, phone, location], include_pii
+        )
+        # OPC caps core properties at 255 chars and python-docx raises rather
+        # than truncating. Trim on a separator boundary so the field degrades
+        # to fewer whole keywords instead of being dropped entirely — the
+        # enclosing except would otherwise swallow every later assignment too.
+        cp.keywords = _fit_property(kw)
+
+        # python-docx ships a 2013 default timestamp in its template. Left
+        # alone, a freshly generated resume advertises a decade-old created
+        # date. Stamp both to now unless the caller opts out.
+        if bool(page_cfg.get("metadata_stamp_dates", True)):
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            cp.created = now
+            cp.modified = now
+            cp.last_modified_by = name or cp.last_modified_by
     except Exception:  # nosec B110 - non-critical metadata setting failure
         pass
 
