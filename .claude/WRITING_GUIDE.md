@@ -4,7 +4,8 @@ Standards for all LLM-generated text in this project: commit messages, PR descri
 
 For resume and professional-profile copy (`src/resume/config/profiles/**`, rendered
 DOCX, LinkedIn surfaces), see `.claude/RESUME_WRITING_GUIDE.md` — a different genre
-with partly contradictory rules.
+with partly contradictory rules. For cover letters and application notes, see
+`.claude/COVER_LETTER_WRITING_GUIDE.md` — a third genre (first-person prose).
 
 ## Core Principles
 

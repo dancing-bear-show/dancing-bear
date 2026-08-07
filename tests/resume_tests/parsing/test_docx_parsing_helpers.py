@@ -366,6 +366,42 @@ class TestProcessExpParagraph(unittest.TestCase):
         self.assertEqual(completed, existing)
         self.assertEqual(current["title"], "Manager")
 
+    def test_bullet_line_with_role_pattern_stays_a_bullet(self):
+        """A bullet phrased '<verb> ... at <Company>' must not become a role.
+
+        Regression: such bullets matched the role-header pattern and were
+        promoted to standalone roles, splitting one real role into several
+        phantom entries whose titles were bullet text.
+        """
+        body = "Improve Kafka reliability and on-call quality at Confluent"
+        # Spaced and unspaced glyphs both occur in real DOCX exports; an
+        # unspaced bullet bypassed the original \s+ guard.
+        for prefix in ("• ", "•", "- ", "-", "* ", "*"):
+            with self.subTest(prefix=prefix):
+                current = {"title": "Staff SRE", "company": "Confluent", "bullets": []}
+                new_current, _, completed = _process_exp_paragraph(
+                    style="list paragraph",
+                    text=f"{prefix}{body}",
+                    current=current,
+                    last_company="",
+                    is_next_h2=False,
+                )
+                self.assertIsNone(completed)
+                self.assertEqual(new_current["title"], "Staff SRE")
+                self.assertEqual(new_current["bullets"], [body])
+
+    def test_real_role_header_still_parses(self):
+        """The bullet guard must not swallow genuine role headers."""
+        current, _, _completed = _process_exp_paragraph(
+            style="normal",
+            text="Staff SRE at Confluent (2025 - Present)",
+            current=None,
+            last_company="",
+            is_next_h2=False,
+        )
+        self.assertIsNotNone(current)
+        self.assertEqual(current["title"], "Staff SRE")
+
     def test_list_style_adds_bullet(self):
         current = {"title": "Engineer", "company": "Corp", "bullets": []}
         new_current, _, completed = _process_exp_paragraph(

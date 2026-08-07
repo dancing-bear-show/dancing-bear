@@ -145,10 +145,26 @@ flowchart LR
 ```bash
 ./bin/workflow list                        # available workflow definitions
 ./bin/workflow lint <workflow.yaml>        # validate structure without running
+./bin/workflow validate-fragment <frag.yaml>  # validate a shared fragment
 ./bin/workflow run <workflow.yaml>         # dry-run: parse + compile + show plan
 ./bin/workflow run <workflow.yaml> --execute  # actually execute
 ./bin/workflow status <workspace_dir>      # check status of a run
 ```
+
+Shared fragments under `workflows/shared/` are declared with a top-level `fragment: true`
+key and are included by other workflows via `include:` with a `prefix:`. They are not
+runnable on their own — validate them with `validate-fragment` rather than `lint`.
+
+### Authoring skills
+
+Four Claude Code skills cover the workflow authoring lifecycle:
+
+| Skill | Use for |
+|-------|---------|
+| `/select-workflow` | Pick the right existing workflow for a task and build its invocation |
+| `/write-workflow` | Author a new workflow YAML from a plain-language description |
+| `/validate-workflow` | Lint workflow YAMLs and check skill docs for param/stage drift |
+| `/split-workflow-stages` | Split oversized stages into single-responsibility stages |
 
 ## Credentials and Profiles
 
