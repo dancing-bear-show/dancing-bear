@@ -313,13 +313,15 @@ class SidebarResumeWriter(ResumeWriterBase):
         self._render_sidebar_skills(cell)
 
     # Maps a section key to its main-column body renderer. Every renderer takes
-    # (cell, data, page_cfg, sec) so the dispatch table can call them uniformly;
-    # renderers that don't need `sec` simply ignore it.
+    # (cell, data, page_cfg, sec) so the table can call them uniformly; the ones
+    # that don't need `sec` accept it as an ignored optional argument, which
+    # lets them be referenced directly rather than wrapped in a pass-through
+    # lambda.
     _MAIN_SECTION_RENDERERS: Dict[str, Any] = {
-        "education": lambda cell, data, page_cfg, sec: _render_main_education(cell, data, page_cfg),
-        "experience": lambda cell, data, page_cfg, sec: _render_main_experience(cell, data, page_cfg, sec),
-        "teaching": lambda cell, data, page_cfg, sec: _render_main_teaching(cell, data, page_cfg),
-        "presentations": lambda cell, data, page_cfg, sec: _render_main_presentations(cell, data, page_cfg),
+        "education": _render_main_education,
+        "experience": _render_main_experience,
+        "teaching": _render_main_teaching,
+        "presentations": _render_main_presentations,
     }
 
     def _render_main_content(self, cell) -> None:
