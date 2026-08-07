@@ -81,6 +81,35 @@ def _fetch_message_ids(client: GmailClient) -> List[str]:
     return list(dict.fromkeys(ids))
 
 
+def _is_costco_bulk_silver_total(vendor: str, metal: str, uoz: float, qty: float, val: float) -> bool:
+    """True when a Costco silver unit price actually looks like a bulk-lot total, not a per-unit price."""
+    return (
+        vendor == 'Costco' and metal == 'silver' and uoz <= 1.05 and qty >= 10
+        and (val / max(uoz, 1e-6)) > 150
+    )
+
+
+def _unit_hit_cost(hits: List[Tuple[float, str]], vendor: str, metal: str, uoz: float, qty: float) -> float:
+    """Compute cost from 'unit'/'unknown' price hits (no 'total' hit was present)."""
+    unit_vals = [a for (a, k) in hits if k in ('unit', 'unknown')]
+    if not unit_vals:
+        return 0.0
+    val = max(unit_vals)
+    if _is_costco_bulk_silver_total(vendor, metal, uoz, qty, val):
+        return float(val)
+    return float(val) * max(qty, 1.0)
+
+
+def _line_cost_for_item(
+    hits: List[Tuple[float, str]], vendor: str, metal: str, uoz: float, qty: float
+) -> float:
+    """Compute the line cost contribution for a single (metal, unit_oz) item's price hits."""
+    amt_total = next((a for (a, k) in hits if k == 'total'), None)
+    if amt_total is not None:
+        return float(amt_total)
+    return _unit_hit_cost(hits, vendor, metal, uoz, qty)
+
+
 def _compute_line_costs(
     final_qty: Dict[Tuple[str, float], float],
     price_hits: Dict[Tuple[str, float], List[Tuple[float, str]]],
@@ -92,17 +121,7 @@ def _compute_line_costs(
         hits = price_hits.get((metal, uoz), [])
         if not hits:
             continue
-        amt_total = next((a for (a, k) in hits if k == 'total'), None)
-        if amt_total is not None:
-            line_cost[metal] += float(amt_total)
-        else:
-            unit_vals = [a for (a, k) in hits if k in ('unit', 'unknown')]
-            if unit_vals:
-                val = max(unit_vals)
-                if vendor == 'Costco' and metal == 'silver' and uoz <= 1.05 and qty >= 10 and (val / max(uoz, 1e-6)) > 150:
-                    line_cost[metal] += float(val)
-                else:
-                    line_cost[metal] += float(val) * max(qty, 1.0)
+        line_cost[metal] += _line_cost_for_item(hits, vendor, metal, uoz, qty)
     return line_cost
 
 

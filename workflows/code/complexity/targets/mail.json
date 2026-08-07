@@ -1,0 +1,114 @@
+{
+  "group": "mail",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/mail/labels/commands_doctor.py",
+      "complexity": 85,
+      "line_count": 382,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/outlook/processors_calendar.py",
+      "complexity": 70,
+      "line_count": 402,
+      "top_level_symbols": 15,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is the Outlook processor pipeline for categories/folders/calendar operations; all 10 processor classes collaborate on one domain (Outlook sync) sharing helper _entry_name, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/gmail_api.py",
+      "complexity": 66,
+      "line_count": 382,
+      "top_level_symbols": 2,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=2 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/accounts/pipeline_list.py",
+      "complexity": 65,
+      "line_count": 740,
+      "top_level_symbols": 45,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is account-level pipelines (list/export/plan/sync) for labels/filters/signatures, all following the identical Request/Processor/Result/Producer pattern and depending on shared pipeline_auth/helpers; AccountsSyncFiltersProcessor calls _sync_outlook_filters shared with label sync, so clusters are coupled, not independent.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/config_cli/pipeline_audit.py",
+      "complexity": 63,
+      "line_count": 277,
+      "top_level_symbols": 15,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/outlook/commands.py",
+      "complexity": 62,
+      "line_count": 515,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is Outlook CLI command handlers dispatching to executor pipelines (run_outlook_rules_*/categories_*/calendar_*/messages_*). A small 6-line auth re-export block exists but is too trivial to constitute a genuine second sibling responsibility; not a valid GATE 3 split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/outlook/processors_rules_write.py",
+      "complexity": 62,
+      "line_count": 372,
+      "top_level_symbols": 8,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/messages_cli/commands.py",
+      "complexity": 61,
+      "line_count": 329,
+      "top_level_symbols": 12,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=329 < 350. Single responsibility: messages CLI command handlers (search/summarize/reply/apply-scheduled) sharing reply-building helpers.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/mail/accounts/pipeline_auth.py",
+      "complexity": 57,
+      "line_count": 217,
+      "top_level_symbols": 12,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=217 < 350. Single responsibility: account label/filter sync authentication and DSL conversion helpers.",
+      "proposed_siblings": []
+    }
+  ]
+}

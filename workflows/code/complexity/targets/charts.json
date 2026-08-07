@@ -1,0 +1,30 @@
+{
+  "group": "charts",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/charts/renderer_line_area.py",
+      "complexity": 67,
+      "line_count": 356,
+      "top_level_symbols": 18,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: proposed axis/theme-utility cluster is called BY the rendering cluster (_render_line/_render_area/_render_dual call _apply_theme/_apply_labels/_parse_x_values/etc.), which fails the GATE 3 independence requirement (clusters must not call each other). Single shared responsibility: render line/area/dual-axis charts to matplotlib figures.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/charts/reshape.py",
+      "complexity": 50,
+      "line_count": 216,
+      "top_level_symbols": 10,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=216 < 350. Single responsibility: convert raw JSON dicts into typed ChartSpec objects.",
+      "proposed_siblings": []
+    }
+  ]
+}

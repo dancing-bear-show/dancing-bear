@@ -11,6 +11,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import BinaryIO
 
 import click
 
@@ -130,6 +131,62 @@ def _load_or_init_session_index(index_dir: Path, session_id: str) -> dict[str, o
     }
 
 
+def _process_one_line(
+    raw_line: bytes,
+    session_index: dict[str, object],
+    prompt_index_base: int,
+    prompts_added_so_far: int,
+) -> tuple[int, int] | None:
+    """Parse and apply one raw JSONL line to session_index.
+
+    Returns (prompts_delta, bash_delta) for a valid record, or None when the
+    line is blank, malformed JSON, or not a JSON object — all of which still
+    count as "processed" bytes but contribute no record deltas.
+    """
+    line = raw_line.decode("utf-8", errors="replace").strip()
+    if not line:
+        return None
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(record, dict):
+        return None
+    return _process_one_record(record, session_index, prompt_index_base, prompts_added_so_far)
+
+
+def _stream_jsonl_lines(
+    f: BinaryIO,
+    effective_offset: int,
+    session_index: dict[str, object],
+) -> tuple[int, int, int, int]:
+    """Iterate complete lines from an open binary file handle, applying each.
+
+    Returns (prompts_added, bash_added, bytes_processed, new_offset).
+    """
+    prompt_index_base = len(session_index.get("prompts", []))  # type: ignore[arg-type]
+    prompts_added = 0
+    bash_added = 0
+    bytes_processed = 0
+    # new_offset tracks the HWM — only advances past complete lines (lines
+    # ending with \n). A partial line at EOF is left for the next run to
+    # retry, keeping peak memory proportional to one line.
+    new_offset = effective_offset
+
+    for raw_line in f:
+        if not raw_line.endswith(b"\n"):
+            # Partial record at EOF — stop without advancing HWM.
+            break
+        new_offset += len(raw_line)
+        bytes_processed += len(raw_line)
+        deltas = _process_one_line(raw_line, session_index, prompt_index_base, prompts_added)
+        if deltas is not None:
+            prompts_added += deltas[0]
+            bash_added += deltas[1]
+
+    return prompts_added, bash_added, bytes_processed, new_offset
+
+
 def _process_jsonl_file(
     path: Path,
     start_offset: int,
@@ -146,39 +203,9 @@ def _process_jsonl_file(
             # If file was truncated/rotated, reprocess from the beginning.
             effective_offset = start_offset if start_offset <= file_size else 0
             f.seek(effective_offset)
-
-            prompt_index_base = len(session_index.get("prompts", []))  # type: ignore[arg-type]
-            prompts_added = 0
-            bash_added = 0
-            bytes_processed = 0
-            # new_offset tracks the HWM — only advances past complete lines
-            # (lines ending with \n). A partial line at EOF is left for the
-            # next run to retry, keeping peak memory proportional to one line.
-            new_offset = effective_offset
-
-            for raw_line in f:
-                if not raw_line.endswith(b"\n"):
-                    # Partial record at EOF — stop without advancing HWM.
-                    break
-                line = raw_line.decode("utf-8", errors="replace").strip()
-                new_offset += len(raw_line)
-                if not line:
-                    bytes_processed += len(raw_line)
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    bytes_processed += len(raw_line)
-                    continue
-                if not isinstance(record, dict):
-                    bytes_processed += len(raw_line)
-                    continue
-                prompts_delta, bash_delta = _process_one_record(
-                    record, session_index, prompt_index_base, prompts_added
-                )
-                prompts_added += prompts_delta
-                bash_added += bash_delta
-                bytes_processed += len(raw_line)
+            prompts_added, bash_added, bytes_processed, new_offset = _stream_jsonl_lines(
+                f, effective_offset, session_index
+            )
     except OSError:
         return 0, 0, 0, start_offset
 

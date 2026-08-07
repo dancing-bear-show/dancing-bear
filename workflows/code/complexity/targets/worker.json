@@ -1,0 +1,33 @@
+{
+  "group": "worker",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/worker/commands.py",
+      "complexity": 84,
+      "line_count": 669,
+      "top_level_symbols": 18,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: verified by reading the file \u2014 cluster A 'job-processing engine' (WorkerConfig, JobContext, JobRequest, JobResult, OutcomeContext, _handle_outcome, JobSafeProcessor, JobResultProducer, JobProcessor, DaemonRunner, _undo_retry_attempt) drives the daemon tick loop and calls worker.queue (q.*) directly; cluster B 'CLI queue-inspection commands' (EnqueueCommand, ListCommand, StatusCommand, ShowCommand, RequeueErrorsCommand, RetryCommand, PurgeCommand) also call worker.queue (q.*) directly but never call into JobProcessor or DaemonRunner, and vice versa. Both depend on the shared worker.queue module but not on each other, and share no module-level mutable state.",
+      "proposed_siblings": [
+        "src/worker/daemon.py",
+        "src/worker/queue_commands.py"
+      ]
+    },
+    {
+      "path": "src/worker/queue_ops.py",
+      "complexity": 72,
+      "line_count": 471,
+      "top_level_symbols": 25,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    }
+  ]
+}

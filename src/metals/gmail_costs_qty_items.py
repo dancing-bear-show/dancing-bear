@@ -48,6 +48,11 @@ class ExtractionContext:
     vendor: str
 
 
+def _nearby_line_indices(lines: List[str], idx: int) -> List[int]:
+    """Return valid indices in the fixed near-idx scan order (idx, idx+1, idx-1, idx+2)."""
+    return [j for j in (idx, idx + 1, idx - 1, idx + 2) if 0 <= j < len(lines)]
+
+
 def _extract_first_match_group(
     pattern: re.Pattern[str], text: str, min_val: int, max_val: int
 ) -> float | None:
@@ -69,27 +74,32 @@ def _extract_first_match_group(
 
 def _explicit_qty_near(lines: List[str], idx: int) -> float | None:
     """Look near the line for explicit quantity indicators (e.g., 'x 25', 'Qty 2')."""
-    for j in (idx, idx + 1, idx - 1, idx + 2):
-        if 0 <= j < len(lines):
-            for pat in _PAT_QTY_LIST:
-                result = _extract_first_match_group(pat, lines[j], 1, 200)
-                if result:
-                    return result
+    for j in _nearby_line_indices(lines, idx):
+        for pat in _PAT_QTY_LIST:
+            result = _extract_first_match_group(pat, lines[j], 1, 200)
+            if result:
+                return result
+    return None
+
+
+def _bundle_qty_from_line(s: str) -> float | None:
+    """Look for a bundle indicator in a single line: bundle-pattern match or SKU->bundle mapping."""
+    for pat in _PAT_BUNDLE_LIST:
+        result = _extract_first_match_group(pat, s, 2, 200)
+        if result:
+            return result
+    m_item = _PAT_ITEM_SKU.search(s or '')
+    if m_item and m_item.group(1) in _SKU_BUNDLE_MAP:
+        return _SKU_BUNDLE_MAP[m_item.group(1)]
     return None
 
 
 def _bundle_qty_near(lines: List[str], idx: int) -> float | None:
     """Look for bundle indicators (e.g., 'roll of 25', 'tube of 25', '25-pack')."""
-    for j in (idx, idx + 1, idx - 1, idx + 2):
-        if 0 <= j < len(lines):
-            s = lines[j]
-            for pat in _PAT_BUNDLE_LIST:
-                result = _extract_first_match_group(pat, s, 2, 200)
-                if result:
-                    return result
-            m_item = _PAT_ITEM_SKU.search(s or '')
-            if m_item and m_item.group(1) in _SKU_BUNDLE_MAP:
-                return _SKU_BUNDLE_MAP[m_item.group(1)]
+    for j in _nearby_line_indices(lines, idx):
+        result = _bundle_qty_from_line(lines[j])
+        if result:
+            return result
     return None
 
 
@@ -128,16 +138,11 @@ def _unit_oz_override_near(
     """Map item numbers/phrases to unit-oz when emails omit explicit size."""
     sku_unit_map, phrase_map = _get_metal_maps(metal_ctx)
 
-    for j in (idx, idx + 1, idx - 1, idx + 2):
-        if not (0 <= j < len(lines)):
-            continue
-
-        # Check SKU match first
+    for j in _nearby_line_indices(lines, idx):
         sku_result = _check_sku_match(lines[j], sku_unit_map)
         if sku_result:
             return sku_result
 
-        # Check phrase match
         phrase_result = _check_phrase_match(lines[j], phrase_map)
         if phrase_result:
             return phrase_result

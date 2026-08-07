@@ -123,32 +123,33 @@ class KeywordMatchEngine(SynonymRegistry):
             return True
         return k in t
 
+    def _keyword_hits(self, text: str, keyword: str, *, expand_synonyms: bool) -> bool:
+        """Check if a keyword (or any of its synonym expansions) matches text."""
+        to_check = self.expand(keyword) if expand_synonyms else [keyword]
+        return any(self.match_keyword(text, kw) for kw in to_check)
+
     def matches(self, text: str, *, expand_synonyms: bool = True) -> bool:
         """Check if text matches any registered keyword."""
-        for canon in self._keywords:
-            to_check = self.expand(canon) if expand_synonyms else [canon]
-            if any(self.match_keyword(text, kw) for kw in to_check):
-                return True
-        return False
+        return any(
+            self._keyword_hits(text, canon, expand_synonyms=expand_synonyms)
+            for canon in self._keywords
+        )
 
     def matches_any(
         self, text: str, keywords: Iterable[str], *, expand_synonyms: bool = True
     ) -> bool:
         """Check if text matches any of the given keywords."""
-        for kw in keywords or []:
-            if not kw:
-                continue
-            to_check = self.expand(kw) if expand_synonyms else [kw]
-            if any(self.match_keyword(text, k) for k in to_check):
-                return True
-        return False
+        return any(
+            self._keyword_hits(text, kw, expand_synonyms=expand_synonyms)
+            for kw in keywords or []
+            if kw
+        )
 
     def find_matches(self, text: str, *, expand_synonyms: bool = True) -> List[KeywordMatchResult]:
         """Find all registered keywords that match in text."""
         results: List[KeywordMatchResult] = []
         for canon, info in self._keywords.items():
-            to_check = self.expand(canon) if expand_synonyms else [canon]
-            if any(self.match_keyword(text, kw) for kw in to_check):
+            if self._keyword_hits(text, canon, expand_synonyms=expand_synonyms):
                 results.append(KeywordMatchResult(
                     keyword=canon, tier=info.tier, weight=info.weight,
                     category=info.category, count=1, contexts=[text],
@@ -164,20 +165,17 @@ class KeywordMatchEngine(SynonymRegistry):
             if not kw:
                 continue
             canon = self.canonicalize(kw)
-            to_check = self.expand(kw) if expand_synonyms else [kw]
-            if any(self.match_keyword(text, k) for k in to_check):
-                if canon not in matched:
-                    matched.append(canon)
+            if self._keyword_hits(text, kw, expand_synonyms=expand_synonyms) and canon not in matched:
+                matched.append(canon)
         return matched
 
     def score(self, text: str, *, expand_synonyms: bool = True) -> int:
         """Calculate weighted score for text based on keyword matches."""
-        total = 0
-        for canon, info in self._keywords.items():
-            to_check = self.expand(canon) if expand_synonyms else [canon]
-            if any(self.match_keyword(text, kw) for kw in to_check):
-                total += info.weight
-        return total
+        return sum(
+            info.weight
+            for canon, info in self._keywords.items()
+            if self._keyword_hits(text, canon, expand_synonyms=expand_synonyms)
+        )
 
     def score_texts(self, texts: Iterable[str], *, expand_synonyms: bool = True) -> int:
         """Calculate total score across multiple texts (each keyword counted once)."""
@@ -186,8 +184,7 @@ class KeywordMatchEngine(SynonymRegistry):
             for canon in self._keywords:
                 if canon in matched:
                     continue
-                to_check = self.expand(canon) if expand_synonyms else [canon]
-                if any(self.match_keyword(text, kw) for kw in to_check):
+                if self._keyword_hits(text, canon, expand_synonyms=expand_synonyms):
                     matched.add(canon)
         return sum(self._keywords[k].weight for k in matched)
 
@@ -210,7 +207,7 @@ class KeywordMatchEngine(SynonymRegistry):
         self, results: Dict[str, KeywordMatchResult], text: str, scope: str
     ) -> None:
         for canon in self._keywords:
-            if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
+            if self._keyword_hits(text, canon, expand_synonyms=True):
                 self._record_match(results, canon, text, scope)
 
     def _collect_exp_matches(
@@ -234,19 +231,23 @@ class KeywordMatchEngine(SynonymRegistry):
         self._collect_exp_matches(results, candidate)
         return results
 
+    def _score_title(self, title_text: str) -> int:
+        """Sum weights of every keyword matching the title/company text."""
+        if not title_text:
+            return 0
+        return sum(
+            info.weight
+            for canon, info in self._keywords.items()
+            if self._keyword_hits(title_text, canon, expand_synonyms=True)
+        )
+
     def _score_role(self, exp: Dict[str, Any]) -> int:
-        role_score = 0
         title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
-        if title_text:
-            for canon, info in self._keywords.items():
-                if any(self.match_keyword(title_text, kw) for kw in self.expand(canon)):
-                    role_score += info.weight
+        role_score = self._score_title(title_text)
         for bullet in exp.get("bullets") or []:
             text = str(bullet)
-            for canon in self._keywords:
-                if any(self.match_keyword(text, kw) for kw in self.expand(canon)):
-                    role_score += 1
-                    break
+            if any(self._keyword_hits(text, canon, expand_synonyms=True) for canon in self._keywords):
+                role_score += 1
         return role_score
 
     def score_experience_roles(self, candidate: Dict[str, Any]) -> List[Tuple[int, int]]:

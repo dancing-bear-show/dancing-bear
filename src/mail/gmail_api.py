@@ -54,31 +54,44 @@ class GmailClient(ConfigCacheMixin):
         self.cache = MailCache(cache_dir) if cache_dir else None
         self.cache_dir = cache_dir
 
+    def _load_token(self) -> Any:
+        """Load stored credentials from token_path, or None if missing/invalid."""
+        if not os.path.exists(self.token_path):
+            return None
+        try:
+            return Credentials.from_authorized_user_file(self.token_path, SCOPES)
+        except Exception:  # nosec B110 - malformed/stale token file; re-authenticate below
+            return None
+
+    @staticmethod
+    def _refresh_token(creds: Any) -> Any:
+        """Refresh credentials if expired and refreshable; return None on failure."""
+        if not (creds and creds.expired and getattr(creds, "refresh_token", None)):
+            return creds
+        try:
+            creds.refresh(Request())
+            return creds
+        except Exception:  # nosec B110 - refresh failure; fall through to re-authenticate
+            return None
+
+    def _run_auth_flow_and_save(self) -> Any:
+        """Run the interactive OAuth flow and persist the resulting token."""
+        flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, SCOPES)
+        creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        token_dir = os.path.dirname(self.token_path)
+        if token_dir:
+            os.makedirs(token_dir, exist_ok=True)
+        with open(self.token_path, "w", encoding="utf-8") as token:
+            token.write(creds.to_json())
+        return creds
+
     def authenticate(self) -> None:
         ensure_google_api()
 
-        creds = None
-        if os.path.exists(self.token_path):
-            try:
-                creds = Credentials.from_authorized_user_file(self.token_path, SCOPES)
-            except Exception:  # nosec B110 - malformed/stale token file; re-authenticate below
-                creds = None
-
-        if creds and creds.expired and getattr(creds, "refresh_token", None):
-            try:
-                creds.refresh(Request())
-            except Exception:  # nosec B110 - refresh failure; fall through to re-authenticate
-                creds = None
-
+        creds = self._refresh_token(self._load_token())
         if creds is None:
-            flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-            # Save the credentials for the next run
-            token_dir = os.path.dirname(self.token_path)
-            if token_dir:
-                os.makedirs(token_dir, exist_ok=True)
-            with open(self.token_path, "w", encoding="utf-8") as token:
-                token.write(creds.to_json())
+            creds = self._run_auth_flow_and_save()
 
         self.creds = creds
         self._service = build("gmail", "v1", credentials=self.creds)

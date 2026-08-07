@@ -15,7 +15,7 @@ except ImportError:
     rumps = None  # type: ignore[assignment]
     _AppBase = object  # type: ignore[assignment,misc]
 
-from telemetry.otel.menubar_provider import OtelMenubarProvider
+from telemetry.otel.menubar_provider import OtelDisplayData, OtelMenubarProvider
 from telemetry.ccpulse_reader import read_current as _read_ccpulse
 from telemetry.models import SessionSummary
 from telemetry.providers.transcript import TranscriptProvider
@@ -323,6 +323,16 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         sender.stop()
         self._refresh(sender)
 
+    def _restart_poll_timer_if_changed(self, cfg: dict) -> None:
+        """Restart the poll timer if cfg's poll_interval differs from the last-seen config."""
+        new_interval = int(cfg.get("poll_interval", _DEFAULT_POLL_INTERVAL))
+        old_interval = int(self._last_cfg.get("poll_interval", _DEFAULT_POLL_INTERVAL))
+        if new_interval == old_interval or self._poll_timer is None:
+            return
+        self._poll_timer.stop()
+        self._poll_timer = rumps.Timer(self._refresh, new_interval)
+        self._poll_timer.start()
+
     def _refresh(self, _sender: object) -> None:  # noqa: ARG002
         if self._refresh_running:
             return
@@ -332,12 +342,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
             cfg = _load_config()
             cfg_changed = cfg != self._last_cfg
             if cfg_changed:
-                new_interval = int(cfg.get("poll_interval", _DEFAULT_POLL_INTERVAL))
-                old_interval = int(self._last_cfg.get("poll_interval", _DEFAULT_POLL_INTERVAL))
-                if new_interval != old_interval and self._poll_timer is not None:
-                    self._poll_timer.stop()
-                    self._poll_timer = rumps.Timer(self._refresh, new_interval)
-                    self._poll_timer.start()
+                self._restart_poll_timer_if_changed(cfg)
                 self._last_cfg = cfg
             s = cfg["sections"]
             window_totals = self._load_window_totals()
@@ -475,6 +480,18 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         self._set_icon(icon_template, icon_window_totals or {}, data.mtd_cost, budget)
         self._update_conditional_sections(window_totals, recent, cfg, insights, label)
 
+    def _apply_otel_data(self, otel_data: OtelDisplayData | None, s: dict) -> None:
+        """Update OTel sections and cached 1d cost from a fetched OtelDisplayData (or None)."""
+        if otel_data is None:
+            self._otel_data_available = False
+            return
+        self._update_otel_sections(otel_data, s)
+        self._otel_data_available = otel_data.available
+        if otel_data.available and otel_data.otel_usage is not None:
+            self._otel_cost_1d = otel_data.otel_usage.cost_24h
+        else:
+            self._otel_cost_1d = 0.0
+
     def _update_conditional_sections(
         self, window_totals: dict, recent: list[SessionSummary],
         cfg: dict, insights: dict | None, label: str,
@@ -492,15 +509,7 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         _, otel_window = _OTEL_WINDOWS[self._otel_window_idx]
         otel_data = self._otel.get_display_data(window=otel_window) if _any_otel_enabled else None
 
-        if otel_data is not None:
-            self._update_otel_sections(otel_data, s)
-            self._otel_data_available = otel_data.available
-            if otel_data.available and otel_data.otel_usage is not None:
-                self._otel_cost_1d = otel_data.otel_usage.cost_24h
-            else:
-                self._otel_cost_1d = 0.0
-        else:
-            self._otel_data_available = False
+        self._apply_otel_data(otel_data, s)
 
     def _update_model_rows(self, models: dict[str, float]) -> None:
         ranked = sorted(models.items(), key=lambda kv: kv[1], reverse=True)
@@ -511,26 +520,32 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
             else:
                 row.title = "  -" if ranked else "  (none)"
 
+    @staticmethod
+    def _format_session_row_title(s: SessionSummary, now_ts: float) -> str:
+        """Build the menu row title for one active-session summary."""
+        age_ref = s.end_time or s.start_time
+        age_secs = now_ts - age_ref.timestamp()
+        return (
+            f"  {_project_short(s)}"
+            f"  {_format_cost(s.total_cost, s.cost_is_estimated)}"
+            f"  {_format_tokens(s.input_tokens)}in/{_format_tokens(s.output_tokens)}out"
+            f"  {_age_str(age_secs)}"
+        )
+
+    def _session_more_title(self, recent: list[SessionSummary], label: str) -> str:
+        """Build the '...and N more' summary title, or a fallback when empty."""
+        rest = recent[self._DETAIL_SESSIONS:]
+        if rest:
+            return f"  ...and {len(rest)} more  {_format_cost(sum(s.total_cost for s in rest))}"
+        if recent:
+            return "  -"
+        return f"  no sessions in {label}"
+
     def _update_session_rows(self, recent: list[SessionSummary], label: str) -> None:
         self._hdr_sessions.title = f"-- Active Sessions ({label}) --"
         now_ts = time.time()
         for idx, row in enumerate(self._session_rows):
-            if idx < len(recent):
-                s = recent[idx]
-                age_ref = s.end_time or s.start_time
-                age_secs = now_ts - age_ref.timestamp()
-                row.title = (
-                    f"  {_project_short(s)}"
-                    f"  {_format_cost(s.total_cost, s.cost_is_estimated)}"
-                    f"  {_format_tokens(s.input_tokens)}in/{_format_tokens(s.output_tokens)}out"
-                    f"  {_age_str(age_secs)}"
-                )
-            else:
-                row.title = "  -"
-        rest = recent[self._DETAIL_SESSIONS:]
-        if rest:
-            self._session_more.title = f"  ...and {len(rest)} more  {_format_cost(sum(s.total_cost for s in rest))}"
-        elif recent:
-            self._session_more.title = "  -"
-        else:
-            self._session_more.title = f"  no sessions in {label}"
+            row.title = (
+                self._format_session_row_title(recent[idx], now_ts) if idx < len(recent) else "  -"
+            )
+        self._session_more.title = self._session_more_title(recent, label)

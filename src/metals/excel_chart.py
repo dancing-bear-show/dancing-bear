@@ -287,6 +287,45 @@ def _fill_date_gaps(
     return out
 
 
+def _yahoo_chart_to_unix(d: str) -> int:
+    """Convert an ISO date string (YYYY-MM-DD) to a UTC unix timestamp at midnight."""
+    from datetime import datetime, timezone
+
+    dt = datetime.fromisoformat(d)
+    return int(datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc).timestamp())
+
+
+def _yahoo_chart_point(ts: list, closes: list, i: int) -> Optional[Tuple[str, float]]:
+    """Parse a single (timestamp, close) pair at index i. Returns None if invalid."""
+    from datetime import datetime, timezone
+
+    try:
+        d = datetime.fromtimestamp(int(ts[i]), tz=timezone.utc).date().isoformat()
+        v = closes[i]
+        if v is None:
+            return None
+        return d, float(v)
+    except Exception:  # nosec B110 - skip on error
+        return None
+
+
+def _parse_yahoo_chart_response(data: dict) -> Dict[str, float]:
+    """Extract date->close mapping from a Yahoo Finance chart JSON response."""
+    out: Dict[str, float] = {}
+    try:
+        res = ((data.get("chart") or {}).get("result") or [])[0]
+        ts = res.get("timestamp", []) or []
+        cl = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close", [])
+    except Exception:  # nosec B110 - return empty on unexpected shape
+        return out
+
+    for i in range(len(ts)):
+        point = _yahoo_chart_point(ts, cl, i)
+        if point:
+            out[point[0]] = point[1]
+    return out
+
+
 def _fetch_yahoo_series(
     symbol: str, start_date: str, end_date: str
 ) -> Dict[str, float]:
@@ -296,15 +335,10 @@ def _fetch_yahoo_series(
     the initial window to the first available value so a continuous series is produced.
     """
     import requests  # type: ignore
-    from datetime import datetime, timezone
 
-    def to_unix(d: str) -> int:
-        dt = datetime.fromisoformat(d)
-        return int(datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc).timestamp())
-
-    p1 = to_unix(start_date)
+    p1 = _yahoo_chart_to_unix(start_date)
     # Add one day to include end
-    p2 = to_unix(end_date) + 24 * 3600
+    p2 = _yahoo_chart_to_unix(end_date) + 24 * 3600
     url = (
         f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
         f"?period1={p1}&period2={p2}&interval=1d"
@@ -312,23 +346,9 @@ def _fetch_yahoo_series(
     r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
     try:
         data = r.json() or {}
-    except Exception:
+    except Exception:  # nosec B110 - treat unparsable response as empty
         data = {}
-    out: Dict[str, float] = {}
-    try:
-        res = ((data.get("chart") or {}).get("result") or [])[0]
-        ts = res.get("timestamp", [])
-        cl = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close", [])
-        for i, t in enumerate(ts or []):
-            try:
-                d = datetime.fromtimestamp(int(t), tz=timezone.utc).date().isoformat()
-                v = cl[i]
-                if v is not None:
-                    out[d] = float(v)
-            except Exception:  # nosec B112 - skip on error
-                continue
-    except Exception:
-        return out
+    out = _parse_yahoo_chart_response(data)
     return _fill_date_gaps(out, start_date, end_date)
 
 

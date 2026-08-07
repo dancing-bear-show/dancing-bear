@@ -13,6 +13,23 @@ from ..helpers import read_yaml, write_yaml
 from ..layout_merge import merge_folders, verify_conservation
 
 
+def _merge_and_verify(
+    layout: dict, keep: list[str], dump_folders: list[str], merge_fail_prefix: str
+):
+    """Run merge_folders + verify_conservation. Returns (plan, None) or (None, error_message)."""
+    try:
+        plan = merge_folders(layout, keep=keep, dump_folders=dump_folders)
+    except ValueError as exc:
+        return None, f"{merge_fail_prefix}: {exc}"
+
+    try:
+        verify_conservation(layout, plan.to_dict())
+    except ValueError as exc:
+        return None, f"Conservation FAIL: {exc}"
+
+    return plan, None
+
+
 def cmd_merge_folders(args) -> int:
     """Redistribute dump folder apps into best-fit existing folders."""
     layout_path = Path(getattr(args, "layout", None) or "out/ios.IconState.yaml")
@@ -33,16 +50,9 @@ def cmd_merge_folders(args) -> int:
 
     layout = read_yaml(layout_path)
 
-    try:
-        plan = merge_folders(layout, keep=keep, dump_folders=dump_folders)
-    except ValueError as exc:
-        print(f"Error: merge failed: {exc}", file=sys.stderr)
-        return 1
-
-    try:
-        verify_conservation(layout, plan.to_dict())
-    except ValueError as exc:
-        print(f"Conservation FAIL: {exc}", file=sys.stderr)
+    plan, err = _merge_and_verify(layout, keep, dump_folders, "Error: merge failed")
+    if err:
+        print(err, file=sys.stderr)
         return 1
 
     plan_out.parent.mkdir(parents=True, exist_ok=True)
@@ -186,15 +196,9 @@ def _reorg_merge(layout_path: Path, plan_path: Path, keep: list[str]):
         print(f"Error: layout not found: {layout_path}", file=sys.stderr)
         return None, False, 0
     layout = read_yaml(layout_path)
-    try:
-        plan_obj = merge_folders(layout, keep=keep, dump_folders=["Other"])
-    except ValueError as exc:
-        print(f"Error: merge-folders failed: {exc}", file=sys.stderr)
-        return None, False, 0
-    try:
-        verify_conservation(layout, plan_obj.to_dict())
-    except ValueError as exc:
-        print(f"Conservation FAIL: {exc}", file=sys.stderr)
+    plan_obj, err = _merge_and_verify(layout, keep, ["Other"], "Error: merge-folders failed")
+    if err:
+        print(err, file=sys.stderr)
         return None, False, 0
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     write_yaml(plan_obj.to_dict(), plan_path)

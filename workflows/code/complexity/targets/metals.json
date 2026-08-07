@@ -1,0 +1,117 @@
+{
+  "group": "metals",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/metals/vendors_parse_core.py",
+      "complexity": 93,
+      "line_count": 309,
+      "top_level_symbols": 21,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/outlook_costs_extract.py",
+      "complexity": 89,
+      "line_count": 528,
+      "top_level_symbols": 7,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/excel_chart.py",
+      "complexity": 76,
+      "line_count": 498,
+      "top_level_symbols": 25,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: cluster A 'Excel worksheet summary building' (_add_chart, _write_filter_view, _sumif_formula, _avgcost_formula, _summary_row, _aggregate_summary_recs, _build_metal_rows, _build_vendor_rows, _build_monthly_avg_rows, _build_monthly_oz_rows, _build_summary_blocks, _stitch_summary_blocks, _build_summary_values) transforms aggregated records into Excel ranges/formulas via workbook API; cluster B 'spot-price/PnL series calculation' (_fill_date_gaps, _fetch_yahoo_series, _usd_to_cad_series, _spot_cad_series, MetalPosition, _pnl_row, _accumulate_day, _profit_walk_days, _parse_profit_rec, _collect_profit_by_date, _build_profit_series) fetches Yahoo data, does FX conversion, and computes profit walks. Neither calls the other; cluster A never touches Yahoo/FX data, cluster B never touches Excel/workbook APIs. No shared module-level mutable state.",
+      "proposed_siblings": [
+        "src/metals/excel_summary_blocks.py",
+        "src/metals/pnl_series.py"
+      ]
+    },
+    {
+      "path": "src/metals/gmail_costs_qty_items.py",
+      "complexity": 76,
+      "line_count": 264,
+      "top_level_symbols": 17,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/spot.py",
+      "complexity": 67,
+      "line_count": 395,
+      "top_level_symbols": 17,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is fetch USD spot prices (metal+FX), convert to CAD, write CSV. HTTP fetch functions cascade into each other (_fetch_series_with_fallback -> _fetch_yahoo_series/_fetch_stooq_series); CSV/date helpers feed _build_csv_rows; run()/main() call all of the above. No independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/gmail_costs_extract.py",
+      "complexity": 66,
+      "line_count": 389,
+      "top_level_symbols": 13,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: verified by reading the file \u2014 _process_order (line 268) calls _is_cancelled directly, _process_messages (line 217) calls _is_order_confirmation directly, and GmailCostExtractor methods call _classify_vendor/_is_order_confirmation/_fetch_message_ids directly. The classification helpers and order-processing pipeline call each other, failing the GATE 3 independence requirement. Single shared responsibility: extract and cost-allocate precious-metals orders from Gmail messages.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/vendors_parse_vendor.py",
+      "complexity": 62,
+      "line_count": 321,
+      "top_level_symbols": 4,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/premium.py",
+      "complexity": 58,
+      "line_count": 246,
+      "top_level_symbols": 12,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=246 < 350. Single responsibility: compute and print premium-over-spot summary from cost rows.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/metals/excel_io.py",
+      "complexity": 57,
+      "line_count": 201,
+      "top_level_symbols": 14,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=201 < 350. Single responsibility: Excel workbook read/write/merge I/O helpers.",
+      "proposed_siblings": []
+    }
+  ]
+}

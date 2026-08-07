@@ -165,6 +165,15 @@ def _parse_h2_education(line: str) -> Dict[str, str]:
     return {"degree": degree, "institution": "", "year": year}
 
 
+def _append_bullet_text(text: str, current: Optional[Dict[str, Any]], is_list_style: bool) -> None:
+    """Append text as a bullet on current, stripping any bullet glyph if list-styled."""
+    if not current:
+        return
+    bullet_text = re.sub(r"^[•\-\*]\s*", "", text).strip() if is_list_style else text
+    if bullet_text:
+        current.setdefault("bullets", []).append(bullet_text)
+
+
 def _role_header_or_none(text: str) -> Optional[Dict[str, Any]]:
     """Parse text as a role header, or None if it is a bullet line.
 
@@ -188,31 +197,24 @@ def _process_exp_paragraph(
     is_next_h2: bool
 ) -> tuple[Optional[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
     """Process a single experience paragraph. Returns (current, last_company, completed_role)."""
-    completed = None
-
-    # Try shared experience entry parser
+    # _role_header_or_none, not _parse_experience_entry: a glyph-prefixed line
+    # is always a bullet, never a role header (see #173).
     exp_entry = _role_header_or_none(text)
     if exp_entry and style in {"normal", "list paragraph"}:
-        if current:
-            completed = current
-        return {**exp_entry, "bullets": []}, last_company, completed
+        return {**exp_entry, "bullets": []}, last_company, current
 
     if style.startswith(_STYLE_HEADING_2):
-        if current:
-            completed = current
         new_current, last_company = _parse_h2_experience(text, last_company)
-        return new_current, last_company, completed
+        return new_current, last_company, current
 
     if style.startswith("list"):
-        bullet_text = re.sub(r"^[•\-\*]\s*", "", text).strip()
-        if current and bullet_text:
-            current.setdefault("bullets", []).append(bullet_text)
+        _append_bullet_text(text, current, is_list_style=True)
     elif _looks_like_company_line(text) and (current is None or is_next_h2):
         last_company = text.split("\t")[0].strip()
     elif current:
-        current.setdefault("bullets", []).append(text)
+        _append_bullet_text(text, current, is_list_style=False)
 
-    return current, last_company, completed
+    return current, last_company, None
 
 
 def _docx_extract_experience(

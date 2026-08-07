@@ -1,7 +1,7 @@
 """Parsing/accumulation helpers extracted from menubar_provider.py."""
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from core.fileutil import find_rotated_files, iter_jsonl_file
@@ -140,24 +140,52 @@ def _accumulate_datapoint(
     out.append((name, value, attrs))
 
 
+def _accumulate_loc_delta(
+    value: float, attrs: dict[str, object], counters: dict[str, object]
+) -> None:
+    """Add a lines_of_code datapoint into lines_added/lines_removed by its type attr."""
+    loc_type = str(attrs.get("type", ""))
+    v = _safe_int(value)
+    if loc_type == "added":
+        counters["lines_added"] = int(counters["lines_added"]) + v  # type: ignore[arg-type]
+    elif loc_type == "removed":
+        counters["lines_removed"] = int(counters["lines_removed"]) + v  # type: ignore[arg-type]
+
+
+def _accumulate_commit_count(
+    value: float, attrs: dict[str, object], counters: dict[str, object]  # noqa: ARG001
+) -> None:
+    """Add a commit.count datapoint into counters['commits_today']."""
+    counters["commits_today"] = int(counters["commits_today"]) + _safe_int(value)  # type: ignore[arg-type]
+
+
+def _accumulate_language_count(
+    value: float, attrs: dict[str, object], counters: dict[str, object]
+) -> None:
+    """Add a code_edit_tool.decision datapoint into counters['lang_counts']."""
+    lang_counts: dict[str, int] = counters["lang_counts"]  # type: ignore[assignment]
+    lang_counts[_trunc(attrs.get("language", "unknown"))] += _safe_int(value)
+
+
+# metric name -> accumulator handler, each taking (value, attrs, counters).
+_LOC_METRIC_HANDLERS: dict[
+    str, Callable[[float, dict[str, object], dict[str, object]], None]
+] = {
+    "claude_code.lines_of_code.count": _accumulate_loc_delta,
+    "claude_code.commit.count": _accumulate_commit_count,
+    "claude_code.code_edit_tool.decision": _accumulate_language_count,
+}
+
+
 def _accumulate_loc_metrics(
     metrics_24h: list[tuple[str, float, dict[str, object]]],
     counters: dict[str, object],
 ) -> None:
     """Accumulate LOC/commit/language metrics from metrics_24h into counters."""
-    lang_counts: dict[str, int] = counters["lang_counts"]  # type: ignore[assignment]
     for name, value, attrs in metrics_24h:
-        if name == "claude_code.lines_of_code.count":
-            loc_type = str(attrs.get("type", ""))
-            v = _safe_int(value)
-            if loc_type == "added":
-                counters["lines_added"] = int(counters["lines_added"]) + v  # type: ignore[arg-type]
-            elif loc_type == "removed":
-                counters["lines_removed"] = int(counters["lines_removed"]) + v  # type: ignore[arg-type]
-        elif name == "claude_code.commit.count":
-            counters["commits_today"] = int(counters["commits_today"]) + _safe_int(value)  # type: ignore[arg-type]
-        elif name == "claude_code.code_edit_tool.decision":
-            lang_counts[_trunc(attrs.get("language", "unknown"))] += _safe_int(value)
+        handler = _LOC_METRIC_HANDLERS.get(name)
+        if handler is not None:
+            handler(value, attrs, counters)
 
 
 def _accumulate_compaction_events(
@@ -173,20 +201,18 @@ def _accumulate_compaction_events(
             counters["tokens_saved"] = int(counters["tokens_saved"]) + max(0, pre - post)  # type: ignore[arg-type]
 
 
+# token_type -> counters key. All four are OTel attribute discriminators, not secrets.
+_TOKEN_TYPE_COUNTER_KEYS = frozenset({"input", "output", "cacheRead", "cacheCreation"})  # nosec B105
+
+
 def _accumulate_token_metric(
     token_type: str,
     value: int,
     counters: dict[str, int],
 ) -> None:
     """Accumulate a single token metric into counters by token_type."""
-    if token_type == "input":  # nosec B105 - token-type discriminator, not a secret
-        counters["input"] += value
-    elif token_type == "output":  # nosec B105 - token-type discriminator, not a secret
-        counters["output"] += value
-    elif token_type == "cacheRead":  # nosec B105 - token-type discriminator, not a secret
-        counters["cacheRead"] += value
-    elif token_type == "cacheCreation":  # nosec B105 - token-type discriminator, not a secret
-        counters["cacheCreation"] += value
+    if token_type in _TOKEN_TYPE_COUNTER_KEYS:
+        counters[token_type] += value
 
 
 def _process_tool_result_event(

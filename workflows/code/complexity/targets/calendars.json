@@ -1,0 +1,83 @@
+{
+  "group": "calendars",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/calendars/gmail_pipelines.py",
+      "complexity": 76,
+      "line_count": 550,
+      "top_level_symbols": 17,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: cluster A 'receipt-to-calendar-event parsing' (GmailReceiptsRequest, GmailScanResult, GmailReceiptsProcessor, GmailScanProducer, and the receipt-parsing regex/helpers) transforms Gmail receipt emails into calendar events; cluster B 'Gmail scanning/reporting' (GmailScanClassesRequest/Result/Processor/Producer, GmailMailListRequest/Result/Processor/Producer, GmailSweepTopRequest/Result/Processor/Producer) lists/aggregates Gmail metadata without producing calendar events. Neither cluster calls the other; both are independent Request/Processor/Producer pipelines against the same Gmail service but transform different data, no shared module-level mutable state.",
+      "proposed_siblings": [
+        "src/calendars/gmail_receipts_pipeline.py",
+        "src/calendars/gmail_scan_pipelines.py"
+      ]
+    },
+    {
+      "path": "src/calendars/outlook_pipelines/remove.py",
+      "complexity": 75,
+      "line_count": 253,
+      "top_level_symbols": 5,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=253 < 350. Single responsibility: Outlook event removal pipeline (Request/PlanEntry/Result/Processor/Producer).",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/calendars/outlook/commands.py",
+      "complexity": 53,
+      "line_count": 487,
+      "top_level_symbols": 26,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: cluster A 'generic Outlook command runners' (_build_outlook_service and all run_outlook_* functions except run_outlook_scan_classes) execute pipeline-based commands directly; cluster B 'message-scan pipeline' (_scan_infer_meta, _scan_extract_from_message, _scan_enrich_items, _scan_dedup_events, OutlookScanRequest, OutlookScanResult, OutlookScanProcessor, OutlookScanProducer, run_outlook_scan_classes) is a self-contained SafeProcessor pipeline for extracting events from messages. Cluster A never calls cluster B's scan helpers/classes; cluster B's _scan_* helpers are only called by OutlookScanProcessor. No shared module-level mutable state. NOTE (orchestrator): cluster A REMAINS in the original file; proposed_siblings lists only the NEW file(s) to create.",
+      "proposed_siblings": [
+        "src/calendars/outlook/scan_pipeline.py"
+      ]
+    },
+    {
+      "path": "src/calendars/outlook_pipelines/settings.py",
+      "complexity": 53,
+      "line_count": 241,
+      "top_level_symbols": 5,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=241 < 350. Single responsibility: Outlook settings-sync pipeline.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/calendars/importer/web_parser_vendors_rh.py",
+      "complexity": 61,
+      "line_count": 171,
+      "top_level_symbols": 2,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=2 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/calendars/location_sync.py",
+      "complexity": 54,
+      "line_count": 181,
+      "top_level_symbols": 3,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=3 < 4, nothing to split.",
+      "proposed_siblings": []
+    }
+  ]
+}

@@ -219,6 +219,20 @@ class ClassifyEngine:
                 evt.classification = "review"
                 evt.waste_reason = "abandoned-search"
 
+    @staticmethod
+    def _scan_search_run(
+        tool_events: list[tuple[int, SessionEvent]],
+        start: int,
+        search_tools: set[str],
+    ) -> list[tuple[int, SessionEvent]]:
+        """Return the consecutive run of search-tool events starting at *start*."""
+        run: list[tuple[int, SessionEvent]] = []
+        i = start
+        while i < len(tool_events) and tool_events[i][1].tool_name in search_tools:
+            run.append(tool_events[i])
+            i += 1
+        return run
+
     def _classify_abandoned_search(self, events: list[SessionEvent]) -> None:
         """Mark runs of N+ consecutive Read/Grep/Glob with no Edit/Write following as review."""
         rule = self.rules.get("review", {}).get("abandoned-search", {})
@@ -236,16 +250,12 @@ class ClassifyEngine:
 
         i = 0
         while i < len(tool_events):
-            run_start = i
-            run: list[tuple[int, SessionEvent]] = []
-            while i < len(tool_events) and tool_events[i][1].tool_name in search_tools:
-                run.append(tool_events[i])
-                i += 1
-
+            run = self._scan_search_run(tool_events, i, search_tools)
             if len(run) >= consecutive_reads:
-                self._mark_abandoned_run(run, tool_events[i:], write_tools)
+                self._mark_abandoned_run(run, tool_events[i + len(run):], write_tools)
+                i += len(run)
             else:
-                i = run_start + 1
+                i += 1
 
     def _has_write_after_agent(
         self,

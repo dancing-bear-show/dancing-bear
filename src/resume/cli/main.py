@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
@@ -83,6 +83,24 @@ def _apply_profile_overlays(data: dict, prof) -> dict:
     return apply_profile_overlays(data, prof)
 
 
+def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: float | None = None) -> dict:
+    """Apply profile overlay, skill filter, and experience filter (and optionally priority) via FilterPipeline."""
+    return (
+        FilterPipeline(data)
+        .with_profile_overlays(getattr(args, "profile", None))
+        .with_skill_filter(
+            getattr(args, "filter_skills_alignment", None),
+            getattr(args, "filter_skills_job", None),
+        )
+        .with_experience_filter(
+            getattr(args, "filter_exp_alignment", None),
+            getattr(args, "filter_exp_job", None),
+        )
+        .with_priority_filter(min_priority)
+        .execute()
+    )
+
+
 def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
     """Resolve output path.
 
@@ -101,6 +119,25 @@ def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
     return path
 
 
+def _read_linkedin_text(linkedin_path: str) -> str:
+    """Read LinkedIn source text, using raw read for HTML sources."""
+    if str(linkedin_path).lower().endswith((".html", ".htm")):
+        return read_text_raw(linkedin_path)
+    return read_text_any(linkedin_path)
+
+
+def _parse_resume_source(resume_path: str, resume_text: str) -> dict:
+    """Parse a resume source, dispatching by file extension."""
+    resume_lower = str(resume_path).lower()
+    if resume_lower.endswith('.docx'):
+        from ..parsing import parse_resume_docx
+        return parse_resume_docx(resume_path)
+    if resume_lower.endswith('.pdf'):
+        from ..parsing import parse_resume_pdf
+        return parse_resume_pdf(resume_path)
+    return parse_resume_text(resume_text) if resume_text else {}
+
+
 # --- extract command ---
 @app.command("extract", help="Parse LinkedIn and resume sources and produce unified data (YAML/JSON)")
 @app.argument("--linkedin", help="Path to LinkedIn profile (txt/md/html/docx/pdf)")
@@ -109,25 +146,10 @@ def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
 @app.argument("--out-dir", default="out", help="Output directory (default: out)")
 def cmd_extract(args: argparse.Namespace) -> int:
-    linkedin_text = ""
-    if args.linkedin:
-        if str(args.linkedin).lower().endswith((".html", ".htm")):
-            linkedin_text = read_text_raw(args.linkedin)
-        else:
-            linkedin_text = read_text_any(args.linkedin)
+    linkedin_text = _read_linkedin_text(args.linkedin) if args.linkedin else ""
     resume_text = read_text_any(args.resume) if args.resume else ""
     li = parse_linkedin_text(linkedin_text) if linkedin_text else {}
-    rs = {}
-    if args.resume:
-        resume_lower = str(args.resume).lower()
-        if resume_lower.endswith('.docx'):
-            from ..parsing import parse_resume_docx
-            rs = parse_resume_docx(args.resume)
-        elif resume_lower.endswith('.pdf'):
-            from ..parsing import parse_resume_pdf
-            rs = parse_resume_pdf(args.resume)
-        else:
-            rs = parse_resume_text(resume_text) if resume_text else {}
+    rs = _parse_resume_source(args.resume, resume_text) if args.resume else {}
     data: CandidateData = merge_profiles(li, rs)
     out_path = _resolve_out(args, EXT_JSON, kind="data")
     write_yaml_or_json(data, out_path)
@@ -148,21 +170,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
 @app.argument("--out-dir", default="out", help="Output directory (default: out)")
 def cmd_summarize(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
-
-    # Apply filters via pipeline
-    data = (
-        FilterPipeline(data)
-        .with_profile_overlays(getattr(args, "profile", None))
-        .with_skill_filter(
-            getattr(args, "filter_skills_alignment", None),
-            getattr(args, "filter_skills_job", None),
-        )
-        .with_experience_filter(
-            getattr(args, "filter_exp_alignment", None),
-            getattr(args, "filter_exp_job", None),
-        )
-        .execute()
-    )
+    data = _apply_filter_pipeline(data, args)
 
     seed = parse_seed_criteria(args.seed) if args.seed else {}
     seed = _extend_seed_with_style(seed, getattr(args, "style_profile", None))
@@ -199,31 +207,41 @@ def _try_load_structure(path: Path) -> Optional[dict]:
         return None
 
 
+def _find_first_structure(
+    out_dirs: List[Path], extensions: tuple, path_for: Callable[[Path, str], Path]
+) -> Optional[dict]:
+    """Try each (out_dir, extension) combination via path_for until a structure loads."""
+    for out_dir in out_dirs:
+        for ext in extensions:
+            if (structure := _try_load_structure(path_for(out_dir, ext))):
+                return structure
+    return None
+
+
 def _find_structure_in_dirs(
     profile: str, out_dirs: List[Path], extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
 ) -> Optional[dict]:
     """Search for structure file in output directories (nested and legacy flat)."""
     # Try nested location first: out_dir/profile/structure.ext
-    for out_dir in out_dirs:
-        for ext in extensions:
-            if (structure := _try_load_structure(out_dir / profile / f"structure{ext}")):
-                return structure
+    nested = _find_first_structure(
+        out_dirs, extensions, lambda out_dir, ext: out_dir / profile / f"structure{ext}"
+    )
+    if nested:
+        return nested
     # Fallback to legacy flat naming: out_dir/profile.structure.ext
-    for out_dir in out_dirs:
-        for ext in extensions:
-            if (structure := _try_load_structure(out_dir / f"{profile}.structure{ext}")):
-                return structure
-    return None
+    return _find_first_structure(
+        out_dirs, extensions, lambda out_dir, ext: out_dir / f"{profile}.structure{ext}"
+    )
 
 
 def _find_structure_in_config(
     profile: str, extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
 ) -> Optional[dict]:
     """Search for structure file in config folder."""
-    for ext in extensions:
-        if (structure := _try_load_structure(Path("config") / "profiles" / profile / f"structure{ext}")):
-            return structure
-    return None
+    config_dir = Path("config") / "profiles" / profile
+    return _find_first_structure(
+        [config_dir], extensions, lambda out_dir, ext: out_dir / f"structure{ext}"
+    )
 
 
 def _load_structure(args: argparse.Namespace) -> Optional[dict]:
@@ -271,19 +289,8 @@ def cmd_render(args: argparse.Namespace) -> int:
 
     # Apply all filters via pipeline
     min_prio = getattr(args, "min_priority", None)
-    data = (
-        FilterPipeline(data)
-        .with_profile_overlays(getattr(args, "profile", None))
-        .with_skill_filter(
-            getattr(args, "filter_skills_alignment", None),
-            getattr(args, "filter_skills_job", None),
-        )
-        .with_experience_filter(
-            getattr(args, "filter_exp_alignment", None),
-            getattr(args, "filter_exp_job", None),
-        )
-        .with_priority_filter(float(min_prio) if isinstance(min_prio, (int, float)) else None)
-        .execute()
+    data = _apply_filter_pipeline(
+        data, args, float(min_prio) if isinstance(min_prio, (int, float)) else None
     )
 
     structure = _load_structure(args)

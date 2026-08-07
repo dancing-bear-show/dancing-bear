@@ -8,38 +8,66 @@ from pathlib import Path
 from ..utils.filters import build_gmail_query
 
 
+def _fetch_id_and_thread(client, message_id: str) -> tuple[str | None, str | None]:
+    """Fetch (id, threadId) metadata for a message, falling back to (message_id, None)."""
+    try:
+        meta = client.get_message(message_id, fmt="metadata")
+        return meta.get("id"), meta.get("threadId")
+    except Exception:  # nosec B112 - fall back to bare id when metadata lookup fails
+        return message_id, None
+
+
 def select_message_id(args: argparse.Namespace, client) -> tuple[str | None, str | None]:
     """Return (message_id, thread_id) resolved from --id or --query/--latest."""
     mid = getattr(args, "id", None)
     if mid:
-        try:
-            meta = client.get_message(mid, fmt="metadata")
-            return meta.get("id"), meta.get("threadId")
-        except Exception:
-            return mid, None
+        return _fetch_id_and_thread(client, mid)
     q = (getattr(args, "query", None) or "").strip()
-    if q:
-        crit = {"query": q}
-        q_built = build_gmail_query(crit, days=getattr(args, "days", None), only_inbox=getattr(args, "only_inbox", False))
-        ids = client.list_message_ids(query=q_built, max_pages=1, page_size=1)
-        if ids:
-            try:
-                meta = client.get_message(ids[0], fmt="metadata")
-                return meta.get("id"), meta.get("threadId")
-            except Exception:
-                return ids[0], None
-    return None, None
+    if not q:
+        return None, None
+    crit = {"query": q}
+    q_built = build_gmail_query(crit, days=getattr(args, "days", None), only_inbox=getattr(args, "only_inbox", False))
+    ids = client.list_message_ids(query=q_built, max_pages=1, page_size=1)
+    if not ids:
+        return None, None
+    return _fetch_id_and_thread(client, ids[0])
+
+
+def _outlook_search_processor(args, query: str):
+    """Build the Outlook search processor, or return None (error already printed)."""
+    from ..utils.cli_helpers import outlook_client_from_args
+    from .pipeline import OutlookMessagesSearchProcessor
+
+    if not query.strip():
+        print("Outlook search requires a non-empty --query")
+        return None
+    try:
+        client = outlook_client_from_args(args)
+    except RuntimeError as exc:
+        message = str(exc).strip()
+        if message:
+            print(message)
+        return None
+    return OutlookMessagesSearchProcessor(client)
+
+
+def _gmail_search_processor(args):
+    """Build the Gmail search processor."""
+    from ..utils.cli_helpers import gmail_provider_from_args
+    from .pipeline import MessagesSearchProcessor
+
+    client = gmail_provider_from_args(args)
+    client.authenticate()
+    return MessagesSearchProcessor(client)
 
 
 def run_messages_search(args) -> int:
     """Search for messages and list candidates."""
-    from ..utils.cli_helpers import gmail_provider_from_args, is_outlook_profile, outlook_client_from_args
+    from ..utils.cli_helpers import is_outlook_profile
     from .pipeline import (
         MessagesSearchRequest,
         MessagesSearchRequestConsumer,
-        MessagesSearchProcessor,
         MessagesSearchProducer,
-        OutlookMessagesSearchProcessor,
     )
 
     profile = getattr(args, "profile", None)
@@ -52,22 +80,13 @@ def run_messages_search(args) -> int:
         output_json=getattr(args, "json", False),
     )
 
-    if is_outlook_profile(profile):
-        if not query.strip():
-            print("Outlook search requires a non-empty --query")
-            return 1
-        try:
-            client = outlook_client_from_args(args)
-        except RuntimeError as exc:
-            message = str(exc).strip()
-            if message:
-                print(message)
-            return 1
-        processor = OutlookMessagesSearchProcessor(client)
-    else:
-        client = gmail_provider_from_args(args)
-        client.authenticate()
-        processor = MessagesSearchProcessor(client)
+    processor = (
+        _outlook_search_processor(args, query)
+        if is_outlook_profile(profile)
+        else _gmail_search_processor(args)
+    )
+    if processor is None:
+        return 1
 
     envelope = processor.process(
         MessagesSearchRequestConsumer(request).consume()
@@ -294,38 +313,54 @@ def run_messages_reply(args) -> int:
     return 0
 
 
+def _send_one_scheduled(client, item: dict, profile: str) -> bool:
+    """Send a single scheduled item. Returns True on success."""
+    import base64
+
+    to = item.get("to") or "recipient"
+    subj = item.get("subject") or ""
+    try:
+        raw = base64.b64decode(item.get("raw_b64") or b"")
+        thread_id = item.get("thread_id")
+        client.send_message_raw(raw, thread_id=thread_id)
+        print(f"Sent scheduled message to {to} subject='{subj}' profile={profile}")
+        return True
+    except Exception as e:  # nosec B110 - log and continue on send failure
+        print(f"Failed to send to {to}: {e}")
+        return False
+
+
+def _send_scheduled_for_profile(profile: str, items: list) -> tuple[int, int]:
+    """Authenticate once for a profile and send all its due items. Returns (sent, errors)."""
+    from ..utils.cli_helpers import gmail_provider_from_args
+
+    ns = argparse.Namespace(profile=profile, credentials=None, token=None, cache=None)
+    client = gmail_provider_from_args(ns)
+    client.authenticate()
+    results = [_send_one_scheduled(client, it, profile) for it in items]
+    sent = sum(1 for ok in results if ok)
+    return sent, len(results) - sent
+
+
 def run_messages_apply_scheduled(args) -> int:
     """Apply scheduled messages that are due."""
     from ..scheduler import pop_due
-    from ..utils.cli_helpers import gmail_provider_from_args
-    import base64
 
-    sent = 0
-    errors = 0
     due = pop_due(profile=getattr(args, "profile", None), limit=int(getattr(args, "max", 10) or 10))
     if not due:
         print("No scheduled messages due.")
         return 0
     # Group by profile for provider reuse
-    by_profile = {}
+    by_profile: dict = {}
     for it in due:
         by_profile.setdefault(it.get("profile") or "default", []).append(it)
+
+    sent = 0
+    errors = 0
     for prof, items in by_profile.items():
-        ns = argparse.Namespace(profile=prof, credentials=None, token=None, cache=None)
-        client = gmail_provider_from_args(ns)
-        client.authenticate()
-        for it in items:
-            to = it.get("to") or "recipient"
-            subj = it.get("subject") or ""
-            try:
-                raw = base64.b64decode(it.get("raw_b64") or b"")
-                thread_id = it.get("thread_id")
-                client.send_message_raw(raw, thread_id=thread_id)
-                sent += 1
-                print(f"Sent scheduled message to {to} subject='{subj}' profile={prof}")
-            except Exception as e:  # nosec B110 - log and continue on send failure
-                errors += 1
-                print(f"Failed to send to {to}: {e}")
+        prof_sent, prof_errors = _send_scheduled_for_profile(prof, items)
+        sent += prof_sent
+        errors += prof_errors
     print(f"Scheduled send complete. Sent: {sent}, Errors: {errors}")
     return 1 if errors else 0
 

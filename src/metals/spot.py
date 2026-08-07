@@ -27,7 +27,7 @@ import argparse
 import csv
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
 
@@ -68,24 +68,44 @@ def _http_get_with_retry(url: str, headers: Optional[Dict[str, str]] = None) -> 
     return data
 
 
+def _yahoo_point(ts: List, closes: List, i: int) -> Optional[Tuple[str, float]]:
+    """Parse a single (timestamp, close) pair at index i. Returns None if invalid."""
+    try:
+        d = datetime.fromtimestamp(int(ts[i]), tz=timezone.utc).date().isoformat()
+        v = closes[i]
+        if v is None:
+            return None
+        return d, float(v)
+    except Exception:  # nosec B110 - skip malformed entries
+        return None
+
+
 def _parse_yahoo_response(data: Dict) -> Dict[str, float]:
     """Extract date->close mapping from Yahoo Finance JSON response."""
     out: Dict[str, float] = {}
     try:
         res = ((data.get("chart") or {}).get("result") or [])[0]
-        ts = res.get("timestamp", [])
+        ts = res.get("timestamp", []) or []
         cl = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close", [])
-        for i, t in enumerate(ts or []):
-            try:
-                d = datetime.fromtimestamp(int(t), tz=timezone.utc).date().isoformat()
-                v = cl[i]
-                if v is not None:
-                    out[d] = float(v)
-            except Exception:  # nosec B112 - skip malformed entries
-                continue
     except Exception:  # nosec B110 - return empty on unexpected shape
-        pass
+        return out
+
+    for i in range(len(ts)):
+        point = _yahoo_point(ts, cl, i)
+        if point:
+            out[point[0]] = point[1]
     return out
+
+
+def _resolve_gap_fill(
+    data: Dict[str, float], ds: str, last_val: Optional[float], first_val: Optional[float]
+) -> Optional[float]:
+    """Resolve the value to fill in for date ds: exact match, else forward-fill, else back-fill."""
+    if ds in data:
+        return data[ds]
+    if last_val is not None:
+        return last_val
+    return first_val
 
 
 def _fill_date_gaps(data: Dict[str, float], start_date: str, end_date: str) -> Dict[str, float]:
@@ -108,14 +128,10 @@ def _fill_date_gaps(data: Dict[str, float], start_date: str, end_date: str) -> D
 
     while dcur <= end:
         ds = dcur.isoformat()
-        if ds in data:
-            last_val = data[ds]
-            filled[ds] = last_val
-        elif last_val is not None:
-            filled[ds] = last_val
-        elif first_val is not None:
-            filled[ds] = first_val
-            last_val = first_val
+        val = _resolve_gap_fill(data, ds, last_val, first_val)
+        if val is not None:
+            filled[ds] = val
+            last_val = val
         dcur = dcur.fromordinal(dcur.toordinal() + 1)
 
     return filled
@@ -199,6 +215,20 @@ def _should_skip_row(row: Dict[str, str], fieldnames: List[str], metal_filter: O
     return row_metal != "" and row_metal != metal_filter
 
 
+def _earliest_date_from_reader(
+    reader: "csv.DictReader", metal_filter: Optional[str]
+) -> Optional[date]:
+    """Scan an open CSV DictReader for the earliest 'date' value, applying metal_filter."""
+    earliest: Optional[date] = None
+    for row in reader:
+        if _should_skip_row(row, reader.fieldnames or [], metal_filter):
+            continue
+        d = _parse_date_safe(row.get("date") or "")
+        if d and (earliest is None or d < earliest):
+            earliest = d
+    return earliest
+
+
 def _find_earliest_date_in_csv(csv_path: Path, metal_filter: Optional[str] = None) -> Optional[date]:
     """Read CSV and find earliest date, optionally filtering by metal column.
 
@@ -212,21 +242,11 @@ def _find_earliest_date_in_csv(csv_path: Path, metal_filter: Optional[str] = Non
     if not csv_path.exists():
         return None
 
-    earliest: Optional[date] = None
     try:
         with csv_path.open(newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if _should_skip_row(row, reader.fieldnames or [], metal_filter):
-                    continue
-
-                d = _parse_date_safe(row.get("date") or "")
-                if d and (earliest is None or d < earliest):
-                    earliest = d
+            return _earliest_date_from_reader(csv.DictReader(f), metal_filter)
     except Exception:  # nosec B110 - return None on read error
-        pass
-
-    return earliest
+        return None
 
 
 def _auto_start_date(metal: str) -> Optional[str]:

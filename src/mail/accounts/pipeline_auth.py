@@ -108,34 +108,29 @@ def _build_filter_dsl_entry(filter_obj: dict[str, Any], id_to_name: dict[str, st
     return entry
 
 
+# Fields checked for drift, keyed by provider. Gmail supports visibility fields;
+# Outlook (via Graph categories) only supports color.
+_LABEL_UPDATE_FIELDS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
+    "gmail": ("color", "labelListVisibility", "messageListVisibility"),
+    "outlook": ("color",),
+}
+
+
+def _changed_label_fields(spec: dict[str, Any], current: dict[str, Any], provider: str) -> dict[str, Any]:
+    """Return the subset of provider-relevant fields that differ between spec and current."""
+    fields = _LABEL_UPDATE_FIELDS_BY_PROVIDER.get(provider, ())
+    return {k: spec[k] for k in fields if spec.get(k) and spec.get(k) != current.get(k)}
+
+
 def _needs_label_update(spec: dict[str, Any], current: dict[str, Any], provider: str) -> bool:
     """Check if label needs updating based on spec vs current state."""
-    if provider == "gmail":
-        for k in ("color", "labelListVisibility", "messageListVisibility"):
-            if spec.get(k) and spec.get(k) != current.get(k):
-                return True
-    elif provider == "outlook":
-        if spec.get("color") and spec.get("color") != current.get("color"):
-            return True
-    return False
+    return bool(_changed_label_fields(spec, current, provider))
 
 
 def _build_label_update_dict(name: str, spec: dict[str, Any], current: dict[str, Any], provider: str) -> dict[str, Any] | None:
     """Build update dict for a label if changes are needed."""
-    upd = {"name": name}
-    changed = False
-
-    if provider == "gmail":
-        for k in ("color", "labelListVisibility", "messageListVisibility"):
-            if spec.get(k) and spec.get(k) != current.get(k):
-                upd[k] = spec[k]
-                changed = True
-    elif provider == "outlook":
-        if spec.get("color") and spec.get("color") != current.get("color"):
-            upd["color"] = spec["color"]
-            changed = True
-
-    return upd if changed else None
+    changed = _changed_label_fields(spec, current, provider)
+    return {"name": name, **changed} if changed else None
 
 
 def _build_outlook_filter_action(action_spec: dict[str, Any], name_to_id: dict[str, str]) -> dict[str, Any]:
@@ -154,64 +149,75 @@ def _build_outlook_filter_action(action_spec: dict[str, Any], name_to_id: dict[s
     return action
 
 
+def _outlook_filter_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
+    """Canonical comparison key for a built Outlook filter criteria/action pair.
+
+    Delegates to canonicalize_filter so desired and existing filters are keyed
+    by the exact same function. Building the key independently here is what
+    caused every desired filter to look new: canonicalize_filter emits a
+    "query" field and a hand-rolled key omitting it can never match, so each
+    sync would recreate rules that already exist.
+    """
+    return canonicalize_filter({"criteria": criteria, "action": action})
+
+
+def _sync_one_outlook_filter(
+    client, spec: dict[str, Any], existing_keys: set, name_to_id: dict[str, str], dry_run: bool
+) -> tuple[int, int]:
+    """Sync a single Outlook filter spec. Returns (created_delta, errors_delta)."""
+    match = spec.get("match") or {}
+    action_spec = spec.get("action") or {}
+    criteria = {k: v for k, v in match.items() if k in ("from", "to", "subject")}
+    action = _build_outlook_filter_action(action_spec, name_to_id)
+
+    if _outlook_filter_key(criteria, action) in existing_keys:
+        return 0, 0
+
+    if dry_run:
+        return 1, 0
+
+    try:
+        client.create_filter(criteria, action)
+        return 1, 0
+    except Exception:  # nosec B110 - continue on filter creation errors
+        return 0, 1
+
+
 def _sync_outlook_filters(client, desired_filters: list, existing_filters: list, name_to_id: dict[str, str], dry_run: bool) -> tuple[int, int]:
     """Sync Outlook filters and return (created, errors) counts."""
-    existing_keys = {canonicalize_filter(f): f for f in existing_filters}
-    created = 0
-    errors = 0
-
+    existing_keys = {canonicalize_filter(f) for f in existing_filters}
+    created = errors = 0
     for spec in desired_filters:
-        match = spec.get("match") or {}
-        action_spec = spec.get("action") or {}
-        criteria = {k: v for k, v in match.items() if k in ("from", "to", "subject")}
-        action = _build_outlook_filter_action(action_spec, name_to_id)
-
-        key = str({
-            "from": criteria.get("from"),
-            "to": criteria.get("to"),
-            "subject": criteria.get("subject"),
-            "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-            "forward": action.get("forward"),
-        })
-
-        if key in existing_keys:
-            continue
-
-        if not dry_run:
-            try:
-                client.create_filter(criteria, action)
-                created += 1
-            except Exception:  # nosec B110 - continue on filter creation errors
-                errors += 1
-        else:
-            created += 1
-
+        c, e = _sync_one_outlook_filter(client, spec, existing_keys, name_to_id, dry_run)
+        created += c
+        errors += e
     return created, errors
+
+
+def _sync_one_label(client, spec: dict[str, Any], existing: dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
+    """Sync a single label spec. Returns (created_delta, updated_delta)."""
+    name = spec.get("name")
+    if not name:
+        return 0, 0
+
+    if name not in existing:
+        if not dry_run:
+            client.create_label(**spec)
+        return 1, 0
+
+    upd = _build_label_update_dict(name, spec, existing[name], provider)
+    if not upd:
+        return 0, 0
+    if not dry_run:
+        client.update_label(existing[name].get("id", ""), upd)
+    return 0, 1
 
 
 def _sync_labels_for_account(client, desired: list, existing: dict[str, Any], provider: str, dry_run: bool) -> tuple[int, int]:
     """Sync labels for an account and return (created, updated) counts."""
-    created = 0
-    updated = 0
-
+    created = updated = 0
     for spec in desired:
-        name = spec.get("name")
-        if not name:
-            continue
-
-        # Create new labels
-        if name not in existing:
-            if not dry_run:
-                client.create_label(**spec)
-            created += 1
-            continue
-
-        # Update existing labels if needed
-        cur = existing[name]
-        upd = _build_label_update_dict(name, spec, cur, provider)
-        if upd and not dry_run:
-            client.update_label(cur.get("id", ""), upd)
-        if upd:
-            updated += 1
-
+        c, u = _sync_one_label(client, spec, existing, provider, dry_run)
+        created += c
+        updated += u
     return created, updated

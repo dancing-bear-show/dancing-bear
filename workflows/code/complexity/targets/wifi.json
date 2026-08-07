@@ -1,0 +1,30 @@
+{
+  "group": "wifi",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/wifi/diagnostics_probes.py",
+      "complexity": 82,
+      "line_count": 396,
+      "top_level_symbols": 23,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/wifi/diagnostics_report.py",
+      "complexity": 81,
+      "line_count": 280,
+      "top_level_symbols": 18,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    }
+  ]
+}

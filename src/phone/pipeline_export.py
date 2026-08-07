@@ -53,11 +53,9 @@ def _process_pages(
         folders_total += folder_count
         pages_out.append({"apps": apps, "folders": folders})
 
-        for a in apps:
+        page_app_ids = apps + [a for f in folders for a in f["apps"]]
+        for a in page_app_ids:
             _collect_unique_app(a, seen, all_apps)
-        for f in folders:
-            for a in f["apps"]:
-                _collect_unique_app(a, seen, all_apps)
 
     return pages_out, folders_total
 

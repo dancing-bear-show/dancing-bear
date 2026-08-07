@@ -24,6 +24,7 @@ To update pricing when Anthropic releases new pricing:
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 
 from telemetry.otel.analytics.perf import (
@@ -117,6 +118,30 @@ def get_model_pricing(model_name: str) -> tuple[float, float]:
     return MODEL_PRICING[DEFAULT_MODEL]
 
 
+@dataclass(frozen=True)
+class TokenCounts:
+    """Token counts for a single cost computation."""
+
+    input_tokens: int
+    output_tokens: int
+    cache_creation_tokens: int
+    cache_read_tokens: int
+
+
+def _compute_token_cost(counts: TokenCounts, input_cost: float, output_cost: float) -> float:
+    """Compute USD cost for a token breakdown at the given per-million rates.
+
+    Cache-creation writes are billed at 1.25x the input rate; cache reads at
+    0.1x the input rate — matching Anthropic's prompt-caching pricing.
+    """
+    return (
+        (counts.input_tokens * input_cost / 1_000_000)
+        + (counts.output_tokens * output_cost / 1_000_000)
+        + (counts.cache_creation_tokens * input_cost * 1.25 / 1_000_000)
+        + (counts.cache_read_tokens * input_cost * 0.1 / 1_000_000)
+    )
+
+
 def _extract_api_requests(events: list, since: datetime | None = None) -> list[dict]:
     """Extract api_request events from telemetry and parse token attributes."""
     api_requests, _ = _extract_all_events(events, since)
@@ -201,11 +226,12 @@ def _build_session_costs(
 
     for (session_id, model), data in session_model_data.items():
         input_cost, output_cost = get_model_pricing(model)
-        cost = (
-            (data["input_tokens"] * input_cost / 1_000_000)
-            + (data["output_tokens"] * output_cost / 1_000_000)
-            + (data["cache_creation_tokens"] * input_cost * 1.25 / 1_000_000)
-            + (data["cache_read_tokens"] * input_cost * 0.1 / 1_000_000)
+        cost = _compute_token_cost(
+            TokenCounts(
+                data["input_tokens"], data["output_tokens"],
+                data["cache_creation_tokens"], data["cache_read_tokens"],
+            ),
+            input_cost, output_cost,
         )
         st = session_totals[session_id]
         st["api_calls"] += data["api_calls"]
@@ -249,11 +275,12 @@ def _build_model_costs(model_data: dict[str, dict]) -> list[ModelCost]:
     model_costs = []
     for model_name, data in sorted(model_data.items()):
         input_cost, output_cost = get_model_pricing(model_name)
-        cost = (
-            (data["input_tokens"] * input_cost / 1_000_000)
-            + (data["output_tokens"] * output_cost / 1_000_000)
-            + (data["cache_creation_tokens"] * input_cost * 1.25 / 1_000_000)
-            + (data["cache_read_tokens"] * input_cost * 0.1 / 1_000_000)
+        cost = _compute_token_cost(
+            TokenCounts(
+                data["input_tokens"], data["output_tokens"],
+                data["cache_creation_tokens"], data["cache_read_tokens"],
+            ),
+            input_cost, output_cost,
         )
         eff = (
             (data["output_tokens"] / data["input_tokens"])
@@ -376,11 +403,12 @@ def get_daily_costs(
     for req in api_requests:
         date_str = req["timestamp"].strftime("%Y-%m-%d")
         input_price, output_price = get_model_pricing(req["model"])
-        cost = (
-            (req["input_tokens"] * input_price / 1_000_000)
-            + (req["output_tokens"] * output_price / 1_000_000)
-            + (req["cache_creation_tokens"] * input_price * 1.25 / 1_000_000)
-            + (req["cache_read_tokens"] * input_price * 0.1 / 1_000_000)
+        cost = _compute_token_cost(
+            TokenCounts(
+                req["input_tokens"], req["output_tokens"],
+                req["cache_creation_tokens"], req["cache_read_tokens"],
+            ),
+            input_price, output_price,
         )
         daily[date_str]["api_calls"] += 1
         daily[date_str]["cost"] += cost
@@ -460,7 +488,7 @@ def get_model_performance(
             model_data[model]["latencies"].append(req["duration_ms"])
 
     session_perf = _build_session_perf_objects(perf_accumulators)
-    for _sid, perf in session_perf.items():
+    for perf in session_perf.values():
         if perf.error_count > 0 and perf.model_mix:
             total_calls = sum(perf.model_mix.values())
             for model, calls in perf.model_mix.items():

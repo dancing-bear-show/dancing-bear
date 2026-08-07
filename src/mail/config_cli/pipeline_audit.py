@@ -43,19 +43,29 @@ class AuditFiltersResult:
 AuditFiltersRequestConsumer = RequestConsumer[AuditFiltersRequest]
 
 
+def _dest_and_tokens_for_filter(f: dict) -> tuple[str, set] | None:
+    """Extract (destination, from-tokens) for a single unified filter, or None if not applicable."""
+    if not isinstance(f, dict):
+        return None
+    adds = (f.get("action") or {}).get("add") or []
+    if not adds:
+        return None
+    frm = str((f.get("match") or {}).get("from") or "")
+    toks = {t.strip().lower() for t in frm.split("OR") if t.strip()}
+    if not toks:
+        return None
+    return str(adds[0]), toks
+
+
 def _build_dest_token_map(unified: list) -> dict[str, set]:
     """Build mapping from destination label to set of from-tokens in the unified config."""
     dest_to_tokens: dict[str, set] = {}
     for f in unified:
-        if not isinstance(f, dict):
+        pair = _dest_and_tokens_for_filter(f)
+        if pair is None:
             continue
-        adds = (f.get("action") or {}).get("add") or []
-        if not adds:
-            continue
-        frm = str((f.get("match") or {}).get("from") or "")
-        toks = {t.strip().lower() for t in frm.split("OR") if t.strip()}
-        if toks:
-            dest_to_tokens.setdefault(str(adds[0]), set()).update(toks)
+        dest, toks = pair
+        dest_to_tokens.setdefault(dest, set()).update(toks)
     return dest_to_tokens
 
 
@@ -83,27 +93,35 @@ def _token_matches(frm: str, toks: set) -> bool:
     return any(tok and (tok in frm or frm in tok) for tok in toks)
 
 
+@dataclass(frozen=True)
+class _FilterScore:
+    """Coverage classification for a single simple filter."""
+    dest: str
+    frm: str
+    covered: bool
+
+
+def _score_one_filter(f: dict, dest_to_tokens: dict[str, set]) -> "_FilterScore | None":
+    """Score a single exported filter, or None if it is not a 'simple' from-based rule."""
+    if not isinstance(f, dict):
+        return None
+    frm = _extract_filter_from_addr(f)
+    if frm is None:
+        return None
+    adds = _extract_filter_adds(f)
+    if not adds:
+        return None
+    dest = str(adds[0])
+    toks = dest_to_tokens.get(dest) or set()
+    return _FilterScore(dest=dest, frm=frm, covered=_token_matches(frm, toks))
+
+
 def _score_exported_filters(exported: list, dest_to_tokens: dict[str, set]) -> tuple:
     """Return (simple_total, covered, missing_samples) for exported filters vs unified token map."""
-    simple_total = 0
-    covered = 0
-    missing_samples: list[tuple] = []
-    for f in exported:
-        if not isinstance(f, dict):
-            continue
-        frm = _extract_filter_from_addr(f)
-        if frm is None:
-            continue
-        adds = _extract_filter_adds(f)
-        if not adds:
-            continue
-        simple_total += 1
-        dest = str(adds[0])
-        toks = dest_to_tokens.get(dest) or set()
-        if _token_matches(frm, toks):
-            covered += 1
-        elif len(missing_samples) < 10:
-            missing_samples.append((dest, frm))
+    scores = [s for f in exported if (s := _score_one_filter(f, dest_to_tokens)) is not None]
+    simple_total = len(scores)
+    covered = sum(1 for s in scores if s.covered)
+    missing_samples = [(s.dest, s.frm) for s in scores if not s.covered][:10]
     return simple_total, covered, missing_samples
 
 
@@ -178,6 +196,30 @@ class EnvSetupResult:
 EnvSetupRequestConsumer = RequestConsumer[EnvSetupRequest]
 
 
+def _install_venv_packages(venv_dir: Path) -> None:
+    """Validate the venv's python path and install pip + this project into it."""
+    import subprocess  # nosec B404 - needed for pip install in venv setup
+
+    py = venv_dir / "bin" / "python"
+    if not py.exists():
+        raise FileNotFoundError(f"Python not found in venv: {py}")
+    if venv_dir.resolve() not in py.resolve().parents:
+        raise ValueError(f"Python path escapes venv directory: {py}")
+    subprocess.run([str(py), "-m", "pip", "install", "-U", "pip"], check=True, capture_output=True)  # nosec B603 - validated path within venv
+    subprocess.run([str(py), "-m", "pip", "install", "-e", "."], check=True, capture_output=True)  # nosec B603 - validated path within venv
+
+
+def _make_bin_scripts_executable() -> None:
+    """Best-effort chmod +x on the known bin/ entry scripts."""
+    for fname in ("bin/mail", "bin/mail-assistant"):
+        try:
+            p = Path(fname)
+            if p.exists():
+                os.chmod(p, (p.stat().st_mode | 0o111))
+        except OSError:  # nosec B110 - chmod failure is non-critical (PermissionError is subclass)
+            pass
+
+
 def _setup_venv(venv_dir: Path, skip_install: bool) -> bool:
     """Create and optionally populate a venv. Returns True if created."""
     venv_created = False
@@ -186,21 +228,8 @@ def _setup_venv(venv_dir: Path, skip_install: bool) -> bool:
         _venv.EnvBuilder(with_pip=True).create(str(venv_dir))
         venv_created = True
     if not skip_install:
-        import subprocess  # nosec B404 - needed for pip install in venv setup
-        py = venv_dir / "bin" / "python"
-        if not py.exists():
-            raise FileNotFoundError(f"Python not found in venv: {py}")
-        if venv_dir.resolve() not in py.resolve().parents:
-            raise ValueError(f"Python path escapes venv directory: {py}")
-        subprocess.run([str(py), "-m", "pip", "install", "-U", "pip"], check=True, capture_output=True)  # nosec B603 - validated path within venv
-        subprocess.run([str(py), "-m", "pip", "install", "-e", "."], check=True, capture_output=True)  # nosec B603 - validated path within venv
-    for fname in ("bin/mail", "bin/mail-assistant"):
-        try:
-            p = Path(fname)
-            if p.exists():
-                os.chmod(p, (p.stat().st_mode | 0o111))
-        except OSError:  # nosec B110 - chmod failure is non-critical (PermissionError is subclass)
-            pass
+        _install_venv_packages(venv_dir)
+    _make_bin_scripts_executable()
     return venv_created
 
 

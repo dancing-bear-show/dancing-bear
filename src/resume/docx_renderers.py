@@ -45,6 +45,21 @@ class BulletRenderer:
         style, glyph = self._apply_page_bullet_config(style, glyph)
         return (style == "plain" or (sec and sec.get("plain_bullets") is True), glyph)
 
+    def _new_glyph_paragraph(self, glyph: str):
+        """Start a new tight, flush-left paragraph with a leading glyph run."""
+        p = self.doc.add_paragraph()
+        self.styles.tight_paragraph(p, after_pt=0)
+        self.styles.flush_left(p)
+        p.add_run(f"{glyph} ")
+        return p
+
+    def _add_text_with_optional_keywords(self, p, text: str, keywords: Optional[List[str]]) -> None:
+        """Add text to a paragraph, bolding keyword matches if any are given."""
+        if keywords:
+            self._bold_keywords(p, text, keywords)
+        else:
+            p.add_run(text)
+
     def add_bullet_line(
         self,
         text: str,
@@ -53,14 +68,8 @@ class BulletRenderer:
         glyph: str = "•",
     ):
         """Add a plain bullet line (glyph + text)."""
-        p = self.doc.add_paragraph()
-        self.styles.tight_paragraph(p, after_pt=0)
-        self.styles.flush_left(p)
-        p.add_run(f"{glyph} ")
-        if keywords:
-            self._bold_keywords(p, text, keywords)
-        else:
-            p.add_run(text)
+        p = self._new_glyph_paragraph(glyph)
+        self._add_text_with_optional_keywords(p, text, keywords)
         return p
 
     def add_named_bullet(
@@ -73,10 +82,7 @@ class BulletRenderer:
         sep: str = ": ",
     ):
         """Add a bullet with bold name and description."""
-        p = self.doc.add_paragraph()
-        self.styles.tight_paragraph(p, after_pt=0)
-        self.styles.flush_left(p)
-        p.add_run(f"{glyph} ")
+        p = self._new_glyph_paragraph(glyph)
 
         cfg = sec or {}
         name_color = cfg.get("name_color") or cfg.get("item_color") or cfg.get("title_color")
@@ -108,10 +114,7 @@ class BulletRenderer:
             p = self.doc.add_paragraph(style=list_style)
             self.styles.tight_paragraph(p, after_pt=0)
             self.styles.compact_bullet(p)
-            if keywords:
-                self._bold_keywords(p, it, keywords)
-            else:
-                p.add_run(it)
+            self._add_text_with_optional_keywords(p, it, keywords)
 
     @staticmethod
     def _find_earliest_keyword(lowered: str, text: str, keywords: List[str], from_idx: int):
@@ -169,6 +172,13 @@ class HeaderRenderer:
         except (ValueError, TypeError):
             return None
 
+    def _add_bold_colored_run(self, p, text: str, color: Optional[str]):
+        """Add a bold run with an optional color applied."""
+        r = p.add_run(text)
+        r.bold = True
+        self.styles.apply_run_color(r, color)
+        return r
+
     def _add_meta_run(self, p, text: str, cfg: MetaRunConfig):
         """Add a metadata run (location or duration) with optional brackets."""
         p.add_run(" — ")
@@ -209,17 +219,13 @@ class HeaderRenderer:
 
         # Title
         if c.title_text:
-            r_title = p.add_run(c.title_text)
-            r_title.bold = True
-            self.styles.apply_run_color(r_title, item_color)
+            self._add_bold_colored_run(p, c.title_text, item_color)
 
         # Company
         if c.title_text and c.company_text:
             p.add_run(" at ")
         if c.company_text:
-            r_comp = p.add_run(c.company_text)
-            r_comp.bold = True
-            self.styles.apply_run_color(r_comp, item_color)
+            self._add_bold_colored_run(p, c.company_text, item_color)
 
         # Location
         if c.loc_text:

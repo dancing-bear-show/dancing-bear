@@ -8,6 +8,7 @@ from __future__ import annotations
 import configparser
 import os
 import subprocess  # nosec B404 - required for cfgutil (Apple Configurator CLI)
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
@@ -123,7 +124,7 @@ def _extract_folder_apps(folder_items: list[Any]) -> list[str]:
 
 
 def _parse_page_item(it: Any) -> tuple[str | None, dict[str, Any] | None]:
-    """Parse a single page item into app or folder.
+    """Parse a single list-format page item into app or folder.
 
     Returns (app_id, folder_dict) where one will be None.
     """
@@ -139,46 +140,56 @@ def _parse_page_item(it: Any) -> tuple[str | None, dict[str, Any] | None]:
     return None, None
 
 
+def _parse_plist_page_item(it: Any) -> tuple[str | None, dict[str, Any] | None]:
+    """Parse a single plist-format page item into app or folder.
+
+    Returns (app_id, folder_dict) where one will be None.
+    """
+    if isinstance(it, dict) and "iconLists" in it and "displayName" in it:
+        name = it.get("displayName") or "Folder"
+        flist = [
+            bid
+            for sub in (it.get("iconLists") or [[]])[0]
+            if (bid := _get_bundle_id(sub))
+        ]
+        return None, {"name": name, "apps": flist}
+    bid = _get_bundle_id(it)
+    return (bid, None) if bid else (None, None)
+
+
+def _parse_one_page(
+    page_items: list[Any],
+    parse_item: Callable[[Any], tuple[str | None, dict[str, Any] | None]],
+) -> dict[str, Any]:
+    """Parse a single page's items into an {"apps": [...], "folders": [...]} dict."""
+    page_out: dict[str, Any] = {"apps": [], "folders": []}
+    for it in page_items:
+        app_id, folder = parse_item(it)
+        if app_id:
+            page_out["apps"].append(app_id)
+        elif folder:
+            page_out["folders"].append(folder)
+    return page_out
+
+
 def _parse_list_format(data: list) -> dict[str, Any]:
     """Parse cfgutil JSON list format: [dock, page1, page2, ...]."""
     dock = [s for s in (data[0] or []) if isinstance(s, str)]
-    pages: list[dict[str, Any]] = []
-
-    for page in data[1:]:
-        if not isinstance(page, list):
-            continue
-        page_out: dict[str, Any] = {"apps": [], "folders": []}
-
-        for it in page:
-            app_id, folder = _parse_page_item(it)
-            if app_id:
-                page_out["apps"].append(app_id)
-            elif folder:
-                page_out["folders"].append(folder)
-
-        pages.append(page_out)
-
+    pages = [
+        _parse_one_page(page, _parse_page_item)
+        for page in data[1:]
+        if isinstance(page, list)
+    ]
     return {"dock": dock, "pages": pages}
 
 
 def _parse_plist_format(data: dict) -> dict[str, Any]:
     """Parse cfgutil plist format with buttonBar/iconLists keys."""
     dock = [bid for it in (data.get("buttonBar") or []) if (bid := _get_bundle_id(it))]
-    pages: list[dict[str, Any]] = []
-    for page in data.get("iconLists") or []:
-        page_out: dict[str, Any] = {"apps": [], "folders": []}
-        for it in page or []:
-            if isinstance(it, dict) and "iconLists" in it and "displayName" in it:
-                name = it.get("displayName") or "Folder"
-                flist = [
-                    bid
-                    for sub in (it.get("iconLists") or [[]])[0]
-                    if (bid := _get_bundle_id(sub))
-                ]
-                page_out["folders"].append({"name": name, "apps": flist})
-            elif bid := _get_bundle_id(it):
-                page_out["apps"].append(bid)
-        pages.append(page_out)
+    pages = [
+        _parse_one_page(page or [], _parse_plist_page_item)
+        for page in data.get("iconLists") or []
+    ]
     return {"dock": dock, "pages": pages}
 
 

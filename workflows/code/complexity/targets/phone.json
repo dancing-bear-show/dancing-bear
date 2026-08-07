@@ -1,0 +1,93 @@
+{
+  "group": "phone",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/phone/device.py",
+      "complexity": 85,
+      "line_count": 340,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=340 < 350. Single responsibility: device export/credential/cert helpers for cfgutil-based iOS device access.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/phone/profile.py",
+      "complexity": 85,
+      "line_count": 505,
+      "top_level_symbols": 23,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is building the mobileconfig home-screen profile payload from a normalized layout export; all classes/helpers (Page, HomeScreenConfigBuilder, HslPayloadConfig, folder/dock/pages builders) feed into build_mobileconfig in one tightly coupled data flow, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/phone/layout_normalize.py",
+      "complexity": 79,
+      "line_count": 201,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=201 < 350. Single responsibility: normalize raw iconstate export into NormalizedLayout and derive location/page maps.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/phone/cli/cmd_merge.py",
+      "complexity": 62,
+      "line_count": 369,
+      "top_level_symbols": 15,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is iPhone reorg orchestration and device I/O; cmd_reorg calls _resolve_reorg_udid/_reorg_export/_reorg_merge/_reorg_build_profile/_reorg_install/_reorg_summary in a deep call chain, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/phone/layout_merge.py",
+      "complexity": 58,
+      "line_count": 462,
+      "top_level_symbols": 12,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: proposed classify_to_folder() cluster is called BY the merge-orchestration cluster (_file_apps_into_folders etc.), which fails the GATE 3 independence requirement (clusters must not call each other). Single shared responsibility: classify apps and merge them into the existing layout's folders/pages.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/phone/pipeline_export.py",
+      "complexity": 52,
+      "line_count": 512,
+      "top_level_symbols": 37,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: verified by reading the file \u2014 cluster A 'layout pipelines' (ExportRequest/Result/Processor/Producer, PlanRequest/Result/Processor/Producer, ChecklistRequest/Result/Processor/Producer, UnusedRequest/Result/Processor/Producer, PruneRequest/Result/Processor/Producer, AnalyzeRequest/Result/Processor/Producer) all operate on a load_layout()-produced dict; cluster B 'device I/O pipelines' (ExportDeviceRequest/Result/Processor/Producer, IconmapRequest/Result/Processor/Producer) both shell out to cfgutil via .device imports. Neither cluster calls the other; both only share the BaseProducer base class, not mutable state. Unused top-level helpers (_collect_unique_app, _process_page_folders, _process_pages, _build_manifest_from_export) are dead code in this file, not part of either cluster.",
+      "proposed_siblings": [
+        "src/phone/pipeline_layout.py",
+        "src/phone/pipeline_device.py"
+      ]
+    },
+    {
+      "path": "src/phone/layout_plan_scaffold.py",
+      "complexity": 50,
+      "line_count": 163,
+      "top_level_symbols": 9,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    }
+  ]
+}

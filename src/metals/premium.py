@@ -76,6 +76,20 @@ def _parse_costs(path: str, metal: str) -> List[CostRow]:
     return rows
 
 
+def _parse_units_token(tok: str) -> Optional[Tuple[float, float]]:
+    """Parse a single units_breakdown token ('0.1ozx2' or '1oz') into (unit_oz, qty)."""
+    try:
+        if "ozx" in tok:
+            oz_s, q_s = tok.split("ozx", 1)
+            return float(oz_s), float(q_s)
+        if tok.endswith("oz"):
+            # Fallback: '<oz>oz'
+            return float(tok[:-2]), 1.0
+    except Exception:  # nosec B112 - skip on error
+        return None
+    return None
+
+
 def _parse_units_breakdown(s: str) -> List[Tuple[float, float]]:
     """Parse units_breakdown like '0.1ozx2;1ozx3' into list of (unit_oz, qty)."""
     out: List[Tuple[float, float]] = []
@@ -85,19 +99,9 @@ def _parse_units_breakdown(s: str) -> List[Tuple[float, float]]:
         tok = tok.strip()
         if not tok:
             continue
-        # Expect format '<oz>ozx<qty>'
-        try:
-            if "ozx" in tok:
-                oz_s, q_s = tok.split("ozx", 1)
-                oz = float(oz_s)
-                qty = float(q_s)
-                out.append((oz, qty))
-            elif tok.endswith("oz"):
-                # Fallback: '<oz>oz'
-                oz = float(tok[:-2])
-                out.append((oz, 1.0))
-        except Exception:  # nosec B112 - skip on error
-            continue
+        parsed = _parse_units_token(tok)
+        if parsed is not None:
+            out.append(parsed)
     return out
 
 

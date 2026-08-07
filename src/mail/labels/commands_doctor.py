@@ -20,24 +20,31 @@ def _print_doctor_report(info: dict) -> None:
     print(f"Unset visibility count: {len(info['unset_visibility'])}")
 
 
+# (field name, default value) pairs for visibility fields that must be set.
+_VISIBILITY_DEFAULTS = (
+    ('labelListVisibility', 'labelShow'),
+    ('messageListVisibility', 'show'),
+)
+
+
+def _missing_visibility_fields(lbl: dict) -> dict:
+    """Return the subset of visibility defaults missing from a label."""
+    return {field: default for field, default in _VISIBILITY_DEFAULTS if not lbl.get(field)}
+
+
 def _fix_label_visibility(client, labels: list) -> int:
     """Set default visibility on labels missing it. Returns count of changes."""
     changed = 0
     for lbl in labels:
         if lbl.get('type') == 'system':
             continue
-        body = {"name": lbl.get('name')}
-        need_update = False
-        if not lbl.get('labelListVisibility'):
-            body['labelListVisibility'] = 'labelShow'
-            need_update = True
-        if not lbl.get('messageListVisibility'):
-            body['messageListVisibility'] = 'show'
-            need_update = True
-        if need_update:
-            client.update_label(lbl.get('id', ''), body)
-            print(f"Updated visibility: {lbl.get('name')}")
-            changed += 1
+        missing = _missing_visibility_fields(lbl)
+        if not missing:
+            continue
+        body = {"name": lbl.get('name'), **missing}
+        client.update_label(lbl.get('id', ''), body)
+        print(f"Updated visibility: {lbl.get('name')}")
+        changed += 1
     return changed
 
 
@@ -128,6 +135,19 @@ def _get_empty_user_labels(labels: list) -> list:
             if lab.get("type") == "user" and int(lab.get("messagesTotal", 0)) == 0]
 
 
+def _prune_one_label(client, lab: dict, dry_run: bool, sleep_s: float) -> bool:
+    """Delete (or preview deleting) a single empty label. Returns True if deleted."""
+    name = lab.get("name")
+    if dry_run:
+        print(f"Would delete label: {name}")
+        return False
+    if not _delete_label_with_retry(client, lab.get("id", ""), name or ""):
+        return False
+    if sleep_s > 0:
+        time.sleep(sleep_s)
+    return True
+
+
 def run_labels_prune_empty(args) -> int:
     """Delete labels with zero messages."""
     from ..utils.cli_helpers import gmail_provider_from_args
@@ -143,15 +163,9 @@ def run_labels_prune_empty(args) -> int:
     if limit:
         empty_labels = empty_labels[:limit]
 
-    deleted = 0
-    for lab in empty_labels:
-        name = lab.get("name")
-        if dry_run:
-            print(f"Would delete label: {name}")
-        elif _delete_label_with_retry(client, lab.get("id", ""), name or ""):
-            deleted += 1
-            if sleep_s > 0:
-                time.sleep(sleep_s)
+    deleted = sum(
+        1 for lab in empty_labels if _prune_one_label(client, lab, dry_run, sleep_s)
+    )
 
     print(f"Prune complete. Deleted: {deleted}")
     return 0
@@ -200,6 +214,23 @@ def _classify_domain(hints: dict, count: int) -> str | None:
     return None
 
 
+def _domain_for_message(hdrs: dict, protected: list) -> str | None:
+    """Return the sender domain for a message's headers, or None if protected/unresolvable."""
+    email = _extract_email_from_header(hdrs.get('from', ''))
+    if _is_protected_sender(email, protected):
+        return None
+    dom = _extract_domain(email)
+    return dom or None
+
+
+def _record_domain_hints(hints: dict, hdrs: dict, msg: dict) -> None:
+    """Increment list/promotions hint counters in-place from message headers/labels."""
+    if 'list-unsubscribe' in hdrs or 'list-id' in hdrs:
+        hints['list'] += 1
+    if 'CATEGORY_PROMOTIONS' in set(msg.get('labelIds') or []):
+        hints['promotions'] += 1
+
+
 def _collect_domain_stats(client, msgs: list, protected: list) -> tuple[Counter, dict]:
     """Collect domain counts and hints from messages."""
     domain_counts: Counter = Counter()
@@ -207,18 +238,11 @@ def _collect_domain_stats(client, msgs: list, protected: list) -> tuple[Counter,
 
     for m in msgs:
         hdrs = client.headers_to_dict(m)
-        frm = hdrs.get('from', '')
-        email = _extract_email_from_header(frm)
-        if _is_protected_sender(email, protected):
-            continue
-        dom = _extract_domain(email)
+        dom = _domain_for_message(hdrs, protected)
         if not dom:
             continue
         domain_counts[dom] += 1
-        if 'list-unsubscribe' in hdrs or 'list-id' in hdrs:
-            domain_hints[dom]['list'] += 1
-        if 'CATEGORY_PROMOTIONS' in set(m.get('labelIds') or []):
-            domain_hints[dom]['promotions'] += 1
+        _record_domain_hints(domain_hints[dom], hdrs, m)
 
     return domain_counts, domain_hints
 
@@ -289,44 +313,53 @@ def _apply_one_suggestion(client, s: dict, dry_run: bool) -> bool:
     return True
 
 
-def run_labels_apply_suggestions(args) -> int:
-    """Apply learned label suggestions."""
-    from ..yamlio import load_config
+def _maybe_sweep_after_suggestions(args, dry_run: bool) -> None:
+    """Run the follow-up filters sweep if --sweep-days was requested."""
+    if not getattr(args, 'sweep_days', None):
+        return
+    from ..filters.commands import run_filters_sweep
+
+    args2 = argparse.Namespace(
+        credentials=args.credentials, token=args.token, cache=args.cache,
+        config=args.config, days=int(args.sweep_days), only_inbox=False,
+        pages=args.pages, batch_size=args.batch_size, max_msgs=None, dry_run=dry_run,
+        profile=getattr(args, "profile", None),
+    )
+    print(f"\nSweeping back {args.sweep_days} days for suggestions …")
+    run_filters_sweep(args2)
+
+
+def _apply_suggestions(args, sugg: list, dry_run: bool) -> int:
+    """Authenticate and apply a non-empty list of suggestions. Returns count applied."""
     from ..config_resolver import resolve_paths_profile
     from ..gmail_api import GmailClient
 
+    creds_path, tok_path = resolve_paths_profile(
+        arg_credentials=args.credentials,
+        arg_token=args.token,
+        profile=getattr(args, "profile", None),
+    )
+    client = GmailClient(
+        credentials_path=creds_path,
+        token_path=tok_path,
+        cache_dir=args.cache,
+    )
+    client.authenticate()
+
+    created = sum(1 for s in sugg if _apply_one_suggestion(client, s, dry_run))
+    _maybe_sweep_after_suggestions(args, dry_run)
+    return created
+
+
+def run_labels_apply_suggestions(args) -> int:
+    """Apply learned label suggestions."""
+    from ..yamlio import load_config
+
     doc = load_config(args.config)
     sugg = doc.get('suggestions') or []
-    created = 0
     dry_run = getattr(args, 'dry_run', False)
 
-    if sugg:
-        creds_path, tok_path = resolve_paths_profile(
-            arg_credentials=args.credentials,
-            arg_token=args.token,
-            profile=getattr(args, "profile", None),
-        )
-        client = GmailClient(
-            credentials_path=creds_path,
-            token_path=tok_path,
-            cache_dir=args.cache,
-        )
-        client.authenticate()
-
-        for s in sugg:
-            if _apply_one_suggestion(client, s, dry_run):
-                created += 1
-
-        if getattr(args, 'sweep_days', None):
-            from ..filters.commands import run_filters_sweep
-            args2 = argparse.Namespace(
-                credentials=args.credentials, token=args.token, cache=args.cache,
-                config=args.config, days=int(args.sweep_days), only_inbox=False,
-                pages=args.pages, batch_size=args.batch_size, max_msgs=None, dry_run=dry_run,
-                profile=getattr(args, "profile", None),
-            )
-            print(f"\nSweeping back {args.sweep_days} days for suggestions …")
-            run_filters_sweep(args2)
+    created = _apply_suggestions(args, sugg, dry_run) if sugg else 0
 
     print(f"Suggestions applied: {created}")
     return 0
@@ -349,34 +382,42 @@ def run_labels_delete(args) -> int:
     return 0
 
 
+def _sweep_one_parent(client, name_to_id: dict, parent: str, args, dry_run: bool) -> int:
+    """Sweep child-labeled messages under one parent. Returns messages touched."""
+    from ..utils.batch import apply_in_chunks
+
+    parent_id = name_to_id.get(parent) or client.ensure_label(parent)
+    child_ids = [lid for name, lid in name_to_id.items() if name.startswith(parent + "/")]
+    if not child_ids:
+        print(f"No child labels under {parent}/; skipping")
+        return 0
+
+    ids = client.list_message_ids(label_ids=child_ids, max_pages=int(args.pages), page_size=int(args.batch_size))
+    if dry_run:
+        print(f"[{parent}] Would add to {len(ids)} messages")
+        return len(ids)
+
+    apply_in_chunks(
+        lambda chunk, _pid=parent_id: client.batch_modify_messages(chunk, add_label_ids=[_pid]),
+        ids,
+        int(args.batch_size),
+    )
+    print(f"[{parent}] Added to {len(ids)} messages")
+    return len(ids)
+
+
 def run_labels_sweep_parents(args) -> int:
     """Add parent labels to messages that have child labels."""
     from ..utils.cli_helpers import gmail_provider_from_args
-    from ..utils.batch import apply_in_chunks
 
     client = gmail_provider_from_args(args)
     client.authenticate()
     name_to_id = client.get_label_id_map()
     parents = [n.strip() for n in (args.names or "").split(",") if n.strip()]
-    total_added = 0
     dry_run = getattr(args, 'dry_run', False)
 
-    for parent in parents:
-        parent_id = name_to_id.get(parent) or client.ensure_label(parent)
-        child_ids = [lid for name, lid in name_to_id.items() if name.startswith(parent + "/")]
-        if not child_ids:
-            print(f"No child labels under {parent}/; skipping")
-            continue
-        ids = client.list_message_ids(label_ids=child_ids, max_pages=int(args.pages), page_size=int(args.batch_size))
-        if dry_run:
-            print(f"[{parent}] Would add to {len(ids)} messages")
-        else:
-            apply_in_chunks(
-                lambda chunk, _pid=parent_id: client.batch_modify_messages(chunk, add_label_ids=[_pid]),
-                ids,
-                int(args.batch_size),
-            )
-            print(f"[{parent}] Added to {len(ids)} messages")
-        total_added += len(ids)
+    total_added = sum(
+        _sweep_one_parent(client, name_to_id, parent, args, dry_run) for parent in parents
+    )
     print(f"Sweep-parents complete. Messages touched: {total_added}")
     return 0

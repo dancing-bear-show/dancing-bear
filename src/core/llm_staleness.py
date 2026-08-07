@@ -32,17 +32,24 @@ DEFAULT_SKIP_DIRS = {
 DEFAULT_SLA_DAYS = 90
 
 
+def _parse_sla_entry(part: str) -> tuple[str, int] | None:
+    """Parse one "key:value" SLA override token, or return None if malformed."""
+    if ":" not in part:
+        return None
+    key, value = part.split(":", 1)
+    try:
+        return key.strip(), int(value.strip())
+    except ValueError:
+        return None
+
+
 def _parse_sla_env() -> dict[str, int]:
     env = os.environ.get("LLM_SLA", "")
     overrides: dict[str, int] = {}
     for part in env.replace(";", ",").split(","):
-        if ":" not in part:
-            continue
-        key, value = part.split(":", 1)
-        try:
-            overrides[key.strip()] = int(value.strip())
-        except ValueError:
-            continue
+        parsed = _parse_sla_entry(part)
+        if parsed is not None:
+            overrides[parsed[0]] = parsed[1]
     return overrides
 
 
@@ -65,20 +72,20 @@ def _collect_excludes() -> set[str]:
     return excludes
 
 
+def _dir_is_candidate(name: str, include_set: set[str], excludes: set[str]) -> bool:
+    """Return True if a directory name should be included, given include/exclude sets."""
+    if include_set:
+        return name in include_set
+    return name not in excludes
+
+
 def _iter_candidate_dirs(root: Path, include: Iterable[str] | None = None) -> list[tuple[str, Path]]:
     include_set = {name.strip() for name in include or [] if name.strip()}
     excludes = _collect_excludes()
     entries: list[tuple[str, Path]] = []
     for child in sorted(root.iterdir(), key=lambda p: p.name):
-        if not child.is_dir():
-            continue
-        name = child.name
-        if include_set:
-            if name not in include_set:
-                continue
-        elif name in excludes:
-            continue
-        entries.append((name, child))
+        if child.is_dir() and _dir_is_candidate(child.name, include_set, excludes):
+            entries.append((child.name, child))
     return entries
 
 
@@ -114,25 +121,35 @@ def _collect_stale_stats(root: Path, include: list[str] | None, limit: int) -> l
     return stats
 
 
+def _count_py_files(path: Path) -> int | None:
+    """Return the number of .py files under path, or None if it can't be scanned."""
+    try:
+        return sum(1 for _ in path.rglob("*.py"))
+    except OSError:
+        return None
+
+
+def _dep_stat_for_dir(name: str, path: Path) -> dict[str, int] | None:
+    """Build one dependency-stat entry for a directory, or None if unscannable."""
+    py_files = _count_py_files(path)
+    if py_files is None:
+        return None
+    dependencies = py_files
+    dependents = max(0, py_files // 2)
+    return {
+        "area": name,
+        "dependencies": dependencies,
+        "dependents": dependents,
+        "combined": dependencies + dependents,
+    }
+
+
 def _collect_dep_stats(root: Path, limit: int, order: str) -> list[dict[str, int]]:
-    stats: list[dict[str, int]] = []
-    for name, path in _iter_candidate_dirs(root):
-        py_files = 0
-        try:
-            for _ in path.rglob("*.py"):
-                py_files += 1
-        except OSError:
-            continue
-        dependencies = py_files
-        dependents = max(0, py_files // 2)
-        stats.append(
-            {
-                "area": name,
-                "dependencies": dependencies,
-                "dependents": dependents,
-                "combined": dependencies + dependents,
-            }
-        )
+    stats = [
+        entry
+        for name, path in _iter_candidate_dirs(root)
+        if (entry := _dep_stat_for_dir(name, path)) is not None
+    ]
     reverse = order == "desc"
     stats.sort(key=lambda entry: entry["combined"], reverse=reverse)
     if limit > 0:
@@ -224,6 +241,23 @@ def _handle_deps(args, _llm_dir: Path) -> int:
     return 0
 
 
+def _root_limit_exceeded(stats: list[dict[str, object]], root_limit: int | None, agg: str) -> bool:
+    """Return True if the aggregated staleness across stats exceeds root_limit."""
+    if root_limit is None or not stats:
+        return False
+    values = [entry["staleness_days"] for entry in stats]
+    return _aggregate_values(values, agg) > root_limit
+
+
+def _any_area_limit_exceeded(area_map: dict[str, object], overrides: dict[str, int]) -> bool:
+    """Return True if any area's staleness exceeds its override limit."""
+    for area, limit in overrides.items():
+        days = area_map.get(area)
+        if days is not None and limit is not None and days > limit:
+            return True
+    return False
+
+
 def _handle_check(args, _llm_dir: Path) -> int:
     """Handle check command."""
     overrides = _parse_sla_env()
@@ -234,13 +268,8 @@ def _handle_check(args, _llm_dir: Path) -> int:
     area_map = {entry["area"]: entry["staleness_days"] for entry in stats}
     root_limit = overrides.pop("Root", None)
 
-    if root_limit is not None and stats:
-        values = [entry["staleness_days"] for entry in stats]
-        if _aggregate_values(values, args.agg) > root_limit:
-            return 2
-
-    for area, limit in overrides.items():
-        days = area_map.get(area)
-        if days is not None and limit is not None and days > limit:
-            return 2
+    if _root_limit_exceeded(stats, root_limit, args.agg):
+        return 2
+    if _any_area_limit_exceeded(area_map, overrides):
+        return 2
     return 0

@@ -1,0 +1,54 @@
+{
+  "group": "workflow",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/workflow/linter.py",
+      "complexity": 78,
+      "line_count": 421,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is validating workflow YAML files for structural correctness; lint_workflow orchestrates all _check_* helpers and _lint_fragment in one tightly integrated validation pipeline, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/workflow/compiler.py",
+      "complexity": 62,
+      "line_count": 381,
+      "top_level_symbols": 14,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is compiling a WorkflowDefinition into an executable manifest; all helpers (_build_dependency_graph, _compute_parallel_groups, _resolve_stage, _build_cli_command, resolve_params) are called from compile_workflow/validate_dag_contracts in one coherent pipeline, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/workflow/cli_dispatch.py",
+      "complexity": 59,
+      "line_count": 469,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is workflow CLI subcommand dispatch with shared parameter resolution, manifest loading, and workspace management; _cmd_run/_cmd_init_workspace/etc. all depend on the same _parse_params/_build_resolved_params/_resolve_base_dir/_confirm_execution/_load_manifest helpers, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/workflow/parser_fields.py",
+      "complexity": 59,
+      "line_count": 334,
+      "top_level_symbols": 9,
+      "max_function_complexity": 19,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    }
+  ]
+}

@@ -29,33 +29,70 @@ def _is_word_city(w: str) -> bool:
     return any(ch.isalpha() for ch in w) and not any(ch.isdigit() for ch in w)
 
 
+def _looks_like_state_postal(toks: list[str]) -> bool:
+    """Return True if toks[0] is a 2-letter state and the rest is a postal code."""
+    if len(toks) < 2 or not re.match(r"^[A-Z]{2}$", toks[0]):
+        return False
+    rest = (" ".join(toks[1:])).upper()
+    return bool(re.match(r"^[A-Z]\d[A-Z]$|^[A-Z]\d[A-Z]\s\d[A-Z]\d$", rest))
+
+
+def _city_and_street_from_words(words: list[str], street: str) -> tuple[str, str]:
+    """Peel trailing city-name words off the street tokens.
+
+    Returns (city, street).
+    """
+    if len(words) >= 2 and _is_word_city(words[-1]) and _is_word_city(words[-2]):
+        return f"{words[-2]} {words[-1]}", " ".join(words[:-2]) or street
+    if words and _is_word_city(words[-1]):
+        return words[-1], " ".join(words[:-1]) or street
+    return "", street
+
+
 def _parse_addr_two_parts(parts: list[str], street: str) -> tuple[str, str, str, str]:
     """Parse city/state/postal from a two-part address.
 
     Returns (city, state, postal, street).
     """
-    city = state = postal = ""
-    tail = parts[1]
-    toks = tail.split()
-    if len(toks) >= 2 and re.match(r"^[A-Z]{2}$", toks[0]) and re.match(
-        r"^[A-Z]\d[A-Z]$|^[A-Z]\d[A-Z]\s\d[A-Z]\d$",
-        (" ".join(toks[1:])).upper()
-    ):
-        state = toks[0]
-        rest = " ".join(toks[1:]).upper()
-        mpc = re.search(r"[A-Z]\d[A-Z]\s?\d[A-Z]\d", rest)
-        if mpc:
-            postal = rest[mpc.start():mpc.end()].replace(" ", " ")
-        words = [w for w in parts[0].strip().split() if w]
-        if len(words) >= 2 and _is_word_city(words[-1]) and _is_word_city(words[-2]):
-            city = f"{words[-2]} {words[-1]}"
-            street = " ".join(words[:-2]) or street
-        elif words and _is_word_city(words[-1]):
-            city = words[-1]
-            street = " ".join(words[:-1]) or street
-    else:
-        city = parts[1]
+    toks = parts[1].split()
+    if not _looks_like_state_postal(toks):
+        return parts[1], "", "", street
+
+    state = toks[0]
+    rest = " ".join(toks[1:]).upper()
+    mpc = re.search(r"[A-Z]\d[A-Z]\s?\d[A-Z]\d", rest)
+    postal = rest[mpc.start():mpc.end()] if mpc else ""
+    words = [w for w in parts[0].strip().split() if w]
+    city, street = _city_and_street_from_words(words, street)
     return city, state, postal, street
+
+
+def _split_canada_postal(toks: list[str]) -> tuple[str, list[str]]:
+    """Peel a trailing Canadian postal code pair off toks.
+
+    Returns (postal, remaining_toks).
+    """
+    if len(toks) < 2:
+        return "", toks
+    pair = (toks[-2] + " " + toks[-1]).upper()
+    if re.match(r"^[A-Z]\d[A-Z]\s\d[A-Z]\d$", pair):
+        return pair, toks[:-2]
+    return "", toks
+
+
+def _find_state_token(toks: list[str]) -> str:
+    """Return the last two-letter alpha token in toks, or ''."""
+    state = ""
+    for t in toks:
+        tt = t.strip().strip(",")
+        if len(tt) == 2 and tt.isalpha():
+            state = tt
+    return state
+
+
+def _find_postal_token(toks: list[str]) -> str:
+    """Return the last token containing a digit, or ''."""
+    return next((t for t in reversed(toks) if any(ch.isdigit() for ch in t)), "")
 
 
 def _parse_addr_multi_parts(parts: list[str]) -> tuple[str, str, str, str]:
@@ -64,28 +101,10 @@ def _parse_addr_multi_parts(parts: list[str]) -> tuple[str, str, str, str]:
     Returns (city, state, postal, country).
     """
     city = parts[-2]
-    state = postal = country = ""
-    tail = parts[-1]
-    toks = tail.split()
-    canada_pc = None
-    if len(toks) >= 2:
-        pair = (toks[-2] + " " + toks[-1]).upper()
-        if re.match(r"^[A-Z]\d[A-Z]\s\d[A-Z]\d$", pair):
-            canada_pc = pair
-            toks = toks[:-2]
-    if canada_pc:
-        postal = canada_pc
-    for t in toks:
-        tt = t.strip().strip(",")
-        if len(tt) == 2 and tt.isalpha():
-            state = tt
-    if not postal:
-        for t in reversed(toks):
-            if any(ch.isdigit() for ch in t):
-                postal = t
-                break
-    if len(parts) >= 4:
-        country = parts[-1]
+    postal, toks = _split_canada_postal(parts[-1].split())
+    state = _find_state_token(toks)
+    postal = postal or _find_postal_token(toks)
+    country = parts[-1] if len(parts) >= 4 else ""
     return city, state, postal, country
 
 

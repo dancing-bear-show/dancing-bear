@@ -4,6 +4,7 @@ import json
 import os
 import string
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 _DEFAULT_MONTHLY_BUDGET = 4000.0
@@ -328,25 +329,34 @@ def _parse_bool(v: str) -> bool | None:
     return None
 
 
+# Dispatch table for scalar (non-bool-section) config keys — each handler
+# takes (cfg, val) and returns whether the value was applied.
+_SCALAR_KEY_HANDLERS: dict[str, Callable[[dict, str], bool]] = {
+    "monthly_budget": _apply_budget,
+    "icon_display": _apply_icon_display,
+    "poll_interval": _apply_poll_interval,
+    "cost_multiplier": _apply_cost_multiplier,
+    "max_tips": _apply_max_tips,
+}
+
+
+def _apply_bool_key(key: str, val: str, bool_keys: dict) -> bool:
+    """Apply a boolean section/field toggle. Returns whether it was applied."""
+    parsed = _parse_bool(val)
+    if parsed is None:
+        return False
+    section, field = bool_keys[key]
+    section[field] = parsed
+    return True
+
+
 def _apply_config_line(key: str, val: str, cfg: dict, bool_keys: dict) -> bool:
     """Apply a single parsed key/value pair to cfg."""
-    if key == "monthly_budget":
-        return _apply_budget(cfg, val)
-    if key == "icon_display":
-        return _apply_icon_display(cfg, val)
-    if key == "poll_interval":
-        return _apply_poll_interval(cfg, val)
-    if key == "cost_multiplier":
-        return _apply_cost_multiplier(cfg, val)
-    if key == "max_tips":
-        return _apply_max_tips(cfg, val)
+    handler = _SCALAR_KEY_HANDLERS.get(key)
+    if handler is not None:
+        return handler(cfg, val)
     if key in bool_keys:
-        parsed = _parse_bool(val)
-        if parsed is not None:
-            section, field = bool_keys[key]
-            section[field] = parsed
-            return True
-        return False
+        return _apply_bool_key(key, val, bool_keys)
     return False
 
 

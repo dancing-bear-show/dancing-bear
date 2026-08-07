@@ -1,0 +1,42 @@
+{
+  "group": "schedule",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/schedule/pipeline.py",
+      "complexity": 80,
+      "line_count": 566,
+      "top_level_symbols": 28,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is wrapping Outlook calendar operations (plan/sync/apply/export) in SafeProcessor/BaseProducer pipelines; verification and dry-run-line helpers are called exclusively by their paired processors, all depend on schedule.pipeline_expand/pipeline_verify which they re-export, no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/schedule/pipeline_verify.py",
+      "complexity": 57,
+      "line_count": 280,
+      "top_level_symbols": 17,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/schedule/pipeline_expand.py",
+      "complexity": 54,
+      "line_count": 308,
+      "top_level_symbols": 18,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "group": "telemetry",
+  "complexity_floor": 50,
+  "files": [
+    {
+      "path": "src/telemetry/_menubar_app.py",
+      "complexity": 102,
+      "line_count": 536,
+      "top_level_symbols": 7,
+      "max_function_complexity": 25,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: symbols (MenuRefreshData, _build_version, _get_app_version, _month_since, _window_since, _project_short, TelemetryMenubarApp) all serve one shared responsibility: the menubar app class and the small version/date helpers it consumes directly. No nameable independent unrelated cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/providers/transcript.py",
+      "complexity": 89,
+      "line_count": 438,
+      "top_level_symbols": 1,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=1 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/classify.py",
+      "complexity": 88,
+      "line_count": 296,
+      "top_level_symbols": 4,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=296 < 350 split eligibility floor. Single responsibility: classify tool-window events via ClassifyEngine and its WindowConfig/_matches_any/_scan_tool_window helpers.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/_menubar_config.py",
+      "complexity": 82,
+      "line_count": 390,
+      "top_level_symbols": 19,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is menubar config file format, parsing, and persistence \u2014 _load_config/_save_config/_config_to_text/_parse_config_text/_apply_* all collaborate on one config-management pipeline; no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/tui/_renderers.py",
+      "complexity": 70,
+      "line_count": 379,
+      "top_level_symbols": 16,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "split-by-responsibility",
+      "gate": 3,
+      "justification": "GATE 3 naming test: cluster A 'widget text renderers' (_render_header_text, _render_tips_text, _tool_event_detail, _event_input_detail, _render_cls_group, _tool_stat_detail, _tip_detail, _agent_detail) return markup strings consumed by Textual widgets; cluster B 'static console renderers' (_print_tool_stats_panel, _print_agents_panel, _render_timeline_line, _stats_duration_str, _stats_session_label, _efficiency_color, _render_stats_panel, _render_stats_compact) print Rich panels for the static print_summary path. Module docstring confirms dual consumers ('used by both Textual widgets and static print_summary'). Neither cluster calls the other; both only depend on shared _formatters/_constants imports, no shared mutable module state.",
+      "proposed_siblings": [
+        "src/telemetry/tui/_widget_renderers.py",
+        "src/telemetry/tui/_console_renderers.py"
+      ]
+    },
+    {
+      "path": "src/telemetry/otel/menubar_parsers.py",
+      "complexity": 65,
+      "line_count": 233,
+      "top_level_symbols": 16,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=233 < 350. Single responsibility: parse rotated OTLP jsonl records into accumulated metrics/attrs for the menubar.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/parse_transcripts_io.py",
+      "complexity": 65,
+      "line_count": 276,
+      "top_level_symbols": 9,
+      "max_function_complexity": 0,
+      "created_by_prior_split": true,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: created_by_prior_split=true, splitting already failed on this file.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/otel/menubar_provider.py",
+      "complexity": 59,
+      "line_count": 387,
+      "top_level_symbols": 1,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 2,
+      "justification": "GATE 2: top_level_symbols=1 < 4, nothing to split.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/cli_sessions.py",
+      "complexity": 54,
+      "line_count": 383,
+      "top_level_symbols": 16,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is wiring Click CLI commands (live/stats/summary/history/sessions/agents/rules/cost_breakdown/otel_cmd) to telemetry providers/formatters; commands don't call each other, no nameable unrelated cluster distinct from 'CLI command wiring'.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/otel/analytics/cost.py",
+      "complexity": 54,
+      "line_count": 497,
+      "top_level_symbols": 12,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is the cost-analysis pipeline \u2014 get_all_costs/get_daily_costs/get_model_performance and their aggregation helpers all collaborate deeply; no independent cluster.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/collector.py",
+      "complexity": 51,
+      "line_count": 210,
+      "top_level_symbols": 11,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: line_count=210 < 350. Single responsibility: collector/docker-compose diagnostics and OTLP event tailing.",
+      "proposed_siblings": []
+    },
+    {
+      "path": "src/telemetry/otel/models.py",
+      "complexity": 50,
+      "line_count": 457,
+      "top_level_symbols": 11,
+      "max_function_complexity": 0,
+      "created_by_prior_split": false,
+      "strategy": "reduce-in-place",
+      "gate": 4,
+      "justification": "GATE 4 default: single shared responsibility is OTLP dataclass definitions and their interdependent from_dict() deserialization (OTLPValue/OTLPAttribute/OTLPResource/MetricDataPoint/OTLPMetric/.../OTLPSpansRecord); all follow one common parsing pattern, no independent cluster.",
+      "proposed_siblings": []
+    }
+  ]
+}

@@ -26,6 +26,14 @@ from .docx_sidebar_cells import (
 )
 
 
+def _add_colored_bullet_run(p, bullet_color: str) -> None:
+    """Add a bullet glyph run to a paragraph, colored if a valid hex color is given."""
+    bullet_run = p.add_run("• ")
+    bullet_rgb = _parse_hex_color(bullet_color)
+    if bullet_rgb:
+        bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
+
+
 def _render_main_education(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Optional[Dict[str, Any]] = None) -> None:  # nosec - sec kept for API compatibility
     """Render education in main column."""
     education = data.get("education") or []
@@ -37,10 +45,7 @@ def _render_main_education(cell, data: Dict[str, Any], page_cfg: Dict[str, Any],
         year = edu.get("year", "")
 
         p = cell.add_paragraph()
-        bullet_run = p.add_run("• ")
-        bullet_rgb = _parse_hex_color(bullet_color)
-        if bullet_rgb:
-            bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
+        _add_colored_bullet_run(p, bullet_color)
 
         deg_run = p.add_run(degree)
         deg_run.bold = True
@@ -59,10 +64,7 @@ def _render_exp_entry(cell, exp: Dict[str, Any], page_cfg: Dict[str, Any], bulle
     bullets = exp.get("bullets") or []
 
     p = cell.add_paragraph()
-    bullet_run = p.add_run("• ")
-    bullet_rgb = _parse_hex_color(bullet_color)
-    if bullet_rgb:
-        bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
+    _add_colored_bullet_run(p, bullet_color)
     title_run = p.add_run(title)
     title_run.bold = True
     title_run.font.size = Pt(page_cfg.get("body_pt", 10))
@@ -142,10 +144,7 @@ def _render_pres_entry(cell, pres: Dict[str, Any], page_cfg: Dict[str, Any], bul
     note = pres.get("note", "")
 
     p = cell.add_paragraph()
-    bullet_run = p.add_run("• ")
-    bullet_rgb = _parse_hex_color(bullet_color)
-    if bullet_rgb:
-        bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
+    _add_colored_bullet_run(p, bullet_color)
     title_run = p.add_run(title)
     title_run.bold = True
     title_run.font.size = Pt(page_cfg.get("body_pt", 10))
@@ -215,6 +214,21 @@ class SidebarResumeWriter(ResumeWriterBase):
         # Render main content
         self._render_main_content(main_cell)
 
+    def _render_centered_header_line(
+        self, p, text: str, *, size_pt: float, color: str, bold: bool, after_pt: float, bg_rgb
+    ) -> None:
+        """Render one centered, colored, shaded header line onto an existing paragraph."""
+        run = p.add_run(text)
+        run.bold = bold
+        run.font.size = Pt(size_pt)
+        rgb = _parse_hex_color(color)
+        if rgb:
+            run.font.color.rgb = RGBColor(*rgb)
+        _tight_paragraph(p, after_pt=after_pt)
+        self._center_paragraph(p)
+        if bg_rgb:
+            _apply_paragraph_shading(p, bg_rgb)
+
     def _render_page_header(self) -> None:
         """Add name, headline, and contact as centered header (repeats on each page)."""
         section = self.doc.sections[0]
@@ -228,7 +242,7 @@ class SidebarResumeWriter(ResumeWriterBase):
 
         name_color = self.page_cfg.get("sidebar_name_color", "#1A365D")
         text_color = self.page_cfg.get("sidebar_text_color", "#333333")
-        header_bg = self.page_cfg.get("header_bg", "#F7F9FC")
+        bg_rgb = _parse_hex_color(self.page_cfg.get("header_bg", "#F7F9FC"))
 
         # Name in header (centered)
         if header.paragraphs:
@@ -236,44 +250,25 @@ class SidebarResumeWriter(ResumeWriterBase):
             p.clear()
         else:
             p = header.add_paragraph()
-        run = p.add_run(name)
-        run.bold = True
-        run.font.size = Pt(self.page_cfg.get("sidebar_name_pt", 20))
-        rgb = _parse_hex_color(name_color)
-        if rgb:
-            run.font.color.rgb = RGBColor(*rgb)
-        _tight_paragraph(p, after_pt=0)
-        self._center_paragraph(p)
-        bg_rgb = _parse_hex_color(header_bg)
-        if bg_rgb:
-            _apply_paragraph_shading(p, bg_rgb)
+        self._render_centered_header_line(
+            p, name, size_pt=self.page_cfg.get("sidebar_name_pt", 20),
+            color=name_color, bold=True, after_pt=0, bg_rgb=bg_rgb,
+        )
 
         # Headline (centered)
         if headline:
-            p2 = header.add_paragraph()
-            run2 = p2.add_run(headline)
-            run2.font.size = Pt(self.page_cfg.get("sidebar_headline_pt", 10))
-            rgb2 = _parse_hex_color(text_color)
-            if rgb2:
-                run2.font.color.rgb = RGBColor(*rgb2)
-            _tight_paragraph(p2, after_pt=2)
-            self._center_paragraph(p2)
-            if bg_rgb:
-                _apply_paragraph_shading(p2, bg_rgb)
+            self._render_centered_header_line(
+                header.add_paragraph(), headline, size_pt=self.page_cfg.get("sidebar_headline_pt", 10),
+                color=text_color, bold=False, after_pt=2, bg_rgb=bg_rgb,
+            )
 
         # Contact line (centered)
         contact_parts = [x for x in [phone, email, location] if x]
         if contact_parts:
-            p3 = header.add_paragraph()
-            run3 = p3.add_run(" | ".join(contact_parts))
-            run3.font.size = Pt(self.page_cfg.get("body_pt", 10) - 1)
-            rgb3 = _parse_hex_color("#666666")
-            if rgb3:
-                run3.font.color.rgb = RGBColor(*rgb3)
-            _tight_paragraph(p3, after_pt=6)
-            self._center_paragraph(p3)
-            if bg_rgb:
-                _apply_paragraph_shading(p3, bg_rgb)
+            self._render_centered_header_line(
+                header.add_paragraph(), " | ".join(contact_parts), size_pt=self.page_cfg.get("body_pt", 10) - 1,
+                color="#666666", bold=False, after_pt=6, bg_rgb=bg_rgb,
+            )
 
     @staticmethod
     def _normalize_summary_items(summary) -> list:
@@ -317,25 +312,27 @@ class SidebarResumeWriter(ResumeWriterBase):
         self._render_sidebar_summary(cell)
         self._render_sidebar_skills(cell)
 
+    # Maps a section key to its main-column body renderer. Every renderer takes
+    # (cell, data, page_cfg, sec) so the table can call them uniformly; the ones
+    # that don't need `sec` accept it as an ignored optional argument, which
+    # lets them be referenced directly rather than wrapped in a pass-through
+    # lambda.
+    _MAIN_SECTION_RENDERERS: Dict[str, Any] = {
+        "education": _render_main_education,
+        "experience": _render_main_experience,
+        "teaching": _render_main_teaching,
+        "presentations": _render_main_presentations,
+    }
+
     def _render_main_content(self, cell) -> None:
         """Render main column content (education, experience, teaching, presentations)."""
         sections = self.template.get("sections") or []
 
         for sec in sections:
-            key = sec.get("key")
-            title = sec.get("title", "")
-
-            if key == "education":
-                _render_main_section_heading(cell, title, self.page_cfg)
-                _render_main_education(cell, self.data, self.page_cfg)
-            elif key == "experience":
-                _render_main_section_heading(cell, title, self.page_cfg)
-                _render_main_experience(cell, self.data, self.page_cfg, sec)
-            elif key == "teaching":
-                _render_main_section_heading(cell, title, self.page_cfg)
-                _render_main_teaching(cell, self.data, self.page_cfg)
-            elif key == "presentations":
-                _render_main_section_heading(cell, title, self.page_cfg)
-                _render_main_presentations(cell, self.data, self.page_cfg)
+            renderer = self._MAIN_SECTION_RENDERERS.get(sec.get("key"))
+            if renderer is None:
+                continue
+            _render_main_section_heading(cell, sec.get("title", ""), self.page_cfg)
+            renderer(cell, self.data, self.page_cfg, sec)
 
 

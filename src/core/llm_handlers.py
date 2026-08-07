@@ -205,6 +205,20 @@ def _emit_content(content: str, write_path: str | None, stdout: bool) -> None:
         print(content)
 
 
+def _write_and_print(content: str, args: argparse.Namespace, default_target: Path) -> None:
+    """Write content to args.write (or default_target) and/or print to stdout.
+
+    Mirrors the write-then-print pattern shared by the simple capsule handlers:
+    always writes when --write is given; prints when --stdout is given or no
+    --write path was provided at all.
+    """
+    target = Path(args.write or default_target)
+    if args.write:
+        _write_text(target, content)
+    if args.stdout or not args.write:
+        print(content)
+
+
 # ---------------------------------------------------------------------------
 # Repo-level argument parser
 # ---------------------------------------------------------------------------
@@ -290,11 +304,7 @@ def _handle_inventory(args: argparse.Namespace, llm_dir: Path) -> int:
     content = _default_inventory()
     if not content:
         return 1
-    target = Path(args.write or (llm_dir / DEFAULT_INVENTORY_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
+    _write_and_print(content, args, llm_dir / DEFAULT_INVENTORY_FILENAME)
     return 0
 
 
@@ -304,22 +314,15 @@ def _handle_familiar(args: argparse.Namespace, llm_dir: Path) -> int:
         verbose=getattr(args, "verbose", False),
         compact=getattr(args, "compact", False),
     )
-    target = Path(args.write or (llm_dir / DEFAULT_FAMILIAR_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
+    _write_and_print(content, args, llm_dir / DEFAULT_FAMILIAR_FILENAME)
     return 0
 
 
 def _handle_policies(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle policies command."""
-    target = Path(args.write or (llm_dir / DEFAULT_POLICIES_FILENAME))
-    content = _read_text(target) or _default_policies()
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
+    default_target = llm_dir / DEFAULT_POLICIES_FILENAME
+    content = _read_text(Path(args.write or default_target)) or _default_policies()
+    _write_and_print(content, args, default_target)
     return 0
 
 
@@ -327,22 +330,14 @@ def _handle_agentic(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle agentic command."""
     compact = getattr(args, "compact", False)
     content = _mail_agentic_capsule(compact=compact)
-    target = Path(args.write or (llm_dir / DEFAULT_AGENTIC_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
+    _write_and_print(content, args, llm_dir / DEFAULT_AGENTIC_FILENAME)
     return 0
 
 
 def _handle_domain_map(args: argparse.Namespace, llm_dir: Path) -> int:
     """Handle domain-map command."""
     content = _mail_domain_map()
-    target = Path(args.write or (llm_dir / DEFAULT_DOMAIN_MAP_FILENAME))
-    if args.write:
-        _write_text(target, content)
-    if args.stdout or not args.write:
-        print(content)
+    _write_and_print(content, args, llm_dir / DEFAULT_DOMAIN_MAP_FILENAME)
     return 0
 
 
@@ -361,19 +356,34 @@ def _render_flow_content(flow: dict[str, Any], fmt: str) -> str:
     )
 
 
+def _filter_flows_by_tags(flows: list[dict[str, Any]], tags_arg: str | None) -> list[dict[str, Any]]:
+    """Filter flows to those whose tags include every comma-separated tag in tags_arg."""
+    if not tags_arg:
+        return flows
+    tags = {t.strip() for t in tags_arg.split(",") if t.strip()}
+    return [f for f in flows if tags.issubset(set(f.get("tags") or []))]
+
+
+def _flows_list_content(flows: list[dict[str, Any]]) -> str:
+    """Render flows as a bulleted id/tags listing."""
+    lines = [f"- {f.get('id')} ({', '.join(f.get('tags') or [])})" for f in flows] or ["(no flows)"]
+    return "\n".join(lines)
+
+
+def _flow_detail_content(flows: list[dict[str, Any]], flow_id: str, fmt: str) -> str:
+    """Render a single flow's detail content, or a not-found message."""
+    flow = next((f for f in flows if f.get("id") == flow_id), None)
+    return _render_flow_content(flow, fmt) if flow else "(flow not found)"
+
+
 def _handle_flows(args: argparse.Namespace, _llm_dir: Path) -> int:
     """Handle flows command."""
-    flows = _mail_flows()
-    if args.tags:
-        tags = {t.strip() for t in args.tags.split(",") if t.strip()}
-        flows = [f for f in flows if tags.issubset(set(f.get("tags") or []))]
+    flows = _filter_flows_by_tags(_mail_flows(), args.tags)
 
     if args.list:
-        lines = [f"- {f.get('id')} ({', '.join(f.get('tags') or [])})" for f in flows] or ["(no flows)"]
-        content = "\n".join(lines)
+        content = _flows_list_content(flows)
     elif args.id:
-        flow = next((f for f in flows if f.get("id") == args.id), None)
-        content = _render_flow_content(flow, args.format) if flow else "(flow not found)"
+        content = _flow_detail_content(flows, args.id, args.format)
     else:
         content = "(no flows)"
 
