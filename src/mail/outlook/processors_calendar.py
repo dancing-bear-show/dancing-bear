@@ -76,15 +76,6 @@ def _entry_name(entry) -> str | None:
     return None
 
 
-def _error_envelope(exc: Exception, code: int) -> ResultEnvelope:
-    """Build a standard error ResultEnvelope from a caught exception."""
-    return ResultEnvelope(
-        status="error",
-        payload=None,
-        diagnostics={"error": str(exc), "code": code},
-    )
-
-
 class OutlookCategoriesListProcessor(Processor[OutlookCategoriesListPayload, ResultEnvelope[OutlookCategoriesListResult]]):
     """List Outlook categories."""
 

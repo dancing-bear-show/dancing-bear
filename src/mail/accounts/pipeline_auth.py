@@ -150,14 +150,15 @@ def _build_outlook_filter_action(action_spec: dict[str, Any], name_to_id: dict[s
 
 
 def _outlook_filter_key(criteria: dict[str, Any], action: dict[str, Any]) -> str:
-    """Canonical comparison key for a built Outlook filter criteria/action pair."""
-    return str({
-        "from": criteria.get("from"),
-        "to": criteria.get("to"),
-        "subject": criteria.get("subject"),
-        "add": tuple(sorted(action.get("addLabelIds", []) or [])),
-        "forward": action.get("forward"),
-    })
+    """Canonical comparison key for a built Outlook filter criteria/action pair.
+
+    Delegates to canonicalize_filter so desired and existing filters are keyed
+    by the exact same function. Building the key independently here is what
+    caused every desired filter to look new: canonicalize_filter emits a
+    "query" field and a hand-rolled key omitting it can never match, so each
+    sync would recreate rules that already exist.
+    """
+    return canonicalize_filter({"criteria": criteria, "action": action})
 
 
 def _sync_one_outlook_filter(
