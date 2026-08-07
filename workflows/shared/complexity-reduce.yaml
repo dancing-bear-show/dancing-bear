@@ -155,6 +155,24 @@ stages:
              the split and reduce that file in place instead.
              Reduce-in-place entries move nothing and therefore get no
              exception at all: tests/ stays untouched.
+
+             SPLIT BLOCKED BY A DIRECT TEST IMPORT — check this BEFORE starting
+             any split, not after editing. A test that does
+               from <module> import <symbol>
+             is a real import statement, NOT a patch target string, so the
+             exception above does NOT cover it. With no re-export shim, moving
+             that symbol breaks the test and the only fixes are forbidden
+             (editing the test's imports, or adding a shim).
+             So before splitting, run:
+               grep -rn "from <module_path> import\|import <module_path>" \
+                 --include="*.py" tests/
+             If ANY hit names a symbol you planned to move, ABANDON the split
+             for that file, reduce it in place instead, and record in the
+             summary: which test file blocks it, which symbol, and that the
+             strategy was downgraded from split to reduce-in-place. This is a
+             correct, expected outcome — not a failure. Observed on
+             src/telemetry/tui/_renderers.py, blocked by
+             tests/telemetry_tests/test_tui_render_panels.py.
            - Do NOT rename any public class, function, or module.
            - Do NOT change any function signature that is called from another
              file. Private helpers you create are free.

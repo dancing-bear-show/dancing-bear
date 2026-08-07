@@ -260,6 +260,25 @@ def _rules_explain(name: str) -> None:
     console.print("[dim]Use 'telemetry rules' to list all rules.[/]")
 
 
+def _add_rule_row(table: Table, category: str, rule_name: str, cfg: dict) -> None:
+    """Add one rule's row to the rules table."""
+    enabled = cfg.get("enabled", True)
+    enabled_str = "[green]yes[/]" if enabled else "[dim]no[/]"
+    config_items = {
+        k: v for k, v in cfg.items()
+        if k != "enabled" and not isinstance(v, list)
+    }
+    config_str = "  ".join(f"{k}={v}" for k, v in config_items.items())
+    table.add_row(rule_name, category, enabled_str, config_str or "—")
+
+
+def _add_category_rows(table: Table, category: str, cat_rules: dict) -> None:
+    """Add all rule rows for one category (avoidable/review) to the table."""
+    for rule_name, cfg in cat_rules.items():
+        if isinstance(cfg, dict):
+            _add_rule_row(table, category, rule_name, cfg)
+
+
 def _rules_list() -> None:
     from telemetry.rules import load_rules
 
@@ -271,18 +290,7 @@ def _rules_list() -> None:
     table.add_column("Config")
 
     for category in ("avoidable", "review"):
-        cat_rules = loaded.get(category, {})
-        for rule_name, cfg in cat_rules.items():
-            if not isinstance(cfg, dict):
-                continue
-            enabled = cfg.get("enabled", True)
-            enabled_str = "[green]yes[/]" if enabled else "[dim]no[/]"
-            config_items = {
-                k: v for k, v in cfg.items()
-                if k != "enabled" and not isinstance(v, list)
-            }
-            config_str = "  ".join(f"{k}={v}" for k, v in config_items.items())
-            table.add_row(rule_name, category, enabled_str, config_str or "—")
+        _add_category_rows(table, category, loaded.get(category, {}))
 
     custom = loaded.get("custom_rules", [])
     for i, rule in enumerate(custom):

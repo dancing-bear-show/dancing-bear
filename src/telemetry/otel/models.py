@@ -75,6 +75,22 @@ class OTLPAttribute:
         return cls(key=d.get("key", ""), value=OTLPValue.from_dict(value_dict))
 
 
+def _find_attr_str(attrs: list[OTLPAttribute], key: str) -> str | None:
+    """Return the string value of the first attribute matching key, or None."""
+    for attr in attrs:
+        if attr.key == key:
+            return attr.value.as_str()
+    return None
+
+
+def _find_attr_float(attrs: list[OTLPAttribute], key: str) -> float | None:
+    """Return the float value of the first attribute matching key, or None."""
+    for attr in attrs:
+        if attr.key == key:
+            return attr.value.as_float()
+    return None
+
+
 def _extract_resource_attributes(
     raw_attrs: list[OTLPAttribute],
 ) -> dict[str, str | None]:
@@ -131,10 +147,7 @@ class OTLPResource:
 
     def get_attr(self, key: str) -> str | None:
         """Get an attribute value by key."""
-        for attr in self.raw_attributes:
-            if attr.key == key:
-                return attr.value.as_str()
-        return None
+        return _find_attr_str(self.raw_attributes, key)
 
 
 @dataclass(frozen=True)
@@ -158,17 +171,11 @@ class MetricDataPoint:
 
     def get_attr(self, key: str) -> str | None:
         """Get an attribute value by key."""
-        for attr in self.attributes:
-            if attr.key == key:
-                return attr.value.as_str()
-        return None
+        return _find_attr_str(self.attributes, key)
 
     def get_attr_as_float(self, key: str) -> float | None:
         """Get an attribute value as float, handling string coercion."""
-        for attr in self.attributes:
-            if attr.key == key:
-                return attr.value.as_float()
-        return None
+        return _find_attr_float(self.attributes, key)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> MetricDataPoint:
@@ -299,17 +306,11 @@ class OTLPEvent:
 
     def get_attr(self, key: str) -> str | None:
         """Get an attribute value by key."""
-        for attr in self.attributes:
-            if attr.key == key:
-                return attr.value.as_str()
-        return None
+        return _find_attr_str(self.attributes, key)
 
     def get_attr_as_float(self, key: str) -> float | None:
         """Get an attribute value as float, handling string coercion."""
-        for attr in self.attributes:
-            if attr.key == key:
-                return attr.value.as_float()
-        return None
+        return _find_attr_float(self.attributes, key)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPEvent:
@@ -385,10 +386,7 @@ class OTLPSpan:
 
     def get_attr(self, key: str) -> str | None:
         """Get an attribute value by key."""
-        for attr in self.attributes:
-            if attr.key == key:
-                return attr.value.as_str()
-        return None
+        return _find_attr_str(self.attributes, key)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> OTLPSpan:

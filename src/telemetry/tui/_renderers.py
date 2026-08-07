@@ -1,5 +1,6 @@
 """Rich renderers — used by both Textual widgets and static print_summary."""
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from rich.console import Console
@@ -121,26 +122,36 @@ def _tool_event_detail(evt: SessionEvent) -> str:
     return "\n".join(lines)
 
 
+def _file_path_input_detail(inp: dict) -> str:
+    """Extract a shortened file_path (last 2 path segments) from tool input."""
+    path = inp.get("file_path", "")
+    if "/" in path:
+        parts = path.split("/")
+        path = "/".join(parts[-2:])
+    return path
+
+
+# tool_name -> (inp -> untruncated detail string). Each entry handles one
+# tool's input shape; Read/Edit/Write/MultiEdit share the file_path handler.
+_INPUT_DETAIL_BUILDERS: dict[str, Callable[[dict], str]] = {
+    "Bash": lambda inp: inp.get("command", ""),
+    "Read": _file_path_input_detail,
+    "Edit": _file_path_input_detail,
+    "Write": _file_path_input_detail,
+    "MultiEdit": _file_path_input_detail,
+    "Grep": lambda inp: f'"{inp.get("pattern", "")}" in {inp.get("path", ".")}',
+    "Glob": lambda inp: inp.get("pattern", ""),
+    "Agent": lambda inp: inp.get("description", ""),
+    "Skill": lambda inp: inp.get("skill", ""),
+}
+
+
 def _event_input_detail(tool_name: str, evt: SessionEvent) -> str:
     """Extract a short display string for an event's tool input, by tool type."""
     inp = evt.tool_input or {}
-    if tool_name == "Bash":
-        return inp.get("command", "")[:60]
-    if tool_name in ("Read", "Edit", "Write", "MultiEdit"):
-        path = inp.get("file_path", "")
-        if "/" in path:
-            parts = path.split("/")
-            path = "/".join(parts[-2:])
-        return path[:60]
-    if tool_name == "Grep":
-        return f'"{inp.get("pattern", "")}" in {inp.get("path", ".")}'[:60]
-    if tool_name == "Glob":
-        return inp.get("pattern", "")[:60]
-    if tool_name == "Agent":
-        return inp.get("description", "")[:60]
-    if tool_name == "Skill":
-        return inp.get("skill", "")[:60]
-    return _event_desc(evt)[:60]
+    builder = _INPUT_DETAIL_BUILDERS.get(tool_name)
+    detail = builder(inp) if builder is not None else _event_desc(evt)
+    return detail[:60]
 
 
 def _render_cls_group(

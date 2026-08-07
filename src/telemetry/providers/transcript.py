@@ -147,14 +147,10 @@ class TranscriptProvider:
         """
         return iter_jsonl_files(project_dir)
 
-    def _session_summary_from_old_format(
-        self, session_id: str, jsonl_files: list[Path], project_path: str
-    ) -> SessionSummary:
-        """Build a SessionSummary by aggregating multiple subagent JSONL files.
-
-        The old subdirectory format stores one JSONL per subagent; they must be
-        merged into a single session-level summary.
-        """
+    def _merge_subagent_files(
+        self, jsonl_files: list[Path]
+    ) -> tuple[list[SessionEvent], list[AgentSummary], datetime | None]:
+        """Parse and merge all subagent JSONL files, returning (events, agents, latest_mtime)."""
         all_events: list[SessionEvent] = []
         all_agents: list[AgentSummary] = []
         file_ts: datetime | None = None
@@ -170,6 +166,17 @@ class TranscriptProvider:
             all_events.extend(evts)
             all_agents.extend(agents)
 
+        return all_events, all_agents, file_ts
+
+    def _session_summary_from_old_format(
+        self, session_id: str, jsonl_files: list[Path], project_path: str
+    ) -> SessionSummary:
+        """Build a SessionSummary by aggregating multiple subagent JSONL files.
+
+        The old subdirectory format stores one JSONL per subagent; they must be
+        merged into a single session-level summary.
+        """
+        all_events, all_agents, file_ts = self._merge_subagent_files(jsonl_files)
         fallback_ts = file_ts or datetime.now(timezone.utc)
         # Replace per-file session_id values (agent-id stems) with the real session_id
         for event in all_events:
@@ -389,6 +396,16 @@ class TranscriptProvider:
 
         return None
 
+    def _accumulate_agent_tokens_for_project(
+        self, project_dir: Path, since: datetime, accs: TokenAccumulators
+    ) -> None:
+        """Accumulate agent token usage for all JSONL files in one project directory."""
+        for jsonl_file, _ in self._iter_jsonl_files(project_dir):
+            file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
+            if file_ts < since:
+                continue
+            self._accumulate_agent_tokens(jsonl_file, since, accs)
+
     def aggregate_agents(self, since: datetime) -> list[AgentTokenRow]:
         """Scan all JSONL files and aggregate token usage by agentName.
 
@@ -404,11 +421,7 @@ class TranscriptProvider:
         for project_dir in self.projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue
-            for jsonl_file, _ in self._iter_jsonl_files(project_dir):
-                file_ts = datetime.fromtimestamp(jsonl_file.stat().st_mtime, tz=timezone.utc)
-                if file_ts < since:
-                    continue
-                self._accumulate_agent_tokens(jsonl_file, since, accs)
+            self._accumulate_agent_tokens_for_project(project_dir, since, accs)
 
         # Collapse per-(agent, model) into per-agent rows
         agent_names: set[str] = {name for name, _ in accs.input.keys()} | set(accs.call_count)
