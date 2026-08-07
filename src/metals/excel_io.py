@@ -42,6 +42,18 @@ def _get_used_range_values(wb: WorkbookContext, sheet: str) -> List[List[str]]:
     return data.get("values") or []
 
 
+def _row_to_record(
+    row: List[str], headers: List[str], assumed_metal: Optional[str]
+) -> Optional[Dict[str, str]]:
+    """Zip a raw row against headers into a record dict, or None if the row is entirely blank."""
+    d: Dict[str, str] = {h: (str(row[i]) if i < len(row) else "") for i, h in enumerate(headers)}
+    if assumed_metal and not d.get("metal"):
+        d["metal"] = assumed_metal
+    if not any(d.get(k) for k in headers):
+        return None
+    return d
+
+
 def _to_records(
     values: List[List[str]], assumed_metal: Optional[str] = None
 ) -> Tuple[List[str], List[Dict[str, str]]]:
@@ -50,13 +62,9 @@ def _to_records(
     headers = [str(h).strip() for h in values[0]]
     recs: List[Dict[str, str]] = []
     for row in values[1:]:
-        d: Dict[str, str] = {}
-        for i, h in enumerate(headers):
-            d[h] = str(row[i]) if i < len(row) else ""
-        if assumed_metal and not d.get("metal"):
-            d["metal"] = assumed_metal
-        if any(d.get(k) for k in headers):
-            recs.append(d)
+        rec = _row_to_record(row, headers, assumed_metal)
+        if rec is not None:
+            recs.append(rec)
     return headers, recs
 
 
@@ -99,6 +107,22 @@ def _merge_all(
     return out
 
 
+def _resolve_completed_operation(client: OutlookClient, st: Dict) -> Optional[str]:
+    """Extract a resource ID from a completed async-operation status payload, if resolvable."""
+    import requests  # type: ignore
+
+    if st.get("status") not in ("succeeded", "completed"):
+        return None
+    rid = st.get("resourceId")
+    if rid:
+        return rid
+    rloc = st.get("resourceLocation")
+    if not rloc:
+        return None
+    it = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
+    return it.get("id")
+
+
 def _poll_async_operation(
     client: OutlookClient, location: str, max_attempts: int = 60, delay: float = 1.5
 ) -> str:
@@ -108,12 +132,9 @@ def _poll_async_operation(
 
     for _ in range(max_attempts):
         st = requests.get(location, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
-        if st.get("status") in ("succeeded", "completed"):
-            if rid := st.get("resourceId"):
-                return rid
-            if rloc := st.get("resourceLocation"):
-                it = requests.get(rloc, headers=client._headers(), timeout=DEFAULT_REQUEST_TIMEOUT).json()
-                return it.get("id")
+        resolved = _resolve_completed_operation(client, st)
+        if resolved:
+            return resolved
         time.sleep(delay)
     raise RuntimeError("Timed out waiting for async operation")
 
@@ -180,6 +201,16 @@ def _to_values_all(recs: List[Dict[str, str]]) -> List[List[str]]:
     return rows
 
 
+def _infer_metal_from_sheet_name(name: str) -> Optional[str]:
+    """Infer the assumed metal ('silver'/'gold') from a worksheet's name, or None if ambiguous."""
+    low = name.lower()
+    if "silver" in low:
+        return "silver"
+    if "gold" in low:
+        return "gold"
+    return None
+
+
 def _read_existing_workbook_recs(wb: WorkbookContext) -> List[Dict[str, str]]:
     """Read all sheets from workbook and consolidate records that match our schema."""
     sheet_names = _list_worksheets(wb)
@@ -188,13 +219,7 @@ def _read_existing_workbook_recs(wb: WorkbookContext) -> List[Dict[str, str]]:
         vals = _get_used_range_values(wb, name)
         if not vals:
             continue
-        low = name.lower()
-        if "silver" in low:
-            assumed_metal = "silver"
-        elif "gold" in low:
-            assumed_metal = "gold"
-        else:
-            assumed_metal = None
+        assumed_metal = _infer_metal_from_sheet_name(name)
         _hdrs, recs = _to_records(vals, assumed_metal=assumed_metal)
         if any(r.get("order_id") or r.get("total_oz") for r in recs):
             existing_all.extend(recs)

@@ -195,24 +195,37 @@ class RCMParser(VendorParser):
         items = self._extract_line_items_from_text(lines, metal_guess)
         return dedupe_line_items(items), lines
 
+    @staticmethod
+    def _weight_from_frac_match(m: re.Match) -> float:
+        """Convert a fractional-oz match ('1/2 oz') to ounces."""
+        return float(m.group(1)) / max(float(m.group(2) or 1), 1.0)
+
+    @staticmethod
+    def _weight_from_oz_match(m: re.Match) -> float:
+        """Convert a decimal-oz match ('1.5 oz') to ounces."""
+        return float(m.group(1))
+
+    @staticmethod
+    def _weight_from_grams_match(m: re.Match) -> float:
+        """Convert a grams match ('31.1 g') to ounces."""
+        return float(m.group(1)) / G_PER_OZ
+
+    def _collect_weights(self, ln: str, pattern: re.Pattern, to_oz) -> List[float]:
+        """Run pattern over ln, converting each match to ounces via to_oz. Skips unparsable matches."""
+        found: List[float] = []
+        for m in pattern.finditer(ln):
+            try:
+                found.append(to_oz(m))
+            except (ValueError, IndexError):
+                continue
+        return found
+
     def _extract_weights(self, ln: str) -> List[float]:
         """Extract all weight values (in oz) from a line."""
         weights: List[float] = []
-        for m in self._PAT_FRAC.finditer(ln):
-            try:
-                weights.append(float(m.group(1)) / max(float(m.group(2) or 1), 1.0))
-            except (ValueError, IndexError):
-                continue
-        for m in self._PAT_OZ.finditer(ln):
-            try:
-                weights.append(float(m.group(1)))
-            except (ValueError, IndexError):
-                continue
-        for m in self._PAT_GRAMS.finditer(ln):
-            try:
-                weights.append(float(m.group(1)) / G_PER_OZ)
-            except (ValueError, IndexError):
-                continue
+        weights.extend(self._collect_weights(ln, self._PAT_FRAC, self._weight_from_frac_match))
+        weights.extend(self._collect_weights(ln, self._PAT_OZ, self._weight_from_oz_match))
+        weights.extend(self._collect_weights(ln, self._PAT_GRAMS, self._weight_from_grams_match))
         return weights
 
     def _is_price_in_range(self, amt: float, metal: str, unit_oz: float) -> bool:

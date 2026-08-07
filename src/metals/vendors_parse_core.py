@@ -94,12 +94,14 @@ def _qty_from_line(ln: str) -> Optional[float]:
     """Extract quantity from a single line using QTY_PATTERNS. Returns None if not found."""
     for pat in QTY_PATTERNS:
         m = pat.search(ln)
-        if m:
-            raw = m.group(1)
-            if raw and raw.isdigit():
-                n = int(raw)
-                if 1 <= n <= 200:
-                    return float(n)
+        if not m:
+            continue
+        raw = m.group(1)
+        if not (raw and raw.isdigit()):
+            continue
+        n = int(raw)
+        if 1 <= n <= 200:
+            return float(n)
     return None
 
 
@@ -205,18 +207,27 @@ def dedupe_line_items(items: List[LineItem]) -> List[LineItem]:
     return list(buckets.values())
 
 
+def _bundle_qty_from_match(m: re.Match) -> Optional[float]:
+    """Scan a bundle-pattern match's groups for the first value in the valid bundle-qty range."""
+    for g in range(1, len(m.groups()) + 1):
+        val = m.group(g)
+        if not (val and val.isdigit()):
+            continue
+        n = int(val)
+        if 2 <= n <= 200:
+            return float(n)
+    return None
+
+
 def _extract_bundle_qty_from_pattern(ln: str) -> Optional[float]:
     """Extract bundle quantity from a line using regex patterns."""
     for pat in BUNDLE_PATTERNS:
         m = pat.search(ln)
         if not m:
             continue
-        for g in range(1, len(m.groups()) + 1):
-            val = m.group(g)
-            if val and val.isdigit():
-                n = int(val)
-                if 2 <= n <= 200:
-                    return float(n)
+        qty = _bundle_qty_from_match(m)
+        if qty is not None:
+            return qty
     return None
 
 

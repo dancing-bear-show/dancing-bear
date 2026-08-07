@@ -399,6 +399,39 @@ class OutlookCostExtractor(CostExtractor):
 
         return oz_by_metal, units_by_metal
 
+    @staticmethod
+    def _next_total_in_band(totals_seq: List[float], start_k: int, lb: float, ub: float) -> Tuple[Optional[float], int]:
+        """Scan totals_seq from start_k for the first value within [lb, ub].
+
+        Returns (chosen_value_or_None, next_k) — next_k always advances past every value
+        scanned so the caller's cursor never re-examines a consumed total.
+        """
+        k = start_k
+        while k < len(totals_seq):
+            v = float(totals_seq[k])
+            k += 1
+            if lb <= v <= ub:
+                return v, k
+        return None, k
+
+    @staticmethod
+    def _build_confirmation_row(amt: float, uoz: float, qty: float, oid: str, sub: str, recv: str) -> Dict[str, str | float]:
+        """Build a single per-item confirmation-email output row."""
+        return {
+            'vendor': 'RCM',
+            'date': (recv or '').split('T', 1)[0],
+            'metal': 'gold',
+            'currency': 'C$',
+            'cost_total': round(amt, 2),
+            'cost_per_oz': round(amt / max(uoz * max(qty, 1.0), 1e-9), 2),
+            'order_id': oid,
+            'subject': sub,
+            'total_oz': round(uoz * max(qty, 1.0), 3),
+            'unit_count': format_qty(qty),
+            'units_breakdown': f"{uoz}ozx{format_qty(qty)}",
+            'alloc': 'line-item',
+        }
+
     def _compute_confirmation_line_costs(
         self, body: str, gold_items: List[Dict], oid: str, sub: str, recv: str
     ) -> Tuple[float, List[Dict[str, str | float]]]:
@@ -412,32 +445,14 @@ class OutlookCostExtractor(CostExtractor):
             qty = float(it.get('qty') or 1.0)
             uoz = float(it.get('unit_oz') or 0.0)
             lb, ub = get_price_band('gold', uoz)
-            chosen = None
 
-            while k < len(totals_seq):
-                v = float(totals_seq[k])
-                k += 1
-                if lb <= v <= ub:
-                    chosen = v
-                    break
+            chosen, k = self._next_total_in_band(totals_seq, k, lb, ub)
+            if chosen is None:
+                continue
 
-            if chosen is not None:
-                amt = float(chosen)
-                line_cost += amt * max(qty, 1.0)
-                per_item_rows.append({
-                    'vendor': 'RCM',
-                    'date': (recv or '').split('T', 1)[0],
-                    'metal': 'gold',
-                    'currency': 'C$',
-                    'cost_total': round(amt, 2),
-                    'cost_per_oz': round(amt / max(uoz * max(qty, 1.0), 1e-9), 2),
-                    'order_id': oid,
-                    'subject': sub,
-                    'total_oz': round(uoz * max(qty, 1.0), 3),
-                    'unit_count': format_qty(qty),
-                    'units_breakdown': f"{uoz}ozx{format_qty(qty)}",
-                    'alloc': 'line-item',
-                })
+            amt = float(chosen)
+            line_cost += amt * max(qty, 1.0)
+            per_item_rows.append(self._build_confirmation_row(amt, uoz, qty, oid, sub, recv))
 
         return line_cost, per_item_rows
 
@@ -475,6 +490,13 @@ def _fetch_rcm_message_ids(cli: OutlookClient) -> List[str]:
     return extractor._fetch_message_ids()
 
 
+def _outranks_current(cur: Optional[Dict[str, str]], cat: str) -> bool:
+    """True when there is no current record for this order, or cat outranks its category."""
+    if not cur:
+        return True
+    return SUBJECT_RANK[cat] > SUBJECT_RANK.get(cur.get('cat', 'other'), 0)
+
+
 def _filter_and_group_by_order(cli: OutlookClient, ids: List[str]) -> Dict[str, Dict[str, str]]:
     """Filter to mint.ca sender and group messages by order ID."""
     extractor = OutlookCostExtractor(*_TEST_EXTRACTOR_DEFAULTS)
@@ -483,11 +505,11 @@ def _filter_and_group_by_order(cli: OutlookClient, ids: List[str]) -> Dict[str, 
     for msg_id in ids:
         msg = extractor._get_message_info(msg_id)
         oid = extractor._extract_order_id(msg)
-        if oid and msg.body_text:
-            cat, _ = _rcm_parser.classify_email(msg.subject)
-            cur = by_order.get(oid)
-            if (not cur) or (SUBJECT_RANK[cat] > SUBJECT_RANK.get(cur.get('cat', 'other'), 0)):
-                by_order[oid] = {'id': msg.msg_id, 'recv': msg.received_date, 'sub': msg.subject, 'body': msg.body_text, 'cat': cat}
+        if not (oid and msg.body_text):
+            continue
+        cat, _ = _rcm_parser.classify_email(msg.subject)
+        if _outranks_current(by_order.get(oid), cat):
+            by_order[oid] = {'id': msg.msg_id, 'recv': msg.received_date, 'sub': msg.subject, 'body': msg.body_text, 'cat': cat}
     return by_order
 
 
