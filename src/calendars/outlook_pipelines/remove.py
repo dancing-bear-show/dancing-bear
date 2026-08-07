@@ -200,31 +200,30 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
                 event_ids.append(mid)
         return series_ids, event_ids
 
+    def _delete_one(
+        self, item_id: str, subj: str, svc, logs: list[str], *, deleted_label: str, failed_label: str
+    ) -> bool:
+        """Delete a single event or series by id, appending the matching log line."""
+        try:
+            ok = bool(svc.delete_event_by_id(item_id))
+        except Exception as exc:
+            logs.append(f"Failed to delete {failed_label} {item_id}: {exc}")
+            return False
+        if ok:
+            logs.append(f"Deleted {deleted_label}: {item_id} ({subj})")
+        else:
+            logs.append(f"Failed to delete {failed_label} {item_id}")
+        return ok
+
     def _apply_deletions(self, entry: OutlookRemovePlanEntry, svc, logs: list[str]) -> int:
         deleted = 0
         subj = entry.subject
         for sid in entry.series_ids:
-            try:
-                ok = bool(svc.delete_event_by_id(sid))
-            except Exception as exc:
-                logs.append(f"Failed to delete series {sid}: {exc}")
-                continue
-            if ok:
+            if self._delete_one(sid, subj, svc, logs, deleted_label="series master", failed_label="series"):
                 deleted += 1
-                logs.append(f"Deleted series master: {sid} ({subj})")
-            else:
-                logs.append(f"Failed to delete series {sid}")
         for eid in entry.event_ids:
-            try:
-                ok2 = bool(svc.delete_event_by_id(eid))
-            except Exception as exc:
-                logs.append(f"Failed to delete event {eid}: {exc}")
-                continue
-            if ok2:
+            if self._delete_one(eid, subj, svc, logs, deleted_label="event", failed_label="event"):
                 deleted += 1
-                logs.append(f"Deleted event: {eid} ({subj})")
-            else:
-                logs.append(f"Failed to delete event {eid}")
         return deleted
 
 
