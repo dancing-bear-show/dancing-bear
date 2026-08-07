@@ -188,21 +188,23 @@ def _match_website(ln: str) -> str:
     return ""
 
 
+# Field name -> single-arg matcher (line -> matched substring or "").
+_CONTACT_MATCHERS: Dict[str, Any] = {
+    "email": lambda ln: _match_first(_PAT_EMAIL, ln),
+    "phone": lambda ln: _match_first(_PAT_PHONE, ln),
+    "location": lambda ln: _match_first(_PAT_LOCATION, ln),
+    "linkedin": lambda ln: _match_first(_PAT_LINKEDIN, ln),
+    "github": lambda ln: _match_first(_PAT_GITHUB, ln),
+    "website": _match_website,
+}
+
+
 def _extract_contact(lines: List[str]) -> Dict[str, str]:
-    fields: Dict[str, str] = {k: "" for k in ("email", "phone", "location", "linkedin", "github", "website")}
+    fields: Dict[str, str] = {k: "" for k in _CONTACT_MATCHERS}
     for ln in lines[:10]:  # top lines commonly have contact
-        if not fields["email"]:
-            fields["email"] = _match_first(_PAT_EMAIL, ln)
-        if not fields["phone"]:
-            fields["phone"] = _match_first(_PAT_PHONE, ln)
-        if not fields["location"]:
-            fields["location"] = _match_first(_PAT_LOCATION, ln)
-        if not fields["linkedin"]:
-            fields["linkedin"] = _match_first(_PAT_LINKEDIN, ln)
-        if not fields["github"]:
-            fields["github"] = _match_first(_PAT_GITHUB, ln)
-        if not fields["website"]:
-            fields["website"] = _match_website(ln)
+        for key, matcher in _CONTACT_MATCHERS.items():
+            if not fields[key]:
+                fields[key] = matcher(ln)
     return {k: v.strip() for k, v in fields.items()}
 
 

@@ -14,6 +14,26 @@ from .docx_renderers import HeaderRenderer, ListSectionRenderer
 _DEFAULT_BULLET_STYLE = "List Bullet"
 
 
+def _safe_int_limit(cfg: dict, key: str) -> int:
+    """Read an int limit from config, falling back to 0 (no limit) on bad values."""
+    try:
+        return int(cfg.get(key, 0) or 0)
+    except Exception:  # nosec B110 - invalid config value; fall back to no limit
+        return 0
+
+
+def _labeled_item_text(item: Any, show_desc: bool, desc_sep: str) -> str:
+    """Extract 'name[desc_sep]desc' text from a dict item, or str() a scalar item."""
+    if not isinstance(item, dict):
+        return str(item)
+    name = item.get("name") or item.get("title") or item.get("label") or ""
+    desc = item.get("desc") or item.get("description") or ""
+    text = name.strip()
+    if desc and show_desc:
+        text = f"{text}{desc_sep}{desc.strip()}"
+    return text
+
+
 class SummarySectionRenderer(ListSectionRenderer):
     """Renders summary/profile section."""
 
@@ -75,10 +95,7 @@ class SummarySectionRenderer(ListSectionRenderer):
         """Split a string summary into bullet sentences."""
         raw_items = [s.strip() for s in text.replace("\n", " ").split(".")]
         items = [s for s in raw_items if s]
-        try:
-            max_sent = int(cfg.get("max_sentences", 0) or 0)
-        except Exception:  # nosec B110 - invalid config value; fall back to no limit
-            max_sent = 0
+        max_sent = _safe_int_limit(cfg, "max_sentences")
         if max_sent > 0:
             items = items[:max_sent]
         norm_items = [self.text.normalize_bullet(it) for it in items]
@@ -137,18 +154,10 @@ class SkillsSectionRenderer(ListSectionRenderer):
         self, raw_items: list[Any], show_desc: bool, desc_sep: str
     ) -> list[str]:
         """Normalize items from a skills group."""
-        result: list[str] = []
-        for x in raw_items:
-            if isinstance(x, dict):
-                name = x.get("name") or x.get("title") or x.get("label") or ""
-                desc = x.get("desc") or x.get("description") or ""
-                s = name.strip()
-                if desc and show_desc:
-                    s = f"{s}{desc_sep}{desc.strip()}"
-                result.append(self.text.clean_inline(s))
-            else:
-                result.append(self.text.clean_inline(str(x)))
-        return result
+        return [
+            self.text.clean_inline(_labeled_item_text(x, show_desc, desc_sep))
+            for x in raw_items
+        ]
 
     def _render_bullet_items(self, items: list[str], cfg: dict) -> None:
         """Render items as bullets."""
@@ -179,18 +188,19 @@ class SkillsSectionRenderer(ListSectionRenderer):
         p = self.doc.add_paragraph(text)
         self.bullets.styles.tight_paragraph(p, after_pt=0)
 
+    def _render_bullets_or_joined(self, items: list[str], cfg: dict, sep: str) -> None:
+        """Render items as bullets, or as a single sep-joined inline paragraph."""
+        if bool(cfg.get("bullets", False)):
+            self._render_bullet_items(items, cfg)
+        else:
+            p = self.doc.add_paragraph(sep.join(items))
+            self.bullets.styles.tight_paragraph(p, after_pt=2)
+
     def _render_flat_skills(self, skills: list[str], cfg: dict) -> None:
         """Render a flat list of skills."""
-        as_bullets = bool(cfg.get("bullets", False))
         sep = cfg.get("separator") or " • "
         max_items = int(cfg.get("max_items", 999))
-        skills = skills[:max_items]
-
-        if as_bullets:
-            self._render_bullet_items(skills, cfg)
-        else:
-            p = self.doc.add_paragraph(sep.join(skills))
-            self.bullets.styles.tight_paragraph(p, after_pt=2)
+        self._render_bullets_or_joined(skills[:max_items], cfg, sep)
 
 
 class TechnologiesSectionRenderer(SkillsSectionRenderer):
@@ -202,17 +212,12 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
             return
 
         cfg = sec or {}
-        try:
-            max_items = int(cfg.get("max_items", 0) or 0)
-        except Exception:  # nosec B110 - invalid config value; fall back to no limit
-            max_items = 0
+        max_items = _safe_int_limit(cfg, "max_items")
         if max_items > 0:
             tech_items = tech_items[:max_items]
 
-        as_bullets = bool(cfg.get("bullets", True))
         sep = cfg.get("separator") or " • "
-
-        if as_bullets:
+        if bool(cfg.get("bullets", True)):
             self._render_bullet_items(tech_items, cfg)
         else:
             p = self.doc.add_paragraph(sep.join(tech_items))
@@ -241,14 +246,10 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
         self, t: Any, show_desc: bool, desc_sep: str
     ) -> str | None:
         """Normalize a single technology item."""
-        if isinstance(t, dict):
-            nm = t.get("name") or t.get("title") or t.get("label") or ""
-            ds = t.get("desc") or t.get("description") or ""
-            s = nm.strip()
-            if show_desc and ds:
-                s = f"{s}{desc_sep}{ds.strip()}"
-            return self.text.clean_inline(s) if s else None
-        return self.text.clean_inline(str(t))
+        text = _labeled_item_text(t, show_desc, desc_sep)
+        if isinstance(t, dict) and not text:
+            return None
+        return self.text.clean_inline(text)
 
     def _extract_from_skills_groups(
         self, data: dict, show_desc: bool, desc_sep: str
