@@ -66,17 +66,22 @@ def _apply_labels(ax: object, spec: ChartSpec, theme: ChartTheme) -> None:
         ax.set_ylabel(spec.y_label)  # type: ignore[union-attr]
 
     if spec.show_legend:
-        handles, labels = ax.get_legend_handles_labels()  # type: ignore[union-attr]
-        if handles:
-            legend = ax.legend(  # type: ignore[union-attr]
-                handles, labels,
-                loc="best",
-                facecolor=theme.legend_color,
-                framealpha=0.8,
-                labelcolor=theme.text_color,
-            )
-            if legend.get_frame() is not None:
-                legend.get_frame().set_facecolor(theme.legend_color)
+        _apply_legend(ax, theme)
+
+
+def _apply_legend(ax: object, theme: ChartTheme) -> None:
+    handles, labels = ax.get_legend_handles_labels()  # type: ignore[union-attr]
+    if not handles:
+        return
+    legend = ax.legend(  # type: ignore[union-attr]
+        handles, labels,
+        loc="best",
+        facecolor=theme.legend_color,
+        framealpha=0.8,
+        labelcolor=theme.text_color,
+    )
+    if legend.get_frame() is not None:
+        legend.get_frame().set_facecolor(theme.legend_color)
 
 
 # ---------------------------------------------------------------------------
@@ -123,20 +128,21 @@ def _series_color(series: SeriesSpec, idx: int, theme: ChartTheme) -> str:
     return theme.palette[idx % len(theme.palette)]
 
 
+def _row_key(raw_key: object, is_dates: bool) -> object:
+    if is_dates:
+        return _parse_iso_to_datetime(str(raw_key))
+    try:
+        return float(str(raw_key))
+    except (ValueError, TypeError):
+        return raw_key
+
+
 def _build_row_map(
     series: SeriesSpec, x_field: str, is_dates: bool
 ) -> dict[object, float]:
     m: dict[object, float] = {}
     for row in series.data:
-        raw_key = row[x_field]
-        if is_dates:
-            key: object = _parse_iso_to_datetime(str(raw_key))
-        else:
-            try:
-                key = float(str(raw_key))
-            except (ValueError, TypeError):
-                key = raw_key
-        m[key] = float(row["value"])  # type: ignore[arg-type]
+        m[_row_key(row[x_field], is_dates)] = float(row["value"])  # type: ignore[arg-type]
     return m
 
 
@@ -151,6 +157,18 @@ def _configure_date_axis(ax: object, spec: ChartSpec) -> None:
         formatter = mdates.AutoDateFormatter(locator)
     ax.xaxis.set_major_formatter(formatter)  # type: ignore[union-attr]
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right")  # type: ignore[union-attr]
+
+
+def _maybe_shade_weekends(
+    ax: object, x_values: list[object], is_dates: bool, spec: ChartSpec, theme: ChartTheme
+) -> None:
+    if is_dates and spec.shade_weekends:
+        _shade_weekends(ax, x_values, theme)
+
+
+def _maybe_configure_date_axis(ax: object, is_dates: bool, spec: ChartSpec) -> None:
+    if is_dates:
+        _configure_date_axis(ax, spec)
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +230,7 @@ def _plot_series_smooth(
 def _render_line(ax: object, spec: LineChartSpec, theme: ChartTheme) -> None:
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
 
-    if is_dates and spec.shade_weekends:
-        _shade_weekends(ax, x_values, theme)
+    _maybe_shade_weekends(ax, x_values, is_dates, spec, theme)
 
     for idx, series in enumerate(spec.series):
         color = _series_color(series, idx, theme)
@@ -233,16 +250,14 @@ def _render_line(ax: object, spec: LineChartSpec, theme: ChartTheme) -> None:
             label=label,
         )
 
-    if is_dates:
-        _configure_date_axis(ax, spec)
+    _maybe_configure_date_axis(ax, is_dates, spec)
 
 
 def _render_area(ax: object, spec: AreaChartSpec, theme: ChartTheme) -> None:
     import numpy as np
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
 
-    if is_dates and spec.shade_weekends:
-        _shade_weekends(ax, x_values, theme)
+    _maybe_shade_weekends(ax, x_values, is_dates, spec, theme)
 
     baseline = np.zeros(len(x_values))
 
@@ -259,8 +274,7 @@ def _render_area(ax: object, spec: AreaChartSpec, theme: ChartTheme) -> None:
         if spec.stacked:
             baseline = y_top
 
-    if is_dates:
-        _configure_date_axis(ax, spec)
+    _maybe_configure_date_axis(ax, is_dates, spec)
 
 
 def _split_by_name_lists(
@@ -328,8 +342,7 @@ def _render_dual(fig: object, ax: object, spec: DualAxisChartSpec, theme: ChartT
     left_series, right_series = _split_dual_series(spec)
     x_values, is_dates = _parse_x_values(spec.series, spec.x_field)
 
-    if is_dates and spec.shade_weekends:
-        _shade_weekends(ax, x_values, theme)
+    _maybe_shade_weekends(ax, x_values, is_dates, spec, theme)
 
     left_handles, left_labels = _plot_dual_series(
         ax, left_series,
@@ -347,8 +360,7 @@ def _render_dual(fig: object, ax: object, spec: DualAxisChartSpec, theme: ChartT
 
     _apply_secondary_axis_style(ax2, spec, theme)
 
-    if is_dates:
-        _configure_date_axis(ax, spec)
+    _maybe_configure_date_axis(ax, is_dates, spec)
 
     all_handles = left_handles + right_handles
     all_labels = left_labels + right_labels

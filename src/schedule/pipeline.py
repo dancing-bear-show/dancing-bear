@@ -302,12 +302,7 @@ def _execute_sync_creates(
     """Execute creation of series and one-offs, return lines and count."""
     lines: List[str] = []
     created = 0
-    for e in to_create_series:
-        rc, logs = _apply_outlook_events([e], calendar_name=payload.calendar, service=svc)
-        lines.extend(logs)
-        if rc == 0:
-            created += 1
-    for e in to_create_oneoffs:
+    for e in [*to_create_series, *to_create_oneoffs]:
         rc, logs = _apply_outlook_events([e], calendar_name=payload.calendar, service=svc)
         lines.extend(logs)
         if rc == 0:

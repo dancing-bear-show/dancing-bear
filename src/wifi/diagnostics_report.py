@@ -124,6 +124,15 @@ def derive_findings(results: DiagnoseResults) -> List[str]:
     return findings
 
 
+def _append_trace_section(lines: List[str], trace: TraceResult) -> None:
+    lines.append("")
+    lines.append(f"Trace → {trace.target}:")
+    if trace.lines:
+        lines.extend([f"  {ln}" for ln in trace.lines[:16]])
+    elif trace.error:
+        lines.append(f"  error: {trace.error}")
+
+
 def render_report(report: Report) -> str:
     lines: List[str] = []
     header = f"Wi-Fi Doctor @ {report.timestamp}"
@@ -136,25 +145,17 @@ def render_report(report: Report) -> str:
     lines.append("")
     if report.survey_results:
         lines.append("ICMP survey (quick):")
-        for p in report.survey_results:
-            lines.append(format_ping(p))
+        lines.extend(format_ping(p) for p in report.survey_results)
         lines.append("")
     lines.append("Findings:")
-    for f in report.findings:
-        lines.append(f"- {f}")
+    lines.extend(f"- {f}" for f in report.findings)
     lines.append("")
     lines.append("Ping sweep:")
-    for p in report.ping_results:
-        lines.append(format_ping(p))
+    lines.extend(format_ping(p) for p in report.ping_results)
     lines.append("")
     lines.append(f"DNS: {format_dns(report.dns)}")
     if report.trace:
-        lines.append("")
-        lines.append(f"Trace → {report.trace.target}:")
-        if report.trace.lines:
-            lines.extend([f"  {ln}" for ln in report.trace.lines[:16]])
-        elif report.trace.error:
-            lines.append(f"  error: {report.trace.error}")
+        _append_trace_section(lines, report.trace)
     if report.http:
         lines.append("")
         lines.append(f"HTTPS smoke: {format_http(report.http)}")

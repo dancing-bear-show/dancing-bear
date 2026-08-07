@@ -213,28 +213,12 @@ def _extract_gateway_line(text: str) -> Optional[str]:
 
 
 def collect_wifi_info(runner: CommandRunner) -> Optional[WifiInfo]:
-    # macOS: airport -I
-    airport_cmd = ["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I"]
-    res = runner.run(airport_cmd, timeout=3)
-    if res.returncode == 0 and res.stdout:
-        return _parse_airport(res.stdout)
-
-    # Linux: nmcli
-    nmcli_cmd = ["nmcli", "-t", "-f", "ACTIVE,SSID,BSSID,SIGNAL,RATE", "dev", "wifi"]
-    res = runner.run(nmcli_cmd, timeout=3)
-    if res.returncode == 0 and res.stdout:
-        info = _parse_nmcli(res.stdout)
-        if info:
-            return info
-
-    # Linux fallback: iwconfig
-    iw_cmd = ["iwconfig"]
-    res = runner.run(iw_cmd, timeout=3)
-    if res.returncode == 0 and res.stdout:
-        info = _parse_iwconfig(res.stdout)
-        if info:
-            return info
-
+    for cmd, parser in _WIFI_INFO_SOURCES:
+        res = runner.run(cmd, timeout=3)
+        if res.returncode == 0 and res.stdout:
+            info = parser(res.stdout)
+            if info:
+                return info
     return None
 
 
@@ -290,6 +274,13 @@ def _parse_iwconfig(text: str) -> Optional[WifiInfo]:
     if ssid or bssid or rssi:
         return WifiInfo(ssid=ssid, bssid=bssid, rssi=rssi, noise=None, tx_rate=None, channel=None, source="iwconfig", raw=text.strip())
     return None
+
+
+_WIFI_INFO_SOURCES: Tuple[Tuple[List[str], Callable[[str], Optional[WifiInfo]]], ...] = (
+    (["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I"], _parse_airport),
+    (["nmcli", "-t", "-f", "ACTIVE,SSID,BSSID,SIGNAL,RATE", "dev", "wifi"], _parse_nmcli),
+    (["iwconfig"], _parse_iwconfig),
+)
 
 
 def ping_target(label: str, target: str, *, count: int, runner: CommandRunner, timeout: float) -> PingResult:
