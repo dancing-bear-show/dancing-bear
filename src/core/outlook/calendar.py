@@ -76,14 +76,26 @@ class OutlookCalendarMixin:
         r.raise_for_status()
         return r.json()
 
+    @staticmethod
+    def _calendar_name_matches(cal: dict[str, Any], target: str) -> bool:
+        """Return True if cal's name/displayName case-insensitively equals target."""
+        n = (cal.get("name") or cal.get("displayName") or "").strip().lower()
+        return n == target
+
+    def _find_calendar_by_name(self: OutlookClientBase, target: str) -> dict[str, Any] | None:
+        """Return the first calendar whose name matches target (already normalized)."""
+        for cal in self.list_calendars():
+            if self._calendar_name_matches(cal, target):
+                return cal
+        return None
+
     def ensure_calendar(self: OutlookClientBase, name: str) -> str:
         target = (name or "").strip().lower()
         if not target:
             raise ValueError("Calendar name is empty")
-        for cal in self.list_calendars():
-            n = (cal.get("name") or cal.get("displayName") or "").strip().lower()
-            if n == target:
-                return cal.get("id", "")
+        found = self._find_calendar_by_name(target)
+        if found is not None:
+            return found.get("id", "")
         created = self.create_calendar(name)
         return created.get("id", "")
 
@@ -98,13 +110,9 @@ class OutlookCalendarMixin:
         target = (name or "").strip().lower()
         if not target:
             return None
-        for cal in self.list_calendars():
-            n = (cal.get("name") or cal.get("displayName") or "").strip().lower()
-            if n == target:
-                cid = cal.get("id")
-                if cid:
-                    return str(cid)
-        return None
+        found = self._find_calendar_by_name(target)
+        cid = found.get("id") if found else None
+        return str(cid) if cid else None
 
     # -------------------- Calendar Sharing --------------------
     def list_calendar_permissions(self: OutlookClientBase, calendar_id: str) -> list[dict[str, Any]]:
@@ -125,6 +133,24 @@ class OutlookCalendarMixin:
         rr.raise_for_status()
         return rr.json() if rr.text else {}
 
+    @staticmethod
+    def _permission_email_matches(perm: dict[str, Any], email: str) -> bool:
+        """Return True if perm's emailAddress case-insensitively equals email."""
+        em = ((perm.get("emailAddress") or {}).get("address") or "").strip().lower()
+        return em == (email or "").strip().lower()
+
+    def _reconcile_permission_role(
+        self: OutlookClientBase, calendar_id: str, perm: dict[str, Any], role: str
+    ) -> dict[str, Any]:
+        """Update perm's role if it differs from the target role; else return it unchanged."""
+        cur = (perm.get("role") or "").strip()
+        if cur.lower() == role.strip().lower():
+            return perm
+        pid = perm.get("id")
+        if not pid:
+            return perm
+        return self._update_calendar_permission(calendar_id, pid, role)
+
     def ensure_calendar_permission(
         self: OutlookClientBase,
         calendar_id: str,
@@ -135,17 +161,9 @@ class OutlookCalendarMixin:
 
         role: one of read | write | limitedRead | freeBusyRead | delegateWithoutPrivateEventAccess | delegateWithPrivateEventAccess
         """
-        perms = self.list_calendar_permissions(calendar_id)
-        for p in perms:
-            em = ((p.get("emailAddress") or {}).get("address") or "").strip().lower()
-            if em != (email or "").strip().lower():
-                continue
-            cur = (p.get("role") or "").strip()
-            if cur.lower() != role.strip().lower():
-                pid = p.get("id")
-                if pid:
-                    return self._update_calendar_permission(calendar_id, pid, role)
-            return p
+        for p in self.list_calendar_permissions(calendar_id):
+            if self._permission_email_matches(p, email):
+                return self._reconcile_permission_role(calendar_id, p, role)
         r = _requests().post(
             f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions",
             headers=self._headers(),
@@ -188,6 +206,16 @@ class OutlookCalendarMixin:
             return mbx
         return "America/Toronto"
 
+    @staticmethod
+    def _apply_body_and_location(
+        payload: dict[str, Any], body_html: str | None, location: str | None
+    ) -> None:
+        """Add optional body/location fields to an event payload, in place."""
+        if body_html:
+            payload["body"] = {"contentType": "HTML", "content": body_html}
+        if location:
+            payload["location"] = _parse_location(location)
+
     def create_event(self: OutlookClientBase, params: EventCreationParams) -> dict[str, Any]:
         """Create a one-time event."""
         tz_final = self._resolve_tz(params.tz)
@@ -197,10 +225,7 @@ class OutlookCalendarMixin:
             "start": {"dateTime": params.start_iso, "timeZone": tz_final},
             "end": {"dateTime": params.end_iso, "timeZone": tz_final},
         }
-        if params.body_html:
-            payload["body"] = {"contentType": "HTML", "content": params.body_html}
-        if params.location:
-            payload["location"] = _parse_location(params.location)
+        self._apply_body_and_location(payload, params.body_html, params.location)
         if params.all_day:
             payload["isAllDay"] = True
         _apply_reminder(payload, params.no_reminder, params.reminder_minutes)
@@ -227,10 +252,7 @@ class OutlookCalendarMixin:
             "end": {"dateTime": end_iso, "timeZone": tz_final},
             "recurrence": {"pattern": pattern, "range": rng},
         }
-        if params.body_html:
-            payload["body"] = {"contentType": "HTML", "content": params.body_html}
-        if params.location:
-            payload["location"] = _parse_location(params.location)
+        self._apply_body_and_location(payload, params.body_html, params.location)
         _apply_reminder(payload, params.no_reminder, params.reminder_minutes)
 
         r = _requests().post(self._event_endpoint(cal_id), headers=self._headers(), json=payload)
@@ -238,13 +260,23 @@ class OutlookCalendarMixin:
         series = r.json()
 
         if params.exdates:
-            try:
-                sid = series.get("id")
-                if sid:
-                    self._apply_exdate_deletions(cal_id, sid, params.exdates, rng)
-            except Exception:  # nosec B110 - non-fatal exdate deletion
-                pass
+            self._apply_exdate_deletions_best_effort(cal_id, series.get("id"), params.exdates, rng)
         return series
+
+    def _apply_exdate_deletions_best_effort(
+        self: OutlookClientBase,
+        calendar_id: str | None,
+        series_id: str | None,
+        exdates: list[str],
+        rng: dict[str, Any],
+    ) -> None:
+        """Apply exdate deletions, swallowing failures — non-fatal to series creation."""
+        if not series_id:
+            return
+        try:
+            self._apply_exdate_deletions(calendar_id, series_id, exdates, rng)
+        except Exception:  # nosec B110 - non-fatal exdate deletion
+            pass
 
     @staticmethod
     def _build_recurrence_pattern(repeat: str, interval: int, byday: list[str] | None) -> dict[str, Any]:

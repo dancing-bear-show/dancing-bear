@@ -79,6 +79,20 @@ class OutputWriter:
         else:
             self._print_text(data)
 
+    def _print_structured_shortcut(self, data: Any) -> bool:
+        """Print data as JSON/YAML if the configured format calls for it.
+
+        Returns True if output was written (caller should not fall through
+        to its own text rendering).
+        """
+        if self.config.format == OutputFormat.JSON:
+            self._print_json(data)
+            return True
+        if self.config.format == OutputFormat.YAML:
+            self._print_yaml(data)
+            return True
+        return False
+
     def print_list(
         self,
         items: Sequence[Any],
@@ -93,11 +107,7 @@ class OutputWriter:
             bullet: Bullet character to use.
             indent: Number of spaces to indent.
         """
-        if self.config.format == OutputFormat.JSON:
-            self._print_json(list(items))
-            return
-        if self.config.format == OutputFormat.YAML:
-            self._print_yaml(list(items))
+        if self._print_structured_shortcut(list(items)):
             return
 
         prefix = " " * indent
@@ -118,11 +128,7 @@ class OutputWriter:
             separator: Separator between key and value.
             indent: Number of spaces to indent.
         """
-        if self.config.format == OutputFormat.JSON:
-            self._print_json(data)
-            return
-        if self.config.format == OutputFormat.YAML:
-            self._print_yaml(data)
+        if self._print_structured_shortcut(data):
             return
 
         prefix = " " * indent
@@ -205,6 +211,14 @@ class OutputWriter:
                       for i in range(len(str_row))]
             self.print(" | ".join(padded))
 
+    def _print_rows_without_headers(self, rows: List[Any]) -> None:
+        """Print rows with no header row, one per line."""
+        for row in rows:
+            if isinstance(row, (list, tuple)):
+                self.print(" | ".join(str(v) for v in row))
+            else:
+                self.print(str(row))
+
     def _print_table(self, data: Any, headers: Optional[List[str]] = None) -> None:
         """Print data as a table."""
         rows = self._to_rows(data)
@@ -215,17 +229,17 @@ class OutputWriter:
         if headers is None and rows and isinstance(rows[0], dict):
             headers = list(rows[0].keys())
 
-        if headers:
-            # Convert rows to strings and print with headers
-            str_rows = [self._row_to_strings(row, headers) for row in rows]
-            self._print_table_with_headers(headers, str_rows)
-        else:
-            # No headers, just print rows
-            for row in rows:
-                if isinstance(row, (list, tuple)):
-                    self.print(" | ".join(str(v) for v in row))
-                else:
-                    self.print(str(row))
+        if not headers:
+            self._print_rows_without_headers(rows)
+            return
+
+        str_rows = [self._row_to_strings(row, headers) for row in rows]
+        self._print_table_with_headers(headers, str_rows)
+
+    def _print_sequence(self, items: Sequence[Any]) -> None:
+        """Print each item of a list/tuple on its own line."""
+        for item in items:
+            self.print(item)
 
     def _print_text(self, data: Any) -> None:
         """Print data as plain text."""
@@ -234,8 +248,7 @@ class OutputWriter:
         elif isinstance(data, dict):
             self.print_dict(data)
         elif isinstance(data, (list, tuple)):
-            for item in data:
-                self.print(item)
+            self._print_sequence(data)
         elif is_dataclass(data):
             self.print_dict(asdict(data))
         else:
@@ -298,6 +311,35 @@ def emit_one(data: object, fmt: str = "json") -> None:
         print(json.dumps(data, indent=2, default=str))
 
 
+def _emit_rows_csv(rows: list[dict[str, object]], cols: list[str]) -> None:
+    """Write rows as CSV to stdout."""
+    import csv
+    import sys as _sys
+    w = csv.DictWriter(_sys.stdout, fieldnames=cols, extrasaction="ignore")
+    w.writeheader()
+    w.writerows(rows)
+
+
+def _emit_rows_table_plain(rows: list[dict[str, object]], cols: list[str]) -> None:
+    """Write rows as a tab-separated plain-text table to stdout."""
+    print("\t".join(cols))
+    for row in rows:
+        print("\t".join(str(row.get(c, "")) for c in cols))
+
+
+def _emit_rows_table(rows: list[dict[str, object]], cols: list[str]) -> None:
+    """Write rows as a rich table, falling back to plain text if rich is unavailable."""
+    try:
+        from rich.table import Table
+        from rich.console import Console
+        t = Table(*cols, show_header=True, header_style="bold")
+        for row in rows:
+            t.add_row(*[str(row.get(c, "")) for c in cols])
+        Console().print(t)
+    except ImportError:  # nosec B110 - rich is optional, fall back to plain text
+        _emit_rows_table_plain(rows, cols)
+
+
 def emit_rows(  # noqa: S3516 - NOSONAR - always returns 0 by design; callers chain return emit_rows() as exit code
     rows: list[dict[str, object]],
     fmt: str = "json",
@@ -308,27 +350,11 @@ def emit_rows(  # noqa: S3516 - NOSONAR - always returns 0 by design; callers ch
     if not rows:
         print(empty_msg, file=sys.stderr)
         return 0
+    cols = headers or list(rows[0].keys())
     if fmt == "json":
         print(json.dumps(rows, default=str))
     elif fmt == "csv":
-        import csv
-        import sys as _sys
-        cols = headers or list(rows[0].keys())
-        w = csv.DictWriter(_sys.stdout, fieldnames=cols, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+        _emit_rows_csv(rows, cols)
     else:  # table
-        try:
-            from rich.table import Table
-            from rich.console import Console
-            cols = headers or list(rows[0].keys())
-            t = Table(*cols, show_header=True, header_style="bold")
-            for row in rows:
-                t.add_row(*[str(row.get(c, "")) for c in cols])
-            Console().print(t)
-        except ImportError:  # nosec B110 - rich is optional, fall back to plain text
-            cols = headers or list(rows[0].keys())
-            print("\t".join(cols))
-            for row in rows:
-                print("\t".join(str(row.get(c, "")) for c in cols))
+        _emit_rows_table(rows, cols)
     return 0

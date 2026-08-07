@@ -11,22 +11,21 @@ Public API:
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import Any, Callable
 
 
 # ---------------------------------------------------------------------------
 # Parser introspection
 # ---------------------------------------------------------------------------
 
+_BUILTIN_TYPE_NAMES = {int: "int", float: "float", bool: "bool"}
+
+
 def _get_type_name(t: Any) -> str | None:
     if t is None:
         return None
-    if t is int:
-        return "int"
-    if t is float:
-        return "float"
-    if t is bool:
-        return "bool"
+    if t in _BUILTIN_TYPE_NAMES:
+        return _BUILTIN_TYPE_NAMES[t]
     return getattr(t, "__name__", str(t))
 
 
@@ -177,28 +176,36 @@ _ULTRA_OPT_KEY_MAP = {
     "choices": "c",
     "nargs": "g",
 }
-def _ultra_remap_scalars(node: dict) -> dict:
-    """Remap simple (non-list/dict) node fields to short keys, dropping empties."""
+def _keep_scalar_value(val: Any) -> bool:
+    """Keep predicate for node scalar fields: keep 0, drop other empty/None."""
+    return bool(val) or val == 0
+
+
+def _keep_option_value(val: Any) -> bool:
+    """Keep predicate for option fields: drop None, '', and False."""
+    return val is not None and val != "" and val is not False
+
+
+def _remap_with_keymap(src: dict, keymap: dict[str, str], keep: Callable[[Any], bool]) -> dict:
+    """Remap src's keys per keymap to short keys, dropping values keep() rejects."""
     out: dict = {}
-    for long_k, short_k in _ULTRA_KEY_MAP.items():
-        if long_k not in node:
+    for long_k, short_k in keymap.items():
+        if long_k not in src:
             continue
-        val = node[long_k]
-        if val or val == 0:  # keep 0 but drop empty/None
+        val = src[long_k]
+        if keep(val):
             out[short_k] = val
     return out
 
 
+def _ultra_remap_scalars(node: dict) -> dict:
+    """Remap simple (non-list/dict) node fields to short keys, dropping empties."""
+    return _remap_with_keymap(node, _ULTRA_KEY_MAP, _keep_scalar_value)
+
+
 def _ultra_compress_option(opt: dict) -> dict:
     """Remap a single option dict to short keys, dropping empty/False values."""
-    new_opt: dict = {}
-    for long_k, short_k in _ULTRA_OPT_KEY_MAP.items():
-        if long_k not in opt:
-            continue
-        val = opt[long_k]
-        if val is not None and val != "" and val is not False:
-            new_opt[short_k] = val
-    return new_opt
+    return _remap_with_keymap(opt, _ULTRA_OPT_KEY_MAP, _keep_option_value)
 
 
 def _ultra_compress_options(options: list[dict]) -> list[dict]:
@@ -313,10 +320,7 @@ def _needs_quoting(s: str) -> bool:
         return True
     if s[0] in (" ", "\t") or s[-1] in (" ", "\t"):
         return True
-    for ch in _YAML_NEEDS_QUOTE_CHARS:
-        if ch in s:
-            return True
-    return False
+    return any(ch in s for ch in _YAML_NEEDS_QUOTE_CHARS)
 
 
 def _yaml_scalar(val: Any) -> str:

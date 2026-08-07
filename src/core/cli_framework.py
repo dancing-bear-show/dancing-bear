@@ -159,6 +159,23 @@ class CLIApp:
         self._parser: Optional[argparse.ArgumentParser] = None
         self._pending_arguments: List[Argument] = []
 
+    @staticmethod
+    def _split_command_name(name: str, parent: Optional[str]) -> tuple[Optional[str], str]:
+        """Split a "parent.name" or "parent name" command name into (parent, name).
+
+        If parent is already given explicitly, name is returned unsplit.
+        Returns (cmd_parent, cmd_name).
+        """
+        if parent:
+            return parent, name
+        if "." in name:
+            parts = name.split(".", 1)
+            return parts[0], parts[1]
+        if " " in name:
+            parts = name.split(" ", 1)
+            return parts[0], parts[1]
+        return None, name
+
     def command(
         self,
         name: str,
@@ -185,17 +202,7 @@ class CLIApp:
             arguments = list(reversed(self._pending_arguments))
             self._pending_arguments.clear()
 
-            # Parse parent from name if not provided
-            cmd_name = name
-            cmd_parent = parent
-            if "." in name and not parent:
-                parts = name.split(".", 1)
-                cmd_parent = parts[0]
-                cmd_name = parts[1]
-            elif " " in name and not parent:
-                parts = name.split(" ", 1)
-                cmd_parent = parts[0]
-                cmd_name = parts[1]
+            cmd_parent, cmd_name = self._split_command_name(name, parent)
 
             cmd_def = CommandDef(
                 name=cmd_name,
@@ -365,6 +372,30 @@ class CLIApp:
             return argv_list
         return argv_list[:idx] + argv_list[idx + 1:]
 
+    @staticmethod
+    def _run_cmd_func_with_error_handling(
+        cmd_func: CommandFunc,
+        args: argparse.Namespace,
+        *,
+        coerce_int: bool,
+    ) -> int:
+        """Invoke cmd_func(args), converting known exceptions to exit codes.
+
+        coerce_int mirrors run_with_assistant's `int(cmd_func(args))` wrapping
+        (kept optional so run()'s return value is unchanged for callers that
+        already return a plain exit code without it).
+        """
+        try:
+            result = cmd_func(args)
+            return int(result) if coerce_int else result
+        except CLIError as e:
+            return handle_error(e, verbose=getattr(args, "verbose", False))
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            return ExitCode.INTERRUPTED
+        except Exception as e:
+            return handle_error(e, verbose=getattr(args, "verbose", False))
+
     def run_with_assistant(
         self,
         assistant: Any,
@@ -414,18 +445,8 @@ class CLIApp:
         cmd_func = getattr(args, "_cmd_func", None)
         if cmd_func is None:
             parser.print_help()
-            result = 0
-        else:
-            try:
-                result = int(cmd_func(args))
-            except CLIError as e:
-                result = handle_error(e, verbose=getattr(args, "verbose", False))
-            except KeyboardInterrupt:
-                print("\nInterrupted.", file=sys.stderr)
-                result = ExitCode.INTERRUPTED
-            except Exception as e:
-                result = handle_error(e, verbose=getattr(args, "verbose", False))
-        return result
+            return 0
+        return self._run_cmd_func_with_error_handling(cmd_func, args, coerce_int=True)
 
     def run(
         self,
@@ -474,15 +495,7 @@ class CLIApp:
             return ExitCode.USAGE
 
         # Run the command with error handling
-        try:
-            return cmd_func(args)
-        except CLIError as e:
-            return handle_error(e, verbose=getattr(args, "verbose", False))
-        except KeyboardInterrupt:
-            print("\nInterrupted.", file=sys.stderr)
-            return ExitCode.INTERRUPTED
-        except Exception as e:
-            return handle_error(e, verbose=getattr(args, "verbose", False))
+        return self._run_cmd_func_with_error_handling(cmd_func, args, coerce_int=False)
 
     def main(self, argv: Optional[Sequence[str]] = None) -> None:
         """Run the CLI and exit with the return code."""
