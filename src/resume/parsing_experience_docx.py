@@ -172,8 +172,13 @@ def _role_header_or_none(text: str) -> Optional[Dict[str, Any]]:
     Without this guard, bullets phrased "<verb> ... at <Company>" match the role
     pattern and get promoted to standalone roles, splitting the real role's
     bullet list across phantom entries.
+
+    The whitespace after the glyph is optional: DOCX exports and hand-typed
+    resumes both produce unspaced bullets ("•Improve ...", "-Improve ..."), and
+    those bypass a \\s+ guard. A role header never starts with one of these
+    glyphs, so treating any glyph-prefixed line as a bullet is safe.
     """
-    if re.match(r"^\s*[•\-\*]\s+", text):
+    if re.match(r"^\s*[•\-\*]\s*", text):
         return None
     return _parse_experience_entry(text)
 
