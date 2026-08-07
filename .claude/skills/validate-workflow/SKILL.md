@@ -154,8 +154,9 @@ holds mostly fragments but also at least one runnable entry point
 (`critique.yaml`), so a directory-based split misclassifies it.
 
 ```bash
-# Lint/validate every workflow, routing each file by its fragment marker
-for f in $(find workflows -name '*.yaml'); do
+# Lint/validate every workflow, routing each file by its fragment marker.
+# NUL-delimited so paths containing spaces or newlines survive the loop.
+find workflows -name '*.yaml' -print0 | while IFS= read -r -d '' f; do
   if grep -q '^fragment: true' "$f"; then
     ./bin/workflow validate-fragment "$f" >/dev/null 2>&1 || echo "FAIL (fragment): $f"
   else
@@ -169,10 +170,11 @@ for f in $(find workflows -name '*.yaml'); do
 done
 
 # Add --check-commands for the non-fragment files that changed on this branch
-for f in $(git diff --name-only main...HEAD -- 'workflows/**/*.yaml'); do
-  grep -q '^fragment: true' "$f" && continue
-  ./bin/workflow lint "$f" --check-commands --format yaml
-done
+git diff -z --name-only main...HEAD -- 'workflows/**/*.yaml' |
+  while IFS= read -r -d '' f; do
+    grep -q '^fragment: true' "$f" && continue
+    ./bin/workflow lint "$f" --check-commands --format yaml
+  done
 ```
 
 ## Common Fixes
