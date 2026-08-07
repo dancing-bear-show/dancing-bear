@@ -6,6 +6,7 @@ and exporting normalized layouts back to YAML-friendly dicts.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -66,22 +67,18 @@ def _get_folder_name(item: Item) -> str:
     return item.get("name", "Folder") if _is_folder_item(item) else ""
 
 
+def _extract_bundle_ids(items: list[Any]) -> list[str]:
+    """Extract bundle IDs from a list of items, filtering out invalid entries."""
+    return [bid for it in items if (bid := _extract_bundle_id(it))]
+
+
 def _flatten_folder_iconlists(folder_dict: dict[str, Any]) -> list[str]:
     """Extract all bundle IDs from a folder's iconLists."""
     apps: list[str] = []
     for page in folder_dict.get("iconLists") or []:
-        if not isinstance(page, list):
-            continue
-        for it in page:
-            bid = _extract_bundle_id(it)
-            if bid:
-                apps.append(bid)
+        if isinstance(page, list):
+            apps.extend(_extract_bundle_ids(page))
     return apps
-
-
-def _extract_bundle_ids(items: list[Any]) -> list[str]:
-    """Extract bundle IDs from a list of items, filtering out invalid entries."""
-    return [bid for it in items if (bid := _extract_bundle_id(it))]
 
 
 def _normalize_page_item(item: Any) -> Item | None:
@@ -178,24 +175,29 @@ def list_all_apps(layout: NormalizedLayout) -> list[str]:
     return result
 
 
-def compute_folder_page_map(layout: NormalizedLayout) -> dict[str, int]:
-    """Map folder name to the first page index where it appears."""
+def _compute_first_page_map(
+    layout: NormalizedLayout, key_of: Callable[[Item], str | None]
+) -> dict[str, int]:
+    """Map a key (derived per-item via key_of) to the first page index it appears on."""
     m: dict[str, int] = {}
     for pi, page in enumerate(layout.pages, start=1):
         for it in page:
-            if _is_folder_item(it):
-                name = _get_folder_name(it)
-                if name not in m:
-                    m[name] = pi
+            key = key_of(it)
+            if key and key not in m:
+                m[key] = pi
     return m
+
+
+def _folder_name_key(item: Item) -> str | None:
+    """Return the folder name key for page-map computation, or None for non-folders."""
+    return _get_folder_name(item) if _is_folder_item(item) else None
+
+
+def compute_folder_page_map(layout: NormalizedLayout) -> dict[str, int]:
+    """Map folder name to the first page index where it appears."""
+    return _compute_first_page_map(layout, _folder_name_key)
 
 
 def compute_root_app_page_map(layout: NormalizedLayout) -> dict[str, int]:
     """Map root-level app bundle id to page index (apps inside folders are excluded)."""
-    m: dict[str, int] = {}
-    for pi, page in enumerate(layout.pages, start=1):
-        for it in page:
-            bid = _get_app_id(it)
-            if bid and bid not in m:
-                m[bid] = pi
-    return m
+    return _compute_first_page_map(layout, _get_app_id)

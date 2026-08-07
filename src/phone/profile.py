@@ -21,6 +21,14 @@ def _app_item(bundle_id: str) -> dict[str, Any]:
     return AppItem(bundle_id).as_spec()
 
 
+def _int_or_default(value: Any, default: int) -> int:
+    """Convert value to int, falling back to default on any conversion failure."""
+    try:
+        return int(value)
+    except Exception:  # nosec B110 - fallback to caller-supplied default
+        return default
+
+
 @dataclass
 class ProfileMetadata:
     """Identification fields for a mobileconfig profile."""
@@ -267,14 +275,8 @@ def _normalize_pages_spec(pages_spec: dict[Any, Any]) -> list[dict[str, Any]]:
           folders: [...]
     """
 
-    def _to_int(k: Any) -> int:
-        try:
-            return int(k)
-        except Exception:
-            return 0
-
     ordered: list[dict[str, Any]] = []
-    for k in sorted(pages_spec.keys(), key=_to_int):
+    for k in sorted(pages_spec.keys(), key=lambda k: _int_or_default(k, 0)):
         v = pages_spec.get(k) or {}
         ordered.append(
             {
@@ -365,10 +367,7 @@ def _add_all_apps_folder(
 ) -> None:
     """Add a catch-all folder for remaining apps."""
     page_num = merged_all_apps_cfg.get("page") or (len(builder.pages) + 1)
-    try:
-        page_num = int(page_num)
-    except Exception:  # nosec B110 - fallback to next page
-        page_num = len(builder.pages) + 1
+    page_num = _int_or_default(page_num, len(builder.pages) + 1)
 
     assigned = _collect_assigned_apps(builder, dock, pins, folders)
     builder.add_all_apps_folder(
@@ -395,10 +394,7 @@ def _add_auto_categorized_folders(
     config: AutoCategorizeConfig,
 ) -> None:
     """Auto-categorize remaining apps into folders on a target page."""
-    try:
-        target_page = int(config.auto_categories_page)
-    except Exception:  # nosec B110 - fallback to page 2
-        target_page = 2
+    target_page = _int_or_default(config.auto_categories_page, 2)
 
     assigned = _collect_assigned_apps(builder, config.dock, config.pins, config.folders)
     remaining = [
