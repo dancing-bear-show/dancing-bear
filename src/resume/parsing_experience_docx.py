@@ -165,6 +165,24 @@ def _parse_h2_education(line: str) -> Dict[str, str]:
     return {"degree": degree, "institution": "", "year": year}
 
 
+def _role_header_or_none(text: str) -> Optional[Dict[str, Any]]:
+    """Parse text as a role header, or None if it is a bullet line.
+
+    A line opening with a bullet glyph is always a bullet, never a role header.
+    Without this guard, bullets phrased "<verb> ... at <Company>" match the role
+    pattern and get promoted to standalone roles, splitting the real role's
+    bullet list across phantom entries.
+
+    The whitespace after the glyph is optional: DOCX exports and hand-typed
+    resumes both produce unspaced bullets ("•Improve ...", "-Improve ..."), and
+    those bypass a \\s+ guard. A role header never starts with one of these
+    glyphs, so treating any glyph-prefixed line as a bullet is safe.
+    """
+    if re.match(r"^\s*[•\-\*]\s*", text):
+        return None
+    return _parse_experience_entry(text)
+
+
 def _process_exp_paragraph(
     style: str, text: str, current: Optional[Dict[str, Any]], last_company: str,
     is_next_h2: bool
@@ -173,7 +191,7 @@ def _process_exp_paragraph(
     completed = None
 
     # Try shared experience entry parser
-    exp_entry = _parse_experience_entry(text)
+    exp_entry = _role_header_or_none(text)
     if exp_entry and style in {"normal", "list paragraph"}:
         if current:
             completed = current
