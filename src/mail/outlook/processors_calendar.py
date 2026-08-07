@@ -76,6 +76,15 @@ def _entry_name(entry) -> str | None:
     return None
 
 
+def _error_envelope(exc: Exception, code: int) -> ResultEnvelope:
+    """Build a standard error ResultEnvelope from a caught exception."""
+    return ResultEnvelope(
+        status="error",
+        payload=None,
+        diagnostics={"error": str(exc), "code": code},
+    )
+
+
 class OutlookCategoriesListProcessor(Processor[OutlookCategoriesListPayload, ResultEnvelope[OutlookCategoriesListResult]]):
     """List Outlook categories."""
 
@@ -215,6 +224,16 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _sync_one_folder(self, client, name: str, path_map: dict, dry_run: bool) -> bool:
+        """Ensure a single folder exists; return True if newly created."""
+        if dry_run:
+            return True
+        fid = client.ensure_folder_path(name)
+        if not fid:
+            return False
+        path_map[name] = fid
+        return True
+
     def _sync_folders(self, client, labels: list, path_map: dict, dry_run: bool):
         """Sync folder entries; return (created, skipped)."""
         created = skipped = 0
@@ -226,13 +245,8 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
             if name in path_map:
                 skipped += 1
                 continue
-            if dry_run:
+            if self._sync_one_folder(client, name, path_map, dry_run):
                 created += 1
-            else:
-                fid = client.ensure_folder_path(name)
-                if fid:
-                    path_map[name] = fid
-                    created += 1
         return created, skipped
 
 
@@ -333,26 +347,22 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _create_one_event_from_config(self, ev: dict, client: Any, no_reminder: bool) -> bool:
+        """Create one event (recurring or single) from a config entry."""
+        if not isinstance(ev, dict) or not ev.get("subject"):
+            return False
+        if ev.get("repeat"):
+            return self._create_recurring_event(ev, client, no_reminder)
+        return self._create_single_event(ev, client, no_reminder)
+
     def _create_events_from_config(
         self, events: list[dict[str, Any]], client: Any, no_reminder: bool
     ) -> int:
         """Create events from config list."""
-        created = 0
-        for ev in events:
-            if not isinstance(ev, dict):
-                continue
-            subj = ev.get("subject")
-            if not subj:
-                continue
-
-            if ev.get("repeat"):
-                if self._create_recurring_event(ev, client, no_reminder):
-                    created += 1
-            else:
-                if self._create_single_event(ev, client, no_reminder):
-                    created += 1
-
-        return created
+        return sum(
+            1 for ev in events
+            if self._create_one_event_from_config(ev, client, no_reminder)
+        )
 
     def _create_recurring_event(self, ev: dict[str, Any], client: Any, no_reminder: bool) -> bool:
         """Create a recurring event from config dict."""

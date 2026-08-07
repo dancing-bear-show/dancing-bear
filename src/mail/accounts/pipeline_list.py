@@ -250,42 +250,55 @@ class AccountsPlanLabelsResult:
 AccountsPlanLabelsRequestConsumer = SimpleConsumer[AccountsPlanLabelsRequest]
 
 
+def _classify_label_specs(target: list, existing: dict, provider: str) -> tuple[list, list]:
+    """Split label specs into (to_create, to_update) name lists."""
+    to_create = []
+    to_update = []
+    for spec in target:
+        name = spec.get("name")
+        if not name:
+            continue
+        if name not in existing:
+            to_create.append(name)
+        elif _needs_label_update(spec, existing[name], provider):
+            to_update.append(name)
+    return to_create, to_update
+
+
+def _plan_labels_for_account(a: dict, base: list) -> LabelsPlanInfo:
+    """Build the labels plan for a single account."""
+    from .helpers import build_provider_for_account
+    from ..dsl import normalize_labels_for_outlook
+
+    provider = (a.get("provider") or "").lower()
+    client = build_provider_for_account(a)
+    client.authenticate()
+    existing = {lab.get("name", ""): lab for lab in client.list_labels(use_cache=True)}
+    target = normalize_labels_for_outlook(base) if provider == "outlook" else base
+
+    to_create, to_update = _classify_label_specs(target, existing, provider)
+
+    return LabelsPlanInfo(
+        account_name=a.get("name", "account"),
+        provider=provider,
+        to_create=len(to_create),
+        to_update=len(to_update),
+    )
+
+
 class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, AccountsPlanLabelsResult]):
     def _process_safe(self, payload: AccountsPlanLabelsRequest) -> AccountsPlanLabelsResult:
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
+        from .helpers import load_accounts, iter_accounts
         from ..yamlio import load_config
-        from ..dsl import normalize_labels_for_outlook
 
         accts = load_accounts(payload.config_path)
         desired_doc = load_config(payload.labels_path)
         base = desired_doc.get("labels") or []
 
-        plans: list[LabelsPlanInfo] = []
-        for a in iter_accounts(accts, payload.accounts_filter):
-            provider = (a.get("provider") or "").lower()
-            client = build_provider_for_account(a)
-            client.authenticate()
-            existing = {lab.get("name", ""): lab for lab in client.list_labels(use_cache=True)}
-            target = normalize_labels_for_outlook(base) if provider == "outlook" else base
-
-            to_create = []
-            to_update = []
-            for spec in target:
-                name = spec.get("name")
-                if not name:
-                    continue
-                if name not in existing:
-                    to_create.append(name)
-                elif _needs_label_update(spec, existing[name], provider):
-                    to_update.append(name)
-
-            plans.append(LabelsPlanInfo(
-                account_name=a.get("name", "account"),
-                provider=provider,
-                to_create=len(to_create),
-                to_update=len(to_update),
-            ))
-
+        plans = [
+            _plan_labels_for_account(a, base)
+            for a in iter_accounts(accts, payload.accounts_filter)
+        ]
         return AccountsPlanLabelsResult(plans=plans)
 
 
@@ -483,60 +496,82 @@ class AccountsSyncFiltersResult:
 AccountsSyncFiltersRequestConsumer = SimpleConsumer[AccountsSyncFiltersRequest]
 
 
+def _sync_filters_gmail(a: dict, payload: "AccountsSyncFiltersRequest") -> SyncedFiltersInfo:
+    """Delegate Gmail filter sync to run_filters_sync."""
+    import argparse
+    from ..filters.commands import run_filters_sync
+
+    ns = argparse.Namespace(
+        credentials=a.get("credentials"),
+        token=a.get("token"),
+        cache=a.get("cache"),
+        config=payload.filters_path,
+        dry_run=payload.dry_run,
+        delete_missing=False,
+        require_forward_verified=payload.require_forward_verified,
+    )
+    run_filters_sync(ns)
+    return SyncedFiltersInfo(
+        account_name=a.get("name", "account"),
+        provider="gmail",
+        created=-1,  # delegated to run_filters_sync
+        errors=0,
+    )
+
+
+def _sync_filters_outlook(a: dict, payload: "AccountsSyncFiltersRequest") -> SyncedFiltersInfo:
+    """Sync Outlook filters directly against the Graph API."""
+    from .helpers import build_client_for_account
+    from ..yamlio import load_config
+    from ..dsl import normalize_filters_for_outlook
+
+    client = build_client_for_account(a)
+    client.authenticate()
+    doc = load_config(payload.filters_path)
+    desired = normalize_filters_for_outlook(doc.get("filters") or [])
+    existing = client.list_filters()
+    name_to_id = client.get_label_id_map()
+
+    created, errors = _sync_outlook_filters(client, desired, existing, name_to_id, payload.dry_run)
+    return SyncedFiltersInfo(
+        account_name=a.get("name", "account"),
+        provider="outlook",
+        created=created,
+        errors=errors,
+    )
+
+
+def _sync_filters_unsupported(a: dict, provider: str) -> SyncedFiltersInfo:
+    """Record an unsupported-provider result without attempting sync."""
+    return SyncedFiltersInfo(
+        account_name=a.get("name", "account"),
+        provider=provider,
+        created=-1,
+        errors=0,
+    )
+
+
+# provider -> sync function; bound as functions, not calls (evaluated at import time)
+_FILTERS_SYNC_BY_PROVIDER = {
+    "gmail": _sync_filters_gmail,
+    "outlook": _sync_filters_outlook,
+}
+
+
 class AccountsSyncFiltersProcessor(SafeProcessor[AccountsSyncFiltersRequest, AccountsSyncFiltersResult]):
     def _process_safe(self, payload: AccountsSyncFiltersRequest) -> AccountsSyncFiltersResult:
-        import argparse
-        from .helpers import load_accounts, iter_accounts, build_client_for_account
-        from ..yamlio import load_config
-        from ..dsl import normalize_filters_for_outlook
-        from ..filters.commands import run_filters_sync
+        from .helpers import load_accounts, iter_accounts
 
         accts = load_accounts(payload.config_path)
         synced: list[SyncedFiltersInfo] = []
 
         for a in iter_accounts(accts, payload.accounts_filter):
             provider = (a.get("provider") or "").lower()
-
-            if provider == "gmail":
-                ns = argparse.Namespace(
-                    credentials=a.get("credentials"),
-                    token=a.get("token"),
-                    cache=a.get("cache"),
-                    config=payload.filters_path,
-                    dry_run=payload.dry_run,
-                    delete_missing=False,
-                    require_forward_verified=payload.require_forward_verified,
-                )
-                run_filters_sync(ns)
-                synced.append(SyncedFiltersInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    created=-1,  # delegated to run_filters_sync
-                    errors=0,
-                ))
-            elif provider == "outlook":
-                client = build_client_for_account(a)
-                client.authenticate()
-                doc = load_config(payload.filters_path)
-                desired = normalize_filters_for_outlook(doc.get("filters") or [])
-                existing = client.list_filters()
-                name_to_id = client.get_label_id_map()
-
-                created, errors = _sync_outlook_filters(client, desired, existing, name_to_id, payload.dry_run)
-
-                synced.append(SyncedFiltersInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    created=created,
-                    errors=errors,
-                ))
+            sync_fn = _FILTERS_SYNC_BY_PROVIDER.get(provider)
+            if sync_fn is None:
+                synced.append(_sync_filters_unsupported(a, provider))
             else:
-                synced.append(SyncedFiltersInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    created=-1,
-                    errors=0,
-                ))
+                synced.append(sync_fn(a, payload))
 
         return AccountsSyncFiltersResult(synced=synced)
 
@@ -585,57 +620,80 @@ class AccountsExportSignaturesResult:
 AccountsExportSignaturesRequestConsumer = SimpleConsumer[AccountsExportSignaturesRequest]
 
 
+def _export_signatures_gmail(a: dict, doc: dict, assets: Path) -> int:
+    """Populate doc['signatures']['gmail'] and write the default iOS signature asset.
+
+    Returns the exported signature count.
+    """
+    from .helpers import build_provider_for_account
+
+    client = build_provider_for_account(a)
+    client.authenticate()
+    sigs = client.list_signatures()
+    doc["signatures"]["gmail"] = [
+        {
+            "sendAs": s.get("sendAsEmail"),
+            "isPrimary": s.get("isPrimary", False),
+            "signature_html": s.get("signature", ""),
+        }
+        for s in sigs
+    ]
+    prim = next((s for s in doc["signatures"]["gmail"] if s.get("isPrimary")), None)
+    if prim and prim.get("signature_html"):
+        doc["signatures"]["default_html"] = prim["signature_html"]
+        (assets / "ios_signature.html").write_text(prim["signature_html"], encoding="utf-8")
+    return len(doc["signatures"]["gmail"])
+
+
+def _export_signatures_outlook(assets: Path) -> int:
+    """Write guidance for Outlook, which has no signature export API. Returns 0."""
+    (assets / "OUTLOOK_README.txt").write_text(
+        "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
+        "Use ios_signature.html exported from a Gmail account, or paste HTML manually.",
+        encoding="utf-8",
+    )
+    return 0
+
+
+def _export_signatures_for_account(a: dict, out_dir: Path) -> ExportedSignaturesInfo:
+    """Export signatures (or write provider guidance) for a single account."""
+    from ..yamlio import dump_config
+
+    name = a.get("name", "account")
+    provider = (a.get("provider") or "").lower()
+    path = out_dir / f"signatures_{name}.yaml"
+    assets = out_dir / f"{name}_assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    doc: dict[str, Any] = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
+
+    if provider == "gmail":
+        sig_count = _export_signatures_gmail(a, doc, assets)
+    elif provider == "outlook":
+        sig_count = _export_signatures_outlook(assets)
+    else:
+        sig_count = 0
+
+    dump_config(str(path), doc)
+    return ExportedSignaturesInfo(
+        account_name=name,
+        provider=provider,
+        output_path=str(path),
+        signature_count=sig_count,
+    )
+
+
 class AccountsExportSignaturesProcessor(SafeProcessor[AccountsExportSignaturesRequest, AccountsExportSignaturesResult]):
     def _process_safe(self, payload: AccountsExportSignaturesRequest) -> AccountsExportSignaturesResult:
-        from .helpers import load_accounts, iter_accounts, build_provider_for_account
-        from ..yamlio import dump_config
+        from .helpers import load_accounts, iter_accounts
 
         accts = load_accounts(payload.config_path)
         out_dir = Path(payload.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        exports: list[ExportedSignaturesInfo] = []
-        for a in iter_accounts(accts, payload.accounts_filter):
-            name = a.get("name", "account")
-            provider = (a.get("provider") or "").lower()
-            path = out_dir / f"signatures_{name}.yaml"
-            assets = out_dir / f"{name}_assets"
-            assets.mkdir(parents=True, exist_ok=True)
-            doc: dict[str, Any] = {"signatures": {"gmail": [], "ios": {}, "outlook": []}}
-            sig_count = 0
-
-            if provider == "gmail":
-                client = build_provider_for_account(a)
-                client.authenticate()
-                sigs = client.list_signatures()
-                doc["signatures"]["gmail"] = [
-                    {
-                        "sendAs": s.get("sendAsEmail"),
-                        "isPrimary": s.get("isPrimary", False),
-                        "signature_html": s.get("signature", ""),
-                    }
-                    for s in sigs
-                ]
-                sig_count = len(doc["signatures"]["gmail"])
-                prim = next((s for s in doc["signatures"]["gmail"] if s.get("isPrimary")), None)
-                if prim and prim.get("signature_html"):
-                    doc["signatures"]["default_html"] = prim["signature_html"]
-                    (assets / "ios_signature.html").write_text(prim["signature_html"], encoding="utf-8")
-            elif provider == "outlook":
-                (assets / "OUTLOOK_README.txt").write_text(
-                    "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
-                    "Use ios_signature.html exported from a Gmail account, or paste HTML manually.",
-                    encoding="utf-8",
-                )
-
-            dump_config(str(path), doc)
-            exports.append(ExportedSignaturesInfo(
-                account_name=name,
-                provider=provider,
-                output_path=str(path),
-                signature_count=sig_count,
-            ))
-
+        exports = [
+            _export_signatures_for_account(a, out_dir)
+            for a in iter_accounts(accts, payload.accounts_filter)
+        ]
         return AccountsExportSignaturesResult(exports=exports)
 
 
@@ -679,11 +737,38 @@ class AccountsSyncSignaturesResult:
 AccountsSyncSignaturesRequestConsumer = SimpleConsumer[AccountsSyncSignaturesRequest]
 
 
+def _sync_signatures_gmail(a: dict, payload: "AccountsSyncSignaturesRequest") -> SyncedSignaturesInfo:
+    """Delegate Gmail signature sync to run_signatures_sync."""
+    import argparse
+    from ..signatures.commands import run_signatures_sync
+
+    ns = argparse.Namespace(
+        credentials=a.get("credentials"),
+        token=a.get("token"),
+        config=payload.config_path,
+        send_as=payload.send_as,
+        dry_run=payload.dry_run,
+        account_display_name=a.get("display_name"),
+    )
+    run_signatures_sync(ns)
+    return SyncedSignaturesInfo(account_name=a.get("name", "account"), provider="gmail", status="delegated")
+
+
+def _sync_signatures_outlook(a: dict) -> SyncedSignaturesInfo:
+    """Write guidance for Outlook, which has no signature sync API."""
+    assets = Path("signatures_assets")
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "OUTLOOK_README.txt").write_text(
+        "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
+        "Use ios_signature.html or paste HTML manually.",
+        encoding="utf-8",
+    )
+    return SyncedSignaturesInfo(account_name=a.get("name", "account"), provider="outlook", status="wrote_guidance")
+
+
 class AccountsSyncSignaturesProcessor(SafeProcessor[AccountsSyncSignaturesRequest, AccountsSyncSignaturesResult]):
     def _process_safe(self, payload: AccountsSyncSignaturesRequest) -> AccountsSyncSignaturesResult:
-        import argparse
         from .helpers import load_accounts, iter_accounts
-        from ..signatures.commands import run_signatures_sync
 
         accts = load_accounts(payload.config_path)
         synced: list[SyncedSignaturesInfo] = []
@@ -692,39 +777,11 @@ class AccountsSyncSignaturesProcessor(SafeProcessor[AccountsSyncSignaturesReques
             provider = (a.get("provider") or "").lower()
 
             if provider == "gmail":
-                ns = argparse.Namespace(
-                    credentials=a.get("credentials"),
-                    token=a.get("token"),
-                    config=payload.config_path,
-                    send_as=payload.send_as,
-                    dry_run=payload.dry_run,
-                    account_display_name=a.get("display_name"),
-                )
-                run_signatures_sync(ns)
-                synced.append(SyncedSignaturesInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    status="delegated",
-                ))
+                synced.append(_sync_signatures_gmail(a, payload))
             elif provider == "outlook":
-                assets = Path("signatures_assets")
-                assets.mkdir(parents=True, exist_ok=True)
-                (assets / "OUTLOOK_README.txt").write_text(
-                    "Outlook signatures are not exposed via Microsoft Graph v1.0.\n"
-                    "Use ios_signature.html or paste HTML manually.",
-                    encoding="utf-8",
-                )
-                synced.append(SyncedSignaturesInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    status="wrote_guidance",
-                ))
+                synced.append(_sync_signatures_outlook(a))
             else:
-                synced.append(SyncedSignaturesInfo(
-                    account_name=a.get("name", "account"),
-                    provider=provider,
-                    status="unsupported",
-                ))
+                synced.append(SyncedSignaturesInfo(account_name=a.get("name", "account"), provider=provider, status="unsupported"))
 
         return AccountsSyncSignaturesResult(synced=synced)
 

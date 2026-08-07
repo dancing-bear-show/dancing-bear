@@ -232,27 +232,35 @@ def run_outlook_categories_export(args) -> int:
     )
 
 
+def _create_category(client, spec: dict, name: str, dry_run: bool) -> None:
+    """Create (or preview creating) a category."""
+    if dry_run:
+        print(f"Would create category: {name}")
+    else:
+        client.create_label(**spec)
+        print(f"Created category: {name}")
+
+
+def _update_category(client, cur: dict, upd: dict, name: str, dry_run: bool) -> None:
+    """Update (or preview updating) a category."""
+    if dry_run:
+        print(f"Would update category: {name}")
+    else:
+        client.update_label(cur.get("id", ""), upd)
+        print(f"Updated category: {name}")
+
+
 def _sync_one_category(client, spec: dict, existing: dict, dry_run: bool) -> tuple:
     """Sync a single category spec. Returns (created_delta, updated_delta)."""
     name = spec.get("name")
     if not name:
         return 0, 0
     if name not in existing:
-        if dry_run:
-            print(f"Would create category: {name}")
-        else:
-            client.create_label(**spec)
-            print(f"Created category: {name}")
+        _create_category(client, spec, name, dry_run)
         return 1, 0
     cur = existing[name]
-    upd = {"name": name}
     if spec.get("color") and spec.get("color") != cur.get("color"):
-        upd["color"] = spec["color"]
-        if dry_run:
-            print(f"Would update category: {name}")
-        else:
-            client.update_label(cur.get("id", ""), upd)
-            print(f"Updated category: {name}")
+        _update_category(client, cur, {"name": name, "color": spec["color"]}, name, dry_run)
         return 0, 1
     return 0, 0
 
@@ -415,6 +423,19 @@ def run_outlook_messages_search(args) -> int:
     return 0
 
 
+def _prune_one_empty_rule(client, rule: dict, dry_run: bool) -> bool:
+    """Delete (or preview deleting) a single empty rule. Returns True if it counted as deleted."""
+    rid = rule.get("id")
+    if not rid:
+        return False
+    if dry_run:
+        print(f"Would delete empty rule: {rid}")
+    else:
+        client.delete_filter(rid)
+        print(f"Deleted empty rule: {rid}")
+    return True
+
+
 def run_outlook_rules_prune_empty(args) -> int:
     """Delete Outlook inbox rules that have no conditions and no actions."""
     client, err = get_outlook_client(args)
@@ -429,17 +450,7 @@ def run_outlook_rules_prune_empty(args) -> int:
         print("No empty rules found.")
         return 0
 
-    deleted = 0
-    for r in empty:
-        rid = r.get("id")
-        if not rid:
-            continue
-        if dry_run:
-            print(f"Would delete empty rule: {rid}")
-        else:
-            client.delete_filter(rid)
-            print(f"Deleted empty rule: {rid}")
-        deleted += 1
+    deleted = sum(1 for r in empty if _prune_one_empty_rule(client, r, dry_run))
 
     action = "Would delete" if dry_run else "Deleted"
     print(f"{action} {deleted} empty rule(s).")

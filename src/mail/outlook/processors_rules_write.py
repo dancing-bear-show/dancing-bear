@@ -106,6 +106,32 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
                 diagnostics={"error": str(exc), "code": 1},
             )
 
+    def _create_rule_if_new(
+        self, spec: dict[str, Any], existing: dict[str, Any], ctx: RuleContext, dry_run: bool
+    ) -> tuple[str, bool] | None:
+        """Build criteria/action/key for one spec and create it if missing.
+
+        Returns (key, was_created) for specs with valid criteria, or None to skip
+        (invalid criteria, so no key is contributed to the desired-keys set).
+        """
+        m = spec.get("match") or {}
+        a_act = spec.get("action") or {}
+        criteria = _build_rule_criteria(m)
+        if not criteria:
+            return None
+
+        action = _build_rule_action(a_act, ctx)
+        key = _create_rule_key(criteria, action)
+        if key in existing:
+            return key, False
+
+        if not dry_run:
+            try:
+                ctx.client.create_filter(criteria, action)
+            except Exception:  # nosec B110 - filter creation failure logged elsewhere
+                pass
+        return key, True
+
     def _create_desired_rules(
         self,
         desired: list[dict[str, Any]],
@@ -122,27 +148,25 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         desired_keys: set = set()
 
         for spec in desired:
-            m = spec.get("match") or {}
-            a_act = spec.get("action") or {}
-            criteria = _build_rule_criteria(m)
-            if not criteria:
+            result = self._create_rule_if_new(spec, existing, ctx, dry_run)
+            if result is None:
                 continue
-
-            action = _build_rule_action(a_act, ctx)
-            key = _create_rule_key(criteria, action)
+            key, was_created = result
             desired_keys.add(key)
-
-            if key in existing:
-                continue
-
-            if not dry_run:
-                try:
-                    ctx.client.create_filter(criteria, action)
-                except Exception:  # nosec B110 - filter creation failure logged elsewhere
-                    pass
-            created += 1
+            if was_created:
+                created += 1
 
         return created, desired_keys
+
+    def _delete_one_rule(self, client: Any, rid: str | None, dry_run: bool) -> bool:
+        """Delete a single rule by id; return True if it counted as deleted."""
+        if dry_run or not rid:
+            return True
+        try:
+            client.delete_filter(rid)
+            return True
+        except Exception:  # nosec B110 - filter deletion failure
+            return False
 
     def _delete_missing_rules(
         self, existing: dict[str, Any], desired_keys: set, payload: OutlookRulesSyncPayload
@@ -157,19 +181,11 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
         Returns:
             Number of rules deleted
         """
-        deleted = 0
-        for k, rule in existing.items():
-            if k not in desired_keys:
-                rid = rule.get("id")
-                if not payload.dry_run and rid:
-                    try:
-                        payload.client.delete_filter(rid)
-                        deleted += 1
-                    except Exception:  # nosec B110 - filter deletion failure
-                        pass
-                else:
-                    deleted += 1
-        return deleted
+        to_delete = [rule for k, rule in existing.items() if k not in desired_keys]
+        return sum(
+            1 for rule in to_delete
+            if self._delete_one_rule(payload.client, rule.get("id"), payload.dry_run)
+        )
 
 
 class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelope[OutlookRulesPlanResult]]):
