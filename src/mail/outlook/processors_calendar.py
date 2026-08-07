@@ -216,7 +216,14 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
             )
 
     def _sync_one_folder(self, client, name: str, path_map: dict, dry_run: bool) -> bool:
-        """Ensure a single folder exists; return True if newly created."""
+        """Ensure a single folder exists; return True if it counts as created.
+
+        Under dry_run this returns True WITHOUT creating anything, so the
+        caller's `created` tally reports what a real run would create. That is
+        the point of the plan output, and it matches the pre-refactor
+        behavior exactly -- do not "fix" it to return False, which would make
+        every dry-run plan report zero.
+        """
         if dry_run:
             return True
         fid = client.ensure_folder_path(name)
