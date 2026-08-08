@@ -175,14 +175,7 @@ def finish(
     paths = _ensure_dirs(root)
     new_path = _job_path(paths[target_folder], job_path.stem)
     atomic_write_json(new_path, data)
-    try:
-        job_path.unlink(missing_ok=True)  # type: ignore[arg-type]
-    except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug(
-            "Failed to remove processing job file %s: %s", job_path, exc
-        )
+    _remove_job_file(job_path)
     return new_path
 
 
@@ -204,14 +197,7 @@ def retry(
     paths = _ensure_dirs(root)
     new_path = _job_path(paths["pending"], job_path.stem)
     atomic_write_json(new_path, data)
-    try:
-        job_path.unlink(missing_ok=True)  # type: ignore[arg-type]
-    except Exception as exc:
-        import logging as _logging
-
-        _logging.getLogger(__name__).debug(
-            "Failed to remove job file %s: %s", job_path, exc
-        )
+    _remove_job_file(job_path)
     return new_path
 
 
@@ -259,14 +245,20 @@ def _strip_error_field(data: dict, job_path: Path) -> None:
 
 
 def _remove_job_file(job_path: Path) -> None:
-    """Unlink the old job file, logging on failure."""
+    """Unlink the old job file after its replacement is written, logging on failure.
+
+    Shared by finish(), retry(), and requeue_error(), which all write the new
+    job file first and then remove the old one. The message stays generic
+    because the path itself identifies which queue directory the job came
+    from -- naming one specific transition here would be wrong for the others.
+    """
     import logging as _logging
 
     try:
         job_path.unlink(missing_ok=True)  # type: ignore[arg-type]
     except Exception as exc:
         _logging.getLogger(__name__).debug(
-            "Failed to remove error job %s: %s", job_path, exc
+            "Failed to remove job file %s: %s", job_path, exc
         )
 
 

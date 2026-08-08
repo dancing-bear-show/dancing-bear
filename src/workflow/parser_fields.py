@@ -255,6 +255,22 @@ def _parse_executor(
     return executor, script
 
 
+def _check_sub_workflow_consistency(
+    kind: StageKind, kind_str: str, sub_workflow: str, source: str, stage_name: str
+) -> None:
+    """Verify sub_workflow is set iff kind == sub_workflow."""
+    if kind == StageKind.sub_workflow and not sub_workflow.strip():
+        raise WorkflowParseError(
+            f"{source}: stage '{stage_name}' has kind='sub-workflow' but "
+            f"missing or empty 'sub_workflow' path"
+        )
+    if kind != StageKind.sub_workflow and sub_workflow.strip():
+        raise WorkflowParseError(
+            f"{source}: stage '{stage_name}' sets 'sub_workflow' but kind='{kind_str}' "
+            f"(only allowed on kind='sub-workflow' stages)"
+        )
+
+
 def _parse_stage(data: dict[str, Any], source: str) -> StageSpec:  # NOSONAR - sequential guard clauses
     if not isinstance(data, dict):
         raise WorkflowParseError(f"{source}: stage entry must be a mapping")
@@ -294,16 +310,7 @@ def _parse_stage(data: dict[str, Any], source: str) -> StageSpec:  # NOSONAR - s
         fan_out = _parse_fan_out(data["fan_out"], source, stage_name)
 
     sub_workflow = str(data.get("sub_workflow") or "")
-    if kind == StageKind.sub_workflow and not sub_workflow.strip():
-        raise WorkflowParseError(
-            f"{source}: stage '{stage_name}' has kind='sub-workflow' but "
-            f"missing or empty 'sub_workflow' path"
-        )
-    if kind != StageKind.sub_workflow and sub_workflow.strip():
-        raise WorkflowParseError(
-            f"{source}: stage '{stage_name}' sets 'sub_workflow' but kind='{kind_str}' "
-            f"(only allowed on kind='sub-workflow' stages)"
-        )
+    _check_sub_workflow_consistency(kind, kind_str, sub_workflow, source, stage_name)
 
     raw_validates_output = data.get("validates_output") or []
     if not isinstance(raw_validates_output, list):

@@ -37,6 +37,26 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
+def _finish_or_retry(
+    proc_path: Path, ctx: JobContext, config: WorkerConfig, reason: str
+) -> None:
+    """Finish the job as errored if attempts are exhausted, else retry it."""
+    attempts = ctx.attempts + 1
+    if attempts >= ctx.max_attempts:
+        q.finish(proc_path, success=False, error_msg=reason)
+    else:
+        q.retry(proc_path, delay_sec=config.backoff, reason=reason)
+
+
+def _effective_job_timeout(job_data: dict[str, object], default_timeout: int) -> int:
+    """Resolve per-job timeout override, falling back to default_timeout."""
+    try:
+        per_job = int(job_data.get("timeout_sec") or 0)
+        return per_job if per_job > 0 else default_timeout
+    except (TypeError, ValueError):
+        return default_timeout
+
+
 def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> None:
     """Reset attempts to original_attempts after a deferred re-queue.
 
@@ -153,17 +173,11 @@ def _handle_outcome(outcome_ctx: OutcomeContext, success: bool, out: object) -> 
             "worker", duration, args=[command, ctx.job_type, "terminal"], exit_code=1
         )
     else:
-        attempts = ctx.attempts + 1
-        if attempts >= ctx.max_attempts:
-            q.finish(proc_path, success=False, error_msg=out_str)
-            log_perf_jsonl(
-                "worker", duration, args=[command, ctx.job_type, "error"], exit_code=1
-            )
-        else:
-            q.retry(proc_path, delay_sec=config.backoff, reason=out_str)
-            log_perf_jsonl(
-                "worker", duration, args=[command, ctx.job_type, "retry"], exit_code=1
-            )
+        status = "error" if ctx.attempts + 1 >= ctx.max_attempts else "retry"
+        _finish_or_retry(proc_path, ctx, config, out_str)
+        log_perf_jsonl(
+            "worker", duration, args=[command, ctx.job_type, status], exit_code=1
+        )
 
 
 # ============================================================================
@@ -242,11 +256,7 @@ class JobProcessor:
         ctx = JobContext.from_item(job_path, job_data)
 
         # Resolve effective per-job timeout
-        try:
-            _per_job = int(job_data.get("timeout_sec") or 0)
-            job_timeout_sec = _per_job if _per_job > 0 else self.config.job_timeout
-        except (TypeError, ValueError):
-            job_timeout_sec = self.config.job_timeout
+        job_timeout_sec = _effective_job_timeout(job_data, self.config.job_timeout)
         if job_timeout_sec > 0:
             raw_payload = job_data.get("payload")
             base_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
@@ -276,11 +286,7 @@ class JobProcessor:
         if not envelope.ok():
             # SafeProcessor caught an exception — treat as handler-raised error.
             reason = (envelope.diagnostics or {}).get("message", "handler raised: unknown error")
-            attempts = ctx.attempts + 1
-            if attempts >= ctx.max_attempts:
-                q.finish(proc_path, success=False, error_msg=str(reason))
-            else:
-                q.retry(proc_path, delay_sec=self.config.backoff, reason=str(reason))
+            _finish_or_retry(proc_path, ctx, self.config, str(reason))
             log_perf_jsonl(
                 "worker",
                 duration,
@@ -346,14 +352,9 @@ class DaemonRunner:
         threads: list[threading.Thread] = []
         results: list[int] = [0] * len(items)
 
-        def _effective_timeout(d: dict[str, object]) -> int:
-            try:
-                per_job = int(d.get("timeout_sec") or 0)
-                return per_job if per_job > 0 else self.config.job_timeout
-            except (TypeError, ValueError):
-                return self.config.job_timeout
-
-        timeouts: list[int] = [_effective_timeout(d) for _, d in items]
+        timeouts: list[int] = [
+            _effective_job_timeout(d, self.config.job_timeout) for _, d in items
+        ]
 
         def _run(idx: int, pth: Path, dat: dict[str, object]):
             try:
