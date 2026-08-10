@@ -23,6 +23,8 @@ To update pricing when Anthropic releases new pricing:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -84,7 +86,7 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 # an exact MODEL_PRICING match fails. Each predicate takes the lowercased model
 # name; the first match wins. Order matters — sonnet-5 and the "1m" combos must
 # be checked before the generic opus/sonnet/haiku substring checks.
-_PRICING_FALLBACK_RULES: list[tuple[callable, str]] = [
+_PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
     (lambda m: "sonnet-5" in m, "claude-sonnet-5"),
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-6-1m"),

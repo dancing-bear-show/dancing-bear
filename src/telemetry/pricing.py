@@ -7,6 +7,8 @@ calibration against actual billed spend. Default is 1.0 (no scaling).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import json
 import re
 from dataclasses import dataclass
@@ -83,7 +85,7 @@ class TokenMetrics:
 # after an exact _MODEL_PRICING match fails. Each predicate takes the
 # lowercased model id; the first match wins. Order matters — the "1m" combos
 # must be checked before the generic opus/sonnet substring checks.
-_PRICING_FALLBACK_RULES: list[tuple[callable, str]] = [
+_PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
     (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
     (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-8-1m"),
     (lambda m: "opus" in m, "claude-opus"),

@@ -83,8 +83,19 @@ def build_agent_row(
 
 
 def _parse_agent_usage_line(raw_line: str, since: datetime) -> tuple[str, str, dict] | None:
-    """Parse one JSONL line into (agent_name, model, usage) if it's a countable
-    assistant record on/after ``since``, else None."""
+    """Parse one JSONL line into (agent_name, model, usage), else None.
+
+    Returns None for blank lines, unparseable JSON, non-assistant records,
+    records with no usage block, and records whose timestamp is older than
+    ``since``.
+
+    A record whose timestamp is missing or unparseable is COUNTED, not skipped:
+    ``parse_iso_utc`` returns None for those, and the cutoff only excludes a
+    record when a timestamp actually parsed and fell before ``since``. Dropping
+    them instead would silently undercount usage whenever a transcript writer
+    omits or malforms the field. This mirrors the pre-refactor inline logic
+    exactly -- do not "fix" it into a skip without checking callers.
+    """
     raw_line = raw_line.strip()
     if not raw_line:
         return None
