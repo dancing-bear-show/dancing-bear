@@ -435,8 +435,10 @@ def run_messages_get(args) -> int:
     client = gmail_provider_from_args(args)
     client.authenticate()
 
+    # Headers only: the body comes from get_message_text(), which performs its
+    # own full fetch. Requesting "metadata" avoids pulling the payload twice.
     try:
-        msg = client.get_message(msg_id, fmt="full")
+        msg = client.get_message(msg_id, fmt="metadata")
     except Exception as exc:
         print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
         return 1
@@ -484,7 +486,7 @@ def run_messages_list_attachments(args) -> int:
     client = gmail_provider_from_args(args)
     client.authenticate()
     try:
-        msg = client.get_message(msg_id, fmt="full")
+        msg = client.get_message(msg_id, fmt="metadata")
     except Exception as exc:
         print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
         return 1
@@ -606,7 +608,7 @@ def run_messages_download_attachment(args) -> int:
     client = gmail_provider_from_args(args)
     client.authenticate()
     try:
-        msg = client.get_message(msg_id, fmt="full")
+        msg = client.get_message(msg_id, fmt="metadata")
     except Exception as exc:
         print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
         return 1

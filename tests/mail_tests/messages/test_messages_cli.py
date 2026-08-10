@@ -218,6 +218,29 @@ class MessagesGetCLITests(unittest.TestCase):
         self.assertIn("Subject: Hello from Alice", out)
         self.assertIn("Hello Bob, this is the full body.", out)
 
+    def test_messages_get_fetches_headers_as_metadata_only(self):
+        """get must not pull the full payload twice.
+
+        The body comes from get_message_text(), which does its own full fetch,
+        so the header fetch here should request fmt="metadata".
+        """
+        client = self._make_client()
+        seen_fmts = []
+        real_get_message = client.get_message
+
+        def recording_get_message(msg_id, fmt="full"):
+            seen_fmts.append(fmt)
+            return real_get_message(msg_id, fmt=fmt)
+
+        client.get_message = recording_get_message
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            args = make_args(id="MSG_GET_1", format="text")
+            with capture_stdout():
+                rc = run_messages_get(args)
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen_fmts, ["metadata"])
+
     def test_messages_get_format_json(self):
         """get with --format json emits a JSON object with required fields."""
         import json as _json
