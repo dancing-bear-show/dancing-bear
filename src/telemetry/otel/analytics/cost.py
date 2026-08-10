@@ -23,6 +23,8 @@ To update pricing when Anthropic releases new pricing:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -80,6 +82,22 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 DEFAULT_MODEL = "claude-haiku-4-5"
 
 
+# Ordered fallback rules for get_model_pricing(): evaluated top-to-bottom after
+# an exact MODEL_PRICING match fails. Each predicate takes the lowercased model
+# name; the first match wins. Order matters — sonnet-5 and the "1m" combos must
+# be checked before the generic opus/sonnet/haiku substring checks.
+_PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
+    (lambda m: "sonnet-5" in m, "claude-sonnet-5"),
+    (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
+    (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-6-1m"),
+    (lambda m: "mythos" in m, "claude-mythos-5"),
+    (lambda m: "fable" in m, "claude-fable-5"),
+    (lambda m: "opus" in m, "claude-opus"),
+    (lambda m: "sonnet" in m, "claude-sonnet"),
+    (lambda m: "haiku" in m, "claude-haiku"),
+]
+
+
 def get_model_pricing(model_name: str) -> tuple[float, float]:
     """Get pricing for a model, with intelligent fallback.
 
@@ -93,27 +111,9 @@ def get_model_pricing(model_name: str) -> tuple[float, float]:
         return MODEL_PRICING[model_name]
 
     model_lower = model_name.lower()
-
-    # Check sonnet-5 before generic substring matches — introductory pricing
-    if "sonnet-5" in model_lower:
-        return MODEL_PRICING["claude-sonnet-5"]
-
-    if "opus" in model_lower and "1m" in model_lower:
-        return MODEL_PRICING["claude-opus-4-7-1m"]
-    if "sonnet" in model_lower and "1m" in model_lower:
-        return MODEL_PRICING["claude-sonnet-4-6-1m"]
-
-    if "mythos" in model_lower:
-        return MODEL_PRICING["claude-mythos-5"]
-    if "fable" in model_lower:
-        return MODEL_PRICING["claude-fable-5"]
-
-    if "opus" in model_lower:
-        return MODEL_PRICING["claude-opus"]
-    if "sonnet" in model_lower:
-        return MODEL_PRICING["claude-sonnet"]
-    if "haiku" in model_lower:
-        return MODEL_PRICING["claude-haiku"]
+    for predicate, key in _PRICING_FALLBACK_RULES:
+        if predicate(model_lower):
+            return MODEL_PRICING[key]
 
     return MODEL_PRICING[DEFAULT_MODEL]
 

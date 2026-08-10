@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
 # Alpha value for sequence-diagram rect tints. 0.15 was chosen empirically:
 # enough hue to signal grouping, light enough that white text reads cleanly.
@@ -63,6 +64,39 @@ def _rewrite_rect_rgb_to_rgba(source: str) -> str:
     )
 
 
+@dataclass
+class _FrontmatterState:
+    """Tracks position within a leading ``---``-delimited frontmatter block.
+
+    Mermaid allows at most one frontmatter block, so the first ``---`` opens it
+    and the second closes it. A third or later ``---`` toggles ``inside`` again,
+    which mirrors the original inline logic exactly -- ``opened`` only guards
+    the first transition, it does not latch the block closed permanently.
+    """
+
+    inside: bool = False
+    opened: bool = False
+
+
+def _is_skippable_line(stripped: str, state: _FrontmatterState) -> bool:
+    """Return True if *stripped* is not the diagram-type declaration line.
+
+    Mutates *state* when the line is a ``---`` frontmatter delimiter.
+    """
+    if not stripped:
+        return True
+    if stripped.startswith("%%"):
+        return True
+    if stripped == "---":
+        if not state.opened:
+            state.inside = True
+            state.opened = True
+        else:
+            state.inside = False
+        return True
+    return state.inside
+
+
 def _is_timeline(source: str) -> bool:
     """Detect a timeline diagram by its declaration keyword.
 
@@ -73,22 +107,10 @@ def _is_timeline(source: str) -> bool:
     if source.startswith(_BOM):
         source = source[len(_BOM):]
 
-    in_frontmatter = False
-    saw_frontmatter_open = False
+    state = _FrontmatterState()
     for line in source.splitlines():
         stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("%%"):
-            continue
-        if stripped == "---":
-            if not saw_frontmatter_open:
-                in_frontmatter = True
-                saw_frontmatter_open = True
-            else:
-                in_frontmatter = False
-            continue
-        if in_frontmatter:
+        if _is_skippable_line(stripped, state):
             continue
         first_token = stripped.split(None, 1)[0]
         return first_token == "timeline"  # nosec B105 - mermaid diagram type, not a secret

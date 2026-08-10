@@ -265,36 +265,47 @@ class TelemetryMenubarApp(OtelSectionsMixin, InsightsMixin, ActionsMixin, _AppBa
         self._poll_timer.start()
         rumps.Timer(self._refresh_once, 0.5).start()
 
+    def _otel_section_specs(self) -> list[tuple[str, object, list]]:
+        """Return (config_key, header_item, row_items) for each OTel menu section."""
+        return [
+            ("otel_usage", self._hdr_otel_usage, self._otel_usage_rows),
+            ("otel_models", self._hdr_otel_models, self._otel_model_rows),
+            ("otel_meta", self._hdr_otel_meta, self._otel_meta_rows),
+            ("otel_hooks", self._hdr_hooks, self._hook_rows),
+            ("otel_tools", self._hdr_tools, self._tool_rows),
+            ("otel_code", self._hdr_code, self._code_rows),
+            ("otel_skills", self._hdr_skills, self._skill_rows),
+            ("otel_sessions", self._hdr_session_patterns, self._session_pattern_rows),
+        ]
+
+    def _append_otel_items(self, items: list, s: dict) -> None:
+        """Append enabled OTel section headers/rows to items, with a separator if needed."""
+        if not self._otel_data_available:
+            return
+        for key, hdr, rows in self._otel_section_specs():
+            if s.get(key, {}).get("enabled", False):
+                prefix = [None] if items else []
+                items += [*prefix, hdr, *rows]
+
+    def _append_usage_items(self, items: list, u: dict) -> None:
+        """Append the usage section (cost + optional detail rows) to items."""
+        if not u["enabled"]:
+            return
+        prefix = [None] if items else []
+        items += [*prefix, self._hdr_usage, self._info_usage_cost]
+        optional_rows = [
+            (u["show_tokens"], self._info_usage_tokens),
+            (u["show_sessions"], self._info_usage_sessions),
+            (u["show_rate"], self._info_usage_rate),
+            (u["show_sparkline"], self._info_usage_sparkline),
+        ]
+        items += [row for enabled, row in optional_rows if enabled]
+
     def _rebuild_menu(self, cfg: dict) -> None:  # NOSONAR - menu section assembly; sequential structure is inherent
         s = cfg["sections"]
-        u = s["usage"]
         items: list = []
-        if self._otel_data_available:
-            _otel_sections = [
-                ("otel_usage", self._hdr_otel_usage, self._otel_usage_rows),
-                ("otel_models", self._hdr_otel_models, self._otel_model_rows),
-                ("otel_meta", self._hdr_otel_meta, self._otel_meta_rows),
-                ("otel_hooks", self._hdr_hooks, self._hook_rows),
-                ("otel_tools", self._hdr_tools, self._tool_rows),
-                ("otel_code", self._hdr_code, self._code_rows),
-                ("otel_skills", self._hdr_skills, self._skill_rows),
-                ("otel_sessions", self._hdr_session_patterns, self._session_pattern_rows),
-            ]
-            for key, hdr, rows in _otel_sections:
-                if s.get(key, {}).get("enabled", False):
-                    prefix = [None] if items else []
-                    items += [*prefix, hdr, *rows]
-        if u["enabled"]:
-            prefix = [None] if items else []
-            items += [*prefix, self._hdr_usage, self._info_usage_cost]
-            if u["show_tokens"]:
-                items.append(self._info_usage_tokens)
-            if u["show_sessions"]:
-                items.append(self._info_usage_sessions)
-            if u["show_rate"]:
-                items.append(self._info_usage_rate)
-            if u["show_sparkline"]:
-                items.append(self._info_usage_sparkline)
+        self._append_otel_items(items, s)
+        self._append_usage_items(items, s["usage"])
         if s["models"]["enabled"]:
             items += [None, self._hdr_models, *self._model_rows]
         if s["active_sessions"]["enabled"]:
