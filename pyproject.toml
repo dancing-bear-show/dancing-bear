@@ -25,7 +25,7 @@ dependencies = [
   "premailer==3.10.0",
   "requests==2.34.2",
   "shapely==2.1.2",
-  "trimesh==4.12.2",
+  "trimesh==5.0.0",
   "urllib3==2.7.0",
 ]
 
