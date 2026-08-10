@@ -5,6 +5,7 @@ import argparse
 from typing import Dict, List, Optional, Tuple
 
 from .outlook_costs_extract import (
+    ConfirmationRowContext,
     GoldRowContext,
     OutlookCostExtractor,
 )
@@ -22,11 +23,11 @@ def _summarize_ounces(items: List[Dict], metal_guess: str) -> Tuple[Dict[str, fl
 
 
 def _compute_confirmation_line_costs(
-    body: str, gold_items: List[Dict], oid: str, sub: str, recv: str
+    body: str, gold_items: List[Dict], ctx: ConfirmationRowContext
 ) -> Tuple[float, List[Dict[str, str | float]]]:
     """Compute line costs from confirmation email 'Total $X CAD' sequences."""
     extractor = OutlookCostExtractor(*_TEST_EXTRACTOR_DEFAULTS)
-    return extractor._compute_confirmation_line_costs(body, gold_items, oid, sub, recv)
+    return extractor._compute_confirmation_line_costs(body, gold_items, ctx)
 
 
 def _compute_proximity_line_costs(gold_items: List[Dict], lines: List[str]) -> float:

@@ -45,6 +45,17 @@ class OutlookRemoveResult:
     logs: list[str]
 
 
+@dataclass(frozen=True)
+class DeleteOneRequest:
+    """Shared context for deleting one event/series and logging the outcome."""
+
+    subj: str
+    svc: Any
+    logs: list[str]
+    deleted_label: str
+    failed_label: str
+
+
 class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveResult]):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
@@ -200,29 +211,34 @@ class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveRe
                 event_ids.append(mid)
         return series_ids, event_ids
 
-    def _delete_one(
-        self, item_id: str, subj: str, svc, logs: list[str], *, deleted_label: str, failed_label: str
-    ) -> bool:
+    def _delete_one(self, item_id: str, request: DeleteOneRequest) -> bool:
         """Delete a single event or series by id, appending the matching log line."""
+        logs = request.logs
         try:
-            ok = bool(svc.delete_event_by_id(item_id))
+            ok = bool(request.svc.delete_event_by_id(item_id))
         except Exception as exc:
-            logs.append(f"Failed to delete {failed_label} {item_id}: {exc}")
+            logs.append(f"Failed to delete {request.failed_label} {item_id}: {exc}")
             return False
         if ok:
-            logs.append(f"Deleted {deleted_label}: {item_id} ({subj})")
+            logs.append(f"Deleted {request.deleted_label}: {item_id} ({request.subj})")
         else:
-            logs.append(f"Failed to delete {failed_label} {item_id}")
+            logs.append(f"Failed to delete {request.failed_label} {item_id}")
         return ok
 
     def _apply_deletions(self, entry: OutlookRemovePlanEntry, svc, logs: list[str]) -> int:
         deleted = 0
         subj = entry.subject
+        series_req = DeleteOneRequest(
+            subj=subj, svc=svc, logs=logs, deleted_label="series master", failed_label="series"
+        )
         for sid in entry.series_ids:
-            if self._delete_one(sid, subj, svc, logs, deleted_label="series master", failed_label="series"):
+            if self._delete_one(sid, series_req):
                 deleted += 1
+        event_req = DeleteOneRequest(
+            subj=subj, svc=svc, logs=logs, deleted_label="event", failed_label="event"
+        )
         for eid in entry.event_ids:
-            if self._delete_one(eid, subj, svc, logs, deleted_label="event", failed_label="event"):
+            if self._delete_one(eid, event_req):
                 deleted += 1
         return deleted
 
@@ -247,6 +263,7 @@ __all__ = [
     "OutlookRemoveRequestConsumer",
     "OutlookRemovePlanEntry",
     "OutlookRemoveResult",
+    "DeleteOneRequest",
     "OutlookRemoveProcessor",
     "OutlookRemoveProducer",
 ]

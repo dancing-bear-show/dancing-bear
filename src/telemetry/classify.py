@@ -31,34 +31,42 @@ def _matches_any(pattern_list: list[str], text: str) -> bool:
     return any(re.search(p, text) for p in pattern_list)
 
 
+@dataclass(frozen=True)
+class ToolWindowScan:
+    """Lookback-window constraints for a backward tool_use scan."""
+
+    allowed_tools: frozenset[str]
+    window_seconds: float
+    lookback_events: int
+    min_gap_seconds: float = 0.0
+
+
 def _scan_tool_window(
     evt: SessionEvent,
     idx: int,
     events: list[SessionEvent],
-    allowed_tools: set[str],
-    window_seconds: float,
-    lookback_events: int,
-    min_gap_seconds: float = 0.0,
+    scan: ToolWindowScan,
 ) -> bool:
     """Scan backward for a matching tool_use event within the lookback window.
 
-    Returns True when a prior event matches *allowed_tools*, is within
-    *window_seconds*, and has at least *min_gap_seconds* elapsed since *evt*.
+    Returns True when a prior event matches *scan.allowed_tools*, is within
+    *scan.window_seconds*, and has at least *scan.min_gap_seconds* elapsed
+    since *evt*.
     """
     file_path = (evt.tool_input or {}).get("file_path")
     if not file_path:
         return False
 
-    start = max(0, idx - lookback_events)
+    start = max(0, idx - scan.lookback_events)
     for prev in reversed(events[start:idx]):
         delta = (evt.timestamp - prev.timestamp).total_seconds()
-        if delta > window_seconds:
+        if delta > scan.window_seconds:
             break
-        if prev.event_type != "tool_use" or prev.tool_name not in allowed_tools:
+        if prev.event_type != "tool_use" or prev.tool_name not in scan.allowed_tools:
             continue
         if file_path != (prev.tool_input or {}).get("file_path"):
             continue
-        if delta >= min_gap_seconds:
+        if delta >= scan.min_gap_seconds:
             return True
     return False
 
@@ -144,9 +152,11 @@ class ClassifyEngine:
             evt,
             idx,
             events,
-            allowed_tools={"Read"},
-            window_seconds=rule.get("window_seconds", 60),
-            lookback_events=rule.get("lookback_events", 10),
+            ToolWindowScan(
+                allowed_tools=frozenset({"Read"}),
+                window_seconds=rule.get("window_seconds", 60),
+                lookback_events=rule.get("lookback_events", 10),
+            ),
         )
 
     def _is_rapid_re_edit(
@@ -160,10 +170,12 @@ class ClassifyEngine:
             evt,
             idx,
             events,
-            allowed_tools={"Edit", "MultiEdit", "NotebookEdit"},
-            window_seconds=rule.get("window_seconds", 30),
-            lookback_events=rule.get("lookback_events", 5),
-            min_gap_seconds=rule.get("min_gap_seconds", 0),
+            ToolWindowScan(
+                allowed_tools=frozenset({"Edit", "MultiEdit", "NotebookEdit"}),
+                window_seconds=rule.get("window_seconds", 30),
+                lookback_events=rule.get("lookback_events", 5),
+                min_gap_seconds=rule.get("min_gap_seconds", 0),
+            ),
         )
 
     def _apply_custom_rules(self, evt: SessionEvent) -> tuple[str, str] | None:

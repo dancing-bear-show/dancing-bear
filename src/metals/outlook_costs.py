@@ -10,6 +10,7 @@ from core.text_utils import html_to_text  # noqa: F401 - tests patch metals.outl
 from .outlook_costs_extract import (  # noqa: F401
     OutlookCostExtractor,
     OutputRowsContext,
+    ConfirmationRowContext,
     GoldRowContext,
     SUBJECT_RANK,
     _RCM_QUERIES,

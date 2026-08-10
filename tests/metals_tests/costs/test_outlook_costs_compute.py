@@ -11,6 +11,7 @@ from tests.fixtures import TempDirMixin
 from metals.costs_common import merge_costs_csv
 from tests.metals_tests.fixtures import make_cost_row, write_costs_csv
 from metals.outlook_costs import (
+    ConfirmationRowContext,
     GoldRowContext,
     _build_gold_row,
     _compute_confirmation_line_costs,
@@ -203,7 +204,10 @@ class TestComputeConfirmationLineCosts(unittest.TestCase):
         """Test computes costs from Total $X CAD sequence."""
         body = "Product\nTotal $350.00 CAD"
         gold_items = [{"metal": "gold", "unit_oz": 0.1, "qty": 1, "idx": 0}]
-        line_cost, rows = _compute_confirmation_line_costs(body, gold_items, "PO123", "Test", "2024-01-15T10:00:00")
+        ctx = ConfirmationRowContext(
+            order_id="PO123", subject="Test", received_date="2024-01-15T10:00:00"
+        )
+        line_cost, rows = _compute_confirmation_line_costs(body, gold_items, ctx)
         self.assertEqual(line_cost, 350.0)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["cost_total"], 350.0)
@@ -212,14 +216,16 @@ class TestComputeConfirmationLineCosts(unittest.TestCase):
         """Test skips prices outside expected band."""
         body = "Product\nTotal $50.00 CAD"
         gold_items = [{"metal": "gold", "unit_oz": 0.1, "qty": 1, "idx": 0}]
-        line_cost, rows = _compute_confirmation_line_costs(body, gold_items, "PO123", "Test", "2024-01-15")
+        ctx = ConfirmationRowContext(order_id="PO123", subject="Test", received_date="2024-01-15")
+        line_cost, rows = _compute_confirmation_line_costs(body, gold_items, ctx)
         self.assertEqual(line_cost, 0.0)
         self.assertEqual(len(rows), 0)
 
     def test_handles_empty_items(self):
         """Test handles empty gold items."""
         body = "Total $350.00 CAD"
-        line_cost, rows = _compute_confirmation_line_costs(body, [], "PO123", "Test", "2024-01-15")
+        ctx = ConfirmationRowContext(order_id="PO123", subject="Test", received_date="2024-01-15")
+        line_cost, rows = _compute_confirmation_line_costs(body, [], ctx)
         self.assertEqual(line_cost, 0.0)
         self.assertEqual(rows, [])
 

@@ -41,6 +41,17 @@ class MetaRunConfig:
     italic: bool = False
 
 
+@dataclass(frozen=True)
+class CenteredHeaderLineStyle:
+    """Style options for a centered, shaded header line."""
+
+    size_pt: float
+    color: str
+    bold: bool
+    after_pt: float
+    bg_rgb: Optional[tuple] = None
+
+
 @dataclass
 class RenderContext:
     """Common rendering context shared across functions."""
