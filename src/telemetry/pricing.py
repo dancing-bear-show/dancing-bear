@@ -7,6 +7,8 @@ calibration against actual billed spend. Default is 1.0 (no scaling).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import json
 import re
 from dataclasses import dataclass
@@ -79,21 +81,27 @@ class TokenMetrics:
     cache_creation_tokens: int
 
 
+# Ordered fallback rules for _get_model_pricing(): evaluated top-to-bottom
+# after an exact _MODEL_PRICING match fails. Each predicate takes the
+# lowercased model id; the first match wins. Order matters — the "1m" combos
+# must be checked before the generic opus/sonnet substring checks.
+_PRICING_FALLBACK_RULES: list[tuple[Callable[[str], bool], str]] = [
+    (lambda m: "opus" in m and "1m" in m, "claude-opus-4-7-1m"),
+    (lambda m: "sonnet" in m and "1m" in m, "claude-sonnet-4-8-1m"),
+    (lambda m: "opus" in m, "claude-opus"),
+    (lambda m: "sonnet" in m, "claude-sonnet"),
+    (lambda m: "haiku" in m, "claude-haiku"),
+]
+
+
 def _get_model_pricing(model: str) -> tuple[float, float]:
     """Return (input_per_million, output_per_million) for a model ID."""
     if model in _MODEL_PRICING:
         return _MODEL_PRICING[model]
     lower = model.lower()
-    if "opus" in lower and "1m" in lower:
-        return _MODEL_PRICING["claude-opus-4-7-1m"]
-    if "sonnet" in lower and "1m" in lower:
-        return _MODEL_PRICING["claude-sonnet-4-8-1m"]
-    if "opus" in lower:
-        return _MODEL_PRICING["claude-opus"]
-    if "sonnet" in lower:
-        return _MODEL_PRICING["claude-sonnet"]
-    if "haiku" in lower:
-        return _MODEL_PRICING["claude-haiku"]
+    for predicate, key in _PRICING_FALLBACK_RULES:
+        if predicate(lower):
+            return _MODEL_PRICING[key]
     return _MODEL_PRICING["claude-haiku"]  # default
 
 
