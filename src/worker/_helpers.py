@@ -103,27 +103,27 @@ def parse_iso_utc_strict(ts: str) -> datetime:
     return dt
 
 
+# Suffix -> timedelta keyword arg name, for parse_window's dispatch.
+_WINDOW_SUFFIX_UNITS: dict[str, str] = {
+    "d": "days",
+    "w": "weeks",
+    "h": "hours",
+    "m": "minutes",
+    "s": "seconds",
+}
+
+
 def parse_window(win: str, default_unit: str = "hours") -> timedelta:
     """Parse a window string (e.g., '24h', '7d', '15m') to a timedelta."""
     if default_unit not in ("hours", "minutes"):
         raise ValueError(f"default_unit must be 'hours' or 'minutes', got {default_unit!r}")
     s = (win or "").strip().lower()
     error_msg = "Invalid window. Use Nd, Nw, Nh, Nm, or Ns (e.g., 30d, 2w, 24h, 15m, 30s)"
+    unit = _WINDOW_SUFFIX_UNITS.get(s[-1:]) if s else None
+    value_str = s[:-1] if unit else s
+    unit = unit or default_unit
     try:
-        if s.endswith("d"):
-            return timedelta(days=float(s[:-1]))
-        if s.endswith("w"):
-            return timedelta(weeks=float(s[:-1]))
-        if s.endswith("h"):
-            return timedelta(hours=float(s[:-1]))
-        if s.endswith("m"):
-            return timedelta(minutes=float(s[:-1]))
-        if s.endswith("s"):
-            return timedelta(seconds=float(s[:-1]))
-        value = float(s)
-        if default_unit == "minutes":
-            return timedelta(minutes=value)
-        return timedelta(hours=value)
+        return timedelta(**{unit: float(value_str)})
     except (ValueError, TypeError):
         raise ValueError(error_msg)
 

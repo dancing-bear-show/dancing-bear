@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 
 
 def _load_yaml(content: str) -> dict | None:
@@ -74,6 +75,17 @@ def _build_sequence_from_spec(spec: dict) -> str:
     return builder.render()
 
 
+# Diagram-type alias -> builder. Keys are mutually exclusive exact matches on the
+# lowercased "type" field, so dict lookup preserves the original if/elif chain's
+# semantics exactly (no overlapping conditions, so order is irrelevant).
+_SPEC_BUILDERS: dict[str, Callable[[dict], str]] = {
+    "flowchart": _build_flowchart_from_spec,
+    "graph": _build_flowchart_from_spec,
+    "sequence": _build_sequence_from_spec,
+    "sequencediagram": _build_sequence_from_spec,
+}
+
+
 def _convert_yaml_spec(spec: dict) -> tuple[str | None, int]:
     """Convert a YAML spec dict to mermaid text. Returns (text, exit_code)."""
     if not isinstance(spec, dict):
@@ -81,15 +93,14 @@ def _convert_yaml_spec(spec: dict) -> tuple[str | None, int]:
         return None, 1
 
     diagram_type = spec.get("type", "flowchart").lower()
+    builder = _SPEC_BUILDERS.get(diagram_type)
+    if builder is None:
+        print(f"Error: Unsupported diagram type {diagram_type!r}", file=sys.stderr)
+        print("Supported types: flowchart, sequence", file=sys.stderr)
+        return None, 1
+
     try:
-        if diagram_type in ("flowchart", "graph"):
-            return _build_flowchart_from_spec(spec), 0
-        elif diagram_type in ("sequence", "sequencediagram"):
-            return _build_sequence_from_spec(spec), 0
-        else:
-            print(f"Error: Unsupported diagram type {diagram_type!r}", file=sys.stderr)
-            print("Supported types: flowchart, sequence", file=sys.stderr)
-            return None, 1
+        return builder(spec), 0
     except KeyError as e:
         print(f"Error: Missing required field {e} in spec", file=sys.stderr)
         return None, 1
