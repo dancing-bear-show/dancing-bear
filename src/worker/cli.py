@@ -20,15 +20,17 @@ import sys
 from core.cli_errors import UsageError
 from core.cli_framework import CLIApp
 from worker.commands import (
-    DaemonRunner,
     EnqueueCommand,
-    JobProcessor,
     ListCommand,
     PurgeCommand,
     RequeueErrorsCommand,
     RetryCommand,
     ShowCommand,
     StatusCommand,
+)
+from worker.job_runtime import (
+    DaemonRunner,
+    JobProcessor,
     WorkerConfig,
 )
 from worker.handlers import REGISTRY as HANDLERS

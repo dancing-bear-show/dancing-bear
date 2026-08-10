@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import FakeGmailClient, make_args
-from mail.messages_cli.commands import (
+from mail.messages_cli.commands_reply import (
     run_messages_reply,
     run_messages_apply_scheduled,
 )

@@ -78,8 +78,12 @@ from ..messages_cli.commands import (
     run_messages_search,
     run_messages_summarize,
     run_messages_get,
+)
+from ..messages_cli.commands_reply import (
     run_messages_reply,
     run_messages_apply_scheduled,
+)
+from ..messages_cli.commands_attachments import (
     run_messages_list_attachments,
     run_messages_download_attachment,
 )

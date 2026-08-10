@@ -24,13 +24,13 @@ class TestJobSafeProcessorHappyPath(unittest.TestCase):
     """Consumer → JobSafeProcessor → JobResult: known handler returns success."""
 
     def test_known_handler_success_returns_job_result(self):
-        from worker.commands import JobRequest, JobResult, JobSafeProcessor
+        from worker.job_runtime import JobRequest, JobResult, JobSafeProcessor
         from core.pipeline import RequestConsumer
 
         def _ok_handler(job_data):
             return (True, {"output": "done"})
 
-        with patch("worker.commands.HANDLERS", {"my_type": _ok_handler}):
+        with patch("worker.job_runtime.HANDLERS", {"my_type": _ok_handler}):
             proc = JobSafeProcessor("my_type", {"type": "my_type", "payload": {}})
             request = JobRequest(job_id="abc", payload={})
             envelope = proc.process(RequestConsumer(request).consume())
@@ -41,13 +41,13 @@ class TestJobSafeProcessorHappyPath(unittest.TestCase):
         self.assertEqual(result.outcome, "success")
 
     def test_known_handler_failure_outcome_carries_error_string(self):
-        from worker.commands import JobRequest, JobResult, JobSafeProcessor
+        from worker.job_runtime import JobRequest, JobResult, JobSafeProcessor
         from core.pipeline import RequestConsumer
 
         def _fail_handler(job_data):
             return (False, "something went wrong")
 
-        with patch("worker.commands.HANDLERS", {"bad_type": _fail_handler}):
+        with patch("worker.job_runtime.HANDLERS", {"bad_type": _fail_handler}):
             proc = JobSafeProcessor("bad_type", {"type": "bad_type", "payload": {}})
             request = JobRequest(job_id="xyz", payload={})
             envelope = proc.process(RequestConsumer(request).consume())
@@ -63,10 +63,10 @@ class TestJobSafeProcessorSadPaths(unittest.TestCase):
     """Sad-paths: unknown handler raises UsageError; handler exception is caught by SafeProcessor."""
 
     def test_unknown_handler_raises_usage_error(self):
-        from worker.commands import JobRequest, JobSafeProcessor
+        from worker.job_runtime import JobRequest, JobSafeProcessor
         from core.pipeline import RequestConsumer
 
-        with patch("worker.commands.HANDLERS", {}):
+        with patch("worker.job_runtime.HANDLERS", {}):
             proc = JobSafeProcessor("nonexistent_type", {"type": "nonexistent_type"})
             request = JobRequest(job_id="u1", payload={})
             # SafeProcessor catches the raised UsageError and wraps it in a failed envelope
@@ -77,13 +77,13 @@ class TestJobSafeProcessorSadPaths(unittest.TestCase):
         self.assertIn("unknown handler", msg)
 
     def test_handler_exception_produces_failed_envelope(self):
-        from worker.commands import JobRequest, JobSafeProcessor
+        from worker.job_runtime import JobRequest, JobSafeProcessor
         from core.pipeline import RequestConsumer
 
         def _boom(job_data):
             raise RuntimeError("handler exploded")
 
-        with patch("worker.commands.HANDLERS", {"boom_type": _boom}):
+        with patch("worker.job_runtime.HANDLERS", {"boom_type": _boom}):
             proc = JobSafeProcessor("boom_type", {"type": "boom_type"})
             request = JobRequest(job_id="b1", payload={})
             envelope = proc.process(RequestConsumer(request).consume())
@@ -113,13 +113,7 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
         return self._real_finish(job_path, success, **kwargs)
 
     def test_success_outcome_dispatches_to_queue_finish(self):
-        from worker.commands import (
-            JobContext,
-            JobResult,
-            JobResultProducer,
-            OutcomeContext,
-            WorkerConfig,
-        )
+        from worker.job_runtime import JobContext, JobResult, JobResultProducer, OutcomeContext, WorkerConfig
         from core.pipeline import ResultEnvelope
         from worker.queue import Job, enqueue, start_processing
         from worker import queue as q
@@ -139,20 +133,15 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
             config=WorkerConfig(),
         )
         producer = JobResultProducer(outcome_ctx)
-        with patch("worker.commands.log_perf_jsonl"), \
-             patch("worker.commands.q.finish", side_effect=self._patched_finish):
+        with patch("worker.job_runtime.log_perf_jsonl"), \
+             patch("worker.job_runtime.q.finish", side_effect=self._patched_finish):
             producer.produce(envelope)
 
         self.assertTrue((self.root / "done" / "rp_ok.json").exists())
 
     def test_error_envelope_skips_produce_success(self):
         """BaseProducer.produce() skips _produce_success on failed envelopes."""
-        from worker.commands import (
-            JobContext,
-            JobResultProducer,
-            OutcomeContext,
-            WorkerConfig,
-        )
+        from worker.job_runtime import JobContext, JobResultProducer, OutcomeContext, WorkerConfig
         from core.pipeline import ResultEnvelope
         from worker.queue import Job, enqueue, start_processing
         from worker import queue as q

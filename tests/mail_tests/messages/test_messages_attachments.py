@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from tests.fixtures import capture_stdout
 from tests.mail_tests.fixtures import FakeGmailClient, make_args
-from mail.messages_cli.commands import (
+from mail.messages_cli.commands_attachments import (
     AttachmentInfo,
     list_message_attachments,
     _sanitize_filename,
