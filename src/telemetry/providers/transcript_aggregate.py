@@ -82,7 +82,45 @@ def build_agent_row(
     )
 
 
-def accumulate_agent_tokens(  # noqa: S3776 - JSONL line-by-line accumulator; dispatch is irreducible
+def _parse_agent_usage_line(raw_line: str, since: datetime) -> tuple[str, str, dict] | None:
+    """Parse one JSONL line into (agent_name, model, usage) if it's a countable
+    assistant record on/after ``since``, else None."""
+    raw_line = raw_line.strip()
+    if not raw_line:
+        return None
+    try:
+        record = json.loads(raw_line)
+    except json.JSONDecodeError:
+        return None
+
+    if record.get("type") != "assistant":
+        return None
+
+    msg = record.get("message", {})
+    usage = msg.get("usage")
+    if not usage:
+        return None
+
+    ts = parse_iso_utc(record.get("timestamp", ""))
+    if ts is not None and ts < since:
+        return None
+
+    agent_name = record.get("agentName") or "(orchestrator)"
+    model = msg.get("model", "") or ""
+    return agent_name, model, usage
+
+
+def _apply_agent_usage(accs: TokenAccumulators, agent_name: str, model: str, usage: dict) -> None:
+    """Add one parsed usage record's token counts into accs."""
+    key = (agent_name, model)
+    accs.input[key] += usage.get("input_tokens", 0)
+    accs.output[key] += usage.get("output_tokens", 0)
+    accs.cache_read[key] += usage.get("cache_read_input_tokens", 0)
+    accs.cache_write[key] += usage.get("cache_creation_input_tokens", 0)
+    accs.call_count[agent_name] += 1
+
+
+def accumulate_agent_tokens(
     jsonl_file: Path,
     since: datetime,
     accs: TokenAccumulators,
@@ -91,34 +129,10 @@ def accumulate_agent_tokens(  # noqa: S3776 - JSONL line-by-line accumulator; di
     try:
         with open(jsonl_file, encoding="utf-8") as fh:
             for raw_line in fh:
-                raw_line = raw_line.strip()
-                if not raw_line:
+                parsed = _parse_agent_usage_line(raw_line, since)
+                if parsed is None:
                     continue
-                try:
-                    record = json.loads(raw_line)
-                except json.JSONDecodeError:
-                    continue
-
-                if record.get("type") != "assistant":
-                    continue
-
-                msg = record.get("message", {})
-                usage = msg.get("usage")
-                if not usage:
-                    continue
-
-                ts = parse_iso_utc(record.get("timestamp", ""))
-                if ts is not None and ts < since:
-                    continue
-
-                agent_name = record.get("agentName") or "(orchestrator)"
-                model = msg.get("model", "") or ""
-                key = (agent_name, model)
-
-                accs.input[key] += usage.get("input_tokens", 0)
-                accs.output[key] += usage.get("output_tokens", 0)
-                accs.cache_read[key] += usage.get("cache_read_input_tokens", 0)
-                accs.cache_write[key] += usage.get("cache_creation_input_tokens", 0)
-                accs.call_count[agent_name] += 1
+                agent_name, model, usage = parsed
+                _apply_agent_usage(accs, agent_name, model, usage)
     except OSError as exc:  # nosec B110 - non-fatal; log and continue
         logger.warning("Could not read JSONL file: %s", exc)
