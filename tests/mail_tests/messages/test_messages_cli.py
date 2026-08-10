@@ -8,6 +8,7 @@ from tests.mail_tests.fixtures import FakeGmailClient, make_args
 from mail.messages_cli.commands import (
     run_messages_search,
     run_messages_summarize,
+    run_messages_get,
     run_messages_reply,
 )
 
@@ -178,6 +179,120 @@ class MessagesCLITests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertIn("Created Gmail draft", out)
+
+
+class MessagesGetCLITests(unittest.TestCase):
+    def _make_client(self):
+        """FakeGmailClient with one message that has headers and a plain-text body."""
+        msg_id = "MSG_GET_1"
+        return FakeGmailClient(
+            messages={
+                msg_id: {
+                    "id": msg_id,
+                    "threadId": "T1",
+                    "snippet": "Short snippet",
+                    "payload": {
+                        "headers": [
+                            {"name": "Date", "value": "Mon, 10 Aug 2026 12:00:00 +0000"},
+                            {"name": "From", "value": "Alice <alice@example.com>"},
+                            {"name": "To", "value": "Bob <bob@example.com>"},
+                            {"name": "Subject", "value": "Hello from Alice"},
+                        ]
+                    },
+                    "text": "Hello Bob, this is the full body.",
+                }
+            }
+        )
+
+    def test_messages_get_format_text(self):
+        """get with --format text prints headers then body."""
+        client = self._make_client()
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            args = make_args(id="MSG_GET_1", format="text")
+            with capture_stdout() as buf:
+                rc = run_messages_get(args)
+            out = buf.getvalue()
+
+        self.assertEqual(rc, 0)
+        self.assertIn("From: Alice <alice@example.com>", out)
+        self.assertIn("Subject: Hello from Alice", out)
+        self.assertIn("Hello Bob, this is the full body.", out)
+
+    def test_messages_get_format_json(self):
+        """get with --format json emits a JSON object with required fields."""
+        import json as _json
+        client = self._make_client()
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            args = make_args(id="MSG_GET_1", format="json")
+            with capture_stdout() as buf:
+                rc = run_messages_get(args)
+            out = buf.getvalue()
+
+        self.assertEqual(rc, 0)
+        data = _json.loads(out)
+        self.assertEqual(data["id"], "MSG_GET_1")
+        self.assertEqual(data["subject"], "Hello from Alice")
+        self.assertEqual(data["from_header"], "Alice <alice@example.com>")
+        self.assertEqual(data["to_header"], "Bob <bob@example.com>")
+        self.assertIn("Hello Bob", data["body"])
+
+    def test_messages_get_missing_id_returns_error(self):
+        """get without --id exits with rc=1."""
+        client = self._make_client()
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            args = make_args(id=None, format="text")
+            with capture_stdout():
+                rc = run_messages_get(args)
+
+        self.assertEqual(rc, 1)
+
+
+class MessagesSummarizeRegressionTests(unittest.TestCase):
+    """Regression: summarize must use get_message_text, not bodyPreview."""
+
+    def test_summarize_uses_get_message_text_not_body_preview(self):
+        """Summarize should return real content, not CSS, for HTML-only messages.
+
+        This test guards against the regression where the summarize pipeline
+        read msg.get('bodyPreview') which returns the CSS stylesheet block on
+        HTML-only messages (e.g., clinic receipts).  The processor must call
+        get_message_text() so plain-text is preferred and HTML is stripped.
+        """
+        css_body = "/* Client-specific Styles */ #outlook a{padding:0;} body{margin:0;}"
+        real_text = "Appointment confirmed: Balance Family Chiropractic. Total: $90.00."
+        msg_id = "MSG_HTML_ONLY"
+        client = FakeGmailClient(
+            messages={
+                msg_id: {
+                    "id": msg_id,
+                    "threadId": "T2",
+                    "bodyPreview": css_body,  # what the old code (incorrectly) read
+                    "snippet": css_body,
+                    "payload": {"headers": []},
+                    "text": real_text,  # what get_message_text() returns
+                }
+            },
+            message_ids_by_query={"": [msg_id]},
+        )
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
+            args = make_args(
+                id=msg_id,
+                query=None,
+                days=None,
+                only_inbox=False,
+                out=None,
+                max_words=120,
+            )
+            with capture_stdout() as buf:
+                rc = run_messages_summarize(args)
+            out = buf.getvalue()
+
+        self.assertEqual(rc, 0)
+        # Must NOT contain CSS — that would mean bodyPreview was used
+        self.assertNotIn("Client-specific Styles", out)
+        self.assertNotIn("#outlook", out)
+        # Must reflect content from get_message_text()
+        self.assertIn("Balance Family", out)
 
 
 class OutlookMessagesCLITests(unittest.TestCase):

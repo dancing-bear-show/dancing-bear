@@ -18,7 +18,7 @@ except Exception:  # pragma: no cover - optional dependency
     Request = Credentials = InstalledAppFlow = build = None  # type: ignore
 
 from core.cache import ConfigCacheMixin
-from core.text_utils import html_to_text
+from core.text_utils import html_to_text, strip_css_boilerplate
 from .cache import MailCache
 
 SCOPES = [
@@ -367,11 +367,14 @@ class GmailClient(ConfigCacheMixin):
         # Extract text content
         text_plain, text_html = self._find_text_parts(candidates)
 
-        # Prefer plain text, fallback to HTML (converted), then snippet
+        # Prefer plain text, fallback to HTML (converted), then snippet.
+        # Some transactional senders put a CSS stylesheet inside the
+        # text/plain part itself (or send flattened HTML as "plain" text),
+        # so strip any CSS boilerplate before returning either variant.
         if text_plain:
-            return text_plain
+            return strip_css_boilerplate(text_plain)
         if text_html:
-            return html_to_text(text_html)
+            return strip_css_boilerplate(html_to_text(text_html))
         return (msg.get("snippet") or "").strip()
 
     # Note: filter methods defined above with optional caching; avoid duplicate declarations.

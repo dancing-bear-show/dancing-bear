@@ -534,6 +534,31 @@ class TestGmailClientGetMessageText(unittest.TestCase):
         result = self.client.get_message_text("m7")
         self.assertEqual(result, "")
 
+    def test_get_message_text_strips_css_from_plain_part(self):
+        # Transactional senders sometimes ship a text/plain part that is
+        # really flattened HTML, with a leading CSS stylesheet.
+        css_body = (
+            "/* Client-specific Styles */\n"
+            "#outlook a{padding:0;}\n"
+            ".ReadMsgBody{width:100%;}\n"
+            "Dear Brian,\n\nGrand Total $90.00\n"
+        )
+        encoded = base64.urlsafe_b64encode(css_body.encode("utf-8")).decode("utf-8")
+
+        self.mock_service.users().messages().get().execute.return_value = {
+            "id": "m8",
+            "payload": {
+                "mimeType": "text/plain",
+                "body": {"data": encoded},
+            },
+        }
+
+        result = self.client.get_message_text("m8")
+        self.assertNotIn("ReadMsgBody", result)
+        self.assertNotIn("/*", result)
+        self.assertIn("Dear Brian,", result)
+        self.assertIn("Grand Total $90.00", result)
+
 
 class TestGmailClientForwarding(unittest.TestCase):
     """Tests for forwarding address methods."""
