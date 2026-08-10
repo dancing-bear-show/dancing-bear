@@ -3,6 +3,14 @@ VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
+# Absolute path to THIS checkout's src/. Pinned explicitly because an inherited
+# PYTHONPATH (from direnv in another checkout, or an activated venv belonging to
+# the main repo) otherwise takes precedence over the editable install's .pth and
+# silently resolves imports to that other tree. In a worktree that means tests
+# pass against unmodified source — a false green. Always run tests via $(RUNPY).
+SRC := $(CURDIR)/src
+RUNPY := PYTHONPATH=$(SRC) $(PY)
+
 .PHONY: venv dev-venv install test clean distclean agentic agentic-md cov cov-html bin-wrappers bin-wrappers-check deadcode
 
 venv:
@@ -25,17 +33,26 @@ dev-venv:
 install: venv
 
 test: venv
-	$(PY) -m unittest -v
+	$(RUNPY) -m unittest -v
+
+# Fail loudly if imports resolve outside this checkout (see SRC comment above).
+.PHONY: check-env
+check-env: venv
+	@$(RUNPY) -c "import pathlib, sys, core; \
+	src = pathlib.Path('$(SRC)').resolve(); \
+	got = pathlib.Path(core.__file__).resolve(); \
+	sys.exit(0) if src in got.parents else (print(f'ERROR: core resolves to {got}, expected under {src}'), sys.exit(1))"
+	@echo "OK: imports resolve to $(SRC)"
 
 cov: venv
 	$(PY) -m pip install coverage || true
-	PYTHONPATH=src $(PY) -m coverage run -m unittest -q || true
+	$(RUNPY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true
 	$(PY) -m coverage report -m
 
 cov-html: venv
 	$(PY) -m pip install coverage || true
-	PYTHONPATH=src $(PY) -m coverage run -m unittest -q || true
+	$(RUNPY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true
 	$(PY) -m coverage html && echo "Open ./htmlcov/index.html"
 
