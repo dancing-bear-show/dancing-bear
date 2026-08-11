@@ -32,7 +32,7 @@ make venv
 ```
 
 CLI help:
-- `./bin/assistant <apple-music-assistant|calendar|mail|maker|metals|phone|resume|schedule|whatsapp|wifi> --help`
+- `./bin/assistant <apple-music|calendar|mail|maker|metals|music|phone|resume|schedule|whatsapp|wifi> --help`
 - `./bin/mail --help`
 - `./bin/calendar --help`
 - `./bin/schedule --help`

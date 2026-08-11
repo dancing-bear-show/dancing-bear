@@ -27,11 +27,12 @@ Does not support `--agentic`; discover subcommands with `./bin/telemetry --help`
 ./bin/telemetry otel size                   # OTEL data size report
 ```
 
-The OTLP collector is a standalone script (not routed through the telemetry CLI):
+The OTLP collector runs in Docker (Colima or Docker Desktop) and is managed by a
+standalone script, not the telemetry CLI:
 ```bash
-python3 -m telemetry.otel.collector --daemon   # start collector
-python3 -m telemetry.otel.collector --stop
-python3 -m telemetry.otel.collector --status
+./bin/bootstrap-otel           # start the Docker collector
+./bin/bootstrap-otel --check   # status
+./bin/bootstrap-otel --stop    # stop
 ```
 
 ## Architecture
@@ -86,7 +87,7 @@ flowchart TB
 - `otel/cli/cost.py` — `CostScanProcessor` / `CostScanProducer` for `telemetry otel cost`
 - `otel/analytics/cost.py` — `get_all_costs`, `get_daily_costs`, `get_model_performance`
 - `otel/analytics/compare.py`, `anomaly.py`, `clustering.py` — cross-session analysis
-- `collector.py` — `CollectorReadProcessor`; manages docker-compose OTLP collector lifecycle
+- `collector.py` (package root, not `otel/`) — `CollectorReadProcessor`; manages the docker-compose OTLP collector lifecycle
 - `ccpulse_reader.py` — reads Claude Code pulse data into OTEL files
 - `menubar.py` and `_menubar_*.py` — macOS menu bar status display
 - `tui/` — Textual TUI components for `live` / `stats` / `summary`

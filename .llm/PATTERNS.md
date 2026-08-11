@@ -75,7 +75,7 @@ Familiarization: Large YAML/JSON Policy
 ```
 - Only open large YAML/JSON when auditing derived vs canonical.
 - Canonical: config/filters_unified.yaml
-- Derived/ephemeral: out/** (legacy out/**), backups/**, exports (open only for audits)
+- Derived/ephemeral: out/** (legacy _out/**), backups/**, exports (open only for audits)
 ```
 
 CLI Entry Pattern
@@ -440,7 +440,7 @@ from .constants import TEMP_PREFIXES, SECTION_PATTERNS
 Phone/iOS Patterns
 ```
 # Export → Plan → Checklist → Profile
-./bin/phone export --out out/ios.IconState.yaml
+./bin/phone export-device --out out/ios.IconState.yaml
 ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
 ./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml
 ./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig
