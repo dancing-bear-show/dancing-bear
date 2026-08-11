@@ -55,13 +55,13 @@ def _undo_retry_attempt(job_stem: str, original_attempts: int, q_root: Path) -> 
     q.retry increments attempts; deferred jobs should not consume an attempt.
     """
     try:
-        from worker._helpers import atomic_write_json, safe_load_json
+        from core.fileutil import atomic_write_json, safe_load_json
 
         paths = q._ensure_dirs(q_root)
         path = q._job_path(paths["pending"], job_stem)
         if not path.exists():
             return
-        data = safe_load_json(path)
+        data = safe_load_json(path, default={})
         data["attempts"] = original_attempts
         atomic_write_json(path, data)
     except Exception:  # nosec B110 - best-effort; worker will still retry correctly

@@ -19,7 +19,7 @@ import logging
 import tempfile
 from pathlib import Path
 
-from workflow._fileutil import atomic_write_json
+from core.fileutil import atomic_write_json
 from workflow.models import ManifestRef, StageResult, StageStatus, WorkflowManifest
 
 logger = logging.getLogger(__name__)

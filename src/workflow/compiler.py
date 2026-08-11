@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
-from workflow._timeutil import iso_now
+from core.date_utils import iso_now
 from workflow.models import (
     OutputMode,
     ResolvedStage,

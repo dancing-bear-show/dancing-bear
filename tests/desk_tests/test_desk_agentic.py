@@ -16,8 +16,19 @@ class TestEmitAgenticContext(unittest.TestCase):
     def test_compact_returns_0(self):
         from desk.agentic import emit_agentic_context
         with capture_stdout():
-            rc = emit_agentic_context(compact=True)
+            rc = emit_agentic_context("text", True)
         self.assertEqual(rc, 0)
+
+    def test_accepts_fmt_and_compact_positionally(self):
+        """Signature must match the (fmt, compact) contract CLIApp calls with.
+
+        Previously desk/maker took (compact) only, so callers relied on
+        BaseAssistant's blind `except TypeError: emit_func()` retry.
+        """
+        from desk.agentic import emit_agentic_context
+        for fmt in ("text", "yaml", "json"):
+            with capture_stdout():
+                self.assertEqual(emit_agentic_context(fmt, False), 0)
 
     def test_prints_agentic_content(self):
         from desk.agentic import emit_agentic_context

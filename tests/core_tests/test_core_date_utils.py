@@ -157,5 +157,55 @@ class TestToIsoStr(unittest.TestCase):
         self.assertEqual(to_iso_str(Obj()), "custom-obj")
 
 
+class TestParseIsoUtcStrict(unittest.TestCase):
+    """parse_iso_utc_strict is strict about ERRORS, not about syntax.
+
+    worker's public --not-before flag takes user-supplied timestamps, and
+    queue_ops treats a parse failure as "eligible now". Narrowing this to the
+    'Z'-only form iso_now() emits would make a '+00:00' not_before silently
+    lose its scheduling guarantee instead of deferring the job.
+    """
+
+    def test_accepts_z_suffix(self):
+        from core.date_utils import parse_iso_utc_strict
+        dt = parse_iso_utc_strict("2026-08-11T10:30:00Z")
+        self.assertEqual(dt.year, 2026)
+        self.assertIsNotNone(dt.tzinfo)
+
+    def test_accepts_explicit_utc_offset(self):
+        from core.date_utils import parse_iso_utc_strict
+        self.assertEqual(
+            parse_iso_utc_strict("2026-08-11T10:30:00+00:00"),
+            parse_iso_utc_strict("2026-08-11T10:30:00Z"),
+        )
+
+    def test_accepts_fractional_seconds(self):
+        from core.date_utils import parse_iso_utc_strict
+        self.assertEqual(parse_iso_utc_strict("2026-08-11T10:30:00.500Z").microsecond, 500000)
+
+    def test_round_trips_iso_now(self):
+        from core.date_utils import iso_now, parse_iso_utc_strict
+        self.assertIsNotNone(parse_iso_utc_strict(iso_now()).tzinfo)
+
+    def test_tolerates_surrounding_whitespace(self):
+        """A stray space must not read as "invalid" -> "run now"."""
+        from core.date_utils import parse_iso_utc_strict
+        expected = parse_iso_utc_strict("2026-08-11T10:30:00Z")
+        for padded in (" 2026-08-11T10:30:00Z", "2026-08-11T10:30:00Z ", "\t2026-08-11T10:30:00Z\n"):
+            self.assertEqual(parse_iso_utc_strict(padded), expected)
+
+    def test_raises_on_invalid(self):
+        from core.date_utils import parse_iso_utc_strict
+        for bad in ("", "   ", "garbage", "not-a-time"):
+            with self.assertRaises(ValueError):
+                parse_iso_utc_strict(bad)
+
+
+class TestIsoNow(unittest.TestCase):
+    def test_format_is_z_suffixed_seconds(self):
+        from core.date_utils import iso_now
+        self.assertRegex(iso_now(), r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
 if __name__ == "__main__":
     unittest.main()
