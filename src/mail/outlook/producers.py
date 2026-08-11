@@ -1,7 +1,7 @@
 """Producers for Outlook pipelines."""
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from core.pipeline import Producer, ResultEnvelope
 
@@ -23,8 +23,25 @@ from .processors import (
 
 _WOULD_SYNC = "Would sync"
 
-# Sync results that carry created/skipped tallies.
-_SyncResultT = TypeVar("_SyncResultT")
+class _CreatedSkipped(Protocol):
+    """Result payloads that carry created/skipped tallies.
+
+    Declared read-only because produce() only reads the tallies. A writable
+    attribute here would reject result types that expose them as properties.
+    """
+
+    @property
+    def created(self) -> int:
+        ...
+
+    @property
+    def skipped(self) -> int:
+        ...
+
+
+# Bound so a result type lacking the tallies is a type error rather than an
+# AttributeError at produce() time.
+_SyncResultT = TypeVar("_SyncResultT", bound=_CreatedSkipped)
 
 
 def _format_rule_criteria(criteria: dict[str, Any]) -> str:
