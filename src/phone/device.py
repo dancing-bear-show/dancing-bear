@@ -14,7 +14,7 @@ from pathlib import Path
 from shutil import which
 from typing import Any
 
-from core.constants import credential_ini_paths
+from core.constants import credential_ini_paths, read_credential_ini_first
 
 from .constants import P12_PASS_KEYS, P12_PATH_KEYS
 from .layout import normalize_iconstate, to_yaml_export
@@ -214,19 +214,9 @@ def read_credentials_ini(
     explicit: str | None = None,
 ) -> tuple[str | None, dict[str, dict[str, str]]]:
     """Read credentials.ini and return (path, sections_dict)."""
-    candidates: list[str] = []
-    if explicit:
-        candidates.append(explicit)
-    candidates.extend(credential_ini_paths())
-
-    for path in candidates:
-        if path and os.path.exists(path):
-            cp = configparser.ConfigParser()
-            cp.read(path)
-            data = {s: dict(cp.items(s)) for s in cp.sections()}
-            return path, data
-
-    return None, {}
+    # search_paths is passed explicitly so credential_ini_paths stays patchable
+    # in this module's namespace.
+    return read_credential_ini_first(explicit, search_paths=credential_ini_paths())
 
 
 def _first_value(section: dict[str, str], keys: tuple[str, ...]) -> str | None:

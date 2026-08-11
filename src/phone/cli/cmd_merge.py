@@ -298,23 +298,19 @@ def _reorg_install(
 
 def _ios_devices_option(option: str) -> str | None:
     """Return an [ios_devices] option value from the first creds file that has it."""
-    import configparser
-    from core.constants import credential_ini_paths
+    from core.constants import credential_ini_paths, read_credential_ini_first
 
     env_creds = os.environ.get("IOS_CREDS_FILE")
     search_paths = ([env_creds] if env_creds else []) + credential_ini_paths()
 
-    for path in search_paths:
-        if not path or not os.path.isfile(path):
-            continue
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(path)
-        except (configparser.Error, OSError):  # nosec B112 - skip unreadable/malformed creds file, try next
-            continue
-        if parser.has_option("ios_devices", option):
-            return parser.get("ios_devices", option)
-    return None
+    # require_option skips files whose [ios_devices] lacks this key, so a
+    # partial creds file does not shadow a later one that defines the device.
+    _path, sections = read_credential_ini_first(
+        search_paths=search_paths,
+        require_section="ios_devices",
+        require_option=option,
+    )
+    return sections.get("ios_devices", {}).get(option)
 
 
 def _udid_for_label(label: str) -> str | None:
