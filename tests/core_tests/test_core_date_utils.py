@@ -187,9 +187,16 @@ class TestParseIsoUtcStrict(unittest.TestCase):
         from core.date_utils import iso_now, parse_iso_utc_strict
         self.assertIsNotNone(parse_iso_utc_strict(iso_now()).tzinfo)
 
+    def test_tolerates_surrounding_whitespace(self):
+        """A stray space must not read as "invalid" -> "run now"."""
+        from core.date_utils import parse_iso_utc_strict
+        expected = parse_iso_utc_strict("2026-08-11T10:30:00Z")
+        for padded in (" 2026-08-11T10:30:00Z", "2026-08-11T10:30:00Z ", "\t2026-08-11T10:30:00Z\n"):
+            self.assertEqual(parse_iso_utc_strict(padded), expected)
+
     def test_raises_on_invalid(self):
         from core.date_utils import parse_iso_utc_strict
-        for bad in ("", "garbage", "not-a-time"):
+        for bad in ("", "   ", "garbage", "not-a-time"):
             with self.assertRaises(ValueError):
                 parse_iso_utc_strict(bad)
 

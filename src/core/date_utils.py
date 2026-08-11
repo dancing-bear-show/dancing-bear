@@ -199,7 +199,12 @@ def parse_iso_utc(value: str | None) -> "datetime | None":
     if not value:
         return None
     try:
-        s = value
+        # Strip before parsing: worker's --not-before takes user-supplied
+        # timestamps and queue_ops treats a parse failure as "run now", so a
+        # stray space would silently drop the scheduling guarantee.
+        s = value.strip()
+        if not s:
+            return None
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
