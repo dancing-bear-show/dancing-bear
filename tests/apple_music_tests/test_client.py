@@ -44,6 +44,38 @@ class TestRequestMethod(unittest.TestCase):
         call = session.calls[0]
         self.assertIn("api.music.apple.com", call["url"])
 
+    def test_204_no_content_is_success_not_an_error(self):
+        """Apple returns 204 with an empty body for successful playlist writes.
+
+        Treating that as a decode failure made a successful add look like an error,
+        which invites a retry that silently duplicates the track.
+        """
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
+        fake_resp.status_code = 204
+        fake_resp.content = b""
+        fake_resp.text = ""
+        fake_resp.headers = {}
+        fake_resp.json.side_effect = ValueError("no body to decode")
+        fake_session.request.return_value = fake_resp
+
+        client = AppleMusicClient("dev", "user", session=fake_session)
+        result = client._post("me/library/playlists/p.1/tracks", {"data": []})
+        self.assertEqual(result, {})
+
+    def test_empty_body_with_200_is_also_tolerated(self):
+        fake_session = unittest.mock.MagicMock()
+        fake_resp = unittest.mock.MagicMock()
+        fake_resp.status_code = 200
+        fake_resp.content = b"   "
+        fake_resp.text = "   "
+        fake_resp.headers = {}
+        fake_resp.json.side_effect = ValueError("no body to decode")
+        fake_session.request.return_value = fake_resp
+
+        client = AppleMusicClient("dev", "user", session=fake_session)
+        self.assertEqual(client._post("me/library/playlists/p.1/tracks", {"data": []}), {})
+
     def test_post_request(self):
         fake_session = unittest.mock.MagicMock()
         fake_resp = unittest.mock.MagicMock()

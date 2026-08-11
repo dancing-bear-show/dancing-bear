@@ -151,3 +151,40 @@ class TestServeOnce(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTokenCapturePath(unittest.TestCase):
+    """Only the page's own endpoint may set the captured token."""
+
+    def _post(self, url, path, body):
+        import urllib.error
+        import urllib.request
+
+        req = urllib.request.Request(url.rstrip("/") + path, data=body, method="POST")
+        try:
+            return urllib.request.urlopen(req, timeout=5).status  # nosec B310 - localhost test server
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    def test_post_to_an_unrelated_path_is_ignored(self):
+        import threading
+
+        from apple_music.token_helpers import TOKEN_PATH
+
+        server, url = user_token_cli._serve_once("<html/>", 0)
+        try:
+            results = {}
+
+            def client():
+                results["stray"] = self._post(url, "/stray", b"NOT_A_TOKEN")
+                results["real"] = self._post(url, TOKEN_PATH, b"REAL_TOKEN")
+
+            thread = threading.Thread(target=client, daemon=True)
+            thread.start()
+            token = user_token_cli._wait_for_token(server, 10)
+            thread.join(timeout=5)
+        finally:
+            server.server_close()
+
+        self.assertEqual(results.get("stray"), 404)
+        self.assertEqual(token, "REAL_TOKEN")
