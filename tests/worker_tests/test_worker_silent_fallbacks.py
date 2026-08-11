@@ -66,12 +66,24 @@ class TestThroughputMalformedLogLines(unittest.TestCase):
         self._orig_cwd = os.getcwd()
         self.addCleanup(os.chdir, self._orig_cwd)
         os.chdir(self.tmp.name)
-        ymd = datetime.now(UTC).strftime(DATE_FORMAT_YMD)
-        self.log = Path(self.tmp.name) / "_data" / "logs" / f"perf-worker-{ymd}.jsonl"
-        self.log.parent.mkdir(parents=True, exist_ok=True)
+
+        # setUp and _calculate_throughput each call datetime.now(UTC)
+        # independently, so a UTC midnight rollover between them would point
+        # at different filenames and flake. Write both days' names; the method
+        # reads whichever one it computes.
+        logs_dir = Path(self.tmp.name) / "_data" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(UTC)
+        self._logs = [
+            logs_dir / f"perf-worker-{(now + timedelta(days=d)).strftime(DATE_FORMAT_YMD)}.jsonl"
+            for d in (0, 1)
+        ]
+        self.log = self._logs[0]
 
     def _write_lines(self, lines: list[str]) -> None:
-        self.log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        body = "\n".join(lines) + "\n"
+        for path in self._logs:
+            path.write_text(body, encoding="utf-8")
 
     def _ok_line(self, ts: str, duration_ms: int = 100) -> str:
         return json.dumps({
@@ -106,7 +118,8 @@ class TestThroughputMalformedLogLines(unittest.TestCase):
         self.assertIsNone(self._throughput())
 
     def test_missing_file_returns_none(self):
-        self.log.unlink(missing_ok=True)
+        for path in self._logs:
+            path.unlink(missing_ok=True)
         self.assertIsNone(self._throughput())
 
 
