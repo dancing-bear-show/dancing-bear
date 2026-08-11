@@ -83,6 +83,53 @@ class DslNormalizeTests(unittest.TestCase):
         self.assertEqual(out, [{"match": {"from": "a@b"}, "action": {"add": ["X"]}}])
 
 
+class ScalarAddValueTests(unittest.TestCase):
+    """`action.add` given a scalar must become one label, not one per character.
+
+    `add` comes from user-authored YAML, and `add: work` instead of
+    `add: [work]` is an easy slip. Iterating the raw value turned that single
+    label into ['w','o','r','k'] -- four bogus Outlook rules from a missing
+    pair of brackets -- and a scalar int raised TypeError outright. These feed
+    `mail outlook rules sync`, so the wrong value reaches real mailbox rules.
+    """
+
+    def _add(self, value):
+        out = normalize_filters_for_outlook(
+            [{"match": {"from": "a@b"}, "action": {"add": value}}]
+        )
+        return out[0]["action"]["add"]
+
+    def test_string_is_one_label_not_one_per_character(self):
+        self.assertEqual(self._add("work"), ["work"])
+
+    def test_multiword_string_stays_intact(self):
+        self.assertEqual(self._add("Work Urgent"), ["Work Urgent"])
+
+    def test_int_does_not_raise(self):
+        self.assertEqual(self._add(123), ["123"])
+
+    def test_list_is_unchanged(self):
+        self.assertEqual(self._add(["work"]), ["work"])
+
+    def test_multi_element_list_is_unchanged(self):
+        self.assertEqual(self._add(["work", "urgent"]), ["work", "urgent"])
+
+    def test_tuple_is_expanded(self):
+        self.assertEqual(self._add(("a", "b")), ["a", "b"])
+
+    def test_falsy_entries_are_still_dropped(self):
+        self.assertEqual(self._add(["ok", "", None]), ["ok"])
+
+    def test_falsy_scalar_omits_action_entirely(self):
+        """A falsy add is skipped by the `if a.get("add")` guard, as before."""
+        for value in ("", 0, None, []):
+            with self.subTest(value=value):
+                out = normalize_filters_for_outlook(
+                    [{"match": {"from": "a@b"}, "action": {"add": value}}]
+                )
+                self.assertNotIn("add", out[0]["action"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
