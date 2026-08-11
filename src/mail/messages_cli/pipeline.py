@@ -23,6 +23,32 @@ class MessagesSearchRequest:
     only_inbox: bool = False
     max_results: int = 5
     output_json: bool = False
+    from_: str | None = None
+    to: str | None = None
+    subject_contains: str | None = None
+    not_query: str | None = None
+    has_attachment: bool = False
+    unread: bool = False
+
+
+def search_request_to_criteria(request: MessagesSearchRequest) -> dict[str, Any]:
+    """Map a search request onto the criteria keys ``build_gmail_query`` understands.
+
+    Keys are dropped when empty so the built query stays free of no-op operators.
+    ``unread`` is intentionally absent: ``build_gmail_query`` has no such key and is
+    shared with the filters/sweep path, so callers append ``is:unread`` themselves.
+    """
+    criteria: dict[str, Any] = {
+        "query": request.query,
+        "from": request.from_,
+        "to": request.to,
+        "subject": request.subject_contains,
+        "negatedQuery": request.not_query,
+    }
+    normalized = {k: v for k, v in criteria.items() if v not in (None, "")}
+    if request.has_attachment:
+        normalized["hasAttachment"] = True
+    return normalized
 
 
 @dataclass
@@ -33,6 +59,16 @@ class MessageCandidate:
     subject: str
     from_header: str
     snippet: str
+    to_header: str = ""
+    date: str = ""
+    labels: list[str] = field(default_factory=list)
+    unread: bool = False
+    # Tri-state, and deliberately asymmetric between providers. Outlook's
+    # $select returns hasAttachments, so True/False are both meaningful. Gmail's
+    # format="metadata" response genuinely lacks payload.parts, so attachment
+    # state is UNKNOWN there -- None keeps the key out of the output entirely
+    # rather than emitting a False that would read as "no attachments".
+    has_attachment: bool | None = None
 
 
 @dataclass
@@ -56,9 +92,20 @@ class MessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearc
         from ..utils.filters import build_gmail_query
         from ..messages import candidates_from_metadata
 
-        crit = {"query": payload.query}
+        crit = search_request_to_criteria(payload)
         q = build_gmail_query(crit, days=payload.days, only_inbox=payload.only_inbox)
-        ids = self._client.list_message_ids(query=q, max_pages=1, page_size=payload.max_results)
+        # build_gmail_query has no unread key and is shared with the filters/sweep
+        # path, so the operator is appended here instead of widening that helper.
+        if payload.unread:
+            q = f"{q} is:unread".strip()
+        # max_pages=0 exhausts the cursor (paging.gather_pages breaks only on a
+        # truthy max_pages). Decoupling page_size from max_results is what lifts
+        # the old one-page cap; the slice keeps the caller's requested ceiling.
+        ids = self._client.list_message_ids(
+            query=q,
+            max_pages=0,
+            page_size=min(500, max(payload.max_results, 100)),
+        )[: payload.max_results]
         msgs = self._client.get_messages_metadata(ids, use_cache=True)
         cands = candidates_from_metadata(msgs)
         return MessagesSearchResult(
@@ -68,6 +115,10 @@ class MessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, MessagesSearc
                     subject=c.subject,
                     from_header=c.from_header,
                     snippet=c.snippet,
+                    to_header=c.to_header,
+                    date=c.date,
+                    labels=list(c.labels),
+                    unread=c.unread,
                 )
                 for c in cands
             ]
@@ -82,38 +133,78 @@ class OutlookMessagesSearchProcessor(SafeProcessor[MessagesSearchRequest, Messag
 
     def _process_safe(self, payload: MessagesSearchRequest) -> MessagesSearchResult:
         from core.outlook.models import SearchParams
-        from urllib.parse import quote
 
-        # URL-encode the query to prevent injection via special chars
-        safe_query = quote(payload.query, safe="")
+        # search_query takes a RAW, unquoted term: _build_search_url owns the
+        # KQL quoting and percent-encoding. Pre-encoding here would double-encode.
         params = SearchParams(
-            search_query=safe_query,
+            search_query=payload.query,
             days=payload.days,
             top=payload.max_results,
             pages=1,
             use_cache=True,
         )
-        # N+1 fetch: core client discards message fields from search response;
-        # returning full dicts would eliminate per-message get_message calls
-        ids = self._client.search_inbox_messages(params)
-        candidates = []
-        for mid in ids[:payload.max_results]:
-            msg = self._client.get_message(mid, select_body=False)
-            candidates.append(_outlook_msg_to_candidate(mid, msg))
+        # Single fetch: search_inbox_message_dicts $selects every field a
+        # candidate needs, so there is no per-message get_message round trip.
+        msgs = self._client.search_inbox_message_dicts(params)
+        candidates = [
+            _outlook_msg_to_candidate(msg.get("id", ""), msg)
+            for msg in msgs[:payload.max_results]
+        ]
         return MessagesSearchResult(candidates=candidates)
 
 
+def _graph_address(entry: dict | None) -> str:
+    """Format one Graph emailAddress entry as "Name <addr>" or a bare address."""
+    addr_obj = (entry or {}).get("emailAddress") or {}
+    name = (addr_obj.get("name") or "").strip()
+    address = (addr_obj.get("address") or "").strip()
+    if name and address:
+        return f"{name} <{address}>"
+    return address or name
+
+
+def _graph_datetime_to_iso(value: Any) -> str:
+    """Normalize Graph's receivedDateTime to ISO-8601 UTC ("%Y-%m-%dT%H:%M:%SZ").
+
+    Graph already returns ISO-8601, but may include sub-second precision or a
+    "+00:00" offset. This matches the Gmail-side format produced by
+    ``mail.messages._internal_date_to_iso`` so both providers agree.
+    """
+    from datetime import datetime, timezone
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _graph_recipients(entries: list[dict] | None) -> str:
+    """Format a Graph recipient list as a comma-separated header string."""
+    formatted = (_graph_address(entry) for entry in (entries or []))
+    return ", ".join(addr for addr in formatted if addr)
+
+
 def _outlook_msg_to_candidate(mid: str, msg: dict) -> MessageCandidate:
-    """Convert an Outlook message dict to a MessageCandidate."""
-    from_obj = msg.get("from", {}).get("emailAddress", {})
-    from_name = from_obj.get("name", "")
-    from_addr = from_obj.get("address", "")
-    from_header = f"{from_name} <{from_addr}>" if from_name else from_addr
+    """Convert an Outlook message dict to a MessageCandidate.
+
+    ``has_attachment`` is populated from Graph's ``hasAttachments``; unlike the
+    Gmail path it is never left unknown. See MessageCandidate.
+    """
     return MessageCandidate(
         id=mid,
         subject=msg.get("subject", ""),
-        from_header=from_header,
-        snippet=msg.get("bodyPreview", "").strip(),
+        from_header=_graph_address(msg.get("from")),
+        snippet=(msg.get("bodyPreview") or "").strip(),
+        to_header=_graph_recipients(msg.get("toRecipients")),
+        date=_graph_datetime_to_iso(msg.get("receivedDateTime")),
+        unread=not msg.get("isRead", True),
+        has_attachment=bool(msg.get("hasAttachments", False)),
     )
 
 
@@ -128,7 +219,13 @@ class MessagesSearchProducer(BaseProducer):
         candidates = payload.candidates
 
         if self._output_json:
-            print(_json.dumps([c.__dict__ for c in candidates], ensure_ascii=False, indent=2, default=str))
+            # Drop None-valued keys so an UNKNOWN has_attachment (Gmail) is
+            # absent rather than rendered as null/false. See MessageCandidate.
+            rows = [
+                {k: v for k, v in c.__dict__.items() if v is not None}
+                for c in candidates
+            ]
+            print(_json.dumps(rows, ensure_ascii=False, indent=2, default=str))
         else:
             for c in candidates:
                 print(f"{c.id}\t{c.subject}\t{c.from_header}\t{c.snippet}")

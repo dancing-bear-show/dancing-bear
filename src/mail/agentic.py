@@ -32,6 +32,10 @@ def build_agentic_capsule(compact: bool = False) -> str:
         "labels export: python3 -m mail labels export --out labels.yaml",
         "labels sync: python3 -m mail labels sync --config labels.yaml --dry-run",
         "filters export: python3 -m mail filters export --out filters.yaml",
+        "messages search: ./bin/mail-assistant messages search --query 'subject:invoice' --json",
+        "messages search (structured, Gmail only): ./bin/mail-assistant messages search --from a@b.com --subject-contains invoice --unread",
+        "messages get: ./bin/mail-assistant messages get --ids MSG1,MSG2 --format json",
+        "messages threads-get: ./bin/mail-assistant messages threads-get --thread-id THREAD1 --include-body",
     ]
 
     sections: list[tuple[str, str]] = []

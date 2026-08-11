@@ -227,6 +227,10 @@ Outlook auth (device code):
 Other mail commands:
 ```bash
 ./bin/mail messages search --query "from:example@gmail.com"
+# Structured search flags are Gmail only; an Outlook profile rejects them.
+./bin/mail messages search --from example@gmail.com --subject-contains invoice --unread
+./bin/mail messages get --ids MSG1,MSG2 --format json
+./bin/mail messages threads-get --thread-id THREAD1 --include-body
 ./bin/mail auto propose && ./bin/mail auto apply
 ./bin/mail forwarding list && ./bin/mail forwarding add
 ./bin/mail signatures export && ./bin/mail signatures sync

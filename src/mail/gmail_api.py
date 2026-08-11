@@ -316,6 +316,16 @@ class GmailClient(ConfigCacheMixin):
     def get_message(self, msg_id: str, fmt: str = "full") -> dict[str, Any]:
         return self.service.users().messages().get(userId="me", id=msg_id, format=fmt).execute()
 
+    # --- Threads ---
+    def get_thread(self, thread_id: str, fmt: str = "metadata") -> dict[str, Any]:
+        """Fetch a thread and its messages.
+
+        Unlike `get_message_metadata`, no `metadataHeaders` restriction is applied,
+        so the full header list (including Date/To) comes back and the messages[]
+        entries parse directly with `candidates_from_metadata`.
+        """
+        return self.service.users().threads().get(userId="me", id=thread_id, format=fmt).execute()
+
     @staticmethod
     def _decode_message_data(data: str) -> str:
         """Decode base64-encoded message data."""

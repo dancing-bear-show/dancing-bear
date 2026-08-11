@@ -13,8 +13,19 @@ from mail.messages_cli.commands import (
 from mail.messages_cli.commands_reply import run_messages_reply
 
 
+# Epoch ms for 2026-08-10T12:00:00Z, matching the Date header below. Keep the
+# two in sync: a mismatched pair silently produces a test that asserts the wrong
+# year while still passing.
+MESSAGES_INTERNAL_DATE_MS = "1786363200000"
+MESSAGES_DATE_ISO = "2026-08-10T12:00:00Z"
+
+
 def _make_messages_client():
-    """Create a FakeGmailClient configured for messages CLI tests."""
+    """Create a FakeGmailClient configured for messages CLI tests.
+
+    Carries internalDate/labelIds/To so search results exercise the full
+    candidate shape (date, labels, unread, to_header) from the shared fixture.
+    """
     msg_id = "MSG1"
     thread_id = "THREAD1"
     return FakeGmailClient(
@@ -23,9 +34,13 @@ def _make_messages_client():
                 "id": msg_id,
                 "threadId": thread_id,
                 "snippet": "Snippet here",
+                "internalDate": MESSAGES_INTERNAL_DATE_MS,
+                "labelIds": ["INBOX", "UNREAD"],
                 "payload": {
                     "headers": [
+                        {"name": "Date", "value": "Mon, 10 Aug 2026 12:00:00 +0000"},
                         {"name": "From", "value": "Sender <sender@example.com>"},
+                        {"name": "To", "value": "Me <me@example.com>"},
                         {"name": "Subject", "value": "Hello"},
                         {"name": "Message-Id", "value": "<abc@id>"},
                         {"name": "References", "value": "<prev@id>"},
@@ -321,13 +336,15 @@ class MessagesSummarizeRegressionTests(unittest.TestCase):
 class OutlookMessagesCLITests(unittest.TestCase):
     def test_outlook_search_lists_candidates(self):
         """Test Outlook message search via is_outlook_profile=True path."""
+        # search_inbox_message_dicts returns fully-$selected rows, so the
+        # processor builds candidates without any per-message get_message.
         fake_client = type("FakeOutlookClient", (), {
-            "search_inbox_messages": lambda self, params: ["OLK1"],
-            "get_message": lambda self, mid, select_body=False: {
+            "search_inbox_message_dicts": lambda self, params: [{
+                "id": "OLK1",
                 "subject": "Outlook Subject",
                 "from": {"emailAddress": {"name": "Alice", "address": "alice@outlook.com"}},
                 "bodyPreview": "Preview text",
-            },
+            }],
         })()
 
         with patch("mail.utils.cli_helpers.is_outlook_profile", return_value=True), \

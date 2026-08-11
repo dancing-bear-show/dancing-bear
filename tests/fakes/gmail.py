@@ -30,6 +30,7 @@ class FakeGmailClient:
     filters: List[Dict] = field(default_factory=list)
     messages: Dict[str, Dict] = field(default_factory=dict)
     message_ids_by_query: Dict[str, List[str]] = field(default_factory=dict)
+    threads: Dict[str, Dict] = field(default_factory=dict)
     verified_forward_addresses: set = field(default_factory=set)
 
     # Track mutations
@@ -65,6 +66,12 @@ class FakeGmailClient:
 
     def get_message(self, msg_id: str, fmt: str = "full") -> Dict:  # NOSONAR - fake interface must match real signature
         return self.messages.get(msg_id, {"id": msg_id, "payload": {"headers": []}})
+
+    def get_thread(self, thread_id: str, fmt: str = "metadata") -> Dict:  # NOSONAR - fake interface must match real signature
+        """Return a registered thread, or raise so not-found paths are testable."""
+        if thread_id not in self.threads:
+            raise KeyError(f"FakeGmailClient: no thread '{thread_id}'")
+        return self.threads[thread_id]
 
     def get_message_text(self, msg_id: str) -> str:
         msg = self.messages.get(msg_id, {})

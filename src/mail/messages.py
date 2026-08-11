@@ -71,6 +71,23 @@ class Candidate:
     from_header: str
     subject: str
     snippet: str
+    to_header: str = ""
+    date: str = ""
+    labels: list[str] = field(default_factory=list)
+    unread: bool = False
+
+
+def _internal_date_to_iso(ms: Any) -> str:
+    """Return an ISO-8601 UTC timestamp for Gmail's epoch-millisecond internalDate.
+
+    Returns "" when the value is missing or not coercible to an integer.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
 
 
 def candidates_from_metadata(msgs: list[dict[str, Any]]) -> list[Candidate]:
@@ -78,6 +95,7 @@ def candidates_from_metadata(msgs: list[dict[str, Any]]) -> list[Candidate]:
     for m in msgs:
         payload = m.get("payload") or {}
         headers = {h.get("name", "").lower(): h.get("value", "") for h in (payload.get("headers") or [])}
+        labels = [str(x) for x in (m.get("labelIds") or [])]
         out.append(
             Candidate(
                 id=m.get("id", ""),
@@ -85,6 +103,10 @@ def candidates_from_metadata(msgs: list[dict[str, Any]]) -> list[Candidate]:
                 from_header=headers.get("from", ""),
                 subject=headers.get("subject", ""),
                 snippet=(m.get("snippet") or "").strip(),
+                to_header=headers.get("to", ""),
+                date=_internal_date_to_iso(m.get("internalDate")),
+                labels=labels,
+                unread="UNREAD" in labels,
             )
         )
     return out

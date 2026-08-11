@@ -36,14 +36,26 @@ QUERIES: List[Tuple[str, str]] = [
 
 
 def _search_all_folders(cli: OutlookClient, q: str, params: ScanParams) -> List[str]:
-    """Search all folders via Graph $search."""
+    """Search all folders via Graph $search.
+
+    ``q`` is a RAW, unquoted KQL term; this function owns the quoting and
+    percent-encoding. No ``$filter`` is emitted -- Graph rejects it alongside
+    ``$search`` -- so the days window is applied client-side.
+    """
     import requests  # lazy import
+    import urllib.parse
     base = f"{cli.GRAPH}/me/messages"
-    url_params = [f"$search=\"{q}\"", f"$top={int(params.top)}"]
+    encoded_q = urllib.parse.quote(f'"{q}"')
+    url_params = [
+        f"$search={encoded_q}",
+        f"$top={int(params.top)}",
+        "$select=id,receivedDateTime",
+    ]
+    cutoff = ""
     if params.days and int(params.days) > 0:
         import datetime as _dt
         start = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=int(params.days))
-        url_params.append(f"$filter=receivedDateTime ge {start.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+        cutoff = start.strftime("%Y-%m-%dT%H:%M:%SZ")
     nxt: str | None = base + "?" + "&".join(url_params)
     ids: List[str] = []
     for _ in range(max(1, int(params.pages))):
@@ -52,8 +64,10 @@ def _search_all_folders(cli: OutlookClient, q: str, params: ScanParams) -> List[
         data = r.json()
         for m in data.get("value", []):
             mid = m.get("id")
-            if mid:
-                ids.append(mid)
+            received = m.get("receivedDateTime") or ""
+            if not mid or (cutoff and received and received < cutoff):
+                continue
+            ids.append(mid)
         nxt = data.get("@odata.nextLink")
         if not nxt:
             break

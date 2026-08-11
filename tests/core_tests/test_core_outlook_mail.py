@@ -456,16 +456,36 @@ class TestSearchInboxMessages(OutlookMailTestBase):
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_with_days_filter(self, mock_requests_fn):
-        from core.outlook.models import SearchParams
-        mock_requests = self._setup_mock_requests(mock_requests_fn)
-        mock_requests.get.return_value = make_mock_response({"value": MESSAGE_LIST})
+        """days must NOT emit $filter -- Graph rejects $search+$filter.
 
-        FakeMailClient().search_inbox_messages(
+        The window is applied client-side instead; see
+        tests/core_tests/test_outlook_mail_search_query.py.
+        """
+        import datetime as _dt
+        from core.outlook.models import SearchParams
+
+        def _days_ago(days: int) -> str:
+            stamp = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)
+            return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        mock_requests = self._setup_mock_requests(mock_requests_fn)
+        mock_requests.get.return_value = make_mock_response({
+            "value": [
+                {"id": "in-window", "receivedDateTime": _days_ago(1)},
+                {"id": "out-of-window", "receivedDateTime": _days_ago(90)},
+            ]
+        })
+
+        result = FakeMailClient().search_inbox_messages(
             SearchParams(search_query="test", days=7, use_cache=False)
         )
 
         call_url = mock_requests.get.call_args[0][0]
-        self.assertIn("$filter=receivedDateTime", call_url)
+        self.assertNotIn("$filter", call_url)
+        self.assertIn("receivedDateTime", call_url)
+        # Positive: the window is genuinely enforced client-side, so this would
+        # fail against a function that simply returned nothing.
+        self.assertEqual(result, ["in-window"])
 
     @patch("core.outlook.mail._requests")
     def test_search_inbox_pagination(self, mock_requests_fn):
