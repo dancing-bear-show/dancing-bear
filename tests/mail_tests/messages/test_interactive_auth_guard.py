@@ -43,10 +43,11 @@ class InteractiveAuthGuardTests(unittest.TestCase):
                     fn("https://example.com")
 
     def test_error_names_the_correct_patch_target(self):
-        """The message must point at the definition site, which is what works.
+        """The message must point at the definition site.
 
-        Patching ``mail.messages_cli.commands.*`` does NOT intercept, because the
-        imports there are function-local; ``mail.utils.cli_helpers.*`` does.
+        The commands import these helpers function-locally, which resolves
+        through the module object at call time -- so patching the definition
+        site (``mail.utils.cli_helpers.*``) is what intercepts them.
         """
         with self.assertRaises(tests_pkg.InteractiveAuthAttempted) as ctx:
             webbrowser.open("https://example.com")
