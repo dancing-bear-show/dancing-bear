@@ -10,9 +10,13 @@ sections:
     # text with no visual boundary between them. max_sentences is deliberately
     # unset — it counts sentences, so on a bulleted profile it silently drops
     # whole bullets rather than trimming prose.
+    #
+    # No item_color here: SummarySectionRenderer passes this config only to
+    # get_bullet_config() for plain/glyph, and the bullet writers take no
+    # colour argument — setting it would read as configuration that does
+    # nothing.
     bulleted: true
     plain_bullets: true
-    item_color: "#2E5090"
   - key: skills
     title: Core Abilities
     bullets: true
