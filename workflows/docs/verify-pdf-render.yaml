@@ -1,0 +1,264 @@
+name: verify-pdf-render
+version: "1.0"
+description: >
+  Verify filled PDF forms by RENDERING them to images and reading the pixels,
+  not by querying stored field values. Fans out one agent per PDF, then
+  consolidates into a single pass/fail report.
+
+  WHY THIS EXISTS
+  ---------------
+  On AcroForm PDFs, a field can hold a correct value and still display wrong.
+  Both failure modes below were hit on real Sun Life claim forms, and both
+  passed a field-value audit before a render caught them:
+
+    1. FONT-SIZE TRUNCATION. If a text field's /DA sets a fixed point size
+       (e.g. "/Helv 9 Tf") and the box is narrow, macOS Preview and Acrobat
+       re-render from /V + /DA and silently clip the last 1-2 characters.
+       widget.field_value and pdftotext both report the full string. A phone
+       number stored as "416 801 8094" rendered as "41 80 809".
+
+    2. BOTH-BOXES-CHECKED. A Yes/No checkbox pair is two widgets sharing ONE
+       field name with different on-states. Setting the field by name turns
+       BOTH on. Reading field_value returns a single plausible answer, so the
+       defect is invisible to a value query but obvious in a render.
+
+  A third case is the inverse — a value query reports a WRONG-looking state
+  that is actually correct. Some templates have swapped on-state names, where
+  the widget whose on-state is "Yes" sits beside the "No" label. Only a render
+  distinguishes a real bug from this false positive, so this workflow reports
+  what is VISIBLE and never "corrects" from stored values.
+
+  SCOPE — this workflow is read-only. It renders, inspects, and reports. It
+  never edits a PDF. Fixing anything it finds is a separate, deliberate step.
+
+  Stage dependency graph:
+
+    discover
+       |
+    render-fields   [fan-out: one agent per PDF]
+       |
+    consolidate
+       |
+    gate-report     [human gate]
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-10"
+
+trigger:
+  source: manual
+  params:
+    pdf_dir: ""              # REQUIRED. Directory to scan for filled PDFs (non-recursive).
+    field_pattern: ""        # Optional regex limiting which field names to render.
+                             # Empty = every non-empty text field + every checkbox.
+    dpi: "300"               # Render DPI. 300+ is needed to see 1-character clipping.
+    fail_on_findings: "true" # "true" = gate blocks when any finding is visible.
+
+workspace_dir: "{work_dir}/verify-pdf-render"
+
+stages:
+
+  # ===========================================================================
+  # Discover — enumerate PDFs and their fields. No rendering yet.
+  # ===========================================================================
+  - name: discover
+    kind: gather
+    description: >
+      Enumerate the filled PDFs to verify and the fields worth rendering.
+
+      Step 1 — list PDFs. Non-recursively list *.pdf in {pdf_dir}. Skip any
+      file whose path contains a directory named _removed-duplicates,
+      _superseded, or backups — those hold deliberately excluded material.
+
+      Step 2 — for each PDF, open with PyMuPDF and collect every widget:
+      field_name, field_type_string, field_value, xref, page number, and rect.
+
+      Step 3 — decide which fields matter. If {field_pattern} is non-empty,
+      keep only field names matching that regex. Otherwise keep every text
+      field with a non-empty value, plus every checkbox regardless of value
+      (an all-off pair is legitimate; a both-on pair is the bug).
+
+      Step 4 — write inventory.json with an "items" array, ONE ENTRY PER PDF:
+        {
+          "items": [
+            {
+              "pdf": "claim_brian.pdf",
+              "path": "/abs/path/claim_brian.pdf",
+              "pages": 2,
+              "text_fields":  [{"name":"3.total_claimed.0","value":"1363.60","page":0,"rect":[..]}],
+              "checkbox_groups": [
+                {"name":"3.Full-time_student.0",
+                 "widgets":[{"xref":192,"on_state":"Yes","as":"/Yes","rect":[..]},
+                            {"xref":193,"on_state":"No","as":"/Off","rect":[..]}]}
+              ]
+            }
+          ]
+        }
+
+      Group checkboxes by field NAME — the shared-name pair is exactly what
+      the both-on check needs. Read each widget's /AS via
+      doc.xref_get_key(xref, "AS"); do not rely on widget.field_value, which
+      collapses a pair to one answer.
+
+      Hard-fail if {pdf_dir} is empty or unset, if it does not exist, or if it
+      contains no PDFs — an empty inventory would make every later stage
+      trivially pass and report a false all-clear.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    outputs:
+      - name: inventory
+        mode: generate
+        description: >
+          inventory.json at {workspace}/outputs/, "items" array with one
+          entry per PDF listing its text fields and checkbox groups.
+    required: true
+    writes_to:
+      - outputs/inventory.json
+
+  # ===========================================================================
+  # Render + inspect — ONE AGENT PER PDF. This is the core of the pattern.
+  # ===========================================================================
+  - name: render-fields
+    kind: gather
+    depends_on: [discover]
+    reads_from: [discover]
+    description: >
+      Verify ONE pdf — {pdf} — by looking at rendered pixels.
+
+      Read its entry from {workspace}/outputs/inventory.json.
+
+      Step 1 — render. For each field region, render a clip at {dpi} DPI with
+      page.get_pixmap(clip=fitz.Rect(...), dpi={dpi}) and save under
+      {workspace}/outputs/renders/{pdf}/. Pad the clip by ~8pt so a clipped glyph is
+      visibly cut rather than cropped out of frame. Group nearby fields
+      (e.g. a whole totals column) into one image where that aids comparison.
+
+      Step 2 — READ each image with the Read tool. This is mandatory. Do not
+      infer from field_value what the image shows — that defeats the entire
+      purpose of this workflow. A finding is only valid if you looked.
+
+      Step 3 — for every text field, compare visible text against the stored
+      value from inventory.json and classify:
+        ok        — visible text matches stored value exactly
+        clipped   — visible text is a truncated prefix of the stored value
+        mismatch  — visible text differs some other way
+        illegible — cannot be read at this DPI (say so; do not guess)
+
+      Step 4 — for every checkbox group, count widgets whose /AS is not /Off.
+        0 on  -> "none-selected" (often legitimate; report, do not judge)
+        1 on  -> ok
+        2+ on -> "both-checked", a REAL defect
+      Confirm each count against the image. When a group's visible tick sits
+      beside the opposite label from its on-state name, report it as
+      "swapped-on-state" and mark it ok if the VISIBLE answer is right — that
+      is a template quirk, not a bug.
+
+      Step 5 — write findings-{pdf}.json:
+        {
+          "pdf": "claim_brian.pdf",
+          "checked": {"text_fields": 12, "checkbox_groups": 7},
+          "findings": [
+            {"field":"2.day_phone.number2","severity":"error","type":"clipped",
+             "stored":"8094","visible":"809","image":"outputs/renders/claim_brian/phone.png",
+             "note":"last character cut; /DA is fixed 9pt in a ~15pt box"}
+          ],
+          "verdict": "fail"
+        }
+
+      verdict is "pass" only when zero findings have severity "error".
+      clipped, mismatch and both-checked are errors. illegible and
+      none-selected are warnings. Report what you SEE; do not speculate about
+      causes beyond what the PDF structure shows, and never edit the PDF.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    outputs:
+      - name: pdf_findings
+        mode: generate
+        description: >
+          findings-{pdf}.json at {workspace}/outputs/ with per-field verdicts
+          and paths to the rendered images backing each one.
+    required: true
+    fan_out:
+      source: discover
+      field: items
+      key: pdf
+      mode: agent
+    writes_to:
+      - outputs/findings-{pdf}.json
+
+  # ===========================================================================
+  # Consolidate — merge per-PDF findings into one report.
+  # ===========================================================================
+  - name: consolidate
+    kind: gather
+    depends_on: [render-fields]
+    reads_from: [render-fields]
+    description: >
+      Merge every {workspace}/outputs/findings-*.json into one report.
+
+      Step 1 — cross-check against the inventory. Every PDF in inventory.json
+      must have a findings file. A missing one means that agent failed; list
+      it under "incomplete" and treat the run as failed. Never let a silently
+      absent findings file read as a pass.
+
+      Step 2 — write report.md, ordered errors first, then warnings, then
+      clean PDFs. For each finding give: PDF, field, type, stored vs visible,
+      and the relative path to the image. Lead with the verdict line
+      "PASS — N PDFs, M fields verified" or "FAIL — N findings across M PDFs".
+
+      Step 3 — write report.json: {"verdict","pdfs_checked","fields_checked",
+      "errors":[...],"warnings":[...],"incomplete":[...]}.
+
+      Report only what the per-PDF agents actually observed. Do not re-derive
+      verdicts from stored field values, and do not soften an error because it
+      looks like it might be a template quirk — the render agent already made
+      that call with the image in front of it.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-only
+    outputs:
+      - name: render_report
+        mode: generate
+        description: >
+          report.md and report.json at {workspace}/outputs/, consolidating every
+          per-PDF finding with links to the backing images.
+    required: true
+    writes_to:
+      - outputs/report.md
+      - outputs/report.json
+
+  # ===========================================================================
+  # Human gate — a person looks at the images before anything is trusted.
+  # ===========================================================================
+  - name: gate-report
+    kind: propose
+    depends_on: [consolidate]
+    reads_from: [consolidate]
+    description: >
+      Present {workspace}/outputs/report.md and stop for human review.
+
+      Show the verdict line, every error with its stored-vs-visible pair, and
+      the path to each backing image so the reviewer can open it directly.
+
+      When {fail_on_findings} is "true" and report.json has any errors or any
+      incomplete entries, this gate BLOCKS. The point of the workflow is that
+      a machine-readable pass is not sufficient evidence — a person should see
+      the pixels before a filled form is mailed, printed, or submitted.
+
+      This workflow does not fix anything. If the reviewer accepts the
+      findings, remediation is a separate deliberate step.
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read]
+      access: read-only
+    human_gate: true
+    required: true
