@@ -12,11 +12,18 @@ sections:
     # whole bullets rather than trimming prose.
     #
     # No item_color here: SummarySectionRenderer passes this config only to
-    # get_bullet_config() for plain/glyph, and the bullet writers take no
-    # colour argument — setting it would read as configuration that does
-    # nothing.
+    # get_bullet_config(), which reads plain_bullets and bullets.style/glyph,
+    # and the bullet writers take no colour argument — setting it would read
+    # as configuration that does nothing.
+    #
+    # The glyph is the one visual lever this path does honour. The Profile
+    # takes a distinct one: every section below it uses "•", and reusing that
+    # here makes the opening section read as one more list rather than the
+    # summary of the document.
     bulleted: true
     plain_bullets: true
+    bullets:
+      glyph: "▸"
   - key: skills
     title: Core Abilities
     bullets: true
