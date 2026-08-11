@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 from datetime import datetime
 
 from .client import AppleMusicCLIError, AppleMusicClient
@@ -22,6 +23,28 @@ RAGE_AGAINST_THE_MACHINE = "Rage Against the Machine"
 SYSTEM_OF_A_DOWN = "System Of A Down"
 SMASHING_PUMPKINS = "Smashing Pumpkins"
 KNIFE_PARTY = "Knife Party"
+FRANCE_GALL = "France Gall"
+FRANCOISE_HARDY = "Françoise Hardy"
+SERGE_GAINSBOURG = "Serge Gainsbourg"
+JACQUES_DUTRONC = "Jacques Dutronc"
+MICHEL_POLNAREFF = "Michel Polnareff"
+ANGELE = "Angèle"
+CLARA_LUCIANI = "Clara Luciani"
+AYA_NAKAMURA = "Aya Nakamura"
+COEUR_DE_PIRATE = "Cœur de Pirate"
+JOE_DASSIN = "Joe Dassin"
+JULIETTE_ARMANET = "Juliette Armanet"
+LA_FEMME = "La Femme"
+DAFT_PUNK = "Daft Punk"
+SEBASTIEN_TELLIER = "Sébastien Tellier"
+POLO_AND_PAN = "Polo & Pan"
+
+# How many search results to consider before giving up on a seed. Apple ranks by
+# catalog-wide relevance, so the intended track is not always first.
+_SEARCH_CANDIDATES = 5
+
+# Tokens too generic to establish that two artist strings refer to the same act.
+_ARTIST_STOPWORDS = frozenset({"the", "and", "feat", "featuring", "vs", "with", "de", "la", "le"})
 
 # Playlist presets for the create command
 PRESETS = {
@@ -59,8 +82,6 @@ PRESETS = {
             ("Eres", "Café Tacvba"),
             ("La Flaca", "Jarabe de Palo"),
             ("Corazón Partío", "Alejandro Sanz"),
-            ("La Vida Es un Carnaval", "Celia Cruz"),
-            ("Burbujas de Amor", JUAN_LUIS_GUERRA),
             ("Me Gustas Tu", "Manu Chao"),
             ("La Cintura", "Alvaro Soler"),
             ("Sofia", "Alvaro Soler"),
@@ -134,22 +155,22 @@ PRESETS = {
             ("Papaoutai", "Stromae"),
             ("Alors on danse", "Stromae"),
             ("Formidable", "Stromae"),
-            ("Balance Ton Quoi", "Angèle"),
-            ("Bruxelles je t'aime", "Angèle"),
+            ("Balance Ton Quoi", ANGELE),
+            ("Bruxelles je t'aime", ANGELE),
             ("Christine", "Christine and the Queens"),
             ("Tourner Dans Le Vide", "Indila"),
             ("Dernière danse", "Indila"),
             ("Je veux", "Zaz"),
             ("La Grenade", "Clara Luciani"),
-            ("Djadja", "Aya Nakamura"),
+            ("Djadja", AYA_NAKAMURA),
             ("Makeba", "Jain"),
             ("Joe le taxi", "Vanessa Paradis"),
             ("Je vole", "Louane"),
-            ("Comme des enfants", "Cœur de Pirate"),
+            ("Comme des enfants", COEUR_DE_PIRATE),
             ("Week-end à Rome", "Etienne Daho"),
             ("Ella, elle l'a", "France Gall"),
             ("Voyage voyage", "Desireless"),
-            ("Les Champs-Élysées", "Joe Dassin"),
+            ("Les Champs-Élysées", JOE_DASSIN),
             ("J't'emmène au vent", "Louise Attaque"),
             ("Je te promets", "Johnny Hallyday"),
             ("Elle me dit", "Mika"),
@@ -162,6 +183,122 @@ PRESETS = {
             ("Midnight City", "M83"),
             ("Complètement fou", "Yelle"),
             ("Un autre que moi", "Fishbach"),
+        ],
+    },
+    "french-chanson": {
+        "name": "Chanson & Yé-Yé",
+        "description": "French classics from the 60s through the 80s",
+        "seeds": [
+            ("Ella, elle l'a", FRANCE_GALL),
+            ("Poupée de cire, poupée de son", FRANCE_GALL),
+            ("Résiste", FRANCE_GALL),
+            ("Comment te dire adieu", FRANCOISE_HARDY),
+            ("Tous les garçons et les filles", FRANCOISE_HARDY),
+            ("Le temps de l'amour", FRANCOISE_HARDY),
+            ("Message personnel", FRANCOISE_HARDY),
+            ("La Javanaise", SERGE_GAINSBOURG),
+            ("Bonnie and Clyde", f"{SERGE_GAINSBOURG} Brigitte Bardot"),
+            ("Je t'aime... moi non plus", f"{SERGE_GAINSBOURG} Jane Birkin"),
+            ("Il est cinq heures, Paris s'éveille", JACQUES_DUTRONC),
+            ("Et moi, et moi, et moi", JACQUES_DUTRONC),
+            ("Les Cactus", JACQUES_DUTRONC),
+            ("Love Me, Please Love Me", MICHEL_POLNAREFF),
+            ("Lettre à France", MICHEL_POLNAREFF),
+            ("La Bohème", "Charles Aznavour"),
+            ("Emmenez-moi", "Charles Aznavour"),
+            ("Non, je ne regrette rien", "Édith Piaf"),
+            ("La Vie en rose", "Édith Piaf"),
+            ("Les Champs-Élysées", JOE_DASSIN),
+            ("Et si tu n'existais pas", JOE_DASSIN),
+            ("Voyage voyage", "Desireless"),
+            ("Week-end à Rome", "Etienne Daho"),
+            ("Marcia Baila", "Les Rita Mitsouko"),
+            ("Joe le taxi", "Vanessa Paradis"),
+            ("Ne me quitte pas", "Jacques Brel"),
+            ("Amsterdam", "Jacques Brel"),
+            ("Göttingen", "Barbara"),
+            ("Que je t'aime", "Johnny Hallyday"),
+            ("Belle-Île-en-Mer", "Laurent Voulzy"),
+        ],
+    },
+    "french-nouvelle-scene": {
+        "name": "Nouvelle Scène",
+        "description": "Contemporary French pop from the 2010s onward",
+        "seeds": [
+            ("Balance Ton Quoi", ANGELE),
+            ("Bruxelles je t'aime", ANGELE),
+            ("Fever", f"{ANGELE} Dua Lipa"),
+            ("Tout oublier", f"{ANGELE} Roméo Elvis"),
+            ("La Grenade", CLARA_LUCIANI),
+            ("Respire encore", CLARA_LUCIANI),
+            ("Le Reste", CLARA_LUCIANI),
+            ("Le Dernier Jour du Disco", JULIETTE_ARMANET),
+            ("L'Amour en Solitaire", JULIETTE_ARMANET),
+            ("Qu'importe", JULIETTE_ARMANET),
+            ("Djadja", AYA_NAKAMURA),
+            ("Copines", AYA_NAKAMURA),
+            ("Pookie", AYA_NAKAMURA),
+            ("Je veux", "Zaz"),
+            ("Dernière danse", "Indila"),
+            ("Tourner Dans Le Vide", "Indila"),
+            ("Je vole", "Louane"),
+            ("Avenir", "Louane"),
+            ("Comme des enfants", COEUR_DE_PIRATE),
+            ("Je sais pas danser", "Pomme"),
+            ("Grandiose", "Pomme"),
+            ("Makeba", "Jain"),
+            ("Come", "Jain"),
+            ("Basique", "Orelsan"),
+            ("La pluie", "Orelsan Stromae"),
+            ("Auburn", "Lomepal"),
+            ("Trop beau", "Lomepal"),
+            ("Sur la planche", LA_FEMME),
+            ("Où va le monde", LA_FEMME),
+            ("Sacré cœur", LA_FEMME),
+            ("Ta Reine", ANGELE),
+            ("Moi aimer toi", "Vianney"),
+            ("Un autre que moi", "Fishbach"),
+            ("Mistral gagnant", COEUR_DE_PIRATE),
+        ],
+    },
+    "french-touch": {
+        "name": "French Touch",
+        "description": "French electronic and dance from Daft Punk to Polo & Pan",
+        "seeds": [
+            ("One More Time", DAFT_PUNK),
+            ("Around the World", DAFT_PUNK),
+            ("Digital Love", DAFT_PUNK),
+            ("Harder, Better, Faster, Stronger", DAFT_PUNK),
+            ("Get Lucky", f"{DAFT_PUNK} Pharrell Williams"),
+            ("Instant Crush", f"{DAFT_PUNK} Julian Casablancas"),
+            ("Sexy Boy", "Air"),
+            ("La Femme d'Argent", "Air"),
+            ("Playground Love", "Air"),
+            ("Midnight City", "M83"),
+            ("Wait", "M83"),
+            ("Outro", "M83"),
+            ("Lisztomania", "Phoenix"),
+            ("1901", "Phoenix"),
+            ("If I Ever Feel Better", "Phoenix"),
+            ("D.A.N.C.E.", "Justice"),
+            ("Genesis", "Justice"),
+            ("Safe and Sound", "Justice"),
+            ("La Ritournelle", SEBASTIEN_TELLIER),
+            ("Roche", SEBASTIEN_TELLIER),
+            ("Nana", POLO_AND_PAN),
+            ("Canopée", POLO_AND_PAN),
+            ("Ani Kuni", POLO_AND_PAN),
+            ("Poney Part 1", "Vitalic"),
+            ("La Rock 01", "Vitalic"),
+            ("Complètement fou", "Yelle"),
+            ("Je veux te voir", "Yelle"),
+            ("Alors on danse", "Stromae"),
+            ("Papaoutai", "Stromae"),
+            ("Formidable", "Stromae"),
+            ("Louxor J'adore", "Philippe Katerine"),
+            ("Flat Beat", "Mr. Oizo"),
+            ("Music Sounds Better with You", "Stardust"),
+            ("Cassius 1999", "Cassius"),
         ],
     },
     "canadian-shanty": {
@@ -293,6 +430,40 @@ PRESETS = {
 }
 
 
+def _normalize_artist_tokens(name: str) -> set[str]:
+    """Split an artist string into comparable lowercase word tokens.
+
+    Seeds join collaborators with spaces ("Angèle Dua Lipa") while Apple returns a
+    single artistName ("Angèle"), so comparison is token-overlap, not equality.
+    Accents are preserved; Apple returns them consistently.
+    """
+    cleaned = re.sub(r"[^\w\s]", " ", name.casefold())
+    return {tok for tok in cleaned.split() if tok not in _ARTIST_STOPWORDS}
+
+
+def _artists_overlap(seed_artist: str, matched_artist: str) -> bool:
+    """Return True when the matched artist plausibly corresponds to the seed artist."""
+    seed_tokens = _normalize_artist_tokens(seed_artist)
+    matched_tokens = _normalize_artist_tokens(matched_artist)
+    if not seed_tokens or not matched_tokens:
+        return True  # Nothing to compare on; defer to Apple's ranking.
+    return bool(seed_tokens & matched_tokens)
+
+
+def _pick_matching_song(results: list[dict], seed_artist: str) -> dict | None:
+    """Return the first result whose artist matches the seed, else None.
+
+    Apple ranks by relevance across its whole catalog, so a short title can put an
+    unrelated track first ("Wait M83" ranks a Ravel concerto above the M83 song).
+    Scanning a few candidates recovers the intended track instead of dropping it.
+    """
+    for song in results:
+        matched_artist = (song.get("attributes") or {}).get("artistName")
+        if not matched_artist or _artists_overlap(seed_artist, matched_artist):
+            return song
+    return None
+
+
 def _create_from_seeds(
     client: AppleMusicClient,
     seeds: list[tuple[str, str]],
@@ -310,16 +481,27 @@ def _create_from_seeds(
 
     tracks_data = []
     resolved = []
+    unmatched = []
     for title, artist in seeds_copy:
         term = f"{title} {artist}"
-        results = client.search_songs(term, storefront=store, limit=1)
+        results = client.search_songs(term, storefront=store, limit=_SEARCH_CANDIDATES)
         if not results:
+            unmatched.append({"title": title, "artist": artist, "reason": "no search result"})
             continue
-        song = results[0]
+        song = _pick_matching_song(results, artist)
+        if song is None:
+            top = (results[0].get("attributes") or {})
+            unmatched.append({
+                "title": title,
+                "artist": artist,
+                "reason": f"artist mismatch: top result '{top.get('name')}' by '{top.get('artistName')}'",
+            })
+            continue
+        attributes = song.get("attributes", {})
         tracks_data.append({"id": song.get("id"), "type": song.get("type", "songs") or "songs"})
-        resolved.append({"title": title, "artist": artist, "matched": song.get("attributes", {}).get("name")})
+        resolved.append({"title": title, "artist": artist, "matched": attributes.get("name")})
 
-    plan = {"storefront": store, "name": config.name, "tracks": resolved}
+    plan = {"storefront": store, "name": config.name, "tracks": resolved, "unmatched": unmatched}
     if config.dry_run:
         return {"plan": plan}
     if not tracks_data:

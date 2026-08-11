@@ -63,6 +63,10 @@ class AppleMusicClient:
             status = r.status_code if r is not None else "?"
             body = r.text if r is not None else ""
             raise AppleMusicCLIError(f"{status} from Apple Music: {body}") from exc
+        # Apple returns 204 No Content (empty body) for successful writes such as
+        # adding tracks to a playlist; that is a success, not a decoding failure.
+        if resp.status_code == 204 or not (resp.content or b"").strip():
+            return {}
         try:
             return resp.json()
         except Exception as exc:  # pragma: no cover - defensive
