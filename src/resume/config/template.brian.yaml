@@ -5,8 +5,18 @@
 sections:
   - key: summary
     title: Profile
-    bulleted: false
-    max_sentences: 4
+    # Bulleted, matching every other template here: a profile is a list of
+    # distinct claims, and rendering it unbulleted runs them into one block of
+    # text with no visual boundary between them. max_sentences is deliberately
+    # unset — it counts sentences, so on a bulleted profile it silently drops
+    # whole bullets rather than trimming prose.
+    #
+    # No item_color here: SummarySectionRenderer passes this config only to
+    # get_bullet_config() for plain/glyph, and the bullet writers take no
+    # colour argument — setting it would read as configuration that does
+    # nothing.
+    bulleted: true
+    plain_bullets: true
   - key: skills
     title: Core Abilities
     bullets: true

@@ -7,6 +7,7 @@ Extracted from docx_sections. Provides:
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +15,11 @@ from .docx_renderers import HeaderRenderer, ListSectionRenderer
 from .render_config import HeaderLineConfig
 
 _DEFAULT_BULLET_STYLE = "List Bullet"
+
+
+def _warn(msg: str) -> None:
+    """Emit a renderer warning to stderr."""
+    print(f"resume: {msg}", file=sys.stderr)
 
 
 @dataclass
@@ -53,11 +59,22 @@ class ExperienceSectionRenderer(ListSectionRenderer):
         data: Dict[str, Any],
         sec: Optional[Dict[str, Any]] = None,
         keywords: Optional[List[str]] = None,
-    ):
+    ) -> None:
         items = data.get("experience") or []
         cfg = sec or {}
         max_items = int(cfg.get("max_items", 999))
         opts = _ExperienceRenderOpts.from_cfg(cfg)
+
+        if len(items) > max_items:
+            dropped = items[max_items:]
+            names = ", ".join(
+                str(e.get("company") or e.get("title") or f"entry {max_items + i + 1}")
+                for i, e in enumerate(dropped)
+            )
+            _warn(
+                f"template max_items={max_items} dropped {len(dropped)} of"
+                f" {len(items)} experience entries: {names}"
+            )
 
         for idx, e in enumerate(items[:max_items]):
             self._render_experience_entry(e, idx, cfg, keywords, opts)
@@ -94,8 +111,25 @@ class ExperienceSectionRenderer(ListSectionRenderer):
             opts.recent_max_bullets, opts.prior_max_bullets,
         )
 
+        # Warn when bullets will be truncated. Name the setting that actually
+        # applied to THIS role — recent roles are capped by recent_max_bullets
+        # and older ones by prior_max_bullets, so reporting a fixed name would
+        # send someone editing the wrong knob.
+        raw_bullets = e.get("bullets") or []
+        if len(raw_bullets) > per_role_limit:
+            role_name = company or title or f"role at index {idx}"
+            limit_name = (
+                "recent_max_bullets"
+                if idx < opts.recent_roles_count
+                else "prior_max_bullets"
+            )
+            _warn(
+                f"template {limit_name}={per_role_limit} truncated"
+                f" {role_name} from {len(raw_bullets)} to {per_role_limit} bullets"
+            )
+
         # Render bullets
-        bullets = self._normalize_bullets(e.get("bullets") or [], per_role_limit)
+        bullets = self._normalize_bullets(raw_bullets, per_role_limit)
         if bullets:
             plain, glyph = self.bullets.get_bullet_config(cfg)
             self.bullets.add_bullets(
