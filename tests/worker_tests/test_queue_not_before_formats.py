@@ -86,6 +86,50 @@ class TestNotBeforeFormatsDeferCorrectly(unittest.TestCase, QueueRootIsolationMi
         self.assertEqual(self._pending_ids(), set())
 
 
+class TestEnqueueValidatesNotBefore(unittest.TestCase, QueueRootIsolationMixin):
+    """enqueue rejects an unschedulable not_before instead of writing it.
+
+    Catching it at entry means a typo'd --not-before fails immediately with a
+    clear error, rather than producing a job that is silently held forever.
+    """
+
+    def setUp(self):
+        self.tmp, self.root = _make_root()
+        self.addCleanup(self.tmp.cleanup)
+        self.isolate_queue_root()
+
+    def test_invalid_not_before_raises(self):
+        from worker.queue import Job, enqueue
+        job = Job(id="bad", type="noop", payload={}, not_before="not-a-date")
+        with self.assertRaises(ValueError):
+            enqueue(job, root=self.root)
+
+    def test_invalid_not_before_writes_no_job_file(self):
+        from worker.queue import Job, enqueue
+        job = Job(id="bad2", type="noop", payload={}, not_before="2026-13-45T99:99:99Z")
+        with self.assertRaises(ValueError):
+            enqueue(job, root=self.root)
+        self.assertEqual(list((self.root / "pending").glob("*.json")), [])
+
+    def test_valid_formats_are_accepted(self):
+        from worker.queue import Job, enqueue
+        f = _future(hours=1)
+        for i, ts in enumerate([
+            f.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            f.isoformat(),
+            f.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            " " + f.strftime("%Y-%m-%dT%H:%M:%SZ") + " ",
+        ]):
+            enqueue(Job(id=f"ok{i}", type="noop", payload={}, not_before=ts), root=self.root)
+        self.assertEqual(len(list((self.root / "pending").glob("*.json"))), 4)
+
+    def test_empty_not_before_defaults_to_now(self):
+        from worker.queue import Job, enqueue
+        path = enqueue(Job(id="empty", type="noop", payload={}), root=self.root)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(data["not_before"])
+
+
 class TestNotBeforePastFormatsAreEligible(unittest.TestCase, QueueRootIsolationMixin):
     """A past not_before must make the job eligible in every legal form.
 
@@ -122,6 +166,21 @@ class TestNotBeforePastFormatsAreEligible(unittest.TestCase, QueueRootIsolationM
     def test_empty_not_before_is_eligible(self):
         self._write_job("empty", "")
         self.assertIn("empty", self._pending_ids())
+
+    def test_unparseable_not_before_is_held_and_warned(self):
+        """Hand-edited/legacy files bypass enqueue validation, so the read side
+        must still refuse to run them early."""
+        self._write_job("broken", "definitely-not-a-timestamp")
+        with self.assertLogs("worker.queue_ops", level="WARNING"):
+            self.assertNotIn("broken", self._pending_ids())
+
+    def test_one_bad_job_does_not_hide_good_ones(self):
+        """A single malformed job must not suppress the rest of the queue."""
+        self._write_job("bad", "nonsense")
+        self._write_job("good", _past(hours=1).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        with self.assertLogs("worker.queue_ops", level="WARNING"):
+            ids = self._pending_ids()
+        self.assertEqual(ids, {"good"})
 
 
 if __name__ == "__main__":

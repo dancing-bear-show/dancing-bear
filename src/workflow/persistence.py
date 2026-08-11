@@ -14,6 +14,7 @@ Architecture:
 from __future__ import annotations
 
 import dataclasses
+import glob
 import json
 import logging
 import tempfile
@@ -84,11 +85,15 @@ def read_stage_result(
     """
     stages_dir = Path(workspace_dir) / "stages"
 
-    try:
-        pattern = f"[0-9][0-9][0-9]-{stage_name}.json"
-        matches = list(stages_dir.glob(pattern))
-    except FileNotFoundError:
-        return None
+    # Path.glob() yields nothing for a missing directory rather than raising,
+    # so a missing stages/ dir already lands in the `not matches` return below.
+    #
+    # stage_name comes from user-authored YAML and is interpolated into a glob
+    # pattern, so escape it: an unescaped '*' or '[...]' would match a
+    # DIFFERENT stage's result file, and max(matches) would then return that
+    # stage's status as if it were this one's.
+    pattern = f"[0-9][0-9][0-9]-{glob.escape(stage_name)}.json"
+    matches = list(stages_dir.glob(pattern))
 
     if not matches:
         return None
