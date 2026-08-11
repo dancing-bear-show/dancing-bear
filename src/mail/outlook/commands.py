@@ -103,12 +103,25 @@ def _run_pipeline(
     if err:
         return err
 
-    consumer_name, processor_name, producer_name = _PIPELINES[command]
-    executor = OutlookCommandExecutor(
-        globals()[consumer_name],
-        globals()[processor_name],
-        globals()[producer_name],
-    )
+    try:
+        names = _PIPELINES[command]
+    except KeyError:
+        raise KeyError(
+            f"no pipeline registered for {command!r}; "
+            f"known commands: {', '.join(sorted(_PIPELINES))}"
+        ) from None
+
+    resolved = []
+    for name in names:
+        try:
+            resolved.append(globals()[name])
+        except KeyError:
+            raise NameError(
+                f"pipeline {command!r} references {name!r}, "
+                "which is not imported into mail.outlook.commands"
+            ) from None
+
+    executor = OutlookCommandExecutor(*resolved)
     return executor.execute(
         client,
         consumer_kwargs=consumer_kwargs,
