@@ -40,11 +40,17 @@ def _run_extract(args, provider: str) -> int:
         days=args.days,
         provider=provider,
     )
-    processor_cls = (
-        pipeline.GmailExtractProcessor
-        if provider == "gmail"
-        else pipeline.OutlookExtractProcessor
-    )
+    processors = {
+        "gmail": pipeline.GmailExtractProcessor,
+        "outlook": pipeline.OutlookExtractProcessor,
+    }
+    try:
+        processor_cls = processors[provider]
+    except KeyError:
+        raise ValueError(
+            f"unsupported extract provider {provider!r}; "
+            f"expected one of: {', '.join(sorted(processors))}"
+        ) from None
     processor = processor_cls()
     producer = pipeline.ExtractProducer()
 
