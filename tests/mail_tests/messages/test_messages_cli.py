@@ -9,8 +9,8 @@ from mail.messages_cli.commands import (
     run_messages_search,
     run_messages_summarize,
     run_messages_get,
-    run_messages_reply,
 )
+from mail.messages_cli.commands_reply import run_messages_reply
 
 
 def _make_messages_client():

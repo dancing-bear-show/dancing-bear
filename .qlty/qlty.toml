@@ -65,6 +65,16 @@ test_patterns = [
 [smells]
 mode = "comment"
 
+# file_complexity is the SUM of every function's complexity in a file, so it
+# scales with function count, not with how complex any single function is.
+# At the default threshold of 50 it flagged 63 files whose median size was only
+# 384 lines and whose functions were individually clean (zero function_complexity
+# findings repo-wide) — it was measuring module cohesion, not complexity.
+# 80 keeps the genuine outliers (top ~15%) flagged. Per-function complexity is
+# still caught by function_complexity below, which is the signal we act on.
+[smells.file_complexity]
+threshold = 80
+
 [[source]]
 name = "default"
 default = true

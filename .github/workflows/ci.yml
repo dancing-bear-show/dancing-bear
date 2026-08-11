@@ -25,6 +25,12 @@ jobs:
           python -m pip install -U pip
           python -m pip install -e .
           python -m pip install coverage
+      - name: Verify imports resolve to this checkout
+        run: |
+          python -c "import pathlib, sys, core; \
+          src = pathlib.Path('src').resolve(); \
+          got = pathlib.Path(core.__file__).resolve(); \
+          sys.exit(0) if src in got.parents else (print(f'ERROR: core resolves to {got}, expected under {src}'), sys.exit(1))"
       - name: Run tests with coverage
         run: |
           coverage run -m unittest discover

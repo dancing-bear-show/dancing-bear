@@ -21,11 +21,9 @@ from core.cli_output import (
     OutputFormat,
     OutputWriter,
 )
-from core.cli_framework import (
-    CLIApp,
-    _HelpfulArgumentParser,
-    quick_cli,
-)
+from core.cli_framework import CLIApp
+from core.cli_framework_group import quick_cli
+from core.cli_framework_parser import _HelpfulArgumentParser
 from core.cli_args import (
     add_output_args,
     add_dry_run_args,

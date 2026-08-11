@@ -27,6 +27,14 @@ class OutputRowsContext:
     line_cost: float
 
 
+@_dataclass(frozen=True)
+class ConfirmationRowContext:
+    """Identifying fields shared by every per-item confirmation row."""
+    order_id: str
+    subject: str
+    received_date: str
+
+
 @_dataclass
 class GoldRowContext:
     """Context for building a gold output row."""
@@ -319,7 +327,11 @@ class OutlookCostExtractor(CostExtractor):
         # Try line-item pricing from confirmation email
         if is_confirmation:
             line_cost, per_item_rows = self._compute_confirmation_line_costs(
-                msg.body_text, gold_items, order_id, msg.subject, msg.received_date
+                msg.body_text,
+                gold_items,
+                ConfirmationRowContext(
+                    order_id=order_id, subject=msg.subject, received_date=msg.received_date
+                ),
             )
 
         # Fall back to proximity-based pricing
@@ -415,17 +427,19 @@ class OutlookCostExtractor(CostExtractor):
         return None, k
 
     @staticmethod
-    def _build_confirmation_row(amt: float, uoz: float, qty: float, oid: str, sub: str, recv: str) -> Dict[str, str | float]:
+    def _build_confirmation_row(
+        amt: float, uoz: float, qty: float, ctx: ConfirmationRowContext
+    ) -> Dict[str, str | float]:
         """Build a single per-item confirmation-email output row."""
         return {
             'vendor': 'RCM',
-            'date': (recv or '').split('T', 1)[0],
+            'date': (ctx.received_date or '').split('T', 1)[0],
             'metal': 'gold',
             'currency': 'C$',
             'cost_total': round(amt, 2),
             'cost_per_oz': round(amt / max(uoz * max(qty, 1.0), 1e-9), 2),
-            'order_id': oid,
-            'subject': sub,
+            'order_id': ctx.order_id,
+            'subject': ctx.subject,
             'total_oz': round(uoz * max(qty, 1.0), 3),
             'unit_count': format_qty(qty),
             'units_breakdown': f"{uoz}ozx{format_qty(qty)}",
@@ -433,7 +447,7 @@ class OutlookCostExtractor(CostExtractor):
         }
 
     def _compute_confirmation_line_costs(
-        self, body: str, gold_items: List[Dict], oid: str, sub: str, recv: str
+        self, body: str, gold_items: List[Dict], ctx: ConfirmationRowContext
     ) -> Tuple[float, List[Dict[str, str | float]]]:
         """Compute line costs from confirmation email 'Total $X CAD' sequences."""
         totals_seq = _rcm_parser.extract_confirmation_totals(body)
@@ -452,7 +466,7 @@ class OutlookCostExtractor(CostExtractor):
 
             amt = float(chosen)
             line_cost += amt * max(qty, 1.0)
-            per_item_rows.append(self._build_confirmation_row(amt, uoz, qty, oid, sub, recv))
+            per_item_rows.append(self._build_confirmation_row(amt, uoz, qty, ctx))
 
         return line_cost, per_item_rows
 

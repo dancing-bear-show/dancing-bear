@@ -125,10 +125,22 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Linters: ruff (style), bandit (security), complexity metrics
 
 **Testing:**
-- Run tests: `make test` or `python3 -m unittest -v`
-- With coverage: `coverage run -m unittest discover && coverage report`
+- Run tests: `make test` (pins `PYTHONPATH` to this checkout — always prefer it)
+- With coverage: `make cov`
 - Add targeted tests only for new CLI surfaces/behaviors
 - Never run tests that require network/secrets without explicit user approval
+
+**CRITICAL — never run bare `python3 -m unittest` in a worktree.** An inherited
+`PYTHONPATH` (direnv activated in the main checkout, or the main repo's venv
+still active in the shell) takes precedence over the editable install and
+silently resolves `core`/`mail`/`worker` to the **main checkout's** source. Tests
+then pass against unmodified code — a false green that looks identical to a real
+one, and only turns red once a newly added module is imported by name.
+
+- Use `make test`, or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`
+- `make check-env` verifies imports resolve to the current checkout and fails loudly if not
+- This applies to subagents too: an agent verifying with bare `python3` in an
+  isolated worktree is not verifying anything
 
 **CI/CD:**
 - `.github/workflows/ci.yml` runs qlty checks + tests with coverage on push/PR

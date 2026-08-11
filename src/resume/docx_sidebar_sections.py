@@ -15,7 +15,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
 
 from .docx_base import ResumeWriterBase
 from .docx_styles import _parse_hex_color, _tight_paragraph, _apply_paragraph_shading
-from .render_config import IndentedRunStyle
+from .render_config import CenteredHeaderLineStyle, IndentedRunStyle
 from .docx_sidebar_cells import (
     _add_indented_run,
     _remove_cell_borders,
@@ -214,20 +214,18 @@ class SidebarResumeWriter(ResumeWriterBase):
         # Render main content
         self._render_main_content(main_cell)
 
-    def _render_centered_header_line(
-        self, p, text: str, *, size_pt: float, color: str, bold: bool, after_pt: float, bg_rgb
-    ) -> None:
+    def _render_centered_header_line(self, p, text: str, style: CenteredHeaderLineStyle) -> None:
         """Render one centered, colored, shaded header line onto an existing paragraph."""
         run = p.add_run(text)
-        run.bold = bold
-        run.font.size = Pt(size_pt)
-        rgb = _parse_hex_color(color)
+        run.bold = style.bold
+        run.font.size = Pt(style.size_pt)
+        rgb = _parse_hex_color(style.color)
         if rgb:
             run.font.color.rgb = RGBColor(*rgb)
-        _tight_paragraph(p, after_pt=after_pt)
+        _tight_paragraph(p, after_pt=style.after_pt)
         self._center_paragraph(p)
-        if bg_rgb:
-            _apply_paragraph_shading(p, bg_rgb)
+        if style.bg_rgb:
+            _apply_paragraph_shading(p, style.bg_rgb)
 
     def _render_page_header(self) -> None:
         """Add name, headline, and contact as centered header (repeats on each page)."""
@@ -251,23 +249,32 @@ class SidebarResumeWriter(ResumeWriterBase):
         else:
             p = header.add_paragraph()
         self._render_centered_header_line(
-            p, name, size_pt=self.page_cfg.get("sidebar_name_pt", 20),
-            color=name_color, bold=True, after_pt=0, bg_rgb=bg_rgb,
+            p, name,
+            CenteredHeaderLineStyle(
+                size_pt=self.page_cfg.get("sidebar_name_pt", 20),
+                color=name_color, bold=True, after_pt=0, bg_rgb=bg_rgb,
+            ),
         )
 
         # Headline (centered)
         if headline:
             self._render_centered_header_line(
-                header.add_paragraph(), headline, size_pt=self.page_cfg.get("sidebar_headline_pt", 10),
-                color=text_color, bold=False, after_pt=2, bg_rgb=bg_rgb,
+                header.add_paragraph(), headline,
+                CenteredHeaderLineStyle(
+                    size_pt=self.page_cfg.get("sidebar_headline_pt", 10),
+                    color=text_color, bold=False, after_pt=2, bg_rgb=bg_rgb,
+                ),
             )
 
         # Contact line (centered)
         contact_parts = [x for x in [phone, email, location] if x]
         if contact_parts:
             self._render_centered_header_line(
-                header.add_paragraph(), " | ".join(contact_parts), size_pt=self.page_cfg.get("body_pt", 10) - 1,
-                color="#666666", bold=False, after_pt=6, bg_rgb=bg_rgb,
+                header.add_paragraph(), " | ".join(contact_parts),
+                CenteredHeaderLineStyle(
+                    size_pt=self.page_cfg.get("body_pt", 10) - 1,
+                    color="#666666", bold=False, after_pt=6, bg_rgb=bg_rgb,
+                ),
             )
 
     @staticmethod

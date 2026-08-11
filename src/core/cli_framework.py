@@ -10,9 +10,7 @@ Provides a declarative way to build CLI applications with:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
-from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
@@ -24,94 +22,13 @@ from typing import (
 )
 
 from .cli_errors import CLIError, ExitCode, handle_error
+from .cli_framework_group import CommandGroup
+from .cli_framework_parser import _HelpfulArgumentParser
+from .cli_framework_types import Argument, CommandDef, CommandFunc
 from .cli_output import OutputConfig, OutputFormat, OutputWriter
-from .cli_suggestions import suggest_command, suggest_flags
 
 
 T = TypeVar("T")
-CommandFunc = Callable[[argparse.Namespace], int]
-
-
-class _HelpfulArgumentParser(argparse.ArgumentParser):
-    """ArgumentParser subclass that adds 'did you mean' suggestions on error."""
-
-    def error(self, message: str) -> None:  # type: ignore[override]
-        """Override error() to append ranked suggestions before exiting.
-
-        Usage is not printed here — super().error() prints usage itself
-        before the message, so printing it twice would duplicate output.
-        """
-        for line in self._suggestions_for_error(message):
-            self.error_output(f"hint: {line}")
-        super().error(message)
-
-    def _suggestions_for_error(self, message: str) -> list[str]:
-        """Return ranked hint lines for a known argparse error message shape."""
-        if "invalid choice:" in message and "choose from" in message:
-            return self._suggest_for_invalid_choice(message)
-        if "unrecognized arguments" in message:
-            return self._suggest_for_unrecognized_flags(message)
-        return []
-
-    def _subparsers_choices(self) -> list[str]:
-        """Return the subcommand names registered via add_subparsers(), if any."""
-        for act in self._actions:
-            if isinstance(act, argparse._SubParsersAction):
-                return list(act.choices.keys())
-        return []
-
-    def _suggest_for_invalid_choice(self, message: str) -> list[str]:
-        """Suggest subcommands for an 'invalid choice' subcommand error.
-
-        Restricted to the parser's subparsers action so an invalid subcommand
-        is never compared against unrelated flag `choices=` values (e.g.
-        --agentic-format's text/yaml/json).
-        """
-        m = re.search(r"invalid choice:\s*'?([^',)]+)'?", message)
-        if not m:
-            return []
-        query = m.group(1).strip()
-        choices = self._subparsers_choices()
-        suggestions = suggest_command(query, choices)
-        if not suggestions:
-            return []
-        return [f"Did you mean: {', '.join(suggestions)}?"]
-
-    def _suggest_for_unrecognized_flags(self, message: str) -> list[str]:
-        """Suggest known flags for each unrecognized flag-like token."""
-        tokens = re.findall(r"(--?[\w-]+)", message)
-        all_flags: list[str] = []
-        for act in self._actions:
-            all_flags.extend(act.option_strings)
-        lines: list[str] = []
-        for token in tokens:
-            flag_suggestions = suggest_flags(token, all_flags)
-            if flag_suggestions:
-                lines.append(f"Unknown flag '{token}'. Did you mean: {', '.join(flag_suggestions)}?")
-        return lines
-
-    def error_output(self, msg: str) -> None:
-        """Print a hint line to stderr."""
-        print(f"{self.prog}: {msg}", file=sys.stderr)
-
-
-@dataclass
-class Argument:
-    """Definition of a CLI argument."""
-    name_or_flags: tuple
-    kwargs: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class CommandDef:
-    """Definition of a CLI command."""
-    name: str
-    func: CommandFunc
-    help: str = ""
-    description: str = ""
-    arguments: List[Argument] = field(default_factory=list)
-    aliases: List[str] = field(default_factory=list)
-    parent: Optional[str] = None  # For nested commands like "outlook add"
 
 
 class CLIApp:
@@ -500,107 +417,3 @@ class CLIApp:
     def main(self, argv: Optional[Sequence[str]] = None) -> None:
         """Run the CLI and exit with the return code."""
         sys.exit(self.run(argv))
-
-
-class CommandGroup:
-    """A group of related commands (e.g., "outlook" containing "add", "list", etc.)."""
-
-    def __init__(
-        self,
-        app: CLIApp,
-        name: str,
-        *,
-        help: str = "",
-        description: str = "",
-    ):
-        self.app = app
-        self.name = name
-        self.help = help
-        self.description = description or help
-        self._commands: Dict[str, CommandDef] = {}
-
-    def command(
-        self,
-        name: str,
-        *,
-        help: str = "",
-        description: str = "",
-        aliases: Optional[List[str]] = None,
-    ) -> Callable[[CommandFunc], CommandFunc]:
-        """Decorator to register a command in this group.
-
-        Args:
-            name: Command name.
-            help: Short help text.
-            description: Longer description.
-            aliases: Alternative names.
-
-        Returns:
-            Decorator function.
-        """
-        def decorator(func: CommandFunc) -> CommandFunc:
-            # Collect pending arguments
-            arguments = list(reversed(self.app._pending_arguments))
-            self.app._pending_arguments.clear()
-
-            cmd_def = CommandDef(
-                name=name,
-                func=func,
-                help=help,
-                description=description or help,
-                arguments=arguments,
-                aliases=aliases or [],
-                parent=self.name,
-            )
-            self._commands[name] = cmd_def
-
-            # Also register in the app's command dict
-            full_name = f"{self.name}.{name}"
-            self.app._commands[full_name] = cmd_def
-
-            return func
-        return decorator
-
-    def argument(
-        self,
-        *name_or_flags: str,
-        **kwargs: Any,
-    ) -> Callable[[CommandFunc], CommandFunc]:
-        """Decorator to add an argument. Delegates to app."""
-        return self.app.argument(*name_or_flags, **kwargs)
-
-    def _build_subparsers(self, parser: argparse.ArgumentParser) -> None:
-        """Build subparsers for this group's commands."""
-        if self.app.add_common_args:
-            self.app._add_common_arguments(parser)
-
-        subparsers = parser.add_subparsers(dest=f"{self.name}_cmd", metavar="<subcommand>")
-
-        for cmd_name, cmd_def in self._commands.items():
-            cmd_parser = subparsers.add_parser(
-                cmd_name,
-                help=cmd_def.help,
-                description=cmd_def.description,
-                aliases=cmd_def.aliases,
-            )
-            self.app._add_command_arguments(cmd_parser, cmd_def)
-            cmd_parser.set_defaults(_cmd_func=cmd_def.func)
-
-
-# Convenience function for simple scripts
-def quick_cli(
-    name: str,
-    description: str = "",
-    **kwargs: Any,
-) -> CLIApp:
-    """Create a simple CLI app quickly.
-
-    Args:
-        name: Program name.
-        description: Program description.
-        **kwargs: Additional arguments to CLIApp.
-
-    Returns:
-        CLIApp instance.
-    """
-    return CLIApp(name, description, **kwargs)
