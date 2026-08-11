@@ -112,27 +112,27 @@ stages:
       - name: inventory
         mode: generate
         description: >
-          inventory.json at {workspace}/analysis/, "items" array with one
+          inventory.json at {workspace}/outputs/, "items" array with one
           entry per PDF listing its text fields and checkbox groups.
     required: true
     writes_to:
-      - analysis/inventory.json
+      - outputs/inventory.json
 
   # ===========================================================================
   # Render + inspect — ONE AGENT PER PDF. This is the core of the pattern.
   # ===========================================================================
   - name: render-fields
-    kind: validate
+    kind: gather
     depends_on: [discover]
     reads_from: [discover]
     description: >
       Verify ONE pdf — {pdf} — by looking at rendered pixels.
 
-      Read its entry from {workspace}/analysis/inventory.json.
+      Read its entry from {workspace}/outputs/inventory.json.
 
       Step 1 — render. For each field region, render a clip at {dpi} DPI with
       page.get_pixmap(clip=fitz.Rect(...), dpi={dpi}) and save under
-      {workspace}/renders/{pdf}/. Pad the clip by ~8pt so a clipped glyph is
+      {workspace}/outputs/renders/{pdf}/. Pad the clip by ~8pt so a clipped glyph is
       visibly cut rather than cropped out of frame. Group nearby fields
       (e.g. a whole totals column) into one image where that aids comparison.
 
@@ -162,7 +162,7 @@ stages:
           "checked": {"text_fields": 12, "checkbox_groups": 7},
           "findings": [
             {"field":"2.day_phone.number2","severity":"error","type":"clipped",
-             "stored":"8094","visible":"809","image":"renders/claim_brian/phone.png",
+             "stored":"8094","visible":"809","image":"outputs/renders/claim_brian/phone.png",
              "note":"last character cut; /DA is fixed 9pt in a ~15pt box"}
           ],
           "verdict": "fail"
@@ -181,7 +181,7 @@ stages:
       - name: pdf_findings
         mode: generate
         description: >
-          findings-{pdf}.json at {workspace}/analysis/ with per-field verdicts
+          findings-{pdf}.json at {workspace}/outputs/ with per-field verdicts
           and paths to the rendered images backing each one.
     required: true
     fan_out:
@@ -190,7 +190,7 @@ stages:
       key: pdf
       mode: agent
     writes_to:
-      - analysis/findings-{pdf}.json
+      - outputs/findings-{pdf}.json
 
   # ===========================================================================
   # Consolidate — merge per-PDF findings into one report.
@@ -200,7 +200,7 @@ stages:
     depends_on: [render-fields]
     reads_from: [render-fields]
     description: >
-      Merge every {workspace}/analysis/findings-*.json into one report.
+      Merge every {workspace}/outputs/findings-*.json into one report.
 
       Step 1 — cross-check against the inventory. Every PDF in inventory.json
       must have a findings file. A missing one means that agent failed; list
@@ -228,22 +228,22 @@ stages:
       - name: render_report
         mode: generate
         description: >
-          report.md and report.json at {workspace}/, consolidating every
+          report.md and report.json at {workspace}/outputs/, consolidating every
           per-PDF finding with links to the backing images.
     required: true
     writes_to:
-      - report.md
-      - report.json
+      - outputs/report.md
+      - outputs/report.json
 
   # ===========================================================================
   # Human gate — a person looks at the images before anything is trusted.
   # ===========================================================================
   - name: gate-report
-    kind: validate
+    kind: propose
     depends_on: [consolidate]
     reads_from: [consolidate]
     description: >
-      Present {workspace}/report.md and stop for human review.
+      Present {workspace}/outputs/report.md and stop for human review.
 
       Show the verdict line, every error with its stored-vs-visible pair, and
       the path to each backing image so the reviewer can open it directly.
