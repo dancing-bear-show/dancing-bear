@@ -25,6 +25,13 @@ from .cli_errors import CLIError, ExitCode, handle_error
 from .cli_framework_group import CommandGroup
 from .cli_framework_parser import _HelpfulArgumentParser
 from .cli_framework_types import Argument, CommandDef, CommandFunc
+from .cli_help_text import (
+    HELP_DRY_RUN,
+    HELP_OUTPUT,
+    HELP_PROFILE,
+    HELP_QUIET,
+    HELP_VERBOSE,
+)
 from .cli_output import OutputConfig, OutputFormat, OutputWriter
 
 
@@ -231,28 +238,28 @@ class CLIApp:
         """Add common arguments to the parser."""
         parser.add_argument(
             "--profile", "-p",
-            help="Credentials profile name",
+            help=HELP_PROFILE,
         )
         parser.add_argument(
             "--verbose", "-v",
             action="store_true",
-            help="Enable verbose output",
+            help=HELP_VERBOSE,
         )
         parser.add_argument(
             "--quiet", "-q",
             action="store_true",
-            help="Suppress non-essential output",
+            help=HELP_QUIET,
         )
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Preview changes without applying them",
+            help=HELP_DRY_RUN,
         )
         parser.add_argument(
             "--output", "-o",
             choices=["text", "json", "yaml", "table"],
             default="text",
-            help="Output format (default: text)",
+            help=HELP_OUTPUT,
         )
 
     def _add_command_arguments(

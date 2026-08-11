@@ -24,6 +24,7 @@ from core.cli_output import OutputWriter
 from core.constants import FMT_DAY_START, FMT_DAY_END
 from core.auth import build_outlook_service_from_args
 from core.cli_framework import CLIApp
+from core.cli_help_text import HELP_START_DATE
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 from ..pipeline import (
@@ -339,7 +340,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 @app.command("export", help="Export Outlook calendar events to a plan YAML (one-offs for backup)")
 @app.argument("--calendar", required=True, help="Outlook calendar name (e.g., 'Activities')")
-@app.argument("--from", dest="from_date", required=True, help="Start date YYYY-MM-DD")
+@app.argument("--from", dest="from_date", required=True, help=HELP_START_DATE)
 @app.argument("--to", dest="to_date", required=True, help="End date YYYY-MM-DD")
 @app.argument("--out", required=True, help="Output YAML path (e.g., config/calendar/activities.yaml)")
 @app.argument("--client-id", help="Outlook client ID")

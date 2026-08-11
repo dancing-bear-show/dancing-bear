@@ -14,6 +14,16 @@ from __future__ import annotations
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
+from core.cli_help_text import (
+    HELP_ACCOUNTS,
+    HELP_ACCOUNTS_LIST,
+    HELP_CACHE_DIR,
+    HELP_DAYS_BACK,
+    HELP_OUT_DIR,
+    HELP_PAGE_SIZE,
+    HELP_START_DATE,
+    HELP_YAML_OUT,
+)
 
 from ..config_resolver import (
     default_gmail_credentials_path,
@@ -173,7 +183,7 @@ def cmd_messages_search(args) -> int:
 @messages_group.argument("--token", help="Path to token.json")
 @messages_group.argument("--id", help="Message ID to summarize")
 @messages_group.argument("--query", help="Fallback query if id not given")
-@messages_group.argument("--days", type=int, help="Restrict query to last N days")
+@messages_group.argument("--days", type=int, help=HELP_DAYS_BACK)
 @messages_group.argument("--only-inbox", action="store_true")
 @messages_group.argument("--latest", action="store_true", help="Pick latest matching message")
 @messages_group.argument("--out", help="Write summary to file")
@@ -196,7 +206,7 @@ def cmd_messages_get(args) -> int:
 @messages_group.argument("--token", help="Path to token.json")
 @messages_group.argument("--id", help="Message ID to reply to")
 @messages_group.argument("--query", help="Fallback query if id not given")
-@messages_group.argument("--days", type=int, help="Restrict query to last N days")
+@messages_group.argument("--days", type=int, help=HELP_DAYS_BACK)
 @messages_group.argument("--only-inbox", action="store_true")
 @messages_group.argument("--latest", action="store_true", help="Pick latest matching message")
 @messages_group.argument("--points", help="Inline bullet points to address")
@@ -276,7 +286,7 @@ auto_group = app.group("auto", help="Gmail: propose/apply categorization + archi
 @auto_group.command("propose", help="Create proposal for categorizing + archiving mail")
 @auto_group.argument("--credentials", help="Path to OAuth credentials.json")
 @auto_group.argument("--token", help="Path to token.json")
-@auto_group.argument("--cache", help="Cache directory")
+@auto_group.argument("--cache", help=HELP_CACHE_DIR)
 @auto_group.argument("--days", type=int, default=7, help="Days of messages")
 @auto_group.argument("--only-inbox", action="store_true")
 @auto_group.argument("--pages", type=int, default=20, help="Pages to fetch")
@@ -292,7 +302,7 @@ def cmd_auto_propose(args) -> int:
 @auto_group.command("apply", help="Apply a saved proposal (archive + label)")
 @auto_group.argument("--credentials", help="Path to OAuth credentials.json")
 @auto_group.argument("--token", help="Path to token.json")
-@auto_group.argument("--cache", help="Cache directory")
+@auto_group.argument("--cache", help=HELP_CACHE_DIR)
 @auto_group.argument("--proposal", required=True, help="Proposal JSON path")
 @auto_group.argument("--cutoff-days", type=int, help="Only apply to messages older than N days")
 @auto_group.argument("--batch-size", type=int, default=500)
@@ -356,7 +366,7 @@ signatures_group = app.group("signatures", help="Gmail signatures operations")
 @signatures_group.command("export", help="Export Gmail signatures to files")
 @signatures_group.argument("--credentials", help="Path to OAuth credentials.json")
 @signatures_group.argument("--token", help="Path to token.json")
-@signatures_group.argument("--out-dir", required=True, help="Output directory")
+@signatures_group.argument("--out-dir", required=True, help=HELP_OUT_DIR)
 def cmd_signatures_export(args) -> int:
     return run_signatures_export(args)
 
@@ -476,7 +486,7 @@ accounts_group = app.group("accounts", help="Operate across multiple email accou
 
 
 @accounts_group.command("list", help="List configured accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
 @accounts_group.argument("--accounts", help="Comma-separated list of accounts to include")
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_list(args) -> int:
@@ -484,17 +494,17 @@ def cmd_accounts_list(args) -> int:
 
 
 @accounts_group.command("export-labels", help="Export labels from all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
-@accounts_group.argument("--out-dir", required=True, help="Output directory")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
+@accounts_group.argument("--out-dir", required=True, help=HELP_OUT_DIR)
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_export_labels(args) -> int:
     return run_accounts_export_labels(args)
 
 
 @accounts_group.command("sync-labels", help="Sync labels to all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
 @accounts_group.argument("--labels", required=True, help="Labels YAML")
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_sync_labels(args) -> int:
@@ -502,17 +512,17 @@ def cmd_accounts_sync_labels(args) -> int:
 
 
 @accounts_group.command("export-filters", help="Export filters from all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
-@accounts_group.argument("--out-dir", required=True, help="Output directory")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
+@accounts_group.argument("--out-dir", required=True, help=HELP_OUT_DIR)
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_export_filters(args) -> int:
     return run_accounts_export_filters(args)
 
 
 @accounts_group.command("sync-filters", help="Sync filters to all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
 @accounts_group.argument("--filters", required=True, help="Filters YAML")
 @accounts_group.argument("--require-forward-verified", action="store_true")
 @accounts_group.argument("--dry-run", action="store_true")
@@ -521,8 +531,8 @@ def cmd_accounts_sync_filters(args) -> int:
 
 
 @accounts_group.command("plan-labels", help="Plan label changes for all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
 @accounts_group.argument("--labels", required=True, help="Labels YAML")
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_plan_labels(args) -> int:
@@ -530,8 +540,8 @@ def cmd_accounts_plan_labels(args) -> int:
 
 
 @accounts_group.command("plan-filters", help="Plan filter changes for all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
 @accounts_group.argument("--filters", required=True, help="Filters YAML")
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_plan_filters(args) -> int:
@@ -539,17 +549,17 @@ def cmd_accounts_plan_filters(args) -> int:
 
 
 @accounts_group.command("export-signatures", help="Export signatures from all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
-@accounts_group.argument("--out-dir", required=True, help="Output directory")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
+@accounts_group.argument("--out-dir", required=True, help=HELP_OUT_DIR)
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_export_signatures(args) -> int:
     return run_accounts_export_signatures(args)
 
 
 @accounts_group.command("sync-signatures", help="Sync signatures to all accounts")
-@accounts_group.argument("--config", required=True, help="Accounts YAML")
-@accounts_group.argument("--accounts", help="Comma-separated list of accounts")
+@accounts_group.argument("--config", required=True, help=HELP_ACCOUNTS)
+@accounts_group.argument("--accounts", help=HELP_ACCOUNTS_LIST)
 @accounts_group.argument("--send-as", help="Send-as address")
 @accounts_group.argument("--dry-run", action="store_true")
 def cmd_accounts_sync_signatures(args) -> int:
@@ -608,7 +618,7 @@ def cmd_outlook_rules_list(args) -> int:
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
-@outlook_group.argument("--out", required=True, help="Output YAML path")
+@outlook_group.argument("--out", required=True, help=HELP_YAML_OUT)
 @outlook_group.argument("--use-cache", action="store_true")
 @outlook_group.argument("--cache-ttl", type=int, default=600)
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -676,7 +686,7 @@ def cmd_outlook_rules_prune_empty(args) -> int:
 @outlook_group.argument("--config", required=True, help="Filters YAML")
 @outlook_group.argument("--days", type=int, default=30, help="Only sweep messages in last N days")
 @outlook_group.argument("--pages", type=int, default=2, help="Pages to search per rule")
-@outlook_group.argument("--top", type=int, default=25, help="Page size")
+@outlook_group.argument("--top", type=int, default=25, help=HELP_PAGE_SIZE)
 @outlook_group.argument("--move-to-folders", action="store_true", dest="move_to_folders", default=True)
 @outlook_group.argument("--categories-only", action="store_false", dest="move_to_folders")
 @outlook_group.argument("--dry-run", action="store_true")
@@ -718,7 +728,7 @@ def cmd_outlook_calendar_add(args) -> int:
 @outlook_group.argument("--repeat", required=True, choices=["daily", "weekly", "monthly"], help="Recurrence type")
 @outlook_group.argument("--interval", type=int, default=1, help="Recurrence interval")
 @outlook_group.argument("--byday", help="Days for weekly (e.g., MO,WE,FR)")
-@outlook_group.argument("--range-start", required=True, dest="range_start", help="Start date YYYY-MM-DD")
+@outlook_group.argument("--range-start", required=True, dest="range_start", help=HELP_START_DATE)
 @outlook_group.argument("--until", help="End date YYYY-MM-DD")
 @outlook_group.argument("--count", type=int, help="Occurrences count")
 @outlook_group.argument("--start-time", required=True, help="Start time HH:MM[:SS]")
@@ -763,7 +773,7 @@ def cmd_outlook_categories_list(args) -> int:
 @outlook_group.argument("--client-id", help="Azure app (client) ID")
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
-@outlook_group.argument("--out", required=True, help="Output YAML path")
+@outlook_group.argument("--out", required=True, help=HELP_YAML_OUT)
 @outlook_group.argument("--use-cache", action="store_true")
 @outlook_group.argument("--cache-ttl", type=int, default=600)
 @outlook_group.argument("--accounts-config", default="config/accounts.yaml")
@@ -802,7 +812,7 @@ def cmd_outlook_folders_sync(args) -> int:
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
 @outlook_group.argument("--query", default="", help="KQL search query")
-@outlook_group.argument("--top", type=int, default=50, help="Page size")
+@outlook_group.argument("--top", type=int, default=50, help=HELP_PAGE_SIZE)
 @outlook_group.argument("--pages", type=int, default=3, help="Max pages to fetch")
 @outlook_group.argument("--after", help="Only messages received after ISO date (e.g. 2025-01-01)")
 @outlook_group.argument("--days", type=int, help="Only messages from last N days (converted to --after)")

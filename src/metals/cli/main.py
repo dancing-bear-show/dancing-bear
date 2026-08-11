@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
+from core.cli_help_text import HELP_OUT_DIR
 
 from .. import APP_ID, PURPOSE
 
@@ -116,7 +117,7 @@ spot_group = app.group("spot", help="Fetch and manage spot prices")
 @spot_group.command("fetch", help="Fetch daily spot prices")
 @app.argument("--metal", "-m", choices=["gold", "silver"], default="gold", help="Metal type")
 @app.argument("--start", "-s", help="Start date (YYYY-MM-DD)")
-@app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
+@app.argument("--out-dir", "-o", default="out/metals", help=HELP_OUT_DIR)
 def cmd_spot_fetch(args) -> int:
     from ..pipeline import SpotPriceRequest, SpotPriceProcessor, SpotPriceProducer
 
@@ -154,7 +155,7 @@ def cmd_premium_calc(args) -> int:
 
 
 @premium_group.command("summary", help="Summarize premiums")
-@app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
+@app.argument("--out-dir", "-o", default="out/metals", help=HELP_OUT_DIR)
 def cmd_premium_summary(args) -> int:
     from .premium_summary import main as summary_main
     return summary_main(["--out-dir", args.out_dir])
@@ -169,7 +170,7 @@ build_group = app.group("build", help="Build summary files")
 
 @build_group.command("summaries", help="Build gold/silver summary CSVs")
 @app.argument("--costs", default="out/metals/costs.csv", help="Costs CSV path")
-@app.argument("--out-dir", "-o", default="out/metals", help="Output directory")
+@app.argument("--out-dir", "-o", default="out/metals", help=HELP_OUT_DIR)
 def cmd_build_summaries(args) -> int:
     from .build_summaries import main as build_main
     return build_main(["--costs", args.costs, "--out-dir", args.out_dir])

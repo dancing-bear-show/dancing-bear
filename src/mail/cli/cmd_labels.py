@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from core.cli_framework import CLIApp
+from core.cli_help_text import HELP_YAML_OUT
 
 
 def register_labels_commands(app: CLIApp) -> object:
@@ -31,7 +32,7 @@ def register_labels_commands(app: CLIApp) -> object:
     @labels_group.command("export", help="Export Gmail labels to YAML")
     @labels_group.argument("--credentials", help="Path to OAuth credentials.json")
     @labels_group.argument("--token", help="Path to token.json")
-    @labels_group.argument("--out", required=True, help="Output YAML path")
+    @labels_group.argument("--out", required=True, help=HELP_YAML_OUT)
     def cmd_labels_export(args) -> int:
         return run_labels_export(args)
 

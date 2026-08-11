@@ -12,6 +12,12 @@ from __future__ import annotations
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
+from core.cli_help_text import (
+    HELP_CACHE_DIR,
+    HELP_DAYS,
+    HELP_MAX_PAGES,
+    HELP_PAGE_SIZE,
+)
 
 from .args import (
     HELP_START_DATE,
@@ -214,9 +220,9 @@ def cmd_outlook_dedup(args) -> int:
 @outlook_group.argument("--tenant", default="consumers", help="AAD tenant")
 @outlook_group.argument("--token", help="Path to token cache JSON")
 @outlook_group.argument("--from-text", dest="from_text", default="active rh", help="Sender text to match")
-@outlook_group.argument("--days", type=int, default=60, help="Look back N days")
+@outlook_group.argument("--days", type=int, default=60, help=HELP_DAYS)
 @outlook_group.argument("--top", type=int, default=25, help="Items per page")
-@outlook_group.argument("--pages", type=int, default=2, help="Max pages")
+@outlook_group.argument("--pages", type=int, default=2, help=HELP_MAX_PAGES)
 @outlook_group.argument("--out", help="Optional output YAML plan path")
 @outlook_group.argument("--calendar", help=HELP_DEFAULT_CALENDAR)
 def cmd_outlook_scan_classes(args) -> int:
@@ -307,12 +313,12 @@ gmail_group = app.group("gmail", help="Gmail scan helpers for calendar")
 @gmail_group.command("scan-classes", help="Scan recent Gmail for class schedules")
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
-@gmail_group.argument("--cache", help="Cache directory")
+@gmail_group.argument("--cache", help=HELP_CACHE_DIR)
 @gmail_group.argument("--from-text", dest="from_text", default="active rh", help="Sender text to match")
 @gmail_group.argument("--query", help="Raw Gmail query")
-@gmail_group.argument("--days", type=int, default=60, help="Look back N days")
-@gmail_group.argument("--pages", type=int, default=5, help="Max pages")
-@gmail_group.argument("--page-size", type=int, default=100, help="Page size")
+@gmail_group.argument("--days", type=int, default=60, help=HELP_DAYS)
+@gmail_group.argument("--pages", type=int, default=5, help=HELP_MAX_PAGES)
+@gmail_group.argument("--page-size", type=int, default=100, help=HELP_PAGE_SIZE)
 @gmail_group.argument("--inbox-only", action="store_true", help=HELP_INBOX_ONLY)
 @gmail_group.argument("--out", help="Optional output YAML plan path")
 @gmail_group.argument("--calendar", help=HELP_DEFAULT_CALENDAR)
@@ -323,12 +329,12 @@ def cmd_gmail_scan_classes(args) -> int:
 @gmail_group.command("scan-receipts", help="Scan Gmail receipts and extract recurring events")
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
-@gmail_group.argument("--cache", help="Cache directory")
+@gmail_group.argument("--cache", help=HELP_CACHE_DIR)
 @gmail_group.argument("--from-text", dest="from_text", default="richmondhill.ca", help="Sender filter")
 @gmail_group.argument("--query", help="Raw Gmail query")
-@gmail_group.argument("--days", type=int, default=365, help="Look back N days")
-@gmail_group.argument("--pages", type=int, default=5, help="Max pages")
-@gmail_group.argument("--page-size", type=int, default=100, help="Page size")
+@gmail_group.argument("--days", type=int, default=365, help=HELP_DAYS)
+@gmail_group.argument("--pages", type=int, default=5, help=HELP_MAX_PAGES)
+@gmail_group.argument("--page-size", type=int, default=100, help=HELP_PAGE_SIZE)
 @gmail_group.argument("--out", required=True, help="Output YAML plan path")
 @gmail_group.argument("--calendar", help=HELP_DEFAULT_CALENDAR)
 def cmd_gmail_scan_receipts(args) -> int:
@@ -338,11 +344,11 @@ def cmd_gmail_scan_receipts(args) -> int:
 @gmail_group.command("scan-activerh", help="Generic scan for ActiveRH receipts")
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
-@gmail_group.argument("--cache", help="Cache directory")
+@gmail_group.argument("--cache", help=HELP_CACHE_DIR)
 @gmail_group.argument("--query", help="Raw Gmail query")
-@gmail_group.argument("--days", type=int, default=365, help="Look back N days")
-@gmail_group.argument("--pages", type=int, default=10, help="Max pages")
-@gmail_group.argument("--page-size", type=int, default=100, help="Page size")
+@gmail_group.argument("--days", type=int, default=365, help=HELP_DAYS)
+@gmail_group.argument("--pages", type=int, default=10, help=HELP_MAX_PAGES)
+@gmail_group.argument("--page-size", type=int, default=100, help=HELP_PAGE_SIZE)
 @gmail_group.argument("--out", required=True, help="Output YAML plan path")
 @gmail_group.argument("--calendar", help=HELP_DEFAULT_CALENDAR)
 def cmd_gmail_scan_activerh(args) -> int:
@@ -352,12 +358,12 @@ def cmd_gmail_scan_activerh(args) -> int:
 @gmail_group.command("mail-list", help="List recent Gmail messages (read-only)")
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
-@gmail_group.argument("--cache", help="Cache directory")
+@gmail_group.argument("--cache", help=HELP_CACHE_DIR)
 @gmail_group.argument("--from-text", dest="from_text", help="Optional sender filter")
 @gmail_group.argument("--query", help="Raw Gmail query")
-@gmail_group.argument("--days", type=int, default=7, help="Look back N days")
-@gmail_group.argument("--pages", type=int, default=1, help="Max pages")
-@gmail_group.argument("--page-size", type=int, default=10, help="Page size")
+@gmail_group.argument("--days", type=int, default=7, help=HELP_DAYS)
+@gmail_group.argument("--pages", type=int, default=1, help=HELP_MAX_PAGES)
+@gmail_group.argument("--page-size", type=int, default=10, help=HELP_PAGE_SIZE)
 @gmail_group.argument("--inbox-only", action="store_true", help=HELP_INBOX_ONLY)
 def cmd_gmail_mail_list(args) -> int:
     return run_gmail_mail_list(args)
@@ -366,10 +372,10 @@ def cmd_gmail_mail_list(args) -> int:
 @gmail_group.command("sweep-top", help="Find top frequent senders in Inbox")
 @gmail_group.argument("--credentials", help="Path to OAuth credentials.json")
 @gmail_group.argument("--token", help="Path to token.json")
-@gmail_group.argument("--cache", help="Cache directory")
-@gmail_group.argument("--days", type=int, default=10, help="Look back N days")
-@gmail_group.argument("--pages", type=int, default=5, help="Max pages")
-@gmail_group.argument("--page-size", type=int, default=100, help="Page size")
+@gmail_group.argument("--cache", help=HELP_CACHE_DIR)
+@gmail_group.argument("--days", type=int, default=10, help=HELP_DAYS)
+@gmail_group.argument("--pages", type=int, default=5, help=HELP_MAX_PAGES)
+@gmail_group.argument("--page-size", type=int, default=100, help=HELP_PAGE_SIZE)
 @gmail_group.argument("--top", type=int, default=10, help="How many top senders")
 @gmail_group.argument("--inbox-only", action="store_true", help=HELP_INBOX_ONLY)
 @gmail_group.argument("--out", help="Optional suggested filters YAML path")

@@ -92,6 +92,16 @@ ignore_names = [
   "left_indent", "right_indent", "first_line_indent", "hanging_indent",
   "space_before", "space_after", "bottom_margin", "top_margin",
   "left_margin", "right_margin", "autofit",
+  # Generic type aliases (Name = RequestConsumer[SomeRequest]): vulture does
+  # not resolve assignment-style aliases, so each reads as an unused variable
+  # even though other modules import it by name.
+  "*RequestConsumer",
+  # @patch decorator parameters: unittest.mock injects one positional arg per
+  # decorator regardless of whether the test asserts on it. Tests that patch
+  # purely to suppress a side effect (time.sleep, network, disk writes) never
+  # reference the binding, but it cannot be deleted without breaking the
+  # signature. Removing these would break tests, not remove dead code.
+  "mock_*",
 ]
 
 [tool.setuptools]

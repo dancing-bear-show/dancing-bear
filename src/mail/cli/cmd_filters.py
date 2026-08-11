@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from core.cli_framework import CLIApp
+from core.cli_help_text import HELP_START_DATE, HELP_YAML_OUT
 
 
 def register_filters_commands(app: CLIApp) -> object:
@@ -33,7 +34,7 @@ def register_filters_commands(app: CLIApp) -> object:
     @filters_group.command("export", help="Export Gmail filters to YAML")
     @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
     @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--out", required=True, help="Output YAML path")
+    @filters_group.argument("--out", required=True, help=HELP_YAML_OUT)
     def cmd_filters_export(args) -> int:
         return run_filters_export(args)
 
@@ -76,7 +77,7 @@ def register_filters_commands(app: CLIApp) -> object:
     @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
     @filters_group.argument("--token", help="Path to token.json")
     @filters_group.argument("--config", required=True, help="Filters YAML config")
-    @filters_group.argument("--start", required=True, help="Start date YYYY-MM-DD")
+    @filters_group.argument("--start", required=True, help=HELP_START_DATE)
     @filters_group.argument("--end", required=True, help="End date YYYY-MM-DD")
     @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
     @filters_group.argument("--batch-size", type=int, default=500, help="Batch size")
