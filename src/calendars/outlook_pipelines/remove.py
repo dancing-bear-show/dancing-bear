@@ -45,9 +45,15 @@ class OutlookRemoveResult:
     logs: list[str]
 
 
-@dataclass(frozen=True)
+@dataclass
 class DeleteOneRequest:
-    """Shared context for deleting one event/series and logging the outcome."""
+    """Shared context for deleting one event/series and logging the outcome.
+
+    Deliberately not frozen: ``logs`` is the caller's accumulator list, which
+    ``_delete_one`` appends to. ``frozen=True`` would block field rebinding but
+    not that mutation, so it would advertise an immutability this type does not
+    have.
+    """
 
     subj: str
     svc: Any
