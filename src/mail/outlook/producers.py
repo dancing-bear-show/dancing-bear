@@ -24,10 +24,17 @@ from .processors import (
 _WOULD_SYNC = "Would sync"
 
 class _CreatedSkipped(Protocol):
-    """Result payloads that carry created/skipped tallies."""
+    """Result payloads that carry created/skipped tallies.
 
-    created: int
-    skipped: int
+    Declared read-only because produce() only reads the tallies. A writable
+    attribute here would reject result types that expose them as properties.
+    """
+
+    @property
+    def created(self) -> int: ...
+
+    @property
+    def skipped(self) -> int: ...
 
 
 # Bound so a result type lacking the tallies is a type error rather than an
