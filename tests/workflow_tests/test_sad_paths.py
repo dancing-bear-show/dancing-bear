@@ -14,6 +14,7 @@ Covers the silent-fallback ``except`` handlers in:
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 import tempfile
@@ -85,6 +86,56 @@ class TestReadStageResultMissingInputs(unittest.TestCase):
             stages_dir.mkdir()
             (stages_dir / "001-other-stage.json").write_text("{}", encoding="utf-8")
             self.assertIsNone(read_stage_result(Path(tmp_dir), "my-stage"))
+
+
+class TestReadStageResultGlobEscaping(unittest.TestCase):
+    """stage_name is interpolated into a glob pattern and must be escaped.
+
+    Unescaped, a name containing '*', '?' or '[...]' matches OTHER stages'
+    result files; max(matches) then returns the highest-numbered one, so the
+    caller silently receives a different stage's status. dispatchers.py uses
+    this for resume/skip decisions, so a wrong match can skip a stage that
+    never ran.
+    """
+
+    def _workspace(self, tmp_dir: str) -> Path:
+        stages_dir = Path(tmp_dir) / "stages"
+        stages_dir.mkdir()
+        for idx, name in ((1, "deploy-prod"), (2, "deploy-dev")):
+            (stages_dir / f"{idx:03d}-{name}.json").write_text(
+                json.dumps({"stage_name": name, "status": "success"}), encoding="utf-8"
+            )
+        return Path(tmp_dir)
+
+    def test_exact_name_still_resolves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = read_stage_result(self._workspace(tmp_dir), "deploy-prod")
+            self.assertIsNotNone(result)
+            self.assertEqual(result.stage_name, "deploy-prod")
+
+    def test_star_does_not_match_other_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertIsNone(read_stage_result(self._workspace(tmp_dir), "deploy-*"))
+
+    def test_question_mark_does_not_match_other_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertIsNone(read_stage_result(self._workspace(tmp_dir), "deploy-pro?"))
+
+    def test_char_class_does_not_match_other_stages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertIsNone(read_stage_result(self._workspace(tmp_dir), "deploy-[dp]*"))
+
+    def test_stage_legitimately_named_with_metacharacters_resolves(self) -> None:
+        """Escaping also fixes the inverse: a real '[x]' name now matches."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = self._workspace(tmp_dir)
+            (workspace / "stages" / "003-build[x].json").write_text(
+                json.dumps({"stage_name": "build[x]", "status": "success"}),
+                encoding="utf-8",
+            )
+            result = read_stage_result(workspace, "build[x]")
+            self.assertIsNotNone(result)
+            self.assertEqual(result.stage_name, "build[x]")
 
 
 # ---------------------------------------------------------------------------
