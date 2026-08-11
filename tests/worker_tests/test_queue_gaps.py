@@ -161,13 +161,21 @@ class TestListPending(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0][1]["id"], "hi_pri")
 
-    def test_invalid_not_before_treated_as_eligible(self):
+    def test_invalid_not_before_is_skipped_not_run(self):
+        """An unparseable not_before means "due date unknown", so the job is
+        held rather than run immediately. It previously fell through to
+        eligible=True, which silently ran a deliberately deferred job.
+        """
         from worker.queue import _ensure_dirs, list_pending
         _ensure_dirs(self.root)
         p = self.root / "pending" / "bad.json"
         p.write_text(json.dumps({"id": "bad", "type": "noop", "not_before": "not-a-date"}), encoding="utf-8")
-        result = list_pending(self.root)
-        self.assertEqual(len(result), 1)
+        with self.assertLogs("worker.queue_ops", level="WARNING") as logs:
+            result = list_pending(self.root)
+        self.assertEqual(result, [])
+        self.assertIn("not-a-date", "".join(logs.output))
+        # The job stays on disk for inspection rather than being discarded.
+        self.assertTrue(p.exists())
 
 
 # ---------------------------------------------------------------------------

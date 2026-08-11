@@ -7,6 +7,7 @@ for the file-based job queue under QUEUE_ROOT.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,8 @@ from worker._helpers import (
     ISO_DATETIME_FORMAT,
     get_worker_state_dir,
 )
+
+_log = logging.getLogger(__name__)
 
 try:
     QUEUE_ROOT = get_worker_state_dir("queue")
@@ -63,11 +66,19 @@ def _job_path(folder: Path, job_id: str) -> Path:
 
 
 def enqueue(job: Job, *, root: Path = QUEUE_ROOT) -> Path:
-    """Enqueue a job by writing it to pending/ with atomic rename."""
+    """Enqueue a job by writing it to pending/ with atomic rename.
+
+    Raises:
+        ValueError: if not_before is set but is not a parseable ISO timestamp.
+            Rejecting at entry keeps an unschedulable job off disk, rather
+            than surfacing the problem later as a skipped job in list_pending.
+    """
     paths = _ensure_dirs(root)
     if not job.not_before:
         # default: immediately eligible
         job.not_before = iso_now()
+    else:
+        parse_iso_utc_strict(job.not_before)  # raises ValueError on bad input
     data = job.to_dict()
     path = _job_path(paths["pending"], job.id)
     atomic_write_json(path, data)
@@ -87,15 +98,20 @@ def list_pending(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]
     for p in _list_job_paths(paths["pending"]):
         data = safe_load_json(p, default={})
         nb = str(data.get("not_before") or "")
+        if not nb:
+            items.append((p, data))
+            continue
         try:
-            eligible = (parse_iso_utc_strict(nb) <= now) if nb else True
-        except Exception as exc:
-            import logging as _logging
-
-            _logging.getLogger(__name__).debug(
-                "Invalid not_before '%s' in %s: %s", nb, p, exc
+            eligible = parse_iso_utc_strict(nb) <= now
+        except ValueError as exc:
+            # An unparseable schedule means "we do not know when this is due",
+            # so treat it as not-yet-due and leave it in pending/. Previously
+            # this fell through to eligible=True, which silently ran a
+            # deliberately deferred job immediately behind a debug log.
+            _log.warning(
+                "Skipping job %s: unparseable not_before %r (%s)", p.name, nb, exc
             )
-            eligible = True
+            continue
         if eligible:
             items.append((p, data))
 

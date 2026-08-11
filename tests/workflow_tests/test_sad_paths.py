@@ -54,35 +54,37 @@ class TestLoadFileContent(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# workflow.persistence.read_stage_result  (persistence.py line 90)
-# Path.glob() does NOT raise FileNotFoundError on Python 3.11 (the pinned
-# runtime) -- it returns an empty iterator for a missing directory, so the
-# `except FileNotFoundError` guard there is unreachable. It is harmless
-# because both paths return None.
-#
-# The test below therefore has to patch glob to reach the branch at all. It
-# documents intent and would catch the guard being replaced by something that
-# swallows a real error; it does NOT prove behaviour reachable in production.
-# It is the one mocked test in this file -- every other test drives a real
-# file, directory, or permission error.
+# workflow.persistence.read_stage_result
+# Path.glob() yields nothing for a missing directory rather than raising, so a
+# missing stages/ dir is handled by the `not matches` return. These tests drive
+# that real condition instead of mocking glob to fake an exception.
 # ---------------------------------------------------------------------------
 
 
-class TestReadStageResultGlobFileNotFound(unittest.TestCase):
-    """read_stage_result returns None when the stages glob raises FileNotFoundError."""
+class TestReadStageResultMissingInputs(unittest.TestCase):
+    """read_stage_result returns None for missing dirs and unmatched stages."""
 
-    def test_glob_file_not_found_returns_none(self) -> None:
+    def test_missing_stages_dir_returns_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            workspace = Path(tmp_dir)
-            stages_dir = workspace / "stages"
+            # No stages/ subdirectory at all.
+            self.assertIsNone(read_stage_result(Path(tmp_dir), "my-stage"))
+
+    def test_missing_workspace_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            missing = Path(tmp_dir) / "no-such-workspace"
+            self.assertIsNone(read_stage_result(missing, "my-stage"))
+
+    def test_empty_stages_dir_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            (Path(tmp_dir) / "stages").mkdir()
+            self.assertIsNone(read_stage_result(Path(tmp_dir), "my-stage"))
+
+    def test_non_matching_stage_name_returns_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            stages_dir = Path(tmp_dir) / "stages"
             stages_dir.mkdir()
-            with patch.object(
-                Path,
-                "glob",
-                side_effect=FileNotFoundError("stages dir vanished"),
-            ):
-                result = read_stage_result(workspace, "my-stage")
-        self.assertIsNone(result)
+            (stages_dir / "001-other-stage.json").write_text("{}", encoding="utf-8")
+            self.assertIsNone(read_stage_result(Path(tmp_dir), "my-stage"))
 
 
 # ---------------------------------------------------------------------------

@@ -84,11 +84,10 @@ def read_stage_result(
     """
     stages_dir = Path(workspace_dir) / "stages"
 
-    try:
-        pattern = f"[0-9][0-9][0-9]-{stage_name}.json"
-        matches = list(stages_dir.glob(pattern))
-    except FileNotFoundError:
-        return None
+    # Path.glob() yields nothing for a missing directory rather than raising,
+    # so a missing stages/ dir already lands in the `not matches` return below.
+    pattern = f"[0-9][0-9][0-9]-{stage_name}.json"
+    matches = list(stages_dir.glob(pattern))
 
     if not matches:
         return None
