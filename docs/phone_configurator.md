@@ -168,11 +168,28 @@ To allow edits again, re-enable the restriction and re‑install.
 - Update: edit the profile (same PayloadIdentifier) and reinstall; layout updates in place
 - Remove: delete the profile from Settings → General → VPN & Device Management on the device (if allowed), or use Apple Configurator/`cfgutil remove-profile`
 
-## Using With Phone Assistant
+## Using With the Phone CLI
 
-- Plan‑only flow (no supervision): use Phone Assistant to export, plan, and generate a manual checklist
-- Supervised flow (automation): mirror your plan into a Home Screen Layout profile and install via Apple Configurator
-- Widgets remain manual in both flows (not supported by MDM payloads)
+```bash
+# Full supervised reorg (export-device → plan → profile → install)
+./bin/phone reorg
+
+# Export layout from attached device
+./bin/phone export-device --out out/ios.IconState.yaml
+
+# Build and install a Home Screen Layout profile
+./bin/phone profile build --plan out/ios.plan.yaml --out out/layout.mobileconfig
+./bin/ios-install-profile --profile out/layout.mobileconfig
+
+# Push layout JSON directly via cfgutil
+./bin/ios-push-layout --layout out/ios.iconlayout.json
+
+# Plan-only (no device required)
+./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
+./bin/phone checklist --plan out/ios.plan.yaml
+```
+
+Widgets remain manual in both flows (not supported by MDM payloads).
 
 ## Troubleshooting
 

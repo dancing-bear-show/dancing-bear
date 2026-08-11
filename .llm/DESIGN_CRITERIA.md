@@ -81,4 +81,4 @@ For every `SafeProcessor`/`BaseProducer` pair (or, pre-migration, every command 
 ## How this doc is used
 
 1. **Audit workflow** grades each `src/<domain>/` package against C1–C10, producing a per-module findings list (pass/fail + citation) — no code changes.
-2. **Apply workflow** takes reviewed/approved findings and spawns `code-writer` agents per module to close gaps (no worktree isolation — each agent's file scope is restricted to its own disjoint `src/<domain>/` directory, since domains never overlap), with `tester` adding the happy/sad-path tests required by C8 before the change is considered done, verified via `qlty check` + `python3 -m unittest discover`.
+2. **Apply workflow** takes reviewed/approved findings and spawns `code-writer` agents per module to close gaps (no worktree isolation — each agent's file scope is restricted to its own disjoint `src/<domain>/` directory, since domains never overlap), with `tester` adding the happy/sad-path tests required by C8 before the change is considered done, verified via `qlty check` + `make test` (or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests` outside a worktree).

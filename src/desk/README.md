@@ -13,7 +13,7 @@ A small, dependency-light CLI to help keep your macOS filesystem tidy over time 
   - `pip install -e .[yaml]`
 
 - Show help:
-  - `./bin/desk-assistant --help`
+  - `python3 -m desk --help`
 
 - Scan common locations for large/stale files:
   - `python3 -m desk scan --paths ~/Downloads ~/Desktop --min-size 100MB --older-than 30d --duplicates --out out/scan.yaml`
@@ -88,8 +88,6 @@ flowchart LR
 - YAML IO requires `PyYAML`; JSON is supported without extra deps.
 
 ## Development
-- Tests: `make test` or `python3 -m unittest tests/test_cli.py -v`
+- Tests: `make test`
 - Dev install: `make dev`
 
-## License
-MIT

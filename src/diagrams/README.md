@@ -1,20 +1,30 @@
-Diagrams
+# Diagrams
 
-Overview
-- Mermaid diagram generation from YAML specs or telemetry data.
-- Entry point: `./bin/diagrams`
+Mermaid diagram generation from YAML specs or telemetry data. Entry point: `./bin/diagrams`.
 
-Key Commands
-- Render from YAML: `./bin/diagrams from-yaml --input spec.yaml --output out/diagram.png`
-- Validate a rendered .mmd file: `./bin/diagrams validate --input diagram.mmd`
-- Embed in Markdown: `./bin/diagrams embed --input spec.yaml --from-yaml`
-- Telemetry pie charts: `./bin/diagrams telemetry cost-pie --days 7`
+Does not support `--agentic`; discover subcommands with `./bin/diagrams --help`.
 
-Architecture
+## Key Commands
+
+```bash
+./bin/diagrams from-yaml --input spec.yaml --output out/diagram.mmd
+./bin/diagrams from-yaml --input spec.yaml --embedded    # wrap in ```mermaid fence
+./bin/diagrams render --input diagram.mmd --output out/diagram.png
+./bin/diagrams validate --input diagram.mmd              # check syntax via mmdc
+./bin/diagrams embed --input spec.yaml --from-yaml       # emit fenced mermaid block
+./bin/diagrams health                                    # check mmdc is installed
+./bin/diagrams telemetry cost-pie --days 7
+./bin/diagrams telemetry token-pie --days 7
+./bin/diagrams telemetry timeline --days 7
+```
+
+`render` and `validate` require [mmdc](https://github.com/mermaid-js/mermaid-cli) on `PATH`.
+
+## Architecture
 
 ```mermaid
 ---
-title: Diagrams — YAML spec to rendered diagram
+title: Diagrams — YAML spec to rendered output
 ---
 flowchart LR
     yaml[spec.yaml] --> from_yaml[cli.py\ncmd_from_yaml]
@@ -25,21 +35,40 @@ flowchart LR
     pipeline --> mmdc[renderers.py\nLocalRenderer.render_to_file\nmmdc subprocess]
     mmdc --> output[PNG / SVG / PDF]
     mmd --> validate[cli.py\ncmd_validate]
-    validate --> processor[RenderDiagramProcessor\nprocess via temp SVG]
-    processor --> result[valid / invalid]
+    validate --> processor[RenderDiagramProcessor\ntemp SVG → discard]
+    processor --> result[Valid: / Invalid:]
 ```
 
-`cmd_render` routes through `SafeProcessor`/`BaseProducer` via `run_pipeline`. `cmd_validate` calls `RenderDiagramProcessor().process()` directly against a throwaway SVG in a temp dir — the rendered artifact is discarded, and only a `Valid:`/`Invalid:` line is written to stderr.
+`cmd_render` routes through `SafeProcessor`/`BaseProducer` via `run_pipeline`. `cmd_validate` calls `RenderDiagramProcessor().process()` directly against a throwaway SVG in a temp dir; the rendered artifact is discarded and only a `Valid:`/`Invalid:` line is written to stderr.
 
-Key Modules
-- `cli.py` — command dispatch; `cmd_render` uses `run_pipeline(request, RenderDiagramProcessor, RenderDiagramProducer)`
-- `renderers.py` — `LocalRenderer` wraps mmdc; `RenderDiagramProcessor(SafeProcessor)` / `RenderDiagramProducer(BaseProducer)`; `LocalRendererError` subclasses `CLIError`
+## YAML Spec Format
 
-Pipeline Pattern
-- `cmd_render` routes through `SafeProcessor`/`BaseProducer` — see `core/pipeline.py`.
-- Request/result: `RenderRequest` / `RenderResult` (frozen dataclasses).
-- `cmd_validate` calls `RenderDiagramProcessor().process(request)` directly (suppresses success output).
-- Output routes through `OutputWriter`.
+A minimal spec:
 
-Tests
-- `tests/diagrams_tests/`
+```yaml
+type: flowchart    # "flowchart" (default) or "sequence"
+direction: LR      # flowchart only: TB, LR, BT, RL
+nodes:
+  - id: A
+    label: Input
+  - id: B
+    label: Output
+edges:
+  - from: A
+    to: B
+```
+
+`type` defaults to `flowchart` when omitted. `gantt` and `pie` are available via the Python builder API (`mermaid.py`) but are not supported via YAML spec.
+
+## Key Modules
+
+- `cli.py` — command dispatch: `cmd_from_yaml`, `cmd_render`, `cmd_validate`, `cmd_embed`, `cmd_health`, `cmd_telemetry`
+- `cli_yaml.py` — `_convert_yaml_spec`: YAML → `.mmd` text
+- `cli_telemetry.py` — telemetry diagram commands (`cost-pie`, `token-pie`, `timeline`)
+- `renderers.py` — `LocalRenderer` wraps mmdc subprocess; `RenderDiagramProcessor(SafeProcessor)` / `RenderDiagramProducer(BaseProducer)`; `LocalRendererError` subclasses `CLIError`
+- `mermaid.py` — Mermaid syntax helpers
+- `dark_mode.py` — dark-mode theme injection for mmdc
+
+## Tests
+
+`tests/diagrams_tests/`

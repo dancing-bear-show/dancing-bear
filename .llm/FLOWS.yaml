@@ -117,7 +117,7 @@ curated:
   testing:
     - id: tests_all
       desc: Run all tests (verbose)
-      cmd: python3 -m unittest -v
+      cmd: make test
 
   ios_phone:
     - id: ios_reorg

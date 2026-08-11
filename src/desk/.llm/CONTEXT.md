@@ -10,7 +10,7 @@ Principles
 - Preserve stable CLI flags and subcommands.
 
 Paths
-- CLI wrapper: `bin/desk-assistant`
+- CLI entry: `python3 -m desk` (no `bin/` wrapper)
 - Entrypoint: `desk/cli.py` and module `desk/__main__.py`
 - Helpers: `desk/utils.py`
 

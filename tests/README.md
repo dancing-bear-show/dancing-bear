@@ -7,18 +7,25 @@ Lightweight `unittest` suite focused on CLI parsing and small helpers.
 ## Running Tests
 
 ```bash
-# All tests
+# All tests (always use this)
 make test
 
 # With coverage
-coverage run -m unittest discover && coverage report
+make cov
 
-# Specific module
-python3 -m unittest discover tests/mail_tests
-
-# Specific subdirectory
-python3 -m unittest discover tests/phone_tests/layout
+# Verify imports resolve to the current checkout
+make check-env
 ```
+
+**WARNING: never run bare `python3 -m unittest` in a worktree.** An inherited `PYTHONPATH` (from direnv or an active venv in the parent shell) silently resolves `core`/`mail`/`worker` to the main checkout's source. Tests pass against unmodified code — a false green indistinguishable from a real pass, and only fails when a newly added module is imported by name.
+
+Use `make test`, or set the path explicitly:
+
+```bash
+PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests
+```
+
+`make check-env` verifies imports resolve to the current checkout and fails loudly if not. This applies to subagents too.
 
 ## Test Organization
 
@@ -51,13 +58,7 @@ tests/
 └── ...
 ```
 
-### Why Subdirectories?
-
-1. **Discoverability** - Tests for `mail/filters/` live in `tests/mail_tests/filters/`
-2. **Isolation** - Each subdirectory has its own fixtures without namespace pollution
-3. **Selective testing** - Run just `python3 -m unittest discover tests/mail_tests/gmail`
-4. **Parallel development** - Less merge conflicts than one giant test file
-5. **LLM-friendly** - Focused context when asking an LLM to modify specific tests
+Subdirectories mirror source layout: tests for `mail/filters/` live in `tests/mail_tests/filters/`, each with its own `fixtures.py` to avoid namespace pollution.
 
 ## Fixtures
 

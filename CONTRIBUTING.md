@@ -1,16 +1,16 @@
 # Contributing to Personal Assistants
 
-Thank you for your interest in contributing! This project provides unified CLIs for personal workflows (mail, calendars, schedules, resumes, phone layouts, WhatsApp).
+This project provides unified CLIs for personal workflows (mail, calendars, schedules, resumes, phone layouts, WhatsApp).
 
 ## Quick Start
 
-1. **Fork and clone** the repository
-2. **Set up environment**:
+1. Fork and clone the repository.
+2. Set up environment:
    ```bash
    make venv
    source .venv/bin/activate  # or use direnv
    ```
-3. **Run tests** to ensure everything works:
+3. Run tests to verify setup:
    ```bash
    make test
    ```
@@ -19,16 +19,17 @@ Thank you for your interest in contributing! This project provides unified CLIs 
 
 ### Code Style
 
-- **Python 3.11+** required
-- Follow existing patterns in the codebase
-- Use lazy imports for optional dependencies
-- Keep CLI flags/subcommands stable
-- See `.github/COMMIT_CONVENTION.md` for commit message format
+- Python 3.11+ required.
+- Follow existing patterns in the codebase.
+- Use lazy imports for optional dependencies.
+- Keep CLI flags/subcommands stable.
+- See `.github/COMMIT_CONVENTION.md` for commit message format.
 
 ### Testing
 
 - Add tests for new CLI surfaces and features
-- Run tests before submitting: `make test` or `python3 -m unittest -v`
+- Run tests before submitting: `make test`
+- Never run bare `python3 -m unittest` in a worktree — an inherited `PYTHONPATH` silently resolves imports to the main checkout and produces false greens. Use `make test` or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`.
 - CI runs tests automatically (see `.github/workflows/ci.yml`)
 - Aim for focused, lightweight tests
 

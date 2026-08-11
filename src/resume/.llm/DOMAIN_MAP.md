@@ -11,11 +11,11 @@ Overlays & Profiles
 - Optional: `interests.yaml`, `presentations.yaml`, `languages.yaml`, `coursework.yaml`, `structure.yaml`
 
 Outputs (by profile)
-- `_out/<profile>/data.json` — unified dataset
-- `_out/<profile>/resume.docx` — rendered resume
-- `_out/<profile>/structure.json` — inferred/app-specific section order
-- `_out/<profile>/alignment.*.json` — align reports
-- `_out/<profile>/style.json` — style profile from corpus
+- `out/<profile>/data.json` — unified dataset
+- `out/<profile>/resume.docx` — rendered resume
+- `out/<profile>/structure.json` — inferred/app-specific section order
+- `out/<profile>/alignment.*.json` — align reports
+- `out/<profile>/style.json` — style profile from corpus
 
 Core Modules
 - Rendering: `resume/docx_writer.py`
