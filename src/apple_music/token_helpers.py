@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import urllib.parse
 
+# Endpoint the auth page posts the captured token to. Shared with user_token_cli so
+# the page and the server that accepts it cannot drift apart.
+TOKEN_PATH = "/token"  # nosec B105 - URL path, not a credential
+
 HTML_TEMPLATE = """<!doctype html>
 <html>
 <body>
@@ -60,7 +64,7 @@ function whenMusicKitReady(timeoutMs) {
       // Hand the token back to the local CLI when this page is served over http.
       if (location.protocol.startsWith("http")) {
         try {
-          await fetch("/token", {method: "POST", body: tok});
+          await fetch("__TOKEN_PATH__", {method: "POST", body: tok});
           out.textContent = tok + "\\n\\nToken captured by the CLI. You can close this tab.";
         } catch (postErr) {
           out.textContent = tok + "\\n\\nCopy this token manually (handoff failed: " + postErr + ")";
@@ -76,12 +80,18 @@ function whenMusicKitReady(timeoutMs) {
 </html>"""
 
 
+def _render(developer_token: str) -> str:
+    """Fill the page template's placeholders."""
+    return HTML_TEMPLATE.replace("__DEV_TOKEN__", developer_token).replace(
+        "__TOKEN_PATH__", TOKEN_PATH
+    )
+
+
 def build_data_url(developer_token: str) -> str:
     """Return a data: URL that, when opened, prompts for user auth and prints the Music User Token."""
-    html = HTML_TEMPLATE.replace("__DEV_TOKEN__", developer_token)
-    return "data:text/html," + urllib.parse.quote(html)
+    return "data:text/html," + urllib.parse.quote(_render(developer_token))
 
 
 def build_html(developer_token: str) -> str:
     """Return the raw HTML page for user-token acquisition."""
-    return HTML_TEMPLATE.replace("__DEV_TOKEN__", developer_token)
+    return _render(developer_token)

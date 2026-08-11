@@ -497,7 +497,7 @@ def _create_from_seeds(
                 "reason": f"artist mismatch: top result '{top.get('name')}' by '{top.get('artistName')}'",
             })
             continue
-        attributes = song.get("attributes", {})
+        attributes = song.get("attributes") or {}
         tracks_data.append({"id": song.get("id"), "type": song.get("type", "songs") or "songs"})
         resolved.append({"title": title, "artist": artist, "matched": attributes.get("name")})
 

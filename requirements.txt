@@ -5,7 +5,7 @@ google-auth-oauthlib==1.4.0
 httplib2==0.32.0
 requests==2.34.2
 urllib3==2.7.0
-cryptography==49.0.0
+cryptography==50.0.0
 PyYAML==6.0.3
 python-docx==1.2.0
 premailer==3.10.0

@@ -149,6 +149,22 @@ def mint_developer_token(
     return f"{signing_input.decode('ascii')}.{_b64url_encode(_ecdsa_der_to_raw(der_signature))}"
 
 
+def _coerce_timestamp(value: object, claim: str) -> int | None:
+    """Coerce a JWT time claim to an int, or raise ConfigError if it is not numeric.
+
+    Without this a malformed token (a string or null "exp") surfaces later as a
+    TypeError from arithmetic rather than an actionable error.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError(
+            f"Developer token claim '{claim}' is not a numeric timestamp: {value!r}",
+            hint="Re-mint the token with: apple-music-assistant token mint --save",
+        )
+    return int(value)
+
+
 def decode_claims(token: str) -> TokenClaims:
     """Decode a developer token's claims without verifying its signature.
 
@@ -166,6 +182,6 @@ def decode_claims(token: str) -> TokenClaims:
     return TokenClaims(
         team_id=payload.get("iss"),
         key_id=header.get("kid"),
-        issued_at=payload.get("iat"),
-        expires_at=payload.get("exp"),
+        issued_at=_coerce_timestamp(payload.get("iat"), "iat"),
+        expires_at=_coerce_timestamp(payload.get("exp"), "exp"),
     )

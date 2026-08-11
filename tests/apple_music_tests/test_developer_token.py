@@ -128,5 +128,45 @@ class TestDecodeClaims(unittest.TestCase):
             decode_claims("not-a-jwt")
 
 
+
+class TestMalformedClaims(unittest.TestCase):
+    """A malformed token must raise ConfigError, not a TypeError from arithmetic."""
+
+    @staticmethod
+    def _token_with_claims(payload: dict) -> str:
+        def seg(obj):
+            raw = json.dumps(obj).encode()
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+        return f"{seg({'alg': 'ES256', 'kid': KEY_ID})}.{seg(payload)}.signature"
+
+    def test_string_exp_is_rejected(self):
+        token = self._token_with_claims({"iss": TEAM_ID, "exp": "not-a-number"})
+        with self.assertRaises(ConfigError) as ctx:
+            decode_claims(token)
+        self.assertIn("exp", str(ctx.exception))
+
+    def test_string_iat_is_rejected(self):
+        token = self._token_with_claims({"iss": TEAM_ID, "iat": "nope"})
+        with self.assertRaises(ConfigError):
+            decode_claims(token)
+
+    def test_boolean_exp_is_rejected(self):
+        """bool is an int subclass; it must not slip through as a timestamp."""
+        token = self._token_with_claims({"iss": TEAM_ID, "exp": True})
+        with self.assertRaises(ConfigError):
+            decode_claims(token)
+
+    def test_float_exp_is_accepted_and_truncated(self):
+        token = self._token_with_claims({"iss": TEAM_ID, "exp": 1_700_000_000.9})
+        self.assertEqual(decode_claims(token).expires_at, 1_700_000_000)
+
+    def test_absent_claims_stay_none(self):
+        claims = decode_claims(self._token_with_claims({"iss": TEAM_ID}))
+        self.assertIsNone(claims.expires_at)
+        self.assertIsNone(claims.issued_at)
+        self.assertIsNone(claims.seconds_remaining())
+        self.assertFalse(claims.is_expired())
+
 if __name__ == "__main__":
     unittest.main()

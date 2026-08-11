@@ -11,6 +11,7 @@ import webbrowser
 
 from apple_music.cli_helpers import save_credential_value
 from apple_music.config import DEFAULT_PROFILE, load_profile
+from apple_music.token_helpers import TOKEN_PATH as _TOKEN_PATH
 from apple_music.token_helpers import build_data_url, build_html
 
 
@@ -50,6 +51,13 @@ def _serve_once(html: str, port: int = 0) -> tuple[http.server.HTTPServer, str]:
             self.wfile.write(body)
 
         def do_POST(self) -> None:  # pragma: no cover - exercised interactively
+            # Only the page's own handoff endpoint captures a token; anything else
+            # posting to this port is not the auth page and must not set it.
+            if self.path.split("?")[0] != _TOKEN_PATH:
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             length = int(self.headers.get("Content-Length") or 0)
             token = self.rfile.read(length).decode("utf-8").strip() if length else ""
             if token:

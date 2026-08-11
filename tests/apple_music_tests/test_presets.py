@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from apple_music.cli_playlist import PRESETS, _artists_overlap
+from apple_music.cli_playlist import PRESETS, _artists_overlap, _pick_matching_song
 
 
 class TestPresetStructure(unittest.TestCase):
@@ -96,6 +96,26 @@ class TestArtistOverlap(unittest.TestCase):
     def test_empty_artist_defers_to_apple_ranking(self):
         self.assertTrue(_artists_overlap("", "Anything"))
         self.assertTrue(_artists_overlap("Anything", ""))
+
+
+class TestPickMatchingSong(unittest.TestCase):
+    def test_skips_wrong_artist_and_returns_the_later_correct_result(self):
+        """Apple ranks catalog-wide, so the intended track is not always first."""
+        results = [
+            {"id": "1", "attributes": {"name": "Piano Concerto, M. 83", "artistName": "Ravel"}},
+            {"id": "2", "attributes": {"name": "Wait", "artistName": "M83"}},
+        ]
+        self.assertEqual(_pick_matching_song(results, "M83")["id"], "2")
+
+    def test_returns_none_when_no_candidate_matches(self):
+        results = [{"id": "1", "attributes": {"name": "X", "artistName": "Someone Else"}}]
+        self.assertIsNone(_pick_matching_song(results, "M83"))
+
+    def test_null_attributes_do_not_raise(self):
+        """Apple can return "attributes": null; that must not crash the matcher."""
+        results = [{"id": "1", "attributes": None}, {"id": "2", "attributes": {"artistName": "M83"}}]
+        self.assertIsNotNone(_pick_matching_song(results, "M83"))
+
 
 if __name__ == "__main__":
     unittest.main()
