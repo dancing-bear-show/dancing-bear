@@ -119,6 +119,13 @@ class BaseProvider(ABC, CacheMixin):
     def update_signature(self, send_as_email: str, signature_html: str) -> dict[str, Any]:
         ...
 
+    # ---- threads ----
+    # Deliberately NOT @abstractmethod: OutlookProvider subclasses BaseProvider and
+    # does not support threads; making this abstract would break its instantiation.
+    def get_thread(self, thread_id: str, fmt: str = "metadata") -> dict[str, Any]:
+        """Fetch a thread and its messages. Override in providers that support it."""
+        raise NotImplementedError(f"{type(self).__name__} does not support thread retrieval")
+
     # ---- capabilities ----
     def capabilities(self) -> set[str]:
         """Return a set of capability strings supported by the provider.

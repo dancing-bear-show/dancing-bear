@@ -100,6 +100,10 @@ class GmailProvider(BaseProvider):
     def get_attachment(self, msg_id: str, attachment_id: str) -> bytes:
         return self._client.get_attachment(msg_id, attachment_id)
 
+    # --- threads ---
+    def get_thread(self, thread_id: str, fmt: str = "metadata") -> dict[str, Any]:
+        return self._client.get_thread(thread_id, fmt=fmt)
+
     # --- messages metadata ---
     def get_messages_metadata(self, ids: list[str], use_cache: bool = True) -> list[dict[str, Any]]:
         return self._client.get_messages_metadata(ids, use_cache=use_cache)

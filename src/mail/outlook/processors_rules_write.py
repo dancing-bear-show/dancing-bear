@@ -348,28 +348,21 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
     def _search_messages(
         self, client: Any, query: str, payload: OutlookRulesSweepPayload
     ) -> list[str]:
-        """Search for messages matching query."""
+        """Search for messages matching query.
+
+        ``query`` is a RAW, unquoted KQL term -- ``_build_search_url`` owns the
+        quoting and percent-encoding.
+        """
         from core.outlook.models import SearchParams
-        try:
-            return client.search_inbox_messages(
-                SearchParams(
-                    search_query=query,
-                    days=payload.days,
-                    top=payload.top,
-                    pages=payload.pages,
-                    use_cache=not payload.clear_cache,
-                )
+        return client.search_inbox_messages(
+            SearchParams(
+                search_query=query,
+                days=payload.days,
+                top=payload.top,
+                pages=payload.pages,
+                use_cache=not payload.clear_cache,
             )
-        except Exception:
-            return client.search_inbox_messages(
-                SearchParams(
-                    search_query=query,
-                    days=None,
-                    top=payload.top,
-                    pages=payload.pages,
-                    use_cache=not payload.clear_cache,
-                )
-            )
+        )
 
     def _move_messages(
         self, client: Any, message_ids: list[str], dest_id: str, dry_run: bool

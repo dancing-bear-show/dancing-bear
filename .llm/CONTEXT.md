@@ -119,6 +119,17 @@ Messages (Provider-Agnostic)
   - Gmail profiles use standard Gmail query syntax
   - No profile or Gmail profile: `./bin/mail messages search --query "subject:invoice" --json`
   - Outlook profile: `./bin/mail --profile outlook_vanesa messages search --query "invoice" --json`
+- Structured search flags (Gmail only; an Outlook profile rejects them with exit 1):
+  `--from`, `--to`, `--subject-contains`, `--not-query`, `--has-attachment`, `--unread`
+  - Compose with `--query`: `messages search --from a@b.com --subject-contains invoice --unread`
+  - `--subject-contains` (not `--subject`, which means "override subject" on `messages reply`)
+- Search output contract (STABLE — parsers depend on it):
+  - text: exactly 4 tab-separated columns, `id\tsubject\tfrom_header\tsnippet`
+  - `--json`: a BARE ARRAY; adds `to_header`, `date` (ISO-8601 UTC), `labels`, `unread`
+  - New fields are JSON-only; the text columns never grow
+- `messages get` accepts `--id`, `--ids A,B,C`, or `--query`; `--format json` emits a bare
+  object for one id and a list for `--ids`
+- `messages threads-get` fetches a whole conversation by `--thread-id`, `--id`, or `--query`
 
 Operational Checks (Mail filters/rules)
 - Unified is the source of truth: treat `config/filters_unified.yaml` as canonical for both Gmail and Outlook.

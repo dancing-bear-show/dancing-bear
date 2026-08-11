@@ -89,6 +89,9 @@ from ..messages_cli.commands import (
     run_messages_summarize,
     run_messages_get,
 )
+from ..messages_cli.commands_threads import (
+    run_messages_threads_get,
+)
 from ..messages_cli.commands_reply import (
     run_messages_reply,
     run_messages_apply_scheduled,
@@ -163,7 +166,7 @@ filters_group = register_filters_commands(app)
 
 
 # --- messages group ---
-messages_group = app.group("messages", help="Search (Gmail+Outlook), summarize and reply (Gmail)")
+messages_group = app.group("messages", help="Search, get, summarize (Gmail+Outlook); reply (Gmail)")
 
 
 @messages_group.command("search", help="Search for messages and list candidates")
@@ -173,6 +176,12 @@ messages_group = app.group("messages", help="Search (Gmail+Outlook), summarize a
 @messages_group.argument("--days", type=int, help="Restrict to last N days")
 @messages_group.argument("--only-inbox", action="store_true", help="Restrict to inbox")
 @messages_group.argument("--max-results", type=int, default=5, help="Max results")
+@messages_group.argument("--from", dest="from_", help="Sender filter (Gmail only)")
+@messages_group.argument("--to", help="Recipient filter (Gmail only)")
+@messages_group.argument("--subject-contains", dest="subject_contains", help="Subject substring (Gmail only)")
+@messages_group.argument("--not-query", dest="not_query", help="Exclude messages matching query (Gmail only)")
+@messages_group.argument("--has-attachment", action="store_true", help="Only messages with attachments (Gmail only)")
+@messages_group.argument("--unread", action="store_true", help="Only unread messages (Gmail only)")
 @messages_group.argument("--json", action="store_true", help="Output JSON")
 def cmd_messages_search(args) -> int:
     return run_messages_search(args)
@@ -192,13 +201,31 @@ def cmd_messages_summarize(args) -> int:
     return run_messages_summarize(args)
 
 
-@messages_group.command("get", help="Fetch and print a Gmail message body")
+@messages_group.command("get", help="Fetch and print a message body")
 @messages_group.argument("--credentials", help="Path to OAuth credentials.json")
 @messages_group.argument("--token", help="Path to token.json")
-@messages_group.argument("--id", required=True, help="Message ID")
+@messages_group.argument("--id", help="Message ID")
+@messages_group.argument("--ids", help="Comma-separated message IDs (e.g. A,B,C)")
+@messages_group.argument("--query", help="Fallback query if id not given")
+@messages_group.argument("--days", type=int, help="Restrict query to last N days")
+@messages_group.argument("--only-inbox", action="store_true", help="Restrict query to inbox")
 @messages_group.argument("--format", choices=["text", "json"], default="text", help="Output format (default: text)")
 def cmd_messages_get(args) -> int:
     return run_messages_get(args)
+
+
+@messages_group.command("threads-get", help="Fetch all messages in a conversation")
+@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
+@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--thread-id", help="Thread ID")
+@messages_group.argument("--id", help="Message ID to resolve the thread from")
+@messages_group.argument("--query", help="Fallback query if thread-id/id not given")
+@messages_group.argument("--days", type=int, help="Restrict query to last N days")
+@messages_group.argument("--only-inbox", action="store_true", help="Restrict query to inbox")
+@messages_group.argument("--include-body", action="store_true", help="Include each message body")
+@messages_group.argument("--json", action="store_true", help="Output JSON")
+def cmd_messages_threads_get(args) -> int:
+    return run_messages_threads_get(args)
 
 
 @messages_group.command("reply", help="Draft or send a reply for a message")

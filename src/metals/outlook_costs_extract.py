@@ -180,10 +180,12 @@ class OutlookCostExtractor(CostExtractor):
     def _search_confirmation_messages(self, order_id: str) -> List[str]:
         """Search for confirmation messages for an order ID."""
         import requests as _req
+        import urllib.parse
 
-        # Try using client search first
+        # Try using client search first. search_query takes a RAW, unquoted term:
+        # _build_search_url owns the KQL quoting and percent-encoding.
         from core.outlook.models import SearchParams
-        q = f'"Confirmation for order number {order_id}"'
+        q = f"Confirmation for order number {order_id}"
         try:
             ids = self.client.search_inbox_messages(
                 SearchParams(search_query=q, days=None, top=10, pages=2, use_cache=False)
@@ -194,7 +196,8 @@ class OutlookCostExtractor(CostExtractor):
             pass
 
         # Fallback to direct API call
-        url = f"{self.client.GRAPH}/me/messages?$search=\"Confirmation for order number {order_id}\"&$top=10"
+        encoded_q = urllib.parse.quote(f'"{q}"')
+        url = f"{self.client.GRAPH}/me/messages?$search={encoded_q}&$top=10"
         r = _req.get(url, headers=self.client._headers_search(), timeout=DEFAULT_REQUEST_TIMEOUT)
         if r.status_code < 400:
             data = r.json() or {}

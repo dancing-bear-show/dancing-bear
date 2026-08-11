@@ -88,6 +88,18 @@ curated:
       desc: Search Outlook messages (profile-based)
       cmd: ./bin/mail --profile outlook_vanesa messages search --query "swim class" --max-results 10 --json
 
+    - id: messages_search_structured
+      desc: Search Gmail with structured flags (Gmail only; Outlook profiles exit 1)
+      cmd: ./bin/mail messages search --from sender@example.com --subject-contains invoice --has-attachment --unread --max-results 20 --json
+
+    - id: messages_get
+      desc: Fetch full message bodies by id, comma-separated ids, or query
+      cmd: ./bin/mail messages get --ids MSG1,MSG2 --format json
+
+    - id: messages_threads-get
+      desc: Fetch every message in a conversation
+      cmd: ./bin/mail messages threads-get --thread-id THREAD1 --include-body --json
+
     - id: messages_summarize
       desc: Summarize a message by query
       cmd: ./bin/mail messages summarize --query "from:sender@example.com" --latest
