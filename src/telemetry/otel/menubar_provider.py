@@ -25,23 +25,11 @@ from telemetry.otel.menubar_dataclasses import (
     Skills,
     ToolActivity,
     _unavailable,
-    _zero_code_impact,  # noqa: F401 — re-exported for backwards compat
-    _zero_hook_health,  # noqa: F401 — re-exported for backwards compat
-    _zero_meta,  # noqa: F401 — re-exported for backwards compat
-    _zero_models,  # noqa: F401 — re-exported for backwards compat
-    _zero_session_patterns,  # noqa: F401 — re-exported for backwards compat
-    _zero_skills,  # noqa: F401 — re-exported for backwards compat
-    _zero_tool_activity,  # noqa: F401 — re-exported for backwards compat
-    _zero_usage,  # noqa: F401 — re-exported for backwards compat
 )
 from telemetry.otel.menubar_parsers import (
     _COLLECTOR_STALE_SECS,
-    _DEFAULT_TAIL_LINES,  # noqa: F401 — re-exported for backwards compat
-    _MAX_ATTR_LEN,  # noqa: F401 — re-exported for backwards compat
     _METRIC_COST,
     _METRIC_TOKEN_USAGE,
-    _TAIL_LINES_BY_WINDOW,  # noqa: F401 — re-exported for backwards compat
-    _WINDOW_24H_SECS,  # noqa: F401 — re-exported for backwards compat
     _WINDOW_7D_SECS,
     _WINDOW_SECS,
     _accumulate_compaction_events,
@@ -49,7 +37,6 @@ from telemetry.otel.menubar_parsers import (
     _accumulate_datapoint,
     _accumulate_loc_metrics,
     _accumulate_token_metric,
-    _is_event_success,  # noqa: F401 — re-exported for backwards compat
     _iter_log_records,
     _iter_metric_datapoints,
     _parse_attrs,

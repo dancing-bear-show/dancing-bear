@@ -19,7 +19,6 @@ HELP_OUTPUT = "Output format (default: text)"
 # Repeated across domain CLIs (grep-verified)
 HELP_DAYS = "Look back N days"
 HELP_OUT_DIR = "Output directory"
-HELP_OUT_PATH = "Output file path"
 HELP_PAGE_SIZE = "Page size"
 HELP_MAX_PAGES = "Max pages"
 HELP_ACCOUNTS = "Accounts YAML"

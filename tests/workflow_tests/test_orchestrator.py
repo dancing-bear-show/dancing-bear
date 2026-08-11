@@ -26,7 +26,7 @@ from workflow.orchestrator import OrchestratorConfig, WorkflowExecutionError, Wo
 # ---------------------------------------------------------------------------
 
 
-def _make_manifest(stage_names: tuple[str, ...], depends: dict | None = None):
+def _make_manifest(stage_names: tuple[str, ...]):
     """Create a workflow manifest from a flat list of stage names (all in one group)."""
     stage_specs = [make_stage_spec(name=n) for n in stage_names]
     wf = make_workflow_definition(stages=tuple(stage_specs))
