@@ -21,6 +21,7 @@ from typing import Callable, List, Optional
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
+from core.paths import ENV_DATA_HOME, output_dir
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json, write_text
 from ..model import CandidateData
@@ -38,6 +39,14 @@ from ..pipeline import FilterPipeline
 
 # Default profile used when --profile is not provided
 DEFAULT_PROFILE = "sample"
+
+# Domain subdirectory under the data root; also the --out-dir help text, which
+# names the resolved default so `--help` does not claim a path that moved.
+OUT_DIR_DOMAIN = "resume"
+OUT_DIR_HELP = (
+    "Output directory (default: <data-home>/resume, "
+    f"overridable with ${ENV_DATA_HOME})"
+)
 
 # Common extension constants
 EXT_JSON = ".json"
@@ -112,7 +121,7 @@ def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
     if getattr(args, "out", None):
         return Path(args.out)
     prefix = getattr(args, "profile", None) or DEFAULT_PROFILE
-    out_dir = Path(getattr(args, "out_dir", "out") or "out") / prefix
+    out_dir = output_dir(OUT_DIR_DOMAIN, getattr(args, "out_dir", None)) / prefix
     name = f"{kind}{default_ext}" if kind else f"{default_ext.lstrip('.')}"
     path = out_dir / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,7 +153,7 @@ def _parse_resume_source(resume_path: str, resume_text: str) -> dict:
 @app.argument("--resume", help="Path to resume (txt/md/html/docx/pdf)")
 @app.argument("--out", help="Output file path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+@app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_extract(args: argparse.Namespace) -> int:
     linkedin_text = _read_linkedin_text(args.linkedin) if args.linkedin else ""
     resume_text = read_text_any(args.resume) if args.resume else ""
@@ -167,7 +176,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
 @app.argument("--filter-exp-job", help="Job YAML/JSON for experience filter")
 @app.argument("--out", help="Output file path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+@app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_summarize(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
     data = _apply_filter_pipeline(data, args)
@@ -256,12 +265,15 @@ def _load_structure(args: argparse.Namespace) -> Optional[dict]:
     if not profile:
         return None
 
-    # Build list of output directories to search
-    base_out_dir = Path(getattr(args, "out_dir", "out") or "out")
+    # Build list of output directories to search. This path READS existing
+    # files, so the in-repo locations stay in the search order even though
+    # nothing writes there any more — a structure file left by an earlier run
+    # must keep resolving instead of silently disappearing.
+    base_out_dir = output_dir(OUT_DIR_DOMAIN, getattr(args, "out_dir", None))
     out_dirs = [base_out_dir]
-    legacy_out_dir = Path("_out")
-    if legacy_out_dir != base_out_dir:
-        out_dirs.append(legacy_out_dir)
+    for legacy in (Path("out"), Path("_out")):
+        if legacy not in out_dirs:
+            out_dirs.append(legacy)
 
     return _find_structure_in_dirs(profile, out_dirs) or _find_structure_in_config(profile)
 
@@ -280,7 +292,7 @@ def _load_structure(args: argparse.Namespace) -> Optional[dict]:
 @app.argument("--min-priority", type=float, help="Filter Skills/Technologies items by priority (keep >= cutoff)")
 @app.argument("--out", help="Output file path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+@app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_render(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
     template = load_template(args.template) if args.template else {}
@@ -319,7 +331,7 @@ def cmd_render(args: argparse.Namespace) -> int:
 @app.argument("--source", required=True, help="Reference .docx file")
 @app.argument("--out", help="Output file path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+@app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_structure(args: argparse.Namespace) -> int:
     struct = infer_structure_from_docx(args.source)
     out = _resolve_out(args, EXT_JSON, kind="structure")
@@ -336,7 +348,7 @@ def cmd_structure(args: argparse.Namespace) -> int:
 @app.argument("--min-exp-score", type=int, default=1, help="Minimum experience score to keep a role")
 @app.argument("--out", help="Alignment report path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+@app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_align(args: argparse.Namespace) -> int:
     candidate = read_yaml_or_json(args.data)
     prof = getattr(args, "profile", None)
@@ -362,7 +374,7 @@ def cmd_align(args: argparse.Namespace) -> int:
 @app.argument("--max-bullets", type=int, default=3, help="Max bullets per role if including experience")
 @app.argument("--out", help="Output candidate YAML path (overrides --profile)")
 @app.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@app.argument("--out-dir", default="out", help="Output directory (default: out)")
+@app.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_candidate_init(args: argparse.Namespace) -> int:
     data = read_yaml_or_json(args.data)
     # Overlay profile data onto candidate if profile is provided
@@ -411,7 +423,7 @@ style_group = app.group("style", help="Build or manage style profiles from a pro
 @style_group.argument("--corpus-dir", required=True, help="Directory of prose samples (.txt/.md/.docx)")
 @style_group.argument("--out", help="Output file path (overrides --profile)")
 @style_group.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@style_group.argument("--out-dir", default="out", help="Output directory (default: out)")
+@style_group.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_style_build(args: argparse.Namespace) -> int:
     from ..style import build_style_profile
     prof = build_style_profile(args.corpus_dir)
@@ -464,7 +476,7 @@ experience_group = app.group("experience", help="Experience tools")
 @experience_group.argument("--max-bullets", type=int, default=None, help="Limit bullets per role in summary")
 @experience_group.argument("--out", help="Output file path (overrides --profile)")
 @experience_group.argument("--profile", help="Output prefix (e.g., 'briancorysherwin_general')")
-@experience_group.argument("--out-dir", default="out", help="Output directory (default: out)")
+@experience_group.argument("--out-dir", help=OUT_DIR_HELP)
 def cmd_experience_export(args: argparse.Namespace) -> int:
     if not args.data and not args.resume:
         raise SystemExit("Provide --data or --resume")
