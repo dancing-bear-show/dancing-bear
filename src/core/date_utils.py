@@ -17,10 +17,12 @@ __all__ = [
     "DAY_NAMES",
     "MONTH_MAP",
     "RRULE_CODE_TO_DAY_NAME",
+    "iso_now",
     "normalize_day",
     "normalize_days",
     "now_utc",
     "parse_iso_utc",
+    "parse_iso_utc_strict",
     "parse_month",
     "parse_window",
     "to_iso_str",
@@ -143,6 +145,28 @@ def to_iso_str(v: Any) -> Optional[str]:
 def now_utc() -> datetime:
     """Return the current UTC datetime."""
     return datetime.now(tz=timezone.utc)
+
+
+def iso_now() -> str:
+    """Return the current UTC time as an ISO 8601 string (e.g. '2024-01-15T10:30:00Z')."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso_utc_strict(ts: str) -> datetime:
+    """Parse an ISO 8601 UTC timestamp, raising ValueError on failure.
+
+    "Strict" refers to the error behaviour, not the accepted syntax: unlike
+    parse_iso_utc (which returns None), this raises. Any form fromisoformat
+    understands is accepted, including 'Z', '+00:00' offsets and fractional
+    seconds -- worker's --not-before takes user-supplied timestamps, so
+    narrowing this to the 'Z'-only form iso_now() emits would reject valid
+    input and, because callers treat a parse failure as "run now", silently
+    drop the scheduling guarantee.
+    """
+    dt = parse_iso_utc(ts)
+    if dt is None:
+        raise ValueError(f"invalid ISO timestamp: {ts}")
+    return dt
 
 
 def parse_window(win: str, default_unit: str = "hours") -> timedelta:

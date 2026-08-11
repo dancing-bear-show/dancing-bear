@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
-from workflow._timeutil import iso_now
+from core.date_utils import iso_now
 from workflow.dispatch import build_dispatch_instruction
 from workflow.models import (
     OutputMode,

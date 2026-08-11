@@ -16,7 +16,7 @@ from worker.queue_ops import (
     _parse_timestamp_safe,
     list_processing,
 )
-from worker._helpers import safe_load_json
+from core.fileutil import safe_load_json
 
 
 def counts(root: Path = QUEUE_ROOT) -> dict[str, int]:
@@ -58,7 +58,7 @@ def _compute_pending_insights(
     by_pri: dict[str, int] = {}
 
     for p in _list_job_paths(pending_folder):
-        d = safe_load_json(p)
+        d = safe_load_json(p, default={})
         pri = str(int(d.get("priority", 5)))
         by_pri[pri] = by_pri.get(pri, 0) + 1
 

@@ -11,14 +11,12 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from core.date_utils import iso_now, parse_iso_utc_strict
+from core.fileutil import atomic_write_json, safe_load_json
 from worker._helpers import (
     FIELD_UPDATED_AT,
     ISO_DATETIME_FORMAT,
-    atomic_write_json,
     get_worker_state_dir,
-    iso_now,
-    parse_iso_utc_strict,
-    safe_load_json,
 )
 
 try:
@@ -87,7 +85,7 @@ def list_pending(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]
     items: list[tuple[Path, dict[str, object]]] = []
     now = datetime.now(UTC)
     for p in _list_job_paths(paths["pending"]):
-        data = safe_load_json(p)
+        data = safe_load_json(p, default={})
         nb = str(data.get("not_before") or "")
         try:
             eligible = (parse_iso_utc_strict(nb) <= now) if nb else True
@@ -130,7 +128,7 @@ def start_processing(job_path: Path, root: Path = QUEUE_ROOT) -> Path | None:
     try:
         _rename(job_path, new_path)
         try:
-            data = safe_load_json(new_path)
+            data = safe_load_json(new_path, default={})
             data["status"] = "processing"
             data["processing_started_at"] = iso_now()
             data[FIELD_UPDATED_AT] = iso_now()
@@ -156,7 +154,7 @@ def finish(
     result: object | None = None,
 ) -> Path:
     """Write updated metadata to done/ or error/, then unlink the processing/ file."""
-    data = safe_load_json(job_path)
+    data = safe_load_json(job_path, default={})
     data[FIELD_UPDATED_AT] = iso_now()
     if success:
         data["status"] = "done"
@@ -187,7 +185,7 @@ def retry(
     reason: str | None = None,
 ) -> Path:
     """Bump attempts, set not_before to now+delay, and move back to pending/."""
-    data = safe_load_json(job_path)
+    data = safe_load_json(job_path, default={})
     data["attempts"] = int(data.get("attempts", 0)) + 1
     nb = datetime.now(UTC) + timedelta(seconds=int(delay_sec))
     data["not_before"] = nb.strftime(ISO_DATETIME_FORMAT)
@@ -206,7 +204,7 @@ def list_processing(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, objec
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
     for p in _list_job_paths(paths["processing"]):
-        items.append((p, safe_load_json(p)))
+        items.append((p, safe_load_json(p, default={})))
     return items
 
 
@@ -215,7 +213,7 @@ def list_error(root: Path = QUEUE_ROOT) -> list[tuple[Path, dict[str, object]]]:
     paths = _ensure_dirs(root)
     items: list[tuple[Path, dict[str, object]]] = []
     for p in _list_job_paths(paths["error"]):
-        items.append((p, safe_load_json(p)))
+        items.append((p, safe_load_json(p, default={})))
     return items
 
 
@@ -276,7 +274,7 @@ def requeue_error(
     - reset_attempts: set attempts to 0 (so retries are allowed)
     - new_max_attempts: optionally override max_attempts
     """
-    data = safe_load_json(job_path)
+    data = safe_load_json(job_path, default={})
     data["attempts"] = 0 if reset_attempts else int(data.get("attempts", 0))
     if new_max_attempts is not None:
         _apply_max_attempts(data, new_max_attempts)
@@ -394,7 +392,7 @@ def reap_stale_processing_jobs(
     reaped: list[str] = []
 
     for p in _list_job_paths(paths["processing"]):
-        data = safe_load_json(p)
+        data = safe_load_json(p, default={})
         started = _reap_resolve_start_time(data, p)
         if not started:
             continue

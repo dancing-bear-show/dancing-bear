@@ -398,7 +398,7 @@ def make_stage_result(
     extras: StageResultExtras | None = None,
 ) -> StageResult:
     """Build a StageResult with computed timing from ISO timestamps."""
-    from workflow._timeutil import iso_now, parse_iso_utc_strict
+    from core.date_utils import iso_now, parse_iso_utc_strict
 
     _extras = extras if extras is not None else StageResultExtras()
     finished_at = iso_now()

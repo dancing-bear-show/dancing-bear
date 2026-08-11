@@ -1,18 +1,19 @@
 """Internal helpers for the worker module.
 
-Self-contained implementations of constants, file I/O, time utilities,
-performance logging, and path resolution helpers.
-No external dependencies beyond stdlib.
+Self-contained implementations of constants, path resolution helpers,
+and performance logging. No external dependencies beyond stdlib.
+
+File I/O (atomic_write_json, safe_load_json) and date/time utilities
+(now_utc, iso_now, parse_iso_utc, parse_iso_utc_strict, parse_window)
+are provided by core.fileutil and core.date_utils respectively.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import tempfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -21,111 +22,6 @@ from typing import Any
 ISO_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 DATE_FORMAT_YMD = "%Y%m%d"
 FIELD_UPDATED_AT = "updated_at"
-
-# ---------------------------------------------------------------------------
-# File utilities
-# ---------------------------------------------------------------------------
-
-
-def atomic_write_json(
-    path: str | Path,
-    data: dict[str, Any] | list[Any],
-    *,
-    indent: int = 2,
-) -> None:
-    """Atomically write JSON data to a file using temp file + rename."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(data, indent=indent))
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:  # nosec B110 - best-effort cleanup; original error is re-raised
-            pass
-        raise
-
-
-def safe_load_json(
-    path: str | Path,
-    default: dict[str, Any] | None = None,
-) -> Any:
-    """Safely load JSON from a file, returning default on any error."""
-    if default is None:
-        default = {}
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:  # nosec B110 - intentional fallback to empty dict
-        return dict(default)
-
-
-# ---------------------------------------------------------------------------
-# Time utilities
-# ---------------------------------------------------------------------------
-
-_ISO8601_Z_SUFFIX = "Z"
-_ISO8601_UTC_SUFFIX = "+00:00"
-
-
-def now_utc() -> datetime:
-    """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(UTC)
-
-
-def iso_now() -> str:
-    """Return current UTC time as an ISO 8601 string (YYYY-MM-DDTHH:MM:SSZ)."""
-    return datetime.now(UTC).strftime(ISO_DATETIME_FORMAT)
-
-
-def parse_iso_utc(value: str | None) -> datetime | None:
-    """Parse an ISO 8601 string to an aware UTC datetime, or None on failure."""
-    if not value:
-        return None
-    try:
-        s = str(value).strip()
-        if not s:
-            return None
-        return datetime.fromisoformat(
-            s.replace(_ISO8601_Z_SUFFIX, _ISO8601_UTC_SUFFIX)
-        ).astimezone(UTC)
-    except Exception:  # nosec B110 - intentional: return None on bad input
-        return None
-
-
-def parse_iso_utc_strict(ts: str) -> datetime:
-    """Parse an ISO 8601 timestamp string, raising ValueError on failure."""
-    dt = parse_iso_utc(ts)
-    if dt is None:
-        raise ValueError(f"invalid ISO timestamp: {ts}")
-    return dt
-
-
-# Suffix -> timedelta keyword arg name, for parse_window's dispatch.
-_WINDOW_SUFFIX_UNITS: dict[str, str] = {
-    "d": "days",
-    "w": "weeks",
-    "h": "hours",
-    "m": "minutes",
-    "s": "seconds",
-}
-
-
-def parse_window(win: str, default_unit: str = "hours") -> timedelta:
-    """Parse a window string (e.g., '24h', '7d', '15m') to a timedelta."""
-    if default_unit not in ("hours", "minutes"):
-        raise ValueError(f"default_unit must be 'hours' or 'minutes', got {default_unit!r}")
-    s = (win or "").strip().lower()
-    error_msg = "Invalid window. Use Nd, Nw, Nh, Nm, or Ns (e.g., 30d, 2w, 24h, 15m, 30s)"
-    unit = _WINDOW_SUFFIX_UNITS.get(s[-1:]) if s else None
-    value_str = s[:-1] if unit else s
-    unit = unit or default_unit
-    try:
-        return timedelta(**{unit: float(value_str)})
-    except (ValueError, TypeError):
-        raise ValueError(error_msg)
 
 
 # ---------------------------------------------------------------------------

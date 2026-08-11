@@ -112,7 +112,7 @@ def _generate_run_id(workflow_name: str) -> str:
     """Generate a run ID from workflow name, current date, and a short random suffix."""
     import random
     import string
-    from workflow._timeutil import iso_now
+    from core.date_utils import iso_now
 
     date_part = iso_now()[:10].replace("-", "")
     suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))  # nosec B311 - run ID is not security-sensitive  # noqa: S311
@@ -405,7 +405,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 def _cmd_init_workspace(args: argparse.Namespace) -> int:
     """Create workspace dir, write manifest.json + plan.json, and print workspace path."""
     from workflow.persistence import init_workspace, write_manifest
-    from workflow._fileutil import atomic_write_json
+    from core.fileutil import atomic_write_json
 
     if not check_workflow_path(args.path):
         return 1
