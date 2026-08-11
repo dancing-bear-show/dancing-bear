@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from core.constants import DEFAULT_REQUEST_TIMEOUT
 
 from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter
+from .yahoo import parse_response as _parse_yahoo_chart_response
 
 AVG_COST_HDR = "Avg Cost/Oz"
 TOTAL_OZ_HDR = "Total Ounces"
@@ -293,37 +294,6 @@ def _yahoo_chart_to_unix(d: str) -> int:
 
     dt = datetime.fromisoformat(d)
     return int(datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc).timestamp())
-
-
-def _yahoo_chart_point(ts: list, closes: list, i: int) -> Optional[Tuple[str, float]]:
-    """Parse a single (timestamp, close) pair at index i. Returns None if invalid."""
-    from datetime import datetime, timezone
-
-    try:
-        d = datetime.fromtimestamp(int(ts[i]), tz=timezone.utc).date().isoformat()
-        v = closes[i]
-        if v is None:
-            return None
-        return d, float(v)
-    except Exception:  # nosec B110 - skip on error
-        return None
-
-
-def _parse_yahoo_chart_response(data: dict) -> Dict[str, float]:
-    """Extract date->close mapping from a Yahoo Finance chart JSON response."""
-    out: Dict[str, float] = {}
-    try:
-        res = ((data.get("chart") or {}).get("result") or [])[0]
-        ts = res.get("timestamp", []) or []
-        cl = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close", [])
-    except Exception:  # nosec B110 - return empty on unexpected shape
-        return out
-
-    for i in range(len(ts)):
-        point = _yahoo_chart_point(ts, cl, i)
-        if point:
-            out[point[0]] = point[1]
-    return out
 
 
 def _fetch_yahoo_series(

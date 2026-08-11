@@ -14,7 +14,10 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .io_utils import safe_import
-from .docx_links import add_hyperlink, normalize_link_url
+from .docx_links import (
+    normalize_link_url,
+    render_contact_runs as _render_contact_runs,
+)
 from .docx_styles import (
     _parse_hex_color,
     _tight_paragraph,
@@ -121,39 +124,6 @@ def _center_paragraph(para) -> None:
     """Center a paragraph and remove indents."""
     from .docx_styles import StyleManager
     StyleManager.center_paragraph(para)
-
-
-def _render_contact_runs(
-    paragraph,
-    email: str,
-    plain_parts: List[str],
-    link_items: List[tuple[str, str]],
-) -> None:
-    """Build the contact-line paragraph run-by-run with hyperlinks.
-
-    Email renders as a mailto: hyperlink. URL link extras render as external
-    hyperlinks. Phone and location remain plain text. Falls back to plain text
-    for any part that fails (add_hyperlink handles that internally).
-    """
-    first = True
-
-    def _sep() -> None:
-        nonlocal first
-        if not first:
-            paragraph.add_run(" | ")
-        first = False
-
-    if email:
-        _sep()
-        add_hyperlink(paragraph, normalize_link_url(email), email)
-
-    for part in plain_parts:
-        _sep()
-        paragraph.add_run(part)
-
-    for display, url in link_items:
-        _sep()
-        add_hyperlink(paragraph, url, display)
 
 
 def _render_document_header(doc, data: Dict[str, Any]) -> None:

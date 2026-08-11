@@ -32,42 +32,46 @@ _assistant = BaseAssistant(
 extract_group = app.group("extract", help="Extract metals data from emails")
 
 
-@extract_group.command("gmail", help="Extract from Gmail")
-@app.argument("--profile", "-p", default="gmail_personal", help="Gmail profile")
-@app.argument("--days", "-d", type=int, default=365, help="Days to search")
-def cmd_extract_gmail(args) -> int:
-    from ..pipeline import ExtractRequest, GmailExtractProcessor, ExtractProducer
+def _run_extract(args, provider: str) -> int:
+    """Run the extract pipeline for a provider ("gmail" or "outlook")."""
+    from .. import pipeline
 
-    request = ExtractRequest(
+    request = pipeline.ExtractRequest(
         profile=args.profile,
         days=args.days,
-        provider="gmail",
+        provider=provider,
     )
-    processor = GmailExtractProcessor()
-    producer = ExtractProducer()
+    processors = {
+        "gmail": pipeline.GmailExtractProcessor,
+        "outlook": pipeline.OutlookExtractProcessor,
+    }
+    try:
+        processor_cls = processors[provider]
+    except KeyError:
+        raise ValueError(
+            f"unsupported extract provider {provider!r}; "
+            f"expected one of: {', '.join(sorted(processors))}"
+        ) from None
+    processor = processor_cls()
+    producer = pipeline.ExtractProducer()
 
     result = processor.process(request)
     producer.produce(result)
     return 0 if result.ok() else 1
+
+
+@extract_group.command("gmail", help="Extract from Gmail")
+@app.argument("--profile", "-p", default="gmail_personal", help="Gmail profile")
+@app.argument("--days", "-d", type=int, default=365, help="Days to search")
+def cmd_extract_gmail(args) -> int:
+    return _run_extract(args, "gmail")
 
 
 @extract_group.command("outlook", help="Extract from Outlook")
 @app.argument("--profile", "-p", default="outlook_personal", help="Outlook profile")
 @app.argument("--days", "-d", type=int, default=365, help="Days to search")
 def cmd_extract_outlook(args) -> int:
-    from ..pipeline import ExtractRequest, OutlookExtractProcessor, ExtractProducer
-
-    request = ExtractRequest(
-        profile=args.profile,
-        days=args.days,
-        provider="outlook",
-    )
-    processor = OutlookExtractProcessor()
-    producer = ExtractProducer()
-
-    result = processor.process(request)
-    producer.produce(result)
-    return 0 if result.ok() else 1
+    return _run_extract(args, "outlook")
 
 
 # ============================================================================
