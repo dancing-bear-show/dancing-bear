@@ -7,6 +7,8 @@ from pathlib import Path
 
 from ..utils.filters import build_gmail_query
 
+_MSG_ID_REQUIRED = "--id is required"
+
 
 def _fetch_id_and_thread(client, message_id: str) -> tuple[str | None, str | None]:
     """Fetch (id, threadId) metadata for a message, falling back to (message_id, None)."""
@@ -418,6 +420,58 @@ def _sanitize_filename(filename: str) -> str:
     return base
 
 
+def run_messages_get(args) -> int:
+    """Fetch and print the full body of a Gmail message."""
+    import json
+    import sys
+    from ..utils.cli_helpers import gmail_provider_from_args
+
+    msg_id = getattr(args, "id", None)
+    if not msg_id:
+        print(_MSG_ID_REQUIRED, file=sys.stderr)
+        return 1
+
+    fmt = getattr(args, "format", "text") or "text"
+    client = gmail_provider_from_args(args)
+    client.authenticate()
+
+    # Headers only: the body comes from get_message_text(), which performs its
+    # own full fetch. Requesting "metadata" avoids pulling the payload twice.
+    try:
+        msg = client.get_message(msg_id, fmt="metadata")
+    except Exception as exc:
+        print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
+        return 1
+
+    headers = {
+        h.get("name", "").lower(): h.get("value", "")
+        for h in ((msg.get("payload") or {}).get("headers") or [])
+    }
+    try:
+        body = client.get_message_text(msg_id)
+    except Exception as exc:
+        print(f"Failed to extract message body '{msg_id}': {exc}", file=sys.stderr)
+        return 1
+
+    if fmt == "json":
+        print(json.dumps({
+            "id": msg_id,
+            "subject": headers.get("subject", ""),
+            "from_header": headers.get("from", ""),
+            "to_header": headers.get("to", ""),
+            "date": headers.get("date", ""),
+            "body": body,
+        }, ensure_ascii=False, indent=2))
+    else:
+        print(f"Date: {headers.get('date', '')}")
+        print(f"From: {headers.get('from', '')}")
+        print(f"To: {headers.get('to', '')}")
+        print(f"Subject: {headers.get('subject', '')}")
+        print()
+        print(body)
+    return 0
+
+
 def run_messages_list_attachments(args) -> int:
     """List attachments in a Gmail message."""
     import json
@@ -426,13 +480,13 @@ def run_messages_list_attachments(args) -> int:
 
     msg_id = getattr(args, "id", None)
     if not msg_id:
-        print("--id is required", file=sys.stderr)
+        print(_MSG_ID_REQUIRED, file=sys.stderr)
         return 1
 
     client = gmail_provider_from_args(args)
     client.authenticate()
     try:
-        msg = client.get_message(msg_id, fmt="full")
+        msg = client.get_message(msg_id, fmt="metadata")
     except Exception as exc:
         print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
         return 1
@@ -548,13 +602,13 @@ def run_messages_download_attachment(args) -> int:
 
     msg_id = getattr(args, "id", None)
     if not msg_id:
-        print("--id is required", file=sys.stderr)
+        print(_MSG_ID_REQUIRED, file=sys.stderr)
         return 1
 
     client = gmail_provider_from_args(args)
     client.authenticate()
     try:
-        msg = client.get_message(msg_id, fmt="full")
+        msg = client.get_message(msg_id, fmt="metadata")
     except Exception as exc:
         print(f"Failed to fetch message '{msg_id}': {exc}", file=sys.stderr)
         return 1

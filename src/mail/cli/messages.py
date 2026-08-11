@@ -10,6 +10,7 @@ class MessagesHandlers:
 
     f_search: Any
     f_summarize: Any
+    f_get: Any
     f_reply: Any
     f_apply_scheduled: Any
 
@@ -39,6 +40,12 @@ def register(subparsers, add_gmail_args, *, handlers: MessagesHandlers):
     p_msgs_sum.add_argument("--out", type=str, help="Write summary to this file (else stdout)")
     p_msgs_sum.add_argument("--max-words", type=int, default=120)
     p_msgs_sum.set_defaults(func=handlers.f_summarize)
+
+    # messages get
+    p_msgs_get = sub_msgs.add_parser("get", help="Fetch and print a Gmail message body")
+    p_msgs_get.add_argument("--id", type=str, required=True, help="Message ID")
+    p_msgs_get.add_argument("--format", type=str, choices=["text", "json"], default="text", help="Output format (default: text)")
+    p_msgs_get.set_defaults(func=handlers.f_get)
 
     # messages reply
     p_msgs_reply = sub_msgs.add_parser("reply", help="Draft or send a reply for a message")

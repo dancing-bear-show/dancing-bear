@@ -11,12 +11,79 @@ __all__ = [
     "html_to_text",
     "normalize_unicode",
     "strip_html_tags",
+    "strip_css_boilerplate",
     "to_24h",
     "parse_time_range",
     "extract_time_ranges",
     "extract_email_address",
     "truncate_text",
 ]
+
+# CSS comment blocks: /* ... */ (non-greedy, spans newlines)
+_RE_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+
+# Leftover <style>...</style> tags that survive HTML-to-text flattening.
+_RE_STYLE_TAG = re.compile(r"<style\b[^>]*>.*?</style\s*>", re.I | re.S)
+
+# Common HTML tag names used as bare CSS selectors in email boilerplate.
+# Deliberately a fixed allowlist (not "any word") so ordinary prose words
+# immediately followed by "{...}" are never mistaken for a selector.
+_CSS_BARE_TAGS = (
+    "html|body|head|div|span|table|thead|tbody|tfoot|tr|td|th|p|a|img|ul|ol|li"
+    "|h[1-6]|strong|em|b|i|u|br|hr|form|input|button|label|small|font"
+)
+# One CSS selector token: #id, .class, an allowlisted bare tag, *, or an
+# at-rule name like @media.
+_CSS_SELECTOR_TOKEN = rf"(?:[#.][\w-]+|(?:{_CSS_BARE_TAGS})\b|\*|@[A-Za-z-]+[^{{,]*)"
+# A selector list is one or more tokens optionally combined with combinators
+# (space, >, +, ~, :pseudo-class) and comma-separated, e.g.
+# "#id .class, a:hover td.foo".
+_CSS_SELECTOR = (
+    rf"{_CSS_SELECTOR_TOKEN}(?:[:\w.#-]*(?:[ \t]*[>+~][ \t]*|[ \t]+)?{_CSS_SELECTOR_TOKEN})*"
+)
+# Rule body: declarations, allowing one level of nesting for @media blocks
+# that wrap inner rule sets, e.g. "@media ... { .foo { color: red; } }".
+_CSS_RULE_BODY = r"[^{}]*(?:\{[^{}]*\}[^{}]*)*"
+# A CSS rule block: "<selector list> { declarations }".
+_RE_CSS_RULE = re.compile(
+    rf"(?:(?<=^)|(?<=[\s;}}]))"
+    rf"{_CSS_SELECTOR}(?:,\s*{_CSS_SELECTOR})*"
+    rf"[ \t]*\{{{_CSS_RULE_BODY}\}}",
+)
+
+# Three-or-more blank lines left behind after removing CSS blocks.
+_RE_EXCESS_BLANK_LINES = re.compile(r"\n[ \t]*\n[ \t]*(?:\n[ \t]*)+")
+
+
+def strip_css_boilerplate(s: str) -> str:
+    """Strip CSS comment blocks, ``<style>`` tags, and CSS rule blocks from text.
+
+    Transactional email senders (booking/receipt systems) frequently emit a
+    ``text/plain`` MIME part that is really an HTML email flattened to text,
+    leaving raw CSS at the top. This targets that shape without touching
+    legitimate prose: rule blocks are only removed when the selector looks
+    like real CSS (``#id``, ``.class``, an allowlisted HTML tag name, or an
+    ``@media``-style at-rule), so text like ``Balance Due { $0.00 }`` is left
+    untouched.
+
+    Args:
+        s: Text possibly containing CSS boilerplate.
+
+    Returns:
+        Text with CSS blocks removed. If no CSS is found, returns the input
+        unchanged (byte-identical).
+    """
+    if not s:
+        return s
+    cleaned = _RE_STYLE_TAG.sub(" ", s)
+    cleaned = _RE_CSS_COMMENT.sub(" ", cleaned)
+    cleaned = _RE_CSS_RULE.sub(" ", cleaned)
+    if cleaned == s:
+        return s
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = _RE_EXCESS_BLANK_LINES.sub("\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    return cleaned.strip()
 
 
 def html_to_text(s: str) -> str:

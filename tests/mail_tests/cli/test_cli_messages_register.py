@@ -8,7 +8,7 @@ from mail.cli.messages import register, MessagesHandlers
 from tests.mail_tests.fixtures import CLIRegisterTestCase, make_noop_handlers
 
 
-_MESSAGES_HANDLERS = ("f_search", "f_summarize", "f_reply", "f_apply_scheduled")
+_MESSAGES_HANDLERS = ("f_search", "f_summarize", "f_get", "f_reply", "f_apply_scheduled")
 
 
 def make_messages_parser():
@@ -73,6 +73,26 @@ class TestMessagesRegister(MessagesTestCase):
         """Test that summarize subcommand is registered."""
         args = self.parse("messages", "summarize")
         self.assertEqual(args.messages_cmd, "summarize")
+
+    def test_get_subcommand_registered(self):
+        """Test that get subcommand is registered."""
+        args = self.parse("messages", "get", "--id", "MSG123")
+        self.assertEqual(args.messages_cmd, "get")
+
+    def test_get_has_id_arg(self):
+        """Test that get has --id argument."""
+        args = self.parse("messages", "get", "--id", "MSG123")
+        self.assertEqual(args.id, "MSG123")
+
+    def test_get_has_format_arg_default_text(self):
+        """Test that get has --format with default text."""
+        args = self.parse("messages", "get", "--id", "MSG123")
+        self.assertEqual(args.format, "text")
+
+    def test_get_format_json(self):
+        """Test that get supports --format json."""
+        args = self.parse("messages", "get", "--id", "MSG123", "--format", "json")
+        self.assertEqual(args.format, "json")
 
     def test_reply_subcommand_registered(self):
         """Test that reply subcommand is registered."""

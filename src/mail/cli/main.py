@@ -77,6 +77,7 @@ from ..accounts.commands import (
 from ..messages_cli.commands import (
     run_messages_search,
     run_messages_summarize,
+    run_messages_get,
     run_messages_reply,
     run_messages_apply_scheduled,
     run_messages_list_attachments,
@@ -175,6 +176,15 @@ def cmd_messages_search(args) -> int:
 @messages_group.argument("--max-words", type=int, default=120, help="Max words in summary")
 def cmd_messages_summarize(args) -> int:
     return run_messages_summarize(args)
+
+
+@messages_group.command("get", help="Fetch and print a Gmail message body")
+@messages_group.argument("--credentials", help="Path to OAuth credentials.json")
+@messages_group.argument("--token", help="Path to token.json")
+@messages_group.argument("--id", required=True, help="Message ID")
+@messages_group.argument("--format", choices=["text", "json"], default="text", help="Output format (default: text)")
+def cmd_messages_get(args) -> int:
+    return run_messages_get(args)
 
 
 @messages_group.command("reply", help="Draft or send a reply for a message")
