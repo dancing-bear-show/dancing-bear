@@ -57,11 +57,19 @@ IniSections = dict[str, dict[str, str]]
 
 
 def _parse_ini_file(path: str) -> IniSections | None:
-    """Parse one INI file into a plain dict; return None if unreadable."""
+    """Parse one INI file into a plain dict; return None if unreadable.
+
+    ConfigParser.read() swallows open/permission errors and reports which
+    files it actually parsed, so the return value is checked: an unreadable
+    file must be treated as absent rather than as an empty config, or it
+    would shadow later readable files in the search order.
+    """
     cp = configparser.ConfigParser(interpolation=None)
     try:
-        cp.read(path)
-    except Exception:  # nosec B110 - unreadable/malformed ini is treated as absent
+        parsed_files = cp.read(path)
+    except Exception:  # nosec B110 - malformed ini is treated as absent
+        return None
+    if not parsed_files:
         return None
     return {section: dict(cp.items(section)) for section in cp.sections()}
 

@@ -122,6 +122,32 @@ class ReadFirstTests(IniTestBase):
         self.assertEqual(path, good)
         self.assertEqual(sections["mail"]["token"], "good")
 
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses file permissions")
+    def test_unreadable_file_does_not_shadow_later_readable_one(self):
+        """ConfigParser.read() ignores permission errors and returns [].
+
+        Without checking that return value an unreadable creds file parses as
+        an empty config and wins the search, hiding a valid later file.
+        """
+        unreadable = self._write("locked.ini", "[mail]\ntoken = locked\n")
+        os.chmod(unreadable, 0o000)
+        self.addCleanup(os.chmod, unreadable, 0o644)
+        good = self._write("good.ini", "[mail]\ntoken = good\n")
+
+        path, sections = read_credential_ini_first(search_paths=[unreadable, good])
+        self.assertEqual(path, good)
+        self.assertEqual(sections["mail"]["token"], "good")
+
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses file permissions")
+    def test_merged_skips_unreadable_file(self):
+        unreadable = self._write("locked.ini", "[mail]\ntoken = locked\n")
+        os.chmod(unreadable, 0o000)
+        self.addCleanup(os.chmod, unreadable, 0o644)
+        good = self._write("good.ini", "[mail]\ntoken = good\n")
+
+        merged = read_credential_ini_merged([unreadable, good])
+        self.assertEqual(merged["mail"]["token"], "good")
+
     def test_values_are_not_interpolated(self):
         """Percent signs in secrets must survive verbatim."""
         p = self._write("i.ini", "[mail]\ntoken = abc%%def\n")
