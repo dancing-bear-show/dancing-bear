@@ -6,8 +6,9 @@ mail, calendars, phone, apple_music, and metals modules.
 
 from __future__ import annotations
 
+import configparser
 import os
-from typing import Tuple
+from typing import Iterable, Tuple
 
 # -----------------------------------------------------------------------------
 # Credential paths
@@ -50,6 +51,99 @@ def credential_ini_paths() -> list[str]:
             seen.add(p)
             unique.append(p)
     return unique
+
+
+IniSections = dict[str, dict[str, str]]
+
+
+def _parse_ini_file(path: str) -> IniSections | None:
+    """Parse one INI file into a plain dict; return None if unreadable."""
+    cp = configparser.ConfigParser(interpolation=None)
+    try:
+        cp.read(path)
+    except Exception:  # nosec B110 - unreadable/malformed ini is treated as absent
+        return None
+    return {section: dict(cp.items(section)) for section in cp.sections()}
+
+
+def _ini_satisfies(
+    parsed: IniSections,
+    require_section: str | None,
+    require_option: str | None,
+) -> bool:
+    """Return True when parsed INI content meets the caller's requirements."""
+    if require_section is None:
+        return True
+    section = parsed.get(require_section)
+    if section is None:
+        return False
+    return require_option is None or require_option in section
+
+
+def read_credential_ini_first(
+    explicit: str | None = None,
+    search_paths: Iterable[str] | None = None,
+    require_section: str | None = None,
+    require_option: str | None = None,
+) -> tuple[str | None, IniSections]:
+    """Read credentials INI from the first matching path.
+
+    Returns ``(path, sections)`` for the first readable file found, or
+    ``(None, {})`` when none match.
+
+    When ``require_section`` is given, files lacking that section are skipped
+    and the search continues, so an empty or unrelated file earlier in the
+    search order does not shadow a later one that actually defines the
+    profile. ``require_option`` narrows this further to files whose
+    ``require_section`` also defines that key. Without either, the first
+    readable file wins outright.
+    """
+    if require_option is not None and require_section is None:
+        raise ValueError("require_option requires require_section")
+    candidates: list[str] = []
+    if explicit:
+        candidates.append(explicit)
+    candidates.extend(credential_ini_paths() if search_paths is None else search_paths)
+
+    for path in candidates:
+        if not path:
+            continue
+        expanded = os.path.expanduser(path)
+        if not os.path.isfile(expanded):
+            continue
+        parsed = _parse_ini_file(expanded)
+        if parsed is None:
+            continue
+        if _ini_satisfies(parsed, require_section, require_option):
+            return expanded, parsed
+    return None, {}
+
+
+def read_credential_ini_merged(
+    search_paths: Iterable[str] | None = None,
+) -> IniSections:
+    """Read and merge credentials INI across every existing path.
+
+    Sections are merged key-by-key with **first path winning** per key, so an
+    earlier file's value is never overwritten by a later one, but a later file
+    can supply keys the earlier one omitted. Unreadable files are skipped.
+
+    Use this when configuration is legitimately spread across locations
+    (e.g. a legacy path plus a preferred one).
+    """
+    merged: IniSections = {}
+    paths = credential_ini_paths() if search_paths is None else search_paths
+    for path in paths:
+        if not path or not os.path.exists(path):
+            continue
+        parsed = _parse_ini_file(path)
+        if parsed is None:
+            continue
+        for section, values in parsed.items():
+            target = merged.setdefault(section, {})
+            for key, value in values.items():
+                target.setdefault(key, value)
+    return merged
 
 
 # -----------------------------------------------------------------------------

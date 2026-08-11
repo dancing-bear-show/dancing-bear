@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from core.constants import credential_ini_paths, _config_roots
+from core.constants import credential_ini_paths, read_credential_ini_merged, _config_roots
 
 
 # Use shared credential paths from core.constants
@@ -53,25 +53,9 @@ class ProfileSettings:
 
 
 def _read_ini() -> dict[str, dict[str, str]]:
-    try:
-        import configparser
-    except Exception:
-        return {}
-    merged_sections: dict[str, dict[str, str]] = {}
-    # Prefer legacy (hyphen) values first, then fill missing from preferred path
-    for p in _INI_PATHS:
-        if not os.path.exists(p):
-            continue
-        cp = configparser.ConfigParser()
-        try:
-            cp.read(p)
-        except Exception:  # nosec B112 - skip on error
-            continue
-        for section in cp.sections():
-            sec = merged_sections.setdefault(section, {})
-            for k, v in cp.items(section):
-                sec.setdefault(k, v)
-    return merged_sections
+    # Prefer legacy (hyphen) values first, then fill missing from preferred path.
+    # _INI_PATHS is read at call time so tests can rebind it.
+    return read_credential_ini_merged(_INI_PATHS)
 
 
 def _write_ini_from_settings(settings: ProfileSettings) -> None:
