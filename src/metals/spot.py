@@ -27,9 +27,11 @@ import argparse
 import csv
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
+
+from .yahoo import parse_response as _parse_yahoo_response
 
 if TYPE_CHECKING:
     from core.cli_output import OutputWriter
@@ -66,35 +68,6 @@ def _http_get_with_retry(url: str, headers: Optional[Dict[str, str]] = None) -> 
         except Exception:  # nosec B112 - retry on transient errors
             _t.sleep(_RETRY_SLEEP_BASE + attempt)
     return data
-
-
-def _yahoo_point(ts: List, closes: List, i: int) -> Optional[Tuple[str, float]]:
-    """Parse a single (timestamp, close) pair at index i. Returns None if invalid."""
-    try:
-        d = datetime.fromtimestamp(int(ts[i]), tz=timezone.utc).date().isoformat()
-        v = closes[i]
-        if v is None:
-            return None
-        return d, float(v)
-    except Exception:  # nosec B110 - skip malformed entries
-        return None
-
-
-def _parse_yahoo_response(data: Dict) -> Dict[str, float]:
-    """Extract date->close mapping from Yahoo Finance JSON response."""
-    out: Dict[str, float] = {}
-    try:
-        res = ((data.get("chart") or {}).get("result") or [])[0]
-        ts = res.get("timestamp", []) or []
-        cl = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close", [])
-    except Exception:  # nosec B110 - return empty on unexpected shape
-        return out
-
-    for i in range(len(ts)):
-        point = _yahoo_point(ts, cl, i)
-        if point:
-            out[point[0]] = point[1]
-    return out
 
 
 def _resolve_gap_fill(

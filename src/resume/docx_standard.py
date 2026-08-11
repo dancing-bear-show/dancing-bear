@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .docx_base import ResumeWriterBase
-from .docx_links import add_hyperlink, normalize_link_url
+from .docx_links import render_contact_runs
 from .docx_styles import (
     _parse_hex_color,
     _tight_paragraph,
@@ -118,31 +118,8 @@ class StandardResumeWriter(ResumeWriterBase):
         plain_parts: List[str],
         link_items: List[tuple[str, str]],
     ) -> None:
-        """Build the contact-line paragraph run-by-run with hyperlinks.
-
-        Email renders as a mailto: hyperlink. URL link extras render as external
-        hyperlinks. Phone and location remain plain text. Falls back to plain text
-        for any part that fails.
-        """
-        first = True
-
-        def _sep() -> None:
-            nonlocal first
-            if not first:
-                paragraph.add_run(" | ")
-            first = False
-
-        if email:
-            _sep()
-            add_hyperlink(paragraph, normalize_link_url(email), email)
-
-        for part in plain_parts:
-            _sep()
-            paragraph.add_run(part)
-
-        for display, url in link_items:
-            _sep()
-            add_hyperlink(paragraph, url, display)
+        """Build the contact-line paragraph run-by-run with hyperlinks."""
+        render_contact_runs(paragraph, email, plain_parts, link_items)
 
     def _resolve_sections(self) -> List[Dict[str, Any]]:
         """Resolve section order and configuration from template."""

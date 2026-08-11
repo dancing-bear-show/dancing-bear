@@ -18,6 +18,7 @@ Graceful degradation:
 from __future__ import annotations
 
 import re
+from typing import List
 
 
 # Blue hyperlink color used by Word's default Hyperlink character style.
@@ -171,3 +172,36 @@ def _add_hyperlink_impl(paragraph, url: str, display: str) -> None:
 
     hyperlink.append(new_run)
     paragraph._p.append(hyperlink)
+
+
+def render_contact_runs(
+    paragraph,
+    email: str,
+    plain_parts: List[str],
+    link_items: List[tuple[str, str]],
+) -> None:
+    """Build the contact-line paragraph run-by-run with hyperlinks.
+
+    Email renders as a mailto: hyperlink. URL link extras render as external
+    hyperlinks. Phone and location remain plain text. Falls back to plain text
+    for any part that fails (add_hyperlink handles that internally).
+    """
+    first = True
+
+    def _sep() -> None:
+        nonlocal first
+        if not first:
+            paragraph.add_run(" | ")
+        first = False
+
+    if email:
+        _sep()
+        add_hyperlink(paragraph, normalize_link_url(email), email)
+
+    for part in plain_parts:
+        _sep()
+        paragraph.add_run(part)
+
+    for display, url in link_items:
+        _sep()
+        add_hyperlink(paragraph, url, display)
