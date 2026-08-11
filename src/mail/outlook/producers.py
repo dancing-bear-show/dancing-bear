@@ -31,10 +31,12 @@ class _CreatedSkipped(Protocol):
     """
 
     @property
-    def created(self) -> int: ...
+    def created(self) -> int:
+        ...
 
     @property
-    def skipped(self) -> int: ...
+    def skipped(self) -> int:
+        ...
 
 
 # Bound so a result type lacking the tallies is a type error rather than an
