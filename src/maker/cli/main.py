@@ -44,7 +44,7 @@ def _emit_agentic(fmt: str, compact: bool) -> int:
     try:
         from ..agentic import emit_agentic_context
 
-        return emit_agentic_context()
+        return emit_agentic_context(fmt, compact)
     except Exception:  # nosec B110 - graceful fallback when agentic module unavailable
         print(FALLBACK_AGENTIC_HEADER)
     return 0

@@ -41,6 +41,7 @@ def build_domain_map() -> str:
     return "\n".join([s for s in out if s])
 
 
-def emit_agentic_context() -> int:
+def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:
+    """Emit agentic capsule. Format/compact params for API consistency."""
     print(build_agentic_capsule())
     return 0
