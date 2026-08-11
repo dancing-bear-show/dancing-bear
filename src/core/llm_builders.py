@@ -61,12 +61,16 @@ def _build_domain_map_builder(agentic_module: str) -> Callable[[], str]:
 
 def _build_inventory_builder(app_title: str) -> Callable[[], str]:
     """Create inventory builder for a domain module."""
-    llm_dir = Path(".llm")
 
     def builder() -> str:
-        return (
-            _read_text(llm_dir / "INVENTORY.md")
-            or f"# LLM Agent Inventory ({app_title})\n\nSee repo .llm/INVENTORY.md for shared guidance.\n"
+        # Generate fresh rather than echoing .llm/INVENTORY.md back: reading the
+        # target and rewriting it made any stale content self-perpetuating.
+        from core.llm_handlers import _default_inventory
+        body = _default_inventory()
+        return body.replace(
+            "# LLM Agent Inventory",
+            f"# LLM Agent Inventory ({app_title})",
+            1,
         )
     return builder
 

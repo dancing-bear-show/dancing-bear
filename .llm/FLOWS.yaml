@@ -25,94 +25,94 @@ curated:
   onboarding:
     - id: creds_example
       desc: Copy example Gmail creds
-      cmd: ./bin/mail-assistant env setup --no-venv --skip-install --copy-gmail-example
+      cmd: ./bin/mail env setup --no-venv --skip-install --copy-gmail-example
     - id: auth_gmail_validate
       desc: Gmail token validate (non-interactive)
-      cmd: ./bin/mail-assistant --profile gmail_personal auth --validate
+      cmd: ./bin/mail --profile gmail_personal auth --validate
     - id: auth_outlook_ensure_validate
       desc: Outlook device-code ensure + validate
       steps:
-        - ./bin/mail-assistant --profile outlook_personal outlook auth ensure
-        - ./bin/mail-assistant --profile outlook_personal outlook auth validate
+        - ./bin/mail --profile outlook_personal outlook auth ensure
+        - ./bin/mail --profile outlook_personal outlook auth validate
 
   mail:
     - id: unified_derive
       desc: Derive provider configs from unified
-      cmd: ./bin/mail-assistant config derive filters --in config/filters_unified.yaml --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml
+      cmd: ./bin/mail config derive filters --in config/filters_unified.yaml --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml
 
     - id: gmail_filters_plan_apply_verify
       desc: Gmail Filters — Plan → Apply → Verify
       steps:
-        - ./bin/mail-assistant filters plan --config out/filters.gmail.from_unified.yaml --delete-missing
-        - ./bin/mail-assistant filters sync --config out/filters.gmail.from_unified.yaml --delete-missing
-        - ./bin/mail-assistant filters export --out out/filters.gmail.export.after.yaml
+        - ./bin/mail filters plan --config out/filters.gmail.from_unified.yaml --delete-missing
+        - ./bin/mail filters sync --config out/filters.gmail.from_unified.yaml --delete-missing
+        - ./bin/mail filters export --out out/filters.gmail.export.after.yaml
 
     - id: outlook_rules_plan_apply_verify
       desc: Outlook Rules — Plan → Apply → Verify
       steps:
-        - ./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders
-        - ./bin/mail-assistant outlook rules sync --config out/filters.outlook.from_unified.yaml --move-to-folders --delete-missing
-        - ./bin/mail-assistant outlook rules list
+        - ./bin/mail outlook rules.plan --config out/filters.outlook.from_unified.yaml --move-to-folders
+        - ./bin/mail outlook rules.sync --config out/filters.outlook.from_unified.yaml --move-to-folders --delete-missing
+        - ./bin/mail outlook rules.list
 
     - id: gmail_labels_plan_apply_verify
       desc: Gmail Labels — Plan → Apply → Verify
       steps:
-        - ./bin/mail-assistant labels plan --config config/labels_current.yaml --delete-missing
-        - ./bin/mail-assistant labels sync --config config/labels_current.yaml --delete-missing
-        - ./bin/mail-assistant labels export --out out/labels.export.after.yaml
+        - ./bin/mail labels plan --config config/labels_current.yaml --delete-missing
+        - ./bin/mail labels sync --config config/labels_current.yaml --delete-missing
+        - ./bin/mail labels export --out out/labels.export.after.yaml
 
     - id: gmail_signatures_export_normalize_sync
       desc: Gmail Signatures — Export → Normalize → Sync
       steps:
-        - ./bin/mail-assistant signatures export --out out/signatures.export.yaml
-        - ./bin/mail-assistant signatures normalize --config config/signatures.yaml --out-html out/signature.preview.html
-        - ./bin/mail-assistant signatures sync --config config/signatures.yaml
+        - ./bin/mail signatures export --out out/signatures.export.yaml
+        - ./bin/mail signatures normalize --config config/signatures.yaml --out-html out/signature.preview.html
+        - ./bin/mail signatures sync --config config/signatures.yaml
 
     - id: gmail_forwarding_list_add_status
       desc: Gmail Forwarding — List/Add/Status
-      cmd: ./bin/mail-assistant forwarding list
+      cmd: ./bin/mail forwarding list
 
     - id: gmail_auto_propose_summary_apply
       desc: Gmail Auto (categorize+archive) — Propose → Summary → Apply (dry-run)
       steps:
-        - ./bin/mail-assistant auto propose --out out/auto.proposal.json --days 7 --only-inbox --dry-run
-        - ./bin/mail-assistant auto summary --proposal out/auto.proposal.json
-        - ./bin/mail-assistant auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run
+        - ./bin/mail auto propose --out out/auto.proposal.json --days 7 --only-inbox --dry-run
+        - ./bin/mail auto summary --proposal out/auto.proposal.json
+        - ./bin/mail auto apply --proposal out/auto.proposal.json --cutoff-days 7 --dry-run
 
   messages:
     - id: messages_search_gmail
       desc: Search Gmail messages
-      cmd: ./bin/mail-assistant messages search --query "from:sender@example.com" --days 7 --max-results 10 --json
+      cmd: ./bin/mail messages search --query "from:sender@example.com" --days 7 --max-results 10 --json
 
     - id: messages_search_outlook
       desc: Search Outlook messages (profile-based)
-      cmd: ./bin/mail-assistant --profile outlook_vanesa messages search --query "swim class" --max-results 10 --json
+      cmd: ./bin/mail --profile outlook_vanesa messages search --query "swim class" --max-results 10 --json
 
     - id: messages_summarize
       desc: Summarize a message by query
-      cmd: ./bin/mail-assistant messages summarize --query "from:sender@example.com" --latest
+      cmd: ./bin/mail messages summarize --query "from:sender@example.com" --latest
 
   calendar:
     - id: email_to_calendar_recurring
       desc: Email/WhatsApp → recurring calendar event (search → extract → verify → add)
       steps:
         - "# 1. Find the activity in email or WhatsApp"
-        - ./bin/mail-assistant --profile outlook_vanesa messages search --query "swim class" --max-results 5 --json
+        - ./bin/mail --profile outlook_vanesa messages search --query "swim class" --max-results 5 --json
         - ./bin/whatsapp search --contains "swim class" --since-days 30
         - "# 2. Write YAML plan to /tmp/activity.yaml with events: [] (see TOOLS.md for format)"
         - "# 3. Verify no duplicates"
-        - ./bin/calendar-assistant --profile outlook_bcs outlook verify-from-config --config /tmp/activity.yaml
+        - ./bin/calendar --profile outlook_bcs outlook verify-from-config --config /tmp/activity.yaml
         - "# 4. Dry-run then apply"
-        - ./bin/calendar-assistant --profile outlook_bcs outlook add-from-config --config /tmp/activity.yaml --dry-run
-        - ./bin/calendar-assistant --profile outlook_bcs outlook add-from-config --config /tmp/activity.yaml
+        - ./bin/calendar --profile outlook_bcs outlook add-from-config --config /tmp/activity.yaml --dry-run
+        - ./bin/calendar --profile outlook_bcs outlook add-from-config --config /tmp/activity.yaml
 
     - id: schedule_import_from_url
       desc: Import schedule from URL/PDF/CSV into calendar
-      cmd: ./bin/calendar-assistant --profile outlook_bcs outlook schedule-import --source "https://example.com/schedule.pdf" --calendar "Activities" --dry-run
+      cmd: ./bin/calendar --profile outlook_bcs outlook schedule-import --source "https://example.com/schedule.pdf" --calendar "Activities" --dry-run
 
     - id: scan_email_for_classes
       desc: Scan Outlook emails for class schedules and generate plan
-      cmd: ./bin/calendar-assistant --profile outlook_bcs outlook scan-classes --from-text "swim" --days 30 --out /tmp/classes.yaml
+      cmd: ./bin/calendar --profile outlook_bcs outlook scan-classes --from-text "swim" --days 30 --out /tmp/classes.yaml
 
   testing:
     - id: tests_all
@@ -122,36 +122,36 @@ curated:
   ios_phone:
     - id: ios_reorg
       desc: "One-shot reorg: export → merge Other/loose into existing folders → build profile → copy to device (tap Install). Target device from [ios_devices] default in credentials.ini; override with --device-label or --udid."
-      cmd: ./bin/phone-assistant reorg
+      cmd: ./bin/phone reorg
     - id: ios_merge_folders
       desc: Redistribute the Other dump folder + loose apps into existing folders (conservation-checked)
-      cmd: ./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
+      cmd: ./bin/phone merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
     - id: ios_export_layout
       desc: Export current Home Screen layout from connected device
-      cmd: ./bin/phone-assistant export-device --out out/ios.IconState.yaml
+      cmd: ./bin/phone export-device --out out/ios.IconState.yaml
     - id: ios_scaffold_plan
       desc: Scaffold plan (pins + folders) from exported layout
-      cmd: ./bin/phone-assistant plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
+      cmd: ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
     - id: ios_manual_checklist
       desc: Generate manual move checklist from plan + layout
-      cmd: ./bin/phone-assistant checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt
+      cmd: ./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.checklist.txt
     - id: ios_profile_build
       desc: Build Home Screen Layout configuration profile (.mobileconfig)
-      cmd: ./bin/phone-assistant profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig --identifier com.example.profile --hs-identifier com.example.hslayout --display-name "Home Screen Layout" --organization "Personal"
+      cmd: ./bin/phone profile build --plan out/ios.plan.yaml --layout out/ios.IconState.yaml --out out/ios.hslayout.mobileconfig --identifier com.example.profile --hs-identifier com.example.hslayout --display-name "Home Screen Layout" --organization "Personal"
     - id: ios_unused_candidates
       desc: Suggest rarely-used app candidates (heuristic)
-      cmd: ./bin/phone-assistant unused --layout out/ios.IconState.yaml --limit 50
+      cmd: ./bin/phone unused --layout out/ios.IconState.yaml --limit 50
     - id: ios_unused_prune_offload
       desc: Generate OFFLOAD checklist (no device writes)
-      cmd: ./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode offload --limit 50
+      cmd: ./bin/phone prune --layout out/ios.IconState.yaml --mode offload --limit 50
     - id: ios_unused_prune_delete
       desc: Generate DELETE checklist (no device writes)
-      cmd: ./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode delete --limit 50
+      cmd: ./bin/phone prune --layout out/ios.IconState.yaml --mode delete --limit 50
     - id: ios_analyze_layout
       desc: Analyze layout balance and folder structure
-      cmd: ./bin/phone-assistant analyze --layout out/ios.IconState.yaml
+      cmd: ./bin/phone analyze --layout out/ios.IconState.yaml
     - id: ios_auto_folders
       desc: Auto-assign apps into folders and distribute folders across pages
       steps:
-        - ./bin/phone-assistant auto-folders --layout out/ipad.IconState.yaml --plan out/ipad.plan.yaml --place-folders-from-page 2
+        - ./bin/phone auto-folders --layout out/ipad.IconState.yaml --plan out/ipad.plan.yaml --place-folders-from-page 2
         - ./bin/ios-pages-sync --plan out/ipad.plan.yaml --layout out/ipad.IconState.yaml --out out/ipad.hslayout.mobileconfig

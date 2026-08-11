@@ -175,7 +175,7 @@ stages:
       After writing, run ONLY this file (never whole-dir discover) and fix until
       green, up to 3 cycles. Compute the module path from {test_file}
       (strip .py, "/"->"."), e.g.:
-        python3 -m unittest tests.test_charts_cli -q
+        PYTHONPATH="$PWD/src" python3 -m unittest tests.test_charts_cli -q
 
       Write a summary to {workspace}/outputs/added/{file_slug}.json:
         {
@@ -247,7 +247,9 @@ stages:
       or weakened existing tests). Do not accept it.
 
       Step 4 — run each touched file individually (module path form, NOT
-      discover): python3 -m unittest tests.<module> -q. All must pass; up to 3
+      discover): PYTHONPATH="$PWD/src" python3 -m unittest tests.<module> -q — the
+      PYTHONPATH prefix is required in a worktree or imports resolve to the main
+      checkout and tests falsely pass. All must pass; up to 3
       fix cycles per file for import/assertion breakage in the ADDED tests only.
       Never weaken an assertion to make a test pass.
 
