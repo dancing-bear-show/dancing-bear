@@ -1,7 +1,7 @@
 """Producers for Outlook pipelines."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from core.pipeline import Producer, ResultEnvelope
 
@@ -22,6 +22,9 @@ from .processors import (
 )
 
 _WOULD_SYNC = "Would sync"
+
+# Sync results that carry created/skipped tallies.
+_SyncResultT = TypeVar("_SyncResultT")
 
 
 def _format_rule_criteria(criteria: dict[str, Any]) -> str:
@@ -207,38 +210,41 @@ class OutlookCategoriesExportProducer(Producer[ResultEnvelope[OutlookCategoriesE
         print(f"Exported {result.payload.count} categories to {result.payload.out_path}")
 
 
-class OutlookCategoriesSyncProducer(Producer[ResultEnvelope[OutlookCategoriesSyncResult]]):
+class _CreatedSkippedSyncProducer(Producer[ResultEnvelope[_SyncResultT]], Generic[_SyncResultT]):
+    """Report a created/skipped sync tally, or the failure diagnostic.
+
+    Subclasses supply the two messages that vary between sync targets.
+    """
+
+    _error_message: str = ""
+    _done_prefix: str = ""
+
+    def __init__(self, dry_run: bool = False):
+        self._dry_run = dry_run
+
+    def produce(self, result: ResultEnvelope[_SyncResultT]) -> None:
+        if not result.ok() or not result.payload:
+            diag = result.diagnostics or {}
+            print(f"Error: {diag.get('error', self._error_message)}")
+            return
+
+        payload = result.payload
+        prefix = _WOULD_SYNC if self._dry_run else self._done_prefix
+        print(f"{prefix}. Created: {payload.created}, Skipped: {payload.skipped}")
+
+
+class OutlookCategoriesSyncProducer(_CreatedSkippedSyncProducer[OutlookCategoriesSyncResult]):
     """Produce categories sync output."""
 
-    def __init__(self, dry_run: bool = False):
-        self._dry_run = dry_run
-
-    def produce(self, result: ResultEnvelope[OutlookCategoriesSyncResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to sync categories.')}")
-            return
-
-        payload = result.payload
-        prefix = _WOULD_SYNC if self._dry_run else "Categories sync complete"
-        print(f"{prefix}. Created: {payload.created}, Skipped: {payload.skipped}")
+    _error_message = "Failed to sync categories."
+    _done_prefix = "Categories sync complete"
 
 
-class OutlookFoldersSyncProducer(Producer[ResultEnvelope[OutlookFoldersSyncResult]]):
+class OutlookFoldersSyncProducer(_CreatedSkippedSyncProducer[OutlookFoldersSyncResult]):
     """Produce folders sync output."""
 
-    def __init__(self, dry_run: bool = False):
-        self._dry_run = dry_run
-
-    def produce(self, result: ResultEnvelope[OutlookFoldersSyncResult]) -> None:
-        if not result.ok() or not result.payload:
-            diag = result.diagnostics or {}
-            print(f"Error: {diag.get('error', 'Failed to sync folders.')}")
-            return
-
-        payload = result.payload
-        prefix = _WOULD_SYNC if self._dry_run else "Folders sync complete"
-        print(f"{prefix}. Created: {payload.created}, Skipped: {payload.skipped}")
+    _error_message = "Failed to sync folders."
+    _done_prefix = "Folders sync complete"
 
 
 class OutlookCalendarAddProducer(Producer[ResultEnvelope[OutlookCalendarAddResult]]):

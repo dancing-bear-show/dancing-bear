@@ -192,6 +192,25 @@ class ExportProcessor(SafeProcessor[ExportRequest, list[ExportPlaylistResult]]):
 # ---------------------------------------------------------------------------
 
 
+def _tracks_to_dict(payload: list[TrackResult]) -> dict[str, Any]:
+    """Serialize typed track results to the CLI's JSON shape."""
+    return {
+        "tracks": [
+            {
+                "playlist_id": tr.playlist_id,
+                "playlist_name": tr.playlist_name,
+                "id": tr.id,
+                "name": tr.title,
+                "artist": tr.artist,
+                "album": tr.album,
+                "duration_ms": tr.duration_ms,
+                "track_number": tr.track_number,
+            }
+            for tr in payload
+        ]
+    }
+
+
 class ListPlaylistsProducer(BaseProducer):
     """Output typed playlist list."""
 
@@ -212,22 +231,7 @@ class TracksProducer(BaseProducer):
         payload: list[TrackResult],
         diagnostics: Optional[dict[str, Any]],
     ) -> None:
-        data = {
-            "tracks": [
-                {
-                    "playlist_id": tr.playlist_id,
-                    "playlist_name": tr.playlist_name,
-                    "id": tr.id,
-                    "name": tr.title,
-                    "artist": tr.artist,
-                    "album": tr.album,
-                    "duration_ms": tr.duration_ms,
-                    "track_number": tr.track_number,
-                }
-                for tr in payload
-            ]
-        }
-        self._writer.print_data(data)
+        self._writer.print_data(_tracks_to_dict(payload))
 
 
 class ExportProducer(BaseProducer):
@@ -395,23 +399,6 @@ def cmd_tracks(args: Any) -> int:
     )
     envelope: ResultEnvelope[list[TrackResult]] = TracksProcessor().process(request)
     writer = _make_json_writer(args)
-
-    def _tracks_to_dict(payload: list[TrackResult]) -> dict[str, Any]:
-        return {
-            "tracks": [
-                {
-                    "playlist_id": tr.playlist_id,
-                    "playlist_name": tr.playlist_name,
-                    "id": tr.id,
-                    "name": tr.title,
-                    "artist": tr.artist,
-                    "album": tr.album,
-                    "duration_ms": tr.duration_ms,
-                    "track_number": tr.track_number,
-                }
-                for tr in payload
-            ]
-        }
 
     return _produce_and_write(envelope, TracksProducer(writer), args, _tracks_to_dict)
 
