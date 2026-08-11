@@ -9,7 +9,10 @@ from .auth_commands import (
 )
 from .executor import OutlookCommandExecutor
 from .helpers import get_outlook_client, resolve_outlook_args
-from .consumers import (
+# The pipeline classes below are referenced by name through _PIPELINES and
+# resolved via globals(), so ruff cannot see the usage. They must stay imported:
+# the table depends on them, as do tests patching mail.outlook.commands.<Class>.
+from .consumers import (  # noqa: F401
     OutlookRulesListConsumer,
     OutlookRulesExportConsumer,
     OutlookRulesSyncConsumer,
@@ -23,7 +26,7 @@ from .consumers import (
     OutlookCalendarAddRecurringConsumer,
     OutlookCalendarAddFromConfigConsumer,
 )
-from .processors import (
+from .processors import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookRulesListProcessor,
     OutlookRulesExportProcessor,
     OutlookRulesSyncProcessor,
@@ -37,7 +40,7 @@ from .processors import (
     OutlookCalendarAddRecurringProcessor,
     OutlookCalendarAddFromConfigProcessor,
 )
-from .producers import (
+from .producers import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookRulesListProducer,
     OutlookRulesExportProducer,
     OutlookRulesSyncProducer,
@@ -62,174 +65,126 @@ __all__ = [
 ]
 
 
-def run_outlook_rules_list(args) -> int:
+def _cache_kwargs(args) -> dict:
+    """Consumer kwargs shared by every cache-aware read command."""
+    return {
+        'use_cache': getattr(args, 'use_cache', False),
+        'cache_ttl': getattr(args, 'cache_ttl', 600),
+    }
+
+
+# Pipeline triples for the executor-shaped commands. Classes are named as
+# strings and resolved through globals() at call time so that tests patching
+# `mail.outlook.commands.<Class>` still take effect.
+_PIPELINES: dict[str, tuple[str, str, str]] = {
+    'rules_list': ('OutlookRulesListConsumer', 'OutlookRulesListProcessor', 'OutlookRulesListProducer'),
+    'rules_export': ('OutlookRulesExportConsumer', 'OutlookRulesExportProcessor', 'OutlookRulesExportProducer'),
+    'rules_sync': ('OutlookRulesSyncConsumer', 'OutlookRulesSyncProcessor', 'OutlookRulesSyncProducer'),
+    'rules_plan': ('OutlookRulesPlanConsumer', 'OutlookRulesPlanProcessor', 'OutlookRulesPlanProducer'),
+    'rules_delete': ('OutlookRulesDeleteConsumer', 'OutlookRulesDeleteProcessor', 'OutlookRulesDeleteProducer'),
+    'rules_sweep': ('OutlookRulesSweepConsumer', 'OutlookRulesSweepProcessor', 'OutlookRulesSweepProducer'),
+    'categories_list': ('OutlookCategoriesListConsumer', 'OutlookCategoriesListProcessor', 'OutlookCategoriesListProducer'),
+    'categories_export': ('OutlookCategoriesExportConsumer', 'OutlookCategoriesExportProcessor', 'OutlookCategoriesExportProducer'),
+    'folders_sync': ('OutlookFoldersSyncConsumer', 'OutlookFoldersSyncProcessor', 'OutlookFoldersSyncProducer'),
+    'calendar_add': ('OutlookCalendarAddConsumer', 'OutlookCalendarAddProcessor', 'OutlookCalendarAddProducer'),
+    'calendar_add_recurring': ('OutlookCalendarAddRecurringConsumer', 'OutlookCalendarAddRecurringProcessor', 'OutlookCalendarAddRecurringProducer'),
+    'calendar_add_from_config': ('OutlookCalendarAddFromConfigConsumer', 'OutlookCalendarAddFromConfigProcessor', 'OutlookCalendarAddFromConfigProducer'),
+}
+
+
+def _run_pipeline(
+    command: str,
+    args,
+    consumer_kwargs: dict,
+    producer_kwargs: dict | None = None,
+) -> int:
+    """Resolve `command`'s pipeline triple and execute it against a fresh client."""
     client, err = get_outlook_client(args)
     if err:
         return err
 
+    consumer_name, processor_name, producer_name = _PIPELINES[command]
     executor = OutlookCommandExecutor(
-        OutlookRulesListConsumer,
-        OutlookRulesListProcessor,
-        OutlookRulesListProducer,
+        globals()[consumer_name],
+        globals()[processor_name],
+        globals()[producer_name],
     )
     return executor.execute(
         client,
-        consumer_kwargs={
-            'use_cache': getattr(args, 'use_cache', False),
-            'cache_ttl': getattr(args, 'cache_ttl', 600),
-        },
+        consumer_kwargs=consumer_kwargs,
+        producer_kwargs=producer_kwargs,
     )
+
+
+def run_outlook_rules_list(args) -> int:
+    return _run_pipeline('rules_list', args, _cache_kwargs(args))
 
 
 def run_outlook_rules_export(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookRulesExportConsumer,
-        OutlookRulesExportProcessor,
-        OutlookRulesExportProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
-            'out_path': args.out,
-            'use_cache': getattr(args, 'use_cache', False),
-            'cache_ttl': getattr(args, 'cache_ttl', 600),
-        },
-    )
+    return _run_pipeline('rules_export', args, {'out_path': args.out, **_cache_kwargs(args)})
 
 
 def run_outlook_rules_sync(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
     if getattr(args, 'verbose', False):
         client_id, tenant, token_path, cache_dir = resolve_outlook_args(args)
         print(f"[outlook rules] client_id={client_id} tenant={tenant} token={token_path or '<memory>'} cache_dir={cache_dir or ''} dry_run={bool(args.dry_run)}")
 
-    executor = OutlookCommandExecutor(
-        OutlookRulesSyncConsumer,
-        OutlookRulesSyncProcessor,
-        OutlookRulesSyncProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
+    dry_run = getattr(args, 'dry_run', False)
+    delete_missing = getattr(args, 'delete_missing', False)
+    return _run_pipeline(
+        'rules_sync',
+        args,
+        {
             'config_path': args.config,
-            'dry_run': getattr(args, 'dry_run', False),
-            'delete_missing': getattr(args, 'delete_missing', False),
+            'dry_run': dry_run,
+            'delete_missing': delete_missing,
             'move_to_folders': getattr(args, 'move_to_folders', False),
             'verbose': getattr(args, 'verbose', False),
         },
-        producer_kwargs={
-            'dry_run': getattr(args, 'dry_run', False),
-            'delete_missing': getattr(args, 'delete_missing', False),
-        },
+        {'dry_run': dry_run, 'delete_missing': delete_missing},
     )
 
 
 def run_outlook_rules_plan(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookRulesPlanConsumer,
-        OutlookRulesPlanProcessor,
-        OutlookRulesPlanProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
+    return _run_pipeline(
+        'rules_plan',
+        args,
+        {
             'config_path': args.config,
             'move_to_folders': getattr(args, 'move_to_folders', False),
-            'use_cache': getattr(args, 'use_cache', False),
-            'cache_ttl': getattr(args, 'cache_ttl', 600),
+            **_cache_kwargs(args),
         },
     )
 
 
 def run_outlook_rules_delete(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookRulesDeleteConsumer,
-        OutlookRulesDeleteProcessor,
-        OutlookRulesDeleteProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={'rule_id': args.id},
-    )
+    return _run_pipeline('rules_delete', args, {'rule_id': args.id})
 
 
 def run_outlook_rules_sweep(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookRulesSweepConsumer,
-        OutlookRulesSweepProcessor,
-        OutlookRulesSweepProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
+    dry_run = getattr(args, 'dry_run', False)
+    return _run_pipeline(
+        'rules_sweep',
+        args,
+        {
             'config_path': args.config,
-            'dry_run': getattr(args, 'dry_run', False),
+            'dry_run': dry_run,
             'move_to_folders': getattr(args, 'move_to_folders', False),
             'clear_cache': getattr(args, 'clear_cache', False),
             'days': getattr(args, 'days', 30),
             'top': getattr(args, 'top', 25),
             'pages': getattr(args, 'pages', 2),
         },
-        producer_kwargs={'dry_run': getattr(args, 'dry_run', False)},
+        {'dry_run': dry_run},
     )
 
 
 def run_outlook_categories_list(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookCategoriesListConsumer,
-        OutlookCategoriesListProcessor,
-        OutlookCategoriesListProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
-            'use_cache': getattr(args, 'use_cache', False),
-            'cache_ttl': getattr(args, 'cache_ttl', 600),
-        },
-    )
+    return _run_pipeline('categories_list', args, _cache_kwargs(args))
 
 
 def run_outlook_categories_export(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookCategoriesExportConsumer,
-        OutlookCategoriesExportProcessor,
-        OutlookCategoriesExportProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
-            'out_path': args.out,
-            'use_cache': getattr(args, 'use_cache', False),
-            'cache_ttl': getattr(args, 'cache_ttl', 600),
-        },
-    )
+    return _run_pipeline('categories_export', args, {'out_path': args.out, **_cache_kwargs(args)})
 
 
 def _create_category(client, spec: dict, name: str, dry_run: bool) -> None:
@@ -291,38 +246,20 @@ def run_outlook_categories_sync(args) -> int:
 
 
 def run_outlook_folders_sync(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookFoldersSyncConsumer,
-        OutlookFoldersSyncProcessor,
-        OutlookFoldersSyncProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
-            'config_path': args.config,
-            'dry_run': getattr(args, 'dry_run', False),
-        },
-        producer_kwargs={'dry_run': getattr(args, 'dry_run', False)},
+    dry_run = getattr(args, 'dry_run', False)
+    return _run_pipeline(
+        'folders_sync',
+        args,
+        {'config_path': args.config, 'dry_run': dry_run},
+        {'dry_run': dry_run},
     )
 
 
 def run_outlook_calendar_add(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookCalendarAddConsumer,
-        OutlookCalendarAddProcessor,
-        OutlookCalendarAddProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
+    return _run_pipeline(
+        'calendar_add',
+        args,
+        {
             'subject': args.subject,
             'start_iso': args.start,
             'end_iso': args.end,
@@ -344,22 +281,14 @@ def run_outlook_calendar_add_recurring(args) -> int:
         print("For weekly recurrence, provide --byday like MO,WE,FR")
         return 2
 
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
     byday = None
     if getattr(args, "byday", None):
         byday = [s.strip() for s in str(args.byday).split(',') if s.strip()]
 
-    executor = OutlookCommandExecutor(
-        OutlookCalendarAddRecurringConsumer,
-        OutlookCalendarAddRecurringProcessor,
-        OutlookCalendarAddRecurringProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
+    return _run_pipeline(
+        'calendar_add_recurring',
+        args,
+        {
             'subject': args.subject,
             'start_time': args.start_time,
             'end_time': args.end_time,
@@ -508,18 +437,10 @@ def run_outlook_messages_summarize(args) -> int:
 
 
 def run_outlook_calendar_add_from_config(args) -> int:
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
-    executor = OutlookCommandExecutor(
-        OutlookCalendarAddFromConfigConsumer,
-        OutlookCalendarAddFromConfigProcessor,
-        OutlookCalendarAddFromConfigProducer,
-    )
-    return executor.execute(
-        client,
-        consumer_kwargs={
+    return _run_pipeline(
+        'calendar_add_from_config',
+        args,
+        {
             'config_path': args.config,
             'no_reminder': getattr(args, "no_reminder", False),
         },

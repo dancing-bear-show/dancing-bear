@@ -169,23 +169,39 @@ def _load_or_error(loader_fn, empty_msg: str, writer: OutputWriter):
     return data, None
 
 
-def _handle_by_date(args: argparse.Namespace) -> int:
-    """Handle --by-date flag."""
+def _load_and_render(
+    args: argparse.Namespace,
+    loader_fn,
+    empty_msg: str,
+    json_fn,
+    table_fn,
+) -> int:
+    """Load data-dir-scoped rows and render them as JSON or a table.
+
+    `loader_fn` receives the resolved OTLPDataDir (or None) and returns the rows.
+    """
     writer = OutputWriter()
     data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
-    daily, exit_code = _load_or_error(
-        lambda: get_daily_costs(data_dir=data_dir, since=args.since),
-        "No cost data found",
-        writer,
-    )
+    data, exit_code = _load_or_error(lambda: loader_fn(data_dir), empty_msg, writer)
     if exit_code is not None:
         return exit_code
 
     if args.format == "json":
-        _output_daily_json(daily)
+        json_fn(data)
     else:
-        _output_daily_table(daily, writer)
+        table_fn(data, writer)
     return 0
+
+
+def _handle_by_date(args: argparse.Namespace) -> int:
+    """Handle --by-date flag."""
+    return _load_and_render(
+        args,
+        lambda data_dir: get_daily_costs(data_dir=data_dir, since=args.since),
+        "No cost data found",
+        _output_daily_json,
+        _output_daily_table,
+    )
 
 
 def _output_daily_table(daily: list, writer: OutputWriter | None = None) -> None:
@@ -230,21 +246,13 @@ def _output_daily_json(daily: list) -> None:
 
 def _handle_model_perf(args: argparse.Namespace) -> int:
     """Handle --perf --breakdown model."""
-    writer = OutputWriter()
-    data_dir = OTLPDataDir(path=Path(args.data_dir)) if args.data_dir else None
-    perfs, exit_code = _load_or_error(
-        lambda: get_model_performance(data_dir=data_dir, since=args.since),
+    return _load_and_render(
+        args,
+        lambda data_dir: get_model_performance(data_dir=data_dir, since=args.since),
         "No model performance data found",
-        writer,
+        _output_model_perf_json,
+        _output_model_perf_table,
     )
-    if exit_code is not None:
-        return exit_code
-
-    if args.format == "json":
-        _output_model_perf_json(perfs)
-    else:
-        _output_model_perf_table(perfs, writer)
-    return 0
 
 
 def _output_model_perf_table(perfs: list, writer: OutputWriter | None = None) -> None:
