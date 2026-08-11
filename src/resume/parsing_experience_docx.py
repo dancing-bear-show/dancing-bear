@@ -51,8 +51,12 @@ def _docx_find_sections(helper: _DocxParaHelper) -> tuple[List[int], Dict[str, D
         key = _key_from_heading(helper.text(idx))
         if key:
             sections[key] = {"start": idx}
-    # Mark end bounds
-    sorted_h1 = sorted([v["start"] for v in sections.values()])
+    # Mark end bounds against EVERY H1, not just the recognized ones: an
+    # unrecognized heading ("Speaking & Publications", "Certifications") still
+    # ends the section above it. Bounding only by recognized starts lets the
+    # last recognized section run to the end of the document and swallow every
+    # unrecognized section after it — talk titles arriving as degrees.
+    sorted_h1 = sorted(h1_indices)
     for key, info in sections.items():
         starts_after = [s for s in sorted_h1 if s > info["start"]]
         info["end"] = (starts_after[0] - 1) if starts_after else (len(helper) - 1)
@@ -100,7 +104,10 @@ def _docx_extract_summary(
     if "summary" in sections:
         s = sections["summary"]
         block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]
-        return " ".join(block).strip()
+        # Newline, not space: each paragraph is its own profile bullet, and
+        # space-joining runs them into one sentence with no boundary, so a
+        # later provenance check cannot tell where one claim ends.
+        return "\n".join(block).strip()
 
     if not h1_indices:
         return ""
@@ -247,7 +254,19 @@ def _docx_extract_experience(
 
 
 def _parse_h2_experience(text: str, last_company: str) -> tuple[Dict[str, Any], str]:
-    """Parse experience role from H2-style heading."""
+    """Parse experience role from H2-style heading.
+
+    A self-contained header ("Title at Company - [Location] - (Start - End)")
+    carries every field on the line itself, so parse it as a role header first.
+    The tab/double-space split below is a fallback for the other layout, where
+    the heading holds only a title and the company came from a preceding line;
+    applied to a self-contained header it yields the whole line as the title
+    and an empty company, since there is nothing to split on.
+    """
+    entry = _role_header_or_none(text)
+    if entry and entry.get("company"):
+        return {**entry, "bullets": []}, entry["company"]
+
     parts = [p.strip() for p in re.split(r"\t+|\s{2,}", text)]
     title = parts[0] if parts else text
     start, end = "", ""
@@ -274,7 +293,12 @@ def _key_from_heading(text: str) -> Optional[str]:
     keyword_map = {
         "experience": ["work experiences", "work experience", "experience", "employment", "career"],
         "education": ["education", "academics"],
-        "skills": ["technical skills", "skills", "technologies"],
+        # "core abilities" / "technical stack" are the headings this repo's own
+        # templates render, so a resume produced here must round-trip back in.
+        "skills": [
+            "technical skills", "technical stack", "core abilities",
+            "skills", "technologies",
+        ],
         "summary": ["summary", "profile", "about"],
     }
 

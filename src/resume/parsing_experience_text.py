@@ -122,13 +122,21 @@ def _parse_education_entry(text: str) -> Optional[Dict[str, str]]:
 
     Returns dict with: degree, institution, year, or None if not matched.
     """
-    # Pattern 1: Generated format "Degree at Institution — (Year)"
-    m = re.match(r"(.+?)\s+at\s+(.+?)(?:\s*—\s*\((\d{4})\))?$", text)
+    # Pattern 1: Generated format "Degree at Institution — (Year)", where the
+    # parenthesised part may be a single year or a range ("2003 – 2007"). On a
+    # range the graduation year is the later one, which is what a resume shows;
+    # without the range branch the whole "— (2003 – 2007)" stays glued to the
+    # institution and year comes back empty.
+    m = re.match(
+        r"(.+?)\s+at\s+(.+?)"
+        r"(?:\s*[—\-]\s*\((\d{4})(?:\s*[–\-]\s*(\d{4}))?\))?$",
+        text,
+    )
     if m:
         return {
             "degree": m.group(1).strip(),
             "institution": m.group(2).strip(),
-            "year": (m.group(3) or "").strip(),
+            "year": (m.group(4) or m.group(3) or "").strip(),
         }
 
     # Pattern 2: "Degree, Institution, Year"
