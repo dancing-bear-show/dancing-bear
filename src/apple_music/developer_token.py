@@ -14,6 +14,11 @@ from core.cli_errors import ConfigError
 MAX_TTL_SECONDS = 15777000
 DEFAULT_TTL_SECONDS = MAX_TTL_SECONDS
 
+SECONDS_PER_DAY = 86400
+# Whole days that fit under Apple's cap: 15777000s is ~182.6 days, so 182 is the
+# largest --ttl-days value that will not be rejected.
+MAX_TTL_DAYS = MAX_TTL_SECONDS // SECONDS_PER_DAY
+
 
 @dataclass(frozen=True)
 class TokenClaims:
@@ -122,7 +127,9 @@ def mint_developer_token(
         )
     if ttl_seconds <= 0 or ttl_seconds > MAX_TTL_SECONDS:
         raise ConfigError(
-            f"ttl_seconds must be between 1 and {MAX_TTL_SECONDS} (6 months); got {ttl_seconds}.",
+            f"Token lifetime must be between 1 second and {MAX_TTL_DAYS} days "
+            f"(Apple's 6-month cap); got {ttl_seconds / SECONDS_PER_DAY:.1f} days.",
+            hint=f"Pass --ttl-days with a value from 1 to {MAX_TTL_DAYS}.",
         )
 
     key = _load_private_key(key_path)

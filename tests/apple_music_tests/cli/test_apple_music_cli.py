@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from apple_music import __main__ as cli
+from apple_music import cli as am_cli
 from apple_music.client import AppleMusicClient
 from apple_music import token_helpers, user_token_cli
 
@@ -191,3 +192,30 @@ class AppleMusicCLITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVerifyTokensLive(unittest.TestCase):
+    """token status must distinguish a working pair from a merely present one."""
+
+    def test_missing_token_is_not_verified(self):
+        self.assertFalse(am_cli._verify_tokens_live(None, "user")["verified"])
+        self.assertFalse(am_cli._verify_tokens_live("dev", None)["verified"])
+
+    def test_successful_ping_verifies(self):
+        with unittest.mock.patch.object(am_cli, "AppleMusicClient") as m_client:
+            m_client.return_value.ping.return_value = {"data": [{"id": "ca"}]}
+            self.assertEqual(am_cli._verify_tokens_live("dev", "user"), {"verified": True})
+
+    def test_401_blames_the_developer_token(self):
+        with unittest.mock.patch.object(am_cli, "AppleMusicClient") as m_client:
+            m_client.return_value.ping.side_effect = am_cli.AppleMusicCLIError("401 from Apple Music: ")
+            result = am_cli._verify_tokens_live("dev", "user")
+        self.assertFalse(result["verified"])
+        self.assertIn("token mint", result["remedy"])
+
+    def test_403_blames_the_user_token(self):
+        with unittest.mock.patch.object(am_cli, "AppleMusicClient") as m_client:
+            m_client.return_value.ping.side_effect = am_cli.AppleMusicCLIError("403 from Apple Music: ")
+            result = am_cli._verify_tokens_live("dev", "user")
+        self.assertFalse(result["verified"])
+        self.assertIn("apple-music-user-token", result["remedy"])
