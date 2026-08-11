@@ -67,12 +67,11 @@ Key modules:
  Key Commands
 - Add single: `./bin/calendar --profile outlook_personal outlook add --subject "Soccer" --calendar "Your Family" --start 2025-10-10T17:00 --end 2025-10-10T18:00 --location "Venue (street, city, ST POSTAL)"`
 - Add recurring: `./bin/calendar --profile outlook_personal outlook add-recurring --subject "Class" --repeat weekly --byday MO --interval 1 --range-start 2025-10-01 --until 2025-12-15 --start-time 17:00 --end-time 17:30 --location "Name at Facility 123 Main St, City, ST A1A 1A1"`
-- Agentic capsule: `./bin/calendar --agentic`
+- Agentic schema: `./bin/calendar --agentic --agentic-format yaml --agentic-compact`
 - LLM utilities (calendar): `./bin/llm --app calendar agentic --stdout` | `./bin/llm --app calendar domain-map --stdout` | `./bin/llm --app calendar derive-all --out-dir .llm`
 - Suppress reminders: add `--no-reminder` to any create command
 - Apply locations from YAML: `./bin/calendar --profile outlook_personal outlook apply-locations --config out/calendar/blas_current.plan.yaml --all-occurrences` (example path; adjust to your plan file)
 - Turn off reminders in a window: `./bin/calendar --profile outlook_personal outlook reminders-off --calendar "Your Family" --from 2025-01-01 --to 2025-12-31 --all-occurrences`
-- Legacy CLI: `./bin/calendar-assistant`
 
 Appointment Settings (bulk)
 - Apply categories/showAs/sensitivity/reminders from YAML rules across a window:

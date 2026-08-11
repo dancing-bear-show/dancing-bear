@@ -44,7 +44,7 @@ stages:
         mkdir -p {workspace}/reports
 
       Step 2 — run coverage baseline (best-effort; failures are non-fatal):
-        coverage run -m unittest discover -q 2>/dev/null || true
+        PYTHONPATH="$PWD/src" coverage run -m unittest discover -q 2>/dev/null || true
         coverage report --format=json -o {workspace}/analysis/coverage.json 2>/dev/null || true
 
         If coverage.json is not produced (coverage.py not installed or no

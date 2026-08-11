@@ -1,6 +1,6 @@
 LLM Agent Context Cache
 Concise reference for agent behavior and repo architecture
-Last Reviewed: 2025-12-26
+Last Reviewed: 2026-08-11
 
 Project Goal (Reminder)
 - Provide unified, dependable CLIs for personal workflows (mail, calendar, schedule, resume, phone, WhatsApp, maker).
@@ -20,23 +20,29 @@ Familiarize Mode (Strict + Tiers)
 
 Architecture Overview
 ```
-mail/                     # Gmail/Outlook providers, CLI wiring, helpers
-calendars/                # Outlook calendar CLI + Gmail scans
-schedule/                 # plan/apply calendar schedules
-resume/                   # extract/summarize/render resumes
-phone/                    # iOS layout tooling
-whatsapp/                 # local-only ChatStorage search
-desk/                     # desktop/workspace tooling
-maker/                    # utility generators
-charts/                   # render time-series charts from JSON (line/bar/area/dual)
-diagrams/                 # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
-workflow/                 # YAML DAG workflow engine (parse/compile/run/lint/list/status)
-bin/                      # entry wrappers and helper scripts
-core/                     # shared helpers
-tests/                    # lightweight unittest suite
-.llm/                     # LLM context, flows, capsules
-_disasm/                  # decompiled refs (read-only)
-config/, out/             # YAML inputs and derived outputs
+src/
+  mail/         # Gmail/Outlook providers, CLI wiring, helpers
+  calendars/    # Outlook calendar CLI + Gmail scans
+  schedule/     # plan/apply calendar schedules
+  resume/       # extract/summarize/render resumes
+  phone/        # iOS layout tooling
+  whatsapp/     # local-only ChatStorage search
+  desk/         # desktop/workspace tooling
+  maker/        # utility generators
+  charts/       # render time-series charts from JSON (line/bar/area/dual)
+  diagrams/     # Mermaid diagram generation (flowchart/sequence/gantt/pie; telemetry cost/token pies)
+  workflow/     # YAML DAG workflow engine (parse/compile/run/lint/list/status)
+  core/         # shared helpers
+  telemetry/    # Claude Code session telemetry (cost, tokens, TUI)
+  worker/       # background job queue and daemon
+  metals/       # precious metals purchase tracking
+  apple_music/  # Apple Music CLI
+  wifi/         # Wi-Fi CLI
+bin/            # entry wrappers and helper scripts
+tests/          # lightweight unittest suite
+.llm/           # LLM context, flows, capsules
+_disasm/        # decompiled refs (read-only)
+config/, out/   # YAML inputs and derived outputs
 ```
 
 Development Rules (do)
@@ -58,8 +64,7 @@ Development Rules (avoid)
 
 Activation Policy (Recommended)
 - At the start of a work session, run unit tests to establish current health when making code changes:
-  - Prefer `make test`; else fall back to `python3 -m unittest -v`.
-- Use venv if present: `.venv/bin/python -m unittest -v` (activation optional with `direnv`).
+  - Use `make test` (pins `PYTHONPATH` to the checkout). Never run bare `python3 -m unittest` in a worktree — an inherited `PYTHONPATH` silently resolves imports to the main checkout and produces false greens. Fallback: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`.
 - If any tests fail, immediately create an execution plan (via the plan tool) to fix them:
   - Steps should include: reproduce failure locally; isolate scope; implement minimal, surgical fix; re-run targeted tests; re-run full suite.
   - Keep fixes focused; do not change unrelated code or public CLI behavior.
@@ -69,13 +74,13 @@ Activation Policy (Recommended)
 
 LLM Imperatives
 - Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
-- Use unified wrapper: `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker>` (preferred), or direct: `./bin/mail-assistant`, `./bin/mail-assistant-auth`
+- Use unified wrapper: `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker>` (preferred), or short names: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`. The `-assistant` suffixed forms are legacy aliases, retained for compatibility.
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 
 Agentic Schemas - Notes
 - Prefer compact schemas from CLI over `--help` to save tokens.
-- `./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact`
+- `./bin/mail --agentic --agentic-format yaml --agentic-compact`
 - `./bin/llm agentic --stdout`
 
 Familiarization Policy (Fast + Lean)
@@ -85,7 +90,7 @@ Familiarization Policy (Fast + Lean)
 - Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
   1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
-  2) Entry points: `bin/assistant`, `bin/mail-assistant`, `bin/calendar-assistant`, `bin/schedule-assistant`, `bin/phone`, `bin/whatsapp`
+  2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`
   3) Shared helpers: `src/core/`
   4) Mail config/DSL: `src/mail/dsl.py`, `src/mail/config_resolver.py`, `src/mail/utils/filters.py`
   5) Providers/APIs: `src/mail/providers/*.py`, `src/mail/gmail_api.py`, `src/mail/outlook_api/`
@@ -96,7 +101,7 @@ Familiarization Policy (Fast + Lean)
   - `rg -n "filters_unified.yaml|derive|audit|optimize" src/mail/ README.md -g '!{.venv,.git,.cache,_disasm,out,_out,maker,backups}/**'`
 
 Agentic Shortcuts
-- `./bin/assistant mail --agentic` or direct `./bin/mail-assistant --agentic` - compact agentic capsule from main parser
+- `./bin/assistant mail --agentic` or direct `./bin/mail --agentic` - compact agentic capsule from main parser
 - `./bin/llm agentic --stdout` - compact agentic capsule (LLM CLI)
 - `./bin/llm domain-map --write .llm/DOMAIN_MAP.md` - programmatic CLI tree + flows
 - `./bin/llm derive-all --out-dir .llm --include-generated --stdout` - ensure core capsules
@@ -112,8 +117,8 @@ Messages (Provider-Agnostic)
 - `messages search` auto-detects Gmail vs Outlook from `--profile`:
   - Outlook profiles (with `outlook_client_id`) use Graph API `$search`
   - Gmail profiles use standard Gmail query syntax
-  - No profile or Gmail profile: `./bin/mail-assistant messages search --query "subject:invoice" --json`
-  - Outlook profile: `./bin/mail-assistant --profile outlook_vanesa messages search --query "invoice" --json`
+  - No profile or Gmail profile: `./bin/mail messages search --query "subject:invoice" --json`
+  - Outlook profile: `./bin/mail --profile outlook_vanesa messages search --query "invoice" --json`
 
 Operational Checks (Mail filters/rules)
 - Unified is the source of truth: treat `config/filters_unified.yaml` as canonical for both Gmail and Outlook.
@@ -141,8 +146,8 @@ File-First Credentials (Preferred)
 
 Code Quality & Testing
 - Linting: `~/.qlty/bin/qlty check <path>` (ruff + bandit + complexity metrics)
-- Tests: `make test` or `python3 -m unittest -v`
-- Coverage: `coverage run -m unittest discover && coverage report`
+- Tests: `make test` (preferred). Fallback in non-worktree: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`. Never bare `python3 -m unittest` in a worktree.
+- Coverage: `make cov` (or `make cov-html`)
 - CI: `.github/workflows/ci.yml` runs qlty checks + tests with coverage on push/PR
 - Add targeted tests only for new CLI surfaces/behaviors
 - Security: Use `# nosec B110` (try-except-pass) or `# nosec B112` (try-except-continue) for intentional suppressions

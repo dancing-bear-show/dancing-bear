@@ -25,22 +25,24 @@ Token-efficient summary:
 ## Tool Discovery: Use --agentic
 Prefer agentic schemas over `--help`:
 ```bash
-./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+./bin/mail --agentic --agentic-format yaml --agentic-compact
 ./bin/calendar --agentic --agentic-format yaml --agentic-compact
-./bin/schedule-assistant --agentic --agentic-format yaml --agentic-compact
-./bin/llm --agentic --agentic-format yaml --agentic-compact
+./bin/schedule --agentic --agentic-format yaml --agentic-compact
+./bin/llm agentic --stdout
 ```
+
+Note: `charts`, `diagrams`, `worker`, and `workflow` do not support `--agentic`. Use `--help` for those.
 
 ## YOLO Mode (Optional)
 For safe auto-approvals, follow `configs/llm/copilot-yolo.md` guidance (shared with other repos). Honor token budgets from `.llm/AGENTIC_BUDGETS.yaml`.
 
 ## Quick Reference
-- **Primary CLIs**:
+- Primary CLIs:
   ```bash
-  ./bin/mail-assistant filters plan --config config/filters_unified.yaml --delete-missing  # config/ not yet created
-  ./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders
+  ./bin/mail filters plan --config config/filters_unified.yaml --delete-missing
+  ./bin/mail outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders
   ./bin/calendar outlook add-from-config --config config/calendar/your_family_blas.yaml
   ```
-- **Auth**: Stored in `~/.config/credentials.ini` (use `--profile gmail_personal|outlook_personal`).
-- **Tests**: `python3 -m unittest tests/test_cli.py -v` or `make test`.
-- **Code patterns**: Extend helpers in `src/mail/providers`, `src/mail/utils`, keep CLIs thin, and reuse YAML DSLs.
+- Auth: stored in `~/.config/credentials.ini` (use `--profile gmail_personal|outlook_personal`).
+- Tests: `make test` (preferred); never use bare `python3 -m unittest` in a worktree.
+- Code patterns: extend helpers in `src/mail/providers`, `src/mail/utils`, keep CLIs thin, reuse YAML DSLs.

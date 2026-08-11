@@ -63,5 +63,5 @@ Testing
 - Keep tests lightweight; add only for new CLI surfaces or helpers touched
 
 Notes
-- A legacy file `.llm/MIGRAGION_PLAN.md` exists and is retained for reference
+- The detailed per-phase pipeline migration log lives in `.llm/PIPELINE_MIGRATION.md`
 - This file is the canonical, up-to-date tracker

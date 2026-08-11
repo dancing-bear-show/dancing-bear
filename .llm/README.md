@@ -14,7 +14,7 @@ Token-efficient context for agents working on this repo.
 
 Prefer compact schemas over `--help`:
 ```
-./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+./bin/mail --agentic --agentic-format yaml --agentic-compact
 ./bin/llm agentic --stdout
 ./bin/llm domain-map --stdout
 ```

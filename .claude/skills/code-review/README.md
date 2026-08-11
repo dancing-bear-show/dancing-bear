@@ -57,6 +57,8 @@ on relevant checks.
 | `complexity.md` | diff contains `.py` files |
 | `workflow.md`, `workflow-stages.md`, `workflow-fanout.md`, `workflow-fragments.md` | diff contains `.yaml`/`.yml` or `SKILL.md` files |
 | `docs.md` | diff contains `.md`, `README`, or `SKILL.md` files |
+| `resume-copy.md` | diff contains `src/resume/config/profiles/**`, `src/resume/config/*.yaml`, `src/resume/examples/*`, or any `linkedin*.yaml` |
+| `phone-layout.md` | diff contains iOS layout files (`out/ios.iconlayout.json`, icon map) |
 
 ## Output
 

@@ -92,8 +92,8 @@ Since LLMs consume this library's output, verify:
 1. **CLI Discovery** — Can an LLM accurately discover available commands?
    ```bash
    # These must produce accurate, complete output:
-   ./bin/mail-assistant --help
-   ./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+   ./bin/mail --help
+   ./bin/mail --agentic --agentic-format yaml --agentic-compact
    ./bin/llm agentic --stdout
    ```
 

@@ -57,25 +57,25 @@ ipadbiggest = 00008132-001645323C05001C
 
 ```bash
 # Full reorg — uses [ios_devices] default from credentials.ini
-./bin/phone-assistant reorg
+./bin/phone reorg
 
 # Target a non-default device by label
-./bin/phone-assistant reorg --device-label ipadbiggest
+./bin/phone reorg --device-label ipadbiggest
 
 # Plan only, from an existing export (no device, no build, no install)
-./bin/phone-assistant reorg --dry-run
+./bin/phone reorg --dry-run
 
 # Build the profile but do not copy it to the device
-./bin/phone-assistant reorg --no-install
+./bin/phone reorg --no-install
 
 # Install an already-built profile (skip export/merge/build)
-./bin/phone-assistant reorg --install-only
-./bin/phone-assistant reorg --install-only --profile-path out/ios.merged.mobileconfig
+./bin/phone reorg --install-only
+./bin/phone reorg --install-only --profile-path out/ios.merged.mobileconfig
 
 # Or step by step:
-./bin/phone-assistant export-device --out out/ios.IconState.yaml
-./bin/phone-assistant merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
-./bin/phone-assistant profile build --plan out/ios.plan.merged.yaml --layout out/ios.IconState.yaml --folder-page-size 9 --out out/ios.merged.mobileconfig
+./bin/phone export-device --out out/ios.IconState.yaml
+./bin/phone merge-folders --layout out/ios.IconState.yaml --plan out/ios.plan.merged.yaml
+./bin/phone profile build --plan out/ios.plan.merged.yaml --layout out/ios.IconState.yaml --folder-page-size 9 --out out/ios.merged.mobileconfig
 cfgutil install-profile out/ios.merged.mobileconfig   # then tap Install on the device
 ```
 

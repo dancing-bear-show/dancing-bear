@@ -8,8 +8,8 @@ Overview
 
 Key Workflows
 - Plan before apply (prefer exact-match destructive syncs only after review):
-  - Gmail plan: `./bin/mail-assistant filters plan --config config/filters_unified.yaml --delete-missing`
-  - Outlook plan: `./bin/mail-assistant outlook rules plan --config out/filters.outlook.from_unified.yaml --move-to-folders`
+  - Gmail plan: `./bin/mail filters plan --config config/filters_unified.yaml --delete-missing`
+  - Outlook plan: `./bin/mail outlook rules.plan --config out/filters.outlook.from_unified.yaml --move-to-folders`
 - Verify no drift after apply:
   - Gmail: `filters export` and compare with `out/filters.gmail.from_unified.yaml`
   - Outlook: `outlook rules list` and spot-check against `out/filters.outlook.from_unified.yaml`
@@ -21,9 +21,9 @@ Auth & Profiles
 - Use `--profile` instead of passing `--credentials`/`--token` repeatedly.
 
 CLI Basics
-- Help: `./bin/mail-assistant --help`
+- Help: `./bin/mail --help`
 - LLM utilities: `./bin/llm agentic --stdout` (or `--write .llm/AGENTIC.md`)
-- Global agentic flag: `python3 -m mail --agentic`
+- Agentic schema: `./bin/mail --agentic --agentic-format yaml --agentic-compact`
 - Initialize LLM capsules: `./bin/llm derive-all --out-dir .llm` (use `--stdout` to print summary). Generated files (AGENTIC.md, DOMAIN_MAP.md) are built on demand; use `--include-generated` to write them.
 - Labels: export/sync with YAML; keep DSL human-editable with brief comments.
 - Filters: export Gmail rules; derive from unified; audit and optimize similar rules.

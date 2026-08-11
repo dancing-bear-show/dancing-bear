@@ -24,7 +24,7 @@ Security
 - Profiles: `[mail.<profile>]` → `credentials`, `token`, `outlook_client_id`, `tenant`, `outlook_token`.
 
 Agent Utilities
-- Capsule: `./bin/mail-assistant --agentic` (compact context with CLI tree + flow map).
+- Capsule: `./bin/mail --agentic --agentic-format yaml --agentic-compact`
 - Domain map: `./bin/llm domain-map --stdout` (or `--write .llm/DOMAIN_MAP.md`).
 - Initialize LLM meta: `./bin/llm derive-all --out-dir .llm`.
 

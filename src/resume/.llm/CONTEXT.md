@@ -7,8 +7,8 @@ Imperatives
 - Use concise, high-value bullets over prose; group and compress where practical.
 - Keep Skills dense: grouped, single-column bulleted items; each item can include a brief descriptor when helpful.
 - Preserve PII hygiene: store personal artifacts under `_data/` (gitignored).
-- Default to profile-based outputs; generated files nest under `_out/<profile>/` (e.g., `data.json`, `resume.docx`, `structure.json`).
-- Reuse saved structure from `_out/<profile>/structure.(json|yaml)` to avoid extraneous writes.
+- Default to profile-based outputs; generated files nest under `out/<profile>/` (e.g., `data.json`, `resume.docx`, `structure.json`).
+- Reuse saved structure from `out/<profile>/structure.(json|yaml)` to avoid extraneous writes.
 
 Formatting Rules
 - Tighten paragraph spacing (no extra before/after) and minimize bullet indentation.
@@ -47,8 +47,8 @@ Workflow Hints
 - Tidy old artifacts with `resume files tidy` (archive or delete), optionally `--purge-temp`.
 
 Alignment Pattern (example)
-- Align: `python -m resume align --data _out/brian_sherwin/data.json --job config/job.rbc.yaml --out _out/brian_sherwin/alignment.rbc.json --tailored _out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
-- Render: `python -m resume render --data _out/brian_sherwin/data.json --template config/template.onepage.yaml --profile brian_sherwin --structure-from _out/brian_sherwin/structure.json --filter-skills-alignment _out/brian_sherwin/alignment.rbc.json --filter-exp-alignment _out/brian_sherwin/alignment.rbc.json --min-priority 0.9 --out _out/brian_sherwin/resume.rbc.onepage.docx`
+- Align: `python3 -m resume align --data out/brian_sherwin/data.json --job config/job.rbc.yaml --out out/brian_sherwin/alignment.rbc.json --tailored out/brian_sherwin/tailored.rbc.json --profile brian_sherwin`
+- Render: `python3 -m resume render --data out/brian_sherwin/data.json --template config/template.onepage.yaml --profile brian_sherwin --structure-from out/brian_sherwin/structure.json --filter-skills-alignment out/brian_sherwin/alignment.rbc.json --filter-exp-alignment out/brian_sherwin/alignment.rbc.json --min-priority 0.9 --out out/brian_sherwin/resume.rbc.onepage.docx`
 
 Proposals & Examples
 - When proposing examples or templates, explicitly call out whitespace minimization and one-page intent.

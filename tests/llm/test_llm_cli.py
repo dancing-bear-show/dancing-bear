@@ -44,6 +44,32 @@ class TestLlmCli(unittest.TestCase):
         self.assertIn('areas', data)
         self.assertIn('mail_groups', data)
 
+    def test_inventory_is_not_self_referential(self):
+        """The markdown inventory must carry real content, not a pointer to itself."""
+        from mail import llm_cli
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = llm_cli.main(['inventory', '--stdout'])
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertNotIn('(see .llm/INVENTORY.md)', out)
+        for package in ('mail', 'calendars', 'workflow', 'telemetry'):
+            self.assertIn(package, out)
+
+    def test_inventory_json_reflects_real_packages(self):
+        """JSON inventory is derived from the repo, not a hardcoded stub."""
+        from mail import llm_cli
+        import json
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = llm_cli.main(['inventory', '--format', 'json', '--stdout'])
+        self.assertEqual(rc, 0)
+        data = json.loads(buf.getvalue())
+        # The old stub returned exactly ["bin/mail-assistant"] and ["mail", "calendar"].
+        self.assertGreater(len(data['packages']), 10)
+        self.assertGreater(len(data['wrappers']), 10)
+        self.assertIn('workflow', data['packages'])
+
     def test_check_respects_sla_env(self):
         import subprocess  # nosec B404
         import sys

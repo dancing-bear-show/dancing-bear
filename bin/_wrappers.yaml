@@ -51,6 +51,7 @@ manual:
   - ios-verify-layout
   - ios-identity-verify
   - ios-iconmap-refresh
+  - ios-push-layout
   - phone-profile-refresh
   - mail-assistant-auth
   - setup_venv

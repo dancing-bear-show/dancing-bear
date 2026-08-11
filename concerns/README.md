@@ -16,6 +16,7 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 | resume-copy.md | Resume/profile copy: bullet voice, quantification, banned phrases, LinkedIn limits | ~11 |
 | workflow-stages.md | Workflow stage runtime concerns, model tier, tool access | ~14 |
 | workflow-fanout.md | Fan-out patterns, writes-to contracts, worker queue correctness | ~12 |
+| phone-layout.md | iOS home screen layout: icon map, folder/page structure, profile install | ~7 |
 
 Used by: code review agents and the `reviewer` agent defined in CLAUDE.md.
 Load guides selectively based on the file types in the diff.

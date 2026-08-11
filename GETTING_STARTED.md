@@ -6,46 +6,37 @@ This guide gets you from zero to productive in 10 minutes.
 
 ## What Is This?
 
-**Dancing Bear** is a collection of command-line tools that automate tedious personal tasks. It's also a demonstration of **LLM-first development** - the entire codebase was built using Claude Code as the primary coding interface.
+Dancing Bear is a collection of command-line tools for personal workflow automation.
+Built with [Claude Code](https://claude.ai/claude-code).
 
-**Core tools:**
-- **Resume building** - Extract LinkedIn data, align with job postings, render tailored DOCX resumes
-- **Email management** - Sync Gmail/Outlook filters and labels from a single YAML file
-- **iOS phone layouts** - Export, plan, and apply home screen configurations
+Core tools:
+- Resume building — extract LinkedIn data, align with job postings, render tailored DOCX resumes
+- Email management — sync Gmail/Outlook filters and labels from a single YAML file
+- iOS phone layouts — export, plan, and apply home screen configurations
 
-**Experimental:**
-- Calendar scheduling, WhatsApp search, precious metals tracking, WiFi diagnostics
+Also available: calendar scheduling, WhatsApp search, precious metals tracking, WiFi diagnostics.
 
-The key idea: **define your intent in YAML, preview changes safely, then apply.**
-
-Every destructive action has a `--dry-run` or `plan` step first. You won't accidentally delete your inbox.
+Every command that modifies data has a `--dry-run` or `plan` step first.
 
 ## Prerequisites
 
-- **Python 3.11+** installed
-- **Git** to clone the repo
-- A terminal (macOS Terminal, iTerm2, Windows Terminal, etc.)
-- **Claude Code** (optional but recommended) - see [Claude Code Setup](#claude-code-setup) below
+- Python 3.11+
+- Git
+- A terminal
+- Claude Code (optional) — see [Claude Code Setup](#claude-code-setup)
 
 ## Step 1: Clone and Set Up
 
 ```bash
-# Clone the repository
 git clone https://github.com/dancing-bear-show/dancing-bear.git
 cd dancing-bear
-
-# Create virtual environment and install dependencies
 make venv
-
-# Verify it works
 ./bin/assistant --help
 ```
 
-You should see a list of available commands (mail, calendar, schedule, resume, etc.).
-
 ## Step 2: Pick Your First Task
 
-### Option A: Resume Building (Most Useful)
+### Option A: Resume Building
 
 Extract data from LinkedIn, align with job postings, and render tailored resumes:
 
@@ -66,36 +57,33 @@ Extract data from LinkedIn, align with job postings, and render tailored resumes
 
 ### Option B: Email Filter Management (Gmail)
 
-Manage Gmail filters/labels from YAML:
-
 ```bash
 # Set up Gmail credentials (one-time)
 ./bin/mail-assistant-auth
 
-# Export your current filters to YAML
+# Export current filters to YAML
 ./bin/mail filters export --out my_filters.yaml
 
-# Edit my_filters.yaml to add/change filters, then preview changes
+# Preview changes after editing my_filters.yaml
 ./bin/mail filters plan --config my_filters.yaml
 
-# Apply when ready (always dry-run first!)
+# Dry-run, then apply
 ./bin/mail filters sync --config my_filters.yaml --dry-run
 ./bin/mail filters sync --config my_filters.yaml
 ```
 
 ### Option C: iOS Phone Layouts
 
-One-shot reorganization (recommended):
+One-shot reorganization (chains export-device → merge-folders → profile build → copy to device):
 
 ```bash
-./bin/phone-assistant reorg
+./bin/phone reorg
 ```
 
-This chains: export-device → merge-folders → profile build → copy to device.
-After it runs, tap **Install** in Settings → General → VPN & Device Management.
-Code 625 from cfgutil is expected (not an error) — the profile was copied successfully.
+After it runs, tap Install in Settings → General → VPN & Device Management.
+Code 625 from cfgutil is expected — the profile was copied successfully.
 
-Set your device once in `~/.config/credentials.ini` under `[ios_devices]` (a `default = <label>` line plus `<label> = <UDID>`); then `reorg` needs no device flag. Use `--device-label` to target a non-default device, or `--udid` / `$IOS_DEVICE_UDID` to specify a UDID directly.
+Set your device in `~/.config/credentials.ini` under `[ios_devices]`; then `reorg` needs no device flag.
 
 ```ini
 [ios_devices]
@@ -105,28 +93,22 @@ ipadbiggest = 00008132-001645323C05001C
 ```
 
 Flags:
-- `--dry-run` — plan only; uses existing export, no build/install
+- `--dry-run` — plan only; no build/install
 - `--no-install` — build the profile but skip the device copy
 - `--keep "com.example.app1,com.example.app2"` — pin apps on page 1
-- `--device-label <label>` — target a non-default device (looked up in `[ios_devices]`)
+- `--device-label <label>` — target a non-default device
 - `--udid <UDID>` — explicit UDID, wins over all other resolution
 
 `merge-folders` redistributes a catch-all "Other" dump folder and loose apps into
-your existing folder taxonomy. It enforces a conservation invariant: no app is
-lost, added, or duplicated. It is distinct from `auto-folders` (which makes flat
-coarse buckets from scratch).
+existing folders (conservation invariant: no app is lost, added, or duplicated). It is
+distinct from `auto-folders` (which builds flat coarse buckets from scratch).
 
-Advanced / step-by-step:
+Step-by-step:
 
 ```bash
-# Export current device layout
-./bin/phone-assistant export-device --out ios_layout.yaml
-
-# Merge Other/loose into existing folders
-./bin/phone-assistant merge-folders --layout ios_layout.yaml --plan ios_plan.yaml
-
-# Build a .mobileconfig profile to apply
-./bin/phone-assistant profile build --plan ios_plan.yaml --layout ios_layout.yaml --out layout.mobileconfig
+./bin/phone export-device --out ios_layout.yaml
+./bin/phone merge-folders --layout ios_layout.yaml --plan ios_plan.yaml
+./bin/phone profile build --plan ios_plan.yaml --layout ios_layout.yaml --out layout.mobileconfig
 ```
 
 ### Option D: Other Tools (Experimental/POC)
@@ -145,110 +127,45 @@ Advanced / step-by-step:
 
 ## Claude Code Setup
 
-This project was built entirely with Claude Code and is designed to be extended the same way. Claude Code is an AI coding assistant that runs in your terminal - it can read files, write code, run commands, and help you navigate the codebase.
-
-### What is Claude Code?
-
-Claude Code is Anthropic's command-line tool that brings Claude directly into your terminal. It can:
-- Read and understand code in your project
-- Write and edit files
-- Run terminal commands
-- Help you debug, refactor, and add features
-- Automatically read project context from `CLAUDE.md`
+Claude Code is Anthropic's command-line coding assistant. This project was built with it
+and includes project-specific configuration in `CLAUDE.md`.
 
 ### Installing Claude Code
 
-**Option 1: npm (Recommended)**
 ```bash
-# Install globally with npm
+# npm (recommended)
 npm install -g @anthropic-ai/claude-code
-
-# Verify installation
 claude --version
 ```
 
-**Option 2: Homebrew (macOS)**
-```bash
-brew install claude-code
-```
-
-**Option 3: Direct download**
-
-Visit [claude.ai/claude-code](https://claude.ai/claude-code) and follow the installation instructions for your platform.
+Or visit [claude.ai/claude-code](https://claude.ai/claude-code) for other installation options.
 
 ### First-Time Setup
 
-1. **Get an API key** (if you don't have one):
-   - Go to [console.anthropic.com](https://console.anthropic.com)
-   - Sign up or log in
-   - Navigate to API Keys and create a new key
-   - Copy the key (starts with `sk-ant-`)
-
-2. **Configure Claude Code**:
-   ```bash
-   # Set your API key (one-time setup)
-   claude config set api_key sk-ant-your-key-here
-
-   # Or set it as an environment variable
-   export ANTHROPIC_API_KEY=sk-ant-your-key-here
-   ```
-
-3. **Verify it works**:
-   ```bash
-   claude --help
-   ```
+```bash
+# Set your API key
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
+claude --help
+```
 
 ### Using Claude Code with This Project
 
 ```bash
-# Navigate to the project
 cd dancing-bear
-
-# Start Claude Code
 claude
-
-# You're now in an interactive session. Try asking:
 ```
 
-**Example prompts to get started:**
+Claude Code reads `CLAUDE.md` automatically and understands the codebase structure.
+It can run commands like `./bin/mail --help`, read and write files, and maintain
+context across a session.
 
+Example prompts:
 ```
-# Understanding the project
 "What does this project do?"
-"Show me the main CLI entry points"
-"How is the codebase organized?"
-
-# Getting help with tasks
 "Help me set up Gmail authentication"
 "Create a filter that archives newsletters from example.com"
-"Export my current email filters to YAML"
-
-# Working with resumes
-"Extract data from my LinkedIn profile (saved as profile.html)"
-"Help me align my resume with this job posting"
-"Render a tailored resume for a Python developer role"
-
-# Debugging
-"Why am I getting an authentication error?"
-"The calendar sync isn't working - help me debug"
+"The calendar sync isn't working — help me debug"
 ```
-
-### How It Works
-
-When you run `claude` in this project directory, Claude Code automatically:
-
-1. Reads `CLAUDE.md` for project-specific instructions
-2. Understands the codebase structure
-3. Can run commands like `./bin/mail --help`
-4. Can read, create, and edit files
-5. Remembers context throughout your session
-
-### Tips for Best Results
-
-- **Be specific**: "Add a filter for emails from @newsletter.com that archives them" works better than "help with filters"
-- **Let it explore**: Say "look at how the existing filters work first" before asking for changes
-- **Use dry-run**: Ask it to use `--dry-run` flags when testing changes
-- **Review changes**: Claude will show you what it's about to do - review before confirming
 
 ### Alternative: Other LLMs
 
@@ -271,14 +188,9 @@ Paste the context at the start of your conversation, then ask your questions.
 Every command that modifies data has a safe preview mode:
 
 ```bash
-# Preview what would happen
-./bin/mail labels plan --config labels.yaml
-
-# Dry-run (simulates but doesn't execute)
-./bin/mail labels sync --config labels.yaml --dry-run
-
-# Actually apply
-./bin/mail labels sync --config labels.yaml
+./bin/mail labels plan --config labels.yaml          # preview diff
+./bin/mail labels sync --config labels.yaml --dry-run # simulate, no writes
+./bin/mail labels sync --config labels.yaml           # apply
 ```
 
 ```mermaid
@@ -307,7 +219,7 @@ sequenceDiagram
 
 ### 2. YAML as Source of Truth
 
-Your configuration lives in YAML files. The tools read these and sync state:
+Configuration lives in YAML files. The tools read these and sync state:
 
 ```yaml
 # Example: filters.yaml
@@ -322,7 +234,7 @@ filters:
 
 ### 3. Profiles for Multiple Accounts
 
-Store credentials in `~/.config/credentials.ini`:
+Credentials in `~/.config/credentials.ini`:
 
 ```ini
 [mail.personal]
@@ -345,28 +257,23 @@ Then use `--profile`:
 
 | Task | Command |
 |------|---------|
-| **Resume** | |
-| Extract from LinkedIn | `./bin/assistant resume extract --linkedin profile.html --out candidate.yaml` |
-| Align with job posting | `./bin/assistant resume align --data candidate.yaml --job job.yaml` |
-| Render to DOCX | `./bin/assistant resume render --data candidate.yaml --out resume.docx` |
-| **Email** | |
-| List Gmail labels | `./bin/mail labels list` |
-| Export Gmail filters | `./bin/mail filters export --out filters.yaml` |
-| Sync filters | `./bin/mail filters sync --config filters.yaml --dry-run` |
-| **iOS** | |
-| Reorganize home screen (one-shot) | `./bin/phone-assistant reorg` |
-| Export device layout | `./bin/phone-assistant export-device --out layout.yaml` |
-| Build layout profile | `./bin/phone-assistant profile build --plan plan.yaml --layout layout.yaml --out layout.mobileconfig` |
-| **Other** | |
-| Search WhatsApp | `./bin/whatsapp search --contains "meeting"` |
+| Resume — extract from LinkedIn | `./bin/assistant resume extract --linkedin profile.html --out candidate.yaml` |
+| Resume — align with job posting | `./bin/assistant resume align --data candidate.yaml --job job.yaml` |
+| Resume — render to DOCX | `./bin/assistant resume render --data candidate.yaml --out resume.docx` |
+| Email — list Gmail labels | `./bin/mail labels list` |
+| Email — export Gmail filters | `./bin/mail filters export --out filters.yaml` |
+| Email — sync filters | `./bin/mail filters sync --config filters.yaml --dry-run` |
+| iOS — reorganize home screen | `./bin/phone reorg` |
+| iOS — export device layout | `./bin/phone export-device --out layout.yaml` |
+| iOS — build layout profile | `./bin/phone profile build --plan plan.yaml --layout layout.yaml --out layout.mobileconfig` |
+| WhatsApp search | `./bin/whatsapp search --contains "meeting"` |
 | WiFi diagnostics | `./bin/wifi diagnose` |
 
 ## Troubleshooting
 
 ### "Command not found"
 
-Make sure you activated the virtual environment:
-
+Activate the virtual environment:
 ```bash
 source .venv/bin/activate
 ```
@@ -374,7 +281,6 @@ source .venv/bin/activate
 ### Authentication errors
 
 Re-run the auth helper:
-
 ```bash
 ./bin/mail-assistant-auth
 ```
@@ -382,22 +288,16 @@ Re-run the auth helper:
 ### "No module named X"
 
 Reinstall dependencies:
-
 ```bash
 make venv
 ```
 
 ### Still stuck?
 
-Check the full documentation in `README.md` or ask your LLM assistant with the context from `.llm/CONTEXT.md`.
+See `README.md` for the full command reference, or paste `.llm/CONTEXT.md` into your LLM of choice.
 
 ## Next Steps
 
-1. Read `README.md` for complete command reference
-2. Explore `config/` for example YAML configurations
-3. Check `.llm/FLOWS.yaml` for pre-built workflows
-4. Run `./bin/llm flows --list` to see available automation flows
-
----
-
-*Built for humans who'd rather configure once and automate forever.*
+1. `README.md` — full command reference
+2. `config/` — example YAML configurations
+3. `./bin/llm flows --list` — available automation flows

@@ -3,7 +3,7 @@
 ## When loaded
 
 Load this guide when working on iOS home screen layout tasks: building or
-editing `out/ios.iconlayout.json`, running `./bin/phone-assistant` commands,
+editing `out/ios.iconlayout.json`, running `./bin/phone` commands,
 or pushing layouts via `./bin/ios-push-layout`.
 
 ## Concerns
@@ -71,7 +71,7 @@ or pushing layouts via `./bin/ios-push-layout`.
 
 ### layout-not-validated-before-push
 - **severity**: critical
-- **check**: Verify `./bin/phone-assistant validate-layout` is run (and passes
+- **check**: Verify `./bin/phone validate-layout` is run (and passes
   with zero errors) before pushing the layout to the device.
 - **triggers**: Any push step; any workflow that proceeds from build-layout to
   push without an intervening validate stage.
@@ -79,7 +79,7 @@ or pushing layouts via `./bin/ios-push-layout`.
   accepts it silently and the device ends up with the app in an unpredictable
   location. Running validate-layout beforehand catches the duplicate and halts
   before the push. Required invocation:
-  `./bin/phone-assistant validate-layout --layout out/ios.iconlayout.json --device-layout out/ios.iconmap.current.json`
+  `./bin/phone validate-layout --layout out/ios.iconlayout.json --device-layout out/ios.iconmap.current.json`
 
 ### p12-reimport-each-run
 - **severity**: minor

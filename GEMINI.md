@@ -16,19 +16,21 @@ Load only as needed:
 - `.llm/PATTERNS.md` — code templates for filters, CLI wiring, tests.
 
 ## Tool Discovery: Use --agentic
-Avoid `--help`; prefer agentic schemas:
+Prefer agentic schemas over `--help`:
 ```bash
-./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+./bin/mail --agentic --agentic-format yaml --agentic-compact
 ./bin/calendar --agentic --agentic-format yaml --agentic-compact
-./bin/schedule-assistant --agentic --agentic-format yaml --agentic-compact
-./bin/llm --agentic --agentic-format yaml --agentic-compact
+./bin/schedule --agentic --agentic-format yaml --agentic-compact
+./bin/llm agentic --stdout
 ```
+
+Note: `charts`, `diagrams`, `worker`, and `workflow` do not support `--agentic`. Use `--help` for those.
 
 ## YOLO Mode (Optional)
 If safe auto-approvals are needed, mirror the approach from `configs/llm/gemini-yolo.md` (shared standards). Respect token budgets defined in `.llm/AGENTIC_BUDGETS.yaml`.
 
 ## Quick Reference
-- CLIs: `./bin/mail-assistant`, `./bin/calendar`, `./bin/schedule-assistant`, `./bin/phone`.
-- Auth: leverage `--profile gmail_personal|outlook_personal` (paths in `~/.config/credentials.ini`).
-- Tests: `python3 -m unittest tests/test_cli.py -v`, `make test`.
-- Config SoT: filter YAML lives in `config/` (not yet created); derived outputs in `out/`.
+- Primary CLIs: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`.
+- Auth: `--profile gmail_personal|outlook_personal` (paths in `~/.config/credentials.ini`).
+- Tests: `make test` (preferred); never use bare `python3 -m unittest` in a worktree.
+- Config SoT: filter YAML lives in `config/`; derived outputs in `out/`.

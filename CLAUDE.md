@@ -23,8 +23,8 @@ make test
 
 # CLI help
 ./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker> --help
-./bin/mail-assistant --help
-./bin/calendar-assistant --help
+./bin/mail --help
+./bin/calendar --help
 ```
 
 ## Architecture
@@ -82,7 +82,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Subcommands are positional, not flag-prefixed
 - Flags (`--dry-run`, `--profile`, `--format`) always follow the subcommand
 - The `assistant` dispatcher strips the app name and passes remaining argv directly to the app's `main()`
-- The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`)
+- The workflow engine (`src/workflow/compiler.py`) inserts `--` before flags for most skills; `llm` and `docs` CLIs are exempt (`_NO_SEPARATOR_CLIS`). `docs` is reserved for a planned Confluence CLI — no `bin/docs` ships today
 - `--` separator is now **optional** for all CLIApp-based CLIs (mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, metals, workflow); `src/core/cli_framework.py` strips bare `--` tokens automatically. The workflow engine's `_NO_SEPARATOR_CLIS` exemption for `llm`/`docs` remains unchanged.
 - Auto-derived agentic schema: mail, calendar, schedule, resume, phone, whatsapp, desk, wifi, maker, apple_music, and metals support `--agentic --agentic-format json` (via `CLIApp.run_with_assistant`) to emit a machine-readable parser schema that never drifts from the real CLI; add `--agentic-compact` to strip low-value fields; add `--agentic-domain <prefix>` to filter to one subcommand group.
 - charts, diagrams, worker, and workflow build their parser via `CLIApp.build_parser()` but skip `run_with_assistant()`, so none of the four support `--agentic`. charts and diagrams dispatch commands directly (never call `CLIApp.run()`) solely to preserve their own legacy no-subcommand exit codes/messages — `CLIApp.run()`'s `--output`-as-format parsing is guarded behind `add_common_args`, so it no longer crashes on diagrams' file-path-valued `--output`. worker and workflow call `CLIApp.run(argv, on_no_command=...)`, using that hook to preserve their own legacy no-subcommand exit codes/messages while still normalizing and parsing argv exactly once.
@@ -91,7 +91,7 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 
 **Do:**
 - Keep CLI flags/subcommands stable; add new under `labels`, `filters`, `outlook`
-- Prefer wrapper executables (`./bin/mail-assistant`) over `python -m`
+- Prefer wrapper executables (`./bin/mail`) over `python -m`
 - Use profiles in `~/.config/credentials.ini`; avoid `--credentials/--token`
 - Apply lazy imports for optional deps (Google APIs, PyYAML)
 - Keep helpers small, focused; prefer OO where cohesive (e.g., LabelSync, FilterSync)
@@ -151,7 +151,7 @@ one, and only turns red once a newly added module is imported by name.
 
 ```bash
 # Token-efficient agentic schemas (prefer over --help)
-./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+./bin/mail --agentic --agentic-format yaml --agentic-compact
 ./bin/llm agentic --stdout
 
 # Domain map
@@ -268,7 +268,9 @@ Never use a bare `sleep` loop in a Bash tool call to wait for a condition.
 | `ci-fixer` | Sonnet | CI failure diagnosis and fix |
 | `code-writer-opus` | Opus | Escalate from code-writer when Sonnet is stuck or producing incorrect code after retries |
 | `tester-opus` | Opus | Escalate from tester when Sonnet fails to produce passing tests after iteration |
-| `ci-fixer-opus` | Opus | Escalate from ci-fixer when CI failures resist Sonnet-level diagnosis |
+| `critic` | Opus | Adversarial critique of plans, workflow designs, architecture decisions |
+| `haiku-reviewer` | Haiku | Concern-sweep fan-out stages; writes JSON findings, no Bash |
+| `workflow-author` | Sonnet | Authoring and editing workflow YAML DAGs |
 
 **Spawn teammates** for multi-file changes, test writing, code review, research. Use `isolation: "worktree"` for agents that write code (`code-writer`, `tester`, `ci-fixer`). Read-only agents (`reviewer`, `researcher`, `Explore`, `Plan`, `fact-checker`, validators) do not need isolation.
 

@@ -9,17 +9,17 @@ Project Goal (Reminder)
 Use Existing Commands First
 ```
 # Prefer wrappers over python -m
-./bin/mail-assistant --help
-./bin/calendar-assistant --help
+./bin/mail --help
+./bin/calendar --help
 
 # Token-efficient schemas (hand-authored capsule)
-./bin/mail-assistant --agentic --agentic-format yaml --agentic-compact
+./bin/mail --agentic --agentic-format yaml --agentic-compact
 ./bin/llm agentic --stdout
 
 # Auto-derived schema from live parser (json = machine-readable, never drifts from --help)
-./bin/mail-assistant --agentic --agentic-format json
-./bin/mail-assistant --agentic --agentic-format json --agentic-compact
-./bin/mail-assistant --agentic --agentic-format json --agentic-domain labels
+./bin/mail --agentic --agentic-format json
+./bin/mail --agentic --agentic-format json --agentic-compact
+./bin/mail --agentic --agentic-format json --agentic-domain labels
 # Works identically for all 11 domain CLIs (mail, calendar, schedule, resume, phone,
 # whatsapp, desk, wifi, maker, apple_music, metals)
 ```
@@ -53,9 +53,9 @@ Agentic Shortcuts (LLM CLI)
 Familiarization: Reading Order
 ```
 1) .llm/CONTEXT.md, .llm/DOMAIN_MAP.md, README.md
-2) bin/mail-assistant → src/mail/__main__.py
+2) bin/mail → src/mail/__main__.py
 3) src/mail/dsl.py, src/mail/config_resolver.py, src/mail/utils/filters.py
-4) src/mail/providers/*.py, src/mail/gmail_api.py, src/mail/outlook_api.py
+4) src/mail/providers/*.py, src/mail/gmail_api.py, src/mail/outlook_api/
 5) tests/test_cli.py, tests/test_cli_filters.py, tests/test_workflows*.py
 ```
 
@@ -80,18 +80,18 @@ Familiarization: Large YAML/JSON Policy
 
 CLI Entry Pattern
 ```
-# bin/mail-assistant (preferred)
-./bin/mail-assistant labels export --out labels.yaml
-./bin/mail-assistant filters export --out filters.yaml
+# bin/mail (short name, preferred)
+./bin/mail labels export --out labels.yaml
+./bin/mail filters export --out filters.yaml
 ```
 
 Schedule Planning/Apply
 ```
-# bin/schedule-assistant (plan then apply; apply requires --apply)
+# bin/schedule (plan then apply; apply requires --apply)
 # Prefer writing outputs to out/ (tracked as needed)
-./bin/schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml
-./bin/schedule-assistant apply --plan out/schedule.plan.yaml --dry-run
-./bin/schedule-assistant apply --plan out/schedule.plan.yaml --apply --calendar "Your Family"
+./bin/schedule plan --source schedules/classes.csv --out out/schedule.plan.yaml
+./bin/schedule apply --plan out/schedule.plan.yaml --dry-run
+./bin/schedule apply --plan out/schedule.plan.yaml --apply --calendar "Your Family"
 ```
 
 Profile-Based Credentials
@@ -251,18 +251,18 @@ Plan/Apply Flow (Safe by Default)
 ```
 # Always: plan → dry-run → apply
 # Mail filters
-./bin/mail-assistant filters plan --config filters.yaml
-./bin/mail-assistant filters sync --config filters.yaml --dry-run
-./bin/mail-assistant filters sync --config filters.yaml
+./bin/mail filters plan --config filters.yaml
+./bin/mail filters sync --config filters.yaml --dry-run
+./bin/mail filters sync --config filters.yaml
 
 # Mail labels
-./bin/mail-assistant labels plan --config labels.yaml --delete-missing
-./bin/mail-assistant labels sync --config labels.yaml --dry-run
-./bin/mail-assistant labels sync --config labels.yaml
+./bin/mail labels plan --config labels.yaml --delete-missing
+./bin/mail labels sync --config labels.yaml --dry-run
+./bin/mail labels sync --config labels.yaml
 
 # Outlook rules
-./bin/mail-assistant outlook rules plan --config filters.outlook.yaml
-./bin/mail-assistant outlook rules sync --config filters.outlook.yaml --dry-run
+./bin/mail outlook rules plan --config filters.outlook.yaml
+./bin/mail outlook rules sync --config filters.outlook.yaml --dry-run
 ```
 
 Minimal Test (unittest)
@@ -440,15 +440,15 @@ from .constants import TEMP_PREFIXES, SECTION_PATTERNS
 Phone/iOS Patterns
 ```
 # Export → Plan → Checklist → Profile
-./bin/phone-assistant export --out out/ios.IconState.yaml
-./bin/phone-assistant plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
-./bin/phone-assistant checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml
-./bin/phone-assistant profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig
+./bin/phone export-device --out out/ios.IconState.yaml
+./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml
+./bin/phone checklist --plan out/ios.plan.yaml --layout out/ios.IconState.yaml
+./bin/phone profile build --plan out/ios.plan.yaml --out out/ios.mobileconfig
 
 # Analyze and prune unused apps
-./bin/phone-assistant analyze --layout out/ios.IconState.yaml
-./bin/phone-assistant unused --layout out/ios.IconState.yaml --limit 50
-./bin/phone-assistant prune --layout out/ios.IconState.yaml --mode offload
+./bin/phone analyze --layout out/ios.IconState.yaml
+./bin/phone unused --layout out/ios.IconState.yaml --limit 50
+./bin/phone prune --layout out/ios.IconState.yaml --mode offload
 ```
 
 Calendar Patterns

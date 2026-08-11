@@ -9,11 +9,11 @@ description: Shared project rules for all dancing-bear agents. Covers CLI conven
 
 Always use `./bin/<tool>` wrappers, never `python -m` directly:
 ```
-./bin/mail-assistant <subcommand> [flags]
-./bin/calendar-assistant <subcommand> [flags]
-./bin/schedule-assistant <subcommand> [flags]
+./bin/mail <subcommand> [flags]
+./bin/calendar <subcommand> [flags]
+./bin/schedule <subcommand> [flags]
 ./bin/phone <subcommand> [flags]
-./bin/resume <subcommand> [flags]
+./bin/assistant resume <subcommand> [flags]
 ./bin/whatsapp <subcommand> [flags]
 ./bin/workflow <subcommand> [flags]
 ./bin/worker <subcommand> [flags]
@@ -54,8 +54,8 @@ Never mutate state without first staging and previewing:
 
 ## 7. Testing
 
-- Framework: `unittest` (not pytest); run with `make test` or `python3 -m unittest -v`
-- Coverage: `coverage run -m unittest discover && coverage report`
+- Framework: `unittest` (not pytest); run with `make test` — never bare `python3 -m unittest` in a worktree (inherited `PYTHONPATH` resolves imports to the main checkout and yields false greens). Fallback: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`
+- Coverage: `make cov` (or `make cov-html`)
 - Patch where the name is **used**, not where it's **defined**
 - Use factories/fakes from `tests/fakes/`; never construct API response dicts manually
 

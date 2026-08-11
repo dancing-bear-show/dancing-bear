@@ -18,5 +18,5 @@ Profiles
 
 Testing
 - Use `unittest`; keep tests small/targeted for new CLI surfaces.
-- Run: `python3 -m unittest tests/test_cli.py -v`.
+- Run: `make test` or `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`
 
