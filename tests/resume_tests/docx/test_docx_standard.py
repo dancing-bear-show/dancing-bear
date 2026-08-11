@@ -247,18 +247,19 @@ class TestRenderContent(unittest.TestCase):
         # summary is in SECTIONS_WITH_KEYWORDS, so render called with keywords
         mock_renderer_instance.render.assert_called()
 
-    def test_renders_section_title_from_key_when_missing(self):
+    def test_skips_section_heading_when_no_renderer(self):
         data = {"name": "John", "skills": ["Python"]}
-        # Section has key but no explicit title
+        # Section has key but no registered renderer — heading must be suppressed.
         sections = [{"key": "skills"}]
         writer = self._make_writer_with_doc(data, sections)
         with patch("resume.docx_standard.SECTION_RENDERERS") as mock_renderers:
-            mock_renderers.get.return_value = None  # No renderer
+            mock_renderers.get.return_value = None  # No renderer for this key
             writer._render_content()
-        # Section heading should be rendered with "Skills" (title-cased key)
+        # No section heading should be rendered (only the name heading from the
+        # document header is allowed, but the name is not in data here).
         heading_calls = writer.doc.add_heading.call_args_list
         titles = [str(c) for c in heading_calls]
-        self.assertTrue(any("Skills" in t for t in titles))
+        self.assertFalse(any("Skills" in t for t in titles))
 
 
 if __name__ == "__main__":
