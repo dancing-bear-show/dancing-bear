@@ -5,8 +5,14 @@
 sections:
   - key: summary
     title: Profile
-    bulleted: false
-    max_sentences: 4
+    # Bulleted, matching every other template here: a profile is a list of
+    # distinct claims, and rendering it unbulleted runs them into one block of
+    # text with no visual boundary between them. max_sentences is deliberately
+    # unset — it counts sentences, so on a bulleted profile it silently drops
+    # whole bullets rather than trimming prose.
+    bulleted: true
+    plain_bullets: true
+    item_color: "#2E5090"
   - key: skills
     title: Core Abilities
     bullets: true
