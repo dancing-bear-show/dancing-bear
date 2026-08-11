@@ -37,5 +37,5 @@ class FakeOutlook:
         self.ensure_calendar_calls.append(name)
         return self.calendar_id
 
-    def list_events_in_range(self, params: Any) -> List[Dict[str, Any]]:  # noqa: ARG002
+    def list_events_in_range(self, _params: Any) -> List[Dict[str, Any]]:
         return list(self.events)

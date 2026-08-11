@@ -240,7 +240,6 @@ class TestTranscriptParseProcessorHappyPath(unittest.TestCase):
         # _produce_success with fmt=json writes to sys.stdout (legacy _emit_rows path)
         buf = io.StringIO()
         with patch("sys.stdout", buf):
-            from telemetry.parse_transcripts import TranscriptParseProducer
             writer, _ = _make_output_writer()
             producer = TranscriptParseProducer(writer=writer)
             producer._produce_success(result, {"fmt": "json"})  # noqa: SLF001

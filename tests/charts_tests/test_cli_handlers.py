@@ -385,7 +385,7 @@ class TestHandleRender(unittest.TestCase):
         mock_writer.print.side_effect = lambda s: captured.append(s)
 
         spec = MagicMock()
-        fake_path = Path("/tmp/out.png")
+        fake_path = Path("/tmp/out.png")  # nosec B108 - test string only
 
         with (
             patch("charts.cli._require_matplotlib"),
@@ -405,7 +405,7 @@ class TestHandleRender(unittest.TestCase):
 
         mock_writer = MagicMock()
         spec = MagicMock()
-        fake_path = Path("/tmp/chart.png")
+        fake_path = Path("/tmp/chart.png")  # nosec B108 - test string only
 
         with (
             patch("charts.cli._require_matplotlib"),
@@ -416,11 +416,11 @@ class TestHandleRender(unittest.TestCase):
         ):
             _handle_render(self._make_args(), writer=mock_writer)
 
-        mock_writer.print.assert_called_once_with("/tmp/chart.png")
+        mock_writer.print.assert_called_once_with("/tmp/chart.png")  # nosec B108 - test string only
         # bare print should NOT have been called for the path output
         # (it may still be called for error paths, but not the success path)
         path_calls = [c for c in mock_print.call_args_list
-                      if "/tmp/chart.png" in str(c)]
+                      if "/tmp/chart.png" in str(c)]  # nosec B108 - test string only
         self.assertEqual(len(path_calls), 0)
 
     def test_default_writer_created_when_none(self):
@@ -428,7 +428,7 @@ class TestHandleRender(unittest.TestCase):
         from charts.cli import _handle_render
 
         spec = MagicMock()
-        fake_path = Path("/tmp/out.png")
+        fake_path = Path("/tmp/out.png")  # nosec B108 - test string only
 
         with (
             patch("charts.cli._require_matplotlib"),
@@ -448,7 +448,7 @@ class TestHandleRender(unittest.TestCase):
 
         mock_writer = MagicMock()
         spec = MagicMock()
-        fake_path = Path("/tmp/out.svg")
+        fake_path = Path("/tmp/out.svg")  # nosec B108 - test string only
 
         with (
             patch("charts.cli._require_matplotlib"),
@@ -482,7 +482,7 @@ class TestHandleGrid(unittest.TestCase):
         from charts.config import GridConfig, PanelConfig
         return GridConfig(
             title="Grid",
-            output="/tmp/grid_out.png",
+            output="/tmp/grid_out.png",  # nosec B108 - test string only
             rows=1,
             cols=1,
             panels=[PanelConfig(input="panel.json", row=0, col=0)],
@@ -498,7 +498,7 @@ class TestHandleGrid(unittest.TestCase):
 
         mock_writer = MagicMock()
         cfg = self._make_grid_cfg()
-        fake_path = Path("/tmp/grid_out.png")
+        fake_path = Path("/tmp/grid_out.png")  # nosec B108 - test string only
         spec = MagicMock()
 
         with (
@@ -519,7 +519,7 @@ class TestHandleGrid(unittest.TestCase):
 
         mock_writer = MagicMock()
         cfg = self._make_grid_cfg()
-        fake_path = Path("/tmp/grid.png")
+        fake_path = Path("/tmp/grid.png")  # nosec B108 - test string only
         spec = MagicMock()
 
         with (
@@ -531,9 +531,9 @@ class TestHandleGrid(unittest.TestCase):
         ):
             _handle_grid(self._make_args(), writer=mock_writer)
 
-        mock_writer.print.assert_called_once_with("/tmp/grid.png")
+        mock_writer.print.assert_called_once_with("/tmp/grid.png")  # nosec B108 - test string only
         path_calls = [c for c in mock_print.call_args_list
-                      if "/tmp/grid.png" in str(c)]
+                      if "/tmp/grid.png" in str(c)]  # nosec B108 - test string only
         self.assertEqual(len(path_calls), 0)
 
     def test_default_writer_created_when_none(self):
@@ -541,7 +541,7 @@ class TestHandleGrid(unittest.TestCase):
         from charts.cli import _handle_grid
 
         cfg = self._make_grid_cfg()
-        fake_path = Path("/tmp/grid.png")
+        fake_path = Path("/tmp/grid.png")  # nosec B108 - test string only
         spec = MagicMock()
 
         with (

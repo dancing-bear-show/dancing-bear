@@ -109,7 +109,7 @@ class TestLocalRendererRunNonZeroExit(unittest.TestCase):
 class TestRenderDiagramProcessorSadPaths(unittest.TestCase):
     """Each distinct raise site in _process_safe surfaces as a CLIError envelope."""
 
-    def _make_request(self, output: str = "/tmp/out.svg") -> "RenderRequest":
+    def _make_request(self, output: str = "/tmp/out.svg") -> "RenderRequest":  # nosec B108 - test string only
         from diagrams.renderers import RenderRequest
 
         return RenderRequest(source="flowchart LR\n    A-->B", output=output)
@@ -309,7 +309,7 @@ class TestRenderPipelineIntegration(unittest.TestCase):
         from core.pipeline import run_pipeline
         from diagrams.renderers import LocalRendererError, RenderDiagramProcessor, RenderDiagramProducer, RenderRequest
 
-        request = RenderRequest(source="flowchart LR\n    A-->B", output="/tmp/out.svg")
+        request = RenderRequest(source="flowchart LR\n    A-->B", output="/tmp/out.svg")  # nosec B108 - test string only
 
         with patch("diagrams.renderers.LocalRenderer", side_effect=LocalRendererError("mmdc missing")):
             err_buf = StringIO()
