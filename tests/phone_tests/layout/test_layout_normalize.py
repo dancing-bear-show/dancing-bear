@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from phone.layout import (
+from phone.layout_normalize import (
     NormalizedLayout,
     _extract_bundle_id,
     _flatten_folder_iconlists,

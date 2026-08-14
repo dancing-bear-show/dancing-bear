@@ -1,7 +1,7 @@
 """Shared test fixtures for wifi tests."""
 from __future__ import annotations
 
-from wifi.diagnostics import CommandResult, CommandRunner
+from wifi.diagnostics_runners import CommandResult, CommandRunner
 
 
 class FakeRunner(CommandRunner):

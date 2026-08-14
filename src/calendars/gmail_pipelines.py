@@ -11,10 +11,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from core.pipeline import SafeProcessor
+from core.text_utils import extract_email_address, html_to_text, to_24h
 
 from .gmail_service import GmailService, QueryParams
-from .text_utils import to_24h, extract_email_address
-from core.text_utils import html_to_text
 from .scan_common import (
     RANGE_PAT,
     MONTH_MAP,
@@ -233,7 +232,7 @@ class GmailReceiptsProcessor(SafeProcessor[GmailReceiptsRequest, GmailScanResult
 
 class GmailScanProducer(BaseProducer):
     def _produce_success(self, payload: GmailScanResult, diagnostics: dict[str, Any] | None) -> None:
-        from calendars.yamlio import dump_config
+        from core.yamlio import dump_config
 
         dump_config(str(payload.out_path), payload.document)
         events = payload.document.get("events", [])
@@ -360,7 +359,7 @@ class GmailScanClassesProducer(BaseProducer):
             return
         self._writer.print(f"Found {len(events)} candidate recurring class entries from {payload.message_count} messages.")
         if payload.out_path:
-            from calendars.yamlio import dump_config
+            from core.yamlio import dump_config
 
             dump_config(str(payload.out_path), {"events": events})
             self._writer.print(f"Wrote plan to {payload.out_path}")
@@ -530,7 +529,7 @@ class GmailSweepTopProducer(BaseProducer):
         for sender, count in top:
             self._writer.print(f"- {sender}: {count}")
         if payload.out_path:
-            from calendars.yamlio import dump_config
+            from core.yamlio import dump_config
 
             filters = []
             for sender, _ in top:

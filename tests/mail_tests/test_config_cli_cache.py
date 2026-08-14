@@ -11,7 +11,7 @@ from unittest import TestCase
 from tests.fixtures import test_path
 from core.pipeline import ResultEnvelope
 
-from mail.config_cli.pipeline import (
+from mail.config_cli.pipeline_cache import (
     # Cache stats
     CacheStatsRequest,
     CacheStatsRequestConsumer,

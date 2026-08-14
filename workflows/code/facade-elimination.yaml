@@ -1,0 +1,830 @@
+name: facade-elimination
+version: "1.0"
+description: >
+  Eliminate re-export facades and compatibility shims left behind by past
+  decompose splits. Rediscovers pure facade modules via AST, classifies them by
+  caller profile, repoints every call site (including unittest.mock.patch target
+  strings) to the real implementation module, deletes the shim, then verifies
+  with tests, import validation, and lint.
+
+  This is the inverse of decompose-sweep: that workflow creates shims as a
+  deliberate intermediate step, this one collects the debt. Per project rules,
+  internal APIs carry no backwards-compatible wrappers — call sites are updated
+  atomically instead.
+
+  A facade is a module whose top level contains ONLY imports, __all__, and
+  alias assignments — no function defs, no class defs, no executable logic.
+  Package __init__.py files are excluded by default: their re-exports are the
+  legitimate public API surface, not leftover shims.
+
+  Shim chains (facade A re-exporting from facade B) are collapsed bottom-up so
+  each call site is rewritten exactly once.
+
+  Stage dependency graph:
+
+    discover-facades
+          |
+    classify-and-plan  [human gate]
+          |
+    eliminate-domains × N  (parallel fan-out per domain group)
+          |
+    verify-tests
+          |
+    validate-no-facades
+          |
+    apply-corrections (optional)
+          |
+    recheck
+          |
+    human-gate
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-14"
+
+trigger:
+  source: manual
+  params:
+    domains: "*"                  # comma-list of domains to include, or "*" for all
+    include_init: "false"         # "true" to also treat package __init__.py as facades
+    min_callers: "0"              # skip facades with more than this many src callers ("0" = no limit)
+    pr_title: "chore: eliminate re-export facades and repoint call sites"
+
+workspace_dir: "{work_dir}/facade-elimination"
+
+stages:
+
+  # ===========================================================================
+  # G0: Discover facades — AST scan, no heuristics on line counts
+  # ===========================================================================
+
+  - name: discover-facades
+    kind: gather
+    depends_on: []
+    description: >
+      Find every pure re-export facade in src/ using an AST parse, then map each
+      one's callers. Do not modify any file in this stage.
+
+      Step 1 — run the detector.
+        The detector already exists and is validated:
+          PYTHONPATH="$PWD/src" python3 workflows/code/scripts/detect_facades.py \
+            > {workspace}/analysis/facades.json
+        Env overrides: INCLUDE_INIT={include_init}  DOMAINS={domains}
+
+        Copy it to {workspace}/analysis/detect_facades.py so validate-no-facades
+        re-runs the byte-identical script rather than a reimplementation.
+
+        Do NOT rewrite it from scratch. Its resolver handles four binding forms
+        that a naive implementation misses — each was a real miss found during a
+        dry run against this repo:
+          - `from __future__ import annotations` is a compiler directive, not a
+            re-exported symbol; counting it inflates the unresolved tally.
+          - AnnAssign constants (`ALL_VENDORS: List[X] = [...]`) define a symbol
+            just as much as a plain Assign.
+          - Assignments nested in try/except ImportError fallbacks (e.g.
+            worker.queue_ops.QUEUE_ROOT) are invisible to a tree.body-only walk.
+          - Attribute alias re-exports (`main = _core_llm_cli.main`) bound via
+            EITHER `import x as _x` or `from pkg import mod as _x`.
+        Against the current tree it resolves 797/797 symbols with 0 unresolved.
+
+        For reference, the detection rule it implements — for each file, parse
+        with ast.parse and walk ONLY tree.body (top-level nodes):
+
+          - ast.Expr wrapping ast.Constant  -> docstring, ignore
+          - ast.Import / ast.ImportFrom     -> count as import, collect names
+          - ast.FunctionDef / AsyncFunctionDef / ClassDef -> count as "def"
+          - ast.Assign to __all__           -> ignore
+          - ast.Assign/AnnAssign whose value is ast.Name or ast.Attribute
+                                            -> alias re-export, collect
+          - anything else                   -> count as "other"
+
+        A file is a PURE FACADE when: imports > 0 AND defs == 0 AND other == 0.
+
+        Skipping `if TYPE_CHECKING:` blocks is NOT safe here — count them as
+        "other" so guarded modules are excluded from the pure-facade set.
+
+        Unless {include_init} is "true", exclude files named __init__.py — a
+        package __init__ that re-exports is the intended public API, not a shim.
+
+        If {domains} is not "*", restrict to the listed domain directories.
+
+      Step 2 — resolve each facade's dotted module path.
+        src/mail/llm_cli.py -> mail.llm_cli
+        Strip the src/ prefix, drop .py, replace / with dots.
+
+      Step 3 — count callers per facade, via AST — NEVER by string grep.
+        A grep for `from <dotted.module> import` is relative-import-blind:
+        `from .text_utils import x` inside src/calendars/importer/ targets
+        calendars.importer.text_utils but shares no substring with it. It also
+        misses lazy imports nested inside function bodies.
+
+        This is not hypothetical. On the first run of this workflow a
+        grep-based count labelled 7 facades "zero callers — safe to delete
+        outright". Every one of them had real callers; the true count of dead
+        facades in this repo was ZERO. Deleting on that signal would have
+        broken the build in 7 places, and a per-domain test run would not
+        necessarily have caught it — a missed relative import in a module no
+        test imports fails silently.
+
+        Resolve every import to an absolute module with ast.walk (NOT
+        tree.body — lazy in-function imports live deeper). THREE binding forms
+        must all be handled; each was a separate real miss on the first run:
+
+          a. Relative imports — resolve ImportFrom.level:
+               level=0 -> node.module is already absolute
+               level=N -> walk N-1 packages up from the importing file's
+                          package, then join node.module
+             `from .text_utils import x` in src/calendars/importer/ targets
+             calendars.importer.text_utils.
+
+          b. Lazy in-function imports — reached only by ast.walk, not tree.body.
+
+          c. Namespace-alias submodule imports:
+               from worker import queue as q     -> targets worker.queue
+               import mail.llm_cli as mod        -> targets mail.llm_cli
+             For ImportFrom, node.module is the PARENT package ("worker"), so
+             comparing node.module alone never matches the facade. Also test
+             `f"{node.module}.{alias.name}"` against the facade set.
+
+        Exclude the facade's own file. Record src_callers, test_callers,
+        bin_callers, and the resolved file list.
+
+        Form (c) carries a knock-on hazard: callers use the alias as `q.enqueue`,
+        and patch strings then read "worker.job_runtime.q.counts". Rewriting the
+        alias silently invalidates those strings. After any alias rewrite,
+        re-grep string literals for the alias, not just the module name.
+
+        Treat "zero callers" as a claim to disprove, not a green light: before
+        deleting any facade on that basis, re-verify it independently.
+
+      Step 4 — find mock.patch target strings.
+        Facade names also appear inside patch() strings, which a plain import
+        grep misses and which break silently at runtime rather than at import:
+          grep -rnE "(patch|patch\.object)\([\"']M\." tests src
+        Record every hit as a patch_target for that facade.
+
+        ESCAPE THE DOTS. In an extended-regex grep, `.` matches any character,
+        so an unescaped "worker.queue" also matches the unrelated literal
+        "worker_queue" — which in this repo is a workflow executor-mode string
+        living in the very files that hold the real worker.queue patch targets.
+        The false hits are then indistinguishable from the true ones. Use
+        re.escape (the detector script does) or grep -F for fixed strings.
+
+      Step 5 — detect shim chains.
+        For each facade F, check whether any module F imports from is ITSELF in
+        the facade set. If so record chain_parent/chain_child. Compute a
+        chain_depth per facade: 0 if it imports only real modules, else
+        1 + max(depth of its facade children).
+
+      Step 6 — locate the real implementation for each re-exported symbol.
+        For each facade, resolve each name it re-exports to the terminal module
+        that actually defines it, following chains all the way down. Record as
+        a symbol -> real_module map. This map is what the fan-out stage uses to
+        rewrite imports, so it must be complete.
+
+      Step 7 — write {workspace}/analysis/facades.json:
+        {
+          "scanned_at": "<ISO-8601 timestamp>",
+          "include_init": {include_init},
+          "total_facades": N,
+          "facades": [
+            {
+              "module": "wifi.diagnostics",
+              "path": "src/wifi/diagnostics.py",
+              "domain": "wifi",
+              "names_reexported": 46,
+              "src_callers": 0,
+              "test_callers": 8,
+              "bin_callers": 0,
+              "caller_files": ["tests/wifi_tests/test_wifi_diag.py"],
+              "patch_targets": ["tests/wifi_tests/test_wifi_diag.py:41"],
+              "chain_depth": 1,
+              "chain_children": ["wifi.diagnostics_checks"],
+              "symbol_map": {
+                "run_diagnosis": "wifi.diagnostics_probes",
+                "format_report": "wifi.diagnostics_report"
+              }
+            }
+          ]
+        }
+
+      If no facades are found, write facades.json with an empty array and a note
+      "no re-export facades detected".
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    outputs:
+      - name: facades
+        mode: generate
+        description: >
+          facades.json written to {workspace}/analysis/ with one entry per pure
+          facade, including caller counts, patch targets, chain depth, and a
+          symbol -> real module map.
+    required: true
+    writes_to:
+      - analysis/detect_facades.py
+      - analysis/facades.json
+
+  # ===========================================================================
+  # G1: Classify and plan — tier by caller profile, group by domain, human gate
+  # ===========================================================================
+
+  - name: classify-and-plan
+    kind: propose
+    depends_on: [discover-facades]
+    reads_from: [discover-facades]
+    description: >
+      Read analysis/facades.json, assign each facade an elimination tier, group
+      into domain batches, and present the plan for approval before any file is
+      touched.
+
+      Tiers (assign the first that fits):
+
+        DEAD — src_callers == 0 AND test_callers == 0 AND bin_callers == 0
+          AND patch_targets is empty.
+          Action: delete the file. No call-site edits needed.
+          Still check for stale docstring/comment references elsewhere naming
+          the deleted module and fix those in the same pass.
+
+          TREAT THIS TIER WITH SUSPICION. On the first run of this workflow
+          every single facade assigned to it was misclassified — the caller
+          counts came from a relative-import-blind grep. Genuinely dead
+          facades are rare: a module nothing imports usually would have been
+          deleted already. Before deleting, independently re-verify zero
+          callers with the AST method from discover-facades Step 3. If the
+          re-check finds callers, reclassify and handle it as that tier.
+
+        TEST-ONLY — src_callers == 0 AND bin_callers == 0, test_callers > 0.
+          Action: repoint test imports and patch strings to the real module,
+          then delete the shim.
+
+        SRC-CALLERS — src_callers > 0.
+          Action: repoint src imports first, then tests, then delete the shim.
+          Higher blast radius; sequence carefully within the domain agent.
+
+        DEFER — do not eliminate now. Valid reasons ONLY:
+          - bin_callers > 0: a public CLI entry point imports it. Public CLI
+            surfaces are frozen per project rules.
+          - The module is re-exported by a package __init__.py that forms a
+            documented public API.
+          - Removing it would require renaming a symbol rather than moving an
+            import (that is a different change, out of scope here).
+          - {min_callers} is non-zero and src_callers exceeds it.
+          Record the reason. Do not attempt.
+
+      Ordering rule — chains collapse bottom-up.
+        Within each domain, sort facades by chain_depth ASCENDING so the
+        innermost shim is eliminated first. Rewriting an outer shim before its
+        child means editing the same call sites twice.
+
+      Domain grouping.
+        Bucket all non-DEFER facades by domain. Each bucket is one fan-out slot.
+        Same-domain facades go to the same agent so import edits cannot race.
+        A facade whose caller_files touch a DIFFERENT domain must be flagged
+        cross_domain: true — the owning agent edits those foreign call sites,
+        so no two agents may claim the same caller file. If two domains would
+        both need to edit one file, assign that file to exactly one agent and
+        note the assignment explicitly in the plan.
+
+      Write {workspace}/design/plan.md:
+
+        ## Facade Elimination Plan
+        Facades found: N   To eliminate: N   Deferred: N
+
+        ### Tier 1 — Dead (delete outright)
+        | Module | Path | Names | Chain Depth |
+        |--------|------|-------|-------------|
+
+        ### Tier 2 — Test-only callers
+        | Module | Names | Test Callers | Patch Targets | Real Modules |
+        |--------|-------|--------------|---------------|--------------|
+
+        ### Tier 3 — Src callers
+        | Module | Names | Src | Test | Real Modules |
+        |--------|-------|-----|------|--------------|
+
+        ### Deferred
+        | Module | Reason |
+        |--------|--------|
+
+        ### Shim Chains
+        Render each chain as: outer -> inner -> real, with the collapse order.
+
+        ### Cross-Domain Call Sites
+        | Caller File | Owning Agent Domain |
+        |-------------|---------------------|
+
+      Write {workspace}/design/domain-groups.json:
+        {
+          "items": [
+            {
+              "domain": "wifi",
+              "facades": [
+                {
+                  "module": "wifi.diagnostics_checks",
+                  "path": "src/wifi/diagnostics_checks.py",
+                  "tier": "DEAD",
+                  "chain_depth": 0,
+                  "caller_files": [],
+                  "patch_targets": [],
+                  "symbol_map": {}
+                }
+              ]
+            }
+          ]
+        }
+        The "items" key at the top level is required — it is the fan_out source
+        for eliminate-domains. Within each domain, "facades" MUST already be
+        sorted by chain_depth ascending.
+
+      Write {workspace}/telemetry/run-metrics.json (seed):
+        {
+          "facades_discovered": N,
+          "by_tier": { "DEAD": N, "TEST_ONLY": N, "SRC_CALLERS": N, "DEFER": N },
+          "by_domain": { "<domain>": { "facades": N, "deferred": N } },
+          "chains_found": N,
+          "max_chain_depth": N,
+          "total_names_reexported": N,
+          "deferred": [ { "module": "...", "reason": "..." } ],
+          "eliminated": null,
+          "failed": null,
+          "call_sites_rewritten": null,
+          "start_time": "<ISO-8601 timestamp>",
+          "end_time": null
+        }
+
+      Present the plan. Ask the user:
+        A) Approve — proceed with the eliminate-domains fan-out
+        B) Adjust — specify facades to exclude or tier overrides
+        C) Abort — stop without modifying anything
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    human_gate: true
+    required: true
+    writes_to:
+      - design/plan.md
+      - design/domain-groups.json
+      - telemetry/run-metrics.json
+
+  # ===========================================================================
+  # G2: Eliminate domains — parallel fan-out, one code-writer per domain
+  # ===========================================================================
+
+  - name: eliminate-domains
+    kind: execute
+    depends_on: [classify-and-plan]
+    reads_from: [classify-and-plan]
+    description: >
+      Fan out: spawn one code-writer agent per domain in
+      {workspace}/design/domain-groups.json. Domain agents run in parallel.
+
+      Each agent handles every facade for its assigned {domain}, processing them
+      in the order given (already sorted by chain_depth ascending — do not
+      reorder).
+
+      Step 1 — read the approved plan.
+        Read {workspace}/design/plan.md for this domain's rows.
+        Read {workspace}/design/domain-groups.json for the facade list, tiers,
+        caller files, patch targets, and symbol maps.
+        Note the cross-domain assignment table — only edit foreign call sites
+        this domain has been explicitly assigned.
+
+      Step 2 — per facade, by tier:
+
+        DEAD:
+          a. Re-confirm zero callers before deleting (the plan may be stale if
+             an earlier facade in this same batch was just rewritten):
+               grep -rnE "(from|import)[[:space:]]+<module>\b" src tests bin
+               grep -rnE "(patch|patch\.object)\([\"']<module>\." src tests
+          b. If either grep now returns hits, do NOT delete — reclassify to the
+             matching tier and handle it as such.
+          c. If still clean: git rm the file (use git rm, not a bare delete, so
+             the removal is staged).
+          d. grep for stale prose references and fix them:
+               grep -rn "<module>" src tests workflows .llm --include="*.py" --include="*.md" --include="*.yaml"
+             Docstrings and comments naming the deleted module must be updated
+             to name the real module instead. Ignore egg-info/SOURCES.txt — it
+             is generated build metadata and regenerates on install.
+
+        TEST-ONLY and SRC-CALLERS (same mechanics, different ordering):
+          a. For each caller file, rewrite each import of the facade into an
+             import from the real defining module, using symbol_map.
+             Before:  from wifi.diagnostics import run_diagnosis, format_report
+             After:   from wifi.diagnostics_probes import run_diagnosis
+                      from wifi.diagnostics_report import format_report
+             One symbol may resolve to a different module than its neighbours —
+             split a single import into several when symbol_map says so.
+             Preserve relative-vs-absolute import style already used in the file.
+             Merge with an existing import from the same real module rather than
+             adding a duplicate import line.
+
+          b. Rewrite every patch target string for this facade:
+             Before:  patch("mail.accounts.pipeline.fetch_accounts")
+             After:   patch("mail.accounts.pipeline_fetch.fetch_accounts")
+             This is the highest-risk edit in the workflow: a stale patch string
+             raises AttributeError at call time, not import time, so a test can
+             still pass while silently patching nothing. Grep for the facade
+             name inside ALL string literals, not just patch() calls:
+               grep -rn "\"<module>\.\|'<module>\." tests src
+
+          c. For SRC-CALLERS: rewrite src/ call sites BEFORE tests/, so an
+             intermediate state never has tests pointing at a module that src
+             no longer reaches.
+
+          d. Re-grep to confirm zero remaining references:
+               grep -rnE "(from|import)[[:space:]]+<module>\b" src tests bin
+               grep -rn "\"<module>\.\|'<module>\." src tests
+             Both must return nothing before deletion.
+
+          e. git rm the facade file.
+
+          f. Smoke-check each rewritten caller module imports cleanly:
+               PYTHONPATH="$PWD/src" python3 -c "import <caller_module>"
+
+      Step 3 — never do these:
+        - Do not rename any symbol. This workflow only moves import statements.
+        - Do not touch bin/* entry wrappers.
+        - Do not add a new re-export anywhere. Replacing one shim with another
+          defeats the entire purpose of the run.
+        - Do not use bare `git stash`; the stash stack is shared across worktrees.
+
+      Step 4 — write {workspace}/outputs/<domain>-elimination.md:
+        ## <domain> Facade Elimination
+        | Facade | Tier | Call Sites Rewritten | Patch Strings Fixed | Deleted | Import Check |
+        |--------|------|---------------------|--------------------|---------|--------------|
+        | wifi.diagnostics | TEST-ONLY | 8 | 3 | yes | PASS |
+
+        ### Reclassified
+        Any facade whose tier changed at Step 2a, with the new tier and why.
+
+        ### Skipped
+        Any facade not eliminated, with the blocker.
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Write, Edit, Bash]
+      access: read-write
+    required: true
+    fan_out:
+      source: classify-and-plan
+      field: items
+      key: domain
+      mode: agent
+    outputs:
+      - name: domain_eliminations
+        mode: generate
+        description: >
+          Per-domain elimination summary at {workspace}/outputs/<domain>-elimination.md
+          listing facades removed, call sites rewritten, patch strings fixed, and
+          per-facade import check status.
+    writes_to:
+      - outputs/{domain}-elimination.md
+
+  # ===========================================================================
+  # G3: Verify tests — full suite plus per-domain runs, fix up to 3 cycles
+  # ===========================================================================
+
+  - name: verify-tests
+    kind: validate
+    depends_on: [eliminate-domains]
+    reads_from: [eliminate-domains]
+    description: >
+      Confirm the test suite still passes after every facade removal.
+
+      CRITICAL — always use `make test` or an explicit PYTHONPATH. A bare
+      `python3 -m unittest` in a worktree can resolve mail/core/worker to the
+      MAIN checkout's source via an inherited PYTHONPATH, producing a false
+      green against unmodified code. That failure mode is invisible: the run
+      looks identical to a real pass. Deleting a module is exactly the change
+      this masks, since the main checkout still has the shim.
+
+      Step 0 — prove the environment resolves to this checkout:
+        make check-env
+        If it fails, stop and report — every downstream result is meaningless.
+
+      Step 1 — identify touched domains from {workspace}/outputs/*-elimination.md.
+
+      Step 2 — full suite first (facade removal is cross-cutting; a per-domain
+      run cannot see a caller in another domain):
+        make test 2>&1 | tail -30
+
+      Step 3 — per-domain runs for any failure triage:
+        Resolve the domain's test directory and RECORD it (later stages reuse
+        this exact path, do not re-derive):
+          - tests/<domain>_tests/  else  tests/<domain>/  else
+            flat tests/test_<domain>*.py
+        Run:
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <resolved_dir> -p "test_*.py" -q 2>&1
+
+      Step 4 — fix failures, up to 3 cycles per domain:
+        - ImportError / ModuleNotFoundError naming a deleted facade: a call site
+          was missed. Repoint it to the real module.
+        - AttributeError inside a patch: a stale patch target string. Fix the
+          string to name the real module.
+        - Any test that patched a facade path and now patches nothing: verify
+          the patch actually binds by asserting the mock was called, not just
+          that the test passes.
+        - After each fix, re-run that domain, then re-run `make test`.
+        - Still failing after 3 cycles: mark FAIL with the blocker and continue
+          to other domains rather than aborting.
+
+      Step 5 — write {workspace}/validation/test-results.md:
+        | Domain | Test Dir | Tests Run | Status | Notes |
+        |--------|----------|-----------|--------|-------|
+        check-env: PASS|FAIL
+        Full suite: PASS|FAIL
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash]
+      access: read-write
+    validation:
+      strategy: deliverable
+      criteria:
+        - make check-env passes (imports resolve to this checkout, not the main one)
+        - make test exits 0
+        - No ImportError or ModuleNotFoundError referencing a deleted facade
+        - No test silently patching a module path that no longer exists
+      max_revisions: 3
+    required: true
+    writes_to:
+      - validation/test-results.md
+
+  # ===========================================================================
+  # G4: Validate no facades remain — re-run detector, confirm zero references
+  # ===========================================================================
+
+  - name: validate-no-facades
+    kind: validate
+    depends_on: [verify-tests]
+    reads_from: [verify-tests, eliminate-domains, discover-facades]
+    description: >
+      Independently confirm the facades are gone, nothing still references them,
+      and no new facade was introduced as a replacement.
+
+      Step 1 — re-run the SAME detector script from discover-facades:
+        PYTHONPATH="$PWD/src" python3 {workspace}/analysis/detect_facades.py \
+          > {workspace}/validation/facades-after.json
+        Use the copy in the workspace, not a fresh implementation — an
+        independently rewritten detector would not be comparable to the before set.
+        Diff against {workspace}/analysis/facades.json.
+        Every non-DEFER facade from the plan must be absent from the after set.
+        Any facade present in the after set but NOT in the before set is a
+        regression — an agent replaced a shim with another shim. Flag it loudly.
+
+      Step 2 — confirm each eliminated module is unreferenced:
+        For each module listed as deleted in {workspace}/outputs/*-elimination.md:
+          grep -rnE "(from|import)[[:space:]]+<module>\b" src tests bin
+          grep -rn "\"<module>\.\|'<module>\." src tests
+          test -e <path> && echo "STILL EXISTS"
+        All three must come back empty.
+
+      Step 3 — verify patch targets actually bind.
+        A rewritten patch string that names a nonexistent attribute fails only
+        when the patch executes. For each patch_target recorded in
+        analysis/facades.json, resolve its NEW string and confirm the attribute
+        exists:
+          PYTHONPATH="$PWD/src" python3 -c "import importlib; m=importlib.import_module('<mod>'); assert hasattr(m,'<attr>'), '<mod>.<attr> missing'"
+
+      Step 4 — confirm public CLI surfaces are intact:
+        make bin-wrappers-check
+        Plus, for each domain touched, confirm the agentic schema still builds:
+          ./bin/<wrapper> --agentic --agentic-format json > /dev/null
+        A facade removal that breaks a CLI entry point is a blocking regression.
+
+      Step 5 — qlty lint on all modified files.
+        Enumerate modified files from git:
+          git diff --name-only HEAD -- '*.py'
+        Run qlty from a path OUTSIDE .claude/ — .qlty/qlty.toml excludes
+        **/.claude/**, so a scan from inside a worktree returns an empty result
+        that looks clean but is actually excluded:
+          ~/.qlty/bin/qlty check <files>
+        Treat a suspiciously empty result as a broken environment, not a pass.
+
+      Step 6 — write {workspace}/validation/facade-check.json:
+        {
+          "detector_rerun": {
+            "facades_before": N,
+            "facades_after": N,
+            "eliminated": ["wifi.diagnostics"],
+            "regressions": [],
+            "still_present_unexpectedly": []
+          },
+          "dangling_references": [],
+          "patch_targets_verified": [
+            { "target": "mail.accounts.pipeline_fetch.fetch_accounts", "binds": true }
+          ],
+          "cli_surface": { "bin_wrappers": "PASS", "agentic_schemas": "PASS" },
+          "qlty_issues": [],
+          "qlty_scan_nonempty": true,
+          "overall": "PASS|ISSUES"
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write]
+      access: read-only
+    validation:
+      strategy: unit
+      criteria:
+        - Every planned facade is absent from the re-run detector output
+        - No new facade was introduced (no regressions vs. the before set)
+        - Zero dangling imports or string references to deleted modules
+        - Every rewritten patch target resolves to a real attribute
+        - bin wrappers and agentic schemas still build
+        - qlty scan returned a non-empty result set and reported no new issues
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/facades-after.json
+      - validation/facade-check.json
+
+  # ===========================================================================
+  # G5: Apply corrections — fix residual failures, complete telemetry
+  # ===========================================================================
+
+  - name: apply-corrections
+    kind: execute
+    depends_on: [validate-no-facades]
+    reads_from: [validate-no-facades, verify-tests]
+    description: >
+      Fix anything validate-no-facades or verify-tests left unresolved, then
+      complete the telemetry record.
+
+      Step 1 — decide whether corrections are needed.
+        Read {workspace}/validation/facade-check.json and
+        {workspace}/validation/test-results.md.
+        If overall == "PASS" and no domain is FAIL: write "no corrections needed"
+        to {workspace}/validation/corrections-applied.md and skip to Step 5.
+
+      Step 2 — fix dangling references.
+        For each entry in dangling_references: repoint the import or string to
+        the real module, then re-grep to confirm it is gone.
+
+      Step 3 — fix non-binding patch targets.
+        For each patch target with binds == false: resolve where the symbol
+        actually lives and correct the string. Then confirm the owning test
+        genuinely exercises the mock (assert it was called) rather than passing
+        vacuously.
+
+      Step 4 — fix test failures.
+        For each FAIL domain, re-run using the Test Dir recorded in
+        test-results.md — do NOT re-derive the path:
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <recorded_dir> -q 2>&1
+        Up to 2 further fix cycles per domain. Re-run `make test` after each.
+
+      Step 5 — handle any regression facade.
+        If validate-no-facades flagged a newly introduced facade, remove it and
+        repoint its callers to the real module. Never leave a replacement shim.
+
+      Step 6 — update {workspace}/telemetry/run-metrics.json:
+        eliminated: count of facades actually deleted
+        failed: count still present after corrections
+        call_sites_rewritten: total import statements + patch strings edited,
+          summed from the per-domain elimination tables
+        end_time: current ISO-8601 timestamp
+
+      Step 7 — write {workspace}/validation/corrections-applied.md:
+        ## Corrections Applied
+        | Issue | File | Fix | Result |
+        |-------|------|-----|--------|
+
+        ## Telemetry
+        eliminated: N   failed: N   call_sites_rewritten: N
+    agent:
+      role: code-writer
+      model: sonnet
+      tools: [Read, Edit, Bash, Write]
+      access: read-write
+    required: false
+    outputs:
+      - name: corrections
+        mode: generate
+        description: >
+          Corrections applied (or "no corrections needed") at
+          {workspace}/validation/corrections-applied.md, with telemetry
+          completed at {workspace}/telemetry/run-metrics.json.
+    writes_to:
+      - validation/corrections-applied.md
+      - telemetry/run-metrics.json
+
+  # ===========================================================================
+  # G6: Recheck — final green-light before the human gate
+  # ===========================================================================
+
+  - name: recheck
+    kind: validate
+    depends_on: [apply-corrections]
+    reads_from: [apply-corrections]
+    description: >
+      Final full-suite test and lint pass over everything modified.
+
+      Step 1 — environment sanity, then full suite:
+        make check-env
+        make test 2>&1 | tail -30
+        If exit != 0: write the failure output to
+        {workspace}/validation/recheck-test-failure.txt, attempt one targeted
+        fix, re-run once. If still failing, set test_status FAIL and document
+        the blocker — the human gate decides whether to proceed.
+
+      Step 2 — coverage sanity.
+        Deleting a facade removes lines that reported as ~100% covered simply
+        because importing the package executed them. Total coverage percentage
+        may therefore MOVE without any real change in tested behaviour. Record
+        the before/after number and note this explicitly so the delta is not
+        misread as a regression:
+          make cov 2>&1 | tail -15
+
+      Step 3 — qlty on all modified files, run from outside .claude/:
+        git diff --name-only HEAD -- '*.py'
+        ~/.qlty/bin/qlty check <files>
+        Auto-fix where safe: ~/.qlty/bin/qlty check --fix <file>
+        Re-run to confirm clean. An empty scan means excluded, not clean.
+
+      Step 4 — confirm the diff contains no new re-export block:
+        git diff HEAD -- '*.py' | grep -nE "^\+.*noqa: F401"
+        Any added F401 re-export line is a reintroduced shim. Flag it.
+
+      Step 5 — write {workspace}/validation/recheck.json:
+        {
+          "check_env": "PASS|FAIL",
+          "test_exit": 0,
+          "test_status": "PASS|FAIL",
+          "coverage_before": "<pct>",
+          "coverage_after": "<pct>",
+          "coverage_note": "facade deletion removes trivially-covered import lines",
+          "qlty_exit": 0,
+          "qlty_status": "PASS|ISSUES",
+          "new_f401_reexports": [],
+          "unresolved_failures": [],
+          "ready_for_commit": true|false
+        }
+    agent:
+      role: unit-validator
+      model: sonnet
+      tools: [Bash, Read, Write, Edit]
+      access: read-write
+    validation:
+      strategy: unit
+      criteria:
+        - make check-env passes
+        - make test exits 0
+        - qlty check exits 0 on all modified files with a non-empty scan
+        - No new "noqa: F401" re-export lines added by this run
+      max_revisions: 1
+    required: true
+    writes_to:
+      - validation/recheck.json
+
+  # ===========================================================================
+  # G7: Human gate — present results, decide on commit / PR
+  # ===========================================================================
+
+  - name: human-gate
+    kind: validate
+    human_gate: true
+    depends_on: [recheck]
+    reads_from: [recheck, classify-and-plan, apply-corrections, validate-no-facades]
+    description: >
+      Present the full facade-elimination result and ask how to proceed.
+
+      Read and display:
+        {workspace}/design/plan.md                       — approved plan
+        {workspace}/validation/test-results.md           — per-domain tests
+        {workspace}/validation/facade-check.json         — facade/reference validation
+        {workspace}/validation/corrections-applied.md    — what was fixed
+        {workspace}/validation/recheck.json              — final test + lint
+        {workspace}/telemetry/run-metrics.json           — run metrics
+
+      Surface:
+        - Facades eliminated, by tier and domain
+        - Call sites rewritten and patch strings fixed
+        - Chains collapsed, with before/after depth
+        - Facades deferred, with reasons
+        - Test status, lint status, CLI surface status
+        - Coverage before/after WITH the note that deleted facade lines were
+          trivially covered — a percentage move here is expected, not a
+          regression in tested behaviour
+        - Any regression facade that had to be removed in corrections
+
+      Ask the user:
+        A) Commit and open PR — stage the modified files by name (never git add -A)
+           and run /open-pr with title "{pr_title}"
+        B) Fix a specific failure — name the domain or facade needing attention
+        C) Abandon — the user reverts manually; do not run destructive git
+           commands on their behalf
+
+      Write {workspace}/validation/human-gate-decision.md with the decision.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-only
+    required: true
+    writes_to:
+      - validation/human-gate-decision.md

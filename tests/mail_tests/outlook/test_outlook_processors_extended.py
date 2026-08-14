@@ -1,4 +1,4 @@
-"""Tests for mail/outlook/processors.py."""
+"""Extended tests for the mail/outlook/processors_*.py modules."""
 
 from tests.fixtures import test_path
 import tempfile
@@ -6,14 +6,23 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from mail.outlook.processors import (
-    # Result dataclasses
+from mail.outlook.processors_rules_helpers import _canon_rule
+from mail.outlook.processors_rules import (
     OutlookRulesListResult,
     OutlookRulesExportResult,
+    OutlookRulesListProcessor,
+    OutlookRulesExportProcessor,
+)
+from mail.outlook.processors_rules_write import (
     OutlookRulesSyncResult,
     OutlookRulesPlanResult,
     OutlookRulesDeleteResult,
     OutlookRulesSweepResult,
+    OutlookRulesSyncProcessor,
+    OutlookRulesPlanProcessor,
+    OutlookRulesDeleteProcessor,
+)
+from mail.outlook.processors_calendar import (
     OutlookCategoriesListResult,
     OutlookCategoriesExportResult,
     OutlookCategoriesSyncResult,
@@ -21,14 +30,6 @@ from mail.outlook.processors import (
     OutlookCalendarAddResult,
     OutlookCalendarAddRecurringResult,
     OutlookCalendarAddFromConfigResult,
-    # Helper function
-    _canon_rule,
-    # Processors
-    OutlookRulesListProcessor,
-    OutlookRulesExportProcessor,
-    OutlookRulesSyncProcessor,
-    OutlookRulesPlanProcessor,
-    OutlookRulesDeleteProcessor,
     OutlookCategoriesListProcessor,
     OutlookCalendarAddProcessor,
 )
@@ -520,7 +521,7 @@ class TestOutlookCategoriesExportProcessor(unittest.TestCase):
     """Tests for OutlookCategoriesExportProcessor with temp files."""
 
     def test_export_creates_file(self):
-        from mail.outlook.processors import OutlookCategoriesExportProcessor
+        from mail.outlook.processors_calendar import OutlookCategoriesExportProcessor
         from mail.outlook.consumers import OutlookCategoriesExportPayload
 
         mock_client = Mock()

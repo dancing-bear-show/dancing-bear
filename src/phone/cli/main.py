@@ -57,7 +57,7 @@ from .cmd_profile import (  # noqa: F401
 
 # Re-export pipeline/layout/profile helpers for backwards-compatible test patches
 from core.pipeline import run_pipeline  # noqa: F401
-from ..layout import (  # noqa: F401
+from ..layout_plan_analyze import (  # noqa: F401
     auto_folderize,
     distribute_folders_across_pages,
 )

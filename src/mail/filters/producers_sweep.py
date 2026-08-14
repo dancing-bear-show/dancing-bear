@@ -9,7 +9,7 @@ from core.pipeline import Producer, ResultEnvelope
 from ..providers.base import BaseProvider
 from ..utils.batch import apply_in_chunks
 from ..utils.gmail_ops import list_message_ids as _list_message_ids_shared, MessageQueryParams
-from .processors import (
+from .processors_sweep import (
     FiltersPruneResult,
     FiltersSweepResult,
     FiltersSweepRangeResult,

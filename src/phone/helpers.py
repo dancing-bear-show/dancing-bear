@@ -7,7 +7,7 @@ from core.cli_errors import CLIError, ExitCode
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 from .backup import find_latest_backup_dir, find_iconstate_file, load_plist
-from .layout import NormalizedLayout, normalize_iconstate
+from .layout_normalize import NormalizedLayout, normalize_iconstate
 
 
 class LayoutLoadError(CLIError):

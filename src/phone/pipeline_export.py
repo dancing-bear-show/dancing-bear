@@ -16,7 +16,8 @@ from core.pipeline import (
 )
 
 from .helpers import load_layout, read_lines_file, read_yaml, write_yaml
-from .layout import checklist_from_plan, scaffold_plan, to_yaml_export
+from .layout_normalize import to_yaml_export
+from .layout_plan_scaffold import checklist_from_plan, scaffold_plan
 
 
 def _collect_unique_app(app_id: str, seen: set, all_apps: list[str]) -> None:
@@ -244,7 +245,7 @@ class UnusedResult:
 
 class UnusedProcessor(SafeProcessor[UnusedRequest, UnusedResult]):
     def _process_safe(self, payload: UnusedRequest) -> UnusedResult:
-        from .layout import rank_unused_candidates
+        from .layout_plan_analyze import rank_unused_candidates
 
         layout = load_layout(payload.layout, payload.backup)
         recent = read_lines_file(payload.recent_path)
@@ -299,7 +300,7 @@ class PruneResult:
 
 class PruneProcessor(SafeProcessor[PruneRequest, PruneResult]):
     def _process_safe(self, payload: PruneRequest) -> PruneResult:
-        from .layout import rank_unused_candidates
+        from .layout_plan_analyze import rank_unused_candidates
 
         layout = load_layout(payload.layout, payload.backup)
         recent = read_lines_file(payload.recent_path)
@@ -361,7 +362,7 @@ class AnalyzeResult:
 
 class AnalyzeProcessor(SafeProcessor[AnalyzeRequest, AnalyzeResult]):
     def _process_safe(self, payload: AnalyzeRequest) -> AnalyzeResult:
-        from .layout import analyze_layout
+        from .layout_plan_analyze import analyze_layout
 
         layout = load_layout(payload.layout, payload.backup)
         plan = None

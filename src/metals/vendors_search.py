@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from .vendors_parse import VendorParser, TDParser, CostcoParser, RCMParser
+from .vendors_parse_vendor import VendorParser, TDParser, CostcoParser, RCMParser
 
 # All available vendor parsers
 ALL_VENDORS: List[VendorParser] = [TDParser(), CostcoParser(), RCMParser()]

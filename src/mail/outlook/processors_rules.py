@@ -101,7 +101,7 @@ class OutlookRulesExportProcessor(Processor[OutlookRulesExportPayload, ResultEnv
             from ..config_resolver import expand_path
             outp = Path(expand_path(payload.out_path))
             outp.parent.mkdir(parents=True, exist_ok=True)
-            from ..yamlio import dump_config
+            from core.yamlio import dump_config
             dump_config(str(outp), data)
 
             return ResultEnvelope(

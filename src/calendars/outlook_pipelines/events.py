@@ -86,7 +86,7 @@ class OutlookListOneOffsProducer(BaseProducer):
             loc = ev.get("location") or ""
             print(f"- {st} → {en} | {subj} | {loc}")
         if payload.out_path:
-            from calendars.yamlio import dump_config
+            from core.yamlio import dump_config
 
             dump_config(str(payload.out_path), {"events": rows})
             print(f"Wrote one-offs to {payload.out_path}")

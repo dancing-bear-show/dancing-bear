@@ -19,7 +19,7 @@ from mail.filters.consumers import (
     FiltersAddTokenConsumer,
     FiltersRemoveTokenConsumer,
 )
-from mail.filters.processors import (
+from mail.filters.processors_sweep import (
     FiltersSweepProcessor,
     FiltersSweepRangeProcessor,
     FiltersPruneProcessor,

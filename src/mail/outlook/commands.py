@@ -26,13 +26,17 @@ from .consumers import (  # noqa: F401
     OutlookCalendarAddRecurringConsumer,
     OutlookCalendarAddFromConfigConsumer,
 )
-from .processors import (  # noqa: F401 — resolved by name via _PIPELINES
+from .processors_rules import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookRulesListProcessor,
     OutlookRulesExportProcessor,
+)
+from .processors_rules_write import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookRulesSyncProcessor,
     OutlookRulesPlanProcessor,
     OutlookRulesDeleteProcessor,
     OutlookRulesSweepProcessor,
+)
+from .processors_calendar import (  # noqa: F401 — resolved by name via _PIPELINES
     OutlookCategoriesListProcessor,
     OutlookCategoriesExportProcessor,
     OutlookFoldersSyncProcessor,
@@ -239,7 +243,7 @@ def run_outlook_categories_sync(args) -> int:
     if err:
         return err
 
-    from ..yamlio import load_config
+    from core.yamlio import load_config
     from ..dsl import normalize_labels_for_outlook
 
     doc = load_config(args.config)

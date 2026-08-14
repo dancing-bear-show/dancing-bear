@@ -120,8 +120,8 @@ class BackupProcessor(SafeProcessor[BackupRequest, BackupResult]):
         import argparse
         from datetime import datetime
         from ..utils.cli_helpers import gmail_provider_from_args
-        from ..yamlio import dump_config
-        from ..accounts.pipeline import (
+        from core.yamlio import dump_config
+        from ..accounts.pipeline_auth import (
             _build_label_id_to_name_map,
             _build_filter_dsl_entry,
         )

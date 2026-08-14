@@ -5,28 +5,36 @@ from __future__ import annotations
 import unittest
 
 from core.pipeline import ResultEnvelope
-from mail.accounts.pipeline import (
+from mail.accounts.pipeline_list import (
     AccountsListResult,
     AccountInfo,
     AccountsListProducer,
+)
+from mail.accounts.pipeline_list_export import (
     ExportedLabelsInfo,
     AccountsExportLabelsResult,
     AccountsExportLabelsProducer,
     ExportedFiltersInfo,
     AccountsExportFiltersResult,
     AccountsExportFiltersProducer,
+)
+from mail.accounts.pipeline_list_plan import (
     LabelsPlanInfo,
     AccountsPlanLabelsResult,
     AccountsPlanLabelsProducer,
-    SyncedLabelInfo,
-    AccountsSyncLabelsResult,
-    AccountsSyncLabelsProducer,
     FiltersPlanInfo,
     AccountsPlanFiltersResult,
     AccountsPlanFiltersProducer,
+)
+from mail.accounts.pipeline_list_sync import (
+    SyncedLabelInfo,
+    AccountsSyncLabelsResult,
+    AccountsSyncLabelsProducer,
     SyncedFiltersInfo,
     AccountsSyncFiltersResult,
     AccountsSyncFiltersProducer,
+)
+from mail.accounts.pipeline_list_signatures import (
     ExportedSignaturesInfo,
     AccountsExportSignaturesResult,
     AccountsExportSignaturesProducer,

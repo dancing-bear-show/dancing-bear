@@ -15,7 +15,7 @@ from typing import BinaryIO
 
 import click
 
-from telemetry.fileutil import atomic_write_json, safe_load_json
+from core.fileutil import atomic_write_json, safe_load_json
 from telemetry.timeutil import now_utc, parse_window
 from telemetry.parse_transcripts_emit import ParseResult
 from telemetry._transcript_record_parser import _process_one_record

@@ -9,7 +9,7 @@ from unittest import TestCase
 from tests.fixtures import test_path
 from core.pipeline import ResultEnvelope
 
-from mail.config_cli.pipeline import (
+from mail.config_cli.pipeline_derive import (
     # Derive labels
     DeriveLabelsRequest,
     DeriveLabelsRequestConsumer,
@@ -29,6 +29,8 @@ from mail.config_cli.pipeline import (
     OptimizeFiltersProducer,
     OptimizeFiltersResult,
     MergedGroup,
+)
+from mail.config_cli.pipeline_audit import (
     # Audit filters
     AuditFiltersRequest,
     AuditFiltersRequestConsumer,

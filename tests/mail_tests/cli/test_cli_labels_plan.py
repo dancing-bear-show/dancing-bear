@@ -31,7 +31,7 @@ class CLILabelPlanTests(unittest.TestCase):
         args = make_args(config=cfg_path, delete_missing=True)
 
         with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=client):
-            from mail.labels.commands import run_labels_plan
+            from mail.labels.commands_plan import run_labels_plan
 
             with capture_stdout() as buf:
                 rc = run_labels_plan(args)

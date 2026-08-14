@@ -8,7 +8,7 @@ from typing import Any
 from core.pipeline import Consumer
 
 from ..context import MailContext
-from ..yamlio import load_config
+from core.yamlio import load_config
 
 
 @dataclass

@@ -69,7 +69,7 @@ def _reply_schedule(args, raw: bytes, thread_id: str | None, to_email: str, subj
 
 def _load_points_from_file(plan_path: str, args) -> str:
     """Load points text from a plan file."""
-    from ..yamlio import load_config
+    from core.yamlio import load_config
     doc = load_config(plan_path)
     goals = doc.get("goals") or doc.get("points") or []
     points = "\n".join(f"- {g}" for g in goals if g) if isinstance(goals, list) else ""

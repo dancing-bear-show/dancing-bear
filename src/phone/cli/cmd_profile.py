@@ -16,7 +16,7 @@ from core.cli_output import emit_one
 from core.pipeline import run_pipeline
 
 from ..helpers import read_yaml, write_yaml
-from ..pipeline import (
+from ..pipeline_plan import (
     IdentityVerifyProducer,
     IdentityVerifyProcessor,
     IdentityVerifyRequest,

@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import re
 
-from core.text_utils import html_to_text
+from core.date_utils import normalize_day
+from core.text_utils import html_to_text, parse_time_range
 
 from .base import ScheduleParser
 from .model import ScheduleItem
-from .text_utils import normalize_day, parse_time_range
 from .web_parser_base import (
     WEEKDAYS,
     LEISURE_SWIM,

@@ -5,13 +5,17 @@ from typing import Any, Generic, Protocol, TypeVar
 
 from core.pipeline import Producer, ResultEnvelope
 
-from .processors import (
+from .processors_rules import (
     OutlookRulesListResult,
     OutlookRulesExportResult,
+)
+from .processors_rules_write import (
     OutlookRulesSyncResult,
     OutlookRulesPlanResult,
     OutlookRulesDeleteResult,
     OutlookRulesSweepResult,
+)
+from .processors_calendar import (
     OutlookCategoriesListResult,
     OutlookCategoriesExportResult,
     OutlookCategoriesSyncResult,

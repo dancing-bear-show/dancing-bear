@@ -34,7 +34,7 @@ class LabelsApplySuggestionsTests(unittest.TestCase):
         )
 
         with patch("mail.gmail_api.GmailClient", ConstructableFakeGmailClient):
-            from mail.labels.commands import run_labels_apply_suggestions
+            from mail.labels.commands_doctor import run_labels_apply_suggestions
 
             with capture_stdout() as buf:
                 rc = run_labels_apply_suggestions(args)

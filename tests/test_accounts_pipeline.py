@@ -1,13 +1,9 @@
-"""Unit tests for mail/accounts/pipeline.py"""
+"""Unit tests for the mail/accounts/pipeline_*.py modules."""
 import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-from mail.accounts.pipeline import (
-    AccountsExportLabelsRequest,
-    AccountsListRequest,
-    AccountsPlanFiltersRequest,
-    AccountsPlanLabelsRequest,
+from mail.accounts.pipeline_auth import (
     _build_filter_dsl_entry,
     _build_label_id_to_name_map,
     _build_label_update_dict,
@@ -17,6 +13,12 @@ from mail.accounts.pipeline import (
     _needs_label_update,
     _sync_labels_for_account,
     canonicalize_filter,
+)
+from mail.accounts.pipeline_list import AccountsListRequest
+from mail.accounts.pipeline_list_export import AccountsExportLabelsRequest
+from mail.accounts.pipeline_list_plan import (
+    AccountsPlanFiltersRequest,
+    AccountsPlanLabelsRequest,
 )
 
 
@@ -226,7 +228,8 @@ class TestAccountsListProcessor(unittest.TestCase):
     @patch('mail.accounts.helpers.load_accounts')
     def test_list_processor_success(self, mock_load_accounts):
         """Test listing accounts successfully."""
-        from mail.accounts.pipeline import AccountsListProcessor, RequestConsumer
+        from mail.accounts.pipeline_list import AccountsListProcessor
+        from core.pipeline import RequestConsumer
 
         mock_load_accounts.return_value = [
             {"name": "account1", "provider": "gmail", "credentials": "creds1.json", "token": "token1.json"},
@@ -247,10 +250,12 @@ class TestAccountsListProcessor(unittest.TestCase):
 class TestAccountsExportLabelsProcessor(unittest.TestCase):
     """Test AccountsExportLabelsProcessor."""
 
-    @patch('mail.yamlio.dump_config')
+    @patch('core.yamlio.dump_config')
     def test_export_labels_success(self, mock_dump_config):
         """Test exporting labels successfully."""
-        from mail.accounts.pipeline import AccountsExportLabelsProcessor, RequestConsumer, AccountAuthenticator
+        from mail.accounts.pipeline_list_export import AccountsExportLabelsProcessor
+        from core.pipeline import RequestConsumer
+        from mail.accounts.pipeline_auth import AccountAuthenticator
 
         # Mock authenticated accounts
         mock_client = MagicMock()
@@ -280,12 +285,13 @@ class TestAccountsPlanLabelsProcessor(unittest.TestCase):
     """Test AccountsPlanLabelsProcessor."""
 
     @patch('mail.accounts.helpers.load_accounts')
-    @patch('mail.yamlio.load_config')
+    @patch('core.yamlio.load_config')
     @patch('mail.accounts.helpers.build_provider_for_account')
     @patch('mail.accounts.helpers.iter_accounts')
     def test_plan_labels_finds_new_labels(self, mock_iter, mock_build, mock_load_config, mock_load_accounts):
         """Test planning identifies new labels to create."""
-        from mail.accounts.pipeline import AccountsPlanLabelsProcessor, RequestConsumer
+        from mail.accounts.pipeline_list_plan import AccountsPlanLabelsProcessor
+        from core.pipeline import RequestConsumer
 
         mock_load_accounts.return_value = [{"name": "test", "provider": "gmail"}]
         mock_load_config.return_value = {
@@ -315,12 +321,13 @@ class TestAccountsPlanFiltersProcessor(unittest.TestCase):
     """Test AccountsPlanFiltersProcessor."""
 
     @patch('mail.accounts.helpers.load_accounts')
-    @patch('mail.yamlio.load_config')
+    @patch('core.yamlio.load_config')
     @patch('mail.accounts.helpers.build_provider_for_account')
     @patch('mail.accounts.helpers.iter_accounts')
     def test_plan_filters_unsupported_provider(self, mock_iter, mock_build, mock_load_config, mock_load_accounts):
         """Test planning for unsupported provider."""
-        from mail.accounts.pipeline import AccountsPlanFiltersProcessor, RequestConsumer
+        from mail.accounts.pipeline_list_plan import AccountsPlanFiltersProcessor
+        from core.pipeline import RequestConsumer
 
         mock_load_accounts.return_value = [{"name": "test", "provider": "unsupported"}]
         mock_load_config.return_value = {"filters": []}

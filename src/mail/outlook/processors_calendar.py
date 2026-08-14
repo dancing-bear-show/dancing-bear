@@ -112,7 +112,7 @@ class OutlookCategoriesExportProcessor(Processor[OutlookCategoriesExportPayload,
             data = {"labels": labels}
             outp = Path(payload.out_path)
             outp.parent.mkdir(parents=True, exist_ok=True)
-            from ..yamlio import dump_config
+            from core.yamlio import dump_config
             dump_config(str(outp), data)
 
             return ResultEnvelope(
@@ -132,7 +132,7 @@ class OutlookCategoriesSyncProcessor(Processor[OutlookCategoriesSyncPayload, Res
 
     def process(self, payload: OutlookCategoriesSyncPayload) -> ResultEnvelope[OutlookCategoriesSyncResult]:
         try:
-            from ..yamlio import load_config
+            from core.yamlio import load_config
             from ..dsl import normalize_labels_for_outlook
 
             client = payload.client
@@ -190,7 +190,7 @@ class OutlookFoldersSyncProcessor(Processor[OutlookFoldersSyncPayload, ResultEnv
 
     def process(self, payload: OutlookFoldersSyncPayload) -> ResultEnvelope[OutlookFoldersSyncResult]:
         try:
-            from ..yamlio import load_config
+            from core.yamlio import load_config
 
             client = payload.client
             doc = load_config(payload.config_path)
@@ -321,7 +321,7 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
 
     def process(self, payload: OutlookCalendarAddFromConfigPayload) -> ResultEnvelope[OutlookCalendarAddFromConfigResult]:
         try:
-            from ..yamlio import load_config
+            from core.yamlio import load_config
 
             cfg = load_config(payload.config_path)
             items = cfg.get("events") if isinstance(cfg, dict) else None

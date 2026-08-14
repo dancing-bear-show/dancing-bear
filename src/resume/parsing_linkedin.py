@@ -1,6 +1,6 @@
 """LinkedIn profile parsing helpers for resumes.
 
-Extracted from resume.parsing. Provides:
+Provides:
   - _meta_prop / _meta_name: extract HTML meta tag content
   - _parse_linkedin_name_headline: extract name/headline from meta fields
   - _parse_linkedin_desc: parse description into (summary, location)
@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from resume.parsing_experience import (
+from resume.parsing_experience_text import (
     _split_lines,
     _extract_contact,
     _extract_sections,

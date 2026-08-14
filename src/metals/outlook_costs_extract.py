@@ -13,7 +13,7 @@ from mail.outlook_api import OutlookClient
 from .cost_extractor import CostExtractor, MessageInfo, OrderData
 from .costs_common import extract_order_amount, format_breakdown, format_qty, get_price_band
 from .pipeline import default_costs_path
-from .vendors import RCMParser
+from .vendors_parse_vendor import RCMParser
 
 
 @_dataclass

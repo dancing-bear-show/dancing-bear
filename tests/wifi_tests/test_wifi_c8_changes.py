@@ -14,7 +14,8 @@ from unittest.mock import MagicMock, patch
 from core.cli_errors import ExitCode
 from core.cli_output import OutputFormat, OutputWriter
 from core.pipeline import ResultEnvelope
-from wifi.diagnostics import DiagnoseConfig, DnsResult, Report
+from wifi.diagnostics_probes import DnsResult
+from wifi.diagnostics_report import DiagnoseConfig, Report
 from wifi.pipeline import (
     DiagnoseProducer,
     DiagnoseRequest,

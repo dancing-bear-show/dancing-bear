@@ -15,7 +15,7 @@ from ..providers.base import BaseProvider
 from ..utils.cli_helpers import preview_criteria
 from ..utils.filters import action_to_label_changes
 from ..utils.plan import print_plan_summary
-from .processors import (
+from .processors_plan import (
     FilterPlanEntry,
     FiltersPlanResult,
     FiltersSyncResult,
@@ -224,7 +224,7 @@ class FiltersExportProducer(Producer[ResultEnvelope[FiltersExportResult]]):
     """Write filter DSL export."""
 
     def __init__(self):
-        from ..yamlio import dump_config  # lazy import
+        from core.yamlio import dump_config  # lazy import
 
         self._dump_config = dump_config
 

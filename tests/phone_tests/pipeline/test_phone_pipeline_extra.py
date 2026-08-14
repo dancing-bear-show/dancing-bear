@@ -1,4 +1,4 @@
-"""Tests for phone/pipeline.py — re-import shim.
+"""Aggregator for the phone pipeline test modules.
 
 Implementation has moved to:
   - test_pipeline_processors.py  (Processor/Request tests + helper function tests)

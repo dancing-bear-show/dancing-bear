@@ -1,6 +1,6 @@
-"""Tests for phone/layout.py — re-import shim.
+"""Aggregator for the phone layout test modules.
 
-Implementation has moved to:
+Test cases live in:
   - test_layout_normalize.py  (TestExtractBundleId, TestIsFolder, TestIsAppItem, etc.)
   - test_layout_plan.py       (TestScaffoldPlan, TestChecklistFromPlan, TestAnalyzeLayout, etc.)
 """

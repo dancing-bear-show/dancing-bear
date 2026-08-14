@@ -17,7 +17,7 @@ from mail.filters.consumers import (
     FiltersImpactPayload,
     FiltersExportConsumer,
 )
-from mail.filters.processors import (
+from mail.filters.processors_plan import (
     FiltersPlanProcessor,
     FiltersSyncProcessor,
     FiltersImpactProcessor,

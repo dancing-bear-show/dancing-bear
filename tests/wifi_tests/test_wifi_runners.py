@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from wifi.diagnostics import SubprocessRunner
+from wifi.diagnostics_runners import SubprocessRunner
 from tests.wifi_tests.shared_fixtures import FakeRunner  # noqa: F401 — available for test use
 
 

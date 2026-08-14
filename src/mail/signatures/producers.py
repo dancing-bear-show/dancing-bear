@@ -5,7 +5,7 @@ from typing import Any
 
 from core.pipeline import Producer, ResultEnvelope
 
-from ..yamlio import dump_config
+from core.yamlio import dump_config
 from .processors import (
     SignaturesExportResult,
     SignaturesSyncResult,

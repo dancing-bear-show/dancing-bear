@@ -9,7 +9,7 @@ class TestSummarySectionRenderer(unittest.TestCase):
     """Tests for SummarySectionRenderer."""
 
     def _get_renderer(self):
-        from resume.docx_sections import SummarySectionRenderer
+        from resume.docx_sections_skills import SummarySectionRenderer
         return make_fake_renderer(SummarySectionRenderer)
 
     def test_render_string_summary(self):
@@ -85,7 +85,7 @@ class TestSkillsSectionRenderer(unittest.TestCase):
     """Tests for SkillsSectionRenderer."""
 
     def _get_renderer(self):
-        from resume.docx_sections import SkillsSectionRenderer
+        from resume.docx_sections_skills import SkillsSectionRenderer
         return make_fake_renderer(SkillsSectionRenderer)
 
     def test_render_flat_skills(self):
@@ -140,7 +140,7 @@ class TestExperienceSectionRenderer(unittest.TestCase):
     """Tests for ExperienceSectionRenderer."""
 
     def _get_renderer(self):
-        from resume.docx_sections import ExperienceSectionRenderer
+        from resume.docx_sections_exp import ExperienceSectionRenderer
         return make_fake_renderer(ExperienceSectionRenderer)
 
     def test_render_experience(self):
@@ -248,7 +248,7 @@ class TestEducationSectionRenderer(unittest.TestCase):
     """Tests for EducationSectionRenderer."""
 
     def _get_renderer(self):
-        from resume.docx_sections import EducationSectionRenderer
+        from resume.docx_sections_exp import EducationSectionRenderer
         return make_fake_renderer(EducationSectionRenderer)
 
     def test_render_education(self):
@@ -289,7 +289,7 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
     """Tests for TechnologiesSectionRenderer."""
 
     def _get_renderer(self):
-        from resume.docx_sections import TechnologiesSectionRenderer
+        from resume.docx_sections_skills import TechnologiesSectionRenderer
         return make_fake_renderer(TechnologiesSectionRenderer)
 
     def test_render_technologies(self):

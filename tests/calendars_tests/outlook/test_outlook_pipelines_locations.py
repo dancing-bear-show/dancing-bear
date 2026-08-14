@@ -275,7 +275,7 @@ class TestOutlookLocationsUpdateProcessor(TestCase):
         self.assertIn("Preview complete", result.payload.message)
 
     @patch("calendars.outlook_pipelines.locations.LocationSync")
-    @patch("calendars.yamlio.dump_config")
+    @patch("core.yamlio.dump_config")
     def test_writes_config_when_updated(self, mock_dump, mock_sync_cls):
         mock_sync = MagicMock()
         mock_sync.plan_from_config.return_value = 2

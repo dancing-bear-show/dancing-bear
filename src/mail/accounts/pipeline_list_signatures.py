@@ -80,7 +80,7 @@ def _export_signatures_outlook(assets: Path) -> int:
 
 def _export_signatures_for_account(a: dict, out_dir: Path) -> ExportedSignaturesInfo:
     """Export signatures (or write provider guidance) for a single account."""
-    from ..yamlio import dump_config
+    from core.yamlio import dump_config
 
     name = a.get("name", "account")
     provider = (a.get("provider") or "").lower()

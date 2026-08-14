@@ -9,16 +9,9 @@ from typing import Any, Callable
 from core.cli_output import OutputFormat
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
 
-from .diagnostics import (
-    CommandRunner,
-    DiagnoseConfig,
-    DnsResult,
-    HttpResult,
-    Report,
-    render_report,
-    report_to_dict,
-    run_diagnosis,
-)
+from .diagnostics_probes import DnsResult, HttpResult, run_diagnosis
+from .diagnostics_report import DiagnoseConfig, Report, render_report, report_to_dict
+from .diagnostics_runners import CommandRunner
 
 
 @dataclass

@@ -65,7 +65,7 @@ pdfminer.six uses Python's `pickle` module to deserialize CMap files, which can 
 
 We use pdfminer.six **only** for text extraction (`extract_text` from `high_level` module) in:
 - `src/calendars/importer/pdf_parser.py`
-- `src/resume/parsing.py`
+- `src/resume/parsing_experience_pdf.py`
 - `src/resume/io_utils.py`
 
 #### Mitigation Steps Taken

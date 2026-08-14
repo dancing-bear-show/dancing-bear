@@ -219,7 +219,7 @@ class TestRunOutlookCategoriesSync(unittest.TestCase):
         self.assertEqual(result, 1)
 
     @patch("mail.outlook.commands.get_outlook_client")
-    @patch("mail.yamlio.load_config")
+    @patch("core.yamlio.load_config")
     @patch("mail.dsl.normalize_labels_for_outlook")
     def test_dry_run_does_not_create(self, mock_normalize, mock_load, mock_get_client):
         from mail.outlook.commands import run_outlook_categories_sync

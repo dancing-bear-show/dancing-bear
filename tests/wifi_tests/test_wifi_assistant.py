@@ -7,14 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from wifi import cli
-from wifi.diagnostics import (
-    DiagnoseConfig,
-    DnsResult,
-    HttpResult,
-    Report,
-    render_report,
-    run_diagnosis,
-)
+from wifi.diagnostics_probes import DnsResult, HttpResult, run_diagnosis
+from wifi.diagnostics_report import DiagnoseConfig, Report, render_report
 from tests.wifi_tests.shared_fixtures import FakeRunner
 
 

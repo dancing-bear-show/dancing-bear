@@ -105,7 +105,7 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
         self.tmp, self.root = _make_root()
         self.addCleanup(self.tmp.cleanup)
         self.isolate_queue_root()
-        from worker.queue import finish as _real_finish
+        from worker.queue_ops import finish as _real_finish
         self._real_finish = _real_finish
 
     def _patched_finish(self, job_path, success, **kwargs):
@@ -115,8 +115,8 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
     def test_success_outcome_dispatches_to_queue_finish(self):
         from worker.job_runtime import JobContext, JobResult, JobResultProducer, OutcomeContext, WorkerConfig
         from core.pipeline import ResultEnvelope
-        from worker.queue import Job, enqueue, start_processing
-        from worker import queue as q
+        from worker.queue_ops import Job, enqueue, start_processing
+        from worker import queue_ops as q
 
         q.QUEUE_ROOT = self.root
         pending = enqueue(Job(id="rp_ok", type="noop", payload={}), root=self.root)
@@ -143,8 +143,8 @@ class TestJobResultProducerHappyPath(unittest.TestCase, QueueRootIsolationMixin)
         """BaseProducer.produce() skips _produce_success on failed envelopes."""
         from worker.job_runtime import JobContext, JobResultProducer, OutcomeContext, WorkerConfig
         from core.pipeline import ResultEnvelope
-        from worker.queue import Job, enqueue, start_processing
-        from worker import queue as q
+        from worker.queue_ops import Job, enqueue, start_processing
+        from worker import queue_ops as q
 
         q.QUEUE_ROOT = self.root
         pending = enqueue(Job(id="rp_err", type="noop", payload={}), root=self.root)

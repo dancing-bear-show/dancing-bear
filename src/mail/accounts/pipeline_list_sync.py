@@ -46,7 +46,7 @@ AccountsSyncLabelsRequestConsumer = SimpleConsumer[AccountsSyncLabelsRequest]
 class AccountsSyncLabelsProcessor(SafeProcessor[AccountsSyncLabelsRequest, AccountsSyncLabelsResult]):
     def _process_safe(self, payload: AccountsSyncLabelsRequest) -> AccountsSyncLabelsResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
-        from ..yamlio import load_config
+        from core.yamlio import load_config
         from ..dsl import normalize_labels_for_outlook
 
         accts = load_accounts(payload.config_path)
@@ -142,7 +142,7 @@ def _sync_filters_gmail(a: dict, payload: "AccountsSyncFiltersRequest") -> Synce
 def _sync_filters_outlook(a: dict, payload: "AccountsSyncFiltersRequest") -> SyncedFiltersInfo:
     """Sync Outlook filters directly against the Graph API."""
     from .helpers import build_client_for_account
-    from ..yamlio import load_config
+    from core.yamlio import load_config
     from ..dsl import normalize_filters_for_outlook
 
     client = build_client_for_account(a)

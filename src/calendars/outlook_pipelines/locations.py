@@ -177,7 +177,7 @@ class OutlookLocationsUpdateProcessor(SafeProcessor[OutlookLocationsRequest, Out
         updated = sync.plan_from_config(items, calendar=payload.calendar, dry_run=payload.dry_run)
         if payload.dry_run:
             return OutlookLocationsResult(message=MSG_PREVIEW_COMPLETE)
-        from calendars.yamlio import dump_config
+        from core.yamlio import dump_config
 
         if updated:
             dump_config(str(payload.config_path), {"events": items})

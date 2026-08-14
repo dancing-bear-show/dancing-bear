@@ -35,7 +35,7 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         (self.root / "_data" / "logs").mkdir(parents=True, exist_ok=True)
 
     def _mk_error_job(self, jid="e1", *, updated_at=None, err="boom"):
-        from worker import queue as q
+        from worker import queue_ops as q
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
         p = q.QUEUE_ROOT / "error" / f"{jid}.json"
@@ -52,20 +52,22 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         return p
 
     def test_retry_single_job(self):
-        from worker import queue as q
+        from worker import queue_ops as q
         from worker.cli import main
+        from worker.queue_metrics import counts
         q.QUEUE_ROOT = self.root / "queue"
         self._mk_error_job("r1")
         rc, _ = _capture_stdout(main, ["retry", "r1", "--reset-attempts", "--delay", "1"])
         self.assertEqual(rc, 0)
         # moved from error to pending
-        c = q.counts(root=q.QUEUE_ROOT)
+        c = counts(root=q.QUEUE_ROOT)
         self.assertEqual(c.get("pending"), 1)
         self.assertEqual(c.get("error"), 0)
 
     def test_requeue_errors_since_and_match(self):
-        from worker import queue as q
+        from worker import queue_ops as q
         from worker.cli import main
+        from worker.queue_metrics import counts
         q.QUEUE_ROOT = self.root / "queue"
         now = datetime.now(UTC)
         old_ts = (now - timedelta(minutes=10, seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -76,13 +78,13 @@ class TestWorkerRetryPurgeStatus(unittest.TestCase, QueueRootIsolationMixin):
         self.assertEqual(rc, 0)
         payload = _parse_json(out)
         self.assertEqual(payload.get("requeued"), 1)
-        c = q.counts(root=q.QUEUE_ROOT)
+        c = counts(root=q.QUEUE_ROOT)
         # one pending, one still error
         self.assertEqual(c.get("pending"), 1)
         self.assertEqual(c.get("error"), 1)
 
     def test_purge_done_error(self):
-        from worker import queue as q
+        from worker import queue_ops as q
         from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)

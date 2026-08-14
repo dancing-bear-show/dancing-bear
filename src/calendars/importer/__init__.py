@@ -12,22 +12,8 @@ from __future__ import annotations
 
 import os
 
-# Public API - Data Model
-from .model import ScheduleItem
-
-# Public API - Text Utilities
-from .text_utils import (
-    extract_time_ranges,
-    normalize_day,
-    normalize_days,
-    parse_time_range,
-    strip_html_tags,
-    to_24h,
-)
-
-# Public API - Constants (for tests)
-from .constants import (
-    DAY_NAMES,
+from core.date_utils import DAY_NAMES, normalize_day, normalize_days
+from core.patterns import (
     RE_AMPM,
     RE_AM_ONLY,
     RE_PM_ONLY,
@@ -36,6 +22,15 @@ from .constants import (
     RE_TABLE_ROW,
     RE_TIME,
 )
+from core.text_utils import (
+    extract_time_ranges,
+    parse_time_range,
+    strip_html_tags,
+    to_24h,
+)
+
+# Public API - Data Model
+from .model import ScheduleItem
 
 # Public API - Base Parser
 from .base import ScheduleParser

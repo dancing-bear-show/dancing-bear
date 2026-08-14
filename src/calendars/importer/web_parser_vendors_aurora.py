@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import re
 
-from core.text_utils import html_to_text
+from core.date_utils import normalize_days
+from core.patterns import RE_TABLE_CELL, RE_TABLE_ROW
+from core.text_utils import extract_time_ranges, html_to_text
 
 from .base import ScheduleParser
 from .model import ScheduleItem
-from .text_utils import normalize_days, extract_time_ranges
-from .constants import RE_TABLE_CELL, RE_TABLE_ROW
 from .web_parser_base import (
     LEISURE_SWIM,
     ScheduleItemParams,

@@ -55,7 +55,7 @@ Usage:
     class TestDocxRenderer(unittest.TestCase):
         def test_something(self):
             # python-docx modules are mocked, imports will work
-            from resume.docx_sections import BulletRenderer
+            from resume.docx_renderers import BulletRenderer
 """
 
 from __future__ import annotations
@@ -247,7 +247,7 @@ def make_fake_renderer(renderer_class: type) -> tuple[Any, FakeDocument]:
         Tuple of (renderer_instance, fake_document)
 
     Example:
-        from resume.docx_sections import BulletRenderer
+        from resume.docx_renderers import BulletRenderer
         renderer, doc = make_fake_renderer(BulletRenderer)
         renderer.add_bullet_line("Test", glyph="•")
         assert len(doc.paragraphs) == 1

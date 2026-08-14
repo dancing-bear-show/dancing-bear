@@ -353,7 +353,7 @@ def _apply_suggestions(args, sugg: list, dry_run: bool) -> int:
 
 def run_labels_apply_suggestions(args) -> int:
     """Apply learned label suggestions."""
-    from ..yamlio import load_config
+    from core.yamlio import load_config
 
     doc = load_config(args.config)
     sugg = doc.get('suggestions') or []

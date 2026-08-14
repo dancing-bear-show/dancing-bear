@@ -12,7 +12,7 @@ description: >
        executor: worker_queue, hands it to WorkerQueueDispatcher instead of
        spawning an agent (workflow/dispatchers.py).
     2. The dispatcher builds a Job(type="workflow_stage") and hands it to
-       worker.queue.enqueue(job), returning immediately with status=pending —
+       worker.queue_ops.enqueue(job), returning immediately with status=pending —
        it does not wait for the job to finish.
     3. A worker (daemon or a manual `./bin/worker run-once`) later picks up
        the job and runs its "script" through worker/handlers.py's

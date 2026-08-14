@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from resume.parsing import (
+from resume.parsing_experience_pdf import (
     _pdf_empty_result,
     _pdf_extract_name_headline,
     _pdf_find_sections,
@@ -12,6 +12,8 @@ from resume.parsing import (
     _pdf_extract_summary,
     _pdf_extract_experience,
     _pdf_extract_education,
+)
+from resume.parsing_linkedin import (
     _parse_linkedin_meta_from_html,
     parse_linkedin_text,
 )

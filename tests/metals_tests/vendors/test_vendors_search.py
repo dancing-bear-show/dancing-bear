@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import unittest
 
-from metals.vendors import (
+from metals.vendors_search import (
     ALL_VENDORS,
     GMAIL_VENDORS,
     OUTLOOK_VENDORS,
-    RCMParser,
     get_vendor_for_sender,
 )
+from metals.vendors_parse_vendor import RCMParser
 
 from tests.metals_tests.fixtures import VENDOR_EMAILS
 

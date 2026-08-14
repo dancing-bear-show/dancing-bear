@@ -3,15 +3,15 @@ from __future__ import annotations
 
 import unittest
 
-from metals.gmail_costs import (
+from metals.constants import QTY_PATTERNS as _PAT_QTY_LIST
+from metals.gmail_costs_qty_items import (
     _bundle_qty_near,
     _explicit_qty_near,
-    _extract_amount_near_line,
     _extract_first_match_group,
     _extract_line_items,
     _unit_oz_override_near,
-    _PAT_QTY_LIST,
 )
+from metals.gmail_costs_qty_price import _extract_amount_near_line
 
 
 class TestExtractAmountNearLine(unittest.TestCase):
