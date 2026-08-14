@@ -215,7 +215,12 @@ class JobResultProducer(BaseProducer):
     ) -> None:
         """Dispatch outcome to queue operations based on the outcome string."""
         success = payload.outcome == "success"
-        out_val: object = payload.outcome if not success else payload.logs[0] if payload.logs else True
+        if not success:
+            out_val: object = payload.outcome
+        elif payload.logs:
+            out_val = payload.logs[0]
+        else:
+            out_val = True
         _handle_outcome(self._outcome_ctx, success, out_val)
 
 

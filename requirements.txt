@@ -15,7 +15,7 @@ numpy==2.4.6
 pdfminer.six==20260107
 shapely==2.1.2
 trimesh==5.0.0
-pypdf==6.14.2
+pypdf==6.15.0
 docx2pdf==0.1.8
 click==8.4.2
 rich==15.0.0

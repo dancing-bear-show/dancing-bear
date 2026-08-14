@@ -285,7 +285,7 @@ class TestEmitOneJsonFormat(unittest.TestCase):
         out = io.StringIO()
         with patch("sys.stdout", out):
             _emit_one(data, fmt="jsonl")
-        lines = [l for l in out.getvalue().splitlines() if l.strip()]
+        lines = [line for line in out.getvalue().splitlines() if line.strip()]
         self.assertEqual(len(lines), 1)
 
 
@@ -308,7 +308,7 @@ class TestEmitOneTableFormat(unittest.TestCase):
         out = io.StringIO()
         with patch("sys.stdout", out):
             _emit_one(data, fmt="table")
-        lines = [l for l in out.getvalue().splitlines() if l.strip()]
+        lines = [line for line in out.getvalue().splitlines() if line.strip()]
         self.assertEqual(len(lines), 2)
 
     def test_table_format_does_not_produce_json(self) -> None:

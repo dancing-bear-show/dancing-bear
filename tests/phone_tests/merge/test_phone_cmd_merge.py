@@ -417,7 +417,7 @@ class TestDefaultDeviceLabel(unittest.TestCase):
             args = make_args(udid=None, device_label=None)
             with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
                  patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
-                udid, rc = _resolve_reorg_udid(args, dry_run=False)
+                _, rc = _resolve_reorg_udid(args, dry_run=False)
             self.assertEqual(rc, 1)
 
     def test_reorg_broken_default_dry_run_is_lenient(self):
@@ -446,7 +446,7 @@ class TestDefaultDeviceLabel(unittest.TestCase):
             args = make_args(udid=None, device_label="no-such-device")
             with patch.dict(os.environ, {"IOS_CREDS_FILE": str(creds), "IOS_DEVICE_UDID": ""}), \
                  patch("core.constants.credential_ini_paths", return_value=[str(creds)]):
-                udid, rc = _resolve_reorg_udid(args, dry_run=False)
+                _, rc = _resolve_reorg_udid(args, dry_run=False)
             self.assertEqual(rc, 1)
 
 

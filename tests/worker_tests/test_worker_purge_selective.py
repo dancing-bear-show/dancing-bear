@@ -9,6 +9,8 @@ import time
 import unittest
 from pathlib import Path
 
+from tests.worker_tests.helpers import QueueRootIsolationMixin
+
 
 def _capture_stdout(func, *args, **kwargs):
     """Run func and capture stdout, returning (result, text)."""
@@ -20,9 +22,6 @@ def _capture_stdout(func, *args, **kwargs):
 
 def _parse_json(text):
     return json.loads(text.strip())
-
-
-from tests.worker_tests.helpers import QueueRootIsolationMixin
 
 
 class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):

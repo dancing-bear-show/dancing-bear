@@ -13,6 +13,9 @@ from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from .extractors import MetalsAmount, OrderExtraction
 
 
+DEFAULT_COSTS_PATH = "out/metals/costs.csv"
+
+
 # ============================================================================
 # Request/Result Types
 # ============================================================================
@@ -63,7 +66,7 @@ class SpotPriceResult:
 @dataclass
 class PremiumRequest:
     """Request to calculate purchase premiums."""
-    costs_path: str = "out/metals/costs.csv"
+    costs_path: str = DEFAULT_COSTS_PATH
     spot_dir: str = "out/metals"
 
 
@@ -79,7 +82,7 @@ class PremiumResult:
 class GmailCostsRequest:
     """Request to extract costs from Gmail order emails."""
     profile: str = "gmail_personal"
-    out_path: str = "out/metals/costs.csv"
+    out_path: str = DEFAULT_COSTS_PATH
 
 
 @dataclass
@@ -93,7 +96,7 @@ class GmailCostsResult:
 class OutlookCostsRequest:
     """Request to extract costs from Outlook order emails."""
     profile: str = "outlook_personal"
-    out_path: str = "out/metals/costs.csv"
+    out_path: str = DEFAULT_COSTS_PATH
 
 
 @dataclass
