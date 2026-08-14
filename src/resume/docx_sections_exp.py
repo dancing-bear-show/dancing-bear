@@ -12,9 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
-from .render_config import HeaderLineConfig
-
-_DEFAULT_BULLET_STYLE = "List Bullet"
+from .render_config import DEFAULT_BULLET_STYLE, HeaderLineConfig
 
 
 def _warn(msg: str) -> None:
@@ -27,7 +25,7 @@ class _ExperienceRenderOpts:
     """Bundled rendering options for experience entries."""
 
     role_style: str = "Normal"
-    bullet_style: str = _DEFAULT_BULLET_STYLE
+    bullet_style: str = DEFAULT_BULLET_STYLE
     max_bullets: int = 999
     recent_roles_count: int = 0
     recent_max_bullets: int = 999
@@ -39,7 +37,7 @@ class _ExperienceRenderOpts:
         max_bullets = int(cfg.get("max_bullets", 999))
         return cls(
             role_style=str(cfg.get("role_style", "Normal")),
-            bullet_style=str(cfg.get("bullet_style", _DEFAULT_BULLET_STYLE)),
+            bullet_style=str(cfg.get("bullet_style", DEFAULT_BULLET_STYLE)),
             max_bullets=max_bullets,
             recent_roles_count=int(cfg.get("recent_roles_count", 0) or 0),
             recent_max_bullets=int(cfg.get("recent_max_bullets", max_bullets)),

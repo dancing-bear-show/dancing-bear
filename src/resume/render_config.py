@@ -7,13 +7,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+DEFAULT_BULLET_STYLE = "List Bullet"
+
 
 @dataclass
 class BulletConfig:
     """Configuration for bullet rendering."""
 
     glyph: str = "•"
-    list_style: str = "List Bullet"
+    list_style: str = DEFAULT_BULLET_STYLE
     plain: bool = True
     sep: str = ": "  # Separator for named bullets
 
@@ -84,5 +86,5 @@ class ExperienceRenderConfig:
     """Configuration for rendering experience entries."""
 
     role_style: str = "Normal"
-    bullet_style: str = "List Bullet"
+    bullet_style: str = DEFAULT_BULLET_STYLE
     max_bullets: int = -1  # -1 means no limit

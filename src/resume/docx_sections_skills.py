@@ -10,8 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
-
-_DEFAULT_BULLET_STYLE = "List Bullet"
+from .render_config import DEFAULT_BULLET_STYLE
 
 
 def _safe_int_limit(cfg: dict, key: str) -> int:
@@ -171,7 +170,7 @@ class SkillsSectionRenderer(ListSectionRenderer):
             elif plain:
                 self.bullets.add_bullet_line(it, glyph=glyph)
             else:
-                p = self.doc.add_paragraph(style=_DEFAULT_BULLET_STYLE)
+                p = self.doc.add_paragraph(style=DEFAULT_BULLET_STYLE)
                 self.bullets.styles.tight_paragraph(p, after_pt=0)
                 self.bullets.styles.compact_bullet(p)
                 p.add_run(it)

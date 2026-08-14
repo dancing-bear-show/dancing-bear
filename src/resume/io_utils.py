@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core.cli_errors import CLIError
+from core.fileutil import atomic_write_json
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 
@@ -74,11 +75,4 @@ def write_yaml_or_json(data: Any, path: str | os.PathLike[str]) -> None:
     if suffix in {".yaml", ".yml"}:
         _dump_yaml(str(p), data)
         return
-    with p.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-def write_text(text: str, path: str | os.PathLike[str]) -> None:
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    atomic_write_json(p, data, indent=2)
