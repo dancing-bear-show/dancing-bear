@@ -7,9 +7,10 @@ import argparse
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
+    build_domain_map as _core_build_domain_map,
     cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _core_cli_path_exists,
-    section as _section,
+    tree_and_flow_sections as _tree_and_flow_sections,
 )
 
 
@@ -97,34 +98,21 @@ def build_agentic_capsule() -> str:
         "plan: ./bin/phone plan --layout out/ios.IconState.yaml --out out/ios.plan.yaml",
         "checklist: ./bin/phone checklist --plan out/ios.plan.yaml",
     ]
-    sections: list[tuple[str, str]] = []
-    tree = _cli_tree()
-    if tree:
-        sections.append(("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(("Flow Map", flows))
     return _build_capsule(
         "phone",
         "Home Screen layout planning, manifests, and identity flows",
         commands,
-        sections,
+        _tree_and_flow_sections(_cli_tree(), _flow_map()),
     )
 
 
 def build_domain_map() -> str:
     """Programmatically build a minimal domain map for Phone Assistant."""
-    sections: list[str] = []
-    sections.append(
-        "Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout_normalize.py — layout normalization\n- phone/layout_plan_analyze.py — plan analysis + ranking\n- phone/layout_plan_scaffold.py — plan scaffolds\n- phone/profile.py — .mobileconfig builders"
+    return _core_build_domain_map(
+        "Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout_normalize.py — layout normalization\n- phone/layout_plan_analyze.py — plan analysis + ranking\n- phone/layout_plan_scaffold.py — plan scaffolds\n- phone/profile.py — .mobileconfig builders",
+        _cli_tree(),
+        _flow_map(),
     )
-    tree = _cli_tree()
-    if tree:
-        sections.append(_section("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(_section("Flow Map", flows))
-    return "\n".join([s for s in sections if s])
 
 
 def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:

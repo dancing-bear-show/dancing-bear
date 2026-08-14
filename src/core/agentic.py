@@ -40,6 +40,38 @@ def build_capsule(
     return "\n".join([s for s in out if s.strip()])
 
 
+def tree_and_flow_sections(
+    cli_tree: str,
+    flow_map: str,
+) -> list[tuple[str, str]]:
+    """Return the standard (title, body) pairs, dropping empty ones.
+
+    Every domain capsule appends a "CLI Tree" section and a "Flow Map"
+    section, each guarded on being non-empty. Centralizing the pair keeps
+    the section titles and the skip-if-empty rule in one place.
+    """
+    pairs = (("CLI Tree", cli_tree), ("Flow Map", flow_map))
+    return [(title, body) for title, body in pairs if body]
+
+
+def build_domain_map(
+    top_level: str,
+    cli_tree: str,
+    flow_map: str,
+) -> str:
+    """Render a domain map: a Top-Level blurb plus the standard sections.
+
+    Mirrors build_capsule's section handling so the two renderers cannot
+    drift apart on titles or empty-section behaviour.
+    """
+    out: list[str] = [top_level]
+    out.extend(
+        section(title, body)
+        for title, body in tree_and_flow_sections(cli_tree, flow_map)
+    )
+    return "\n".join([s for s in out if s])
+
+
 def _get_subparsers_action(parser: ArgumentParser) -> object | None:
     for act in getattr(parser, "_actions", []):
         if act.__class__.__name__.endswith("SubParsersAction"):

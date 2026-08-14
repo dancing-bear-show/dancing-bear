@@ -4,9 +4,10 @@ from __future__ import annotations
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
+    build_domain_map as _core_build_domain_map,
     cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _core_cli_path_exists,
-    section as _section,
+    tree_and_flow_sections as _tree_and_flow_sections,
 )
 
 
@@ -50,31 +51,20 @@ def build_agentic_capsule() -> str:
         "render: ./bin/resume-assistant render --data out/profile.json --template templates/modern.yaml --profile default",
         "align: ./bin/resume-assistant align --data out/profile.json --job jobs/default.yaml",
     ]
-    sections: list[tuple[str, str]] = []
-    tree = _cli_tree()
-    if tree:
-        sections.append(("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(("Flow Map", flows))
     return _build_capsule(
         "resume",
         "Extract, summarize, and render resumes (DOCX/YAML/JSON)",
         commands,
-        sections,
+        _tree_and_flow_sections(_cli_tree(), _flow_map()),
     )
 
 
 def build_domain_map() -> str:
-    sections: list[str] = []
-    sections.append("Top-Level\n- resume/cli/main.py — CLI entry\n- config/ — seeds, templates, job specs\n- corpus/ — sample resumes\n- out/ — generated outputs (summaries, DOCX)")
-    tree = _cli_tree()
-    if tree:
-        sections.append(_section("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(_section("Flow Map", flows))
-    return "\n".join([s for s in sections if s])
+    return _core_build_domain_map(
+        "Top-Level\n- resume/cli/main.py — CLI entry\n- config/ — seeds, templates, job specs\n- corpus/ — sample resumes\n- out/ — generated outputs (summaries, DOCX)",
+        _cli_tree(),
+        _flow_map(),
+    )
 
 
 def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:

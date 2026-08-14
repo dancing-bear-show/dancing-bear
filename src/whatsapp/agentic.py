@@ -4,9 +4,10 @@ from __future__ import annotations
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _build_cli_tree,
+    build_domain_map as _core_build_domain_map,
     cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _cli_path_exists,
-    section as _section,
+    tree_and_flow_sections as _tree_and_flow_sections,
 )
 from .meta import META
 
@@ -41,33 +42,20 @@ def build_agentic_capsule() -> str:
         "search text: ./bin/whatsapp search --contains school --limit 20",
         "search contact: ./bin/whatsapp search --contact 'Teacher' --since-days 30",
     ]
-    sections: list[tuple[str, str]] = []
-    tree = _cli_tree()
-    if tree:
-        sections.append(("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(("Flow Map", flows))
     return _build_capsule(
         META.app_id,
         META.purpose,
         commands,
-        sections,
+        _tree_and_flow_sections(_cli_tree(), _flow_map()),
     )
 
 
 def build_domain_map() -> str:
-    sections: list[str] = []
-    sections.append(
-        "Top-Level\n- whatsapp/search.py — ChatStorage search helpers"
+    return _core_build_domain_map(
+        "Top-Level\n- whatsapp/search.py — ChatStorage search helpers",
+        _cli_tree(),
+        _flow_map(),
     )
-    tree = _cli_tree()
-    if tree:
-        sections.append(_section("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(_section("Flow Map", flows))
-    return "\n".join([s for s in sections if s])
 
 
 def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:
