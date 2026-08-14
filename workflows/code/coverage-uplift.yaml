@@ -74,7 +74,7 @@ trigger:
     test_path: "tests/"
     pr_title: "chore(coverage): uplift uncovered lines + consolidate test helpers"
     pr_body_sources: "{workspace}/validation/domain-test-results.md and {workspace}/validation/corrections-applied.md"
-    test_cmd: "python3 -m unittest discover -s tests/ -q"
+    test_cmd: "python3 -m unittest discover -s tests/ -t . -q"
 
 workspace_dir: "{work_dir}/coverage-uplift"
 
@@ -511,7 +511,7 @@ stages:
                 - run_cli_with_capture for CLI subcommand tests
                 - Patch at the call site (where it is used), not where defined
                 - No assertTrue(x is not None) — use assertIsNotNone(x)
-           d. After each file: python3 -m unittest discover -s tests/<domain> -q
+           d. After each file: python3 -m unittest discover -s tests/<domain> -t . -q
               Fix import errors or assertion failures before the next file.
 
         6. Write per-domain summary to {workspace}/coverage/<domain>-summary.md:
@@ -553,7 +553,7 @@ stages:
 
       Step 2 — per-domain test run:
         For each domain:
-          python3 -m unittest discover -s tests/<domain> -q
+          python3 -m unittest discover -s tests/<domain> -t . -q
 
         Fix failures:
           - Missing factory: add make_* to tests/<domain>/conftest.py
@@ -659,7 +659,7 @@ stages:
 
       For each critical finding:
         - Apply the fix described in the "fix" field
-        - Re-run python3 -m unittest discover -s tests/<domain> -q for the affected domain
+        - Re-run python3 -m unittest discover -s tests/<domain> -t . -q for the affected domain
         - Confirm green before moving to the next finding
 
       For each minor finding:

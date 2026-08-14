@@ -259,7 +259,7 @@ stages:
           - else tests/test_{group}*.py at top level
           - else note "no tests for {group}"
         Run:
-          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -p "test_*.py" -q 2>&1
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
         Fix anything you broke before writing the summary.
 
       Step 5 — write {workspace}/outputs/reduce-summary.md:
@@ -299,12 +299,12 @@ stages:
       Step 1 — re-run this group's suite:
         Read {workspace}/outputs/reduce-summary.md for the files touched.
         Resolve the test directory as in the reduce stage and run:
-          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -p "test_*.py" -q 2>&1
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
         Record the resolved test dir in the results table — later stages reuse
         this exact path rather than re-deriving it.
 
       Step 2 — run the full suite to catch cross-group regressions:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1 | tail -20
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1 | tail -20
         A refactor in one directory can break another directory's mocks, so
         the full suite is required even though this workflow is scoped to one
         group.
@@ -530,7 +530,7 @@ stages:
         threshold is not.
 
       Step 3 — full suite once more:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1
 
       Step 4 — write {workspace}/validation/recheck.json:
         {

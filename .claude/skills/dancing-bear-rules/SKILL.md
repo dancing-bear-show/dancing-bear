@@ -54,7 +54,7 @@ Never mutate state without first staging and previewing:
 
 ## 7. Testing
 
-- Framework: `unittest` (not pytest); run with `make test` — never bare `python3 -m unittest` in a worktree (inherited `PYTHONPATH` resolves imports to the main checkout and yields false greens). Fallback: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests`
+- Framework: `unittest` (not pytest); run with `make test` — never bare `python3 -m unittest` in a worktree (inherited `PYTHONPATH` resolves imports to the main checkout and yields false greens). Fallback: `PYTHONPATH="$PWD/src" python3 -m unittest discover -s tests -t .`
 - Coverage: `make cov` (or `make cov-html`)
 - Patch where the name is **used**, not where it's **defined**
 - Use factories/fakes from `tests/fakes/`; never construct API response dicts manually

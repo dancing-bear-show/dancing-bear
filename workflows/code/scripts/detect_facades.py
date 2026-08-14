@@ -53,11 +53,14 @@ def classify(path):
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
             continue  # docstring
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            imports += 1
             # `from __future__ import annotations` is a compiler directive, not a
-            # re-exported symbol — counting it inflates the unresolved tally.
+            # re-exported symbol. Skip it BEFORE incrementing: counting it would
+            # let a module whose only top-level statements are a __future__ import
+            # plus __all__ satisfy imports>0/defs==0/other==0 and be reported as a
+            # pure facade with zero re-exports — proposing a real module for deletion.
             if isinstance(node, ast.ImportFrom) and node.module == "__future__":
                 continue
+            imports += 1
             for a in node.names:
                 if a.name != "*":
                     names.append(a.asname or a.name.split(".")[0])

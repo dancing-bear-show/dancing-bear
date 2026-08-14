@@ -24,7 +24,7 @@ Find coverage gaps, write tests, and verify improvement.
 make cov
 
 # Coverage for a specific domain
-PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -q
+PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -t . -q
 python3 -m coverage report -m --include="<domain>/*"
 
 # Lint-level complexity/smell signals (not coverage, but flags files needing tests)
@@ -77,7 +77,7 @@ Task(subagent_type="tester", prompt="Write tests for <domain>/<module>.py target
 python3 -m unittest tests.<domain>.test_new -v
 
 # Check coverage improved
-PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -q
+PYTHONPATH=. python3 -m coverage run -m unittest discover -s tests/<domain> -t . -q
 python3 -m coverage report -m --include="<domain>/*"
 
 # Full suite (no regressions)

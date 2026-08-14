@@ -519,7 +519,7 @@ stages:
           - tests/<domain>_tests/  else  tests/<domain>/  else
             flat tests/test_<domain>*.py
         Run:
-          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <resolved_dir> -p "test_*.py" -q 2>&1
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <resolved_dir> -t . -p "test_*.py" -q 2>&1
 
       Step 4 — fix failures, up to 3 cycles per domain:
         - ImportError / ModuleNotFoundError naming a deleted facade: a call site
@@ -675,7 +675,7 @@ stages:
       Step 4 — fix test failures.
         For each FAIL domain, re-run using the Test Dir recorded in
         test-results.md — do NOT re-derive the path:
-          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <recorded_dir> -q 2>&1
+          PYTHONPATH="$PWD/src" python3 -m unittest discover -s <recorded_dir> -t . -q 2>&1
         Up to 2 further fix cycles per domain. Re-run `make test` after each.
 
       Step 5 — handle any regression facade.

@@ -343,7 +343,7 @@ stages:
           {test_cmd}
         Else derive from findings.json (the domain from the first failure's
         test_file): use the Bash tool to run:
-          python3 -m unittest discover -s tests/<domain>/ -x -q
+          python3 -m unittest discover -s tests/<domain>/ -t . -f -q
         Record total tests, failures, and exit code.
 
       Step 3 — re-check qlty on changed files:

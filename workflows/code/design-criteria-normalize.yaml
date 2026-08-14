@@ -327,7 +327,7 @@ stages:
             (FakeGmailClient/FakeOutlookClient) rather than live calls.
 
       Run the domain's test suite after writing tests:
-        python3 -m unittest discover -s <test_dir> -p "test_*.py" -q 2>&1
+        python3 -m unittest discover -s <test_dir> -t . -p "test_*.py" -q 2>&1
       Fix failures up to 2 cycles. If still failing, document the blocker —
       do not abort other domains.
 

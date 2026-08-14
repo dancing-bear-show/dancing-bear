@@ -29,7 +29,7 @@ trigger:
   source: manual
   params:
     pr_title: ""          # Required: conventional-commit title e.g. "feat(mail): add label sync"
-    test_cmd: ""          # Optional: override test command e.g. "python3 -m unittest discover -s tests/mail/ -q"
+    test_cmd: ""          # Optional: override test command e.g. "python3 -m unittest discover -s tests/mail/ -t . -q"
     source_root: ""       # Source directory to scope mypy + qlty e.g. "mail/"
     test_path: ""         # Test directory path e.g. "tests/mail/" (used when test_cmd is empty)
     min_coverage: "80"    # Minimum coverage threshold (percent)
@@ -108,7 +108,7 @@ stages:
         Determine the test command:
           - If {test_cmd} is non-empty: use it verbatim.
           - Else if {test_path} is non-empty:
-              coverage run -m unittest discover -s {test_path} -q
+              coverage run -m unittest discover -s {test_path} -t . -q
           - Else:
               coverage run -m unittest discover -q
 

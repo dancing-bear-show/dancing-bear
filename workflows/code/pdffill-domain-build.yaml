@@ -846,7 +846,7 @@ stages:
       and (if configured) a read-only real-form smoke test.
 
       Step 1 -- run the pdffill test suite:
-        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests/pdffill_tests -p "test_*.py" -v 2>&1
+        Bash tool: PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests/pdffill_tests -t . -p "test_*.py" -v 2>&1
         Record exit code and output. If exit != 0, attempt one targeted fix:
           - Read the failure line.
           - Fix the minimal issue (import path, wrong assertion).
