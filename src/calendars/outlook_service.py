@@ -18,7 +18,9 @@ from core.outlook.models import (
     ListCalendarViewRequest,
     ListEventsRequest,
     RecurringEventCreationParams,
+    UpdateEventLocationRequest,
     UpdateEventReminderRequest,
+    UpdateEventSubjectRequest,
 )
 
 __all__ = [
@@ -27,7 +29,9 @@ __all__ = [
     "ListCalendarViewRequest",
     "ListEventsRequest",
     "RecurringEventCreationParams",
+    "UpdateEventLocationRequest",
     "UpdateEventReminderRequest",
+    "UpdateEventSubjectRequest",
     "OutlookService",
 ]
 
@@ -85,20 +89,9 @@ class OutlookService:
         return self.ensure_calendar(name)
 
     # Update helpers
-    def update_event_location(
-        self,
-        *,
-        event_id: str,
-        calendar_id: str | None = None,
-        calendar_name: str | None = None,
-        location_str: str,
-    ) -> None:
-        return self.client.update_event_location(
-            event_id=event_id,
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            location_str=location_str,
-        )
+    def update_event_location(self, params: UpdateEventLocationRequest) -> None:
+        """Update event location using parameter object."""
+        self.client.update_event_location(params)
 
     def update_event_reminder(self, params: UpdateEventReminderRequest) -> None:
         """Update event reminder using parameter object."""
@@ -108,20 +101,9 @@ class OutlookService:
         """Patch a subset of event settings using parameter object."""
         self.client.update_event_settings(params)
 
-    def update_event_subject(
-        self,
-        *,
-        event_id: str,
-        calendar_id: str | None = None,
-        calendar_name: str | None = None,
-        subject: str,
-    ) -> None:
-        self.client.update_event_subject(
-            event_id=event_id,
-            calendar_id=calendar_id,
-            calendar_name=calendar_name,
-            subject=subject,
-        )
+    def update_event_subject(self, params: UpdateEventSubjectRequest) -> None:
+        """Update event subject using parameter object."""
+        self.client.update_event_subject(params)
 
     def ensure_calendar_permission(self, calendar_id: str, recipient: str, role: str) -> dict[str, Any]:
         return self.client.ensure_calendar_permission(calendar_id, recipient, role)

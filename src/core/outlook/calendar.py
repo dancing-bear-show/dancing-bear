@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
-from .client import OutlookClientBase, _requests
+from .client import _requests
 from .models import (
     EventCreationParams,
     EventSettingsPatch,
     ListCalendarViewRequest,
     ListEventsRequest,
     RecurringEventCreationParams,
+    UpdateEventLocationRequest,
     UpdateEventReminderRequest,
+    UpdateEventSubjectRequest,
 )
 from core.constants import DAY_START_TIME, DAY_END_TIME, GRAPH_API_URL
 from core.outlook._location import _parse_location
@@ -22,15 +24,32 @@ from core.outlook._recurrence import (
 )
 
 
+class _OutlookCalendarHost(Protocol):
+    """Structural contract the host class must satisfy for OutlookCalendarMixin.
+
+    Only members the mixin does *not* define itself belong here: everything else
+    (_resolve_calendar_id, _paginated_get, _event_endpoint, _patch_event,
+    list_calendars, get_calendar_id_by_name, ...) is provided by the mixin.
+    """
+
+    def _headers(self) -> dict[str, str]:
+        """Return Graph API auth headers."""
+        ...
+
+    def get_mailbox_timezone(self) -> str | None:
+        """Return the mailbox's default IANA timezone, if known."""
+        ...
+
+
 class OutlookCalendarMixin:
     """Mixin providing calendar and event operations.
 
-    Requires OutlookClientBase methods: _headers, get_mailbox_timezone
+    Host class must satisfy _OutlookCalendarHost.
     """
 
     # -------------------- Internal helpers --------------------
     def _resolve_calendar_id(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         calendar_id: str | None,
         calendar_name: str | None,
     ) -> str | None:
@@ -41,7 +60,7 @@ class OutlookCalendarMixin:
             return self.get_calendar_id_by_name(calendar_name)
         return None
 
-    def _paginated_get(self: OutlookClientBase, url: str) -> list[dict[str, Any]]:
+    def _paginated_get(self: _OutlookCalendarHost, url: str) -> list[dict[str, Any]]:
         """Fetch all pages from a paginated Graph API endpoint."""
         out: list[dict[str, Any]] = []
         while url:
@@ -67,10 +86,10 @@ class OutlookCalendarMixin:
         _apply_reminder(payload, no_reminder, reminder_minutes)
 
     # -------------------- Calendars --------------------
-    def list_calendars(self: OutlookClientBase) -> list[dict[str, Any]]:
+    def list_calendars(self: _OutlookCalendarHost) -> list[dict[str, Any]]:
         return self._paginated_get(f"{GRAPH_API_URL}/me/calendars")
 
-    def create_calendar(self: OutlookClientBase, name: str) -> dict[str, Any]:
+    def create_calendar(self: _OutlookCalendarHost, name: str) -> dict[str, Any]:
         body = {"name": name}
         r = _requests().post(f"{GRAPH_API_URL}/me/calendars", headers=self._headers(), json=body)
         r.raise_for_status()
@@ -82,14 +101,14 @@ class OutlookCalendarMixin:
         n = (cal.get("name") or cal.get("displayName") or "").strip().lower()
         return n == target
 
-    def _find_calendar_by_name(self: OutlookClientBase, target: str) -> dict[str, Any] | None:
+    def _find_calendar_by_name(self: _OutlookCalendarHost, target: str) -> dict[str, Any] | None:
         """Return the first calendar whose name matches target (already normalized)."""
         for cal in self.list_calendars():
             if self._calendar_name_matches(cal, target):
                 return cal
         return None
 
-    def ensure_calendar(self: OutlookClientBase, name: str) -> str:
+    def ensure_calendar(self: _OutlookCalendarHost, name: str) -> str:
         target = (name or "").strip().lower()
         if not target:
             raise ValueError("Calendar name is empty")
@@ -100,13 +119,13 @@ class OutlookCalendarMixin:
         return created.get("id", "")
 
     # Alias for backwards compatibility
-    def ensure_calendar_exists(self: OutlookClientBase, name: str) -> str:
+    def ensure_calendar_exists(self: _OutlookCalendarHost, name: str) -> str:
         return self.ensure_calendar(name)
 
-    def find_calendar_id(self: OutlookClientBase, name: str) -> str | None:
+    def find_calendar_id(self: _OutlookCalendarHost, name: str) -> str | None:
         return self.get_calendar_id_by_name(name)
 
-    def get_calendar_id_by_name(self: OutlookClientBase, name: str) -> str | None:
+    def get_calendar_id_by_name(self: _OutlookCalendarHost, name: str) -> str | None:
         target = (name or "").strip().lower()
         if not target:
             return None
@@ -115,14 +134,14 @@ class OutlookCalendarMixin:
         return str(cid) if cid else None
 
     # -------------------- Calendar Sharing --------------------
-    def list_calendar_permissions(self: OutlookClientBase, calendar_id: str) -> list[dict[str, Any]]:
+    def list_calendar_permissions(self: _OutlookCalendarHost, calendar_id: str) -> list[dict[str, Any]]:
         url = f"{GRAPH_API_URL}/me/calendars/{calendar_id}/calendarPermissions"
         r = _requests().get(url, headers=self._headers())
         r.raise_for_status()
         return r.json().get("value", [])
 
     def _update_calendar_permission(
-        self: OutlookClientBase, calendar_id: str, perm_id: str, role: str
+        self: _OutlookCalendarHost, calendar_id: str, perm_id: str, role: str
     ) -> dict[str, Any]:
         """Patch an existing calendar permission to a new role."""
         rr = _requests().patch(
@@ -140,7 +159,7 @@ class OutlookCalendarMixin:
         return em == (email or "").strip().lower()
 
     def _reconcile_permission_role(
-        self: OutlookClientBase, calendar_id: str, perm: dict[str, Any], role: str
+        self: _OutlookCalendarHost, calendar_id: str, perm: dict[str, Any], role: str
     ) -> dict[str, Any]:
         """Update perm's role if it differs from the target role; else return it unchanged."""
         cur = (perm.get("role") or "").strip()
@@ -152,7 +171,7 @@ class OutlookCalendarMixin:
         return self._update_calendar_permission(calendar_id, pid, role)
 
     def ensure_calendar_permission(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         calendar_id: str,
         email: str,
         role: str = "write"
@@ -174,7 +193,7 @@ class OutlookCalendarMixin:
 
     # -------------------- Events --------------------
     def list_events_in_range(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         params: ListEventsRequest,
     ) -> list[dict[str, Any]]:
         """List events for a calendar within [start_iso, end_iso].
@@ -191,14 +210,14 @@ class OutlookCalendarMixin:
         return [ev for ev in events if needle in (ev.get("subject") or "").lower()]
 
     def list_calendar_view(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         params: ListCalendarViewRequest,
     ) -> list[dict[str, Any]]:
         """List calendar view (expanded occurrences) for a date range."""
         base = f"{GRAPH_API_URL}/me/calendars/{params.calendar_id}/calendarView" if params.calendar_id else f"{GRAPH_API_URL}/me/calendarView"
         return self._paginated_get(f"{base}?startDateTime={params.start_iso}&endDateTime={params.end_iso}&$top={int(params.top)}")
 
-    def _resolve_tz(self: OutlookClientBase, tz: str | None) -> str:
+    def _resolve_tz(self: _OutlookCalendarHost, tz: str | None) -> str:
         if tz and tz.strip():
             return tz.strip()
         mbx = self.get_mailbox_timezone()
@@ -216,7 +235,7 @@ class OutlookCalendarMixin:
         if location:
             payload["location"] = _parse_location(location)
 
-    def create_event(self: OutlookClientBase, params: EventCreationParams) -> dict[str, Any]:
+    def create_event(self: _OutlookCalendarHost, params: EventCreationParams) -> dict[str, Any]:
         """Create a one-time event."""
         tz_final = self._resolve_tz(params.tz)
         cal_id = self._resolve_calendar_id(params.calendar_id, params.calendar_name)
@@ -234,7 +253,7 @@ class OutlookCalendarMixin:
         return r.json()
 
     def create_recurring_event(
-        self: OutlookClientBase, params: RecurringEventCreationParams
+        self: _OutlookCalendarHost, params: RecurringEventCreationParams
     ) -> dict[str, Any]:
         """Create a recurring event series."""
         tz_final = self._resolve_tz(params.tz)
@@ -264,7 +283,7 @@ class OutlookCalendarMixin:
         return series
 
     def _apply_exdate_deletions_best_effort(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         calendar_id: str | None,
         series_id: str | None,
         exdates: list[str],
@@ -289,7 +308,7 @@ class OutlookCalendarMixin:
         return _build_recurrence_range(start_date, until, count)
 
     def _apply_exdate_deletions(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         calendar_id: str | None,
         series_id: str,
         exdates: list[str],
@@ -310,7 +329,7 @@ class OutlookCalendarMixin:
 
     # -------------------- Event Updates --------------------
     def _patch_event(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         event_id: str,
         calendar_id: str | None,
         calendar_name: str | None,
@@ -323,21 +342,17 @@ class OutlookCalendarMixin:
         return r.json() if r.text else {}
 
     def update_event_location(
-        self: OutlookClientBase,
-        *,
-        event_id: str,
-        calendar_id: str | None = None,
-        calendar_name: str | None = None,
-        location_str: str,
+        self: _OutlookCalendarHost,
+        params: UpdateEventLocationRequest,
     ) -> dict[str, Any]:
         """Patch the location of an event or series master."""
-        if not (location_str and location_str.strip()):
+        if not (params.location_str and params.location_str.strip()):
             raise ValueError("Must provide location_str")
-        loc = _parse_location(location_str)
-        return self._patch_event(event_id, calendar_id, calendar_name, {"location": loc})
+        loc = _parse_location(params.location_str)
+        return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, {"location": loc})
 
     def update_event_reminder(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         params: UpdateEventReminderRequest,
     ) -> dict[str, Any]:
         """Patch event reminder fields."""
@@ -347,7 +362,7 @@ class OutlookCalendarMixin:
         return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, body)
 
     def update_event_settings(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         params: EventSettingsPatch,
     ) -> dict[str, Any]:
         """Patch selected event fields in one request."""
@@ -367,18 +382,16 @@ class OutlookCalendarMixin:
         return self._patch_event(params.event_id, params.calendar_id, params.calendar_name, body)
 
     def update_event_subject(
-        self: OutlookClientBase,
-        *,
-        event_id: str,
-        calendar_id: str | None = None,
-        calendar_name: str | None = None,
-        subject: str,
+        self: _OutlookCalendarHost,
+        params: UpdateEventSubjectRequest,
     ) -> dict[str, Any]:
         """Patch the subject/title of an event or series master."""
-        return self._patch_event(event_id, calendar_id, calendar_name, {"subject": subject})
+        return self._patch_event(
+            params.event_id, params.calendar_id, params.calendar_name, {"subject": params.subject}
+        )
 
     def delete_event(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         event_id: str,
         calendar_id: str | None = None
     ) -> None:
@@ -387,7 +400,7 @@ class OutlookCalendarMixin:
             r.raise_for_status()
 
     def delete_event_by_id(
-        self: OutlookClientBase,
+        self: _OutlookCalendarHost,
         event_id: str,
         calendar_id: str | None = None
     ) -> bool:

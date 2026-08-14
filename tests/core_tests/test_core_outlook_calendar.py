@@ -9,7 +9,12 @@ import requests
 
 from core.outlook.calendar import OutlookCalendarMixin
 from core.outlook._location import _normalize_days, _parse_location
-from core.outlook.models import EventCreationParams, RecurringEventCreationParams
+from core.outlook.models import (
+    EventCreationParams,
+    RecurringEventCreationParams,
+    UpdateEventLocationRequest,
+    UpdateEventSubjectRequest,
+)
 
 
 # -------------------- Fixtures --------------------
@@ -704,13 +709,17 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        OutlookCalendarMixin.update_event_location(FakeClient(), event_id="event-1", location_str="New Location")
+        OutlookCalendarMixin.update_event_location(
+            FakeClient(), UpdateEventLocationRequest(event_id="event-1", location_str="New Location")
+        )
 
         mock_requests.patch.assert_called_once()
 
     def test_update_event_location_no_location_raises(self):
         with self.assertRaises((ValueError, TypeError)):
-            OutlookCalendarMixin.update_event_location(FakeClient(), event_id="event-1", location_str="")
+            OutlookCalendarMixin.update_event_location(
+                FakeClient(), UpdateEventLocationRequest(event_id="event-1", location_str="")
+            )
 
     @patch("core.outlook.calendar._requests")
     def test_update_event_reminder(self, mock_requests_fn):
@@ -769,7 +778,9 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests = self._setup_mock_requests(mock_requests_fn)
         mock_requests.patch.return_value = make_mock_response({"id": "e1"}, text='{"id": "e1"}')
 
-        OutlookCalendarMixin.update_event_subject(FakeClient(), event_id="event-1", subject="New Title")
+        OutlookCalendarMixin.update_event_subject(
+            FakeClient(), UpdateEventSubjectRequest(event_id="event-1", subject="New Title")
+        )
 
         self.assertEqual(mock_requests.patch.call_args.kwargs["json"]["subject"], "New Title")
 
@@ -783,7 +794,9 @@ class TestEventUpdates(OutlookCalendarTestBase):
         mock_requests.patch.return_value = error_response
 
         with self.assertRaises(requests.exceptions.HTTPError):
-            OutlookCalendarMixin.update_event_subject(FakeClient(), event_id="event-1", subject="New Title")
+            OutlookCalendarMixin.update_event_subject(
+                FakeClient(), UpdateEventSubjectRequest(event_id="event-1", subject="New Title")
+            )
 
 
 class TestEventDeletion(OutlookCalendarTestBase):

@@ -123,6 +123,8 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Check module: `~/.qlty/bin/qlty check src/mail/`
 - Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
 - Linters: ruff (style), bandit (security), complexity metrics
+- `.qlty/qlty.toml` `exclude_patterns` ignores `**/.claude/**`, so agents spawned with `isolation: "worktree"` (created under `.claude/worktrees/`) get a silently empty scan — 0 issues means "excluded", not "clean"
+- Run qlty from the main checkout or a worktree outside `.claude/`; treat a suspiciously empty result as a broken environment, not a passing one
 
 **Testing:**
 - Run tests: `make test` (pins `PYTHONPATH` to this checkout — always prefer it)
