@@ -14,7 +14,7 @@ from . import report
 from .meta import APP_ID, PURPOSE
 from .models import Finding, Source, Tier
 from .report import TriageEntry
-from .runner import QltyError, QltyRunner
+from .runner import QltyRunner
 from .scanner import ScanRequest, ScanResult, Scanner, sibling_uses_params_object
 from .strategies import known_strategies, strategy_for
 
@@ -112,13 +112,12 @@ def _render_scan(result: ScanResult, fmt: str) -> str:
 @app.argument("--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)")
 @app.argument("--format", choices=_FORMATS, default="text", dest="format", help="Output format")
 def cmd_scan(args) -> int:
-    """Run a merged qlty scan."""
-    try:
-        result = _run_scan(args)
-    except QltyError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return ExitCode.ERROR
+    """Run a merged qlty scan.
 
+    ``QltyError`` is deliberately not caught: it is a ``CLIError``, so CLIApp's
+    handler renders its message and hint on stderr and maps its exit code.
+    """
+    result = _run_scan(args)
     _emit(_render_scan(result, args.format))
 
     failure = _expect_min_failure(result, args.expect_min)
@@ -172,13 +171,11 @@ def _build_triage(result: ScanResult) -> list[TriageEntry]:
 @app.argument("--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)")
 @app.argument("--format", choices=_FORMATS, default="text", dest="format", help="Output format")
 def cmd_triage(args) -> int:
-    """Triage findings into tiers with remediation strategy."""
-    try:
-        result = _run_scan(args)
-    except QltyError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return ExitCode.ERROR
+    """Triage findings into tiers with remediation strategy.
 
+    ``QltyError`` propagates to CLIApp's handler; see ``cmd_scan``.
+    """
+    result = _run_scan(args)
     entries = _build_triage(result)
 
     if args.format == "json":
@@ -199,16 +196,16 @@ def cmd_triage(args) -> int:
 @app.argument("--counts", action="store_true", help="Include live finding counts (runs a scan)")
 @app.argument("--format", choices=_FORMATS, default="text", dest="format", help="Output format")
 def cmd_rules(args) -> int:
-    """List the rule strategy table."""
+    """List the rule strategy table.
+
+    ``QltyError`` from the optional --counts scan propagates to CLIApp's
+    handler; see ``cmd_scan``.
+    """
     strategies = known_strategies()
     counts: Optional[dict[str, int]] = None
 
     if args.counts:
-        try:
-            result = _build_scanner().scan()
-        except QltyError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return ExitCode.ERROR
+        result = _build_scanner().scan()
         counts = {rule: len(items) for rule, items in result.by_rule().items()}
 
     if args.format == "json":

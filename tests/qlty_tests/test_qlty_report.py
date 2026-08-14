@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from qlty.models import RuleStrategy, Tier
+from qlty.models import Location, RuleStrategy, Tier
 from qlty.report import (
     TriageEntry,
     render_rules_json,
@@ -69,6 +69,30 @@ class EmptyResultWordingTests(unittest.TestCase):
         empty = _result([], scanned_all=False)
         self.assertIn("run with --all", render_scan_markdown(empty))
         self.assertIn("run with --all", render_triage_text([], empty))
+
+
+class FindingFormattingTests(unittest.TestCase):
+    def test_clone_siblings_are_listed_alongside_the_primary(self):
+        # similar-code collapses N locations into one finding. The collapsed
+        # siblings must still be printed, or dedup would hide where the
+        # duplicate code actually lives.
+        finding = make_finding(
+            rule="similar-code",
+            path="src/a.py",
+            group_key="h",
+            value=None,
+            other_locations=(Location(path="src/b.py", line=20),),
+        )
+        text = render_scan_text(_result([finding]))
+        self.assertIn("src/a.py", text)
+        self.assertIn("also:", text)
+        self.assertIn("src/b.py:20", text)
+
+    def test_absent_value_is_omitted_rather_than_shown_as_zero(self):
+        # SARIF carries no numeric value; rendering "value=0" would look like a
+        # real measurement of zero.
+        text = render_scan_text(_result([make_finding(value=None)]))
+        self.assertNotIn("value=", text)
 
 
 class RunScopedFramingTests(unittest.TestCase):
@@ -146,6 +170,28 @@ class TriageRenderingTests(unittest.TestCase):
         # The remaining findings must be explicitly framed as LEAVE.
         self.assertIn("default LEAVE", text)
 
+    def test_all_drift_candidates_omits_the_remainder_note(self):
+        # Complement of test_drift_candidates_are_listed: when every finding is
+        # a drift candidate there is no "default LEAVE" remainder to report,
+        # and claiming one would be wrong.
+        entry = TriageEntry(
+            strategy=strategy_for("function-parameters"),
+            findings=(make_finding(path="src/0.py"),),
+            drift_files=("src/0.py",),
+        )
+        text = render_triage_text([entry], _result([make_finding()]))
+        self.assertIn("pattern drift", text)
+        self.assertNotIn("default LEAVE", text)
+
+    def test_tooling_is_named_when_a_workflow_exists(self):
+        # A rule with a real remediation workflow must say so; the whole point
+        # of the tier table is routing to the tool that fixes it.
+        text = render_triage_text(
+            [self._entry("file-complexity")], _result([make_finding()])
+        )
+        self.assertIn("tooling:", text)
+        self.assertIn("qlty-complexity-sweep", text)
+
     def test_json_exposes_proposes_fix_flag(self):
         entries = [self._entry("similar-code"), self._entry("boolean-logic")]
         payload = json.loads(
@@ -155,11 +201,27 @@ class TriageRenderingTests(unittest.TestCase):
         self.assertFalse(by_rule["similar-code"]["proposes_fix"])
         self.assertTrue(by_rule["boolean-logic"]["proposes_fix"])
 
-    def test_markdown_marks_report_only(self):
+    def test_markdown_names_why_no_fix_is_proposed(self):
+        # "no fix" is not one posture. Tier D needs a human to read the
+        # locations; Tier C wants a suppression with a stated reason. Rendering
+        # both as a bare "report-only" would tell the reader to do nothing.
         md = render_triage_markdown(
             [self._entry("similar-code")], _result([make_finding()])
         )
-        self.assertIn("report-only", md)
+        self.assertIn("| `similar-code` | D |", md)
+        self.assertIn("no (read required)", md)
+
+    def test_markdown_distinguishes_the_no_fix_postures(self):
+        entries = [
+            self._entry("similar-code"),  # Tier D
+            TriageEntry(
+                strategy=strategy_for("totally-unknown-rule"),
+                findings=(make_finding(rule="totally-unknown-rule"),),
+            ),
+        ]
+        md = render_triage_markdown(entries, _result([make_finding()]))
+        self.assertIn("no (read required)", md)
+        self.assertIn("no (manual review)", md)
 
     def test_unknown_rule_still_renders_with_a_posture(self):
         entry = TriageEntry(
@@ -200,6 +262,18 @@ class RulesRenderingTests(unittest.TestCase):
     def test_markdown_with_counts_adds_a_column(self):
         md = render_rules_markdown(known_strategies(), {"similar-code": 6})
         self.assertIn("| rule | tier | count | tooling |", md)
+
+    def test_text_annotates_rules_with_live_counts(self):
+        text = render_rules_text(known_strategies(), {"similar-code": 6})
+        self.assertIn("n=6", text)
+        # A rule absent from the scan is an explicit zero, not a blank, so
+        # "not found" is distinguishable from "not reported".
+        self.assertIn("n=0", text)
+
+    def test_text_omits_counts_when_no_scan_ran(self):
+        # Without --counts no scan happened; printing n=0 everywhere would
+        # falsely claim a clean repo.
+        self.assertNotIn("n=", render_rules_text(known_strategies()))
 
 
 class StrategyTableTests(unittest.TestCase):
@@ -247,6 +321,43 @@ class StrategyTableTests(unittest.TestCase):
         )
         self.assertTrue(RuleStrategy("r", Tier.B, "a", "why").actionable)
         self.assertFalse(RuleStrategy("r", Tier.C, "a", "why").actionable)
+
+
+class NonActionableTierLabelTests(unittest.TestCase):
+    """Each non-actionable tier says why it proposes no fix.
+
+    "report-only" is true for D but wrong for C (suppress with a stated
+    reason) and UNKNOWN (classify the rule first).
+    """
+
+    @staticmethod
+    def _markdown_for(tier: Tier) -> str:
+        entry = TriageEntry(
+            strategy=RuleStrategy("r", tier, "action", "why"),
+            findings=(make_finding(rule="r"),),
+        )
+        return render_triage_markdown([entry], _result([make_finding(rule="r")]))
+
+    def test_tier_c_reads_as_suppress_with_reason(self):
+        self.assertIn("suppress with reason", self._markdown_for(Tier.C))
+
+    def test_tier_d_reads_as_read_required(self):
+        self.assertIn("read required", self._markdown_for(Tier.D))
+
+    def test_unknown_tier_reads_as_manual_review(self):
+        self.assertIn("manual review", self._markdown_for(Tier.UNKNOWN))
+
+    def test_non_actionable_tiers_do_not_share_one_label(self):
+        # A blanket label would make these three indistinguishable.
+        rows = {
+            next(
+                line
+                for line in self._markdown_for(t).splitlines()
+                if line.startswith("| `r`")
+            )
+            for t in (Tier.C, Tier.D, Tier.UNKNOWN)
+        }
+        self.assertEqual(len(rows), 3)
 
 
 if __name__ == "__main__":

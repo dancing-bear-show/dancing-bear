@@ -16,7 +16,8 @@ from typing import Optional
 class Tier(str, Enum):
     """Action class for a rule. The tier, not the count, decides what happens.
 
-    Values are lowercase strings so JSON output is stable and greppable.
+    Values are stable strings so JSON output is greppable: the lettered tiers
+    serialize as "A"/"B"/"C"/"D", and the sentinel as "unknown".
     """
 
     A = "A"  # mechanical, safe to fan out

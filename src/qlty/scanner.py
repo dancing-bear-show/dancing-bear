@@ -226,7 +226,7 @@ def sibling_uses_params_object(
     candidate = base / module_path
     try:
         text = candidate.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError:  # nosec B110 - unreadable module is a no-evidence answer, not an error
         # Unreadable module: report "no evidence" rather than guessing, so the
         # finding stays in the default-LEAVE bucket.
         return False

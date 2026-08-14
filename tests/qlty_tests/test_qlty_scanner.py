@@ -132,6 +132,36 @@ class RescanTests(unittest.TestCase):
         self.assertTrue(result.stable)
         self.assertEqual(result.iterations, 2)
 
+    def test_rescan_carries_degradation_from_any_iteration(self):
+        # The SARIF fallback may fire on only one iteration. Merging must keep
+        # that warning, or a degraded run would present as a full-fidelity one.
+        clean = result_of([make_finding(path="src/a.py")])
+        degraded = result_of(
+            [make_finding(path="src/b.py")],
+            degraded=True,
+            degrade_reason="--json unavailable; fell back to --sarif",
+        )
+        runner = FakeRunner({Source.SMELLS: [clean, degraded]})
+        result = Scanner(runner).scan(
+            ScanRequest(sources=(Source.SMELLS,)), rescan_until_stable=True
+        )
+        self.assertTrue(result.degradations)
+        self.assertIn("--sarif", result.degradations[0])
+
+    def test_repeated_degradation_reason_is_reported_once(self):
+        # Every iteration degrades for the same reason; repeating the warning
+        # per-iteration would bury the finding list in noise.
+        degraded = result_of(
+            [make_finding()],
+            degraded=True,
+            degrade_reason="--json unavailable; fell back to --sarif",
+        )
+        runner = FakeRunner({Source.SMELLS: [degraded]})
+        result = Scanner(runner).scan(
+            ScanRequest(sources=(Source.SMELLS,)), rescan_until_stable=True
+        )
+        self.assertEqual(len(result.degradations), 1)
+
     def test_unstable_scan_is_flagged_at_the_cap(self):
         # Alternating results never settle; the run must report instability
         # rather than silently presenting the last iteration as complete.

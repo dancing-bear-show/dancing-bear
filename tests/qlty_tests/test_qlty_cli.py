@@ -42,7 +42,7 @@ class _RunnerLike(Protocol):
     """
 
     def invoke(self, source: Source, **kwargs: object) -> InvocationResult:
-        ...  # pragma: no cover - structural protocol
+        raise NotImplementedError  # pragma: no cover - structural protocol
 
 
 def _patched_scanner(runner: _RunnerLike):
@@ -205,6 +205,34 @@ class TriageCommandTests(unittest.TestCase):
         payload = json.loads(out)
         self.assertEqual(payload["tiers"][0]["drift_candidates"], ["src/x.py"])
 
+    def test_triage_markdown_format_renders(self):
+        runner = FakeRunner({Source.SMELLS: [result_of([make_finding()])]})
+        with _patched_scanner(runner):
+            code, out = run_cli(["triage", "--smells-only", "--format", "md"])
+        self.assertEqual(code, 0)
+        self.assertIn("#", out)
+        self.assertIn("function-parameters", out)
+
+    def test_drift_cross_reference_skips_duplicate_and_empty_paths(self):
+        # _drift_candidates dedupes by file: the sibling-module read is the
+        # expensive part, so the same module must not be probed twice.
+        findings = [
+            make_finding(rule="function-parameters", path="src/x.py", line=1),
+            make_finding(rule="function-parameters", path="src/x.py", line=2),
+            make_finding(rule="function-parameters", path="", line=3),
+        ]
+        runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
+        with patch.object(
+            cli, "sibling_uses_params_object", return_value=True
+        ) as probe:
+            with _patched_scanner(runner):
+                _, out = run_cli(["triage", "--smells-only", "--format", "json"])
+
+        payload = json.loads(out)
+        self.assertEqual(payload["tiers"][0]["drift_candidates"], ["src/x.py"])
+        # Probed once for src/x.py; never for the empty path.
+        probe.assert_called_once_with("src/x.py")
+
     def test_no_drift_candidates_when_module_lacks_params_object(self):
         findings = [make_finding(rule="function-parameters", path="src/x.py")]
         runner = FakeRunner({Source.SMELLS: [result_of(findings)]})
@@ -244,6 +272,48 @@ class RulesCommandTests(unittest.TestCase):
         self.assertEqual(code, 0)
         by_rule = {r["rule"]: r for r in json.loads(out)["rules"]}
         self.assertEqual(by_rule["boolean-logic"]["count"], 1)
+
+    def test_rules_markdown_format_renders(self):
+        code, out = run_cli(["rules", "--format", "md"])
+        self.assertEqual(code, 0)
+        self.assertIn("#", out)
+        self.assertIn("function-parameters", out)
+
+    def test_check_only_runs_just_the_check_source(self):
+        # The mirror of the existing --smells-only test; together they pin that
+        # each flag narrows to exactly one source rather than silently keeping
+        # both.
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            run_cli(["scan", "--check-only"])
+        self.assertEqual({call[0] for call in runner.calls}, {Source.CHECK})
+
+    def test_rules_counts_scan_failure_exits_nonzero(self):
+        # --counts is the only path where `rules` shells out, so a broken scan
+        # must fail loudly rather than printing the table with silent zeros.
+        class Failing:
+            def invoke(self, *a, **kw):
+                raise QltyInvocationError("qlty exploded")
+
+        with _patched_scanner(Failing()):
+            code, out, err = run_cli_streams(["rules", "--counts"])
+
+        self.assertNotEqual(code, 0)
+        self.assertIn("qlty exploded", err)
+        # No partial table on stdout: a rule list with no counts would read as
+        # "scanned, found nothing".
+        self.assertNotIn("qlty exploded", out)
+        self.assertNotIn("function-parameters", out)
+
+    def test_rules_counts_failure_reports_the_hint(self):
+        # QltyError is a CLIError, so the framework renders its remedy too.
+        class Failing:
+            def invoke(self, *a, **kw):
+                raise QltyInvocationError("qlty exploded", hint="try --changed")
+
+        with _patched_scanner(Failing()):
+            _, _, err = run_cli_streams(["rules", "--counts"])
+        self.assertIn("try --changed", err)
 
 
 class AgenticTests(unittest.TestCase):

@@ -67,6 +67,7 @@ def make_finding(
     group_key: Optional[str] = None,
     message: str = "Function with many parameters (count = 6): example",
     level: str = "medium",
+    other_locations: Sequence[Location] = (),
 ) -> Finding:
     """Build a Finding without going through a parser."""
     return Finding(
@@ -78,6 +79,7 @@ def make_finding(
         wire_format=WireFormat.JSON,
         value=value,
         group_key=group_key,
+        other_locations=tuple(other_locations),
     )
 
 

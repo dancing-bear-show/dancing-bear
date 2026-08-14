@@ -48,6 +48,7 @@ src/                      # all Python source packages (installable via package-
   metals/                 # precious metals purchase tracking
   apple_music/            # Apple Music CLI
   wifi/                   # Wi-Fi CLI
+  qlty/                   # qlty scan/triage wrapper (tiers findings by remediation strategy)
 bin/                      # entry wrappers and helper scripts
 tests/                    # lightweight unittest suite
 .llm/                     # LLM context, flows, capsules
@@ -123,6 +124,11 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - Check module: `~/.qlty/bin/qlty check src/mail/`
 - Auto-fix: `~/.qlty/bin/qlty check --fix path/to/file.py`
 - Linters: ruff (style), bandit (security), complexity metrics
+- For repo-wide triage prefer `./bin/qlty-assistant` over raw qlty: it merges
+  `check` + `smells` (disjoint sets — running one hides the other), defaults to
+  `--all`, dedupes clone groups, and ranks findings by remediation tier
+- `./bin/qlty-assistant scan --expect-min N` fails loudly on an implausibly
+  empty scan, which is what the exclusion trap below looks like
 - `.qlty/qlty.toml` `exclude_patterns` ignores `**/.claude/**`, so agents spawned with `isolation: "worktree"` (created under `.claude/worktrees/`) get a silently empty scan — 0 issues means "excluded", not "clean"
 - Run qlty from the main checkout or a worktree outside `.claude/`; treat a suspiciously empty result as a broken environment, not a passing one
 

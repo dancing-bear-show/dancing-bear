@@ -30,11 +30,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess  # nosec B404 - qlty is a local dev binary invoked with a fixed arg vector
+import subprocess  # nosec B404 - qlty is a local dev binary invoked with a fixed arg vector, never shell=True
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
+
+from core.cli_errors import CLIError, ExitCode
 
 from .models import Finding, Location, Source, WireFormat
 
@@ -48,13 +50,40 @@ _DEFAULT_BINARY = Path.home() / ".qlty" / "bin" / "qlty"
 
 _SUBPROCESS_TIMEOUT_SECONDS = 600
 
+# Remedy attached to every QltyNotInstalledError so the framework's error
+# renderer can print an actionable next step rather than only the failure.
+_INSTALL_HINT = (
+    "Install qlty from https://qlty.sh (it lands in ~/.qlty/bin/qlty), "
+    "or point $QLTY_BIN at an existing binary."
+)
 
-class QltyError(RuntimeError):
-    """Base class for qlty invocation failures."""
+
+class QltyError(CLIError):
+    """Base class for qlty invocation failures.
+
+    Extends ``CLIError`` so the CLIApp framework routes these through
+    ``handle_error``, which renders ``hint`` alongside the message the same way
+    every other assistant CLI does.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        code: ExitCode = ExitCode.ERROR,
+        hint: Optional[str] = None,
+    ) -> None:
+        super().__init__(message, code, hint)
 
 
 class QltyNotInstalledError(QltyError):
     """The qlty binary could not be located."""
+
+    def __init__(self, message: str, hint: Optional[str] = None) -> None:
+        super().__init__(
+            message,
+            ExitCode.CONFIG_ERROR,
+            hint or _INSTALL_HINT,
+        )
 
 
 class QltyInvocationError(QltyError):
@@ -139,7 +168,12 @@ class QltyRunner:
         """
         command = (self._resolved_binary(), *args)
         try:
-            proc = subprocess.run(  # nosec B603 - fixed arg vector, no shell, no user-controlled binary
+            # The binary path is not a hardcoded constant: resolve_binary()
+            # honours an explicit argument and $QLTY_BIN. What is guaranteed is
+            # that the argument vector is built here (never from user input) and
+            # that shell=True is never used, so no shell metacharacter in any
+            # resolved path or argument can be interpreted.
+            proc = subprocess.run(  # nosec B603 - fixed arg vector built in-module, never shell=True
                 command,
                 capture_output=True,
                 text=True,
@@ -149,10 +183,20 @@ class QltyRunner:
             )
         except subprocess.TimeoutExpired as exc:
             raise QltyInvocationError(
-                f"qlty timed out after {self._timeout}s: {' '.join(command)}"
+                f"qlty timed out after {self._timeout}s: {' '.join(command)}",
+                hint=(
+                    "Narrow the scan with explicit paths or --changed, or raise "
+                    "QltyRunner(timeout=...)."
+                ),
             ) from exc
         except OSError as exc:
-            raise QltyInvocationError(f"could not execute qlty: {exc}") from exc
+            raise QltyInvocationError(
+                f"could not execute qlty ({command[0]}): {exc}",
+                hint=(
+                    "Check the binary exists and is executable "
+                    f"(chmod +x {command[0]}), or set $QLTY_BIN."
+                ),
+            ) from exc
 
         return CompletedRun(
             stdout=proc.stdout or "",
@@ -226,7 +270,12 @@ class QltyRunner:
         if source is Source.CHECK:
             # Never mutate the working tree from a read-only scan.
             args.extend(["--no-fix", "--no-cache"])
-        args.extend(paths)
+        if paths:
+            # End-of-options marker: without it a path that starts with "-"
+            # (e.g. a file literally named "-foo.py", or a stray "--all") is
+            # read by qlty as a flag, silently changing the scan's meaning.
+            args.append("--")
+            args.extend(paths)
         return args
 
     @staticmethod

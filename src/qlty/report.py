@@ -276,6 +276,21 @@ def render_triage_json(
     return json.dumps(triage_payload(entries, result), indent=2, sort_keys=False)
 
 
+_NO_FIX_LABELS = {
+    Tier.C: "no (suppress with reason)",
+    Tier.D: "no (read required)",
+    Tier.UNKNOWN: "no (manual review)",
+}
+
+
+def _no_fix_label(tier: Tier) -> str:
+    """Why a tier proposes no fix. Not every non-actionable tier is report-only:
+    Tier C wants a suppression with a stated reason and UNKNOWN wants a human
+    to classify the rule, so a blanket "report-only" would misdescribe both.
+    """
+    return _NO_FIX_LABELS.get(tier, "no (report-only)")
+
+
 def render_triage_markdown(
     entries: Sequence[TriageEntry], result: ScanResult
 ) -> str:
@@ -284,7 +299,7 @@ def render_triage_markdown(
     lines.append("")
     lines.extend(["| rule | tier | count | proposes fix |", "|---|---|---|---|"])
     for entry in entries:
-        fix = "yes" if entry.proposes_fix else "no (report-only)"
+        fix = "yes" if entry.proposes_fix else _no_fix_label(entry.strategy.tier)
         lines.append(
             f"| `{entry.rule}` | {entry.strategy.tier.value} | {entry.count} | {fix} |"
         )

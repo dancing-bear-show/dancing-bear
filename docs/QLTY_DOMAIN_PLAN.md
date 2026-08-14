@@ -159,15 +159,21 @@ of the message or degrade to "unfiltered" *and say so* — never to "no matches"
 
 ## 3. Deliverables
 
-1. `src/qlty/` package + `bin/qlty-assistant` wrapper
-2. `tests/qlty_tests/` — fixture-driven, **no live qlty calls in unit tests**
-   (captured JSON/SARIF fixtures; qlty is an external binary whose output format
-   is exactly what we don't control)
-3. `workflows/code/qlty-sweep.yaml` — generalizes `qlty-complexity-sweep.yaml`
-   from one rule to rule-dispatched (section 6)
-4. Docs: `.llm/PATTERNS.md` qlty section rewritten to point at the wrapper;
-   `CLAUDE.md` linting section updated
-5. `.llm/QLTY_STRATEGIES.md` — the section 5 table as a maintained artifact
+Deliverables are scoped per phase (section 4); the status below tracks what has
+actually shipped, so this list is not read as a description of the current state.
+
+1. ✅ **Phase 1** — `src/qlty/` package + `bin/qlty-assistant` wrapper
+2. ✅ **Phase 1** — `tests/qlty_tests/` — fixture-driven, **no live qlty calls in
+   unit tests** (captured JSON/SARIF fixtures; qlty is an external binary whose
+   output format is exactly what we don't control)
+3. ⬜ **Phase 3** — `workflows/code/qlty-sweep.yaml` — generalizes
+   `qlty-complexity-sweep.yaml` from one rule to rule-dispatched (section 6)
+4. ✅ **Phase 1** — Docs: `.llm/PATTERNS.md` qlty section pointing at the wrapper;
+   `CLAUDE.md` linting section updated; `src/qlty/README.md`; domain listed in
+   `README.md`, `CLAUDE.md`, and `.llm/CONTEXT.md`
+5. ⬜ **Phase 2** — `.llm/QLTY_STRATEGIES.md` — the section 5 table as a
+   maintained artifact (the table itself ships in Phase 1 as
+   `src/qlty/strategies.py`, reachable via `./bin/qlty-assistant rules`)
 
 ---
 

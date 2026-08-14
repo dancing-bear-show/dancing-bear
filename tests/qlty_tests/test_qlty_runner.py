@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import unittest
 from unittest.mock import patch
 
+from core.cli_errors import CLIError, ExitCode
 from qlty.models import Source, WireFormat
 from qlty.runner import (
+    QltyError,
     QltyInvocationError,
     QltyNotInstalledError,
     QltyRunner,
@@ -90,6 +94,27 @@ class ParseJsonTests(unittest.TestCase):
         with self.assertRaises(QltyInvocationError):
             parse_json_findings(payload, Source.SMELLS)
 
+    def test_absent_or_unusable_location_degrades_to_empty_not_crash(self):
+        # A finding with no parseable location is still a finding; losing the
+        # position must not lose the whole entry.
+        payload = json.dumps(
+            [
+                {"ruleKey": "a"},
+                {"ruleKey": "b", "location": "not-a-dict"},
+                {"ruleKey": "c", "location": {"path": "src/c.py"}},
+                {"ruleKey": "d", "location": {"path": "src/d.py", "range": "bad"}},
+            ]
+        )
+        findings = parse_json_findings(payload, Source.SMELLS)
+        self.assertEqual([f.file for f in findings], ["", "", "src/c.py", "src/d.py"])
+        self.assertTrue(all(f.line == 0 for f in findings))
+
+    def test_non_integer_value_is_dropped_rather_than_coerced(self):
+        # `value` feeds numeric thresholds. A non-int must become None
+        # ("unknown"), never 0, which would read as "below every threshold".
+        payload = '[{"ruleKey": "a", "value": "6"}]'
+        self.assertIsNone(parse_json_findings(payload, Source.SMELLS)[0].value)
+
 
 class ParseSarifTests(unittest.TestCase):
     def test_parses_captured_smells(self):
@@ -164,6 +189,79 @@ class ParseSarifTests(unittest.TestCase):
         payload = '{"runs": [{"results": [1, 2]}]}'
         with self.assertRaises(QltyInvocationError):
             parse_sarif_findings(payload, Source.SMELLS)
+
+    def test_non_object_document_raises(self):
+        # A SARIF array (rather than an object) means the format moved; it must
+        # not decay to zero findings.
+        with self.assertRaises(QltyInvocationError) as ctx:
+            parse_sarif_findings("[]", Source.SMELLS)
+        self.assertIn("expected a SARIF object", str(ctx.exception))
+
+    def test_malformed_run_entry_raises(self):
+        # A non-dict inside `runs` would otherwise be skipped silently, hiding
+        # however many findings that run contained.
+        payload = '{"runs": [1]}'
+        with self.assertRaises(QltyInvocationError) as ctx:
+            parse_sarif_findings(payload, Source.SMELLS)
+        self.assertIn("malformed SARIF", str(ctx.exception))
+
+    def test_message_accepts_both_sarif_shapes(self):
+        # SARIF nests message under {"text": ...}; some emitters use a bare
+        # string. Both must survive, or findings render with empty messages.
+        payload = json.dumps(
+            {
+                "runs": [
+                    {
+                        "results": [
+                            {"ruleId": "qlty:a", "message": {"text": "nested"}},
+                            {"ruleId": "qlty:b", "message": "bare"},
+                            {"ruleId": "qlty:c"},
+                        ]
+                    }
+                ]
+            }
+        )
+        messages = [f.message for f in parse_sarif_findings(payload, Source.SMELLS)]
+        self.assertEqual(messages, ["nested", "bare", ""])
+
+    def test_unusable_location_entries_are_skipped_not_fatal(self):
+        # Unlike a malformed *result*, a malformed location entry loses only
+        # position detail -- the finding itself still counts, so it is dropped
+        # rather than raising.
+        payload = json.dumps(
+            {
+                "runs": [
+                    {
+                        "results": [
+                            {
+                                "ruleId": "qlty:a",
+                                "locations": [
+                                    "not-a-dict",
+                                    {"physicalLocation": "not-a-dict"},
+                                    {
+                                        "physicalLocation": {
+                                            "artifactLocation": {"uri": "src/a.py"},
+                                            "region": {"startLine": 4},
+                                        }
+                                    },
+                                ],
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+        findings = parse_sarif_findings(payload, Source.SMELLS)
+        self.assertEqual(len(findings), 1)
+        # The one usable location survives and becomes the primary.
+        self.assertEqual(findings[0].file, "src/a.py")
+        self.assertEqual(findings[0].line, 4)
+
+    def test_locations_absent_entirely_yields_empty_location(self):
+        payload = '{"runs": [{"results": [{"ruleId": "qlty:a"}]}]}'
+        findings = parse_sarif_findings(payload, Source.SMELLS)
+        self.assertEqual(findings[0].file, "")
+        self.assertEqual(findings[0].line, 0)
 
 
 class StripRuleNamespaceTests(unittest.TestCase):
@@ -264,6 +362,30 @@ class InvokeFallbackTests(unittest.TestCase):
             runner.invoke(Source.SMELLS, scan_all=True)
         self.assertIn("--all", executed.call_args[0][0])
 
+    def test_paths_are_guarded_by_an_end_of_options_marker(self):
+        # Without the "--", a path beginning with "-" is parsed by qlty as a
+        # flag, silently changing what gets scanned.
+        runner = self._runner()
+        with patch.object(
+            runner, "_execute", return_value=completed("[]", 0)
+        ) as executed:
+            runner.invoke(Source.SMELLS, paths=("-weird.py", "src/a.py"))
+
+        args = executed.call_args[0][0]
+        self.assertIn("--", args)
+        # The marker must precede the paths, or it guards nothing.
+        self.assertLess(args.index("--"), args.index("-weird.py"))
+
+    def test_no_end_of_options_marker_when_no_paths_given(self):
+        # A bare "--" with nothing after it is noise; only emit it when it
+        # actually guards something.
+        runner = self._runner()
+        with patch.object(
+            runner, "_execute", return_value=completed("[]", 0)
+        ) as executed:
+            runner.invoke(Source.SMELLS)
+        self.assertNotIn("--", executed.call_args[0][0])
+
     def test_changed_scope_omits_all_flag(self):
         runner = self._runner()
         with patch.object(
@@ -273,10 +395,141 @@ class InvokeFallbackTests(unittest.TestCase):
         self.assertNotIn("--all", executed.call_args[0][0])
 
 
+class ExecuteSubprocessFailureTests(unittest.TestCase):
+    """The two subprocess failure modes _execute itself maps.
+
+    Every other runner test patches `_execute`, which mocks over the very
+    try/except being asserted here. These patch `subprocess.run` instead so the
+    real mapping code runs.
+    """
+
+    def _runner(self) -> QltyRunner:
+        """A runner whose binary resolves without touching the filesystem.
+
+        `_execute` resolves the binary before spawning, so an unresolvable path
+        would raise QltyNotInstalledError and never reach the subprocess call
+        these tests exist to exercise.
+        """
+        runner = QltyRunner(binary="/fake/qlty", timeout=7)
+        patcher = patch.object(runner, "_resolved_binary", return_value="/fake/qlty")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return runner
+
+    def test_timeout_becomes_invocation_error(self):
+        # qlty hanging must surface as a loud failure, never an empty finding
+        # set that reads as a clean repo.
+        boom = subprocess.TimeoutExpired(cmd=["qlty", "smells"], timeout=7)
+        with patch("qlty.runner.subprocess.run", side_effect=boom):
+            with self.assertRaises(QltyInvocationError) as ctx:
+                self._runner()._execute(["smells"])
+
+        message = str(ctx.exception)
+        self.assertIn("timed out", message)
+        # The timeout value is what the operator needs to act on.
+        self.assertIn("7", message)
+        self.assertTrue(ctx.exception.hint)
+
+    def test_unexecutable_binary_becomes_invocation_error(self):
+        # Binary missing or not +x: OSError from exec, not a scan result.
+        boom = OSError(13, "Permission denied")
+        with patch("qlty.runner.subprocess.run", side_effect=boom):
+            with self.assertRaises(QltyInvocationError) as ctx:
+                self._runner()._execute(["smells"])
+
+        message = str(ctx.exception)
+        self.assertIn("could not execute qlty", message)
+        self.assertIn("Permission denied", message)
+        # Name the binary that failed, so the hint is actionable.
+        self.assertIn("/fake/qlty", message)
+        self.assertTrue(ctx.exception.hint)
+
+    def test_successful_run_is_captured(self):
+        # Pins the happy path through the same code, so the two failure tests
+        # above cannot pass merely because _execute always raises.
+        proc = subprocess.CompletedProcess(
+            args=["qlty", "smells"], returncode=1, stdout="[]", stderr="spinner"
+        )
+        with patch("qlty.runner.subprocess.run", return_value=proc):
+            run = self._runner()._execute(["smells"])
+
+        self.assertEqual(run.stdout, "[]")
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.command, ("/fake/qlty", "smells"))
+
+
+class ParseOrRaiseTests(unittest.TestCase):
+    """_parse_or_raise's two failure modes are distinct and both must be loud."""
+
+    def test_invocation_error_propagates_with_its_own_message(self):
+        # Already a QltyInvocationError: re-raised as-is, so the specific
+        # diagnosis survives instead of being flattened into the generic
+        # "unparseable output" wrapper _parse_or_raise adds to ValueErrors.
+        runner = QltyRunner(binary="/fake/qlty")
+        with patch.object(
+            runner, "_execute", return_value=completed('{"oops": true}', 0)
+        ):
+            with self.assertRaises(QltyInvocationError) as ctx:
+                runner.invoke(Source.SMELLS)
+
+        message = str(ctx.exception)
+        self.assertIn("expected a JSON array", message)
+        self.assertNotIn("unparseable", message)
+
+    def test_json_decode_error_is_wrapped_as_not_a_clean_scan(self):
+        # A raw ValueError from json.loads would escape the CLIError contract;
+        # it must be converted and must say it is not a clean scan.
+        runner = QltyRunner(binary="/fake/qlty")
+        runs = [completed("{not json", 0), completed("{not json", 0)]
+        with patch.object(runner, "_execute", side_effect=runs):
+            with self.assertRaises(QltyInvocationError) as ctx:
+                runner.invoke(Source.SMELLS)
+        self.assertIn("clean scan", str(ctx.exception))
+
+
+class ErrorContractTests(unittest.TestCase):
+    """qlty errors participate in the framework's CLIError contract."""
+
+    def test_qlty_error_is_a_cli_error(self):
+        # So CLIApp's handler renders message + hint instead of each command
+        # hand-formatting its own.
+        self.assertTrue(issubclass(QltyError, CLIError))
+
+    def test_not_installed_carries_a_config_exit_code_and_hint(self):
+        with self.assertRaises(QltyNotInstalledError) as ctx:
+            resolve_binary("/nonexistent/qlty-binary")
+
+        self.assertEqual(ctx.exception.code, ExitCode.CONFIG_ERROR)
+        self.assertIn("qlty.sh", ctx.exception.hint)
+
+
 class ResolveBinaryTests(unittest.TestCase):
     def test_explicit_missing_path_raises(self):
         with self.assertRaises(QltyNotInstalledError):
             resolve_binary("/nonexistent/qlty-binary")
+
+    def test_explicit_existing_path_is_used_verbatim(self):
+        with patch("qlty.runner.Path") as path_cls:
+            path_cls.return_value.is_file.return_value = True
+            self.assertEqual(resolve_binary("/opt/qlty"), "/opt/qlty")
+
+    def test_env_var_is_consulted_when_no_explicit_path(self):
+        # $QLTY_BIN is the documented override; it must win over the default
+        # install path.
+        with patch("qlty.runner.Path") as path_cls:
+            path_cls.return_value.is_file.return_value = True
+            with patch.dict("os.environ", {"QLTY_BIN": "/env/qlty"}, clear=True):
+                self.assertEqual(resolve_binary(), "/env/qlty")
+
+    def test_default_install_path_is_preferred_over_path_lookup(self):
+        # CLAUDE.md documents ~/.qlty/bin/qlty as canonical, so a stale `qlty`
+        # earlier on PATH must not shadow it.
+        with patch("qlty.runner._DEFAULT_BINARY") as default:
+            default.is_file.return_value = True
+            default.__str__.return_value = "/home/u/.qlty/bin/qlty"
+            with patch("qlty.runner.shutil.which", return_value="/usr/bin/qlty"):
+                with patch.dict("os.environ", {}, clear=True):
+                    self.assertEqual(resolve_binary(), "/home/u/.qlty/bin/qlty")
 
     def test_falls_back_to_path_lookup(self):
         with patch("qlty.runner._DEFAULT_BINARY") as default:
@@ -292,6 +545,41 @@ class ResolveBinaryTests(unittest.TestCase):
                 with patch.dict("os.environ", {}, clear=True):
                     with self.assertRaises(QltyNotInstalledError):
                         resolve_binary()
+
+
+class BaseArgsPathForwardingTests(unittest.TestCase):
+    """Explicit paths must never be re-read by qlty as flags."""
+
+    def test_no_separator_when_no_paths(self):
+        args = QltyRunner._base_args(Source.SMELLS, scan_all=True, paths=())
+        self.assertNotIn("--", args)
+
+    def test_separator_precedes_explicit_paths(self):
+        args = QltyRunner._base_args(
+            Source.SMELLS, scan_all=False, paths=("src/qlty/runner.py",)
+        )
+        self.assertIn("--", args)
+        self.assertLess(args.index("--"), args.index("src/qlty/runner.py"))
+
+    def test_leading_dash_path_is_not_read_as_a_flag(self):
+        # A file literally named "-foo.py", or a stray "--all", must land after
+        # the end-of-options marker rather than altering the scan.
+        args = QltyRunner._base_args(
+            Source.CHECK, scan_all=False, paths=("-foo.py", "--all")
+        )
+        sep = args.index("--")
+        self.assertEqual(args[sep + 1:], ["-foo.py", "--all"])
+        # --all appears only as a forwarded path, never as a scan flag.
+        self.assertNotIn("--all", args[:sep])
+
+    def test_check_keeps_read_only_flags_before_the_separator(self):
+        args = QltyRunner._base_args(
+            Source.CHECK, scan_all=True, paths=("src/qlty/",)
+        )
+        sep = args.index("--")
+        self.assertIn("--no-fix", args[:sep])
+        self.assertIn("--no-cache", args[:sep])
+        self.assertIn("--all", args[:sep])
 
 
 if __name__ == "__main__":
