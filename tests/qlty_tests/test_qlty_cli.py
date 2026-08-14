@@ -340,10 +340,10 @@ class AgenticTests(unittest.TestCase):
 
 class MetaTests(unittest.TestCase):
     def test_bin_name_does_not_shadow_the_real_binary(self):
-        from qlty.meta import _META
+        from qlty.meta import META
 
-        self.assertEqual(_META.bin_name, "./bin/qlty-assistant")
-        self.assertNotEqual(_META.bin_name, "./bin/qlty")
+        self.assertEqual(META.bin_name, "./bin/qlty-assistant")
+        self.assertNotEqual(META.bin_name, "./bin/qlty")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 """Unit tests for core/llm_cli.py helper functions."""
 
+import contextlib
+import io
 import unittest
 
 from core.llm_cli import (
+    bind_entrypoints,
     _extract_app_arg,
     _parse_sla_env,
     _split_list,
@@ -244,6 +247,69 @@ class TestFamiliarContent(unittest.TestCase):
         self.assertIn('resume', content)
         self.assertIn('desk', content)
         self.assertIn('maker', content)
+
+
+class TestBindEntrypoints(unittest.TestCase):
+    """bind_entrypoints() partially applies a config into module entrypoints.
+
+    Every domain llm_cli module assigns its build_parser/main from this, and
+    bin/llm dispatches via `module.main(argv)`, so both must stay plain
+    module-level callables.
+    """
+
+    def setUp(self):
+        import argparse
+
+        from core.llm_cli import make_app_llm_config
+
+        self.argparse = argparse
+        self.config = make_app_llm_config(
+            prog='llm-demo',
+            description='Demo LLM utilities',
+            agentic=lambda: 'agentic: demo',
+            domain_map=lambda: 'map',
+            inventory=lambda: 'inventory',
+            familiar_compact=lambda: 'compact',
+            familiar_extended=lambda: 'extended',
+            policies=lambda: 'policies',
+            agentic_filename='AGENTIC_DEMO.md',
+            domain_map_filename='DOMAIN_MAP_DEMO.md',
+        )
+        self.build_parser, self.main = bind_entrypoints(self.config)
+
+    def test_build_parser_returns_parser_for_the_bound_config(self):
+        parser = self.build_parser()
+        self.assertIsInstance(parser, self.argparse.ArgumentParser)
+        self.assertEqual(parser.prog, 'llm-demo')
+
+    def test_build_parser_returns_a_fresh_parser_each_call(self):
+        """argparse parsers are stateful; callers must not share one."""
+        self.assertIsNot(self.build_parser(), self.build_parser())
+
+    def test_main_is_callable_with_no_arguments(self):
+        """bin/llm and the __main__ guard both rely on the argv default."""
+        self.assertTrue(callable(self.main))
+
+    def test_main_reports_the_bound_prog_on_a_usage_error(self):
+        """The bound config -- not a shared default -- drives argparse output."""
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit):
+                self.main([])
+        self.assertIn('llm-demo', err.getvalue())
+
+    def test_main_dispatches_a_subcommand(self):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = self.main(['agentic', '--stdout'])
+        self.assertEqual(code, 0)
+        self.assertIn('agentic: demo', out.getvalue())
+
+    def test_separate_configs_stay_independent(self):
+        """Each call closes over its own config -- no shared mutable state."""
+        other = self.config.__class__(**{**vars(self.config), 'prog': 'llm-other'})
+        _, _ = bind_entrypoints(self.config)
+        other_build, _ = bind_entrypoints(other)
+        self.assertEqual(self.build_parser().prog, 'llm-demo')
+        self.assertEqual(other_build().prog, 'llm-other')
 
 
 if __name__ == '__main__':
