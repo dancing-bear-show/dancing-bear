@@ -269,6 +269,17 @@ class TestBuildDomainMap(unittest.TestCase):
         self.assertIn("== CLI Tree ==", result)
         self.assertFalse(result.startswith("\n"))
 
+    def test_whitespace_only_top_level_is_dropped(self):
+        # Held to the same standard build_capsule applies to section bodies:
+        # blank-or-whitespace contributes nothing rather than a leading blank
+        # line. Pins the fix for the PR #215 review finding.
+        self.assertEqual(build_domain_map("   ", "", ""), "")
+        self.assertFalse(build_domain_map("  \n\t ", "- cmd", "").startswith("\n"))
+
+    def test_none_top_level_is_tolerated(self):
+        self.assertEqual(build_domain_map(None, "", ""), "")  # NOSONAR - defensive None input
+        self.assertIn("== CLI Tree ==", build_domain_map(None, "- cmd", ""))  # NOSONAR
+
     def test_all_empty_returns_empty_string(self):
         self.assertEqual(build_domain_map("", "", ""), "")
 

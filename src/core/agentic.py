@@ -41,35 +41,43 @@ def build_capsule(
 
 
 def tree_and_flow_sections(
-    cli_tree: str,
-    flow_map: str,
+    cli_tree: str | None,
+    flow_map: str | None,
 ) -> list[tuple[str, str]]:
     """Return the standard (title, body) pairs, dropping empty ones.
 
     Every domain capsule appends a "CLI Tree" section and a "Flow Map"
     section, each guarded on being non-empty. Centralizing the pair keeps
     the section titles and the skip-if-empty rule in one place.
+
+    Bodies are typed as optional because the callers' _cli_tree()/_flow_map()
+    are best-effort: build_cli_tree returns "" when the CLI module cannot be
+    imported, and a None slipping through must not raise here. Whitespace-only
+    bodies survive this filter and are stripped later by section().
     """
     pairs = (("CLI Tree", cli_tree), ("Flow Map", flow_map))
     return [(title, body) for title, body in pairs if body]
 
 
 def build_domain_map(
-    top_level: str,
-    cli_tree: str,
-    flow_map: str,
+    top_level: str | None,
+    cli_tree: str | None,
+    flow_map: str | None,
 ) -> str:
     """Render a domain map: a Top-Level blurb plus the standard sections.
 
-    Mirrors build_capsule's section handling so the two renderers cannot
-    drift apart on titles or empty-section behaviour.
+    Section titles and the skip-if-empty rule come from
+    tree_and_flow_sections, and each body is rendered by section(), so the
+    section handling matches build_capsule's. The Top-Level blurb is held to
+    the same standard: blank-or-whitespace is dropped rather than emitting a
+    leading empty line.
     """
-    out: list[str] = [top_level]
+    out: list[str] = [top_level or ""]
     out.extend(
         section(title, body)
         for title, body in tree_and_flow_sections(cli_tree, flow_map)
     )
-    return "\n".join([s for s in out if s])
+    return "\n".join([s for s in out if s.strip()])
 
 
 def _get_subparsers_action(parser: ArgumentParser) -> object | None:
