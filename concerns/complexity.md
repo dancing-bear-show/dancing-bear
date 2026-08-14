@@ -91,6 +91,33 @@ Load this guide when the diff contains `.py` files.
   related fields (e.g. `InviteRequest`) and take a single instance as the
   parameter: `def send_invite(invite: InviteRequest) -> None`. Prefer this over
   `**kwargs` or a plain `dict`, which lose type hints and IDE support.
+- **accepted exceptions**: two shapes trip qlty's parameter count without
+  carrying the risk this concern describes. Confirm which one applies before
+  filing a finding.
+
+  1. **Keyword-only signatures.** qlty counts every parameter, including those
+     after a bare `*`. Keyword-only arguments cannot be transposed at a call
+     site, so the stated failure mode is structurally impossible. Prefer adding
+     `*` over splitting a cohesive signature just to lower the count. All but
+     two of the repo's current findings are this shape (e.g.
+     `core/outlook/calendar.py` `update_event_location`, 4 keyword-only params
+     and zero positional).
+
+  2. **Click command callbacks.** A function decorated with `@click.command` /
+     `@click.option` has its signature dictated by the decorators — Click binds
+     by parameter name, so collapsing the arguments into a dataclass breaks the
+     CLI, which is a public-surface break under CLAUDE.md. `telemetry/
+     cli_sessions.py` `agents` and `telemetry/parse_transcripts.py`
+     `parse_transcripts` are both this case; note each already forwards its
+     arguments into a request dataclass (`AgentQueryRequest`,
+     `TranscriptParseRequest`) on the first line of the body, which is the
+     prescribed fix applied as far as Click allows.
+
+  qlty cannot distinguish either shape — `[smells.function_parameters]` exposes
+  only `enabled` and `threshold`, with no keyword-only awareness — so these
+  remain visible in `mode = "comment"` output. That is expected; do not raise
+  the threshold to silence them, since doing so also stops flagging genuinely
+  positional signatures.
 
 ### file-too-large
 - **severity**: minor
