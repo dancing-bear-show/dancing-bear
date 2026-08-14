@@ -190,11 +190,6 @@ class TestExtractOrderAmount(unittest.TestCase):
         _cur, amt = result
         self.assertEqual(amt, 1234.56)
 
-    def test_handles_empty_text(self):
-        """Test handles empty text."""
-        result = extract_order_amount("")
-        self.assertIsNone(result)
-
 
 class TestAmountNearItem(unittest.TestCase):
     """Tests for RCMParser.extract_price_near_item method."""

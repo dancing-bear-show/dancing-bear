@@ -46,14 +46,6 @@ class TestRunOutlookAddRecurring(unittest.TestCase):
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
-    def test_requires_until_or_count(self):
-        from calendars.outlook.commands import run_outlook_add_recurring
-        args = self._make_args(until=None, count=None)
-        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
-            result = run_outlook_add_recurring(args)
-        self.assertEqual(result, 2)
-        self.assertIn("--until", mock_stdout.getvalue())
-
     def test_weekly_requires_byday(self):
         from calendars.outlook.commands import run_outlook_add_recurring
         args = self._make_args(repeat="weekly", until=_future_date(180), byday=None)

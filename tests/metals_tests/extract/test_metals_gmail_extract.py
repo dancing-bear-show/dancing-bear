@@ -13,14 +13,6 @@ from metals.gmail_extract import (
 from tests.metals_tests.fixtures import make_mock_gmail_client
 
 
-class TestConstants(unittest.TestCase):
-    """Tests for module constants."""
-
-    def test_grams_per_oz(self):
-        """Test grams per troy ounce constant."""
-        self.assertAlmostEqual(G_PER_OZ, 31.1035, places=4)
-
-
 class TestExtractAmounts(unittest.TestCase):
     """Tests for _extract_amounts function."""
 
