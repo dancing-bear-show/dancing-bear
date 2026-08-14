@@ -322,10 +322,8 @@ class TestResumeCLIRender(unittest.TestCase):
                 self.assertIn("New Role at NewCo", text)
                 self.assertNotIn("Old Role at OldCo", text)
             finally:
-                try:
+                if os.path.exists(cfg_path):
                     os.unlink(cfg_path)
-                except FileNotFoundError:
-                    pass
 
 
 class TestResumeCLIStructure(unittest.TestCase):

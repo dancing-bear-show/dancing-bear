@@ -172,6 +172,8 @@ def cmd_premium_summary(args) -> int:
     return summary_main([
         "--silver", f"{out_dir}/premium_silver.csv",
         "--gold", f"{out_dir}/premium_gold.csv",
+        "--out-summary", f"{out_dir}/premium_overview_summary.csv",
+        "--out-monthly", f"{out_dir}/premium_overview_monthly.csv",
     ])
 
 

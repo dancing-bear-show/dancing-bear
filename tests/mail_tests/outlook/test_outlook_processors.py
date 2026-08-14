@@ -227,6 +227,31 @@ class TestOutlookRulesPlanProcessor(unittest.TestCase):
         self.assertEqual(envelope.status, "success")
         self.assertEqual(envelope.payload.would_create, 1)
 
+    @patch("mail.yamlio.load_config")
+    @patch("mail.dsl.normalize_filters_for_outlook")
+    def test_process_forwards_cache_settings_to_client(self, mock_norm, mock_load):
+        """payload.use_cache/cache_ttl must reach list_filters.
+
+        The plan path once dropped these on the floor, which silently made the
+        --use-cache/--cache-ttl flags inert and sent every plan run to the live
+        API. Nothing asserted the call args, so the suite stayed green.
+        """
+        mock_load.return_value = {"filters": []}
+        mock_norm.return_value = []
+
+        mock_client = MagicMock()
+        mock_client.list_filters.return_value = []
+        mock_client.get_label_id_map.return_value = {}
+        mock_client.get_folder_id_map.return_value = {}
+
+        payload = OutlookRulesPlanPayload(
+            client=mock_client, config_path="/t.yaml", use_cache=True, cache_ttl=120
+        )
+        envelope = OutlookRulesPlanProcessor().process(payload)
+
+        self.assertEqual(envelope.status, "success")
+        mock_client.list_filters.assert_called_once_with(use_cache=True, ttl=120)
+
 
 class TestOutlookRulesDeleteProcessor(unittest.TestCase):
     """Tests for OutlookRulesDeleteProcessor."""

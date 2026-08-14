@@ -200,7 +200,9 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
 
-            existing = _fetch_rules_with_resilience(client)
+            existing = _fetch_rules_with_resilience(
+                client, payload.use_cache, payload.cache_ttl
+            )
             existing_keys = {_canon_rule(r) for r in existing}
             name_to_id = client.get_label_id_map()
             folder_map = client.get_folder_id_map() if payload.move_to_folders else {}
