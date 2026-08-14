@@ -97,8 +97,11 @@ threshold = 100
 [smells.function_parameters]
 threshold = 6
 
-# Note the key is return_statements — function_returns parses but is silently
-# ignored with a warning.
+# Note the key is return_statements, not function_returns. A wrong key does not
+# fail the run: qlty prints "WARNING: The `smells.?.function_returns` entry in
+# qlty.toml is not part of the supported configuration and will be ignored",
+# drops the setting, and applies the default threshold instead. Easy to miss in
+# CI output, so verify a threshold change actually moved the finding count.
 # 12 findings at the default of 5, and 9 of them sat at exactly 6 returns:
 # guard-clause chains, i.e. the early-return pattern our own complexity
 # refactors push toward. Flagging those penalizes the fix. 8 excuses the
