@@ -29,7 +29,16 @@ from tests.mail_tests.fixtures import (
 class ExtendedFakeGmailClient(FakeGmailClient):
     """FakeGmailClient extended with list_labels keyword args and headers_to_dict."""
 
-    def list_labels(self, use_cache: bool = False, ttl: int = 300):  # NOSONAR
+    def list_labels(self, use_cache: bool = False, ttl: int = 300):  # noqa: ARG002
+        """Return every label, ignoring the caching arguments.
+
+        `use_cache`/`ttl` exist only so the signature matches the production
+        call site, which invokes this both as
+        `list_labels(use_cache=..., ttl=...)` and as a bare `list_labels()`.
+        The fake holds its labels in memory, so there is no cache to consult
+        and both arguments are deliberately unused.
+        """
+        del use_cache, ttl  # accepted for signature parity; nothing to cache
         return list(self.labels)
 
     @staticmethod
