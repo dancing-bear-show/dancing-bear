@@ -27,7 +27,7 @@ def _normalize_byday(v: Any) -> list[str] | None:
     if not v:
         return None
     # Accept ["MO","TU"], or comma/space separated variants, or full names
-    from .constants import DAY_MAP
+    from core.date_utils import DAY_MAP
 
     if isinstance(v, str):
         toks = [t.strip() for t in v.replace(";", ",").replace(" ", ",").split(",") if t.strip()]

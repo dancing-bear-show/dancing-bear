@@ -9,10 +9,10 @@ from core.cli_errors import UsageError
 from core.pipeline import Consumer
 
 from ..context import MailContext
-from ..yamlio import load_config
+from core.yamlio import load_config
 
 if TYPE_CHECKING:
-    from .processors import SweepConfig
+    from .processors_sweep import SweepConfig
     from .producers import SweepProducerConfig
 
 _ERR_LABEL_PREFIX = "Invalid --label-prefix"
@@ -205,7 +205,7 @@ class FiltersSweepConsumer(Consumer[FiltersSweepPayload]):
         self.context = context
 
     def consume(self) -> FiltersSweepPayload:
-        from .processors import SweepConfig
+        from .processors_sweep import SweepConfig
         from .producers import SweepProducerConfig
 
         args = self.context.args

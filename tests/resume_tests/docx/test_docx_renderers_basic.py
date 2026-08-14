@@ -10,7 +10,7 @@ class TestBulletRenderer(unittest.TestCase):
     """Tests for BulletRenderer class."""
 
     def _get_renderer(self):
-        from resume.docx_sections import BulletRenderer
+        from resume.docx_renderers import BulletRenderer
         return make_fake_renderer(BulletRenderer)
 
     def test_get_bullet_config_defaults(self):
@@ -76,7 +76,7 @@ class TestBulletRenderer(unittest.TestCase):
 
     def test_get_bullet_config_page_cfg_fallback(self):
         """Constructor-level page_cfg supplies bullet config when sec is None."""
-        from resume.docx_sections import BulletRenderer
+        from resume.docx_renderers import BulletRenderer
         from tests.resume_tests.fixtures import FakeDocument
         doc = FakeDocument()
         page_cfg = {"bullets": {"glyph": "★", "style": "plain"}}
@@ -165,7 +165,7 @@ class TestHeaderRenderer(unittest.TestCase):
     """Tests for HeaderRenderer class."""
 
     def _get_renderer(self):
-        from resume.docx_sections import HeaderRenderer
+        from resume.docx_renderers import HeaderRenderer
         return make_fake_renderer(HeaderRenderer)
 
     def test_add_header_line_title_only(self):
@@ -288,7 +288,7 @@ class TestListSectionRenderer(unittest.TestCase):
     """Tests for ListSectionRenderer class."""
 
     def _get_renderer(self):
-        from resume.docx_sections import ListSectionRenderer
+        from resume.docx_renderers import ListSectionRenderer
         return make_fake_renderer(ListSectionRenderer)
 
     def test_extract_item_text_string(self):
@@ -373,7 +373,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_interests_renderer(self):
         """Test InterestsSectionRenderer."""
-        from resume.docx_sections import InterestsSectionRenderer
+        from resume.docx_sections_simple import InterestsSectionRenderer
         renderer, _ = make_fake_renderer(InterestsSectionRenderer)
         data = {"interests": ["Reading", "Hiking", "Photography"]}
         result = renderer.render(data)
@@ -381,7 +381,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_languages_renderer(self):
         """Test LanguagesSectionRenderer."""
-        from resume.docx_sections import LanguagesSectionRenderer
+        from resume.docx_sections_simple import LanguagesSectionRenderer
         renderer, _ = make_fake_renderer(LanguagesSectionRenderer)
         data = {"languages": [
             {"name": "English", "level": "Native"},
@@ -392,7 +392,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_coursework_renderer(self):
         """Test CourseworkSectionRenderer."""
-        from resume.docx_sections import CourseworkSectionRenderer
+        from resume.docx_sections_simple import CourseworkSectionRenderer
         renderer, _ = make_fake_renderer(CourseworkSectionRenderer)
         data = {"coursework": [
             {"name": "Data Structures"},
@@ -403,7 +403,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_certifications_renderer(self):
         """Test CertificationsSectionRenderer."""
-        from resume.docx_sections import CertificationsSectionRenderer
+        from resume.docx_sections_simple import CertificationsSectionRenderer
         renderer, _ = make_fake_renderer(CertificationsSectionRenderer)
         data = {"certifications": [
             {"name": "AWS Certified", "year": "2023"},
@@ -414,7 +414,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_presentations_renderer(self):
         """Test PresentationsSectionRenderer."""
-        from resume.docx_sections import PresentationsSectionRenderer
+        from resume.docx_sections_simple import PresentationsSectionRenderer
         renderer, _ = make_fake_renderer(PresentationsSectionRenderer)
         data = {"presentations": [
             {"title": "Intro to Python", "event": "PyCon", "year": "2023"},
@@ -431,7 +431,7 @@ class TestSectionRenderers(unittest.TestCase):
         the URL text. After the fix, only the hyperlink run is appended (with the
         cleaned display URL), not the raw URL as plain text first.
         """
-        from resume.docx_sections import PresentationsSectionRenderer
+        from resume.docx_sections_simple import PresentationsSectionRenderer
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
         data = {"presentations": [
             {"link": "https://slides.example.com/my-talk"},
@@ -456,7 +456,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_presentations_unsafe_link_renders_as_plain_text(self):
         """Presentation with a file: link must NOT create a w:hyperlink — renders plain."""
-        from resume.docx_sections import PresentationsSectionRenderer
+        from resume.docx_sections_simple import PresentationsSectionRenderer
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
         data = {"presentations": [
             {"title": "Secret", "link": "file:///etc/passwd"},
@@ -472,7 +472,7 @@ class TestSectionRenderers(unittest.TestCase):
 
     def test_presentations_honors_plain_bullet_config(self):
         """When sec configures plain_bullets=False, paragraphs use 'List Bullet' style."""
-        from resume.docx_sections import PresentationsSectionRenderer
+        from resume.docx_sections_simple import PresentationsSectionRenderer
         renderer, doc = make_fake_renderer(PresentationsSectionRenderer)
         sec = {"plain_bullets": False, "bullets": {"style": "list"}}
         data = {"presentations": [

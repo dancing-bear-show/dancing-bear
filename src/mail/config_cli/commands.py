@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 
-from .pipeline import (
+from core.pipeline import RequestConsumer
+from .pipeline_cache import (
     AuthRequest,
-    RequestConsumer,
     AuthProcessor,
     AuthProducer,
     BackupRequest,
@@ -23,6 +23,8 @@ from .pipeline import (
     ConfigInspectRequest,
     ConfigInspectProcessor,
     ConfigInspectProducer,
+)
+from .pipeline_derive import (
     DeriveLabelsRequest,
     DeriveLabelsProcessor,
     DeriveLabelsProducer,
@@ -32,6 +34,8 @@ from .pipeline import (
     OptimizeFiltersRequest,
     OptimizeFiltersProcessor,
     OptimizeFiltersProducer,
+)
+from .pipeline_audit import (
     AuditFiltersRequest,
     AuditFiltersProcessor,
     AuditFiltersProducer,

@@ -61,7 +61,7 @@ class OutlookRulesSyncProcessor(Processor[OutlookRulesSyncPayload, ResultEnvelop
 
     def process(self, payload: OutlookRulesSyncPayload) -> ResultEnvelope[OutlookRulesSyncResult]:
         try:
-            from ..yamlio import load_config
+            from core.yamlio import load_config
             from ..dsl import normalize_filters_for_outlook
 
             client = payload.client
@@ -193,7 +193,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
 
     def process(self, payload: OutlookRulesPlanPayload) -> ResultEnvelope[OutlookRulesPlanResult]:
         try:
-            from ..yamlio import load_config
+            from core.yamlio import load_config
             from ..dsl import normalize_filters_for_outlook
 
             client = payload.client
@@ -274,7 +274,7 @@ class OutlookRulesSweepProcessor(Processor[OutlookRulesSweepPayload, ResultEnvel
 
     def process(self, payload: OutlookRulesSweepPayload) -> ResultEnvelope[OutlookRulesSweepResult]:
         try:
-            from ..yamlio import load_config
+            from core.yamlio import load_config
             from ..dsl import normalize_filters_for_outlook
 
             client = payload.client

@@ -18,7 +18,8 @@ from worker._helpers import (
     DATE_FORMAT_YMD,
     ISO_DATETIME_FORMAT,
 )
-from worker import queue as q
+from worker import queue_ops as q
+from worker.queue_metrics import counts, status
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class ListCommand:
     @staticmethod
     def run(args) -> int:
         """Execute list command."""
-        emit_one(q.counts(root=q.QUEUE_ROOT))
+        emit_one(counts(root=q.QUEUE_ROOT))
         return 0
 
 
@@ -74,7 +75,7 @@ class StatusCommand:
     @staticmethod
     def run(args, writer: OutputWriter | None = None) -> int:
         """Execute status command."""
-        s = q.status(root=q.QUEUE_ROOT)
+        s = status(root=q.QUEUE_ROOT)
 
         if getattr(args, "text", False) and not getattr(args, "json", False):
             StatusCommand._print_text_status(s, args, writer=writer)

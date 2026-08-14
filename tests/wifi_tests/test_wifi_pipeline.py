@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from core.cli_output import OutputFormat
 from core.pipeline import ResultEnvelope
-from wifi.diagnostics import DiagnoseConfig, DnsResult, Report
+from wifi.diagnostics_probes import DnsResult
+from wifi.diagnostics_report import DiagnoseConfig, Report
 from wifi.pipeline import (
     DiagnoseProcessor,
     DiagnoseProducer,

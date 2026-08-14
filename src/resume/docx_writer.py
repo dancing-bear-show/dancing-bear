@@ -26,7 +26,7 @@ from .docx_styles import (
     _format_phone_display,
     _format_link_display,
 )
-from .docx_sections import BulletRenderer
+from .docx_renderers import BulletRenderer
 from .docx_standard import SECTION_RENDERERS, SECTIONS_WITH_KEYWORDS  # re-export
 
 

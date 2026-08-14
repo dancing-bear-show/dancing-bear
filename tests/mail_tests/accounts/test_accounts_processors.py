@@ -6,40 +6,40 @@ import unittest
 from unittest.mock import patch
 
 from core.pipeline import ResultEnvelope
-from mail.accounts.pipeline import (
-    # Shared abstractions
+from mail.accounts.pipeline_auth import (
     SimpleConsumer,
     AccountsResultProducer,
     canonicalize_filter,
-    # List accounts
+)
+from mail.accounts.pipeline_list import (
     AccountsListRequest,
     AccountInfo,
     AccountsListResult,
     AccountsListRequestConsumer,
     AccountsListProcessor,
     AccountsListProducer,
-    # Export labels
+)
+from mail.accounts.pipeline_list_export import (
     AccountsExportLabelsRequest,
     ExportedLabelsInfo,
-    # Export filters
     AccountsExportFiltersRequest,
     ExportedFiltersInfo,
-    # Plan labels
+)
+from mail.accounts.pipeline_list_plan import (
     AccountsPlanLabelsRequest,
     LabelsPlanInfo,
-    # Sync labels
-    AccountsSyncLabelsRequest,
-    SyncedLabelInfo,
-    # Plan filters
     AccountsPlanFiltersRequest,
     FiltersPlanInfo,
-    # Sync filters
+)
+from mail.accounts.pipeline_list_sync import (
+    AccountsSyncLabelsRequest,
+    SyncedLabelInfo,
     AccountsSyncFiltersRequest,
     SyncedFiltersInfo,
-    # Export signatures
+)
+from mail.accounts.pipeline_list_signatures import (
     AccountsExportSignaturesRequest,
     ExportedSignaturesInfo,
-    # Sync signatures
     AccountsSyncSignaturesRequest,
     SyncedSignaturesInfo,
 )

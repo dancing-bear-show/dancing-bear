@@ -5,13 +5,17 @@ import unittest
 from core.pipeline import ResultEnvelope
 from tests.fixtures import capture_stdout, test_path
 
-from mail.outlook.processors import (
+from mail.outlook.processors_rules import (
     OutlookRulesListResult,
     OutlookRulesExportResult,
+)
+from mail.outlook.processors_rules_write import (
     OutlookRulesSyncResult,
     OutlookRulesPlanResult,
     OutlookRulesDeleteResult,
     OutlookRulesSweepResult,
+)
+from mail.outlook.processors_calendar import (
     OutlookCategoriesListResult,
     OutlookCategoriesExportResult,
     OutlookCategoriesSyncResult,

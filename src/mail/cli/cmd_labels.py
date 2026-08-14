@@ -7,11 +7,13 @@ from core.cli_help_text import HELP_YAML_OUT
 
 def register_labels_commands(app: CLIApp) -> object:
     """Register all labels subcommands on app and return the labels group."""
-    from ..labels.commands import (
+    from ..labels.commands_plan import (
         run_labels_plan,
         run_labels_sync,
         run_labels_export,
         run_labels_list,
+    )
+    from ..labels.commands_doctor import (
         run_labels_doctor,
         run_labels_prune_empty,
         run_labels_learn,

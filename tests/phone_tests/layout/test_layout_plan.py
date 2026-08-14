@@ -1,19 +1,23 @@
-"""Tests for phone/layout_plan.py — planning, analysis, and ranking helpers."""
+"""Tests for phone/layout_plan_analyze.py and phone/layout_plan_scaffold.py — planning, analysis, and ranking helpers."""
 
 from __future__ import annotations
 
 import unittest
 
-from phone.layout import (
-    analyze_layout,
-    auto_folderize,
-    checklist_from_plan,
+from phone.layout_normalize import (
     compute_folder_page_map,
     compute_location_map,
     compute_root_app_page_map,
-    distribute_folders_across_pages,
     list_all_apps,
+)
+from phone.layout_plan_analyze import (
+    analyze_layout,
+    auto_folderize,
+    distribute_folders_across_pages,
     rank_unused_candidates,
+)
+from phone.layout_plan_scaffold import (
+    checklist_from_plan,
     scaffold_plan,
 )
 from tests.phone_tests.fixtures import (

@@ -81,7 +81,7 @@ def _plan_labels_for_account(a: dict, base: list) -> LabelsPlanInfo:
 class AccountsPlanLabelsProcessor(SafeProcessor[AccountsPlanLabelsRequest, AccountsPlanLabelsResult]):
     def _process_safe(self, payload: AccountsPlanLabelsRequest) -> AccountsPlanLabelsResult:
         from .helpers import load_accounts, iter_accounts
-        from ..yamlio import load_config
+        from core.yamlio import load_config
 
         accts = load_accounts(payload.config_path)
         desired_doc = load_config(payload.labels_path)
@@ -136,7 +136,7 @@ AccountsPlanFiltersRequestConsumer = SimpleConsumer[AccountsPlanFiltersRequest]
 class AccountsPlanFiltersProcessor(SafeProcessor[AccountsPlanFiltersRequest, AccountsPlanFiltersResult]):
     def _process_safe(self, payload: AccountsPlanFiltersRequest) -> AccountsPlanFiltersResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
-        from ..yamlio import load_config
+        from core.yamlio import load_config
         from ..dsl import normalize_filters_for_outlook
 
         accts = load_accounts(payload.config_path)

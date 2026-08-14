@@ -224,7 +224,7 @@ class TestSkillDispatcherDispatchGroup(unittest.TestCase):
 
 
 class TestWorkerQueueDispatcherEnqueuesJob(unittest.TestCase):
-    """dispatch() calls worker.queue.enqueue with a Job of the right type and payload."""
+    """dispatch() calls worker.queue_ops.enqueue with a Job of the right type and payload."""
 
     def test_enqueue_called_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -233,7 +233,7 @@ class TestWorkerQueueDispatcherEnqueuesJob(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=0, cli_commands=("./bin/worker enqueue",))
             dispatcher = WorkerQueueDispatcher("my-workflow")
 
-            with patch("worker.queue.enqueue") as mock_enqueue:
+            with patch("worker.queue_ops.enqueue") as mock_enqueue:
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_enqueue.assert_called_once()
@@ -245,7 +245,7 @@ class TestWorkerQueueDispatcherEnqueuesJob(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=0)
             dispatcher = WorkerQueueDispatcher("my-workflow")
 
-            with patch("worker.queue.enqueue") as mock_enqueue:
+            with patch("worker.queue_ops.enqueue") as mock_enqueue:
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_enqueue.assert_called_once()
@@ -259,7 +259,7 @@ class TestWorkerQueueDispatcherEnqueuesJob(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=2)
             dispatcher = WorkerQueueDispatcher("my-workflow")
 
-            with patch("worker.queue.enqueue") as mock_enqueue:
+            with patch("worker.queue_ops.enqueue") as mock_enqueue:
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_enqueue.assert_called_once()
@@ -280,7 +280,7 @@ class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=0)
             dispatcher = WorkerQueueDispatcher("my-workflow")
 
-            with patch("worker.queue.enqueue"):
+            with patch("worker.queue_ops.enqueue"):
                 result = dispatcher.dispatch(stage, tmp_path)
 
             self.assertEqual(result.status, StageStatus.pending)
@@ -292,7 +292,7 @@ class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=0)
             dispatcher = WorkerQueueDispatcher("my-workflow")
 
-            with patch("worker.queue.enqueue"):
+            with patch("worker.queue_ops.enqueue"):
                 result = dispatcher.dispatch(stage, tmp_path)
 
             self.assertIn("job_id", result.data)
@@ -305,7 +305,7 @@ class TestWorkerQueueDispatcherReturnsPending(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=0)
             dispatcher = WorkerQueueDispatcher("wf/with:unsafe")
 
-            with patch("worker.queue.enqueue") as mock_enqueue:
+            with patch("worker.queue_ops.enqueue") as mock_enqueue:
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_enqueue.assert_called_once()
@@ -331,7 +331,7 @@ class TestWorkerQueueDispatcherTriggerParams(unittest.TestCase):
             stage = make_resolved_stage(spec=spec, index=0)
             dispatcher = WorkerQueueDispatcher("wf", {"env": "staging"})
 
-            with patch("worker.queue.enqueue") as mock_enqueue:
+            with patch("worker.queue_ops.enqueue") as mock_enqueue:
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_enqueue.assert_called_once()
@@ -349,7 +349,7 @@ class TestWorkerQueueDispatcherDispatchGroup(unittest.TestCase):
             stages = [make_resolved_stage(spec=specs[i], index=i) for i in range(3)]
             dispatcher = WorkerQueueDispatcher("batch-wf")
 
-            with patch("worker.queue.enqueue"):
+            with patch("worker.queue_ops.enqueue"):
                 results = dispatcher.dispatch_group(stages, tmp_path)
 
             for i in range(3):
@@ -362,7 +362,7 @@ class TestWorkerQueueDispatcherDispatchGroup(unittest.TestCase):
             stages = [make_resolved_stage(spec=specs[i], index=i) for i in range(2)]
             dispatcher = WorkerQueueDispatcher("batch-wf")
 
-            with patch("worker.queue.enqueue"):
+            with patch("worker.queue_ops.enqueue"):
                 results = dispatcher.dispatch_group(stages, tmp_path)
 
             for result in results.values():
@@ -513,7 +513,7 @@ class TestCompositeDispatcherRoutesWorkerQueueExecutor(unittest.TestCase):
             with patch.object(dispatcher._worker_queue, "dispatch", wraps=dispatcher._worker_queue.dispatch) as mock_wq, \
                  patch.object(dispatcher._skill, "dispatch", wraps=dispatcher._skill.dispatch) as mock_skill, \
                  patch.object(dispatcher._local, "dispatch", wraps=dispatcher._local.dispatch) as mock_local, \
-                 patch("worker.queue.enqueue"):
+                 patch("worker.queue_ops.enqueue"):
                 dispatcher.dispatch(stage, tmp_path)
 
             mock_wq.assert_called_once()

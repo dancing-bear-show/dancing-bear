@@ -15,7 +15,7 @@ from core.cli_output import emit_one
 from core.pipeline import run_pipeline
 
 from ..helpers import LayoutLoadError, load_layout, read_yaml, write_yaml
-from ..pipeline import (
+from ..pipeline_export import (
     AnalyzeProducer,
     AnalyzeProcessor,
     AnalyzeRequest,
@@ -41,7 +41,7 @@ from ..pipeline import (
     UnusedProcessor,
     UnusedRequest,
 )
-from ..layout import (
+from ..layout_plan_analyze import (
     auto_folderize,
     distribute_folders_across_pages,
 )

@@ -16,11 +16,13 @@ from .consumers import (
     FiltersAddTokenConsumer,
     FiltersRemoveTokenConsumer,
 )
-from .processors import (
+from .processors_plan import (
     FiltersPlanProcessor,
     FiltersSyncProcessor,
     FiltersImpactProcessor,
     FiltersExportProcessor,
+)
+from .processors_sweep import (
     FiltersSweepProcessor,
     FiltersSweepRangeProcessor,
     FiltersPruneProcessor,

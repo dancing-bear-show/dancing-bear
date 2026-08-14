@@ -69,7 +69,7 @@ def make_layout(
             pages=[[make_app_item("com.app1"), make_folder_item("Work", ["com.w1"])]]
         )
     """
-    from phone.layout import NormalizedLayout
+    from phone.layout_normalize import NormalizedLayout
     return NormalizedLayout(dock=dock or [], pages=pages or [])
 
 

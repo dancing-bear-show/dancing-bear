@@ -48,7 +48,7 @@ def _default_locations_yaml_paths() -> list[Path]:
 def _try_load_yaml_locations(p: Path) -> dict[str, str] | None:
     """Attempt to load a locations YAML file. Returns dict or None."""
     try:
-        from calendars.yamlio import load_config  # lazy import
+        from core.yamlio import load_config  # lazy import
         data = load_config(str(p))
         if not isinstance(data, dict):
             return None

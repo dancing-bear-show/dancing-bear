@@ -1,7 +1,7 @@
 """Tests for calendars/scan_common.py schedule parsing utilities."""
 import unittest
 
-from calendars.constants import DAY_MAP
+from core.date_utils import DAY_MAP
 from calendars.scan_common import (
     MONTH_MAP,
     html_to_text,

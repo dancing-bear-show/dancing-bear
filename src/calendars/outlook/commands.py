@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.auth import build_outlook_service_from_args
+from core.date_utils import DAY_MAP
 from core.pipeline import BaseProducer, SafeProcessor, run_pipeline
 from ..outlook_service import EventCreationParams, RecurringEventCreationParams
 
@@ -55,7 +56,6 @@ from ..outlook_pipelines import (
     OutlookMailListProducer,
     OutlookMailListRequest,
 )
-from ..constants import DAY_MAP
 from ..scan_common import (
     RANGE_PAT,
     html_to_text,
@@ -448,7 +448,7 @@ class OutlookScanProcessor(SafeProcessor[OutlookScanRequest, OutlookScanResult])
 
 class OutlookScanProducer(BaseProducer):
     def _produce_success(self, payload: OutlookScanResult, diagnostics: dict[str, Any] | None) -> None:
-        from ..yamlio import dump_config
+        from core.yamlio import dump_config
 
         if not payload.events:
             if not payload.message_count:

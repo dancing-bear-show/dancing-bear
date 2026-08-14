@@ -2,6 +2,7 @@
 
 __all__ = [
     "consumers",
-    "processors",
+    "processors_plan",
+    "processors_sweep",
     "producers",
 ]

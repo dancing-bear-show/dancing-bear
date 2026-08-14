@@ -19,7 +19,7 @@ Outputs (by profile)
 
 Core Modules
 - Rendering: `resume/docx_writer.py`
-- Parsing: `resume/parsing.py`
+- Parsing: `resume/parsing_experience_{docx,pdf,text}.py`, `resume/parsing_linkedin.py`
 - Alignment: `resume/aligner.py`, `resume/job.py`
 - Filters: `resume/skills_filter.py`, `resume/experience_filter.py`
 - Priority: `resume/priority.py`

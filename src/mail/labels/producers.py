@@ -182,7 +182,7 @@ class LabelsExportProducer(Producer[ResultEnvelope[LabelsExportResult]]):
     """Write labels export YAML."""
 
     def __init__(self, writer: OutputWriter | None = None):
-        from ..yamlio import dump_config  # lazy import
+        from core.yamlio import dump_config  # lazy import
 
         self._dump_config = dump_config
         self._writer = writer or OutputWriter()

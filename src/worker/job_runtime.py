@@ -19,8 +19,9 @@ from worker._helpers import (
     log_perf_jsonl,
     get_repo_root,
 )
-from worker import queue as q
+from worker import queue_ops as q
 from worker.handlers import REGISTRY as HANDLERS
+from worker.queue_metrics import counts
 
 logger = logging.getLogger(__name__)
 
@@ -335,7 +336,7 @@ class DaemonRunner:
         """Calculate how many jobs can be processed based on max_inflight cap."""
         if self.config.max_inflight > 0:
             try:
-                cur_proc = int(q.counts(root=q.QUEUE_ROOT).get("processing", 0))
+                cur_proc = int(counts(root=q.QUEUE_ROOT).get("processing", 0))
                 return max(
                     0,
                     min(self.config.max_per_tick, self.config.max_inflight - cur_proc),

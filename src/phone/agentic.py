@@ -116,7 +116,7 @@ def build_domain_map() -> str:
     """Programmatically build a minimal domain map for Phone Assistant."""
     sections: list[str] = []
     sections.append(
-        "Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout.py — normalization + plan scaffolds\n- phone/profile.py — .mobileconfig builders"
+        "Top-Level\n- phone/backup.py — Finder backup helpers\n- phone/layout_normalize.py — layout normalization\n- phone/layout_plan_analyze.py — plan analysis + ranking\n- phone/layout_plan_scaffold.py — plan scaffolds\n- phone/profile.py — .mobileconfig builders"
     )
     tree = _cli_tree()
     if tree:

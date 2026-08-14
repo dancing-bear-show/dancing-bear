@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from core.pipeline import ResultEnvelope, SafeProcessor
+from core.yamlio import load_config as _load_yaml
 
-from calendars.yamlio import load_config as _load_yaml
 from calendars.model import normalize_event
 from calendars.selection import compute_window, filter_events_by_day_time
 

@@ -42,7 +42,7 @@ DeriveLabelsRequestConsumer = RequestConsumer[DeriveLabelsRequest]
 
 class DeriveLabelsProcessor(SafeProcessor[DeriveLabelsRequest, DeriveLabelsResult]):
     def _process_safe(self, payload: DeriveLabelsRequest) -> DeriveLabelsResult:
-        from ..yamlio import load_config, dump_config
+        from core.yamlio import load_config, dump_config
         from ..dsl import normalize_labels_for_outlook
 
         doc = load_config(payload.in_path) if payload.in_path else {}
@@ -125,7 +125,7 @@ def _apply_move_to_folders(out_specs: list) -> None:
 
 class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersResult]):
     def _process_safe(self, payload: DeriveFiltersRequest) -> DeriveFiltersResult:
-        from ..yamlio import load_config, dump_config
+        from core.yamlio import load_config, dump_config
         from ..dsl import normalize_filters_for_outlook
 
         doc = load_config(payload.in_path) if payload.in_path else {}
@@ -244,7 +244,7 @@ def _merge_group(dest: str, items: list) -> tuple:
 
 class OptimizeFiltersProcessor(SafeProcessor[OptimizeFiltersRequest, OptimizeFiltersResult]):
     def _process_safe(self, payload: OptimizeFiltersRequest) -> OptimizeFiltersResult:
-        from ..yamlio import load_config, dump_config
+        from core.yamlio import load_config, dump_config
 
         doc = load_config(payload.in_path) if payload.in_path else {}
         rules = doc.get("filters") or []

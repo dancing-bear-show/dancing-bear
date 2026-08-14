@@ -37,7 +37,7 @@ class TestExtractEmailFromHeader(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _extract_email_from_header
+        from mail.labels.commands_doctor import _extract_email_from_header
         cls.extract = staticmethod(_extract_email_from_header)
 
     def test_simple_email(self):
@@ -61,7 +61,7 @@ class TestExtractDomain(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _extract_domain
+        from mail.labels.commands_doctor import _extract_domain
         cls.extract = staticmethod(_extract_domain)
 
     def test_extracts_domain(self):
@@ -82,7 +82,7 @@ class TestIsProtectedSender(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _is_protected_sender
+        from mail.labels.commands_doctor import _is_protected_sender
         cls.is_protected = staticmethod(_is_protected_sender)
 
     def test_exact_email_match(self):
@@ -109,7 +109,7 @@ class TestClassifyDomain(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _classify_domain
+        from mail.labels.commands_doctor import _classify_domain
         cls.classify = staticmethod(_classify_domain)
 
     def test_commercial_classification(self):
@@ -135,7 +135,7 @@ class TestGetEmptyUserLabels(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _get_empty_user_labels
+        from mail.labels.commands_doctor import _get_empty_user_labels
         cls.get_empty = staticmethod(_get_empty_user_labels)
 
     def test_filters_empty_labels(self):
@@ -164,7 +164,7 @@ class TestAnalyzeLabels(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _analyze_labels
+        from mail.labels.commands_plan import _analyze_labels
         cls.analyze = staticmethod(_analyze_labels)
 
     def test_counts_total(self):
@@ -188,7 +188,7 @@ class TestFixLabelVisibility(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _fix_label_visibility
+        from mail.labels.commands_doctor import _fix_label_visibility
         cls.fix_visibility = staticmethod(_fix_label_visibility)
 
     def test_updates_missing_visibility(self):
@@ -209,7 +209,7 @@ class TestDeleteImapLabels(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _delete_imap_labels
+        from mail.labels.commands_doctor import _delete_imap_labels
         cls.delete_labels = staticmethod(_delete_imap_labels)
 
     def test_deletes_existing_labels(self):
@@ -233,7 +233,7 @@ class TestDeleteLabelWithRetry(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _delete_label_with_retry
+        from mail.labels.commands_doctor import _delete_label_with_retry
         cls.delete_retry = staticmethod(_delete_label_with_retry)
 
     def test_successful_delete(self):
@@ -263,7 +263,7 @@ class TestCollectDomainStats(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mail.labels.commands import _collect_domain_stats
+        from mail.labels.commands_doctor import _collect_domain_stats
         cls.collect_stats = staticmethod(_collect_domain_stats)
 
     def test_counts_domains(self):

@@ -235,7 +235,7 @@ class TestInlineCommands(unittest.TestCase):
     def test_auto_folders_reads_plan_and_writes_output(self, mock_dist, mock_auto, mock_write, mock_read, mock_load):
         """Test cmd_auto_folders reads plan, auto-folderizes, and writes output."""
         from phone.cli.main import cmd_auto_folders
-        from phone.layout import NormalizedLayout
+        from phone.layout_normalize import NormalizedLayout
 
         mock_load.return_value = NormalizedLayout(dock=[], pages=[])
         mock_read.return_value = make_mock_plan()
@@ -256,7 +256,7 @@ class TestInlineCommands(unittest.TestCase):
     def test_auto_folders_uses_keep_list(self, mock_write, mock_dist, mock_auto, mock_read, mock_load):
         """Test cmd_auto_folders passes parsed keep list to auto_folderize."""
         from phone.cli.main import cmd_auto_folders
-        from phone.layout import NormalizedLayout
+        from phone.layout_normalize import NormalizedLayout
 
         mock_load.return_value = NormalizedLayout(dock=[], pages=[])
         mock_read.return_value = make_mock_plan()
@@ -377,7 +377,7 @@ class TestAutoFoldersCommand(unittest.TestCase):
     ):
         """Test auto_folders preserves page 1 when start_page=2."""
         from phone.cli.main import cmd_auto_folders
-        from phone.layout import NormalizedLayout
+        from phone.layout_normalize import NormalizedLayout
 
         # Mock Path to make plan_path.exists() return True
         mock_path_instance = MagicMock()
@@ -408,7 +408,7 @@ class TestAutoFoldersCommand(unittest.TestCase):
     def test_auto_folders_with_layout_loads_export(self, mock_dist, mock_auto, mock_write, mock_read, mock_path, mock_load):
         """Test auto_folders loads layout when provided."""
         from phone.cli.main import cmd_auto_folders
-        from phone.layout import NormalizedLayout
+        from phone.layout_normalize import NormalizedLayout
 
         # Mock Path.exists() to return False so plan doesn't load
         mock_path_instance = MagicMock()

@@ -80,7 +80,7 @@ class TestBuildDomainMap(unittest.TestCase):
         result = build_domain_map()
         self.assertIn("wifi/cli.py", result)
         self.assertIn("wifi/pipeline.py", result)
-        self.assertIn("wifi/diagnostics.py", result)
+        self.assertIn("wifi/diagnostics_probes.py", result)
         self.assertIn("wifi/agentic.py", result)
         self.assertIn("wifi/llm_cli.py", result)
 

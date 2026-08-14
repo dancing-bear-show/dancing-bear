@@ -5,25 +5,14 @@ import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 
-from wifi.diagnostics import (
-    CommandResult,
-    DiagnoseConfig,
-    DiagnoseResults,
+from wifi.diagnostics_probes import (
     DnsResult,
     HttpResult,
     PingResult,
-    Report,
-    SubprocessRunner,
     TraceResult,
     WifiInfo,
     _build_ping_targets,
-    _check_dns_health,
-    _check_gateway_health,
-    _check_http_health,
-    _check_upstream_health,
-    _detect_icmp_filtered,
     _extract_gateway_line,
-    _loss_bar,
     _parse_airport,
     _parse_gateway_from_line,
     _parse_iwconfig,
@@ -31,23 +20,35 @@ from wifi.diagnostics import (
     _parse_ping,
     _safe_float,
     _safe_int,
-    _score_ping,
     _select_trace_target,
     collect_wifi_info,
+    detect_gateway,
+    ping_target,
+    run_diagnosis,
+    trace_route,
+)
+from wifi.diagnostics_report import (
+    DiagnoseConfig,
+    DiagnoseResults,
+    Report,
+    _check_dns_health,
+    _check_gateway_health,
+    _check_http_health,
+    _check_upstream_health,
+    _detect_icmp_filtered,
+    _loss_bar,
+    _score_ping,
     compute_condition,
     derive_findings,
-    detect_gateway,
     format_dns,
     format_http,
     format_ping,
     format_report,
     format_wifi,
-    ping_target,
     render_report,
     report_to_dict,
-    run_diagnosis,
-    trace_route,
 )
+from wifi.diagnostics_runners import CommandResult, SubprocessRunner
 from tests.wifi_tests.shared_fixtures import FakeRunner
 
 
@@ -709,8 +710,8 @@ class TestRunDiagnosis(unittest.TestCase):
         def fake_dns(host):
             return dns_result
 
-        with patch("wifi.diagnostics.ping_target", side_effect=fake_ping), \
-             patch("wifi.diagnostics.detect_gateway", return_value="192.168.1.1"):
+        with patch("wifi.diagnostics_probes.ping_target", side_effect=fake_ping), \
+             patch("wifi.diagnostics_probes.detect_gateway", return_value="192.168.1.1"):
             report = run_diagnosis(config, runner=mock_runner, resolver=fake_dns)
 
         self.assertEqual(report.gateway, "192.168.1.1")

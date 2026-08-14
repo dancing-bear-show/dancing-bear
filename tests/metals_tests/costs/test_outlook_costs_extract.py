@@ -6,7 +6,7 @@ import unittest
 
 from core.text_utils import html_to_text
 from metals.costs_common import extract_order_amount
-from metals.vendors import RCMParser
+from metals.vendors_parse_vendor import RCMParser
 
 
 class TestClassifySubject(unittest.TestCase):

@@ -32,7 +32,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
         self.isolate_queue_root()
 
     def test_purge_done_only(self):
-        from worker import queue as q
+        from worker import queue_ops as q
         from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)
@@ -54,7 +54,7 @@ class TestWorkerPurgeSelective(unittest.TestCase, QueueRootIsolationMixin):
         self.assertTrue(err.exists())
 
     def test_purge_error_only(self):
-        from worker import queue as q
+        from worker import queue_ops as q
         from worker.cli import main
         q.QUEUE_ROOT = self.root / "queue"
         q._ensure_dirs(q.QUEUE_ROOT)

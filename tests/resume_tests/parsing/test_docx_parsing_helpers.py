@@ -1,11 +1,11 @@
-"""Tests for resume/parsing.py DOCX-specific parsing helpers."""
+"""Tests for resume DOCX-specific parsing helpers."""
 
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock
 
-from resume.parsing import (
+from resume.parsing_experience_docx import (
     _DocxParaHelper,
     _docx_find_sections,
     _docx_extract_name_headline,
@@ -13,11 +13,11 @@ from resume.parsing import (
     _docx_extract_education,
     _docx_extract_experience,
     _key_from_heading,
-    _parse_education_entry,
     _parse_h2_education,
     _parse_h2_experience,
     _process_exp_paragraph,
 )
+from resume.parsing_experience_text import _parse_education_entry
 
 
 def _make_para(text: str, style_name: str = "Normal") -> MagicMock:

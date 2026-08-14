@@ -45,7 +45,7 @@ AccountsExportLabelsRequestConsumer = SimpleConsumer[AccountsExportLabelsRequest
 
 class AccountsExportLabelsProcessor(SafeProcessor[AccountsExportLabelsRequest, AccountsExportLabelsResult]):
     def _process_safe(self, payload: AccountsExportLabelsRequest) -> AccountsExportLabelsResult:
-        from ..yamlio import dump_config
+        from core.yamlio import dump_config
 
         out_dir = Path(payload.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -115,7 +115,7 @@ AccountsExportFiltersRequestConsumer = SimpleConsumer[AccountsExportFiltersReque
 class AccountsExportFiltersProcessor(SafeProcessor[AccountsExportFiltersRequest, AccountsExportFiltersResult]):
     def _process_safe(self, payload: AccountsExportFiltersRequest) -> AccountsExportFiltersResult:
         from .helpers import load_accounts, iter_accounts, build_provider_for_account
-        from ..yamlio import dump_config
+        from core.yamlio import dump_config
 
         accts = load_accounts(payload.config_path)
         out_dir = Path(payload.out_dir)

@@ -17,7 +17,7 @@ from typing import Any
 from core.constants import credential_ini_paths, read_credential_ini_first
 
 from .constants import P12_PASS_KEYS, P12_PATH_KEYS
-from .layout import normalize_iconstate, to_yaml_export
+from .layout_normalize import normalize_iconstate, to_yaml_export
 
 
 def find_cfgutil_path() -> str:

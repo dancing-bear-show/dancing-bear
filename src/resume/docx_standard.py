@@ -15,18 +15,22 @@ from .docx_styles import (
     _apply_paragraph_shading,
     _format_phone_display,
 )
-from .docx_sections import (
+from .docx_sections_simple import (
     InterestsSectionRenderer,
     LanguagesSectionRenderer,
     CourseworkSectionRenderer,
     CertificationsSectionRenderer,
     PresentationsSectionRenderer,
+    TeachingSectionRenderer,
+)
+from .docx_sections_skills import (
     SummarySectionRenderer,
     SkillsSectionRenderer,
     TechnologiesSectionRenderer,
+)
+from .docx_sections_exp import (
     ExperienceSectionRenderer,
     EducationSectionRenderer,
-    TeachingSectionRenderer,
 )
 
 

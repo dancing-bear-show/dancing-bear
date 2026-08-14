@@ -127,7 +127,7 @@ def _score_exported_filters(exported: list, dest_to_tokens: dict[str, set]) -> t
 
 class AuditFiltersProcessor(SafeProcessor[AuditFiltersRequest, AuditFiltersResult]):
     def _process_safe(self, payload: AuditFiltersRequest) -> AuditFiltersResult:
-        from ..yamlio import load_config
+        from core.yamlio import load_config
 
         unified = (load_config(payload.in_path) if payload.in_path else {}).get("filters") or []
         exported = (load_config(payload.export_path) if payload.export_path else {}).get("filters") or []

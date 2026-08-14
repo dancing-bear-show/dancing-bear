@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import unittest
 
-from metals.vendors import (
+from metals.vendors_parse_core import (
     BundleSearchContext,
-    CostcoParser,
     LineItem,
     PriceHit,
     PriceSearchContext,
-    RCMParser,
-    TDParser,
     dedupe_line_items,
     extract_basic_line_items,
     extract_price_from_lines,
@@ -21,6 +18,7 @@ from metals.vendors import (
     _parse_weight_match,
     _WEIGHT_PATTERNS,
 )
+from metals.vendors_parse_vendor import CostcoParser, RCMParser, TDParser
 
 from tests.metals_tests.fixtures import LINES_3, LINES_5, VENDOR_EMAILS, make_price_lines
 

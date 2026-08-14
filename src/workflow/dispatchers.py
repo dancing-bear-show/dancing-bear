@@ -3,7 +3,7 @@
 Defines the StageDispatcher protocol and four implementations:
 - LocalDispatcher: runs invoke-mode CLI commands via subprocess
 - SkillDispatcher: writes dispatch JSON for Claude Code skill agents
-- WorkerQueueDispatcher: enqueues stages as background jobs via worker/queue.py
+- WorkerQueueDispatcher: enqueues stages as background jobs via worker/queue_ops.py
 - CompositeDispatcher: routes invoke-only stages locally, worker_queue stages to
   WorkerQueueDispatcher, and all others to SkillDispatcher
 """
@@ -283,7 +283,7 @@ class WorkerQueueDispatcher:
         stage: ResolvedStage,
         workspace_dir: Path,
     ) -> StageResult:
-        from worker.queue import Job, enqueue  # lazy import — worker is optional
+        from worker.queue_ops import Job, enqueue  # lazy import — worker is optional
 
         started_at = iso_now()
         job_id = self._make_job_id(stage)

@@ -10,7 +10,7 @@ from ..config_resolver import (
     default_gmail_token_path,
     expand_path,
 )
-from ..yamlio import load_config
+from core.yamlio import load_config
 
 
 def _lazy_gmail_client():

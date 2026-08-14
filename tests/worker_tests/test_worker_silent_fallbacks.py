@@ -23,7 +23,7 @@ class TestParseTimestampSafeFormats(unittest.TestCase):
     """
 
     def _parse(self, value: str):
-        from worker.queue import _parse_timestamp_safe
+        from worker.queue_ops import _parse_timestamp_safe
         return _parse_timestamp_safe(value, Path("/tmp/x.json"), "updated_at")  # nosec B108 - test only
 
     def test_explicit_utc_offset_parses(self):

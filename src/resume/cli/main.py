@@ -27,7 +27,8 @@ from core.textio import write_text
 
 from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json
 from ..model import CandidateData
-from ..parsing import parse_linkedin_text, parse_resume_text, merge_profiles
+from ..parsing_linkedin import parse_linkedin_text
+from ..parsing_experience_text import parse_resume_text, merge_profiles
 from ..summarizer import build_summary
 from ..templating import load_template, parse_seed_criteria
 from ..docx_writer import write_resume_docx
@@ -144,10 +145,10 @@ def _parse_resume_source(resume_path: str, resume_text: str) -> dict:
     """Parse a resume source, dispatching by file extension."""
     resume_lower = str(resume_path).lower()
     if resume_lower.endswith('.docx'):
-        from ..parsing import parse_resume_docx
+        from ..parsing_experience_docx import parse_resume_docx
         return parse_resume_docx(resume_path)
     if resume_lower.endswith('.pdf'):
-        from ..parsing import parse_resume_pdf
+        from ..parsing_experience_pdf import parse_resume_pdf
         return parse_resume_pdf(resume_path)
     return parse_resume_text(resume_text) if resume_text else {}
 
@@ -494,7 +495,7 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
         # parse from resume file
         resume_text = read_text_any(args.resume)
         if str(args.resume).lower().endswith(".docx"):
-            from ..parsing import parse_resume_docx
+            from ..parsing_experience_docx import parse_resume_docx
 
             data = parse_resume_docx(args.resume)
         else:

@@ -7,7 +7,7 @@ from typing import List, Tuple
 
 from .constants import MONEY_PATTERN
 from .costs_common import find_money
-from .vendors import DEFAULT_PRICE_BAN
+from .vendors_parse_core import DEFAULT_PRICE_BAN
 from .gmail_costs_qty_items import ExtractionContext, _build_uoz_patterns
 
 _PAT_UNIT_PRICE = re.compile(r"(?i)\b(unit|each|ea|per)\b")

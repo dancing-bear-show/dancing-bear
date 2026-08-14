@@ -23,7 +23,7 @@ description: >
        workflow compiler reads items[].domain from domains.json and expands
        this single stage into one resolved stage per domain — but instead of
        spawning an agent per item (the default mode: agent behavior), each
-       becomes a Job(type="workflow_stage") enqueued via worker.queue, with
+       becomes a Job(type="workflow_stage") enqueued via worker.queue_ops, with
        fan_out.script's {domain} placeholder substituted per item.
     3. All N jobs return status=pending immediately; nothing processes them
        automatically — the next stage is responsible for draining the queue.

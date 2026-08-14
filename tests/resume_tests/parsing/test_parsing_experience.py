@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from resume.parsing import (
+from resume.parsing_experience_text import (
     SECTION_PATTERNS,
     _parse_experience_entry,
     _parse_education_entry,
@@ -16,19 +16,21 @@ from resume.parsing import (
     _parse_experience_block,
     _parse_education,
     _parse_skills,
+    parse_resume_text,
+    merge_profiles,
+)
+from resume.parsing_experience_docx import (
     _filter_summary_lines,
     _key_from_heading,
     _looks_like_company_line,
     _looks_like_section_heading,
-    parse_resume_text,
-    merge_profiles,
 )
 from tests.resume_tests.fixtures import (
     SAMPLE_CONTACT_LINES,
     SAMPLE_RESUME_TEXT,
     make_empty_profile,
 )
-from resume.parsing import (
+from resume.parsing_experience_pdf import (
     _pdf_find_sections,
     _pdf_get_section_lines,
 )

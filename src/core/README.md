@@ -63,9 +63,8 @@ flowchart LR
 - `assistant_cli.py` — assistant dispatcher entry point.
 - `llm_cli.py` — `llm` CLI: inventory, familiar, flows, policies, domain-map.
 - `llm_builders.py` — `DomainLlmConfig`, `make_domain_llm_module` factory.
-- `llm_domain.py` — domain-map emission helpers.
-- `llm_handlers.py` — staleness scan and inventory emit.
-- `llm_staleness.py` — stale-context detection.
+- `llm_handlers.py` — inventory, familiar, policies, agentic, domain-map, flows, derive-all handlers.
+- `llm_staleness.py` — stale/deps/check analytics.
 - `meta_base.py` — `AppMeta` dataclass: agentic/domain-map/familiar fallbacks per domain.
 
 **I/O utilities**

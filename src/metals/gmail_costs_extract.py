@@ -16,11 +16,9 @@ from .costs_common import (
     format_qty,
     write_costs_csv,
 )
-from .vendors import GMAIL_VENDORS, get_vendor_for_sender
-from .gmail_costs_qty import (
-    _extract_line_items,
-    _extract_amount_near_line,
-)
+from .vendors_search import GMAIL_VENDORS, get_vendor_for_sender
+from .gmail_costs_qty_items import _extract_line_items
+from .gmail_costs_qty_price import _extract_amount_near_line
 
 _ORDER_PAT = re.compile(r"(?i)order\s*(?:number|#)?\s*[:#]?\s*(\d{6,})")
 _COSTCO_ORDER_PAT = re.compile(r"(?i)costco\.ca\s+order\D*(\d{6,})")

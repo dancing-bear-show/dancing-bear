@@ -46,7 +46,7 @@ def _find_outlook_account(cfg_path: str | None, acc_name: str | None) -> dict | 
     """Load accounts config and find the best matching Outlook account."""
     if not cfg_path or not os.path.exists(cfg_path):
         return None
-    from ..yamlio import load_config
+    from core.yamlio import load_config
     accts = (load_config(cfg_path) or {}).get("accounts") or []
     if acc_name:
         chosen = next((a for a in accts if a.get("name") == acc_name), None)

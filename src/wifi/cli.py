@@ -10,7 +10,8 @@ from core.cli_errors import ExitCode
 from core.cli_framework import CLIApp
 from core.cli_output import OutputFormat
 
-from .diagnostics import DiagnoseConfig, run_diagnosis
+from .diagnostics_probes import run_diagnosis
+from .diagnostics_report import DiagnoseConfig
 from .meta import META
 from .pipeline import DiagnoseProcessor, DiagnoseProducer, DiagnoseRequest, DiagnoseRequestConsumer
 

@@ -274,7 +274,7 @@ class TestResumeCommands(unittest.TestCase):
 
     @patch('resume.cli.main.write_yaml_or_json')
     @patch('resume.cli.main.merge_profiles')
-    @patch('resume.parsing.parse_resume_docx')
+    @patch('resume.parsing_experience_docx.parse_resume_docx')
     @patch('resume.cli.main.read_text_any')
     def test_cmd_extract_docx_resume(self, mock_read_any, mock_parse_docx, mock_merge, mock_write):
         """Test cmd_extract with DOCX resume."""
@@ -297,7 +297,7 @@ class TestResumeCommands(unittest.TestCase):
 
     @patch('resume.cli.main.write_yaml_or_json')
     @patch('resume.cli.main.merge_profiles')
-    @patch('resume.parsing.parse_resume_pdf')
+    @patch('resume.parsing_experience_pdf.parse_resume_pdf')
     @patch('resume.cli.main.read_text_any')
     def test_cmd_extract_pdf_resume(self, mock_read_any, mock_parse_pdf, mock_merge, mock_write):
         """Test cmd_extract with PDF resume."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 from core.pipeline import Producer, ResultEnvelope
 
 from ..providers.base import BaseProvider
-from .processors import (
+from .processors_sweep import (
     FiltersAddTokenResult,
     FiltersRemoveTokenResult,
     FilterTokenUpdate,

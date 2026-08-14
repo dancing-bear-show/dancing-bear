@@ -6,9 +6,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from core.pipeline import ResultEnvelope
-from phone.layout import NormalizedLayout
+from phone.layout_normalize import NormalizedLayout
 from phone.helpers import LayoutLoadError
-from phone.pipeline import (
+from phone.pipeline_export import (
     AnalyzeProducer,
     AnalyzeProcessor,
     AnalyzeResult,
@@ -34,19 +34,6 @@ from phone.pipeline import (
     IconmapResult,
     IconmapRequest,
     IconmapRequestConsumer,
-    IdentityVerifyProducer,
-    IdentityVerifyProcessor,
-    IdentityVerifyResult,
-    IdentityVerifyRequest,
-    IdentityVerifyRequestConsumer,
-    ManifestFromDeviceProcessor,
-    ManifestFromDeviceRequest,
-    ManifestFromDeviceRequestConsumer,
-    ManifestFromExportProducer,
-    ManifestFromExportProcessor,
-    ManifestFromExportResult,
-    ManifestFromExportRequest,
-    ManifestFromExportRequestConsumer,
     PlanProducer,
     PlanProcessor,
     PlanResult,
@@ -62,6 +49,21 @@ from phone.pipeline import (
     UnusedResult,
     UnusedRequest,
     UnusedRequestConsumer,
+)
+from phone.pipeline_plan import (
+    IdentityVerifyProducer,
+    IdentityVerifyProcessor,
+    IdentityVerifyResult,
+    IdentityVerifyRequest,
+    IdentityVerifyRequestConsumer,
+    ManifestFromDeviceProcessor,
+    ManifestFromDeviceRequest,
+    ManifestFromDeviceRequestConsumer,
+    ManifestFromExportProducer,
+    ManifestFromExportProcessor,
+    ManifestFromExportResult,
+    ManifestFromExportRequest,
+    ManifestFromExportRequestConsumer,
 )
 
 

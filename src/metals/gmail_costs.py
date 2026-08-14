@@ -28,12 +28,9 @@ from .constants import (  # noqa: F401
     PAT_GRAMS as _PAT_G,
     QTY_PATTERNS as _PAT_QTY_LIST,
 )
-from .gmail_costs_qty import (  # noqa: F401
+from .gmail_costs_qty_items import (  # noqa: F401
     LineItemContext,
     ExtractionContext,
-    PriceLineContext,
-    CandidateLineContext,
-    _PAT_UNIT_PRICE,
     _extract_first_match_group,
     _explicit_qty_near,
     _bundle_qty_near,
@@ -49,6 +46,11 @@ from .gmail_costs_qty import (  # noqa: F401
     _parse_gram_match,
     _extract_line_items,
     _build_uoz_patterns,
+)
+from .gmail_costs_qty_price import (  # noqa: F401
+    PriceLineContext,
+    CandidateLineContext,
+    _PAT_UNIT_PRICE,
     _try_anchored_extraction,
     _determine_price_kind,
     _check_uoz_in_neighbors,
