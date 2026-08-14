@@ -3,7 +3,7 @@
 These tests render a real DOCX via write_resume_docx (the ACTIVE CLI path)
 and inspect the zip contents to confirm mailto: hyperlinks are present.
 
-Mirrors the assertion style in tests/resume_tests/docx/test_docx_links.py.
+Mirrors the assertion style in tests/resume_tests/docx_tests/test_docx_links.py.
 """
 from __future__ import annotations
 
