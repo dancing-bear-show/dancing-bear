@@ -11,17 +11,14 @@ from core.cli_errors import ExitCode
 from core.cli_framework import CLIApp
 
 from . import report
-from .meta import APP_ID, PURPOSE
+from .meta import META
 from .models import Finding, Source, Tier
 from .report import TriageEntry
 from .runner import QltyRunner
 from .scanner import ScanRequest, ScanResult, Scanner, sibling_uses_params_object
 from .strategies import known_strategies, strategy_for
 
-assistant = BaseAssistant(
-    APP_ID,
-    f"agentic: {APP_ID}\npurpose: {PURPOSE}",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "qlty-assistant",

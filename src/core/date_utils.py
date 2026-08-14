@@ -61,6 +61,12 @@ del _name, _code
 # Day name sequence for iteration (abbreviated, lowercase)
 DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 
+# RRULE code -> Python weekday index, matching datetime.date.weekday()
+# (Monday = 0). Derived from DAY_NAMES so the ordering has one source.
+RRULE_CODE_TO_WEEKDAY: dict[str, int] = {
+    DAY_MAP[_day]: _index for _index, _day in enumerate(DAY_NAMES)
+}
+
 # Month name to number mapping (1-12)
 MONTH_MAP = {m.lower(): i for i, m in enumerate(
     ["January", "February", "March", "April", "May", "June",

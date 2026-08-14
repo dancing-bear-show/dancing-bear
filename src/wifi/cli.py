@@ -12,13 +12,10 @@ from core.cli_framework import CLIApp
 from core.cli_output import OutputFormat
 
 from .diagnostics import DiagnoseConfig, run_diagnosis
-from .meta import APP_ID, PURPOSE
+from .meta import META
 from .pipeline import DiagnoseProcessor, DiagnoseProducer, DiagnoseRequest, DiagnoseRequestConsumer
 
-assistant = BaseAssistant(
-    APP_ID,
-    f"agentic: {APP_ID}\npurpose: {PURPOSE}",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "wifi",

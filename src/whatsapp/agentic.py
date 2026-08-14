@@ -10,7 +10,7 @@ from core.agentic import (
     cli_path_exists as _cli_path_exists,
     section as _section,
 )
-from .meta import APP_ID, PURPOSE
+from .meta import META
 
 
 def _load_parser():
@@ -51,8 +51,8 @@ def build_agentic_capsule() -> str:
     if flows:
         sections.append(("Flow Map", flows))
     return _build_capsule(
-        APP_ID,
-        PURPOSE,
+        META.app_id,
+        META.purpose,
         commands,
         sections,
     )
