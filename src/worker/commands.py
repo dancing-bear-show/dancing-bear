@@ -118,35 +118,40 @@ class StatusCommand:
         out.print("\n".join(lines))
 
     @staticmethod
+    def _load_completed_job_rows(path: Path) -> list[dict]:
+        """Parse today's perf log, keeping only successful daemon run_cli records."""
+        rows: list[dict] = []
+        for line in path.open("r", encoding="utf-8"):
+            try:
+                rec = json.loads(line)
+            except Exception:  # nosec B112 - skip malformed log lines
+                continue
+            if rec.get("args") == ["daemon", "run_cli", "ok"]:
+                rows.append(rec)
+        return rows
+
+    @staticmethod
+    def _format_throughput(rows: list[dict]) -> str:
+        rows.sort(key=lambda r: r.get("ts", ""))
+        start = datetime.strptime(rows[0]["ts"], ISO_DATETIME_FORMAT)
+        end = datetime.strptime(rows[-1]["ts"], ISO_DATETIME_FORMAT)
+        secs = max(1, (end - start).total_seconds())
+        rate = len(rows) / secs * 60.0
+        avg_ms = sum(int(r.get("duration_ms", 0)) for r in rows) / max(1, len(rows))
+        return f"Throughput (today): {rate:.2f} jobs/min, avg {avg_ms:.0f} ms/job"
+
+    @staticmethod
     def _calculate_throughput() -> str | None:
         """Calculate throughput from today's perf log."""
         try:
             ymd = datetime.now(UTC).strftime(DATE_FORMAT_YMD)
             path = Path.cwd() / "_data" / "logs" / f"perf-worker-{ymd}.jsonl"
-
             if not path.exists():
                 return None
-
-            rows: list[dict] = []
-            for line in path.open("r", encoding="utf-8"):
-                try:
-                    rec = json.loads(line)
-                    if rec.get("args") == ["daemon", "run_cli", "ok"]:
-                        rows.append(rec)
-                except Exception:  # nosec B112 - skip malformed log lines
-                    continue
-
+            rows = StatusCommand._load_completed_job_rows(path)
             if not rows:
                 return None
-
-            rows.sort(key=lambda r: r.get("ts", ""))
-            start = datetime.strptime(rows[0]["ts"], ISO_DATETIME_FORMAT)
-            end = datetime.strptime(rows[-1]["ts"], ISO_DATETIME_FORMAT)
-            secs = max(1, (end - start).total_seconds())
-            rate = len(rows) / secs * 60.0
-            avg_ms = sum(int(r.get("duration_ms", 0)) for r in rows) / max(1, len(rows))
-
-            return f"Throughput (today): {rate:.2f} jobs/min, avg {avg_ms:.0f} ms/job"
+            return StatusCommand._format_throughput(rows)
         except Exception:  # nosec B110 - best-effort throughput calculation
             return None
 

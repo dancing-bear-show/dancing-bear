@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 from core.fileutil import atomic_write_json
 
@@ -18,7 +18,7 @@ class ConfigCacheMixin:
 
     Usage:
         class MyClient(ConfigCacheMixin):
-            def __init__(self, cache_dir: Optional[str] = None):
+            def __init__(self, cache_dir: str | None = None):
                 ConfigCacheMixin.__init__(self, cache_dir, provider="myprovider")
 
             def get_data(self, use_cache: bool = True, ttl: int = 300):
@@ -32,20 +32,20 @@ class ConfigCacheMixin:
                 return result
     """
 
-    _cfg_cache_dir: Optional[str]
+    _cfg_cache_dir: str | None
     _cfg_provider: str
 
-    def __init__(self, cache_dir: Optional[str], provider: str = "default") -> None:
+    def __init__(self, cache_dir: str | None, provider: str = "default") -> None:
         self._cfg_cache_dir = cache_dir
         self._cfg_provider = provider
 
-    def _cfg_cache_path(self, name: str) -> Optional[str]:
+    def _cfg_cache_path(self, name: str) -> str | None:
         """Return path for a named cache file, or None if caching disabled."""
         if not self._cfg_cache_dir:
             return None
         return os.path.join(self._cfg_cache_dir, self._cfg_provider, "config", f"{name}.json")
 
-    def cfg_get_json(self, name: str, ttl: int = 0) -> Optional[Any]:
+    def cfg_get_json(self, name: str, ttl: int = 0) -> Any | None:
         """Get cached JSON data if fresh, else None.
 
         Args:

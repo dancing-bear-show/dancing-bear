@@ -122,6 +122,21 @@ def find_rotated_files(base_path: Path) -> list[Path]:
     return files
 
 
+_SKIP_LINE = object()  # sentinel: line was blank or an intentionally-swallowed parse error
+
+
+def _parse_jsonl_line(line: str, *, tolerant: bool) -> Any:
+    """Parse one JSONL line, returning _SKIP_LINE for blank or (tolerant) malformed lines."""
+    if not line.strip():
+        return _SKIP_LINE
+    try:
+        return json.loads(line)
+    except (ValueError, TypeError):
+        if not tolerant:
+            raise
+        return _SKIP_LINE
+
+
 def iter_jsonl_file(fpath: Path, *, tolerant: bool) -> Iterator[dict[str, Any]]:
     """Yield parsed JSON objects from a single JSONL file.
 
@@ -138,13 +153,9 @@ def iter_jsonl_file(fpath: Path, *, tolerant: bool) -> Iterator[dict[str, Any]]:
         raise
     with f:
         for line in f:
-            if not line.strip():
-                continue
-            try:
-                yield json.loads(line)
-            except (ValueError, TypeError):
-                if not tolerant:
-                    raise
+            parsed = _parse_jsonl_line(line, tolerant=tolerant)
+            if parsed is not _SKIP_LINE:
+                yield parsed
 
 
 def iter_rotated_jsonl(

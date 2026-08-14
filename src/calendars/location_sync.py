@@ -94,25 +94,31 @@ class LocationSync:
         cal_name = calendar or nev.get("calendar")
         return nev, yaml_loc, cal_name
 
+    def _plan_one(self, ev: dict[str, Any], calendar: str | None, dry_run: bool) -> bool:
+        """Plan a location update for one event. Returns True if it needs an update."""
+        criteria = self._resolve_event_criteria(ev, calendar)
+        if not criteria:
+            return False
+        matches = self._matches_for_criteria(criteria)
+        if not matches:
+            return False
+        yaml_loc = (normalize_event(ev).get("location") or "").strip()
+        cur_str = self._current_location_str(matches[0])
+        if not (yaml_loc and cur_str and yaml_loc != cur_str):
+            return False
+        if not dry_run:
+            ev["location"] = cur_str
+        return True
+
+    def _matches_for_criteria(self, criteria: MatchCriteria) -> list[dict[str, Any]]:
+        """Select matches for criteria, swallowing lookup failures as no-match."""
+        try:
+            return self._select_matches_from_criteria(criteria)
+        except Exception:  # nosec B112 - skip events that fail to match
+            return []
+
     def plan_from_config(self, items: list[dict[str, Any]], *, calendar: str | None, dry_run: bool = False) -> int:
-        updated = 0
-        for ev in items:
-            criteria = self._resolve_event_criteria(ev, calendar)
-            if not criteria:
-                continue
-            yaml_loc = (normalize_event(ev).get("location") or "").strip()
-            try:
-                matches = self._select_matches_from_criteria(criteria)
-            except Exception:  # nosec B112 - skip events that fail to match
-                continue
-            if not matches:
-                continue
-            cur_str = self._current_location_str(matches[0])
-            if yaml_loc and cur_str and yaml_loc != cur_str:
-                if not dry_run:
-                    ev["location"] = cur_str
-                updated += 1
-        return updated
+        return sum(1 for ev in items if self._plan_one(ev, calendar, dry_run))
 
     def _apply_location_update(self, update: LocationUpdate) -> None:
         """Update a single event/series location (dry-run safe)."""
@@ -164,25 +170,22 @@ class LocationSync:
         self._apply_location_update(LocationUpdate(tgt, subj, yaml_loc, cal_name, dry_run, "event"))
         return 1
 
+    def _apply_one(self, ev: dict[str, Any], calendar: str | None, all_occurrences: bool, dry_run: bool) -> int:
+        """Apply a location update for one event. Returns the count of ids updated."""
+        result = self._resolve_event_location(ev, calendar)
+        if not result:
+            return 0
+        nev, yaml_loc, cal_name = result
+        subj = (nev.get("subject") or "").strip()
+        criteria = self._resolve_event_criteria(ev, calendar)
+        if not criteria:
+            return 0
+        matches = self._matches_for_criteria(criteria)
+        if not matches:
+            return 0
+        if all_occurrences:
+            return self._apply_all_occurrences(matches, subj, yaml_loc, cal_name, dry_run)
+        return self._apply_single_match(matches, subj, yaml_loc, cal_name, dry_run)
+
     def apply_from_config(self, items: list[dict[str, Any]], *, calendar: str | None, all_occurrences: bool = False, dry_run: bool = False) -> int:
-        updated = 0
-        for ev in items:
-            result = self._resolve_event_location(ev, calendar)
-            if not result:
-                continue
-            nev, yaml_loc, cal_name = result
-            subj = (nev.get("subject") or "").strip()
-            criteria = self._resolve_event_criteria(ev, calendar)
-            if not criteria:
-                continue
-            try:
-                matches = self._select_matches_from_criteria(criteria)
-            except Exception:  # nosec B112 - skip events that fail to match
-                continue
-            if not matches:
-                continue
-            if all_occurrences:
-                updated += self._apply_all_occurrences(matches, subj, yaml_loc, cal_name, dry_run)
-            else:
-                updated += self._apply_single_match(matches, subj, yaml_loc, cal_name, dry_run)
-        return updated
+        return sum(self._apply_one(ev, calendar, all_occurrences, dry_run) for ev in items)

@@ -3,40 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import tempfile
 import unittest
-from pathlib import Path
 
 from core.agentic import (
-    read_text,
     section,
     build_capsule,
     build_cli_tree,
     cli_path_exists,
     list_subcommands,
 )
-
-
-class TestReadText(unittest.TestCase):
-    def test_reads_existing_file(self):
-        with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "test.txt"
-            path.write_text("hello world", encoding="utf-8")
-            result = read_text(path)
-        self.assertEqual(result, "hello world")
-
-    def test_returns_empty_for_missing_file(self):
-        path = Path("/nonexistent/path/file.txt")
-        result = read_text(path)
-        self.assertEqual(result, "")
-
-    def test_returns_empty_for_unreadable_file(self):
-        with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "test.txt"
-            # Use a directory path to force a read error
-            path.mkdir()
-            result = read_text(path)
-        self.assertEqual(result, "")
 
 
 class TestSection(unittest.TestCase):

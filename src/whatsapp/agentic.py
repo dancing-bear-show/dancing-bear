@@ -1,8 +1,6 @@
 """Agentic capsule builders for the WhatsApp Assistant CLI."""
 from __future__ import annotations
 
-from typing import List, Tuple
-
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _build_cli_tree,
@@ -43,7 +41,7 @@ def build_agentic_capsule() -> str:
         "search text: ./bin/whatsapp search --contains school --limit 20",
         "search contact: ./bin/whatsapp search --contact 'Teacher' --since-days 30",
     ]
-    sections: List[Tuple[str, str]] = []
+    sections: list[tuple[str, str]] = []
     tree = _cli_tree()
     if tree:
         sections.append(("CLI Tree", tree))
@@ -59,7 +57,7 @@ def build_agentic_capsule() -> str:
 
 
 def build_domain_map() -> str:
-    sections: List[str] = []
+    sections: list[str] = []
     sections.append(
         "Top-Level\n- whatsapp/search.py — ChatStorage search helpers"
     )

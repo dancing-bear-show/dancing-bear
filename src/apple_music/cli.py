@@ -8,7 +8,7 @@ Implementation lives in:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from core.assistant import BaseAssistant
 from core.cli_errors import AuthError, ConfigError
@@ -222,7 +222,7 @@ class ListPlaylistsProducer(BaseProducer):
     def _produce_success(
         self,
         payload: list[PlaylistResult],
-        diagnostics: Optional[dict[str, Any]],
+        diagnostics: dict[str, Any] | None,
     ) -> None:
         data = {"playlists": [{"id": pl.id, "name": pl.name} for pl in payload]}
         self._writer.print_data(data)
@@ -234,7 +234,7 @@ class TracksProducer(BaseProducer):
     def _produce_success(
         self,
         payload: list[TrackResult],
-        diagnostics: Optional[dict[str, Any]],
+        diagnostics: dict[str, Any] | None,
     ) -> None:
         self._writer.print_data(_tracks_to_dict(payload))
 
@@ -245,7 +245,7 @@ class ExportProducer(BaseProducer):
     def _produce_success(
         self,
         payload: list[ExportPlaylistResult],
-        diagnostics: Optional[dict[str, Any]],
+        diagnostics: dict[str, Any] | None,
     ) -> None:
         data = {
             "playlists": [

@@ -3,19 +3,19 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Sequence
+from typing import Sequence
 
 
 @dataclass
 class TidyPlan:
-    keep: List[Path]
-    move: List[Path]
+    keep: list[Path]
+    move: list[Path]
     archive_dir: Path
 
 
-def _match_files(base_dir: Path, prefix: str | None, suffixes: Sequence[str] | None) -> List[Path]:
+def _match_files(base_dir: Path, prefix: str | None, suffixes: Sequence[str] | None) -> list[Path]:
     suffix_set = {s.lower() for s in (suffixes or [])}
-    out: List[Path] = []
+    out: list[Path] = []
     for p in base_dir.iterdir():
         if not p.is_file():
             continue
@@ -43,12 +43,12 @@ def build_tidy_plan(
     return TidyPlan(keep=keep_files, move=move_files, archive_dir=arch)
 
 
-def execute_archive(plan: TidyPlan, subfolder: str | None = None) -> List[Path]:
+def execute_archive(plan: TidyPlan, subfolder: str | None = None) -> list[Path]:
     dest = plan.archive_dir
     if subfolder:
         dest = dest / subfolder
     dest.mkdir(parents=True, exist_ok=True)
-    moved: List[Path] = []
+    moved: list[Path] = []
     for p in plan.move:
         target = dest / p.name
         # Ensure unique filename if exists
@@ -61,8 +61,8 @@ def execute_archive(plan: TidyPlan, subfolder: str | None = None) -> List[Path]:
     return moved
 
 
-def execute_delete(plan: TidyPlan) -> List[Path]:
-    deleted: List[Path] = []
+def execute_delete(plan: TidyPlan) -> list[Path]:
+    deleted: list[Path] = []
     for p in plan.move:
         try:
             p.unlink()
@@ -72,9 +72,9 @@ def execute_delete(plan: TidyPlan) -> List[Path]:
     return deleted
 
 
-def purge_temp_files(dir_path: str | Path) -> List[Path]:
+def purge_temp_files(dir_path: str | Path) -> list[Path]:
     base = Path(dir_path)
-    removed: List[Path] = []
+    removed: list[Path] = []
     for p in base.rglob("*"):
         if not p.is_file():
             continue

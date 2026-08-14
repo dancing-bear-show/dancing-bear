@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable
 
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
@@ -211,7 +211,7 @@ def cmd_summarize(args: argparse.Namespace) -> int:
 # --- render helpers ---
 
 
-def _try_load_structure(path: Path) -> Optional[dict]:
+def _try_load_structure(path: Path) -> dict | None:
     """Try to load structure from a file, return None on failure."""
     if not path.exists():
         return None
@@ -222,8 +222,8 @@ def _try_load_structure(path: Path) -> Optional[dict]:
 
 
 def _find_first_structure(
-    out_dirs: List[Path], extensions: tuple, path_for: Callable[[Path, str], Path]
-) -> Optional[dict]:
+    out_dirs: list[Path], extensions: tuple, path_for: Callable[[Path, str], Path]
+) -> dict | None:
     """Try each (out_dir, extension) combination via path_for until a structure loads."""
     for out_dir in out_dirs:
         for ext in extensions:
@@ -233,8 +233,8 @@ def _find_first_structure(
 
 
 def _find_structure_in_dirs(
-    profile: str, out_dirs: List[Path], extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
-) -> Optional[dict]:
+    profile: str, out_dirs: list[Path], extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
+) -> dict | None:
     """Search for structure file in output directories (nested and legacy flat)."""
     # Try nested location first: out_dir/profile/structure.ext
     nested = _find_first_structure(
@@ -250,7 +250,7 @@ def _find_structure_in_dirs(
 
 def _find_structure_in_config(
     profile: str, extensions: tuple = (EXT_JSON, EXT_YAML, ".yml")
-) -> Optional[dict]:
+) -> dict | None:
     """Search for structure file in config folder."""
     config_dir = Path("config") / "profiles" / profile
     return _find_first_structure(
@@ -258,7 +258,7 @@ def _find_structure_in_config(
     )
 
 
-def _load_structure(args: argparse.Namespace) -> Optional[dict]:
+def _load_structure(args: argparse.Namespace) -> dict | None:
     """Load structure from explicit path or auto-discover for profile."""
     if args.structure_from:
         sf = str(args.structure_from)
@@ -505,7 +505,7 @@ def cmd_experience_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Resume Assistant CLI."""
     return app.run_with_assistant(
         assistant=assistant,

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import sys
 from functools import lru_cache
-from typing import Optional
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
@@ -58,7 +57,7 @@ def cmd_search(args) -> int:
         return 1
 
     # Determine from_me filter
-    from_me_filter: Optional[bool] = None
+    from_me_filter: bool | None = None
     if getattr(args, "from_me", False):
         from_me_filter = True
     elif getattr(args, "from_them", False):
@@ -101,7 +100,7 @@ def _install_output_masking() -> None:
     install_output_masking_from_env()
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the WhatsApp CLI."""
     return app.run_with_assistant(
         assistant=assistant,

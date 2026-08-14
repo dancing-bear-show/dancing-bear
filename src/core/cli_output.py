@@ -9,7 +9,7 @@ import json
 import sys
 from dataclasses import dataclass, asdict, is_dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, TextIO
+from typing import Any, Sequence, TextIO
 
 
 class OutputFormat(str, Enum):
@@ -27,7 +27,7 @@ class OutputConfig:
     verbose: bool = False
     quiet: bool = False
     no_color: bool = False
-    file: Optional[TextIO] = None
+    file: TextIO | None = None
 
     @property
     def stream(self) -> TextIO:
@@ -38,7 +38,7 @@ class OutputConfig:
 class OutputWriter:
     """Handles formatted output for CLI commands."""
 
-    def __init__(self, config: Optional[OutputConfig] = None):
+    def __init__(self, config: OutputConfig | None = None):
         self.config = config or OutputConfig()
 
     def print(self, *args, **kwargs) -> None:
@@ -61,7 +61,7 @@ class OutputWriter:
         if self.config.verbose:
             self.print(message)
 
-    def print_data(self, data: Any, headers: Optional[List[str]] = None) -> None:
+    def print_data(self, data: Any, headers: list[str] | None = None) -> None:
         """Print data in the configured format.
 
         Args:
@@ -116,7 +116,7 @@ class OutputWriter:
 
     def print_dict(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         *,
         separator: str = ": ",
         indent: int = 0,
@@ -158,7 +158,7 @@ class OutputWriter:
             # Fallback to JSON if yaml not available
             self._print_json(data)
 
-    def _row_to_strings(self, row: Any, headers: Optional[List[str]] = None) -> List[str]:
+    def _row_to_strings(self, row: Any, headers: list[str] | None = None) -> list[str]:
         """Convert a row to list of strings based on its type.
 
         Args:
@@ -174,7 +174,7 @@ class OutputWriter:
             return [str(v) for v in row]
         return [str(row)]
 
-    def _calculate_column_widths(self, headers: List[str], str_rows: List[List[str]]) -> List[int]:
+    def _calculate_column_widths(self, headers: list[str], str_rows: list[list[str]]) -> list[int]:
         """Calculate column widths based on headers and data.
 
         Args:
@@ -191,7 +191,7 @@ class OutputWriter:
                     widths[i] = max(widths[i], len(val))
         return widths
 
-    def _print_table_with_headers(self, headers: List[str], str_rows: List[List[str]]) -> None:
+    def _print_table_with_headers(self, headers: list[str], str_rows: list[list[str]]) -> None:
         """Print table with headers and separator.
 
         Args:
@@ -211,7 +211,7 @@ class OutputWriter:
                       for i in range(len(str_row))]
             self.print(" | ".join(padded))
 
-    def _print_rows_without_headers(self, rows: List[Any]) -> None:
+    def _print_rows_without_headers(self, rows: list[Any]) -> None:
         """Print rows with no header row, one per line."""
         for row in rows:
             if isinstance(row, (list, tuple)):
@@ -219,7 +219,7 @@ class OutputWriter:
             else:
                 self.print(str(row))
 
-    def _print_table(self, data: Any, headers: Optional[List[str]] = None) -> None:
+    def _print_table(self, data: Any, headers: list[str] | None = None) -> None:
         """Print data as a table."""
         rows = self._to_rows(data)
         if not rows:
@@ -266,7 +266,7 @@ class OutputWriter:
             return data.value
         return data
 
-    def _to_rows(self, data: Any) -> List[Any]:
+    def _to_rows(self, data: Any) -> list[Any]:
         """Convert data to a list of rows."""
         if isinstance(data, (list, tuple)):
             return list(data)
@@ -297,7 +297,7 @@ def output_yaml(data: Any) -> None:
     output(data, OutputFormat.YAML)
 
 
-def output_table(data: Any, headers: Optional[List[str]] = None) -> None:
+def output_table(data: Any, headers: list[str] | None = None) -> None:
     """Print data as a table."""
     writer = OutputWriter(OutputConfig(format=OutputFormat.TABLE))
     writer.print_data(data, headers)

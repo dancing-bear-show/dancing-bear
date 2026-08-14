@@ -4,7 +4,7 @@ Provides BulletRenderer, HeaderRenderer, and ListSectionRenderer base classes.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .docx_styles import StyleManager, TextFormatter
 from .render_config import HeaderLineConfig, MetaRunConfig
@@ -13,7 +13,7 @@ from .render_config import HeaderLineConfig, MetaRunConfig
 class BulletRenderer:
     """Renders bullet lists with various styles."""
 
-    def __init__(self, doc, page_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, doc, page_cfg: dict[str, Any] | None = None):
         self.doc = doc
         self.page_cfg = page_cfg or {}
         self.styles = StyleManager()
@@ -27,7 +27,7 @@ class BulletRenderer:
             glyph = bulp.get("glyph") or glyph
         return style, glyph
 
-    def get_bullet_config(self, sec: Optional[Dict[str, Any]]) -> tuple:
+    def get_bullet_config(self, sec: dict[str, Any] | None) -> tuple:
         """Determine bullet style and glyph from config.
 
         Returns:
@@ -53,7 +53,7 @@ class BulletRenderer:
         p.add_run(f"{glyph} ")
         return p
 
-    def _add_text_with_optional_keywords(self, p, text: str, keywords: Optional[List[str]]) -> None:
+    def _add_text_with_optional_keywords(self, p, text: str, keywords: list[str] | None) -> None:
         """Add text to a paragraph, bolding keyword matches if any are given."""
         if keywords:
             self._bold_keywords(p, text, keywords)
@@ -64,7 +64,7 @@ class BulletRenderer:
         self,
         text: str,
         *,
-        keywords: Optional[List[str]] = None,
+        keywords: list[str] | None = None,
         glyph: str = "•",
     ):
         """Add a plain bullet line (glyph + text)."""
@@ -77,7 +77,7 @@ class BulletRenderer:
         name: str,
         desc: str,
         *,
-        sec: Optional[Dict[str, Any]] = None,
+        sec: dict[str, Any] | None = None,
         glyph: str = "•",
         sep: str = ": ",
     ):
@@ -97,9 +97,9 @@ class BulletRenderer:
 
     def add_bullets(
         self,
-        items: List[str],
+        items: list[str],
         *,
-        keywords: Optional[List[str]] = None,
+        keywords: list[str] | None = None,
         plain: bool = True,
         glyph: str = "•",
         list_style: str = "List Bullet",
@@ -117,7 +117,7 @@ class BulletRenderer:
             self._add_text_with_optional_keywords(p, it, keywords)
 
     @staticmethod
-    def _find_earliest_keyword(lowered: str, text: str, keywords: List[str], from_idx: int):
+    def _find_earliest_keyword(lowered: str, text: str, keywords: list[str], from_idx: int):
         """Find the earliest occurring keyword in text from from_idx. Returns (pos, matched_text) or (None, None)."""
         match_pos = None
         match_kw = None
@@ -130,7 +130,7 @@ class BulletRenderer:
                 match_kw = text[pos:pos + len(kw)]
         return match_pos, match_kw
 
-    def _bold_keywords(self, paragraph, text: str, keywords: List[str]):
+    def _bold_keywords(self, paragraph, text: str, keywords: list[str]):
         """Add text with keywords bolded."""
         lowered = text.lower()
         idx = 0
@@ -162,7 +162,7 @@ class HeaderRenderer:
         self.doc = doc
         self.styles = StyleManager()
 
-    def _parse_meta_pt(self, cfg: Dict[str, Any]) -> Optional[float]:
+    def _parse_meta_pt(self, cfg: dict[str, Any]) -> float | None:
         """Parse meta_pt from config, returning None if invalid."""
         val = cfg.get("meta_pt")
         if not val:
@@ -172,7 +172,7 @@ class HeaderRenderer:
         except (ValueError, TypeError):
             return None
 
-    def _add_bold_colored_run(self, p, text: str, color: Optional[str]):
+    def _add_bold_colored_run(self, p, text: str, color: str | None):
         """Add a bold run with an optional color applied."""
         r = p.add_run(text)
         r.bold = True
@@ -196,7 +196,7 @@ class HeaderRenderer:
         self,
         content: HeaderLineConfig | None = None,
         *,
-        sec: Optional[Dict[str, Any]] = None,
+        sec: dict[str, Any] | None = None,
     ):
         """Add a formatted header line.
 
@@ -248,7 +248,7 @@ class HeaderRenderer:
     def add_group_title(
         self,
         title: str,
-        sec: Optional[Dict[str, Any]] = None,
+        sec: dict[str, Any] | None = None,
     ):
         """Add a group/category title with optional background."""
         title = (title or "").strip()
@@ -283,14 +283,14 @@ class HeaderRenderer:
 class ListSectionRenderer:
     """Renders simple list sections (interests, languages, etc.)."""
 
-    def __init__(self, doc, page_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, doc, page_cfg: dict[str, Any] | None = None):
         self.doc = doc
         self.bullets = BulletRenderer(doc, page_cfg)
         self.text = TextFormatter()
 
     def _extract_item_text(
-        self, it: Any, name_keys: tuple, desc_key: Optional[str], desc_sep: str
-    ) -> Optional[str]:
+        self, it: Any, name_keys: tuple, desc_key: str | None, desc_sep: str
+    ) -> str | None:
         """Extract and format text from a single item."""
         if isinstance(it, dict):
             name = next((str(it.get(k) or "").strip() for k in name_keys if it.get(k)), "")
@@ -304,13 +304,13 @@ class ListSectionRenderer:
 
     def render_simple_list(
         self,
-        items: List[Any],
-        sec: Optional[Dict[str, Any]] = None,
+        items: list[Any],
+        sec: dict[str, Any] | None = None,
         *,
         name_keys: tuple = ("name", "title", "label", "text"),
-        desc_key: Optional[str] = None,
+        desc_key: str | None = None,
         desc_sep: str = " — ",
-    ) -> List[str]:
+    ) -> list[str]:
         """Normalize and render a simple list section."""
         cfg = sec or {}
         lines = [

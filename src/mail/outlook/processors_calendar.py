@@ -362,26 +362,49 @@ class OutlookCalendarAddFromConfigProcessor(Processor[OutlookCalendarAddFromConf
             if self._create_one_event_from_config(ev, client, no_reminder)
         )
 
+    @staticmethod
+    def _first_present(ev: dict[str, Any], *keys: str, default: Any = None) -> Any:
+        """Return the first non-falsy value among aliased config keys."""
+        for key in keys:
+            val = ev.get(key)
+            if val:
+                return val
+        return default
+
+    def _build_recurring_event_range(self, ev: dict[str, Any]) -> tuple[str, Any]:
+        """Resolve (range_start_date, range_until), preferring the nested ``range`` block."""
+        rng = ev.get("range") or {}
+        start_date = rng.get("start_date") or self._first_present(ev, "start_date", "startDate", default="")
+        until = rng.get("until") or ev.get("until")
+        return start_date, until
+
+    def _build_recurring_event_params(
+        self, ev: dict[str, Any], no_reminder: bool
+    ) -> RecurringEventCreationParams:
+        """Map a config dict (with legacy key aliases) into recurrence creation params."""
+        range_start_date, range_until = self._build_recurring_event_range(ev)
+        return RecurringEventCreationParams(
+            calendar_name=ev.get("calendar"),
+            subject=ev.get("subject") or "",
+            start_time=self._first_present(ev, "start_time", "startTime", "start-time", default=""),
+            end_time=self._first_present(ev, "end_time", "endTime", "end-time", default=""),
+            tz=ev.get("tz"),
+            repeat=ev.get("repeat") or "",
+            interval=int(ev.get("interval", 1)),
+            byday=self._first_present(ev, "byday", "byDay"),
+            range_start_date=range_start_date,
+            range_until=range_until,
+            count=ev.get("count"),
+            body_html=self._first_present(ev, "body_html", "bodyHtml"),
+            location=ev.get("location"),
+            exdates=self._first_present(ev, "exdates", "exceptions", default=[]),
+            no_reminder=no_reminder,
+        )
+
     def _create_recurring_event(self, ev: dict[str, Any], client: Any, no_reminder: bool) -> bool:
         """Create a recurring event from config dict."""
         try:
-            client.create_recurring_event(RecurringEventCreationParams(
-                calendar_name=ev.get("calendar"),
-                subject=ev.get("subject") or "",
-                start_time=ev.get("start_time") or ev.get("startTime") or ev.get("start-time") or "",
-                end_time=ev.get("end_time") or ev.get("endTime") or ev.get("end-time") or "",
-                tz=ev.get("tz"),
-                repeat=ev.get("repeat") or "",
-                interval=int(ev.get("interval", 1)),
-                byday=ev.get("byday") or ev.get("byDay"),
-                range_start_date=(ev.get("range", {}) or {}).get("start_date") or ev.get("start_date") or ev.get("startDate") or "",
-                range_until=(ev.get("range", {}) or {}).get("until") or ev.get("until"),
-                count=ev.get("count"),
-                body_html=ev.get("body_html") or ev.get("bodyHtml"),
-                location=ev.get("location"),
-                exdates=ev.get("exdates") or ev.get("exceptions") or [],
-                no_reminder=no_reminder,
-            ))
+            client.create_recurring_event(self._build_recurring_event_params(ev, no_reminder))
             return True
         except Exception:  # nosec B110 - recurring event creation failure
             return False

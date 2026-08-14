@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
 
 
 @dataclass
 class AppContext:
     root: Path
-    config: Dict[str, str]
+    config: dict[str, str]
     args: object
 
     def resolve(self, rel: str) -> Path:

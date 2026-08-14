@@ -289,6 +289,26 @@ class ClassifyEngine:
             count += 1
         return False
 
+    def _mark_if_fruitless(
+        self,
+        evt: SessionEvent,
+        i: int,
+        events: list[SessionEvent],
+        exempt_types: set[str],
+        window: WindowConfig,
+    ) -> None:
+        """Mark a single Agent tool_use event as review if it looks fruitless."""
+        if evt.event_type != "tool_use" or evt.tool_name != "Agent":
+            return
+        agent_type = (evt.tool_input or {}).get("subagent_type", "")
+        if agent_type in exempt_types:
+            return
+        if self._has_write_after_agent(evt, events, i + 1, window):
+            return
+        if evt.classification in (None, "productive"):
+            evt.classification = "review"
+            evt.waste_reason = "fruitless-agent"
+
     def _classify_fruitless_agent(self, events: list[SessionEvent]) -> None:
         """Mark Agent calls with no Edit/Write in next N events within time window as review."""
         rule = self.rules.get("review", {}).get("fruitless-agent", {})
@@ -307,12 +327,4 @@ class ClassifyEngine:
         )
 
         for i, evt in enumerate(events):
-            if evt.event_type != "tool_use" or evt.tool_name != "Agent":
-                continue
-            agent_type = (evt.tool_input or {}).get("subagent_type", "")
-            if agent_type in exempt_types:
-                continue
-            if not self._has_write_after_agent(evt, events, i + 1, window):
-                if evt.classification in (None, "productive"):
-                    evt.classification = "review"
-                    evt.waste_reason = "fruitless-agent"
+            self._mark_if_fruitless(evt, i, events, exempt_types, window)

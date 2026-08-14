@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from core.assistant import BaseAssistant
 from core.cli_errors import ExitCode
@@ -80,7 +79,7 @@ def cmd_diagnose(args) -> int:
     return ExitCode((envelope.diagnostics or {}).get("code", ExitCode.ERROR))
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Wi-Fi CLI."""
     return app.run_with_assistant(
         assistant,

@@ -88,25 +88,32 @@ class OutlookRemindersProcessor(SafeProcessor[OutlookRemindersRequest, OutlookRe
         result = OutlookRemindersResult(logs=logs, updated=updated, dry_run=payload.dry_run, set_off=payload.set_off)
         return result
 
+    def _classify_one_event(
+        self, ev: dict[str, Any], all_occurrences: bool, classification: EventClassification
+    ) -> None:
+        """Bucket a single event's id(s) into the running classification."""
+        et = (ev.get("type") or "").lower()
+        eid = ev.get("id")
+        sid = ev.get("seriesMasterId")
+        if et == "seriesmaster":
+            if eid:
+                classification.series_ids.add(eid)
+            return
+        if et == "occurrence":
+            if all_occurrences and eid:
+                classification.occurrence_ids.add(eid)
+            if sid:
+                classification.series_ids.add(sid)
+            return
+        if eid:
+            classification.single_ids.add(eid)
+
     def _classify_events(self, events: list[dict[str, Any]], all_occurrences: bool) -> EventClassification:
         """Classify events into series masters, occurrences, and single events."""
-        series_ids: set[str] = set()
-        occurrence_ids: set[str] = set()
-        single_ids: set[str] = set()
+        classification = EventClassification(series_ids=set(), occurrence_ids=set(), single_ids=set())
         for ev in events:
-            et = (ev.get("type") or "").lower()
-            eid = ev.get("id")
-            sid = ev.get("seriesMasterId")
-            if et == "seriesmaster" and eid:
-                series_ids.add(eid)
-            elif et == "occurrence":
-                if all_occurrences and eid:
-                    occurrence_ids.add(eid)
-                if sid:
-                    series_ids.add(sid)
-            elif eid:
-                single_ids.add(eid)
-        return EventClassification(series_ids=series_ids, occurrence_ids=occurrence_ids, single_ids=single_ids)
+            self._classify_one_event(ev, all_occurrences, classification)
+        return classification
 
     def _build_reminder_request(self, payload: OutlookRemindersRequest, cal_id: str | None, eid: str):
         from calendars.outlook_service import UpdateEventReminderRequest

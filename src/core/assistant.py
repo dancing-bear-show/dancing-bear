@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 
 @dataclass
@@ -49,7 +49,7 @@ class BaseAssistant:
         fmt_param: str = "agentic_format",
         compact_param: str = "agentic_compact",
         parser: Any = None,
-    ) -> Optional[int]:
+    ) -> int | None:
         if not getattr(args, "agentic", False):
             return None
         fmt = getattr(args, fmt_param, "text")

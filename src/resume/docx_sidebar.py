@@ -8,7 +8,7 @@ This module is a re-export shim. Implementation lives in:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .docx_sidebar_cells import (  # noqa: F401
     _remove_cell_borders,
@@ -30,10 +30,10 @@ from .docx_sidebar_sections import (  # noqa: F401
 # Backward-compatible function defined here so that
 # `@patch("resume.docx_sidebar.SidebarResumeWriter")` resolves correctly.
 def write_resume_docx_sidebar(
-    data: Dict[str, Any],
-    template: Dict[str, Any],
+    data: dict[str, Any],
+    template: dict[str, Any],
     out_path: str,
-    seed: Optional[Dict[str, Any]] = None,
+    seed: dict[str, Any] | None = None,
 ) -> None:
     """Write resume with two-column sidebar layout.
 

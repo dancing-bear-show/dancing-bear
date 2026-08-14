@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 from html import unescape
-from typing import List, Optional
 
 from .patterns import RE_AM_ONLY, RE_AMPM, RE_PM_ONLY, RE_STRIP_TAGS
 
@@ -123,7 +122,7 @@ def strip_html_tags(s: str) -> str:
     return re.sub(RE_STRIP_TAGS, '', s).replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
 
 
-def to_24h(time_str: str, am_pm: Optional[str] = None) -> Optional[str]:
+def to_24h(time_str: str, am_pm: str | None = None) -> str | None:
     """Convert time string to 24-hour format.
 
     Args:
@@ -174,7 +173,7 @@ def to_24h(time_str: str, am_pm: Optional[str] = None) -> Optional[str]:
     return f"{hh:02d}:{mm:02d}"
 
 
-def parse_time_range(s: str) -> tuple[Optional[str], Optional[str]]:
+def parse_time_range(s: str) -> tuple[str | None, str | None]:
     """Parse time range string to (start_24h, end_24h) tuple.
 
     Handles various formats with am/pm detection and boundary inference.
@@ -222,7 +221,7 @@ def parse_time_range(s: str) -> tuple[Optional[str], Optional[str]]:
     return start, end
 
 
-def extract_time_ranges(text: str) -> List[tuple[str, str]]:
+def extract_time_ranges(text: str) -> list[tuple[str, str]]:
     """Extract all time ranges from text.
 
     Finds patterns like '10:00 a.m. - 12:00 p.m.' or '9:00pm - 10:30pm'.
@@ -234,7 +233,7 @@ def extract_time_ranges(text: str) -> List[tuple[str, str]]:
         List of (start_24h, end_24h) tuples.
     """
     text = (text or '').replace('*', ' ').replace('\n', ' ')
-    results: List[tuple[str, str]] = []
+    results: list[tuple[str, str]] = []
 
     # Match time range patterns with am/pm using simplified pattern
     time_pat = r'(\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?)'

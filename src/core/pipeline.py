@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Generic, List, Optional, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from core.cli_errors import CLIError
 from core.cli_output import OutputWriter
@@ -18,8 +18,8 @@ R = TypeVar("R")
 @dataclass
 class ResultEnvelope(Generic[ResultT]):
     status: str
-    payload: Optional[ResultT] = None
-    diagnostics: Optional[dict[str, Any]] = None
+    payload: ResultT | None = None
+    diagnostics: dict[str, Any] | None = None
 
     def ok(self) -> bool:
         return self.status.lower() == "success"
@@ -75,7 +75,7 @@ class BaseProducer:
 
     Example usage:
         class MyProducer(BaseProducer):
-            def _produce_success(self, payload: MyResult, diagnostics: Optional[dict]) -> None:
+            def _produce_success(self, payload: MyResult, diagnostics: dict | None) -> None:
                 self._writer.print(f"Success: {payload.message}")
     """
 
@@ -93,7 +93,7 @@ class BaseProducer:
         if result.payload is not None:
             self._produce_success(result.payload, result.diagnostics)
 
-    def _produce_success(self, payload: Any, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: Any, diagnostics: dict[str, Any] | None) -> None:
         """Override in subclass to handle successful result output."""
         raise NotImplementedError("Subclass must implement _produce_success")
 
@@ -106,7 +106,7 @@ class BaseProducer:
             self._writer.print_error(msg)
         return True
 
-    def print_logs(self, logs: List[str]) -> None:
+    def print_logs(self, logs: list[str]) -> None:
         """Print a list of log messages."""
         for line in logs:
             self._writer.print(line)

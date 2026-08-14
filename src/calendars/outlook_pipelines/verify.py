@@ -4,13 +4,11 @@ from ._base import (
     dataclass,
     Path,
     Any,
-    SafeProcessor,
-    normalize_event,
+    EventIterationProcessor,
     compute_window,
     filter_events_by_day_time,
     BaseProducer,
     RequestConsumer,
-    load_events_config,
 )
 from ._context import VerificationContext
 
@@ -34,31 +32,46 @@ class OutlookVerifyResult:
     missing: int
 
 
-class OutlookVerifyProcessor(SafeProcessor[OutlookVerifyRequest, OutlookVerifyResult]):
+@dataclass
+class _VerifyAccumulator:
+    """Per-run accumulator for OutlookVerifyProcessor's template method."""
+
+    logs: list[str]
+    total: int
+    duplicates: int
+    missing: int
+
+
+class OutlookVerifyProcessor(EventIterationProcessor):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def _process_safe(self, payload: OutlookVerifyRequest) -> OutlookVerifyResult:
-        items = load_events_config(payload.config_path, self._config_loader)
-        logs: list[str] = []
-        total = duplicates = missing = 0
-        for i, ev in enumerate(items, start=1):
-            if not isinstance(ev, dict):
-                continue
-            nev = normalize_event(ev)
-            subj = (nev.get("subject") or "").strip()
-            byday = nev.get("byday") or []
-            rt = nev.get("repeat") or ""
-            if not (subj and rt == "weekly" and byday):
-                continue
-            total += 1
-            context = VerificationContext(idx=i, nev=nev, subj=subj, byday=byday)
-            result = self._verify_single_event_from_context(payload, context, logs)
-            if result == "duplicate":
-                duplicates += 1
-            elif result == "missing":
-                missing += 1
-        return OutlookVerifyResult(logs=logs, total=total, duplicates=duplicates, missing=missing)
+    def _init_accumulator(self, payload: OutlookVerifyRequest) -> _VerifyAccumulator:
+        return _VerifyAccumulator(logs=[], total=0, duplicates=0, missing=0)
+
+    def _handle_event(
+        self, payload: OutlookVerifyRequest, idx: int, nev: dict[str, Any], accumulator: _VerifyAccumulator
+    ) -> None:
+        subj = (nev.get("subject") or "").strip()
+        byday = nev.get("byday") or []
+        rt = nev.get("repeat") or ""
+        if not (subj and rt == "weekly" and byday):
+            return
+        accumulator.total += 1
+        context = VerificationContext(idx=idx, nev=nev, subj=subj, byday=byday)
+        result = self._verify_single_event_from_context(payload, context, accumulator.logs)
+        if result == "duplicate":
+            accumulator.duplicates += 1
+        elif result == "missing":
+            accumulator.missing += 1
+
+    def _finalize(self, accumulator: _VerifyAccumulator) -> OutlookVerifyResult:
+        return OutlookVerifyResult(
+            logs=accumulator.logs,
+            total=accumulator.total,
+            duplicates=accumulator.duplicates,
+            missing=accumulator.missing,
+        )
 
     def _verify_single_event_from_context(
         self,

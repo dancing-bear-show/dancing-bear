@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from .io_utils import read_yaml_or_json
 from .job import build_keyword_spec, load_job_config
@@ -46,16 +46,16 @@ class FilterConfig:
 class FilterPipeline:
     """Chainable pipeline for applying filters to resume/candidate data."""
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any]):
         """Initialize pipeline with candidate data.
 
         Args:
             data: The candidate/resume data dictionary to transform.
         """
         self._data = dict(data)  # shallow copy to avoid mutating original
-        self._synonyms: Dict[str, List[str]] = {}
+        self._synonyms: dict[str, list[str]] = {}
 
-    def with_profile_overlays(self, profile: Optional[str]) -> "FilterPipeline":
+    def with_profile_overlays(self, profile: str | None) -> "FilterPipeline":
         """Apply profile-specific config overlays from config/ directory.
 
         Args:
@@ -70,7 +70,7 @@ class FilterPipeline:
 
     def with_synonyms_from_job(
         self,
-        job_path: Optional[Union[str, Path]],
+        job_path: str | Path | None,
     ) -> "FilterPipeline":
         """Load synonyms from a job config file to use in subsequent filters.
 
@@ -91,8 +91,8 @@ class FilterPipeline:
 
     def with_skill_filter(
         self,
-        alignment_path: Optional[Union[str, Path]],
-        job_path: Optional[Union[str, Path]] = None,
+        alignment_path: str | Path | None,
+        job_path: str | Path | None = None,
     ) -> "FilterPipeline":
         """Filter skills to only those matching keywords from alignment report.
 
@@ -122,9 +122,9 @@ class FilterPipeline:
 
     def with_experience_filter(
         self,
-        alignment_path: Optional[Union[str, Path]],
-        job_path: Optional[Union[str, Path]] = None,
-        filter_cfg: Optional[ExperienceFilterConfig] = None,
+        alignment_path: str | Path | None,
+        job_path: str | Path | None = None,
+        filter_cfg: ExperienceFilterConfig | None = None,
     ) -> "FilterPipeline":
         """Filter experience entries to those matching alignment keywords.
 
@@ -156,7 +156,7 @@ class FilterPipeline:
 
     def with_priority_filter(
         self,
-        min_priority: Optional[float],
+        min_priority: float | None,
     ) -> "FilterPipeline":
         """Filter items by priority/usefulness threshold.
 
@@ -173,7 +173,7 @@ class FilterPipeline:
             self._data = filter_by_min_priority(self._data, float(min_priority))
         return self
 
-    def execute(self) -> Dict[str, Any]:
+    def execute(self) -> dict[str, Any]:
         """Execute the pipeline and return the transformed data.
 
         Returns:
@@ -187,8 +187,8 @@ class FilterPipeline:
 
     def _extract_matched_keywords(
         self,
-        alignment_path: Union[str, Path],
-    ) -> List[str]:
+        alignment_path: str | Path,
+    ) -> list[str]:
         """Extract matched keyword names from an alignment report.
 
         Args:
@@ -206,12 +206,12 @@ class FilterPipeline:
         ]
 
     @property
-    def data(self) -> Dict[str, Any]:
+    def data(self) -> dict[str, Any]:
         """Access the current data state (read-only snapshot)."""
         return dict(self._data)
 
     @property
-    def synonyms(self) -> Dict[str, List[str]]:
+    def synonyms(self) -> dict[str, list[str]]:
         """Access the current synonyms map (read-only snapshot)."""
         return dict(self._synonyms)
 
@@ -221,7 +221,7 @@ class FilterPipeline:
 # -----------------------------------------------------------------------------
 
 
-def create_pipeline(data: Dict[str, Any]) -> FilterPipeline:
+def create_pipeline(data: dict[str, Any]) -> FilterPipeline:
     """Create a new FilterPipeline instance.
 
     Args:
@@ -234,10 +234,10 @@ def create_pipeline(data: Dict[str, Any]) -> FilterPipeline:
 
 
 def apply_filters_from_args(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     profile: str | None = None,
     config: FilterConfig | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Apply all filters using a FilterConfig (convenience function).
 
     Args:

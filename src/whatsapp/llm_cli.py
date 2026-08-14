@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Optional
 
 from core import llm_cli
 from core.textio import read_text
@@ -74,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     return llm_cli.build_parser(CONFIG)
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     return llm_cli.run(CONFIG, argv)
 
 

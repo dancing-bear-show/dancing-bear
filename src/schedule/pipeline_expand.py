@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.constants import FMT_DATETIME
 from core.date_utils import to_iso_str as _to_iso_str
@@ -14,7 +14,7 @@ class EventCreateParams:
     """Bundled parameters for creating a calendar event."""
 
     cal_id: Any
-    calendar_name: Optional[str]
+    calendar_name: str | None
     subject: str
     tz: Any
     body_html: Any
@@ -32,7 +32,7 @@ class RecurrenceExpansionConfig:
     start_time: str
     end_time: str
     excluded_dates: set
-    weekdays: Optional[List[int]] = None  # For weekly recurrence
+    weekdays: list[int] | None = None  # For weekly recurrence
 
 
 @dataclass
@@ -42,11 +42,11 @@ class SyncMatchContext:
     plan_st_keys: set  # Planned subject-time keys
     planned_subjects_set: set  # Set of planned subjects (lowercased)
     have_keys: set  # Existing event keys
-    have_map: Dict[str, Dict[str, Any]]  # Map of existing events by key
+    have_map: dict[str, dict[str, Any]]  # Map of existing events by key
     match_mode: str  # "subject-time" or "subject"
 
 
-def _norm_dt_minute(s: Optional[str]) -> Optional[str]:
+def _norm_dt_minute(s: str | None) -> str | None:
     """Normalize an ISO-like datetime to minute precision without timezone."""
     if not s:
         return None
@@ -68,7 +68,7 @@ def _norm_dt_minute(s: Optional[str]) -> Optional[str]:
         return None
 
 
-def _weekday_code_to_py(d: str) -> Optional[int]:
+def _weekday_code_to_py(d: str) -> int | None:
     m = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
     return m.get(d.upper())
 
@@ -84,7 +84,7 @@ def _to_datetime(d: _dt.date, t: str) -> _dt.datetime:
     return _dt.datetime(d.year, d.month, d.day, int(hh), int(mm))
 
 
-def _parse_exdates(exdates_raw: List[Any]) -> set:
+def _parse_exdates(exdates_raw: list[Any]) -> set:
     """Parse exclusion dates into a set of ISO date strings."""
     ex_set: set = set()
     for x in exdates_raw:
@@ -97,7 +97,7 @@ def _parse_exdates(exdates_raw: List[Any]) -> set:
     return ex_set
 
 
-def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, str]:
+def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> tuple[str, str]:
     """Create a start/end ISO string pair for a single occurrence."""
     sdt = _to_datetime(d, start_time)
     edt = _to_datetime(d, end_time)
@@ -110,9 +110,9 @@ def _make_occurrence(d: _dt.date, start_time: str, end_time: str) -> Tuple[str, 
 
 def _expand_daily(
     cur: _dt.date, end: _dt.date, start_time: str, end_time: str, ex_set: set
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """Expand daily occurrences within a date range."""
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     d = cur
     while d <= end:
         if d.isoformat() not in ex_set:
@@ -121,9 +121,9 @@ def _expand_daily(
     return out
 
 
-def _expand_weekly(config: RecurrenceExpansionConfig) -> List[Tuple[str, str]]:
+def _expand_weekly(config: RecurrenceExpansionConfig) -> list[tuple[str, str]]:
     """Expand weekly occurrences within a date range."""
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     d = config.start_date
     while d <= config.end_date:
         if config.weekdays and d.weekday() in config.weekdays and d.isoformat() not in config.excluded_dates:
@@ -132,7 +132,7 @@ def _expand_weekly(config: RecurrenceExpansionConfig) -> List[Tuple[str, str]]:
     return out
 
 
-def _extract_event_times(ev: Dict[str, Any], win_from: str, win_to: str) -> Optional[Tuple[str, str, str, str]]:
+def _extract_event_times(ev: dict[str, Any], win_from: str, win_to: str) -> tuple[str, str, str, str] | None:
     """Extract and validate time fields from event.
 
     Returns (start_time, end_time, range_start, range_until) or None if invalid.
@@ -151,7 +151,7 @@ def _extract_event_times(ev: Dict[str, Any], win_from: str, win_to: str) -> Opti
 
 def _calculate_expansion_window(
     range_start: str, range_until: str, win_from: str, win_to: str
-) -> Optional[Tuple[_dt.date, _dt.date]]:
+) -> tuple[_dt.date, _dt.date] | None:
     """Calculate effective date range for expansion.
 
     Returns (start_date, end_date) or None if range is invalid.
@@ -168,8 +168,8 @@ def _calculate_expansion_window(
 
 
 def _expand_weekly_occurrences(
-    ev: Dict[str, Any], config: RecurrenceExpansionConfig
-) -> List[Tuple[str, str]]:
+    ev: dict[str, Any], config: RecurrenceExpansionConfig
+) -> list[tuple[str, str]]:
     """Expand weekly recurrence for event."""
     byday = ev.get("byday") or []
     days_idx = [x for x in (_weekday_code_to_py(d) for d in byday) if x is not None]
@@ -187,7 +187,7 @@ def _expand_weekly_occurrences(
     return _expand_weekly(week_config)
 
 
-def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str) -> List[Tuple[str, str]]:
+def _expand_recurring_occurrences(ev: dict[str, Any], win_from: str, win_to: str) -> list[tuple[str, str]]:
     """Expand recurring event (weekly/daily) to list of (start_iso, end_iso) within window."""
     rpt = (ev.get("repeat") or "").strip().lower()
     if rpt not in ("daily", "weekly"):
@@ -217,7 +217,7 @@ def _expand_recurring_occurrences(ev: Dict[str, Any], win_from: str, win_to: str
     ))
 
 
-def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
+def _ensure_calendar_id(service: Any, calendar_name: str | None) -> Any:
     """Resolve calendar ID, falling back to name lookup on error."""
     if not calendar_name:
         return None
@@ -228,8 +228,8 @@ def _ensure_calendar_id(service: Any, calendar_name: Optional[str]) -> Any:
 
 
 def _create_recurring_or_single(
-    service: Any, ev: Dict[str, Any], params: EventCreateParams,
-) -> Optional[Any]:
+    service: Any, ev: dict[str, Any], params: EventCreateParams,
+) -> Any | None:
     """Create recurring or single event. Returns result dict or None if skipped."""
     ev_range = ev.get("range") or {}
     if ev.get("repeat") and ev.get("start_time") and ev_range.get("start_date"):
@@ -269,12 +269,12 @@ def _create_recurring_or_single(
 
 
 def _apply_outlook_events(
-    events: List[Dict[str, Any]],
+    events: list[dict[str, Any]],
     *,
-    calendar_name: Optional[str],
+    calendar_name: str | None,
     service: Any,
-) -> Tuple[int, List[str]]:
-    logs: List[str] = []
+) -> tuple[int, list[str]]:
+    logs: list[str] = []
     cal_id = _ensure_calendar_id(service, calendar_name)
     created = 0
     for ev in events:

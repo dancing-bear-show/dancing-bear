@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 
 @dataclass
 class OutlookServiceConfig:
     """Configuration for Outlook service."""
 
-    profile: Optional[str] = None
-    client_id: Optional[str] = None
-    tenant: Optional[str] = None
-    token_path: Optional[str] = None
+    profile: str | None = None
+    client_id: str | None = None
+    tenant: str | None = None
+    token_path: str | None = None
 
 
 @dataclass
@@ -37,10 +36,10 @@ class GmailServiceArgsConfig:
 
 
 def resolve_gmail_credentials(
-    profile: Optional[str],
-    credentials_path: Optional[str],
-    token_path: Optional[str],
-) -> Tuple[str, str]:
+    profile: str | None,
+    credentials_path: str | None,
+    token_path: str | None,
+) -> tuple[str, str]:
     """Return (credentials_path, token_path) folded over env/profile defaults.
 
     Resolution order: CLI arg > environment > INI profile > default paths.
@@ -74,10 +73,10 @@ def resolve_gmail_credentials(
 
 
 def resolve_outlook_credentials(
-    profile: Optional[str],
-    client_id: Optional[str],
-    tenant: Optional[str],
-    token_path: Optional[str],
+    profile: str | None,
+    client_id: str | None,
+    tenant: str | None,
+    token_path: str | None,
 ):
     """Return (client_id, tenant, token_path) folded over env/profile defaults."""
     import os
@@ -122,10 +121,10 @@ def build_outlook_service(
 
 
 def build_gmail_service(
-    profile: Optional[str] = None,
-    cache_dir: Optional[str] = None,
-    credentials_path: Optional[str] = None,
-    token_path: Optional[str] = None,
+    profile: str | None = None,
+    cache_dir: str | None = None,
+    credentials_path: str | None = None,
+    token_path: str | None = None,
     service_cls=None,
 ):
     """Instantiate a GmailService (via existing CLI helper resolution)."""
@@ -146,7 +145,7 @@ def build_gmail_service(
 
 def build_outlook_service_from_args(
     args,
-    config: Optional[OutlookServiceArgsConfig] = None,
+    config: OutlookServiceArgsConfig | None = None,
     context_cls=None,
     service_cls=None,
 ):
@@ -173,7 +172,7 @@ def build_outlook_service_from_args(
 
 def build_gmail_service_from_args(
     args,
-    config: Optional[GmailServiceArgsConfig] = None,
+    config: GmailServiceArgsConfig | None = None,
     service_cls=None,
 ):
     """Instantiate a GmailService using argparse-like args.

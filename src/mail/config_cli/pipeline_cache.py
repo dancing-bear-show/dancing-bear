@@ -51,30 +51,34 @@ class AuthProcessor(SafeProcessor[AuthRequest, AuthResult]):
         )
 
         if payload.validate:
-            try:
-                from google.auth.transport.requests import Request
-                from google.oauth2.credentials import Credentials
-                from googleapiclient.discovery import build
-                from ..gmail_api import SCOPES as GMAIL_SCOPES
-            except Exception as e:
-                raise ValueError(f"Gmail validation unavailable: {e}")
-            if not token_path or not os.path.exists(token_path):
-                raise ValueError(f"Token file not found: {token_path or '<unspecified>'}")
-            try:
-                creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
-                if creds and creds.expired and getattr(creds, 'refresh_token', None):
-                    creds.refresh(Request())
-                svc = build("gmail", "v1", credentials=creds)
-                _ = svc.users().getProfile(userId="me").execute()
-                return AuthResult(success=True, message="Gmail token valid.")
-            except Exception as e:
-                raise ValueError(f"Gmail token invalid: {e}")
+            return self._validate_gmail_token(token_path)
 
         from ..gmail_api import GmailClient
         client = GmailClient(credentials_path=creds_path, token_path=token_path)
         client.authenticate()
         persist_if_provided(arg_credentials=payload.credentials, arg_token=payload.token)
         return AuthResult(success=True, message="Authentication complete.")
+
+    def _validate_gmail_token(self, token_path: str | None) -> AuthResult:
+        """Validate an existing Gmail token by round-tripping a profile call."""
+        try:
+            from google.auth.transport.requests import Request
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            from ..gmail_api import SCOPES as GMAIL_SCOPES
+        except Exception as e:
+            raise ValueError(f"Gmail validation unavailable: {e}")
+        if not token_path or not os.path.exists(token_path):
+            raise ValueError(f"Token file not found: {token_path or '<unspecified>'}")
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, scopes=GMAIL_SCOPES)
+            if creds and creds.expired and getattr(creds, 'refresh_token', None):
+                creds.refresh(Request())
+            svc = build("gmail", "v1", credentials=creds)
+            _ = svc.users().getProfile(userId="me").execute()
+            return AuthResult(success=True, message="Gmail token valid.")
+        except Exception as e:
+            raise ValueError(f"Gmail token invalid: {e}")
 
 
 class AuthProducer(BaseProducer):

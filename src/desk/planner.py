@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import os
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 from core.cli_errors import NotFoundError
 from core.yamlio import load_config as _load_yaml
@@ -12,9 +13,9 @@ from .utils import expand_paths, parse_duration, parse_size
 @dataclass
 class MatchCriteria:
     """Criteria for matching files against a rule."""
-    extensions: List[str]
-    size_threshold: Optional[int]
-    age_threshold: Optional[int]
+    extensions: list[str]
+    size_threshold: int | None
+    age_threshold: int | None
 
 
 def _file_matches_criteria(
@@ -44,9 +45,9 @@ def _file_matches_criteria(
 def _build_operation(
     src: str,
     filename: str,
-    action: Dict,
+    action: dict,
     rule_name: str,
-) -> Optional[Dict]:
+) -> dict | None:
     """Build an operation dict from action config, or None if no action."""
     move_to = action.get("move_to")
     trash = bool(action.get("trash", False))
@@ -68,7 +69,7 @@ def _build_operation(
     return None
 
 
-def _parse_rule(rule: Dict) -> tuple:
+def _parse_rule(rule: dict) -> tuple:
     """Parse a rule into match criteria, action, paths, and rule name."""
     match = rule.get("match", {})
     action = rule.get("action", {})
@@ -88,37 +89,48 @@ def _parse_rule(rule: Dict) -> tuple:
     return criteria, action, paths, rule.get("name", "")
 
 
+def _plan_operation_for_file(
+    dirpath: str,
+    name: str,
+    criteria: MatchCriteria,
+    action: dict,
+    rule_name: str,
+) -> dict | None:
+    """Build the operation for one file, or None if it doesn't match or has no action."""
+    src = os.path.join(dirpath, name)
+    try:
+        st = os.stat(src)
+    except (PermissionError, FileNotFoundError):
+        return None
+
+    if not _file_matches_criteria(name, st, criteria):
+        return None
+
+    return _build_operation(src, name, action, rule_name)
+
+
 def _scan_directory(
     root: str,
     criteria: MatchCriteria,
-    action: Dict,
+    action: dict,
     rule_name: str,
-) -> List[Dict]:
+) -> list[dict]:
     """Scan a directory tree and return matching operations."""
-    operations: List[Dict] = []
+    operations: list[dict] = []
 
     if not os.path.exists(root):
         return operations
 
     for dirpath, _, filenames in os.walk(root):
         for name in filenames:
-            src = os.path.join(dirpath, name)
-            try:
-                st = os.stat(src)
-            except (PermissionError, FileNotFoundError):
-                continue
-
-            if not _file_matches_criteria(name, st, criteria):
-                continue
-
-            op = _build_operation(src, name, action, rule_name)
+            op = _plan_operation_for_file(dirpath, name, criteria, action, rule_name)
             if op:
                 operations.append(op)
 
     return operations
 
 
-def plan_from_config(config_path: str) -> Dict:
+def plan_from_config(config_path: str) -> dict:
     """Generate a plan of file operations from a config file."""
     config_path = os.path.expanduser(config_path)
     if not os.path.exists(config_path):
@@ -126,8 +138,8 @@ def plan_from_config(config_path: str) -> Dict:
 
     cfg = _load_yaml(config_path) or {}
     version = int(cfg.get("version", 1))
-    rules: List[Dict] = cfg.get("rules", [])
-    operations: List[Dict] = []
+    rules: list[dict] = cfg.get("rules", [])
+    operations: list[dict] = []
 
     for rule in rules:
         criteria, action, paths, rule_name = _parse_rule(rule)

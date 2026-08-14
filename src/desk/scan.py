@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import os
 import time
 import hashlib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 from .utils import expand_paths, parse_size, parse_duration, human_size
 
@@ -13,7 +14,7 @@ class ScanCriteria:
 
     now: float
     min_bytes: int
-    older_secs: Optional[float]
+    older_secs: float | None
     include_duplicates: bool
 
 
@@ -21,10 +22,10 @@ class ScanCriteria:
 class ScanBuckets:
     """Mutable result buckets populated during a scan walk."""
 
-    large: List[Dict] = field(default_factory=list)
-    stale: List[Dict] = field(default_factory=list)
-    by_dir: Dict[str, int] = field(default_factory=dict)
-    files_for_dupes: List[Tuple[str, int]] = field(default_factory=list)
+    large: list[dict] = field(default_factory=list)
+    stale: list[dict] = field(default_factory=list)
+    by_dir: dict[str, int] = field(default_factory=dict)
+    files_for_dupes: list[tuple[str, int]] = field(default_factory=list)
 
 
 def _stat_file(fp: str):
@@ -65,31 +66,36 @@ def _collect_file(
         buckets.files_for_dupes.append((fp, size))
 
 
-def _walk_roots(roots: List[str], criteria: ScanCriteria) -> ScanBuckets:
+def _collect_dir_files(dirpath: str, filenames: list[str], criteria: ScanCriteria, buckets: ScanBuckets) -> None:
+    """Stat and classify every file in a single directory listing."""
+    for name in filenames:
+        fp = os.path.join(dirpath, name)
+        st = _stat_file(fp)
+        if st is None:
+            continue
+        _collect_file(fp, st, criteria, buckets)
+
+
+def _walk_roots(roots: list[str], criteria: ScanCriteria) -> ScanBuckets:
     """Walk all root paths and collect file data."""
     buckets = ScanBuckets()
 
     for root in roots:
         if not os.path.exists(root):
             continue
-        for dirpath, dirnames, filenames in os.walk(root):
-            for name in filenames:
-                fp = os.path.join(dirpath, name)
-                st = _stat_file(fp)
-                if st is None:
-                    continue
-                _collect_file(fp, st, criteria, buckets)
+        for dirpath, _dirnames, filenames in os.walk(root):
+            _collect_dir_files(dirpath, filenames, criteria, buckets)
 
     return buckets
 
 
 def run_scan(
-    paths: List[str],
+    paths: list[str],
     min_size: str = "50MB",
-    older_than: Optional[str] = None,
+    older_than: str | None = None,
     include_duplicates: bool = False,
     top_dirs: int = 10,
-) -> Dict:
+) -> dict:
     roots = expand_paths(paths)
     min_bytes = parse_size(min_size)
     older_secs = parse_duration(older_than) if older_than else None
@@ -109,7 +115,7 @@ def run_scan(
         {"dir": d, "size": s, "size_h": human_size(s)} for d, s in top_dirs_list
     ]
 
-    duplicates: List[List[str]] = []
+    duplicates: list[list[str]] = []
     if include_duplicates and buckets.files_for_dupes:
         duplicates = find_duplicates(buckets.files_for_dupes)
 
@@ -125,24 +131,32 @@ def run_scan(
     }
 
 
-def find_duplicates(files: List[Tuple[str, int]]) -> List[List[str]]:
-    # bucket by size first
-    by_size: Dict[int, List[str]] = {}
+def _bucket_by_size(files: list[tuple[str, int]]) -> dict[int, list[str]]:
+    """Group file paths by size."""
+    by_size: dict[int, list[str]] = {}
     for fp, size in files:
         by_size.setdefault(size, []).append(fp)
+    return by_size
 
-    dupe_groups: List[List[str]] = []
-    for size, paths in by_size.items():
+
+def _bucket_by_hash(paths: list[str]) -> dict[str, list[str]]:
+    """Group same-size file paths by content hash, skipping unreadable files."""
+    by_hash: dict[str, list[str]] = {}
+    for p in paths:
+        try:
+            h = _sha256_of(p)
+        except (PermissionError, FileNotFoundError, IsADirectoryError):
+            continue
+        by_hash.setdefault(h, []).append(p)
+    return by_hash
+
+
+def find_duplicates(files: list[tuple[str, int]]) -> list[list[str]]:
+    dupe_groups: list[list[str]] = []
+    for paths in _bucket_by_size(files).values():
         if len(paths) < 2:
             continue
-        by_hash: Dict[str, List[str]] = {}
-        for p in paths:
-            try:
-                h = _sha256_of(p)
-            except (PermissionError, FileNotFoundError, IsADirectoryError):
-                continue
-            by_hash.setdefault(h, []).append(p)
-        for group in by_hash.values():
+        for group in _bucket_by_hash(paths).values():
             if len(group) > 1:
                 dupe_groups.append(sorted(group))
     return dupe_groups

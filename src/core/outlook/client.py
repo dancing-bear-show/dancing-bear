@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.cache import ConfigCacheMixin
 from core.constants import (
@@ -87,18 +87,18 @@ class OutlookClientBase(ConfigCacheMixin):
         self,
         client_id: str,
         tenant: str = "consumers",
-        token_path: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        token_path: str | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         ConfigCacheMixin.__init__(self, cache_dir, provider="outlook")
         self.client_id = client_id
         self.tenant = tenant
         self.token_path = token_path
         self.cache_dir = cache_dir
-        self._token: Optional[Dict[str, Any]] = None
-        self._cache: Optional["msal.SerializableTokenCache"] = None
-        self._app: Optional["msal.PublicClientApplication"] = None
-        self._scopes: List[str] = [GRAPH_DEFAULT_SCOPE]
+        self._token: dict[str, Any] | None = None
+        self._cache: "msal.SerializableTokenCache" | None = None
+        self._app: "msal.PublicClientApplication" | None = None
+        self._scopes: list[str] = [GRAPH_DEFAULT_SCOPE]
         self.GRAPH = GRAPH_API_URL
 
     # -------------------- Auth --------------------
@@ -150,29 +150,23 @@ class OutlookClientBase(ConfigCacheMixin):
             return True
         return False
 
-    def authenticate(self) -> None:
-        cache = _msal().SerializableTokenCache()
-        if self.token_path and os.path.exists(self.token_path):
+    def _try_load_token_cache(self, cache) -> bool:
+        """Load the on-disk token cache, falling back to the legacy format. Returns True on success."""
+        if not (self.token_path and os.path.exists(self.token_path)):
+            return False
+        try:
+            with open(self.token_path, "r", encoding="utf-8") as f:
+                data = f.read()
             try:
-                with open(self.token_path, "r", encoding="utf-8") as f:
-                    data = f.read()
-                try:
-                    cache.deserialize(data)
-                except Exception:
-                    if self._try_load_legacy_token(cache, data):
-                        return
-            except Exception:  # nosec B110 - token read failed, proceed with fresh auth
-                pass
+                cache.deserialize(data)
+                return False  # loaded into cache; caller still needs a silent-auth pass
+            except Exception:
+                return self._try_load_legacy_token(cache, data)
+        except Exception:  # nosec B110 - token read failed, proceed with fresh auth
+            return False
 
-        app = _msal().PublicClientApplication(
-            self.client_id,
-            authority=f"https://login.microsoftonline.com/{self.tenant}",
-            token_cache=cache,
-        )
-        if self._try_silent_auth(app, cache):
-            return
-
-        # Start device flow if silent failed
+    def _run_device_flow(self, app, cache) -> None:
+        """Run the MSAL device-flow prompt and store the resulting token."""
         flow = app.initiate_device_flow(scopes=self._scopes)
         if "user_code" not in flow:
             raise RuntimeError("Failed to start device flow for Microsoft Graph")
@@ -187,6 +181,21 @@ class OutlookClientBase(ConfigCacheMixin):
         self._cache = cache
         self._app = app
         self._save_token_cache(cache)
+
+    def authenticate(self) -> None:
+        cache = _msal().SerializableTokenCache()
+        if self._try_load_token_cache(cache):
+            return
+
+        app = _msal().PublicClientApplication(
+            self.client_id,
+            authority=f"https://login.microsoftonline.com/{self.tenant}",
+            token_cache=cache,
+        )
+        if self._try_silent_auth(app, cache):
+            return
+
+        self._run_device_flow(app, cache)
 
     def _refresh_token_silent(self) -> None:
         """Attempt a silent token refresh; ignore failures."""
@@ -208,7 +217,7 @@ class OutlookClientBase(ConfigCacheMixin):
         except Exception:  # nosec B110 - silent token refresh failure
             pass
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         if not self._token:
             raise RuntimeError("OutlookClient not authenticated")
         self._refresh_token_silent()
@@ -217,13 +226,13 @@ class OutlookClientBase(ConfigCacheMixin):
             "Content-Type": "application/json"
         }
 
-    def _headers_search(self) -> Dict[str, str]:
+    def _headers_search(self) -> dict[str, str]:
         h = self._headers()
         h["ConsistencyLevel"] = "eventual"
         return h
 
     # -------------------- Mailbox settings --------------------
-    def get_mailbox_timezone(self) -> Optional[str]:
+    def get_mailbox_timezone(self) -> str | None:
         try:
             r = _requests().get(f"{GRAPH_API_URL}/me/mailboxSettings", headers=self._headers())
             r.raise_for_status()

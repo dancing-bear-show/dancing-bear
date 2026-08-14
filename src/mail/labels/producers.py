@@ -122,38 +122,51 @@ class LabelsSyncProducer(Producer[ResultEnvelope[LabelsSyncResult]]):
             count += 1
         return count
 
-    def _apply_redirects(self, redirects: list[dict[str, str]]) -> set[str]:
-        processed: set[str] = set()
-        for redirect in redirects:
-            old = redirect.get("from")
-            new = redirect.get("to")
-            if not old or not new or old == new:
-                continue
-            name_to_id = self.client.get_label_id_map()
-            old_id = name_to_id.get(old)
-            new_id = name_to_id.get(new) or self.client.ensure_label(new)
-            if not old_id or not new_id:
-                continue
-            ids = self.client.list_message_ids(label_ids=[old_id], max_pages=50, page_size=500)
-            if self.dry_run:
-                self._writer.print(f"Would merge '{old}' into '{new}' ({len(ids)} messages).")
-                continue
-            from ..utils.batch import apply_in_chunks
+    def _merge_redirect_messages(self, old_id: str, new_id: str, ids: list[str]) -> None:
+        """Move all messages from old_id to new_id in chunks."""
+        from ..utils.batch import apply_in_chunks
 
-            apply_in_chunks(
-                lambda chunk, _new=new_id, _old=old_id: self.client.batch_modify_messages(
-                    chunk, add_label_ids=[_new], remove_label_ids=[_old]
-                ),
-                ids,
-                500,
-            )
-            try:
-                self.client.delete_label(old_id)
-                self._writer.print(f"Merged '{old}' into '{new}' and deleted source label.")
-            except Exception as exc:  # pragma: no cover - log only
-                self._writer.print(f"Warning: failed to delete old label '{old}': {exc}")
-            processed.add(old)
-        return processed
+        apply_in_chunks(
+            lambda chunk, _new=new_id, _old=old_id: self.client.batch_modify_messages(
+                chunk, add_label_ids=[_new], remove_label_ids=[_old]
+            ),
+            ids,
+            500,
+        )
+
+    def _delete_redirect_source_label(self, old: str, new: str, old_id: str) -> None:
+        """Delete the now-empty source label, logging (not raising) on failure."""
+        try:
+            self.client.delete_label(old_id)
+            self._writer.print(f"Merged '{old}' into '{new}' and deleted source label.")
+        except Exception as exc:  # pragma: no cover - log only
+            self._writer.print(f"Warning: failed to delete old label '{old}': {exc}")
+
+    def _apply_one_redirect(self, redirect: dict[str, str]) -> str | None:
+        """Merge one redirect's source label into its target. Returns the source name if processed."""
+        old = redirect.get("from")
+        new = redirect.get("to")
+        if not old or not new or old == new:
+            return None
+        name_to_id = self.client.get_label_id_map()
+        old_id = name_to_id.get(old)
+        new_id = name_to_id.get(new) or self.client.ensure_label(new)
+        if not old_id or not new_id:
+            return None
+        ids = self.client.list_message_ids(label_ids=[old_id], max_pages=50, page_size=500)
+        if self.dry_run:
+            self._writer.print(f"Would merge '{old}' into '{new}' ({len(ids)} messages).")
+            return None
+        self._merge_redirect_messages(old_id, new_id, ids)
+        self._delete_redirect_source_label(old, new, old_id)
+        return old
+
+    def _apply_redirects(self, redirects: list[dict[str, str]]) -> set[str]:
+        return {
+            processed
+            for redirect in redirects
+            if (processed := self._apply_one_redirect(redirect)) is not None
+        }
 
 
 def _label_body_from_spec(spec: dict) -> dict:

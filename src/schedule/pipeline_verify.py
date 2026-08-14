@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as _dt
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.pipeline import RequestConsumer, BaseProducer, SafeProcessor
 from core.auth import build_outlook_service, OutlookServiceConfig
@@ -18,10 +18,10 @@ _ERR_NO_PLAN_EVENTS = "Invalid plan: no events found"
 
 @dataclass
 class OutlookAuth:
-    profile: Optional[str]
-    client_id: Optional[str]
-    tenant: Optional[str]
-    token_path: Optional[str]
+    profile: str | None
+    client_id: str | None
+    tenant: str | None
+    token_path: str | None
 
 
 def _build_outlook_service(auth: OutlookAuth):
@@ -40,7 +40,7 @@ def _build_outlook_service(auth: OutlookAuth):
         return None, f"Outlook provider unavailable: {exc}"
 
 
-def _load_plan_events(plan_path: Path) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+def _load_plan_events(plan_path: Path) -> tuple[list[dict[str, Any]] | None, str | None]:
     try:
         data = _load_yaml(str(plan_path)) or {}
         if not isinstance(data, dict):
@@ -56,9 +56,9 @@ def _load_plan_events(plan_path: Path) -> Tuple[Optional[List[Dict[str, Any]]], 
 @dataclass
 class VerifyRequest:
     plan_path: Path
-    calendar: Optional[str]
-    from_date: Optional[str]
-    to_date: Optional[str]
+    calendar: str | None
+    from_date: str | None
+    to_date: str | None
     match: str
     auth: OutlookAuth
 
@@ -69,10 +69,10 @@ VerifyRequestConsumer = RequestConsumer[VerifyRequest]
 
 @dataclass
 class VerifyResult:
-    lines: List[str]
+    lines: list[str]
 
 
-def _key_subject_time(subj: str, st: Optional[str], en: Optional[str]) -> str:
+def _key_subject_time(subj: str, st: str | None, en: str | None) -> str:
     """Build a key from subject and start/end times."""
     ns = (subj or "").strip().lower()
     ks = _norm_dt_minute(st or "") or ""
@@ -80,7 +80,7 @@ def _key_subject_time(subj: str, st: Optional[str], en: Optional[str]) -> str:
     return f"{ns}|{ks}|{ke}"
 
 
-def _build_have_st_keys(occ: List[Dict[str, Any]]) -> set:
+def _build_have_st_keys(occ: list[dict[str, Any]]) -> set:
     """Build subject-time keys from calendar occurrences."""
     have_st_keys: set = set()
     for o in occ:
@@ -91,7 +91,7 @@ def _build_have_st_keys(occ: List[Dict[str, Any]]) -> set:
     return have_st_keys
 
 
-def _build_plan_st_keys(events: List[Dict[str, Any]], from_date: str, to_date: str) -> set:
+def _build_plan_st_keys(events: list[dict[str, Any]], from_date: str, to_date: str) -> set:
     """Build subject-time keys from plan events."""
     plan_st_keys: set = set()
     for e in events or []:
@@ -108,7 +108,7 @@ def _build_plan_st_keys(events: List[Dict[str, Any]], from_date: str, to_date: s
 
 def _build_verify_lines_subject_time(
     payload: "VerifyRequest", plan_st_keys: set, have_st_keys: set
-) -> List[str]:
+) -> list[str]:
     """Build verification output lines for subject-time mode."""
     missing_keys = sorted(k for k in plan_st_keys if k not in have_st_keys)
     extra_keys = sorted(k for k in have_st_keys if k not in plan_st_keys)
@@ -131,9 +131,9 @@ def _build_verify_lines_subject_time(
 
 def _build_verify_lines_subject(
     payload: "VerifyRequest",
-    events: List[Dict[str, Any]],
-    occ: List[Dict[str, Any]],
-) -> List[str]:
+    events: list[dict[str, Any]],
+    occ: list[dict[str, Any]],
+) -> list[str]:
     """Build verification output lines for subject-only mode."""
     planned_subjects = [
         (e.get("subject") or "").strip() for e in events or []
@@ -209,7 +209,7 @@ class VerifyProcessor(SafeProcessor[VerifyRequest, VerifyResult]):
 class VerifyProducer(BaseProducer):
     """Produce output for verify operations with automatic error handling."""
 
-    def _produce_success(self, payload: VerifyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: VerifyResult, diagnostics: dict[str, Any] | None) -> None:
         for line in payload.lines:
             print(line)
 
@@ -217,9 +217,9 @@ class VerifyProducer(BaseProducer):
 @dataclass
 class SyncRequest:
     plan_path: Path
-    calendar: Optional[str]
-    from_date: Optional[str]
-    to_date: Optional[str]
+    calendar: str | None
+    from_date: str | None
+    to_date: str | None
     match: str
     delete_missing: bool
     delete_unplanned_series: bool
@@ -233,35 +233,66 @@ SyncRequestConsumer = RequestConsumer[SyncRequest]
 
 @dataclass
 class SyncResult:
-    lines: List[str]
+    lines: list[str]
+
+
+@dataclass
+class _PlanKeysAccumulator:
+    """Running accumulators built up while walking plan events."""
+
+    plan_st_keys: set
+    series_by_subject: dict[str, dict[str, Any]]
+    planned_subjects_set: set
+
+
+def _is_single_occurrence_event(e: dict[str, Any]) -> bool:
+    return bool(e.get("start") and e.get("end"))
+
+
+def _is_recurring_series_event(e: dict[str, Any]) -> bool:
+    return bool(e.get("repeat") and e.get("start_time") and (e.get("range") or {}).get("start_date"))
+
+
+def _add_single_occurrence_key(e: dict[str, Any], subj_lower: str, acc: _PlanKeysAccumulator) -> None:
+    acc.plan_st_keys.add(f"{subj_lower}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}")
+
+
+def _add_recurring_series_keys(
+    e: dict[str, Any], subj_lower: str, from_date: str, to_date: str, acc: _PlanKeysAccumulator,
+) -> None:
+    acc.series_by_subject.setdefault(subj_lower, e)
+    for st, en in _expand_recurring_occurrences(e, from_date, to_date):
+        acc.plan_st_keys.add(f"{subj_lower}|{_norm_dt_minute(st)}|{_norm_dt_minute(en)}")
+
+
+def _accumulate_plan_keys_for_event(
+    e: dict[str, Any], from_date: str, to_date: str, acc: _PlanKeysAccumulator,
+) -> None:
+    """Classify one event and fold its key(s) into the running accumulators."""
+    subj = (e.get("subject") or "").strip()
+    if not subj:
+        return
+    subj_lower = subj.strip().lower()
+    acc.planned_subjects_set.add(subj_lower)
+    if _is_single_occurrence_event(e):
+        _add_single_occurrence_key(e, subj_lower, acc)
+    elif _is_recurring_series_event(e):
+        _add_recurring_series_keys(e, subj_lower, from_date, to_date, acc)
 
 
 def _build_plan_keys(
-    events: List[Dict[str, Any]], from_date: str, to_date: str
-) -> Tuple[set, Dict[str, Dict[str, Any]], set]:
+    events: list[dict[str, Any]], from_date: str, to_date: str
+) -> tuple[set, dict[str, dict[str, Any]], set]:
     """Build plan keys, series map, and planned subjects from events."""
-    plan_st_keys: set = set()
-    series_by_subject: Dict[str, Dict[str, Any]] = {}
-    planned_subjects_set: set = set()
+    acc = _PlanKeysAccumulator(plan_st_keys=set(), series_by_subject={}, planned_subjects_set=set())
     for e in events or []:
-        subj = (e.get("subject") or "").strip()
-        if not subj:
-            continue
-        planned_subjects_set.add(subj.strip().lower())
-        if e.get("start") and e.get("end"):
-            plan_st_keys.add(
-                f"{subj.strip().lower()}|{_norm_dt_minute(e.get('start'))}|{_norm_dt_minute(e.get('end'))}"
-            )
-        elif e.get("repeat") and e.get("start_time") and (e.get("range") or {}).get("start_date"):
-            series_by_subject.setdefault(subj.strip().lower(), e)
-            for st, en in _expand_recurring_occurrences(e, from_date, to_date):
-                plan_st_keys.add(f"{subj.strip().lower()}|{_norm_dt_minute(st)}|{_norm_dt_minute(en)}")
-    return plan_st_keys, series_by_subject, planned_subjects_set
+        _accumulate_plan_keys_for_event(e, from_date, to_date, acc)
+    return acc.plan_st_keys, acc.series_by_subject, acc.planned_subjects_set
 
 
-def _build_have_map(occurrences: List[Dict[str, Any]]) -> Tuple[Dict[str, Dict[str, Any]], set]:
+def _build_have_map(occurrences: list[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], set]:
     """Build map and keys from existing calendar occurrences."""
-    have_map: Dict[str, Dict[str, Any]] = {}
+    have_map: dict[str, dict[str, Any]] = {}
     have_keys: set = set()
     for o in occurrences:
         sub = (o.get("subject") or "").strip()
@@ -274,7 +305,7 @@ def _build_have_map(occurrences: List[Dict[str, Any]]) -> Tuple[Dict[str, Dict[s
 
 
 def _find_missing_series(
-    series_by_subject: Dict[str, Dict[str, Any]], present_subjects: set
-) -> List[Dict[str, Any]]:
+    series_by_subject: dict[str, dict[str, Any]], present_subjects: set
+) -> list[dict[str, Any]]:
     """Find series that need to be created (not present in calendar)."""
     return [e for subj, e in series_by_subject.items() if subj not in present_subjects]

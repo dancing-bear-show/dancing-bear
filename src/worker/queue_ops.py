@@ -393,6 +393,45 @@ def _reap_move_to_pending(ctx: ReapJobContext, log: object) -> bool:
     return True
 
 
+def _reap_effective_timeout(data: dict, job_timeout: int) -> int:
+    """Resolve the per-job timeout override, falling back to the default."""
+    try:
+        per_job = int(data.get("timeout_sec") or 0)
+        return per_job if per_job > 0 else job_timeout
+    except (TypeError, ValueError):
+        return job_timeout
+
+
+def _reap_one_job(p: Path, job_timeout: int, paths: dict, now: datetime, log: object) -> str | None:
+    """Reap one processing job if stale. Returns its job_id if reaped, else None."""
+    data = safe_load_json(p, default={})
+    started = _reap_resolve_start_time(data, p)
+    if not started:
+        return None
+
+    age = int((now - started).total_seconds())
+    effective_timeout = _reap_effective_timeout(data, job_timeout)
+    if effective_timeout <= 0 or age < effective_timeout:
+        return None
+
+    job_id = p.stem
+    log.warning(
+        "Reaping stale processing job %s (age %ds >= timeout %ds); moving back to pending/",
+        job_id,
+        age,
+        effective_timeout,
+    )
+    reap_ctx = ReapJobContext(
+        p=p,
+        paths=paths,
+        data=data,
+        age=age,
+        job_timeout=effective_timeout,
+        job_id=job_id,
+    )
+    return job_id if _reap_move_to_pending(reap_ctx, log) else None
+
+
 def reap_stale_processing_jobs(
     job_timeout: int,
     *,
@@ -408,36 +447,8 @@ def reap_stale_processing_jobs(
     reaped: list[str] = []
 
     for p in _list_job_paths(paths["processing"]):
-        data = safe_load_json(p, default={})
-        started = _reap_resolve_start_time(data, p)
-        if not started:
-            continue
-
-        age = int((now - started).total_seconds())
-        try:
-            _per_job = int(data.get("timeout_sec") or 0)
-            effective_timeout = _per_job if _per_job > 0 else job_timeout
-        except (TypeError, ValueError):
-            effective_timeout = job_timeout
-        if effective_timeout <= 0 or age < effective_timeout:
-            continue
-
-        job_id = p.stem
-        _log.warning(
-            "Reaping stale processing job %s (age %ds >= timeout %ds); moving back to pending/",
-            job_id,
-            age,
-            effective_timeout,
-        )
-        reap_ctx = ReapJobContext(
-            p=p,
-            paths=paths,
-            data=data,
-            age=age,
-            job_timeout=effective_timeout,
-            job_id=job_id,
-        )
-        if _reap_move_to_pending(reap_ctx, _log):
+        job_id = _reap_one_job(p, job_timeout, paths, now, _log)
+        if job_id:
             reaped.append(job_id)
 
     return reaped

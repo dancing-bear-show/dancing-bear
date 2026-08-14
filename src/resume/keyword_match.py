@@ -10,7 +10,7 @@ Provides the matching and scoring logic used by KeywordMatcher:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Iterable
 
 from resume.keyword_normalize import KeywordInfo, KeywordMatchResult, SynonymRegistry
 
@@ -33,7 +33,7 @@ class KeywordMatchEngine(SynonymRegistry):
 
     def __init__(self) -> None:
         super().__init__()
-        self._keywords: Dict[str, KeywordInfo] = {}  # canonical -> info
+        self._keywords: dict[str, KeywordInfo] = {}  # canonical -> info
 
     @staticmethod
     def normalize(text: str) -> str:
@@ -45,7 +45,7 @@ class KeywordMatchEngine(SynonymRegistry):
         keyword: str,
         tier: str = "preferred",
         weight: int = 1,
-        category: Optional[str] = None,
+        category: str | None = None,
     ) -> "KeywordMatchEngine":
         """Register a keyword with metadata."""
         canon = self.canonicalize(keyword)
@@ -62,7 +62,7 @@ class KeywordMatchEngine(SynonymRegistry):
         keywords: Iterable[str],
         tier: str = "preferred",
         weight: int = 1,
-        category: Optional[str] = None,
+        category: str | None = None,
     ) -> "KeywordMatchEngine":
         """Register multiple keywords with the same metadata."""
         for kw in keywords or []:
@@ -71,7 +71,7 @@ class KeywordMatchEngine(SynonymRegistry):
         return self
 
     def _add_keyword_item(
-        self, item: Any, tier: str, category: Optional[str] = None
+        self, item: Any, tier: str, category: str | None = None
     ) -> None:
         """Add a single keyword item from a spec."""
         if isinstance(item, dict):
@@ -83,7 +83,7 @@ class KeywordMatchEngine(SynonymRegistry):
 
     def add_keywords_from_spec(
         self,
-        spec: Dict[str, Any],
+        spec: dict[str, Any],
     ) -> "KeywordMatchEngine":
         """Register keywords from a job/keyword spec."""
         for tier in ("required", "preferred", "nice"):
@@ -95,11 +95,11 @@ class KeywordMatchEngine(SynonymRegistry):
         return self
 
     @property
-    def keywords(self) -> List[str]:
+    def keywords(self) -> list[str]:
         """Get all registered keywords (canonical forms)."""
         return list(self._keywords.keys())
 
-    def get_keyword_info(self, keyword: str) -> Optional[KeywordInfo]:
+    def get_keyword_info(self, keyword: str) -> KeywordInfo | None:
         """Get metadata for a keyword."""
         canon = self.canonicalize(keyword)
         return self._keywords.get(canon)
@@ -145,9 +145,9 @@ class KeywordMatchEngine(SynonymRegistry):
             if kw
         )
 
-    def find_matches(self, text: str, *, expand_synonyms: bool = True) -> List[KeywordMatchResult]:
+    def find_matches(self, text: str, *, expand_synonyms: bool = True) -> list[KeywordMatchResult]:
         """Find all registered keywords that match in text."""
-        results: List[KeywordMatchResult] = []
+        results: list[KeywordMatchResult] = []
         for canon, info in self._keywords.items():
             if self._keyword_hits(text, canon, expand_synonyms=expand_synonyms):
                 results.append(KeywordMatchResult(
@@ -158,9 +158,9 @@ class KeywordMatchEngine(SynonymRegistry):
 
     def find_matching_keywords(
         self, text: str, keywords: Iterable[str], *, expand_synonyms: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """Find which of the given keywords match in text."""
-        matched: List[str] = []
+        matched: list[str] = []
         for kw in keywords or []:
             if not kw:
                 continue
@@ -179,7 +179,7 @@ class KeywordMatchEngine(SynonymRegistry):
 
     def score_texts(self, texts: Iterable[str], *, expand_synonyms: bool = True) -> int:
         """Calculate total score across multiple texts (each keyword counted once)."""
-        matched: Set[str] = set()
+        matched: set[str] = set()
         for text in texts or []:
             for canon in self._keywords:
                 if canon in matched:
@@ -196,7 +196,7 @@ class KeywordMatchEngine(SynonymRegistry):
         )
 
     def _record_match(
-        self, results: Dict[str, KeywordMatchResult], canon: str, context: str, scope: str
+        self, results: dict[str, KeywordMatchResult], canon: str, context: str, scope: str
     ) -> None:
         if canon not in results:
             results[canon] = self._make_match_result(canon)
@@ -204,14 +204,14 @@ class KeywordMatchEngine(SynonymRegistry):
         results[canon].contexts.append(f"[{scope}] {context[:50]}")
 
     def _match_text_against_keywords(
-        self, results: Dict[str, KeywordMatchResult], text: str, scope: str
+        self, results: dict[str, KeywordMatchResult], text: str, scope: str
     ) -> None:
         for canon in self._keywords:
             if self._keyword_hits(text, canon, expand_synonyms=True):
                 self._record_match(results, canon, text, scope)
 
     def _collect_exp_matches(
-        self, results: Dict[str, KeywordMatchResult], candidate: Dict[str, Any]
+        self, results: dict[str, KeywordMatchResult], candidate: dict[str, Any]
     ) -> None:
         for i, exp in enumerate(candidate.get("experience") or []):
             title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
@@ -220,9 +220,9 @@ class KeywordMatchEngine(SynonymRegistry):
             for bullet in exp.get("bullets") or []:
                 self._match_text_against_keywords(results, str(bullet), f"exp[{i}].bullet")
 
-    def collect_matches_from_candidate(self, candidate: Dict[str, Any]) -> Dict[str, KeywordMatchResult]:
+    def collect_matches_from_candidate(self, candidate: dict[str, Any]) -> dict[str, KeywordMatchResult]:
         """Collect all keyword matches from a candidate profile."""
-        results: Dict[str, KeywordMatchResult] = {}
+        results: dict[str, KeywordMatchResult] = {}
         summary = str(candidate.get("summary") or "")
         if summary:
             self._match_text_against_keywords(results, summary, "summary")
@@ -241,7 +241,7 @@ class KeywordMatchEngine(SynonymRegistry):
             if self._keyword_hits(title_text, canon, expand_synonyms=True)
         )
 
-    def _score_role(self, exp: Dict[str, Any]) -> int:
+    def _score_role(self, exp: dict[str, Any]) -> int:
         title_text = f"{exp.get('title', '')} {exp.get('company', '')}".strip()
         role_score = self._score_title(title_text)
         for bullet in exp.get("bullets") or []:
@@ -250,7 +250,7 @@ class KeywordMatchEngine(SynonymRegistry):
                 role_score += 1
         return role_score
 
-    def score_experience_roles(self, candidate: Dict[str, Any]) -> List[Tuple[int, int]]:
+    def score_experience_roles(self, candidate: dict[str, Any]) -> list[tuple[int, int]]:
         """Score each experience role by keyword matches."""
         scores = [
             (i, self._score_role(exp))

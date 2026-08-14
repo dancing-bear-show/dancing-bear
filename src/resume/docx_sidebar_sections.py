@@ -8,7 +8,7 @@ Extracted from docx_sidebar. Provides:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.enum.table import WD_TABLE_ALIGNMENT  # type: ignore
@@ -34,7 +34,7 @@ def _add_colored_bullet_run(p, bullet_color: str) -> None:
         bullet_run.font.color.rgb = RGBColor(*bullet_rgb)
 
 
-def _render_main_education(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Optional[Dict[str, Any]] = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_education(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
     """Render education in main column."""
     education = data.get("education") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
@@ -54,7 +54,7 @@ def _render_main_education(cell, data: Dict[str, Any], page_cfg: Dict[str, Any],
         _render_edu_meta(cell, institution, year, page_cfg)
 
 
-def _render_exp_entry(cell, exp: Dict[str, Any], page_cfg: Dict[str, Any], bullet_color: str, max_bullets: int) -> None:
+def _render_exp_entry(cell, exp: dict[str, Any], page_cfg: dict[str, Any], bullet_color: str, max_bullets: int) -> None:
     """Render a single experience entry."""
     title = exp.get("title", "")
     company = exp.get("company", "")
@@ -96,7 +96,7 @@ def _render_exp_entry(cell, exp: Dict[str, Any], page_cfg: Dict[str, Any], bulle
         _tight_paragraph(p3, after_pt=1)
 
 
-def _render_main_experience(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Dict[str, Any]) -> None:
+def _render_main_experience(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any]) -> None:
     """Render experience in main column."""
     experience = data.get("experience") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
@@ -105,7 +105,7 @@ def _render_main_experience(cell, data: Dict[str, Any], page_cfg: Dict[str, Any]
         _render_exp_entry(cell, exp, page_cfg, bullet_color, max_bullets)
 
 
-def _render_main_teaching(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Optional[Dict[str, Any]] = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_teaching(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
     """Render teaching in main column (uppercase titles with institution below)."""
     teaching = data.get("teaching") or []
 
@@ -136,7 +136,7 @@ def _render_main_teaching(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], 
             _tight_paragraph(p2, after_pt=6)
 
 
-def _render_pres_entry(cell, pres: Dict[str, Any], page_cfg: Dict[str, Any], bullet_color: str) -> None:
+def _render_pres_entry(cell, pres: dict[str, Any], page_cfg: dict[str, Any], bullet_color: str) -> None:
     """Render a single presentation entry."""
     title = pres.get("title", "")
     authors = pres.get("authors", "")
@@ -162,7 +162,7 @@ def _render_pres_entry(cell, pres: Dict[str, Any], page_cfg: Dict[str, Any], bul
             p2.paragraph_format.space_after = Pt(4)
 
 
-def _render_main_presentations(cell, data: Dict[str, Any], page_cfg: Dict[str, Any], sec: Optional[Dict[str, Any]] = None) -> None:  # nosec - sec kept for API compatibility
+def _render_main_presentations(cell, data: dict[str, Any], page_cfg: dict[str, Any], sec: dict[str, Any] | None = None) -> None:  # nosec - sec kept for API compatibility
     """Render presentations/publications in main column."""
     presentations = data.get("presentations") or []
     bullet_color = page_cfg.get("main_bullet_color", "#4A90A4")
@@ -173,7 +173,7 @@ def _render_main_presentations(cell, data: Dict[str, Any], page_cfg: Dict[str, A
 class SidebarResumeWriter(ResumeWriterBase):
     """Two-column sidebar layout resume writer."""
 
-    def _render_content(self, seed: Optional[Dict[str, Any]] = None) -> None:
+    def _render_content(self, seed: dict[str, Any] | None = None) -> None:
         """Render two-column sidebar resume content."""
         # Default widths for US Letter (8.5" wide) with 0.5" margins = 7.5" usable
         # Sidebar: 2.3" (~30%), Main: 5.2" (~70%)
@@ -324,7 +324,7 @@ class SidebarResumeWriter(ResumeWriterBase):
     # that don't need `sec` accept it as an ignored optional argument, which
     # lets them be referenced directly rather than wrapped in a pass-through
     # lambda.
-    _MAIN_SECTION_RENDERERS: Dict[str, Any] = {
+    _MAIN_SECTION_RENDERERS: dict[str, Any] = {
         "education": _render_main_education,
         "experience": _render_main_experience,
         "teaching": _render_main_teaching,

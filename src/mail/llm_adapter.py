@@ -8,6 +8,26 @@ from __future__ import annotations
 
 
 
+def _take_sentences_within_budget(parts: list[str], max_words: int) -> list[str]:
+    """Accumulate sentence parts until the word budget is spent, trimming the last part to fit."""
+    out: list[str] = []
+    words = 0
+    for p in parts:
+        w = len(p.split())
+        if w == 0:
+            continue
+        remaining_budget = max_words - words
+        if w > remaining_budget:
+            if remaining_budget > 0:
+                out.append(" ".join(p.split()[:remaining_budget]))
+            break
+        out.append(p)
+        words += w
+        if words >= max_words:
+            break
+    return out
+
+
 def summarize_text(
     text: str,
     *,
@@ -32,23 +52,7 @@ def summarize_text(
 
     # Try to cut by sentence ends
     parts = re.split(r"(?<=[\.\?\!])\s+", s)
-    out: list[str] = []
-    words = 0
-    for p in parts:
-        w = len(p.split())
-        if w == 0:
-            continue
-        if words + w > max_words:
-            # Trim last sentence to fit word budget
-            remaining = max_words - words
-            if remaining > 0:
-                p = " ".join(p.split()[:remaining])
-                out.append(p)
-            break
-        out.append(p)
-        words += w
-        if words >= max_words:
-            break
+    out = _take_sentences_within_budget(parts, max_words)
 
     summary = " ".join(out).strip()
     if not summary:

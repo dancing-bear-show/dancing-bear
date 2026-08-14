@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from .io_utils import read_yaml_or_json
 
 
-DEFAULT_TEMPLATE: Dict[str, Any] = {
+DEFAULT_TEMPLATE: dict[str, Any] = {
     "sections": [
         {"key": "summary", "title": "Summary"},
         {"key": "skills", "title": "Skills"},
@@ -16,13 +16,13 @@ DEFAULT_TEMPLATE: Dict[str, Any] = {
 }
 
 
-def load_template(path: str | None) -> Dict[str, Any]:
+def load_template(path: str | None) -> dict[str, Any]:
     if not path:
         return DEFAULT_TEMPLATE
     return read_yaml_or_json(path)
 
 
-def parse_seed_criteria(seed: str | None) -> Dict[str, Any]:
+def parse_seed_criteria(seed: str | None) -> dict[str, Any]:
     if not seed:
         return {}
     seed = seed.strip()
@@ -31,7 +31,7 @@ def parse_seed_criteria(seed: str | None) -> Dict[str, Any]:
             return json.loads(seed)
         except Exception:
             return {}
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     # KEY=VALUE pairs comma separated
     for part in seed.split(","):
         part = part.strip()

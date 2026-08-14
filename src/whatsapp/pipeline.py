@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.cli_output import OutputFormat, OutputWriter
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
@@ -14,12 +14,12 @@ from .search import MessageQuery, MessageRow, format_rows_json, format_rows_text
 class SearchRequest:
     """Search parameters for WhatsApp message lookup."""
 
-    db_path: Optional[str] = None
-    contains: Optional[List[str]] = None
+    db_path: str | None = None
+    contains: list[str] | None = None
     match_all: bool = False
-    contact: Optional[str] = None
-    from_me: Optional[bool] = None
-    since_days: Optional[int] = None
+    contact: str | None = None
+    from_me: bool | None = None
+    since_days: int | None = None
     limit: int = 50
     output_format: OutputFormat = OutputFormat.TEXT
 
@@ -32,7 +32,7 @@ SearchRequestConsumer = RequestConsumer[SearchRequest]
 class SearchResult:
     """Container for search results and output preferences."""
 
-    rows: List[MessageRow]
+    rows: list[MessageRow]
     output_format: OutputFormat = OutputFormat.TEXT
 
 
@@ -57,11 +57,11 @@ class SearchProcessor(SafeProcessor[SearchRequest, SearchResult]):
 class SearchProducer(BaseProducer):
     """Output search results to stdout (text or JSON)."""
 
-    def __init__(self, writer: Optional[OutputWriter] = None) -> None:
+    def __init__(self, writer: OutputWriter | None = None) -> None:
         super().__init__()
         self._writer = writer or OutputWriter()
 
-    def _produce_success(self, payload: SearchResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: SearchResult, diagnostics: dict[str, Any] | None) -> None:
         if payload.output_format == OutputFormat.JSON:
             self._writer.print(format_rows_json(payload.rows))
         else:

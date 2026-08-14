@@ -9,7 +9,7 @@ Extracted from parsing_experience. Provides:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .parsing_experience_text import (
     _extract_contact,
@@ -23,7 +23,7 @@ from .parsing_experience_docx import (
 )
 
 
-def _pdf_empty_result() -> Dict[str, Any]:
+def _pdf_empty_result() -> dict[str, Any]:
     """Return empty resume structure for PDF parsing."""
     return {
         "name": "", "headline": "", "email": "", "phone": "",
@@ -40,7 +40,7 @@ def _pdf_looks_like_headline(line: str) -> bool:
     return bool(len(line) < 80 and not _looks_like_section_heading(line) and not re.search(r"[@|]", line))
 
 
-def _pdf_extract_name_headline(lines: List[str]) -> tuple[str, str]:
+def _pdf_extract_name_headline(lines: list[str]) -> tuple[str, str]:
     """Extract name and headline from first lines of PDF."""
     if not lines:
         return "", ""
@@ -51,9 +51,9 @@ def _pdf_extract_name_headline(lines: List[str]) -> tuple[str, str]:
     return name, headline
 
 
-def _pdf_find_sections(lines: List[str]) -> tuple[Dict[str, int], List[tuple[str, int]]]:
+def _pdf_find_sections(lines: list[str]) -> tuple[dict[str, int], list[tuple[str, int]]]:
     """Find section indices and sorted section list."""
-    section_indices: Dict[str, int] = {}
+    section_indices: dict[str, int] = {}
     for i, ln in enumerate(lines):
         if _looks_like_section_heading(ln):
             key = _key_from_heading(ln)
@@ -64,9 +64,9 @@ def _pdf_find_sections(lines: List[str]) -> tuple[Dict[str, int], List[tuple[str
 
 
 def _pdf_get_section_lines(
-    key: str, lines: List[str], section_indices: Dict[str, int],
-    sorted_sections: List[tuple[str, int]]
-) -> List[str]:
+    key: str, lines: list[str], section_indices: dict[str, int],
+    sorted_sections: list[tuple[str, int]]
+) -> list[str]:
     """Get lines for a specific section."""
     if key not in section_indices:
         return []
@@ -80,8 +80,8 @@ def _pdf_get_section_lines(
 
 
 def _pdf_extract_summary(
-    lines: List[str], section_indices: Dict[str, int],
-    sorted_sections: List[tuple[str, int]], has_name: bool
+    lines: list[str], section_indices: dict[str, int],
+    sorted_sections: list[tuple[str, int]], has_name: bool
 ) -> str:
     """Extract summary from PDF."""
     summary_lines = _pdf_get_section_lines("summary", lines, section_indices, sorted_sections)
@@ -105,10 +105,10 @@ def _pdf_extract_summary(
     return " ".join(filtered).strip()
 
 
-def _pdf_extract_experience(exp_lines: List[str]) -> List[Dict[str, Any]]:
+def _pdf_extract_experience(exp_lines: list[str]) -> list[dict[str, Any]]:
     """Extract experience entries from PDF lines."""
-    experience: List[Dict[str, Any]] = []
-    current: Optional[Dict[str, Any]] = None
+    experience: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
 
     for ln in exp_lines:
         job = _parse_experience_entry(ln)
@@ -126,7 +126,7 @@ def _pdf_extract_experience(exp_lines: List[str]) -> List[Dict[str, Any]]:
     return experience
 
 
-def _pdf_extract_education(edu_lines: List[str]) -> List[Dict[str, str]]:
+def _pdf_extract_education(edu_lines: list[str]) -> list[dict[str, str]]:
     """Extract education entries from PDF lines."""
     entries = []
     for ln in edu_lines:
@@ -136,7 +136,7 @@ def _pdf_extract_education(edu_lines: List[str]) -> List[Dict[str, str]]:
     return entries
 
 
-def parse_resume_pdf(path: str) -> Dict[str, Any]:
+def parse_resume_pdf(path: str) -> dict[str, Any]:
     """Parse resume from a PDF file."""
     from .io_utils import safe_import
 

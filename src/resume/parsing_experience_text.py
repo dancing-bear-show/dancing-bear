@@ -11,7 +11,7 @@ Extracted from parsing_experience. Provides:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 SECTION_PATTERNS = {
@@ -37,7 +37,7 @@ def _split_date_range(date_range: str) -> tuple[str, str]:
     return "", ""
 
 
-def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
+def _parse_experience_entry(text: str) -> dict[str, Any] | None:
     """Parse a job header line into structured data.
 
     Handles common formats:
@@ -111,7 +111,7 @@ def _parse_experience_entry(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _parse_education_entry(text: str) -> Optional[Dict[str, str]]:
+def _parse_education_entry(text: str) -> dict[str, str] | None:
     """Parse an education line into structured data.
 
     Handles common formats:
@@ -172,7 +172,7 @@ def _parse_education_entry(text: str) -> Optional[Dict[str, str]]:
     return None
 
 
-def _split_lines(text: str) -> List[str]:
+def _split_lines(text: str) -> list[str]:
     return [ln.strip() for ln in text.splitlines()]
 
 
@@ -197,7 +197,7 @@ def _match_website(ln: str) -> str:
 
 
 # Field name -> single-arg matcher (line -> matched substring or "").
-_CONTACT_MATCHERS: Dict[str, Any] = {
+_CONTACT_MATCHERS: dict[str, Any] = {
     "email": lambda ln: _match_first(_PAT_EMAIL, ln),
     "phone": lambda ln: _match_first(_PAT_PHONE, ln),
     "location": lambda ln: _match_first(_PAT_LOCATION, ln),
@@ -207,8 +207,8 @@ _CONTACT_MATCHERS: Dict[str, Any] = {
 }
 
 
-def _extract_contact(lines: List[str]) -> Dict[str, str]:
-    fields: Dict[str, str] = {k: "" for k in _CONTACT_MATCHERS}
+def _extract_contact(lines: list[str]) -> dict[str, str]:
+    fields: dict[str, str] = {k: "" for k in _CONTACT_MATCHERS}
     for ln in lines[:10]:  # top lines commonly have contact
         for key, matcher in _CONTACT_MATCHERS.items():
             if not fields[key]:
@@ -216,8 +216,8 @@ def _extract_contact(lines: List[str]) -> Dict[str, str]:
     return {k: v.strip() for k, v in fields.items()}
 
 
-def _extract_sections(lines: List[str]) -> Dict[str, List[str]]:
-    sections: Dict[str, List[str]] = {}
+def _extract_sections(lines: list[str]) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
     current = "body"
     sections[current] = []
     for ln in lines:
@@ -235,9 +235,9 @@ def _extract_sections(lines: List[str]) -> Dict[str, List[str]]:
     return sections
 
 
-def _parse_experience(lines: List[str]) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
-    buf: List[str] = []
+def _parse_experience(lines: list[str]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    buf: list[str] = []
     def push():
         return (items.append(_parse_experience_block(buf.copy())), buf.clear()) if buf else None
     for ln in lines:
@@ -253,13 +253,9 @@ def _parse_experience(lines: List[str]) -> List[Dict[str, Any]]:
     return [it for it in items if any(v for v in it.values())]
 
 
-def _parse_experience_block(block: List[str]) -> Dict[str, Any]:
+def _parse_experience_header(header: str) -> dict[str, str]:
+    """Parse the header line: "Senior Engineer at FooCorp (2020-2023) - City, ST"."""
     title = company = start = end = location = ""
-    bullets: List[str] = []
-    if not block:
-        return {"title": title, "company": company, "start": start, "end": end, "location": location, "bullets": bullets}
-    header = block[0]
-    # Heuristic: "Senior Engineer at FooCorp (2020-2023) - City, ST"
     m = re.match(r"(.+?)\s+at\s+(.+?)(?:\s*\(([^)]+)\))?(?:\s*-\s*(.+))?$", header, re.I)
     if m:
         title = m.group(1).strip()
@@ -270,17 +266,30 @@ def _parse_experience_block(block: List[str]) -> Dict[str, Any]:
             if len(parts) == 2:
                 start, end = parts
         location = (m.group(4) or "").strip()
-    # bullets are lines starting with - or * otherwise description lines
-    for ln in block[1:]:
+    return {"title": title, "company": company, "start": start, "end": end, "location": location}
+
+
+def _extract_bullets(lines: list[str]) -> list[str]:
+    """Extract bullet/description lines: '-'/'*'-prefixed or plain non-empty lines."""
+    bullets: list[str] = []
+    for ln in lines:
         if re.match(r"^[-*]\s+", ln):
             bullets.append(re.sub(r"^[-*]\s+", "", ln).strip())
         elif ln:
             bullets.append(ln)
-    return {"title": title, "company": company, "start": start, "end": end, "location": location, "bullets": bullets}
+    return bullets
 
 
-def _parse_education(lines: List[str]) -> List[Dict[str, str]]:
-    out: List[Dict[str, str]] = []
+def _parse_experience_block(block: list[str]) -> dict[str, Any]:
+    if not block:
+        return {"title": "", "company": "", "start": "", "end": "", "location": "", "bullets": []}
+    header_fields = _parse_experience_header(block[0])
+    bullets = _extract_bullets(block[1:])
+    return {**header_fields, "bullets": bullets}
+
+
+def _parse_education(lines: list[str]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
     for ln in lines:
         # e.g., BS Computer Science, University, 2015
         m = re.match(r"(.+?),\s*(.+?),\s*(\d{4})", ln)
@@ -293,7 +302,7 @@ def _parse_education(lines: List[str]) -> List[Dict[str, str]]:
     return out
 
 
-def _parse_skills(lines: List[str]) -> List[str]:
+def _parse_skills(lines: list[str]) -> list[str]:
     text = " ".join(lines)
     # split by pipes, commas, semicolons, or bullet points
     parts = [p.strip() for p in re.split(r"[|,;•·]\s*", text) if p.strip()]
@@ -308,7 +317,7 @@ def _parse_skills(lines: List[str]) -> List[str]:
     return skills
 
 
-def parse_resume_text(text: str) -> Dict[str, Any]:
+def parse_resume_text(text: str) -> dict[str, Any]:
     lines = _split_lines(text)
     sections = _extract_sections(lines)
     head = lines[0] if lines else ""
@@ -330,11 +339,11 @@ def parse_resume_text(text: str) -> Dict[str, Any]:
     }
 
 
-def merge_profiles(linkedin: Dict[str, Any], resume: Dict[str, Any]) -> Dict[str, Any]:
+def merge_profiles(linkedin: dict[str, Any], resume: dict[str, Any]) -> dict[str, Any]:
     # Merge with field-aware precedence: prefer LinkedIn for identity fields
-    out: Dict[str, Any] = {**linkedin, **{k: v for k, v in resume.items() if v}}
+    out: dict[str, Any] = {**linkedin, **{k: v for k, v in resume.items() if v}}
     # Merge list fields with resume-first then linkedin-only missing
-    def merge_lists(a: List[Any], b: List[Any]) -> List[Any]:
+    def merge_lists(a: list[Any], b: list[Any]) -> list[Any]:
         return (a or []) + ([x for x in b or [] if x not in (a or [])])
 
     out["skills"] = merge_lists(resume.get("skills", []), linkedin.get("skills", []))

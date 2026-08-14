@@ -2,10 +2,12 @@
 
 Converts DOCX to PDF and rotates 180 degrees for Australian reading orientation.
 """
+
+from __future__ import annotations
+
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 from core.cli_output import OutputWriter
 
@@ -64,9 +66,9 @@ def rotate_pdf_180(input_pdf: str, output_pdf: str) -> bool:
 
 def create_australian_resume(
     docx_path: str,
-    output_pdf: Optional[str] = None,
+    output_pdf: str | None = None,
     keep_temp: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """Convert DOCX resume to upside-down PDF.
 
     Args:

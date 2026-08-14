@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .io_utils import read_yaml_or_json
 
@@ -11,7 +11,7 @@ _PROFILE_FIELDS = ("name", "headline", "summary", "email", "phone", "location", 
 _CONTACT_FIELDS = ("email", "phone", "location", "website", "linkedin", "github")
 
 
-def _try_load_from_paths(paths: Tuple[Path, ...]) -> Optional[Dict[str, Any]]:
+def _try_load_from_paths(paths: tuple[Path, ...]) -> dict[str, Any] | None:
     """Try to load YAML/JSON from first existing path."""
     for p in paths:
         if p.exists():
@@ -22,12 +22,12 @@ def _try_load_from_paths(paths: Tuple[Path, ...]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _get_overlay_paths(prof_dir: Path, cfg_dir: Path, profile: str, name: str) -> Tuple[Path, Path]:
+def _get_overlay_paths(prof_dir: Path, cfg_dir: Path, profile: str, name: str) -> tuple[Path, Path]:
     """Get new and legacy paths for an overlay file."""
     return prof_dir / f"{name}.yaml", cfg_dir / f"{name}.{profile}.yaml"
 
 
-def _apply_profile_config(out: Dict[str, Any], prof_data: Dict[str, Any]) -> None:
+def _apply_profile_config(out: dict[str, Any], prof_data: dict[str, Any]) -> None:
     """Apply profile fields and nested contact to output."""
     for k in _PROFILE_FIELDS:
         if (v := prof_data.get(k)):
@@ -46,7 +46,7 @@ def _apply_profile_config(out: Dict[str, Any], prof_data: Dict[str, Any]) -> Non
             out[key] = prof_data[key]
 
 
-def _load_skills_groups(prof_dir: Path, cfg_dir: Path, profile: str) -> Optional[List[Any]]:
+def _load_skills_groups(prof_dir: Path, cfg_dir: Path, profile: str) -> list[Any] | None:
     """Load skills_groups from overlay."""
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, "skills_groups")
     if (data := _try_load_from_paths(paths)):
@@ -54,7 +54,7 @@ def _load_skills_groups(prof_dir: Path, cfg_dir: Path, profile: str) -> Optional
     return None
 
 
-def _load_experience(prof_dir: Path, cfg_dir: Path, profile: str) -> Optional[List[Any]]:
+def _load_experience(prof_dir: Path, cfg_dir: Path, profile: str) -> list[Any] | None:
     """Load experience from overlay."""
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, "experience")
     if (data := _try_load_from_paths(paths)):
@@ -64,7 +64,7 @@ def _load_experience(prof_dir: Path, cfg_dir: Path, profile: str) -> Optional[Li
     return None
 
 
-def _load_list_overlay(prof_dir: Path, cfg_dir: Path, profile: str, key: str) -> Optional[List[Any]]:
+def _load_list_overlay(prof_dir: Path, cfg_dir: Path, profile: str, key: str) -> list[Any] | None:
     """Load a simple list overlay (interests, languages, etc.)."""
     paths = _get_overlay_paths(prof_dir, cfg_dir, profile, key)
     if (data := _try_load_from_paths(paths)):
@@ -75,7 +75,7 @@ def _load_list_overlay(prof_dir: Path, cfg_dir: Path, profile: str, key: str) ->
     return None
 
 
-def apply_profile_overlays(data: Dict[str, Any], profile: str | None) -> Dict[str, Any]:
+def apply_profile_overlays(data: dict[str, Any], profile: str | None) -> dict[str, Any]:
     """Overlay profile-specific config files under config/ onto data."""
     if not profile:
         return data

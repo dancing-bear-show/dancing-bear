@@ -11,7 +11,7 @@ For new code, prefer using the class-based API:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .io_utils import safe_import
 from .docx_links import (
@@ -39,7 +39,7 @@ SECTION_SYNONYMS = {
 }
 
 
-def _match_section_key(title: str) -> Optional[str]:
+def _match_section_key(title: str) -> str | None:
     t = title.strip().lower()
     for key, names in SECTION_SYNONYMS.items():
         if t in names:
@@ -48,18 +48,18 @@ def _match_section_key(title: str) -> Optional[str]:
 
 
 # Backward-compatible function aliases that delegate to renderers
-def _bold_keywords(paragraph, text: str, keywords: List[str]):
+def _bold_keywords(paragraph, text: str, keywords: list[str]):
     """Bold keywords in paragraph text."""
     renderer = BulletRenderer.__new__(BulletRenderer)
     renderer._bold_keywords(paragraph, text, keywords)
 
 
-def _add_bullet_line(doc, text: str, *, keywords: List[str] | None = None, glyph: str = "•"):
+def _add_bullet_line(doc, text: str, *, keywords: list[str] | None = None, glyph: str = "•"):
     renderer = BulletRenderer(doc)
     return renderer.add_bullet_line(text, keywords=keywords, glyph=glyph)
 
 
-def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> int:
+def _get_header_level(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | None) -> int:
     try:
         if sec and isinstance(sec.get("header_level"), int):
             return int(sec.get("header_level"))
@@ -70,32 +70,32 @@ def _get_header_level(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | Non
     return 1
 
 
-def _use_plain_bullets(sec: Dict[str, Any] | None, page_cfg: Dict[str, Any] | None) -> tuple:
+def _use_plain_bullets(sec: dict[str, Any] | None, page_cfg: dict[str, Any] | None) -> tuple:
     renderer = BulletRenderer.__new__(BulletRenderer)
     renderer.page_cfg = page_cfg or {}
     return renderer.get_bullet_config(sec)
 
 
-def _extract_experience_locations(data: Dict[str, Any]) -> List[str]:
+def _extract_experience_locations(data: dict[str, Any]) -> list[str]:
     """Extract unique location strings from experience entries."""
     locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
     return list(dict.fromkeys([loc for loc in locs if loc]))
 
 
-def _get_contact_field(data: Dict[str, Any], field: str) -> str:
+def _get_contact_field(data: dict[str, Any], field: str) -> str:
     """Get a contact field from data or nested contact dict."""
     contact = data.get("contact") or {}
     return data.get(field) or contact.get(field) or ""
 
 
-def _collect_link_extras(data: Dict[str, Any]) -> List[str]:
+def _collect_link_extras(data: dict[str, Any]) -> list[str]:
     """Collect formatted link extras (website, linkedin, github, links list)."""
     return [display for display, _url in _collect_link_extra_items(data)]
 
 
-def _collect_link_extra_items(data: Dict[str, Any]) -> List[tuple[str, str]]:
+def _collect_link_extra_items(data: dict[str, Any]) -> list[tuple[str, str]]:
     """Collect link extras as (display, url) pairs for hyperlink rendering."""
-    items: List[tuple[str, str]] = []
+    items: list[tuple[str, str]] = []
     for field in ["website", "linkedin", "github"]:
         val = _get_contact_field(data, field)
         if val:
@@ -107,13 +107,13 @@ def _collect_link_extra_items(data: Dict[str, Any]) -> List[tuple[str, str]]:
     return items
 
 
-def _apply_page_styles(doc, page_cfg: Dict[str, Any]) -> None:
+def _apply_page_styles(doc, page_cfg: dict[str, Any]) -> None:
     """Apply compact page styles (margins and fonts)."""
     from .docx_base import apply_page_styles_to_doc
     apply_page_styles_to_doc(doc, page_cfg)
 
 
-def _set_document_metadata(doc, data: Dict[str, Any], template: Dict[str, Any]) -> None:
+def _set_document_metadata(doc, data: dict[str, Any], template: dict[str, Any]) -> None:
     """Set document core properties (title, author, keywords)."""
     from .docx_base import set_document_metadata_on_doc
     page_cfg = template.get("page") or {}
@@ -126,7 +126,7 @@ def _center_paragraph(para) -> None:
     StyleManager.center_paragraph(para)
 
 
-def _render_document_header(doc, data: Dict[str, Any]) -> None:
+def _render_document_header(doc, data: dict[str, Any]) -> None:
     """Render the name, headline, and contact line at the top of the resume."""
     name = _get_contact_field(data, "name")
     headline = _get_contact_field(data, "headline")
@@ -157,13 +157,13 @@ def _render_document_header(doc, data: Dict[str, Any]) -> None:
         _render_contact_runs(p, email, plain_parts, link_items)
 
 
-def _resolve_sections(template: Dict[str, Any], structure: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _resolve_sections(template: dict[str, Any], structure: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Resolve section order and configuration from template/structure."""
     sections = template.get("sections") or []
 
     if structure and isinstance(structure.get("order"), list):
-        order_keys: List[str] = structure.get("order", [])
-        key_to_title: Dict[str, str] = structure.get("titles", {})
+        order_keys: list[str] = structure.get("order", [])
+        key_to_title: dict[str, str] = structure.get("titles", {})
         tpl_by_key = {s.get("key"): s for s in sections if s.get("key")}
         sections = [
             {**tpl_by_key.get(k, {"key": k, "title": key_to_title.get(k, k.title())})}
@@ -174,7 +174,7 @@ def _resolve_sections(template: Dict[str, Any], structure: Optional[Dict[str, An
     return sections
 
 
-def _render_section_heading(doc, title: str, template: Dict[str, Any]) -> None:
+def _render_section_heading(doc, title: str, template: dict[str, Any]) -> None:
     """Render a section heading with optional shading."""
     if not title:
         return
@@ -188,11 +188,11 @@ def _render_section_heading(doc, title: str, template: Dict[str, Any]) -> None:
 
 
 def write_resume_docx(
-    data: Dict[str, Any],
-    template: Dict[str, Any],
+    data: dict[str, Any],
+    template: dict[str, Any],
     out_path: str,
-    seed: Optional[Dict[str, Any]] = None,
-    structure: Optional[Dict[str, Any]] = None,
+    seed: dict[str, Any] | None = None,
+    structure: dict[str, Any] | None = None,
 ) -> None:
     """Write resume to DOCX format.
 

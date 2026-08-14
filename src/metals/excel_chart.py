@@ -8,8 +8,9 @@ from typing import Dict, List, Optional, Tuple
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
 
+from .series_utils import fetch_yahoo_series as _fetch_yahoo_series
+from .series_utils import fill_date_gaps as _fill_date_gaps  # noqa: F401 - re-exported via excel_all
 from .workbook import WorkbookContext, ChartPlacement, col_letter as _col_letter
-from .yahoo import parse_response as _parse_yahoo_chart_response
 
 AVG_COST_HDR = "Avg Cost/Oz"
 TOTAL_OZ_HDR = "Total Ounces"
@@ -254,72 +255,6 @@ def _build_summary_values(
     by_metal, by_vendor, by_month_metal = _aggregate_summary_recs(all_recs)
     blocks = _build_summary_blocks(by_metal, by_vendor, by_month_metal)
     return _stitch_summary_blocks(blocks)
-
-
-def _fill_date_gaps(
-    series: Dict[str, float], start_date: str, end_date: str
-) -> Dict[str, float]:
-    """Forward-fill and back-fill gaps in a date series to produce a continuous series."""
-    if not series:
-        return series
-    from datetime import date, timedelta
-
-    out = dict(series)
-    start = date.fromisoformat(start_date)
-    end = date.fromisoformat(end_date)
-
-    # Get first available value for back-fill
-    avail_dates = sorted(out.keys())
-    first_val = out.get(avail_dates[0]) if avail_dates else None
-
-    d = start
-    last = None
-    while d <= end:
-        ds = d.isoformat()
-        if ds in out:
-            last = out[ds]
-        elif last is not None:
-            out[ds] = last
-        elif first_val is not None:
-            # Back-fill at the very beginning
-            out[ds] = first_val
-            last = first_val
-        d += timedelta(days=1)
-    return out
-
-
-def _yahoo_chart_to_unix(d: str) -> int:
-    """Convert an ISO date string (YYYY-MM-DD) to a UTC unix timestamp at midnight."""
-    from datetime import datetime, timezone
-
-    dt = datetime.fromisoformat(d)
-    return int(datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc).timestamp())
-
-
-def _fetch_yahoo_series(
-    symbol: str, start_date: str, end_date: str
-) -> Dict[str, float]:
-    """Fetch daily closes from Yahoo chart API for the given symbol between dates (YYYY-MM-DD).
-
-    Returns dict of ISO date -> close price. Forward-fills gaps and back-fills
-    the initial window to the first available value so a continuous series is produced.
-    """
-    import requests  # type: ignore
-
-    p1 = _yahoo_chart_to_unix(start_date)
-    # Add one day to include end
-    p2 = _yahoo_chart_to_unix(end_date) + 24 * 3600
-    url = (
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-        f"?period1={p1}&period2={p2}&interval=1d"
-    )
-    r = requests.get(url, timeout=DEFAULT_REQUEST_TIMEOUT)
-    try:
-        data = r.json() or {}
-    except Exception:  # nosec B110 - treat unparsable response as empty
-        data = {}
-    out = _parse_yahoo_chart_response(data)
-    return _fill_date_gaps(out, start_date, end_date)
 
 
 def _usd_to_cad_series(

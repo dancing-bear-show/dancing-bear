@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable
 
 from core.cli_output import OutputFormat
 from core.pipeline import BaseProducer, SafeProcessor, RequestConsumer
@@ -25,7 +25,7 @@ from .diagnostics import (
 class DiagnoseRequest:
     config: DiagnoseConfig
     output_format: OutputFormat = OutputFormat.TEXT
-    out_path: Optional[Path] = None
+    out_path: Path | None = None
 
 
 # Type alias for backward compatibility
@@ -36,16 +36,16 @@ DiagnoseRequestConsumer = RequestConsumer[DiagnoseRequest]
 class DiagnoseResult:
     report: Report
     output_format: OutputFormat
-    out_path: Optional[Path]
+    out_path: Path | None
 
 
 class DiagnoseProcessor(SafeProcessor[DiagnoseRequest, DiagnoseResult]):
     def __init__(
         self,
-        runner: Optional[CommandRunner] = None,
-        resolver: Optional[Callable[[str], DnsResult]] = None,
-        http_probe_fn: Optional[Callable[[str], HttpResult]] = None,
-        run_fn: Optional[Callable[..., Report]] = None,
+        runner: CommandRunner | None = None,
+        resolver: Callable[[str], DnsResult] | None = None,
+        http_probe_fn: Callable[[str], HttpResult] | None = None,
+        run_fn: Callable[..., Report] | None = None,
     ) -> None:
         self._runner = runner
         self._resolver = resolver
@@ -68,7 +68,7 @@ class DiagnoseProcessor(SafeProcessor[DiagnoseRequest, DiagnoseResult]):
 
 
 class DiagnoseProducer(BaseProducer):
-    def _produce_success(self, payload: DiagnoseResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: DiagnoseResult, diagnostics: dict[str, Any] | None) -> None:
         if payload.output_format == OutputFormat.JSON:
             content = json.dumps(report_to_dict(payload.report), indent=2)
         else:

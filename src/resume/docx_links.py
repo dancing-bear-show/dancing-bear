@@ -18,7 +18,6 @@ Graceful degradation:
 from __future__ import annotations
 
 import re
-from typing import List
 
 
 # Blue hyperlink color used by Word's default Hyperlink character style.
@@ -177,8 +176,8 @@ def _add_hyperlink_impl(paragraph, url: str, display: str) -> None:
 def render_contact_runs(
     paragraph,
     email: str,
-    plain_parts: List[str],
-    link_items: List[tuple[str, str]],
+    plain_parts: list[str],
+    link_items: list[tuple[str, str]],
 ) -> None:
     """Build the contact-line paragraph run-by-run with hyperlinks.
 

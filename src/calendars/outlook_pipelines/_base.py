@@ -53,6 +53,44 @@ def load_events_config(
     return items
 
 
+class EventIterationProcessor(SafeProcessor):
+    """Template method for processors that iterate normalized config events.
+
+    Shared by remove/verify pipelines, which both load an events config, walk
+    each raw dict, normalize it, and delegate per-item handling — differing
+    only in what they do with each normalized event and how they seed/return
+    their result accumulator. Centralizing the load/iterate/normalize/skip
+    boilerplate here keeps each subclass's ``_process_safe`` override to just
+    its distinct per-item step.
+    """
+
+    def _process_safe(self, payload: Any) -> Any:
+        items = self._load_events(payload)
+        accumulator = self._init_accumulator(payload)
+        for idx, raw in enumerate(items, start=1):
+            if not isinstance(raw, dict):
+                continue
+            nev = normalize_event(raw)
+            self._handle_event(payload, idx, nev, accumulator)
+        return self._finalize(accumulator)
+
+    def _load_events(self, payload: Any) -> list[dict[str, Any]]:
+        """Load the events list for this run. Override to rebind the module-local loader symbol a test patches."""
+        return load_events_config(payload.config_path, self._config_loader)
+
+    def _init_accumulator(self, payload: Any) -> Any:
+        """Override to build the per-run accumulator (logs, counters, plan...)."""
+        raise NotImplementedError("Subclass must implement _init_accumulator")
+
+    def _handle_event(self, payload: Any, idx: int, nev: dict[str, Any], accumulator: Any) -> None:
+        """Override to process one normalized event, mutating the accumulator."""
+        raise NotImplementedError("Subclass must implement _handle_event")
+
+    def _finalize(self, accumulator: Any) -> Any:
+        """Override to convert the accumulator into the processor's result type."""
+        raise NotImplementedError("Subclass must implement _finalize")
+
+
 __all__ = [
     # Re-exports
     "_dt",
@@ -85,4 +123,5 @@ __all__ = [
     "DEFAULT_IMPORT_CALENDAR",
     # Helpers
     "load_events_config",
+    "EventIterationProcessor",
 ]

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from resume.keyword_normalize import KeywordInfo, KeywordMatchResult, normalize_text  # noqa: F401
 from resume.keyword_match import KeywordMatchEngine, keyword_match  # noqa: F401
-from typing import Dict, Iterable, List, Optional
+from typing import Iterable
 
 # Backwards-compatible alias for code that imports MatchResult from this module
 MatchResult = KeywordMatchResult
@@ -25,8 +25,8 @@ class KeywordMatcher(KeywordMatchEngine):
 
 def expand_keywords(
     keywords: Iterable[str],
-    synonyms: Optional[Dict[str, List[str]]] = None,
-) -> List[str]:
+    synonyms: dict[str, list[str]] | None = None,
+) -> list[str]:
     """Expand keywords with synonyms (standalone function)."""
     matcher = KeywordMatcher()
     matcher.add_synonyms(synonyms or {})

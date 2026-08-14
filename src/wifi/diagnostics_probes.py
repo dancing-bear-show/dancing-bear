@@ -6,7 +6,7 @@ import socket
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable
 
 from .diagnostics_runners import CommandRunner, SubprocessRunner
 
@@ -16,14 +16,14 @@ if TYPE_CHECKING:
 
 @dataclass
 class WifiInfo:
-    ssid: Optional[str]
-    bssid: Optional[str]
-    rssi: Optional[int]
-    noise: Optional[int]
-    tx_rate: Optional[float]
-    channel: Optional[str]
+    ssid: str | None
+    bssid: str | None
+    rssi: int | None
+    noise: int | None
+    tx_rate: float | None
+    channel: str | None
     source: str
-    raw: Optional[str] = None
+    raw: str | None = None
 
 
 @dataclass
@@ -32,12 +32,12 @@ class PingResult:
     target: str
     transmitted: int
     received: int
-    loss_pct: Optional[float]
-    min_ms: Optional[float]
-    avg_ms: Optional[float]
-    max_ms: Optional[float]
-    error: Optional[str] = None
-    raw: Optional[str] = None
+    loss_pct: float | None
+    min_ms: float | None
+    avg_ms: float | None
+    max_ms: float | None
+    error: str | None = None
+    raw: str | None = None
 
     def ok(self) -> bool:
         if self.loss_pct is None:
@@ -49,32 +49,32 @@ class PingResult:
 class DnsResult:
     host: str
     success: bool
-    addresses: List[str]
-    elapsed_ms: Optional[float]
-    error: Optional[str] = None
+    addresses: list[str]
+    elapsed_ms: float | None
+    error: str | None = None
 
 
 @dataclass
 class TraceResult:
     target: str
     success: bool
-    lines: List[str]
-    error: Optional[str] = None
+    lines: list[str]
+    error: str | None = None
 
 
 @dataclass
 class HttpResult:
     url: str
     success: bool
-    status: Optional[int]
-    elapsed_ms: Optional[float]
-    bytes_read: Optional[int]
-    error: Optional[str] = None
+    status: int | None
+    elapsed_ms: float | None
+    bytes_read: int | None
+    error: str | None = None
 
 
-def _build_ping_targets(gateway: Optional[str], targets: List[str]) -> List[Tuple[str, str]]:
+def _build_ping_targets(gateway: str | None, targets: list[str]) -> list[tuple[str, str]]:
     """Build deduplicated list of (label, target) pairs for pinging."""
-    result: List[Tuple[str, str]] = []
+    result: list[tuple[str, str]] = []
     seen: set = set()
     if gateway:
         result.append(("gateway", gateway))
@@ -89,7 +89,7 @@ def _build_ping_targets(gateway: Optional[str], targets: List[str]) -> List[Tupl
     return result
 
 
-def _select_trace_target(config: "DiagnoseConfig", ping_targets: List[Tuple[str, str]]) -> str:
+def _select_trace_target(config: "DiagnoseConfig", ping_targets: list[tuple[str, str]]) -> str:
     """Select target for traceroute."""
     if config.trace_target:
         return config.trace_target
@@ -102,9 +102,9 @@ def _select_trace_target(config: "DiagnoseConfig", ping_targets: List[Tuple[str,
 
 def run_diagnosis(
     config: "DiagnoseConfig",
-    runner: Optional[CommandRunner] = None,
-    resolver: Optional[Callable[[str], DnsResult]] = None,
-    http_probe_fn: Optional[Callable[[str], HttpResult]] = None,
+    runner: CommandRunner | None = None,
+    resolver: Callable[[str], DnsResult] | None = None,
+    http_probe_fn: Callable[[str], HttpResult] | None = None,
 ) -> "Report":
     from .diagnostics_report import (  # noqa: PLC0415 - local import to avoid circular dependency
         DiagnoseResults,
@@ -123,7 +123,7 @@ def run_diagnosis(
     wifi_info = collect_wifi_info(runner) if config.include_wifi else None
     ping_targets = _build_ping_targets(gateway, config.ping_targets)
 
-    survey_results: List[PingResult] = []
+    survey_results: list[PingResult] = []
     if config.run_survey:
         survey_count = max(1, config.survey_count)
         survey_results = [
@@ -138,12 +138,12 @@ def run_diagnosis(
 
     dns_result = resolver(config.dns_host)
 
-    trace_result: Optional[TraceResult] = None
+    trace_result: TraceResult | None = None
     if config.include_trace:
         trace_target = _select_trace_target(config, ping_targets)
         trace_result = trace_route(trace_target, runner=runner, max_hops=config.trace_max_hops)
 
-    http_result: Optional[HttpResult] = None
+    http_result: HttpResult | None = None
     if config.include_http and config.http_url:
         http_result = http_probe_fn(config.http_url)
 
@@ -179,7 +179,7 @@ def run_diagnosis(
     )
 
 
-def detect_gateway(runner: CommandRunner) -> Optional[str]:
+def detect_gateway(runner: CommandRunner) -> str | None:
     cmds = [
         ["route", "-n", "get", "default"],
         ["ip", "route", "get", "8.8.8.8"],
@@ -192,7 +192,7 @@ def detect_gateway(runner: CommandRunner) -> Optional[str]:
     return None
 
 
-def _parse_gateway_from_line(line: str) -> Optional[str]:
+def _parse_gateway_from_line(line: str) -> str | None:
     """Extract gateway IP from a single line."""
     parts = line.strip().split()
     # macOS: "gateway: 192.168.1.1"
@@ -203,7 +203,7 @@ def _parse_gateway_from_line(line: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _extract_gateway_line(text: str) -> Optional[str]:
+def _extract_gateway_line(text: str) -> str | None:
     for line in text.splitlines():
         if "gateway" in line or "via" in line:
             result = _parse_gateway_from_line(line)
@@ -212,7 +212,7 @@ def _extract_gateway_line(text: str) -> Optional[str]:
     return None
 
 
-def collect_wifi_info(runner: CommandRunner) -> Optional[WifiInfo]:
+def collect_wifi_info(runner: CommandRunner) -> WifiInfo | None:
     for cmd, parser in _WIFI_INFO_SOURCES:
         res = runner.run(cmd, timeout=3)
         if res.returncode == 0 and res.stdout:
@@ -223,7 +223,7 @@ def collect_wifi_info(runner: CommandRunner) -> Optional[WifiInfo]:
 
 
 def _parse_airport(text: str) -> WifiInfo:
-    data: Dict[str, str] = {}
+    data: dict[str, str] = {}
     for line in text.splitlines():
         if ":" not in line:
             continue
@@ -238,7 +238,7 @@ def _parse_airport(text: str) -> WifiInfo:
     return WifiInfo(ssid=ssid, bssid=bssid, rssi=rssi, noise=noise, tx_rate=tx_rate, channel=channel, source="airport", raw=text.strip())
 
 
-def _parse_nmcli(text: str) -> Optional[WifiInfo]:
+def _parse_nmcli(text: str) -> WifiInfo | None:
     for line in text.splitlines():
         parts = line.split(":")
         if len(parts) < 5:
@@ -259,13 +259,13 @@ def _parse_nmcli(text: str) -> Optional[WifiInfo]:
     return None
 
 
-def _extract_iwconfig_field(text: str, pattern: str) -> Optional[str]:
+def _extract_iwconfig_field(text: str, pattern: str) -> str | None:
     """Extract a field from iwconfig output using regex."""
     m = re.search(pattern, text)
     return m.group(1) if m else None
 
 
-def _parse_iwconfig(text: str) -> Optional[WifiInfo]:
+def _parse_iwconfig(text: str) -> WifiInfo | None:
     ssid = _extract_iwconfig_field(text, r'ESSID:"([^"]+)"')
     bssid = _extract_iwconfig_field(text, r"Access Point: ([0-9A-Fa-f:]{17})")
     level_str = _extract_iwconfig_field(text, r"Signal level[=\:]-?(\d+)")
@@ -276,7 +276,7 @@ def _parse_iwconfig(text: str) -> Optional[WifiInfo]:
     return None
 
 
-_WIFI_INFO_SOURCES: Tuple[Tuple[List[str], Callable[[str], Optional[WifiInfo]]], ...] = (
+_WIFI_INFO_SOURCES: tuple[tuple[list[str], Callable[[str], WifiInfo | None]], ...] = (
     (["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I"], _parse_airport),
     (["nmcli", "-t", "-f", "ACTIVE,SSID,BSSID,SIGNAL,RATE", "dev", "wifi"], _parse_nmcli),
     (["iwconfig"], _parse_iwconfig),
@@ -304,11 +304,11 @@ def ping_target(label: str, target: str, *, count: int, runner: CommandRunner, t
     )
 
 
-def _parse_ping(text: str) -> Tuple[int, int, Optional[float], Optional[float], Optional[float], Optional[float]]:
+def _parse_ping(text: str) -> tuple[int, int, float | None, float | None, float | None, float | None]:
     if isinstance(text, (bytes, bytearray)):
         text = text.decode(errors="ignore")
     transmitted = received = 0
-    loss_pct: Optional[float] = None
+    loss_pct: float | None = None
     min_ms = avg_ms = max_ms = None
     for line in text.splitlines():
         if "packets transmitted" in line and "packet loss" in line:
@@ -328,7 +328,7 @@ def _parse_ping(text: str) -> Tuple[int, int, Optional[float], Optional[float], 
 
 def dns_lookup(host: str) -> DnsResult:
     start = time.perf_counter()
-    addresses: List[str] = []
+    addresses: list[str] = []
     try:
         infos = socket.getaddrinfo(host, None)
         for family, _type, _proto, _canon, sockaddr in infos:
@@ -373,14 +373,14 @@ def http_probe(url: str) -> HttpResult:
         return HttpResult(url=url, success=False, status=None, elapsed_ms=elapsed_ms, bytes_read=None, error=str(exc))
 
 
-def _safe_int(val: Optional[str]) -> Optional[int]:
+def _safe_int(val: str | None) -> int | None:
     try:
         return int(val) if val is not None else None
     except ValueError:
         return None
 
 
-def _safe_float(val: Optional[str]) -> Optional[float]:
+def _safe_float(val: str | None) -> float | None:
     try:
         return float(val) if val is not None else None
     except ValueError:

@@ -1,7 +1,8 @@
 """Desk assistant CLI using CLIApp framework."""
 
+from __future__ import annotations
+
 import os
-from typing import List, Optional
 
 from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
@@ -22,7 +23,7 @@ from .pipeline import (
 )
 
 
-def _paths_default() -> List[str]:
+def _paths_default() -> list[str]:
     return [os.path.expanduser("~/Downloads"), os.path.expanduser("~/Desktop")]
 
 
@@ -151,7 +152,7 @@ rules:
 """
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Desk Assistant CLI."""
     return app.run_with_assistant(assistant, emit_func=_emit_agentic, argv=argv)
 

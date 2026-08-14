@@ -9,7 +9,7 @@ Provides reusable argument groups for:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, List, Any
+from typing import Any
 import argparse
 
 
@@ -18,11 +18,11 @@ class OutlookAuthConfig:
     """Configuration for Outlook authentication arguments."""
 
     include_profile: bool = False
-    profile_help: Optional[str] = None
-    client_id_help: Optional[str] = "Azure app (client) ID; defaults from profile or env"
-    tenant_help: Optional[str] = "AAD tenant (default: consumers)"
-    tenant_default: Optional[str] = "consumers"
-    token_help: Optional[str] = "Path to token cache JSON (optional)"  # noqa: S107 - help text, not a password
+    profile_help: str | None = None
+    client_id_help: str | None = "Azure app (client) ID; defaults from profile or env"
+    tenant_help: str | None = "AAD tenant (default: consumers)"
+    tenant_default: str | None = "consumers"
+    token_help: str | None = "Path to token cache JSON (optional)"  # noqa: S107 - help text, not a password
 
 
 @dataclass
@@ -30,16 +30,16 @@ class GmailAuthConfig:
     """Configuration for Gmail authentication arguments."""
 
     include_cache: bool = True
-    credentials_help: Optional[str] = None
-    token_help: Optional[str] = None
-    cache_help: Optional[str] = None
+    credentials_help: str | None = None
+    token_help: str | None = None
+    cache_help: str | None = None
 
 
 @dataclass
 class OutputFormatConfig:
     """Configuration for output formatting arguments."""
 
-    formats: Optional[List[str]] = None
+    formats: list[str] | None = None
     default_format: str = "text"
     include_verbose: bool = True
     include_quiet: bool = True
@@ -60,7 +60,7 @@ class DateRangeConfig:
     default_days_forward: int = 180
 
 
-def _add_argument_with_help(parser, flag: str, help_text: Optional[str], **kwargs) -> None:
+def _add_argument_with_help(parser, flag: str, help_text: str | None, **kwargs) -> None:
     """Add argument to parser with optional help text.
 
     Args:
@@ -75,7 +75,7 @@ def _add_argument_with_help(parser, flag: str, help_text: Optional[str], **kwarg
         parser.add_argument(flag, help=help_text, **kwargs)
 
 
-def add_outlook_auth_args(parser, config: Optional[OutlookAuthConfig] = None):
+def add_outlook_auth_args(parser, config: OutlookAuthConfig | None = None):
     """Add Outlook authentication arguments to parser.
 
     Args:
@@ -105,7 +105,7 @@ def add_outlook_auth_args(parser, config: Optional[OutlookAuthConfig] = None):
     return parser
 
 
-def add_gmail_auth_args(parser, config: Optional[GmailAuthConfig] = None):
+def add_gmail_auth_args(parser, config: GmailAuthConfig | None = None):
     """Add Gmail authentication arguments to parser.
 
     Args:
@@ -134,7 +134,7 @@ def add_gmail_auth_args(parser, config: Optional[GmailAuthConfig] = None):
     return parser
 
 
-def add_output_args(parser, config: Optional[OutputFormatConfig] = None):
+def add_output_args(parser, config: OutputFormatConfig | None = None):
     """Add output formatting arguments.
 
     Args:
@@ -198,7 +198,7 @@ def add_dry_run_args(
     return parser
 
 
-def add_date_range_args(parser, config: Optional[DateRangeConfig] = None):
+def add_date_range_args(parser, config: DateRangeConfig | None = None):
     """Add date range arguments.
 
     Args:
@@ -239,7 +239,7 @@ def add_date_range_args(parser, config: Optional[DateRangeConfig] = None):
 def add_profile_args(
     parser,
     *,
-    profile_help: Optional[str] = None,
+    profile_help: str | None = None,
 ):
     """Add profile argument.
 
@@ -310,7 +310,7 @@ class ArgumentGroup:
             ...
     """
 
-    def __init__(self, arguments: List[Any]):
+    def __init__(self, arguments: list[Any]):
         """Initialize with a list of arguments.
 
         Args:

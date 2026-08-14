@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 
-def build_experience_summary(data: Dict[str, Any], max_bullets: int | None = None) -> Dict[str, Any]:
-    roles_out: List[Dict[str, Any]] = []
+def build_experience_summary(data: dict[str, Any], max_bullets: int | None = None) -> dict[str, Any]:
+    roles_out: list[dict[str, Any]] = []
     for e in data.get("experience") or []:
         bullets = [str(b) for b in (e.get("bullets") or [])]
         if max_bullets is not None:

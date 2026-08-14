@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as _dt
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 from core.cli_errors import CLIError, ExitCode
@@ -58,14 +58,14 @@ from schedule.pipeline_verify import (  # noqa: F401
 from core.auth import build_outlook_service  # noqa: F401
 
 
-def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, Any]]:
+def _events_from_source(source: str, kind: str | None) -> list[dict[str, Any]]:
     from calendars.importer import load_schedule
     from calendars.model import normalize_event
 
     items = load_schedule(source, kind)
-    events: List[Dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     for it in items:
-        ev: Dict[str, Any] = {
+        ev: dict[str, Any] = {
             "subject": getattr(it, "subject", None),
             "start": getattr(it, "start_iso", None),
             "end": getattr(it, "end_iso", None),
@@ -90,8 +90,8 @@ def _events_from_source(source: str, kind: Optional[str]) -> List[Dict[str, Any]
 
 @dataclass
 class PlanRequest:
-    sources: List[str]
-    kind: Optional[str]
+    sources: list[str]
+    kind: str | None
     out_path: Path
 
 
@@ -101,21 +101,21 @@ PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 @dataclass
 class PlanResult:
-    document: Dict[str, Any]
+    document: dict[str, Any]
     out_path: Path
 
 
 class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
     """Generate a plan from schedule sources with automatic error handling."""
 
-    def __init__(self, loader: Callable[[str, Optional[str]], List[Dict[str, Any]]] = _events_from_source) -> None:
+    def __init__(self, loader: Callable[[str, str | None], list[dict[str, Any]]] = _events_from_source) -> None:
         self._loader = loader
 
     def _process_safe(self, payload: PlanRequest) -> PlanResult:
-        all_events: List[Dict[str, Any]] = []
+        all_events: list[dict[str, Any]] = []
         for src in payload.sources:
             all_events.extend(self._loader(src, payload.kind))
-        plan: Dict[str, Any]
+        plan: dict[str, Any]
         if not all_events:
             plan = {
                 "#": "Add events under the 'events' key. Use subject, repeat/byday or start/end.",
@@ -129,14 +129,14 @@ class PlanProcessor(SafeProcessor[PlanRequest, PlanResult]):
 class PlanProducer(BaseProducer):
     """Produce output for plan generation with automatic error handling."""
 
-    def _produce_success(self, payload: PlanResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: PlanResult, diagnostics: dict[str, Any] | None) -> None:
         _dump_yaml(str(payload.out_path), payload.document)
         events = payload.document.get("events", [])
         self._writer.print(f"Wrote plan with {len(events)} events to {payload.out_path}")
 
 
 def _should_create_oneoff(
-    e: Dict[str, Any], match_mode: str, missing_occ: List[str], present_subjects: set
+    e: dict[str, Any], match_mode: str, missing_occ: list[str], present_subjects: set
 ) -> bool:
     """Check if a one-off event should be created."""
     if not (e.get("start") and e.get("end")):
@@ -149,11 +149,11 @@ def _should_create_oneoff(
 
 
 def _determine_creates(
-    events: List[Dict[str, Any]],
-    series_by_subject: Dict[str, Dict[str, Any]],
+    events: list[dict[str, Any]],
+    series_by_subject: dict[str, dict[str, Any]],
     present_subjects: set,
     ctx: SyncMatchContext,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Determine which series and one-offs need to be created."""
     to_create_series = _find_missing_series(series_by_subject, present_subjects)
     missing_occ = [k for k in ctx.plan_st_keys if k not in ctx.have_keys]
@@ -165,10 +165,10 @@ def _determine_creates(
 
 
 def _find_occurrences_to_delete_by_time(
-    extra_keys: List[str], have_map: Dict[str, Dict[str, Any]]
-) -> List[str]:
+    extra_keys: list[str], have_map: dict[str, dict[str, Any]]
+) -> list[str]:
     """Find occurrence IDs to delete using subject-time matching."""
-    to_delete: List[str] = []
+    to_delete: list[str] = []
     for k in extra_keys:
         o = have_map.get(k) or {}
         typ = (o.get("type") or "").strip().lower()
@@ -183,10 +183,10 @@ def _find_occurrences_to_delete_by_time(
 
 
 def _find_occurrences_to_delete_by_subject(
-    have_map: Dict[str, Dict[str, Any]], planned_subjects_set: set
-) -> List[str]:
+    have_map: dict[str, dict[str, Any]], planned_subjects_set: set
+) -> list[str]:
     """Find occurrence IDs to delete using subject-only matching."""
-    to_delete: List[str] = []
+    to_delete: list[str] = []
     for _k, o in have_map.items():
         subj = (o.get("subject") or "").strip().lower()
         if subj in planned_subjects_set:
@@ -198,11 +198,11 @@ def _find_occurrences_to_delete_by_subject(
 
 
 def _build_series_maps(
-    have_map: Dict[str, Dict[str, Any]]
-) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
+    have_map: dict[str, dict[str, Any]]
+) -> tuple[dict[str, list[str]], dict[str, str]]:
     """Build series keys and subject mappings from occurrences."""
-    series_keys: Dict[str, List[str]] = {}
-    series_subject: Dict[str, str] = {}
+    series_keys: dict[str, list[str]] = {}
+    series_subject: dict[str, str] = {}
     for k, o in have_map.items():
         sid = o.get("seriesMasterId")
         if sid:
@@ -215,8 +215,8 @@ def _build_series_maps(
 
 def _should_delete_series(
     sid: str,
-    keys: List[str],
-    series_subject: Dict[str, str],
+    keys: list[str],
+    series_subject: dict[str, str],
     ctx: SyncMatchContext,
 ) -> bool:
     """Check if a series should be deleted."""
@@ -228,7 +228,7 @@ def _should_delete_series(
     return True
 
 
-def _find_series_to_delete(ctx: SyncMatchContext) -> List[str]:
+def _find_series_to_delete(ctx: SyncMatchContext) -> list[str]:
     """Find series master IDs to delete."""
     series_keys, series_subject = _build_series_maps(ctx.have_map)
     return [
@@ -240,7 +240,7 @@ def _find_series_to_delete(ctx: SyncMatchContext) -> List[str]:
 def _determine_deletes(
     payload: "SyncRequest",
     ctx: SyncMatchContext,
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     """Determine which occurrences and series masters to delete."""
     if not payload.delete_missing:
         return [], []
@@ -251,7 +251,7 @@ def _determine_deletes(
     else:
         to_delete_occurrence_ids = _find_occurrences_to_delete_by_subject(ctx.have_map, ctx.planned_subjects_set)
 
-    to_delete_series_master_ids: List[str] = []
+    to_delete_series_master_ids: list[str] = []
     if payload.delete_unplanned_series:
         to_delete_series_master_ids = _find_series_to_delete(ctx)
 
@@ -262,14 +262,14 @@ def _determine_deletes(
 class DryRunConfig:
     """Configuration for building dry-run output."""
 
-    to_create_series: List[Dict[str, Any]]
-    to_create_oneoffs: List[Dict[str, Any]]
-    to_delete_occurrence_ids: List[str]
-    to_delete_series_master_ids: List[str]
+    to_create_series: list[dict[str, Any]]
+    to_create_oneoffs: list[dict[str, Any]]
+    to_delete_occurrence_ids: list[str]
+    to_delete_series_master_ids: list[str]
     match_mode: str
 
 
-def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> List[str]:
+def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> list[str]:
     """Build dry-run output lines."""
     lines = [
         f"[DRY-RUN] Sync window {payload.from_date} → {payload.to_date} on '{payload.calendar}'",
@@ -296,11 +296,11 @@ def _build_dry_run_lines(payload: "SyncRequest", config: DryRunConfig) -> List[s
 def _execute_sync_creates(
     svc: Any,
     payload: "SyncRequest",
-    to_create_series: List[Dict[str, Any]],
-    to_create_oneoffs: List[Dict[str, Any]],
-) -> Tuple[List[str], int]:
+    to_create_series: list[dict[str, Any]],
+    to_create_oneoffs: list[dict[str, Any]],
+) -> tuple[list[str], int]:
     """Execute creation of series and one-offs, return lines and count."""
-    lines: List[str] = []
+    lines: list[str] = []
     created = 0
     for e in [*to_create_series, *to_create_oneoffs]:
         rc, logs = _apply_outlook_events([e], calendar_name=payload.calendar, service=svc)
@@ -314,8 +314,8 @@ def _execute_sync_deletes(
     raw_client: Any,
     cal_id: str,
     payload: "SyncRequest",
-    to_delete_occurrence_ids: List[str],
-    to_delete_series_master_ids: List[str],
+    to_delete_occurrence_ids: list[str],
+    to_delete_series_master_ids: list[str],
 ) -> int:
     """Execute deletion of occurrences and series, return count."""
     deleted = 0
@@ -418,7 +418,7 @@ class SyncProcessor(SafeProcessor[SyncRequest, SyncResult]):
 class SyncProducer(BaseProducer):
     """Produce output for sync operations with automatic error handling."""
 
-    def _produce_success(self, payload: SyncResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: SyncResult, diagnostics: dict[str, Any] | None) -> None:
         for line in payload.lines:
             self._writer.print(line)
 
@@ -426,7 +426,7 @@ class SyncProducer(BaseProducer):
 @dataclass
 class ApplyRequest:
     plan_path: Path
-    calendar: Optional[str]
+    calendar: str | None
     provider: str
     apply: bool
     auth: OutlookAuth
@@ -438,10 +438,10 @@ ApplyRequestConsumer = RequestConsumer[ApplyRequest]
 
 @dataclass
 class ApplyResult:
-    lines: List[str]
+    lines: list[str]
 
 
-def _build_apply_dry_run_lines(events: List[Dict[str, Any]], calendar_name: Optional[str]) -> List[str]:
+def _build_apply_dry_run_lines(events: list[dict[str, Any]], calendar_name: str | None) -> list[str]:
     """Build preview lines for an apply dry-run."""
     suffix = f" to calendar '{calendar_name}'" if calendar_name else ""
     lines = [f"[DRY-RUN] Would apply {len(events)} events{suffix}"]
@@ -486,7 +486,7 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, ApplyResult]):
 class ApplyProducer(BaseProducer):
     """Produce output for apply operations with automatic error handling."""
 
-    def _produce_success(self, payload: ApplyResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: ApplyResult, diagnostics: dict[str, Any] | None) -> None:
         for line in payload.lines:
             self._writer.print(line)
 
@@ -514,7 +514,7 @@ ExportScheduleRequestConsumer = RequestConsumer[ExportScheduleRequest]
 class ExportScheduleResult:
     """Result of exporting calendar events."""
 
-    rows: List[Dict[str, Any]]
+    rows: list[dict[str, Any]]
     cal_name: str
     out_path: Path
 
@@ -532,7 +532,7 @@ class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportSchedul
             top=800,
         ))
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for ev in evs:
             sub = (ev.get("subject") or "").strip()
             st = ((ev.get("start") or {}).get("dateTime") or "").strip()
@@ -549,7 +549,7 @@ class ExportScheduleProcessor(SafeProcessor[ExportScheduleRequest, ExportSchedul
 class ExportScheduleProducer(BaseProducer):
     """Write export results to YAML and print summary."""
 
-    def _produce_success(self, payload: ExportScheduleResult, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: ExportScheduleResult, diagnostics: dict[str, Any] | None) -> None:
         _dump_yaml(str(payload.out_path), {"events": payload.rows})
         self._writer.print(
             f"Exported {len(payload.rows)} events from '{payload.cal_name}' to {payload.out_path}"

@@ -16,7 +16,7 @@ import argparse
 import datetime as _dt
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from core.assistant import BaseAssistant
 from core.cli_errors import CLIError, ExitCode
@@ -53,7 +53,7 @@ from ..pipeline import (
 )
 
 
-def _read_yaml(path: str | Path) -> Dict[str, Any]:
+def _read_yaml(path: str | Path) -> dict[str, Any]:
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"YAML file not found: {p}")
@@ -63,7 +63,7 @@ def _read_yaml(path: str | Path) -> Dict[str, Any]:
     return data
 
 
-def _write_yaml(path: str | Path, data: Dict[str, Any]) -> None:
+def _write_yaml(path: str | Path, data: dict[str, Any]) -> None:
     p = Path(path)
     _dump_yaml(str(p), data)
 
@@ -96,11 +96,11 @@ def _weekday_code(d: _dt.date) -> str:
 
 
 def _group_one_offs(
-    one_offs: List[Dict[str, Any]]
-) -> Tuple[Dict[tuple, List[_dt.date]], Dict[tuple, Dict[str, Any]]]:
+    one_offs: list[dict[str, Any]]
+) -> tuple[dict[tuple, list[_dt.date]], dict[tuple, dict[str, Any]]]:
     """Group one-off events by (subject, start_time, end_time, weekday, location)."""
-    groups: Dict[tuple, List[_dt.date]] = {}
-    meta: Dict[tuple, Dict[str, Any]] = {}
+    groups: dict[tuple, list[_dt.date]] = {}
+    meta: dict[tuple, dict[str, Any]] = {}
     for ev in one_offs:
         subj = (ev.get('subject') or '').strip()
         st = str(ev.get('start') or '')
@@ -115,9 +115,9 @@ def _group_one_offs(
     return groups, meta
 
 
-def _compute_exdates(dates_sorted: List[_dt.date], start_date: _dt.date, end_date: _dt.date) -> List[str]:
+def _compute_exdates(dates_sorted: list[_dt.date], start_date: _dt.date, end_date: _dt.date) -> list[str]:
     """Compute exclusion dates for weekly series."""
-    exdates: List[str] = []
+    exdates: list[str] = []
     cur = start_date
     while cur <= end_date:
         if cur not in dates_sorted:
@@ -134,7 +134,7 @@ class EventParams:
     start_time: str
     end_time: str
     location: str = ""
-    calendar: Optional[str] = None
+    calendar: str | None = None
 
 
 @dataclass
@@ -142,14 +142,14 @@ class SeriesParams(EventParams):
     """Parameters for building a recurring series event."""
 
     day_of_week: str = ""
-    start_date: Optional[_dt.date] = None
-    end_date: Optional[_dt.date] = None
-    exdates: Optional[List[str]] = None
+    start_date: _dt.date | None = None
+    end_date: _dt.date | None = None
+    exdates: list[str] | None = None
 
 
-def _build_one_off_event(params: EventParams, d: _dt.date) -> Dict[str, Any]:
+def _build_one_off_event(params: EventParams, d: _dt.date) -> dict[str, Any]:
     """Build a one-off event dict."""
-    ev: Dict[str, Any] = {
+    ev: dict[str, Any] = {
         'subject': params.subject,
         'start': f"{d.isoformat()}T{params.start_time}",
         'end': f"{d.isoformat()}T{params.end_time}",
@@ -161,9 +161,9 @@ def _build_one_off_event(params: EventParams, d: _dt.date) -> Dict[str, Any]:
     return ev
 
 
-def _build_series_event(params: SeriesParams) -> Dict[str, Any]:
+def _build_series_event(params: SeriesParams) -> dict[str, Any]:
     """Build a recurring series event dict."""
-    ev: Dict[str, Any] = {
+    ev: dict[str, Any] = {
         'subject': params.subject,
         'repeat': 'weekly',
         'byday': [params.day_of_week],
@@ -184,13 +184,13 @@ def _build_series_event(params: SeriesParams) -> Dict[str, Any]:
 
 
 def _compress_events(
-    groups: Dict[tuple, List[_dt.date]],
-    meta: Dict[tuple, Dict[str, Any]],
+    groups: dict[tuple, list[_dt.date]],
+    meta: dict[tuple, dict[str, Any]],
     min_occur: int,
-    override_cal: Optional[str],
-) -> List[Dict[str, Any]]:
+    override_cal: str | None,
+) -> list[dict[str, Any]]:
     """Compress grouped events into series or keep as one-offs."""
-    out_events: List[Dict[str, Any]] = []
+    out_events: list[dict[str, Any]] = []
     for key, dates in groups.items():
         subj, st_time, en_time, dow, loc = key
         dates_sorted = sorted(set(dates))
@@ -210,7 +210,7 @@ def _compress_events(
     return out_events
 
 
-def _compress_sort_key(e: Dict[str, Any]) -> tuple:
+def _compress_sort_key(e: dict[str, Any]) -> tuple:
     """Sort key for compressed events."""
     subj = e.get('subject') or ''
     if e.get('repeat'):
@@ -452,7 +452,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
     return int((envelope.diagnostics or {}).get("code", 2))
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
     return app.run_with_assistant(
         assistant=assistant,

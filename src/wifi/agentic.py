@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import List
-
 
 def _section(title: str, body: str) -> str:
     return f"{title}:\n{body}"
 
 
 def build_agentic_capsule() -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("agentic: wifi")
     lines.append("purpose: Wi-Fi and LAN diagnostics (gateway vs upstream vs DNS)")
     lines.append("commands:")
