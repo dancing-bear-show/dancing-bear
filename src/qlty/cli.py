@@ -29,7 +29,35 @@ app = CLIApp(
     add_common_args=False,  # own --format flag; avoids --output collision
 )
 
-_FORMATS = ("text", "json", "md")
+_FORMATS = ("text", "json", "md", "csv")
+
+
+def _format_argument(func):
+    """Attach the shared --format flag."""
+    return app.argument(
+        "--format", choices=_FORMATS, default="text", dest="format",
+        help="Output format",
+    )(func)
+
+
+def _scan_arguments(func):
+    """Attach the flags every scanning command shares.
+
+    scan and triage take the same inputs -- they differ only in how the result
+    is rendered -- so the flag set is declared once. Decorators apply
+    bottom-up, matching the original per-command ordering.
+    """
+    for add in (
+        _format_argument,
+        app.argument("--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)"),
+        app.argument("--rescan-until-stable", action="store_true", help="Re-scan until findings stop changing"),
+        app.argument("--smells-only", action="store_true", help="Run only qlty smells"),
+        app.argument("--check-only", action="store_true", help="Run only qlty check"),
+        app.argument("--changed", action="store_true", help="Scan only changed files (default: all)"),
+        app.argument("paths", nargs="*", help="Limit scan to these paths"),
+    ):
+        func = add(func)
+    return func
 
 # Rule whose triage requires the sibling-params-object cross-reference.
 _PARAMS_RULE = "function-parameters"
@@ -100,17 +128,13 @@ def _render_scan(result: ScanResult, fmt: str) -> str:
         return report.render_scan_json(result)
     if fmt == "md":
         return report.render_scan_markdown(result)
+    if fmt == "csv":
+        return report.render_scan_csv(result)
     return report.render_scan_text(result)
 
 
 @app.command("scan", help="Scan repo (check + smells merged) and list findings")
-@app.argument("paths", nargs="*", help="Limit scan to these paths")
-@app.argument("--changed", action="store_true", help="Scan only changed files (default: all)")
-@app.argument("--check-only", action="store_true", help="Run only qlty check")
-@app.argument("--smells-only", action="store_true", help="Run only qlty smells")
-@app.argument("--rescan-until-stable", action="store_true", help="Re-scan until findings stop changing")
-@app.argument("--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)")
-@app.argument("--format", choices=_FORMATS, default="text", dest="format", help="Output format")
+@_scan_arguments
 def cmd_scan(args) -> int:
     """Run a merged qlty scan.
 
@@ -163,13 +187,7 @@ def _build_triage(result: ScanResult) -> list[TriageEntry]:
 
 
 @app.command("triage", help="Group findings by rule, attach tier + strategy")
-@app.argument("paths", nargs="*", help="Limit scan to these paths")
-@app.argument("--changed", action="store_true", help="Scan only changed files (default: all)")
-@app.argument("--check-only", action="store_true", help="Run only qlty check")
-@app.argument("--smells-only", action="store_true", help="Run only qlty smells")
-@app.argument("--rescan-until-stable", action="store_true", help="Re-scan until findings stop changing")
-@app.argument("--expect-min", type=int, help="Exit nonzero if fewer than N findings (env guard)")
-@app.argument("--format", choices=_FORMATS, default="text", dest="format", help="Output format")
+@_scan_arguments
 def cmd_triage(args) -> int:
     """Triage findings into tiers with remediation strategy.
 
@@ -182,6 +200,8 @@ def cmd_triage(args) -> int:
         _emit(report.render_triage_json(entries, result))
     elif args.format == "md":
         _emit(report.render_triage_markdown(entries, result))
+    elif args.format == "csv":
+        _emit(report.render_triage_csv(entries, result))
     else:
         _emit(report.render_triage_text(entries, result))
 
@@ -194,7 +214,7 @@ def cmd_triage(args) -> int:
 
 @app.command("rules", help="List known rules, tiers, and whether tooling exists")
 @app.argument("--counts", action="store_true", help="Include live finding counts (runs a scan)")
-@app.argument("--format", choices=_FORMATS, default="text", dest="format", help="Output format")
+@_format_argument
 def cmd_rules(args) -> int:
     """List the rule strategy table.
 
@@ -212,6 +232,8 @@ def cmd_rules(args) -> int:
         _emit(report.render_rules_json(strategies, counts))
     elif args.format == "md":
         _emit(report.render_rules_markdown(strategies, counts))
+    elif args.format == "csv":
+        _emit(report.render_rules_csv(strategies, counts))
     else:
         _emit(report.render_rules_text(strategies, counts))
     return ExitCode.SUCCESS

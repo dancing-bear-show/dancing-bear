@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import unittest
 
 from qlty.models import Location, RuleStrategy, Tier
 from qlty.report import (
     TriageEntry,
+    render_rules_csv,
     render_rules_json,
     render_rules_markdown,
     render_rules_text,
+    render_scan_csv,
     render_scan_json,
     render_scan_markdown,
     render_scan_text,
+    render_triage_csv,
     render_triage_json,
     render_triage_markdown,
     render_triage_text,
@@ -321,6 +326,76 @@ class StrategyTableTests(unittest.TestCase):
         )
         self.assertTrue(RuleStrategy("r", Tier.B, "a", "why").actionable)
         self.assertFalse(RuleStrategy("r", Tier.C, "a", "why").actionable)
+
+
+class CsvRenderingTests(unittest.TestCase):
+    """CSV is a real format, not a flag that silently falls back to text."""
+
+    def test_scan_csv_is_one_row_per_finding(self):
+        findings = [make_finding(rule="a"), make_finding(rule="b")]
+        rows = list(csv.reader(io.StringIO(render_scan_csv(_result(findings)))))
+        self.assertEqual(rows[0][0], "rule")
+        self.assertEqual(len(rows), 3)  # header + 2 findings
+
+    def test_scan_csv_differs_from_text(self):
+        # A dead --format choice would render identically to the default.
+        result = _result([make_finding(rule="a")])
+        self.assertNotEqual(render_scan_csv(result), render_scan_text(result))
+
+    def test_scan_csv_strips_ansi_from_messages(self):
+        finding = make_finding(rule="a", message="\x1b[31mred\x1b[0m")
+        self.assertNotIn("\x1b", render_scan_csv(_result([finding])))
+
+    def test_scan_csv_quotes_embedded_commas(self):
+        finding = make_finding(rule="a", message="one, two, three")
+        rows = list(csv.reader(io.StringIO(render_scan_csv(_result([finding])))))
+        self.assertEqual(rows[1][-1], "one, two, three")
+
+    def test_scan_csv_absent_value_is_blank_not_zero(self):
+        # 0 would read as "below every threshold"; unknown must stay empty.
+        finding = make_finding(rule="a", value=None)
+        rows = list(csv.reader(io.StringIO(render_scan_csv(_result([finding])))))
+        self.assertEqual(rows[1][rows[0].index("value")], "")
+
+    def test_scan_csv_header_only_when_no_findings(self):
+        rows = list(csv.reader(io.StringIO(render_scan_csv(_result([])))))
+        self.assertEqual(len(rows), 1)
+
+    def test_rules_csv_lists_every_known_rule(self):
+        strategies = known_strategies()
+        rows = list(csv.reader(io.StringIO(render_rules_csv(strategies))))
+        self.assertEqual(len(rows), len(strategies) + 1)
+
+    def test_rules_csv_counts_blank_without_a_scan(self):
+        rows = list(csv.reader(io.StringIO(render_rules_csv(known_strategies()))))
+        self.assertTrue(all(row[2] == "" for row in rows[1:]))
+
+    def test_rules_csv_includes_counts_when_supplied(self):
+        strategies = known_strategies()
+        text = render_rules_csv(strategies, {strategies[0].rule: 7})
+        rows = list(csv.reader(io.StringIO(text)))
+        self.assertEqual(rows[1][2], "7")
+
+    def test_triage_csv_is_one_row_per_rule(self):
+        entry = TriageEntry(
+            strategy=strategy_for("similar-code"),
+            findings=(make_finding(rule="similar-code"),),
+        )
+        rows = list(
+            csv.reader(io.StringIO(render_triage_csv([entry], _result())))
+        )
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1][0], "similar-code")
+
+    def test_triage_csv_reports_no_fix_for_report_only_tiers(self):
+        entry = TriageEntry(
+            strategy=strategy_for("similar-code"),
+            findings=(make_finding(rule="similar-code"),),
+        )
+        rows = list(
+            csv.reader(io.StringIO(render_triage_csv([entry], _result())))
+        )
+        self.assertEqual(rows[1][rows[0].index("proposes_fix")], "no")
 
 
 class NonActionableTierLabelTests(unittest.TestCase):

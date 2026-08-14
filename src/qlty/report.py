@@ -7,6 +7,8 @@ LLM consumers.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from dataclasses import dataclass
@@ -162,6 +164,34 @@ def render_scan_json(result: ScanResult) -> str:
     return json.dumps(scan_payload(result), indent=2, sort_keys=False)
 
 
+_CSV_COLUMNS = ("rule", "tier", "file", "line", "level", "value", "message")
+
+
+def render_scan_csv(result: ScanResult) -> str:
+    """One row per finding, for spreadsheets and downstream tooling.
+
+    Emits a row per finding rather than the per-rule rollup the text and
+    markdown views show: aggregate counts are the wrong shape for a format
+    whose whole point is filtering and sorting individual rows.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(_CSV_COLUMNS)
+    for finding in result.findings:
+        writer.writerow(
+            [
+                finding.rule,
+                strategy_for(finding.rule).tier.value,
+                finding.file,
+                finding.line,
+                finding.level,
+                "" if finding.value is None else finding.value,
+                strip_ansi(finding.message),
+            ]
+        )
+    return buf.getvalue().rstrip("\n")
+
+
 def render_scan_markdown(result: ScanResult) -> str:
     lines = ["# qlty scan", ""]
     lines.extend(f"- {line}" for line in _scan_header(result))
@@ -274,6 +304,45 @@ def render_triage_json(
     entries: Sequence[TriageEntry], result: ScanResult
 ) -> str:
     return json.dumps(triage_payload(entries, result), indent=2, sort_keys=False)
+
+
+def render_triage_csv(entries: Sequence[TriageEntry], result: ScanResult) -> str:
+    """One row per rule: tier, count, and whether a fix is proposed."""
+    del result  # header prose has no CSV equivalent; rows carry the data
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(("rule", "tier", "count", "proposes_fix", "action"))
+    for entry in entries:
+        writer.writerow(
+            [
+                entry.rule,
+                entry.strategy.tier.value,
+                entry.count,
+                "yes" if entry.proposes_fix else "no",
+                entry.strategy.action,
+            ]
+        )
+    return buf.getvalue().rstrip("\n")
+
+
+def render_rules_csv(
+    strategies: Sequence[RuleStrategy], counts: Optional[dict[str, int]] = None
+) -> str:
+    """One row per known rule, with live counts when a scan supplied them."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(("rule", "tier", "count", "tooling", "action"))
+    for strategy in strategies:
+        writer.writerow(
+            [
+                strategy.rule,
+                strategy.tier.value,
+                "" if counts is None else counts.get(strategy.rule, 0),
+                tooling_for(strategy.rule) or "none",
+                strategy.action,
+            ]
+        )
+    return buf.getvalue().rstrip("\n")
 
 
 _NO_FIX_LABELS = {
