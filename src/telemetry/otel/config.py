@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 def _get_repo_root() -> Path:
-    """Return the dancing-bear repo root (two levels above telemetry/otel/config.py)."""
-    return Path(__file__).resolve().parents[2]
+    """Return the dancing-bear repo root (three levels above telemetry/otel/config.py)."""
+    return Path(__file__).resolve().parents[3]
 
 
 @dataclass(frozen=True)

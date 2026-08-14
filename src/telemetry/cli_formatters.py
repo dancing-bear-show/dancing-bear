@@ -57,7 +57,7 @@ def _fmt_tokens(n: int) -> str:
     if n >= 1_000_000:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
-        return f"{n // 1_000}K"
+        return f"{n / 1_000:.0f}K"
     return str(n)
 
 
@@ -81,6 +81,7 @@ def _session_to_dict(s: object) -> dict[str, object]:
         "output_tokens": s.output_tokens,
         "cache_read_tokens": s.cache_read_tokens,
         "cache_creation_tokens": s.cache_creation_tokens,
+        "efficiency_score": round(s.efficiency_score, 6),
         "num_agents": len(s.agents),
         "agents": [
             {

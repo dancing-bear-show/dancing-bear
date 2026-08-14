@@ -20,54 +20,14 @@ from telemetry.otel.menubar_parsers import (
     _parse_nano_ts,
     _process_tool_result_event,
     _read_rotated_jsonl,
-    _safe_float,
-    _safe_int,
     _top_n,
     _trunc,
     _MAX_ATTR_LEN,
 )
 
-
-class TestSafeFloat(unittest.TestCase):
-    def test_float_passthrough(self) -> None:
-        self.assertEqual(_safe_float(3.14), 3.14)
-
-    def test_int_converted(self) -> None:
-        self.assertEqual(_safe_float(5), 5.0)
-
-    def test_string_converted(self) -> None:
-        self.assertEqual(_safe_float("2.5"), 2.5)
-
-    def test_bool_returns_zero(self) -> None:
-        self.assertEqual(_safe_float(True), 0.0)
-        self.assertEqual(_safe_float(False), 0.0)
-
-    def test_none_returns_zero(self) -> None:
-        self.assertEqual(_safe_float(None), 0.0)
-
-    def test_invalid_string_returns_zero(self) -> None:
-        self.assertEqual(_safe_float("abc"), 0.0)
-
-
-class TestSafeInt(unittest.TestCase):
-    def test_int_passthrough(self) -> None:
-        self.assertEqual(_safe_int(42), 42)
-
-    def test_float_truncated(self) -> None:
-        self.assertEqual(_safe_int(3.9), 3)
-
-    def test_string_converted(self) -> None:
-        self.assertEqual(_safe_int("7"), 7)
-
-    def test_bool_returns_zero(self) -> None:
-        self.assertEqual(_safe_int(True), 0)
-        self.assertEqual(_safe_int(False), 0)
-
-    def test_none_returns_zero(self) -> None:
-        self.assertEqual(_safe_int(None), 0)
-
-    def test_invalid_string_returns_zero(self) -> None:
-        self.assertEqual(_safe_int("xyz"), 0)
+# _safe_float/_safe_int now live in telemetry._menubar_budget; menubar_parsers.py
+# delegates to them with an explicit 0/0.0 default to preserve this module's behavior.
+# See tests/telemetry_tests/test_menubar_budget.py for the general-purpose coverage.
 
 
 class TestParseNanoTs(unittest.TestCase):

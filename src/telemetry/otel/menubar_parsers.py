@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 from core.fileutil import find_rotated_files, iter_jsonl_file
+from telemetry._menubar_budget import _safe_float, _safe_int
 from telemetry.otel._constants import METRIC_COST_USAGE
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -72,26 +73,6 @@ def _parse_attrs(attr_list: list[dict[str, object]]) -> dict[str, object]:
     return out
 
 
-def _safe_float(v: object) -> float:
-    """Coerce v to float, returning 0.0 on failure."""
-    if isinstance(v, bool):
-        return 0.0
-    try:
-        return float(v)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _safe_int(v: object) -> int:
-    """Coerce v to int, returning 0 on failure."""
-    if isinstance(v, bool):
-        return 0
-    try:
-        return int(float(v))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return 0
-
-
 def _parse_nano_ts(value: object) -> int:
     """Parse a timeUnixNano field to int, returning 0 on malformed input."""
     try:
@@ -134,7 +115,7 @@ def _accumulate_datapoint(
     ts_nano = _parse_nano_ts(dp.get("timeUnixNano", 0))
     if ts_nano / 1e9 < cutoff:
         return
-    value = _safe_float(dp.get("asDouble", dp.get("asInt", 0)))
+    value = _safe_float(dp.get("asDouble", dp.get("asInt", 0)), 0.0)
     raw_attrs = dp.get("attributes", [])
     attrs = _parse_attrs(raw_attrs if isinstance(raw_attrs, list) else [])
     out.append((name, value, attrs))
@@ -145,7 +126,7 @@ def _accumulate_loc_delta(
 ) -> None:
     """Add a lines_of_code datapoint into lines_added/lines_removed by its type attr."""
     loc_type = str(attrs.get("type", ""))
-    v = _safe_int(value)
+    v = _safe_int(value, 0)
     if loc_type == "added":
         counters["lines_added"] = int(counters["lines_added"]) + v  # type: ignore[arg-type]
     elif loc_type == "removed":
@@ -156,7 +137,7 @@ def _accumulate_commit_count(
     value: float, attrs: dict[str, object], counters: dict[str, object]  # noqa: ARG001
 ) -> None:
     """Add a commit.count datapoint into counters['commits_today']."""
-    counters["commits_today"] = int(counters["commits_today"]) + _safe_int(value)  # type: ignore[arg-type]
+    counters["commits_today"] = int(counters["commits_today"]) + _safe_int(value, 0)  # type: ignore[arg-type]
 
 
 def _accumulate_language_count(
@@ -164,7 +145,7 @@ def _accumulate_language_count(
 ) -> None:
     """Add a code_edit_tool.decision datapoint into counters['lang_counts']."""
     lang_counts: dict[str, int] = counters["lang_counts"]  # type: ignore[assignment]
-    lang_counts[_trunc(attrs.get("language", "unknown"))] += _safe_int(value)
+    lang_counts[_trunc(attrs.get("language", "unknown"))] += _safe_int(value, 0)
 
 
 # metric name -> accumulator handler, each taking (value, attrs, counters).
@@ -196,8 +177,8 @@ def _accumulate_compaction_events(
     for event_type, _ts, attrs in events_24h:
         if event_type == "claude_code.compaction":
             counters["compaction_count"] = int(counters["compaction_count"]) + 1  # type: ignore[arg-type]
-            pre = _safe_int(attrs.get("pre_tokens", 0))
-            post = _safe_int(attrs.get("post_tokens", 0))
+            pre = _safe_int(attrs.get("pre_tokens", 0), 0)
+            post = _safe_int(attrs.get("post_tokens", 0), 0)
             counters["tokens_saved"] = int(counters["tokens_saved"]) + max(0, pre - post)  # type: ignore[arg-type]
 
 
@@ -228,8 +209,8 @@ def _process_tool_result_event(
         state["bash_calls"] = state["bash_calls"] + 1  # type: ignore[operator]
         if not is_success:
             state["bash_errors"] = state["bash_errors"] + 1  # type: ignore[operator]
-    state["total_input_bytes"] = state["total_input_bytes"] + _safe_float(attrs.get("tool_input_size_bytes", 0))  # type: ignore[operator]
-    state["total_output_bytes"] = state["total_output_bytes"] + _safe_float(attrs.get("tool_result_size_bytes", 0))  # type: ignore[operator]
+    state["total_input_bytes"] = state["total_input_bytes"] + _safe_float(attrs.get("tool_input_size_bytes", 0), 0.0)  # type: ignore[operator]
+    state["total_output_bytes"] = state["total_output_bytes"] + _safe_float(attrs.get("tool_result_size_bytes", 0), 0.0)  # type: ignore[operator]
 
 
 def _accumulate_cost_metric(
@@ -239,9 +220,9 @@ def _accumulate_cost_metric(
     model_cost: dict[str, float],
 ) -> None:
     """Accumulate a cost metric into cost_holder[0] and model_cost breakdown."""
-    cost_holder[0] += _safe_float(value)
+    cost_holder[0] += _safe_float(value, 0.0)
     model = _trunc(attrs.get("model", "unknown"))
-    model_cost[model] += _safe_float(value)
+    model_cost[model] += _safe_float(value, 0.0)
 
 
 def _iter_metric_datapoints(

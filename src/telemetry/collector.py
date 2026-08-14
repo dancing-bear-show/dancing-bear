@@ -11,14 +11,10 @@ from pathlib import Path
 from rich.console import Console
 
 from core.cli_output import emit_rows
+from telemetry.otel.config import _get_repo_root
 
 console = Console()
 _err_console = Console(stderr=True)
-
-def _get_repo_root() -> Path:
-    """Return the repo root (two levels above telemetry/collector.py)."""
-    return Path(__file__).resolve().parents[1]
-
 
 _COMPOSE_PATH = _get_repo_root() / "docker-compose.otel.yaml"
 _OTEL_DATA_DIR = Path.home() / ".config" / "otel"

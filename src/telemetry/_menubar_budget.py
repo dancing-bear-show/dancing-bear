@@ -21,7 +21,9 @@ def _safe_float(value: object, default: float) -> float:
 
 def _safe_int(value: object, default: int) -> int:
     """Coerce arbitrary JSON-decoded values to int; fall back to default."""
+    if isinstance(value, bool):
+        return default
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
