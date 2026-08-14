@@ -47,8 +47,14 @@ applicability by file type:
   same file. Partial adoption is harder to audit than either fully typed or
   fully untyped code.
 - **triggers**: A `.py` file that imports `Optional` or `Union` from `typing`
-  **and** also uses `X | None` or `X | Y` in the same file; files with a mix
-  of `List[X]`/`Dict[K, V]` generics and `list[X]`/`dict[K, V]` generics.
+  **and** also uses `X | None` or `X | Y` in the same file; or a file mixing
+  capitalised `typing` generics (`List[X]`, `Dict[K, V]`, `Tuple[X, ...]`)
+  with their builtin equivalents (`list[X]`, `dict[K, V]`, `tuple[X, ...]`).
+- **not a trigger**: `Optional[X]` alongside *builtin* generics (`list[X]`,
+  `dict[K, V]`, `tuple[X, ...]`). That combination is this repo's prevailing
+  convention, not drift — `core/cli_output.py` and `core/cli_framework.py`
+  both do it. The concern is about two spellings of the *same* construct
+  coexisting, not about `typing` and builtins coexisting at all.
 - **example**: A module with `def fetch(key: Optional[str]) -> dict` in one
   function and `def store(key: str | None) -> None` in another — flag the
   entire file for a normalisation pass to PEP 585/604 style.

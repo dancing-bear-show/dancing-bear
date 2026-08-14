@@ -38,6 +38,7 @@ src/
   metals/       # precious metals purchase tracking
   apple_music/  # Apple Music CLI
   wifi/         # Wi-Fi CLI
+  qlty/         # qlty scan/triage wrapper (tiers findings by remediation strategy)
 bin/            # entry wrappers and helper scripts
 tests/          # lightweight unittest suite
 .llm/           # LLM context, flows, capsules
@@ -74,7 +75,7 @@ Activation Policy (Recommended)
 
 LLM Imperatives
 - Activate env when running Python commands only if needed; prefer `direnv` or direct `.venv/bin/python` when relevant.
-- Use unified wrapper: `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker>` (preferred), or short names: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`. The `-assistant` suffixed forms are legacy aliases, retained for compatibility.
+- Use unified wrapper: `./bin/assistant <mail|calendar|schedule|resume|phone|whatsapp|maker>` (preferred), or short names: `./bin/mail`, `./bin/calendar`, `./bin/schedule`, `./bin/phone`, `./bin/wifi`, `./bin/whatsapp`, `./bin/maker`, `./bin/qlty-assistant`. The `-assistant` suffixed forms are legacy aliases, retained for compatibility (except `./bin/qlty-assistant`, whose suffix is required so it does not shadow the real `qlty` binary).
 - Persist credentials to INI with profiles (single source of truth)
 - Default to dry-run style flows for destructive operations; provide plan/apply
 
@@ -90,7 +91,7 @@ Familiarization Policy (Fast + Lean)
 - Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
   1) `.llm/CONTEXT.md`, `.llm/DOMAIN_MAP.md`, `README.md`
-  2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`
+  2) Entry points: `bin/assistant`, `bin/mail`, `bin/calendar`, `bin/schedule`, `bin/phone`, `bin/wifi`, `bin/whatsapp`, `bin/qlty-assistant`
   3) Shared helpers: `src/core/`
   4) Mail config/DSL: `src/mail/dsl.py`, `src/mail/config_resolver.py`, `src/mail/utils/filters.py`
   5) Providers/APIs: `src/mail/providers/*.py`, `src/mail/gmail_api.py`, `src/mail/outlook_api/`

@@ -6,11 +6,44 @@ import datetime
 import unittest
 
 from core.date_utils import (
+    RRULE_CODE_TO_WEEKDAY,
     normalize_day,
     normalize_days,
     parse_month,
     to_iso_str,
 )
+
+
+class TestRruleCodeToWeekday(unittest.TestCase):
+    """RRULE_CODE_TO_WEEKDAY must track datetime's Monday=0 convention.
+
+    It is derived from DAY_NAMES, so reordering that list would silently
+    shift every index. These assertions pin the contract instead.
+    """
+
+    def test_covers_all_seven_codes(self):
+        self.assertEqual(len(RRULE_CODE_TO_WEEKDAY), 7)
+        self.assertEqual(
+            set(RRULE_CODE_TO_WEEKDAY),
+            {"MO", "TU", "WE", "TH", "FR", "SA", "SU"},
+        )
+
+    def test_indices_are_zero_through_six(self):
+        self.assertEqual(sorted(RRULE_CODE_TO_WEEKDAY.values()), list(range(7)))
+
+    def test_matches_datetime_weekday(self):
+        """Each code maps to the index datetime.date.weekday() reports."""
+        # 2024-01-01 is a Monday, so the Nth day is weekday N.
+        monday = datetime.date(2024, 1, 1)
+        for code, index in RRULE_CODE_TO_WEEKDAY.items():
+            actual = monday + datetime.timedelta(days=index)
+            self.assertEqual(
+                actual.weekday(), index, f"{code} should be weekday {index}"
+            )
+
+    def test_monday_is_zero_and_sunday_is_six(self):
+        self.assertEqual(RRULE_CODE_TO_WEEKDAY["MO"], 0)
+        self.assertEqual(RRULE_CODE_TO_WEEKDAY["SU"], 6)
 
 
 class TestNormalizeDay(unittest.TestCase):

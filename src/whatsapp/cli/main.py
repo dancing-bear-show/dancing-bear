@@ -13,15 +13,12 @@ from core.assistant import BaseAssistant
 from core.cli_framework import CLIApp
 from core.cli_output import OutputFormat
 
-from ..meta import APP_ID, PURPOSE
+from ..meta import META
 from ..pipeline import SearchProcessor, SearchProducer, SearchRequest, SearchRequestConsumer
 from ..search import default_db_path
 
 
-assistant = BaseAssistant(
-    APP_ID,
-    f"agentic: {APP_ID}\npurpose: {PURPOSE}",
-)
+assistant = BaseAssistant(META.app_id, META.agentic_fallback)
 
 app = CLIApp(
     "whatsapp",

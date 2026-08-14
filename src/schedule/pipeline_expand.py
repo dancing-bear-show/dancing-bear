@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.constants import FMT_DATETIME
-from core.date_utils import to_iso_str as _to_iso_str
+from core.date_utils import RRULE_CODE_TO_WEEKDAY, to_iso_str as _to_iso_str
 
 
 @dataclass
@@ -69,8 +69,7 @@ def _norm_dt_minute(s: str | None) -> str | None:
 
 
 def _weekday_code_to_py(d: str) -> int | None:
-    m = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
-    return m.get(d.upper())
+    return RRULE_CODE_TO_WEEKDAY.get(d.upper())
 
 
 def _to_date(d: Any) -> _dt.date:

@@ -1,0 +1,1064 @@
+[
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 19 lines of similar code in 2 locations (mass = 157)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 30,
+    "value": 19,
+    "valueDelta": 4,
+    "location": {
+      "path": "src/core/date_utils.py",
+      "range": {
+        "startLine": 32,
+        "endLine": 50,
+        "startByte": 683,
+        "endByte": 1018
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/telemetry/otel/cli/__init__.py",
+        "range": {
+          "startLine": 120,
+          "endLine": 138
+        }
+      }
+    ],
+    "properties": {
+      "mass": 157.0,
+      "node_kind": "expression_statement",
+      "identical": false,
+      "structural_hash": "a22d916ecb805a5407257ae97b1f8c20"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 20 lines of similar code in 3 locations (mass = 98)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 35,
+    "value": 20,
+    "valueDelta": 5,
+    "location": {
+      "path": "src/desk/agentic.py",
+      "range": {
+        "startLine": 45,
+        "endLine": 64,
+        "startByte": 1387,
+        "endByte": 2189
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/schedule/agentic.py",
+        "range": {
+          "startLine": 56,
+          "endLine": 75
+        }
+      },
+      {
+        "path": "src/resume/agentic.py",
+        "range": {
+          "startLine": 48,
+          "endLine": 67
+        }
+      }
+    ],
+    "properties": {
+      "mass": 98.0,
+      "identical": false,
+      "structural_hash": "1093212ffd89dea7c90854acea33975b",
+      "node_kind": "function_definition"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 36 lines of similar code in 2 locations (mass = 141)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 115,
+    "value": 36,
+    "valueDelta": 21,
+    "location": {
+      "path": "src/desk/llm_cli.py",
+      "range": {
+        "startLine": 1,
+        "endLine": 36,
+        "startByte": 0,
+        "endByte": 1104
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/resume/llm_cli.py",
+        "range": {
+          "startLine": 1,
+          "endLine": 36
+        }
+      }
+    ],
+    "properties": {
+      "node_kind": "module",
+      "identical": false,
+      "structural_hash": "f8355f173c2b5cb2d80e218ea114316f",
+      "mass": 141.0
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 21 lines of similar code in 2 locations (mass = 77)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 40,
+    "value": 21,
+    "valueDelta": 6,
+    "location": {
+      "path": "src/metals/vendors.py",
+      "range": {
+        "startLine": 31,
+        "endLine": 51,
+        "startByte": 678,
+        "endByte": 1121
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/phone/classify.py",
+        "range": {
+          "startLine": 114,
+          "endLine": 134
+        }
+      }
+    ],
+    "properties": {
+      "mass": 77.0,
+      "structural_hash": "35d1e582389a6a003445a3c61c061a7e",
+      "node_kind": "list",
+      "identical": false
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 24 lines of similar code in 2 locations (mass = 94)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 55,
+    "value": 24,
+    "valueDelta": 9,
+    "location": {
+      "path": "src/phone/classify.py",
+      "range": {
+        "startLine": 71,
+        "endLine": 94,
+        "startByte": 1731,
+        "endByte": 2148
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/phone/classify.py",
+        "range": {
+          "startLine": 158,
+          "endLine": 181
+        }
+      }
+    ],
+    "properties": {
+      "identical": false,
+      "structural_hash": "264832654b3df85bd7649c52bcc40cca",
+      "node_kind": "pair",
+      "mass": 94.0
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 21 lines of similar code in 2 locations (mass = 77)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 40,
+    "value": 21,
+    "valueDelta": 6,
+    "location": {
+      "path": "src/phone/classify.py",
+      "range": {
+        "startLine": 114,
+        "endLine": 134,
+        "startByte": 2511,
+        "endByte": 2878
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/metals/vendors.py",
+        "range": {
+          "startLine": 31,
+          "endLine": 51
+        }
+      }
+    ],
+    "properties": {
+      "mass": 77.0,
+      "node_kind": "list",
+      "identical": false,
+      "structural_hash": "35d1e582389a6a003445a3c61c061a7e"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 24 lines of similar code in 2 locations (mass = 94)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 55,
+    "value": 24,
+    "valueDelta": 9,
+    "location": {
+      "path": "src/phone/classify.py",
+      "range": {
+        "startLine": 158,
+        "endLine": 181,
+        "startByte": 3289,
+        "endByte": 3700
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/phone/classify.py",
+        "range": {
+          "startLine": 71,
+          "endLine": 94
+        }
+      }
+    ],
+    "properties": {
+      "node_kind": "pair",
+      "mass": 94.0,
+      "structural_hash": "264832654b3df85bd7649c52bcc40cca",
+      "identical": false
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 20 lines of similar code in 3 locations (mass = 98)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 35,
+    "value": 20,
+    "valueDelta": 5,
+    "location": {
+      "path": "src/resume/agentic.py",
+      "range": {
+        "startLine": 48,
+        "endLine": 67,
+        "startByte": 1818,
+        "endByte": 2686
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/schedule/agentic.py",
+        "range": {
+          "startLine": 56,
+          "endLine": 75
+        }
+      },
+      {
+        "path": "src/desk/agentic.py",
+        "range": {
+          "startLine": 45,
+          "endLine": 64
+        }
+      }
+    ],
+    "properties": {
+      "structural_hash": "1093212ffd89dea7c90854acea33975b",
+      "mass": 98.0,
+      "identical": false,
+      "node_kind": "function_definition"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 36 lines of similar code in 2 locations (mass = 141)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 115,
+    "value": 36,
+    "valueDelta": 21,
+    "location": {
+      "path": "src/resume/llm_cli.py",
+      "range": {
+        "startLine": 1,
+        "endLine": 36,
+        "startByte": 0,
+        "endByte": 1189
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/desk/llm_cli.py",
+        "range": {
+          "startLine": 1,
+          "endLine": 36
+        }
+      }
+    ],
+    "properties": {
+      "identical": false,
+      "node_kind": "module",
+      "mass": 141.0,
+      "structural_hash": "f8355f173c2b5cb2d80e218ea114316f"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 20 lines of similar code in 3 locations (mass = 98)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 35,
+    "value": 20,
+    "valueDelta": 5,
+    "location": {
+      "path": "src/schedule/agentic.py",
+      "range": {
+        "startLine": 56,
+        "endLine": 75,
+        "startByte": 2260,
+        "endByte": 3177
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/resume/agentic.py",
+        "range": {
+          "startLine": 48,
+          "endLine": 67
+        }
+      },
+      {
+        "path": "src/desk/agentic.py",
+        "range": {
+          "startLine": 45,
+          "endLine": 64
+        }
+      }
+    ],
+    "properties": {
+      "node_kind": "function_definition",
+      "mass": 98.0,
+      "identical": false,
+      "structural_hash": "1093212ffd89dea7c90854acea33975b"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 19 lines of similar code in 2 locations (mass = 157)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 30,
+    "value": 19,
+    "valueDelta": 4,
+    "location": {
+      "path": "src/telemetry/otel/cli/__init__.py",
+      "range": {
+        "startLine": 120,
+        "endLine": 138,
+        "startByte": 3685,
+        "endByte": 4627
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/core/date_utils.py",
+        "range": {
+          "startLine": 32,
+          "endLine": 50
+        }
+      }
+    ],
+    "properties": {
+      "structural_hash": "a22d916ecb805a5407257ae97b1f8c20",
+      "identical": false,
+      "node_kind": "expression_statement",
+      "mass": 157.0
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 21 lines of similar code in 2 locations (mass = 89)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 40,
+    "value": 21,
+    "valueDelta": 6,
+    "location": {
+      "path": "src/whatsapp/meta.py",
+      "range": {
+        "startLine": 1,
+        "endLine": 21,
+        "startByte": 0,
+        "endByte": 658
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/wifi/meta.py",
+        "range": {
+          "startLine": 1,
+          "endLine": 21
+        }
+      }
+    ],
+    "properties": {
+      "structural_hash": "01624a8c416f28c88d702484a03d613a",
+      "mass": 89.0,
+      "node_kind": "module",
+      "identical": false
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "duplication",
+    "ruleKey": "similar-code",
+    "message": "Found 21 lines of similar code in 2 locations (mass = 89)",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_DUPLICATION",
+    "effortMinutes": 40,
+    "value": 21,
+    "valueDelta": 6,
+    "location": {
+      "path": "src/wifi/meta.py",
+      "range": {
+        "startLine": 1,
+        "endLine": 21,
+        "startByte": 0,
+        "endByte": 640
+      }
+    },
+    "otherLocations": [
+      {
+        "path": "src/whatsapp/meta.py",
+        "range": {
+          "startLine": 1,
+          "endLine": 21
+        }
+      }
+    ],
+    "properties": {
+      "node_kind": "module",
+      "structural_hash": "01624a8c416f28c88d702484a03d613a",
+      "mass": 89.0,
+      "identical": false
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "boolean-logic",
+    "message": "Complex binary expression",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 10,
+    "value": 4,
+    "location": {
+      "path": "src/mail/outlook/processors_calendar.py",
+      "range": {
+        "startLine": 377,
+        "startColumn": 35,
+        "endLine": 377,
+        "endColumn": 60,
+        "startByte": 14296,
+        "endByte": 14321
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "boolean-logic",
+    "message": "Complex binary expression",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 10,
+    "value": 4,
+    "location": {
+      "path": "src/metals/gmail_costs_extract.py",
+      "range": {
+        "startLine": 87,
+        "startColumn": 9,
+        "endLine": 87,
+        "endColumn": 49,
+        "startByte": 2981,
+        "endByte": 3021
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "boolean-logic",
+    "message": "Complex binary expression",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 10,
+    "value": 4,
+    "location": {
+      "path": "src/telemetry/tui/_formatters.py",
+      "range": {
+        "startLine": 36,
+        "startColumn": 9,
+        "endLine": 38,
+        "endColumn": 34,
+        "startByte": 929,
+        "endByte": 1021
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-complexity",
+    "message": "Function with high complexity (count = 18): main",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 10,
+    "value": 18,
+    "location": {
+      "path": "costco_receipts.py",
+      "range": {
+        "startLine": 78,
+        "startColumn": 1,
+        "endLine": 164,
+        "endColumn": 67,
+        "startByte": 3262,
+        "endByte": 6507
+      }
+    },
+    "partialFingerprints": {
+      "function.name": "main"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-complexity",
+    "message": "Function with high complexity (count = 18): _render_content",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 10,
+    "value": 18,
+    "location": {
+      "path": "src/resume/docx_standard.py",
+      "range": {
+        "startLine": 86,
+        "startColumn": 5,
+        "endLine": 119,
+        "endColumn": 48,
+        "startByte": 2800,
+        "endByte": 4057
+      }
+    },
+    "partialFingerprints": {
+      "function.name": "_render_content"
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): __init__",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/core/cli_framework.py",
+      "range": {
+        "startLine": 57,
+        "startColumn": 17,
+        "endLine": 65,
+        "endColumn": 6,
+        "startByte": 1328,
+        "endByte": 1525
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): command",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/core/cli_framework.py",
+      "range": {
+        "startLine": 103,
+        "startColumn": 16,
+        "endLine": 111,
+        "endColumn": 6,
+        "startByte": 2891,
+        "endByte": 3080
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): run_with_assistant",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/core/cli_framework.py",
+      "range": {
+        "startLine": 323,
+        "startColumn": 27,
+        "endLine": 331,
+        "endColumn": 6,
+        "startByte": 10660,
+        "endByte": 10953
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): request",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/core/http.py",
+      "range": {
+        "startLine": 216,
+        "startColumn": 16,
+        "endLine": 224,
+        "endColumn": 6,
+        "startByte": 8749,
+        "endByte": 8959
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): build_mobileconfig",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/phone/profile.py",
+      "range": {
+        "startLine": 432,
+        "startColumn": 23,
+        "endLine": 439,
+        "endColumn": 2,
+        "startByte": 13487,
+        "endByte": 13720
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): add_named_bullet",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/resume/docx_renderers.py",
+      "range": {
+        "startLine": 75,
+        "startColumn": 25,
+        "endLine": 83,
+        "endColumn": 6,
+        "startByte": 2646,
+        "endByte": 2815
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): add_bullets",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/resume/docx_renderers.py",
+      "range": {
+        "startLine": 98,
+        "startColumn": 20,
+        "endLine": 106,
+        "endColumn": 6,
+        "startByte": 3242,
+        "endByte": 3443
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): render_simple_list",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/resume/docx_renderers.py",
+      "range": {
+        "startLine": 305,
+        "startColumn": 27,
+        "endLine": 313,
+        "endColumn": 6,
+        "startByte": 10176,
+        "endByte": 10416
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): agents",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/telemetry/cli_sessions.py",
+      "range": {
+        "startLine": 199,
+        "startColumn": 11,
+        "endLine": 199,
+        "endColumn": 101,
+        "startByte": 7783,
+        "endByte": 7873
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): parse_transcripts",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/telemetry/parse_transcripts.py",
+      "range": {
+        "startLine": 128,
+        "startColumn": 22,
+        "endLine": 135,
+        "endColumn": 2,
+        "startByte": 4578,
+        "endByte": 4701
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): ping_target",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/wifi/diagnostics_probes.py",
+      "range": {
+        "startLine": 286,
+        "startColumn": 16,
+        "endLine": 286,
+        "endColumn": 95,
+        "startByte": 8578,
+        "endByte": 8657
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): finish",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/worker/queue_ops.py",
+      "range": {
+        "startLine": 164,
+        "startColumn": 11,
+        "endLine": 171,
+        "endColumn": 2,
+        "startByte": 5211,
+        "endByte": 5357
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): requeue_error",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/worker/queue_ops.py",
+      "range": {
+        "startLine": 279,
+        "startColumn": 18,
+        "endLine": 286,
+        "endColumn": 2,
+        "startByte": 9198,
+        "endByte": 9356
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): _expand_includes",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/workflow/include.py",
+      "range": {
+        "startLine": 262,
+        "startColumn": 21,
+        "endLine": 269,
+        "endColumn": 2,
+        "startByte": 9450,
+        "endByte": 9637
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): resume",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/workflow/orchestrator.py",
+      "range": {
+        "startLine": 102,
+        "startColumn": 15,
+        "endLine": 109,
+        "endColumn": 6,
+        "startByte": 2725,
+        "endByte": 2932
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "function-parameters",
+    "message": "Function with many parameters (count = 6): write_manifest",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 6,
+    "location": {
+      "path": "src/workflow/persistence.py",
+      "range": {
+        "startLine": 130,
+        "startColumn": 19,
+        "endLine": 137,
+        "endColumn": 2,
+        "startByte": 4016,
+        "endByte": 4186
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "return-statements",
+    "message": "Function with many returns (count = 13): register_filters_commands",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 40,
+    "value": 13,
+    "valueDelta": 5,
+    "location": {
+      "path": "src/mail/cli/cmd_filters.py",
+      "range": {
+        "startLine": 8,
+        "startColumn": 1,
+        "endLine": 127,
+        "endColumn": 25,
+        "startByte": 203,
+        "endByte": 7131
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "return-statements",
+    "message": "Function with many returns (count = 11): register_labels_commands",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 30,
+    "value": 11,
+    "valueDelta": 3,
+    "location": {
+      "path": "src/mail/cli/cmd_labels.py",
+      "range": {
+        "startLine": 8,
+        "startColumn": 1,
+        "endLine": 98,
+        "endColumn": 24,
+        "startByte": 185,
+        "endByte": 4913
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "qlty",
+    "driver": "structure",
+    "ruleKey": "return-statements",
+    "message": "Function with many returns (count = 8): cmd_reorg",
+    "level": "LEVEL_MEDIUM",
+    "language": "LANGUAGE_PYTHON",
+    "category": "CATEGORY_STRUCTURE",
+    "effortMinutes": 15,
+    "value": 8,
+    "location": {
+      "path": "src/phone/cli/cmd_merge.py",
+      "range": {
+        "startLine": 102,
+        "startColumn": 1,
+        "endLine": 152,
+        "endColumn": 13,
+        "startByte": 3614,
+        "endByte": 5205
+      }
+    },
+    "mode": "MODE_COMMENT"
+  }
+]

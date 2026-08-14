@@ -302,6 +302,23 @@ Code Quality (qlty)
 ~/.qlty/bin/qlty check --fix path/to/file.py
 ```
 
+Qlty Wrapper (./bin/qlty-assistant)
+```bash
+# Merged check + smells scan; defaults to --all, not changed-files-only
+./bin/qlty-assistant scan
+./bin/qlty-assistant scan --format json          # also: text (default), md
+./bin/qlty-assistant scan --check-only           # also: --smells-only, --changed
+
+# Group findings by rule with tier + remediation strategy
+./bin/qlty-assistant triage --format json
+
+# Rule strategy table; --counts adds live finding counts (runs a scan)
+./bin/qlty-assistant rules --counts
+
+# Guard the **/.claude/** exclusion trap: fail if a scan is implausibly empty
+./bin/qlty-assistant scan --expect-min 10
+```
+
 Security Comment Patterns (Bandit Suppressions)
 ```python
 # Use # nosec (not # noqa) for Bandit security warnings

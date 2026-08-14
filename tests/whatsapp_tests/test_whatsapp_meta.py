@@ -3,50 +3,48 @@ from __future__ import annotations
 
 import unittest
 
-from whatsapp import meta
+from whatsapp.meta import META
 
 
-class TestMetaConstants(unittest.TestCase):
-    """Tests for meta module constants."""
+class TestWhatsAppAppMeta(unittest.TestCase):
+    """Tests for the whatsapp AppMeta declaration.
+
+    Asserts the values this module actually declares. The rendering of each
+    fallback string is AppMeta's behaviour and is covered by core's tests.
+    """
 
     def test_app_id(self):
-        """Test APP_ID is set correctly."""
-        self.assertEqual(meta.APP_ID, "whatsapp")
+        """Test app_id is set correctly."""
+        self.assertEqual(META.app_id, "whatsapp")
 
     def test_purpose(self):
-        """Test PURPOSE is a non-empty string."""
-        self.assertIsInstance(meta.PURPOSE, str)
-        self.assertGreater(len(meta.PURPOSE), 0)
+        """Test purpose is a non-empty string."""
+        self.assertIsInstance(META.purpose, str)
+        self.assertGreater(len(META.purpose), 0)
+
+    def test_display_name(self):
+        """Test display_name keeps the capitalised spelling."""
+        self.assertEqual(META.display_name, "WhatsApp")
 
     def test_agentic_fallback(self):
-        """Test AGENTIC_FALLBACK contains app ID."""
-        self.assertIn(meta.APP_ID, meta.AGENTIC_FALLBACK)
-        self.assertIn("agentic:", meta.AGENTIC_FALLBACK)
-
-    def test_domain_map_fallback(self):
-        """Test DOMAIN_MAP_FALLBACK is a string."""
-        self.assertIsInstance(meta.DOMAIN_MAP_FALLBACK, str)
+        """Test agentic_fallback contains app ID."""
+        self.assertIn(META.app_id, META.agentic_fallback)
+        self.assertIn("agentic:", META.agentic_fallback)
 
     def test_inventory_fallback(self):
-        """Test INVENTORY_FALLBACK contains WhatsApp."""
-        self.assertIn("WhatsApp", meta.INVENTORY_FALLBACK)
+        """Test inventory_fallback uses the display name."""
+        self.assertIn("WhatsApp", META.inventory_fallback)
 
     def test_familiar_compact_fallback(self):
-        """Test FAMILIAR_COMPACT_FALLBACK is valid YAML-like."""
-        self.assertIn("meta:", meta.FAMILIAR_COMPACT_FALLBACK)
-        self.assertIn("steps:", meta.FAMILIAR_COMPACT_FALLBACK)
-        self.assertIn("whatsapp", meta.FAMILIAR_COMPACT_FALLBACK)
+        """Test familiar_compact_fallback is valid YAML-like."""
+        self.assertIn("meta:", META.familiar_compact_fallback)
+        self.assertIn("steps:", META.familiar_compact_fallback)
+        self.assertIn("whatsapp", META.familiar_compact_fallback)
 
     def test_familiar_extended_fallback(self):
-        """Test FAMILIAR_EXTENDED_FALLBACK has search command."""
-        self.assertIn("search", meta.FAMILIAR_EXTENDED_FALLBACK)
-        self.assertIn("whatsapp", meta.FAMILIAR_EXTENDED_FALLBACK)
-
-    def test_policies_fallback(self):
-        """Test POLICIES_FALLBACK has policies section."""
-        self.assertIn("policies:", meta.POLICIES_FALLBACK)
-        self.assertIn("style:", meta.POLICIES_FALLBACK)
-        self.assertIn("tests:", meta.POLICIES_FALLBACK)
+        """Test familiar_extended_fallback uses the example command."""
+        self.assertIn("search", META.familiar_extended_fallback)
+        self.assertIn("whatsapp", META.familiar_extended_fallback)
 
 
 if __name__ == "__main__":

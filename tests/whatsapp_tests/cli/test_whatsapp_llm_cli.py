@@ -75,9 +75,9 @@ class TestFamiliarExtendedFunction(unittest.TestCase):
 
     def test_returns_fallback(self):
         """Test returns the fallback directly."""
-        from whatsapp.meta import FAMILIAR_EXTENDED_FALLBACK
+        from whatsapp.meta import META
         result = llm_cli._familiar_extended()
-        self.assertEqual(result, FAMILIAR_EXTENDED_FALLBACK)
+        self.assertEqual(result, META.familiar_extended_fallback)
 
 
 class TestPoliciesFunction(unittest.TestCase):

@@ -285,3 +285,23 @@ def run(config: LlmConfig, argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     return int(func(args))
+
+
+def bind_entrypoints(
+    config: LlmConfig,
+) -> tuple[Callable[[], argparse.ArgumentParser], Callable[..., int]]:
+    """Bind ``config`` into module-level ``build_parser``/``main`` entrypoints.
+
+    Every domain ``llm_cli`` module ends with the same two one-line wrappers
+    partially applying its ``CONFIG``. ``bin/llm`` dispatches by calling
+    ``module.main(argv)``, so both names must stay module-level attributes --
+    hence returning functions to assign rather than exporting shared ones.
+    """
+
+    def build_parser_for_config() -> argparse.ArgumentParser:
+        return build_parser(config)
+
+    def main_for_config(argv: list[str] | None = None) -> int:
+        return run(config, argv)
+
+    return build_parser_for_config, main_for_config

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-
 from core import llm_cli
 
 CONFIG = llm_cli.make_domain_llm_module(
@@ -21,12 +19,7 @@ CONFIG = llm_cli.make_domain_llm_module(
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
-    return llm_cli.build_parser(CONFIG)
-
-
-def main(argv: list[str] | None = None) -> int:
-    return llm_cli.run(CONFIG, argv)
+build_parser, main = llm_cli.bind_entrypoints(CONFIG)
 
 
 if __name__ == "__main__":  # pragma: no cover
