@@ -60,9 +60,15 @@ class ScanRequest:
 
     ``scan_all`` defaults to True: diff-only scanning reports "no issues" on a
     clean branch, which is indistinguishable from a clean repo (plan F1).
+
+    ``include_tests`` defaults to True for the same reason: ``qlty smells``
+    excludes anything matching ``.qlty/qlty.toml``'s ``test_patterns`` unless
+    told otherwise, so scanning a test file silently analyzes zero files and
+    reports a confident "clean" -- a false clean is worse than an error.
     """
 
     scan_all: bool = True
+    include_tests: bool = True
     paths: tuple[str, ...] = ()
     sources: tuple[Source, ...] = (Source.CHECK, Source.SMELLS)
 
@@ -193,7 +199,10 @@ class Scanner:
         accumulated = _Accumulator()
         for source in request.sources:
             invocation = self._runner.invoke(
-                source, scan_all=request.scan_all, paths=request.paths
+                source,
+                scan_all=request.scan_all,
+                include_tests=request.include_tests,
+                paths=request.paths,
             )
             accumulated.add(invocation.findings)
             if invocation.degraded:

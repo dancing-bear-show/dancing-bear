@@ -34,16 +34,17 @@ class FakeRunner:
         results: Optional[dict[Source, list[InvocationResult]]] = None,
     ) -> None:
         self._results = results or {}
-        self.calls: list[tuple[Source, bool, tuple[str, ...]]] = []
+        self.calls: list[tuple[Source, bool, tuple[str, ...], bool]] = []
 
     def invoke(
         self,
         source: Source,
         *,
         scan_all: bool = True,
+        include_tests: bool = True,
         paths: Sequence[str] = (),
     ) -> InvocationResult:
-        self.calls.append((source, scan_all, tuple(paths)))
+        self.calls.append((source, scan_all, tuple(paths), include_tests))
         queued = self._results.get(source)
         if not queued:
             return InvocationResult(

@@ -45,6 +45,14 @@ class MergeTests(unittest.TestCase):
         Scanner(runner).scan(ScanRequest(scan_all=False))
         self.assertTrue(all(call[1] is False for call in runner.calls))
 
+    def test_include_tests_defaults_to_true(self):
+        self.assertTrue(ScanRequest().include_tests)
+
+    def test_include_tests_is_propagated(self):
+        runner = FakeRunner()
+        Scanner(runner).scan(ScanRequest(include_tests=False))
+        self.assertTrue(all(call[3] is False for call in runner.calls))
+
     def test_single_source_can_be_selected(self):
         runner = FakeRunner()
         Scanner(runner).scan(ScanRequest(sources=(Source.SMELLS,)))

@@ -79,6 +79,20 @@ class ScanCommandTests(unittest.TestCase):
             run_cli(["scan", "--changed"])
         self.assertTrue(all(call[1] is False for call in runner.calls))
 
+    def test_scan_defaults_to_including_tests(self):
+        # The silent-empty-scan trap: `qlty smells` excludes test_patterns
+        # unless told otherwise, so the default here must be "included".
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            run_cli(["scan"])
+        self.assertTrue(all(call[3] for call in runner.calls))
+
+    def test_no_include_tests_flag_excludes_tests(self):
+        runner = FakeRunner()
+        with _patched_scanner(runner):
+            run_cli(["scan", "--no-include-tests"])
+        self.assertTrue(all(call[3] is False for call in runner.calls))
+
     def test_changed_empty_result_explains_the_scope(self):
         runner = FakeRunner()
         with _patched_scanner(runner):
