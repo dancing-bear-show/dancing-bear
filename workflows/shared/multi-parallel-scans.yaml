@@ -54,10 +54,15 @@ stages:
       Step 2 — Core utility reuse (domain-layer check):
         Grep core/ for available helpers. Flag any domain or
         consumer code under {source_root} that reimplements equivalents of:
-        atomic_write_json, chunked, asdict_drop_none, get_repo_root,
-        format_validation_error. Emit findings under the intra-domain-duplicate
-        concern ID — reimplementing a core utility inside a domain package is
-        the same class of bug as intra-domain duplication.
+        atomic_write_json/safe_load_json/write_once (core/fileutil.py),
+        chunked (core/parallel.py), dedupe (core/collections.py),
+        output_dir (core/paths.py), read_text/write_text (core/textio.py).
+        Emit findings under the intra-domain-duplicate concern ID —
+        reimplementing a core utility inside a domain package is the same
+        class of bug as intra-domain duplication. Do not flag domain-only
+        helpers (e.g. worker's get_repo_root, telemetry's
+        format_validation_error) — those have no core-level equivalent and
+        living in one domain package is not a reuse violation.
 
       Step 3 — Test tree reuse (only if {test_path} is non-empty):
         Apply the conftest-helper-duplication concern from reuse.md against
