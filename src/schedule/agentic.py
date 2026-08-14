@@ -4,9 +4,10 @@ from __future__ import annotations
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
+    build_domain_map as _core_build_domain_map,
     cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _core_cli_path_exists,
-    section as _section,
+    tree_and_flow_sections as _tree_and_flow_sections,
 )
 
 
@@ -58,31 +59,20 @@ def build_agentic_capsule() -> str:
         "verify: ./bin/schedule-assistant verify --plan out/schedule.plan.yaml --calendar 'Your Family' --from 2025-10-01 --to 2025-12-31",
         "sync (dry-run): ./bin/schedule-assistant sync --plan out/schedule.plan.yaml --calendar 'Your Family' --from 2025-10-01 --to 2025-12-31 --dry-run",
     ]
-    sections: list[tuple[str, str]] = []
-    tree = _cli_tree()
-    if tree:
-        sections.append(("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(("Flow Map", flows))
     return _build_capsule(
         "schedule",
         "Generate/verify/apply calendar plans (dry-run first)",
         commands,
-        sections,
+        _tree_and_flow_sections(_cli_tree(), _flow_map()),
     )
 
 
 def build_domain_map() -> str:
-    sections: list[str] = []
-    sections.append("Top-Level\n- schedule/__main__.py — CLI entry\n- schedule/README.md — usage examples\n- config/calendar/ — canonical plans")
-    tree = _cli_tree()
-    if tree:
-        sections.append(_section("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(_section("Flow Map", flows))
-    return "\n".join([s for s in sections if s])
+    return _core_build_domain_map(
+        "Top-Level\n- schedule/__main__.py — CLI entry\n- schedule/README.md — usage examples\n- config/calendar/ — canonical plans",
+        _cli_tree(),
+        _flow_map(),
+    )
 
 
 def emit_agentic_context(_fmt: str = "text", _compact: bool = False) -> int:

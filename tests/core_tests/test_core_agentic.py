@@ -9,8 +9,10 @@ from core.agentic import (
     section,
     build_capsule,
     build_cli_tree,
+    build_domain_map,
     cli_path_exists,
     list_subcommands,
+    tree_and_flow_sections,
 )
 
 
@@ -187,6 +189,104 @@ class TestListSubcommands(unittest.TestCase):
         subs.add_parser("mango")
         result = list_subcommands(parser)
         self.assertEqual(result, ["apple", "mango", "zebra"])
+
+
+class TestTreeAndFlowSections(unittest.TestCase):
+    def test_both_present_keeps_order(self):
+        self.assertEqual(
+            tree_and_flow_sections("- cmd", "- flow"),
+            [("CLI Tree", "- cmd"), ("Flow Map", "- flow")],
+        )
+
+    def test_empty_tree_is_dropped(self):
+        self.assertEqual(
+            tree_and_flow_sections("", "- flow"),
+            [("Flow Map", "- flow")],
+        )
+
+    def test_empty_flow_is_dropped(self):
+        self.assertEqual(
+            tree_and_flow_sections("- cmd", ""),
+            [("CLI Tree", "- cmd")],
+        )
+
+    def test_both_empty_returns_empty_list(self):
+        self.assertEqual(tree_and_flow_sections("", ""), [])
+
+
+class TestTreeAndFlowSectionsSadPaths(unittest.TestCase):
+    def test_whitespace_only_body_is_kept_here_but_dropped_by_section(self):
+        # tree_and_flow_sections filters on falsiness, so "   " survives it;
+        # section() is what strips it. Pinning the division of labour so a
+        # future "optimization" cannot drop one of the two filters.
+        pairs = tree_and_flow_sections("   ", "")
+        self.assertEqual(pairs, [("CLI Tree", "   ")])
+        self.assertEqual(section(*pairs[0]), "")
+
+    def test_none_bodies_are_dropped(self):
+        self.assertEqual(tree_and_flow_sections(None, None), [])  # NOSONAR - defensive None input
+
+    def test_returns_a_fresh_list_each_call(self):
+        # Callers append to the result (build_capsule consumes it); a shared
+        # or cached list would accumulate sections across domains.
+        first = tree_and_flow_sections("- cmd", "- flow")
+        first.append(("Extra", "x"))
+        second = tree_and_flow_sections("- cmd", "- flow")
+        self.assertEqual(len(second), 2)
+
+
+class TestBuildDomainMap(unittest.TestCase):
+    def test_renders_top_level_and_both_sections(self):
+        result = build_domain_map("Top-Level\n- a.py", "- cmd", "- flow")
+        self.assertIn("Top-Level", result)
+        self.assertIn("== CLI Tree ==", result)
+        self.assertIn("== Flow Map ==", result)
+        self.assertLess(result.index("CLI Tree"), result.index("Flow Map"))
+
+    def test_omits_empty_sections(self):
+        result = build_domain_map("Top-Level\n- a.py", "", "")
+        self.assertEqual(result, "Top-Level\n- a.py")
+
+    def test_top_level_only_with_flow(self):
+        result = build_domain_map("Top-Level", "", "- flow")
+        self.assertIn("== Flow Map ==", result)
+        self.assertNotIn("CLI Tree", result)
+
+    def test_matches_manual_section_composition(self):
+        # The helper must stay equivalent to the hand-rolled shape it replaced.
+        top, tree, flow = "Top-Level\n- a.py", "- cmd", "- flow"
+        expected = "\n".join(
+            s for s in [top, section("CLI Tree", tree), section("Flow Map", flow)] if s
+        )
+        self.assertEqual(build_domain_map(top, tree, flow), expected)
+
+    def test_whitespace_only_sections_are_stripped(self):
+        result = build_domain_map("Top-Level", "   ", "\n\t ")
+        self.assertEqual(result, "Top-Level")
+
+    def test_empty_top_level_still_renders_sections(self):
+        result = build_domain_map("", "- cmd", "")
+        self.assertIn("== CLI Tree ==", result)
+        self.assertFalse(result.startswith("\n"))
+
+    def test_whitespace_only_top_level_is_dropped(self):
+        # Held to the same standard build_capsule applies to section bodies:
+        # blank-or-whitespace contributes nothing rather than a leading blank
+        # line. Pins the fix for the PR #215 review finding.
+        self.assertEqual(build_domain_map("   ", "", ""), "")
+        self.assertFalse(build_domain_map("  \n\t ", "- cmd", "").startswith("\n"))
+
+    def test_none_top_level_is_tolerated(self):
+        self.assertEqual(build_domain_map(None, "", ""), "")  # NOSONAR - defensive None input
+        self.assertIn("== CLI Tree ==", build_domain_map(None, "- cmd", ""))  # NOSONAR
+
+    def test_all_empty_returns_empty_string(self):
+        self.assertEqual(build_domain_map("", "", ""), "")
+
+    def test_multiline_bodies_are_preserved_verbatim(self):
+        tree = "- a: x, y\n- b: z"
+        result = build_domain_map("Top-Level", tree, "")
+        self.assertIn(tree, result)
 
 
 if __name__ == "__main__":

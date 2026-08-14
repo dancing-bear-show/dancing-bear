@@ -9,9 +9,10 @@ from __future__ import annotations
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
+    build_domain_map as _core_build_domain_map,
     cached_parser_loader as _cached_parser_loader,
     cli_path_exists as _core_cli_path_exists,
-    section as _section,
+    tree_and_flow_sections as _tree_and_flow_sections,
 )
 
 
@@ -101,29 +102,18 @@ def build_agentic_capsule() -> str:
         "add: ./bin/calendar outlook add --help",
         "scan: ./bin/calendar gmail scan-classes --help",
     ]
-    sections: list[tuple[str, str]] = []
-    tree = _cli_tree()
-    if tree:
-        sections.append(("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        sections.append(("Flow Map", flows))
     return _build_capsule(
         "calendar",
         "Outlook calendars + Gmail scans → plans",
         commands,
-        sections,
+        _tree_and_flow_sections(_cli_tree(), _flow_map()),
     )
 
 
 def build_domain_map() -> str:
     """Construct a programmatic domain map for Calendar Assistant."""
-    out: list[str] = []
-    out.append("Top-Level\n- bin/ — wrappers (calendar, calendar-assistant, schedule-assistant)\n- out/ — curated artifacts and plans\n- .llm/ — agent context (shared at repo root)")
-    tree = _cli_tree()
-    if tree:
-        out.append(_section("CLI Tree", tree))
-    flows = _flow_map()
-    if flows:
-        out.append(_section("Flow Map", flows))
-    return "\n".join([s for s in out if s])
+    return _core_build_domain_map(
+        "Top-Level\n- bin/ — wrappers (calendar, calendar-assistant, schedule-assistant)\n- out/ — curated artifacts and plans\n- .llm/ — agent context (shared at repo root)",
+        _cli_tree(),
+        _flow_map(),
+    )
