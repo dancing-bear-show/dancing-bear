@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
+import os
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 
 from core.pipeline import ResultEnvelope
 from mail.accounts.pipeline_auth import (
@@ -40,8 +44,10 @@ from mail.accounts.pipeline_list_sync import (
 from mail.accounts.pipeline_list_signatures import (
     AccountsExportSignaturesRequest,
     ExportedSignaturesInfo,
+    AccountsExportSignaturesProcessor,
     AccountsSyncSignaturesRequest,
     SyncedSignaturesInfo,
+    AccountsSyncSignaturesProcessor,
 )
 from tests.fixtures import capture_stdout
 
@@ -411,6 +417,209 @@ class TestAccountsSyncSignaturesDataclasses(unittest.TestCase):
             status="delegated",
         )
         self.assertEqual(info.status, "delegated")
+
+
+class TestAccountsExportSignaturesProcessor(unittest.TestCase):
+    """Tests for AccountsExportSignaturesProcessor._process_safe and its helpers."""
+
+    @patch("mail.accounts.helpers.build_provider_for_account")
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_exports_gmail_signatures_with_primary(
+        self, mock_load, mock_iter, mock_build
+    ):
+        acct = make_account_dict(name="personal", provider="gmail")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        mock_client = MagicMock()
+        mock_client.list_signatures.return_value = [
+            {"sendAsEmail": "a@example.com", "isPrimary": False, "signature": "<p>secondary</p>"},
+            {"sendAsEmail": "b@example.com", "isPrimary": True, "signature": "<p>primary</p>"},
+        ]
+        mock_build.return_value = mock_client
+
+        with TemporaryDirectory() as tmpdir:
+            request = AccountsExportSignaturesRequest(config_path="/config.yaml", out_dir=tmpdir)
+            processor = AccountsExportSignaturesProcessor()
+            envelope = processor.process(request)
+
+            self.assertTrue(envelope.ok())
+            result = envelope.unwrap()
+            self.assertEqual(len(result.exports), 1)
+            export = result.exports[0]
+            self.assertEqual(export.account_name, "personal")
+            self.assertEqual(export.provider, "gmail")
+            self.assertEqual(export.signature_count, 2)
+
+            mock_client.authenticate.assert_called_once()
+            asset_path = f"{tmpdir}/personal_assets/ios_signature.html"
+            with open(asset_path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "<p>primary</p>")
+
+    @patch("mail.accounts.helpers.build_provider_for_account")
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_exports_gmail_signatures_no_primary(
+        self, mock_load, mock_iter, mock_build
+    ):
+        """No isPrimary signature means no default_html/ios asset gets written."""
+        acct = make_account_dict(name="personal", provider="gmail")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        mock_client = MagicMock()
+        mock_client.list_signatures.return_value = [
+            {"sendAsEmail": "a@example.com", "isPrimary": False, "signature": "<p>secondary</p>"},
+        ]
+        mock_build.return_value = mock_client
+
+        with TemporaryDirectory() as tmpdir:
+            request = AccountsExportSignaturesRequest(config_path="/config.yaml", out_dir=tmpdir)
+            processor = AccountsExportSignaturesProcessor()
+            envelope = processor.process(request)
+
+            self.assertTrue(envelope.ok())
+            export = envelope.unwrap().exports[0]
+            self.assertEqual(export.signature_count, 1)
+            asset_path = Path(tmpdir) / "personal_assets" / "ios_signature.html"
+            self.assertFalse(asset_path.exists())
+
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_exports_outlook_writes_guidance(self, mock_load, mock_iter):
+        acct = make_account_dict(name="work", provider="outlook")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        with TemporaryDirectory() as tmpdir:
+            request = AccountsExportSignaturesRequest(config_path="/config.yaml", out_dir=tmpdir)
+            processor = AccountsExportSignaturesProcessor()
+            envelope = processor.process(request)
+
+            self.assertTrue(envelope.ok())
+            export = envelope.unwrap().exports[0]
+            self.assertEqual(export.provider, "outlook")
+            self.assertEqual(export.signature_count, 0)
+            readme_path = f"{tmpdir}/work_assets/OUTLOOK_README.txt"
+            with open(readme_path, encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("Microsoft Graph", content)
+
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_exports_unsupported_provider_zero_count(self, mock_load, mock_iter):
+        acct = make_account_dict(name="other", provider="yahoo")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        with TemporaryDirectory() as tmpdir:
+            request = AccountsExportSignaturesRequest(config_path="/config.yaml", out_dir=tmpdir)
+            processor = AccountsExportSignaturesProcessor()
+            envelope = processor.process(request)
+
+            self.assertTrue(envelope.ok())
+            export = envelope.unwrap().exports[0]
+            self.assertEqual(export.provider, "yahoo")
+            self.assertEqual(export.signature_count, 0)
+
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_returns_error_envelope_on_exception(self, mock_load):
+        mock_load.side_effect = FileNotFoundError("missing config")
+        request = AccountsExportSignaturesRequest(config_path="/missing.yaml", out_dir="/out")
+        processor = AccountsExportSignaturesProcessor()
+        envelope = processor.process(request)
+
+        self.assertFalse(envelope.ok())
+        self.assertIn("missing config", envelope.diagnostics["message"])
+
+
+class TestAccountsSyncSignaturesProcessor(unittest.TestCase):
+    """Tests for AccountsSyncSignaturesProcessor._process_safe and its helpers."""
+
+    @patch("mail.signatures.commands.run_signatures_sync")
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_delegates_gmail_sync(self, mock_load, mock_iter, mock_run_sync):
+        acct = make_account_dict(name="personal", provider="gmail", credentials="/c.json", token="/t.json")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        request = AccountsSyncSignaturesRequest(
+            config_path="/config.yaml", send_as="a@example.com", dry_run=True
+        )
+        processor = AccountsSyncSignaturesProcessor()
+        envelope = processor.process(request)
+
+        self.assertTrue(envelope.ok())
+        result = envelope.unwrap()
+        self.assertEqual(len(result.synced), 1)
+        self.assertEqual(result.synced[0].account_name, "personal")
+        self.assertEqual(result.synced[0].provider, "gmail")
+        self.assertEqual(result.synced[0].status, "delegated")
+
+        mock_run_sync.assert_called_once()
+        ns = mock_run_sync.call_args[0][0]
+        self.assertIsInstance(ns, argparse.Namespace)
+        self.assertEqual(ns.credentials, "/c.json")
+        self.assertEqual(ns.token, "/t.json")
+        self.assertEqual(ns.config, "/config.yaml")
+        self.assertEqual(ns.send_as, "a@example.com")
+        self.assertTrue(ns.dry_run)
+
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_writes_outlook_guidance(self, mock_load, mock_iter):
+        acct = make_account_dict(name="work", provider="outlook")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        cwd = os.getcwd()
+        with TemporaryDirectory() as tmpdir:
+            try:
+                os.chdir(tmpdir)
+                request = AccountsSyncSignaturesRequest(config_path="/config.yaml")
+                processor = AccountsSyncSignaturesProcessor()
+                envelope = processor.process(request)
+            finally:
+                os.chdir(cwd)
+
+            self.assertTrue(envelope.ok())
+            result = envelope.unwrap()
+            self.assertEqual(len(result.synced), 1)
+            self.assertEqual(result.synced[0].provider, "outlook")
+            self.assertEqual(result.synced[0].status, "wrote_guidance")
+            self.assertTrue(
+                (Path(tmpdir) / "signatures_assets" / "OUTLOOK_README.txt").exists()
+            )
+
+    @patch("mail.accounts.helpers.iter_accounts")
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_marks_unsupported_provider(self, mock_load, mock_iter):
+        acct = make_account_dict(name="other", provider="yahoo")
+        mock_load.return_value = [acct]
+        mock_iter.return_value = [acct]
+
+        request = AccountsSyncSignaturesRequest(config_path="/config.yaml")
+        processor = AccountsSyncSignaturesProcessor()
+        envelope = processor.process(request)
+
+        self.assertTrue(envelope.ok())
+        result = envelope.unwrap()
+        self.assertEqual(len(result.synced), 1)
+        self.assertEqual(result.synced[0].account_name, "other")
+        self.assertEqual(result.synced[0].provider, "yahoo")
+        self.assertEqual(result.synced[0].status, "unsupported")
+
+    @patch("mail.accounts.helpers.load_accounts")
+    def test_process_returns_error_envelope_on_exception(self, mock_load):
+        mock_load.side_effect = FileNotFoundError("missing config")
+        request = AccountsSyncSignaturesRequest(config_path="/missing.yaml")
+        processor = AccountsSyncSignaturesProcessor()
+        envelope = processor.process(request)
+
+        self.assertFalse(envelope.ok())
+        self.assertIn("missing config", envelope.diagnostics["message"])
 
 
 class TestAccountsListRequestConsumerAlias(unittest.TestCase):
