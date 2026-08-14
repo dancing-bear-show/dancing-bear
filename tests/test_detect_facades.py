@@ -523,10 +523,19 @@ class TestImportsOf(unittest.TestCase):
         result = _resolve_relative_import(1, "text_utils", "calendars.importer")
         self.assertEqual(result, "calendars.importer.text_utils")
 
-    def test_absolute_import_returned_as_is(self):
-        # Verify the logic: an absolute ImportFrom appends node.module
-        result = _resolve_relative_import(0, "os.path", "") if False else "os.path"
-        self.assertEqual(result, "os.path")
+    def test_level_zero_joins_module_onto_pkg(self):
+        # level=0 skips the ascent loop entirely (range(-1) is empty), so the
+        # module is appended to pkg unchanged. Callers only reach this with
+        # level=0 for absolute imports, where imports_of/ast_callers pass the
+        # already-absolute name through a separate branch.
+        result = _resolve_relative_import(0, "text_utils", "calendars.importer")
+        self.assertEqual(result, "calendars.importer.text_utils")
+
+    def test_level_zero_with_empty_pkg_keeps_leading_dot(self):
+        # Documents the boundary: an empty pkg yields a leading dot rather
+        # than the bare module name.
+        result = _resolve_relative_import(0, "os.path", "")
+        self.assertEqual(result, ".os.path")
 
 
 if __name__ == "__main__":
