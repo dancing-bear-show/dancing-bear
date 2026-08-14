@@ -245,6 +245,33 @@ class TestApplyProfileOverlays(TempDirMixin, unittest.TestCase):
             self.assertEqual(result["name"], "Original")
 
 
+class TestApplyProfileOverlaysNestedGroupItems(TempDirMixin, unittest.TestCase):
+    """apply_profile_overlays passes through nested dict items in skills groups."""
+
+    def test_skills_groups_nested_dict_items_pass_through(self):
+        # Distinct from the flat name/skills shape covered elsewhere: this
+        # group shape nests title/items with dict items carrying name/desc.
+        from resume.overlays import apply_profile_overlays
+
+        with self.in_tmpdir():
+            profile_dir = Path("config/profiles/nested")
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            (profile_dir / "skills_groups.yaml").write_text(
+                "groups:\n"
+                "  - title: Platform\n"
+                "    items:\n"
+                "      - name: Kubernetes\n"
+                "        desc: clusters\n"
+            )
+
+            data = {}
+            result = apply_profile_overlays(data, "nested")
+
+            self.assertEqual(result["skills_groups"][0]["title"], "Platform")
+            self.assertEqual(result["skills_groups"][0]["items"][0]["name"], "Kubernetes")
+            self.assertEqual(result["skills_groups"][0]["items"][0]["desc"], "clusters")
+
+
 class TestTryLoadFromPaths(unittest.TestCase):
     """Tests for _try_load_from_paths helper."""
 
@@ -276,6 +303,96 @@ class TestTryLoadFromPaths(unittest.TestCase):
 
             result = _try_load_from_paths((p1, p2))
             self.assertEqual(result["key"], "second")
+
+
+class TestGetOverlayPaths(unittest.TestCase):
+    """Tests for _get_overlay_paths helper."""
+
+    def test_returns_new_and_legacy_paths(self):
+        from resume.overlays import _get_overlay_paths
+
+        prof_dir = Path("config/profiles/myprof")
+        cfg_dir = Path("config")
+        new_path, old_path = _get_overlay_paths(prof_dir, cfg_dir, "myprof", "skills")
+        self.assertEqual(new_path, Path("config/profiles/myprof/skills.yaml"))
+        self.assertEqual(old_path, Path("config/skills.myprof.yaml"))
+
+
+class TestLoadListOverlay(TempDirMixin, unittest.TestCase):
+    """Tests for _load_list_overlay helper."""
+
+    def test_dict_format_with_matching_key(self):
+        from resume.overlays import _load_list_overlay
+
+        prof_dir = Path(self.tmpdir) / "profiles" / "test"
+        prof_dir.mkdir(parents=True)
+        (prof_dir / "interests.yaml").write_text("interests:\n  - Reading\n  - Coding\n")
+
+        result = _load_list_overlay(prof_dir, Path(self.tmpdir), "test", "interests")
+        self.assertEqual(result, ["Reading", "Coding"])
+
+    def test_raw_list_format(self):
+        from resume.overlays import _load_list_overlay
+
+        prof_dir = Path(self.tmpdir) / "profiles" / "test"
+        prof_dir.mkdir(parents=True)
+        (prof_dir / "hobbies.yaml").write_text("- Gaming\n- Music\n")
+
+        result = _load_list_overlay(prof_dir, Path(self.tmpdir), "test", "hobbies")
+        self.assertEqual(result, ["Gaming", "Music"])
+
+    def test_returns_none_when_not_found(self):
+        from resume.overlays import _load_list_overlay
+
+        prof_dir = Path(self.tmpdir) / "profiles" / "test"
+        result = _load_list_overlay(prof_dir, Path(self.tmpdir), "test", "missing")
+        self.assertIsNone(result)
+
+
+class TestApplyProfileConfig(unittest.TestCase):
+    """Tests for _apply_profile_config helper."""
+
+    def test_applies_top_level_fields(self):
+        from resume.overlays import _apply_profile_config
+
+        out = {}
+        prof_data = {"name": "John Doe", "headline": "Engineer"}
+        _apply_profile_config(out, prof_data)
+        self.assertEqual(out["name"], "John Doe")
+        self.assertEqual(out["headline"], "Engineer")
+
+    def test_applies_nested_contact(self):
+        from resume.overlays import _apply_profile_config
+
+        out = {}
+        prof_data = {
+            "contact": {
+                "email": "john@example.com",
+                "phone": "555-1234",
+                "links": ["https://github.com/john"],
+            }
+        }
+        _apply_profile_config(out, prof_data)
+        self.assertEqual(out["email"], "john@example.com")
+        self.assertEqual(out["phone"], "555-1234")
+        self.assertEqual(out["links"], ["https://github.com/john"])
+
+    def test_does_not_override_existing_contact(self):
+        from resume.overlays import _apply_profile_config
+
+        out = {"email": "existing@example.com"}
+        prof_data = {"contact": {"email": "new@example.com"}}
+        _apply_profile_config(out, prof_data)
+        self.assertEqual(out["email"], "existing@example.com")
+
+    def test_applies_lists(self):
+        from resume.overlays import _apply_profile_config
+
+        out = {}
+        prof_data = {"interests": ["Reading", "Hiking"], "presentations": ["Talk 1"]}
+        _apply_profile_config(out, prof_data)
+        self.assertEqual(out["interests"], ["Reading", "Hiking"])
+        self.assertEqual(out["presentations"], ["Talk 1"])
 
 
 if __name__ == "__main__":

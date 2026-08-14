@@ -2,9 +2,98 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+
+class TestStructureHelpersRealFiles(unittest.TestCase):
+    """Real-filesystem coverage for structure helpers.
+
+    The mock-based tests below patch _try_load_structure itself, which
+    bypasses the real multi-extension resolution order and the real
+    nested-vs-legacy Path.exists() precedence. These exercise that logic
+    against an actual filesystem.
+    """
+
+    def test_try_load_structure_loads_existing_yaml(self):
+        from resume.cli.main import _try_load_structure
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
+            f.write("sections:\n  - experience\n  - education\n")
+            f.flush()
+            path = Path(f.name)
+        try:
+            result = _try_load_structure(path)
+            self.assertEqual(result, {"sections": ["experience", "education"]})
+        finally:
+            path.unlink()
+
+    def test_try_load_structure_loads_existing_json(self):
+        from resume.cli.main import _try_load_structure
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            f.write('{"sections": ["skills"]}')
+            f.flush()
+            path = Path(f.name)
+        try:
+            result = _try_load_structure(path)
+            self.assertEqual(result, {"sections": ["skills"]})
+        finally:
+            path.unlink()
+
+    def test_try_load_structure_returns_none_for_invalid_yaml(self):
+        from resume.cli.main import _try_load_structure
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False, mode="w") as f:
+            f.write("invalid: yaml: content: [")
+            f.flush()
+            path = Path(f.name)
+        try:
+            result = _try_load_structure(path)
+            self.assertIsNone(result)
+        finally:
+            path.unlink()
+
+    def test_find_structure_in_dirs_prefers_nested_over_legacy_on_disk(self):
+        """With both a nested and a legacy file for real, nested must win."""
+        from resume.cli.main import _find_structure_in_dirs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            prof_dir = tmp / "myprofile"
+            prof_dir.mkdir()
+            (prof_dir / "structure.yaml").write_text("source: nested\n")
+            (tmp / "myprofile.structure.yaml").write_text("source: legacy\n")
+
+            result = _find_structure_in_dirs("myprofile", [tmp])
+            self.assertEqual(result, {"source": "nested"})
+
+    def test_find_structure_in_dirs_searches_multiple_dirs_in_order(self):
+        from resume.cli.main import _find_structure_in_dirs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            second_dir = tmp / "second"
+            second_dir.mkdir()
+            (second_dir / "myprofile.structure.json").write_text('{"found": true}')
+
+            result = _find_structure_in_dirs("myprofile", [tmp, second_dir])
+            self.assertEqual(result, {"found": True})
+
+    def test_find_structure_in_dirs_tries_multiple_extensions(self):
+        """.yml (not just .yaml/.json) must be resolved for a real file."""
+        from resume.cli.main import _find_structure_in_dirs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            prof_dir = tmp / "myprofile"
+            prof_dir.mkdir()
+            (prof_dir / "structure.yml").write_text("ext: yml\n")
+
+            result = _find_structure_in_dirs("myprofile", [tmp])
+            self.assertEqual(result, {"ext": "yml"})
 
 
 class TestStructureHelpers(unittest.TestCase):
@@ -457,7 +546,7 @@ class TestResumeCommands(unittest.TestCase):
         mock_write_text.assert_called_once()
 
         # Check markdown formatting
-        written_text = mock_write_text.call_args[0][0]
+        written_text = mock_write_text.call_args[0][1]
         self.assertIn("# Resume Summary", written_text)
         self.assertIn("## Headline", written_text)
         self.assertIn("Software Engineer", written_text)

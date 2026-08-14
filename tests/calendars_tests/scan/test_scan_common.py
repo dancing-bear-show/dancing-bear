@@ -4,9 +4,41 @@ import unittest
 from calendars.constants import DAY_MAP
 from calendars.scan_common import (
     MONTH_MAP,
+    html_to_text,
     norm_time,
     infer_meta_from_text,
 )
+
+
+class HtmlToTextTests(unittest.TestCase):
+    """Tests for html_to_text (re-exported from core.text_utils for calendars use).
+
+    Otherwise untested anywhere in the repo — core_tests only covers the
+    separate strip_css_boilerplate helper, never html_to_text itself.
+    """
+
+    def test_strips_simple_tags(self):
+        self.assertEqual(html_to_text("<p>Hello</p>"), "Hello")
+
+    def test_converts_br_to_newline(self):
+        self.assertEqual(html_to_text("Line1<br>Line2"), "Line1 Line2")
+        self.assertEqual(html_to_text("Line1<br/>Line2"), "Line1 Line2")
+
+    def test_converts_p_to_newline(self):
+        result = html_to_text("<p>Para1</p><p>Para2</p>")
+        self.assertIn("Para1", result)
+        self.assertIn("Para2", result)
+
+    def test_unescapes_html_entities(self):
+        self.assertEqual(html_to_text("&amp; &lt; &gt;"), "& < >")
+        self.assertEqual(html_to_text("&nbsp;test"), "test")
+
+    def test_collapses_whitespace(self):
+        self.assertEqual(html_to_text("  multiple   spaces  "), "multiple spaces")
+
+    def test_empty_returns_empty(self):
+        self.assertEqual(html_to_text(""), "")
+        self.assertEqual(html_to_text(None), "")
 
 
 class DayMapTests(unittest.TestCase):

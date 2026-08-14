@@ -1,4 +1,6 @@
 """Tests for calendars/gmail/commands.py — argument-to-request builders."""
+import os
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -10,6 +12,8 @@ from calendars.gmail.commands import (
     run_gmail_scan_receipts,
     run_gmail_scan_activerh,
 )
+from tests.fakes.gmail import FakeGmailClient
+from tests.fixtures import capture_stdout
 
 
 def _mock_run_pipeline(rc=0):
@@ -169,6 +173,91 @@ class TestRunGmailScanActiverh(unittest.TestCase):
         mock_bq.assert_called_once()
         # The query should have been set on args
         mock_rp.assert_called_once()
+
+
+class TestGmailScanCommandsEndToEnd(unittest.TestCase):
+    """E2E coverage through a FakeGmailClient — real text extraction and pipeline execution.
+
+    Distinct from the classes above, which mock run_pipeline entirely and so
+    never exercise real message-fetch -> text-parse -> event-building, nor the
+    real "wrote N events to"/"candidate recurring" output messages.
+    """
+
+    def test_scan_receipts_extracts_event(self):
+        text = "\n".join([
+            "Enrollment in Swim Kids 5 (RH)",
+            "Meeting Dates: From January 1, 2025 to March 1, 2025",
+            "Each Monday from 5:00 pm to 5:30 pm",
+            "Location: Elgin West Community Centre",
+        ])
+        fake = FakeGmailClient(
+            message_ids_by_query={"richmondhill": ["m1"]},
+            messages={"m1": {"text": text}},
+        )
+        tf = tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml")
+        tf.close()
+        try:
+            args = SimpleNamespace(
+                from_text="richmondhill.ca", days=365, pages=1, page_size=10, query=None, out=tf.name,
+                profile=None, credentials=None, token=None, cache=None, calendar=None,
+            )
+            with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake):
+                with capture_stdout() as buf:
+                    rc = run_gmail_scan_receipts(args)
+            out = buf.getvalue().lower()
+            self.assertEqual(rc, 0, msg=out)
+            self.assertIn("wrote 1 events to", out)
+        finally:
+            os.unlink(tf.name)
+
+    def test_scan_classes_extracts_schedule_lines(self):
+        body = "\n".join([
+            "Subject: Schedule",
+            "Monday 5:00 pm to 5:30 pm",
+            "Wednesday 6:00 pm to 6:30 pm",
+        ])
+        fake = FakeGmailClient(
+            message_ids_by_query={"active": ["m1"]},
+            messages={"m1": {"text": body}},
+        )
+        args = SimpleNamespace(
+            from_text="active rh", days=60, pages=1, page_size=10, query=None, inbox_only=False, out=None,
+            profile=None, credentials=None, token=None, cache=None, calendar=None,
+        )
+        with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake):
+            with capture_stdout() as buf:
+                rc = run_gmail_scan_classes(args)
+        out = buf.getvalue().lower()
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("candidate recurring", out)
+
+    def test_scan_activerh_builds_query_delegates(self):
+        text = "\n".join([
+            "Enrollment in Swim Kids 2",
+            "Meeting Dates: From January 5, 2025 to March 5, 2025",
+            "Each Monday from 5:00 pm to 5:30 pm",
+            "Location: Bayview Hill Community Centre",
+        ])
+        # Empty key matches any query (activerh builds its own custom query).
+        fake = FakeGmailClient(
+            message_ids_by_query={"": ["m1"]},
+            messages={"m1": {"text": text}},
+        )
+        tf = tempfile.NamedTemporaryFile("w+", delete=False, suffix=".yaml")
+        tf.close()
+        try:
+            args = SimpleNamespace(
+                days=365, pages=1, page_size=10, query=None, out=tf.name,
+                profile=None, credentials=None, token=None, cache=None, calendar=None, from_text=None,
+            )
+            with patch("mail.utils.cli_helpers.gmail_provider_from_args", return_value=fake):
+                with capture_stdout() as buf:
+                    rc = run_gmail_scan_activerh(args)
+            out = buf.getvalue().lower()
+            self.assertEqual(rc, 0, msg=out)
+            self.assertIn("wrote 1 events to", out)
+        finally:
+            os.unlink(tf.name)
 
 
 if __name__ == "__main__":  # pragma: no cover

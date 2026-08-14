@@ -8,12 +8,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.cli_errors import CLIError
+from core.textio import write_text
 from resume.io_utils import (
     read_text_any,
     read_text_raw,
     read_yaml_or_json,
     safe_import,
-    write_text,
     write_yaml_or_json,
 )
 from tests.fixtures import TempDirMixin, temp_yaml_file
@@ -150,6 +150,16 @@ class TestReadTextRaw(unittest.TestCase):
             finally:
                 os.unlink(f.name)
 
+    def test_read_raw_preserves_whitespace(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("  indented\n\n\nmultiple lines  ")
+            f.flush()
+            try:
+                result = read_text_raw(f.name)
+                self.assertEqual(result, "  indented\n\n\nmultiple lines  ")
+            finally:
+                os.unlink(f.name)
+
     def test_read_raw_ignores_errors(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test.txt")
@@ -233,21 +243,28 @@ class TestWriteText(TempDirMixin, unittest.TestCase):
 
     def test_write_text_file(self):
         path = Path(self.tmpdir) / "output.txt"
-        write_text("Hello, world!", path)
+        write_text(path, "Hello, world!")
 
         self.assertTrue(path.exists())
         self.assertEqual(path.read_text(), "Hello, world!")
 
     def test_write_creates_parent_directories(self):
         path = Path(self.tmpdir) / "a" / "b" / "c" / "output.txt"
-        write_text("Nested content", path)
+        write_text(path, "Nested content")
 
         self.assertTrue(path.exists())
         self.assertEqual(path.read_text(), "Nested content")
 
+    def test_write_overwrites_existing(self):
+        path = Path(self.tmpdir) / "overwrite.txt"
+        write_text(path, "First")
+        write_text(path, "Second")
+
+        self.assertEqual(path.read_text(), "Second")
+
     def test_write_preserves_unicode(self):
         path = Path(self.tmpdir) / "unicode.txt"
-        write_text("Unicode: 日本語 🎉", path)
+        write_text(path, "Unicode: 日本語 🎉")
 
         self.assertEqual(path.read_text(encoding="utf-8"), "Unicode: 日本語 🎉")
 

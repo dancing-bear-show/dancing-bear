@@ -160,6 +160,27 @@ Morning Yoga,06:00,07:00,"MO,WE,FR",weekly
         items = CSVParser().parse(path)
         self.assertEqual(len(items), 0)
 
+    def test_parse_csv_header_whitespace_trimmed(self):
+        """Header names with surrounding spaces (" Subject ", not just case) still resolve."""
+        csv_content = " Subject , Start , End , Location , Notes\nTrim Headers,2025-01-11T10:00,2025-01-11T10:30,Place,Text\n"
+        path = self._write_csv("header_spaces.csv", csv_content)
+        items = CSVParser().parse(path)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].subject, "Trim Headers")
+        self.assertEqual(items[0].location, "Place")
+
+    def test_parse_csv_missing_subject_column_yields_no_items(self):
+        """A subject-less header row (column absent, not just empty) skips all rows.
+
+        Distinct from test_parse_csv_skips_empty_subject, which has a subject
+        column present but blank for one row.
+        """
+        csv_content = "Start,End,Location,Notes\n2025-01-12T10:00,2025-01-12T10:30,Place,No subject row\n"
+        path = self._write_csv("no_subject_column.csv", csv_content)
+        items = CSVParser().parse(path)
+        self.assertEqual(len(items), 0)
+
     def test_parse_csv_alternate_column_names(self):
         csv_content = """subject,repeat,start_time,end_time,start_date,enddate,address
 Swim Class,weekly,14:00,15:00,2025-01-01,2025-06-30,Community Pool

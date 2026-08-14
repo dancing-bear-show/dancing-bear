@@ -363,5 +363,96 @@ class TestSectionSynonyms(unittest.TestCase):
         self.assertIn("academics", SECTION_SYNONYMS["education"])
 
 
+class TestUsePlainBullets(unittest.TestCase):
+    """Tests for _use_plain_bullets function."""
+
+    def test_returns_tuple(self):
+        from resume.docx_writer import _use_plain_bullets
+        result = _use_plain_bullets(None, None)
+        self.assertIsInstance(result, tuple)
+
+
+class TestApplyPageStyles(unittest.TestCase):
+    """Tests for _apply_page_styles function."""
+
+    @staticmethod
+    def _make_mock_doc():
+        doc = MagicMock()
+        doc.core_properties = MagicMock()
+        return doc
+
+    def test_skips_non_compact(self):
+        from resume.docx_writer import _apply_page_styles
+        doc = self._make_mock_doc()
+        _apply_page_styles(doc, {"compact": False})
+        doc.sections.__getitem__.assert_not_called()
+
+    def test_skips_empty_config(self):
+        from resume.docx_writer import _apply_page_styles
+        doc = self._make_mock_doc()
+        _apply_page_styles(doc, {})
+        doc.sections.__getitem__.assert_not_called()
+
+
+class TestSetDocumentMetadata(unittest.TestCase):
+    """Tests for _set_document_metadata function."""
+
+    def setUp(self):
+        self.doc = MagicMock()
+        self.doc.core_properties = MagicMock()
+
+    def test_sets_title_from_name(self):
+        from resume.docx_writer import _set_document_metadata
+        data = {"name": "John Doe", "email": "john@example.com"}
+        _set_document_metadata(self.doc, data, {})
+        self.assertIn("John Doe", self.doc.core_properties.title)
+
+    def test_sets_author_from_name(self):
+        from resume.docx_writer import _set_document_metadata
+        data = {"name": "Jane Smith"}
+        _set_document_metadata(self.doc, data, {})
+        self.assertEqual(self.doc.core_properties.author, "Jane Smith")
+
+    def test_includes_experience_locations_in_keywords(self):
+        from resume.docx_writer import _set_document_metadata
+        data = {"name": "Test", "experience": [{"location": "NYC"}, {"location": "LA"}]}
+        template = {"page": {"metadata_include_locations": True}}
+        _set_document_metadata(self.doc, data, template)
+        self.assertIn("NYC", self.doc.core_properties.keywords)
+        self.assertIn("LA", self.doc.core_properties.keywords)
+
+    def test_excludes_locations_when_disabled(self):
+        from resume.docx_writer import _set_document_metadata
+        data = {"name": "Test", "experience": [{"location": "NYC"}]}
+        template = {"page": {"metadata_include_locations": False}}
+        _set_document_metadata(self.doc, data, template)
+        self.assertNotIn("NYC", self.doc.core_properties.keywords)
+
+    def test_handles_missing_data(self):
+        from resume.docx_writer import _set_document_metadata
+        _set_document_metadata(self.doc, {}, {})
+        self.assertEqual(self.doc.core_properties.title, "Resume")
+
+
+class TestCenterParagraph(unittest.TestCase):
+    """Tests for _center_paragraph function."""
+
+    def test_centers_paragraph(self):
+        from resume.docx_writer import _center_paragraph
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        para = MagicMock()
+        para.paragraph_format = MagicMock()
+        _center_paragraph(para)
+        self.assertEqual(para.alignment, WD_ALIGN_PARAGRAPH.CENTER)
+
+    def test_handles_exception_gracefully(self):
+        from unittest.mock import PropertyMock
+        from resume.docx_writer import _center_paragraph
+        para = MagicMock()
+        type(para).alignment = PropertyMock(side_effect=Exception("test"))
+        # Should not raise
+        _center_paragraph(para)
+
+
 if __name__ == "__main__":
     unittest.main()

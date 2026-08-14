@@ -58,6 +58,27 @@ class TestSummarySectionRenderer(unittest.TestCase):
         result = renderer._normalize_list_items(items)
         self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
 
+    def test_normalize_list_items_skips_empty(self):
+        """Blank strings and empty dict items are dropped."""
+        renderer, _ = self._get_renderer()
+        items = ["Valid", "", {"text": ""}]
+        result = renderer._normalize_list_items(items)
+        self.assertEqual(result, ["Valid"])
+
+    def test_render_bulleted_string_with_max_sentences(self):
+        """sec={"bulleted": True, "max_sentences": N} truncates the sentence split."""
+        renderer, doc = self._get_renderer()
+        data = {"summary": "One. Two. Three. Four. Five."}
+        renderer.render(data, sec={"bulleted": True, "max_sentences": 2})
+        self.assertEqual(len(doc.paragraphs), 2)
+
+    def test_render_falls_back_to_headline_when_no_summary(self):
+        """render() falls back to data["headline"] when summary is absent."""
+        renderer, doc = self._get_renderer()
+        data = {"headline": "Software Engineer at Tech Co"}
+        renderer.render(data)
+        self.assertEqual(len(doc.paragraphs), 1)
+
 
 @mock_docx_modules
 class TestSkillsSectionRenderer(unittest.TestCase):
@@ -101,6 +122,17 @@ class TestSkillsSectionRenderer(unittest.TestCase):
         result = renderer._normalize_group_items(items, True, " — ")
         self.assertEqual(len(result), 2)
         self.assertIn("Python — Expert", result)
+
+    def test_render_skills_groups_respects_max_groups(self):
+        """sec={"max_groups": N} caps the number of groups rendered."""
+        renderer, doc = self._get_renderer()
+        data = {"skills_groups": [
+            {"title": "Group 1", "items": ["A", "B"]},
+            {"title": "Group 2", "items": ["X", "Y"]},
+            {"title": "Group 3", "items": ["1", "2"]},
+        ]}
+        renderer.render(data, sec={"max_groups": 2})
+        self.assertEqual(len(doc.paragraphs), 2)
 
 
 @mock_docx_modules
@@ -146,6 +178,11 @@ class TestExperienceSectionRenderer(unittest.TestCase):
         e = {"end": "2024"}
         result = renderer._format_date_span(e)
         self.assertEqual(result, "2024")
+
+    def test_format_date_span_no_dates(self):
+        """No start or end yields an empty string."""
+        renderer, _ = self._get_renderer()
+        self.assertEqual(renderer._format_date_span({}), "")
 
     def test_normalize_present(self):
         """Test normalizing present variants."""
@@ -198,6 +235,13 @@ class TestExperienceSectionRenderer(unittest.TestCase):
         result = renderer._normalize_bullets(bullets, 3)
         self.assertEqual(len(result), 3)
 
+    def test_normalize_bullets_skips_empty(self):
+        """Blank strings and empty-text dict bullets are dropped."""
+        renderer, _ = self._get_renderer()
+        bullets = ["Valid", "", {"text": ""}]
+        result = renderer._normalize_bullets(bullets, 10)
+        self.assertEqual(len(result), 1)
+
 
 @mock_docx_modules
 class TestEducationSectionRenderer(unittest.TestCase):
@@ -231,6 +275,13 @@ class TestEducationSectionRenderer(unittest.TestCase):
         data = {"education": []}
         renderer.render(data)
         self.assertEqual(len(doc.paragraphs), 0)
+
+    def test_render_education_partial_data(self):
+        """An entry with only an institution (no degree/year) still renders."""
+        renderer, doc = self._get_renderer()
+        data = {"education": [{"institution": "Harvard"}]}
+        renderer.render(data)
+        self.assertEqual(len(doc.paragraphs), 1)
 
 
 @mock_docx_modules
@@ -276,6 +327,18 @@ class TestTechnologiesSectionRenderer(unittest.TestCase):
         }
         result = renderer._collect_tech_items(data, None)
         self.assertEqual(result, ["Docker", "K8s"])
+
+    def test_render_technologies_with_description(self):
+        """sec={"show_desc": True} includes each item's desc in the rendered text.
+
+        Technologies default show_desc=False (unlike skills groups, which default
+        to True) so this behavior is otherwise untested.
+        """
+        renderer, doc = self._get_renderer()
+        data = {"technologies": [{"name": "Docker", "desc": "Container platform"}]}
+        renderer.render(data, sec={"show_desc": True})
+        texts = [r.text for p in doc.paragraphs for r in p.runs]
+        self.assertTrue(any("Container platform" in t for t in texts))
 
 
 if __name__ == "__main__":

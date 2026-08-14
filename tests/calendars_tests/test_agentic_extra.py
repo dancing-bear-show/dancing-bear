@@ -119,6 +119,12 @@ class TestCliPathExists(unittest.TestCase):
             self.skipTest("Parser not available in this test environment")
         self.assertTrue(core_exists(parser, ["outlook", "add"]))
         self.assertTrue(core_exists(parser, ["gmail", "scan-classes"]))
+        self.assertTrue(core_exists(parser, ["outlook", "add-recurring"]))
+        # Either reminders-off or reminders-set may exist depending on version.
+        self.assertTrue(
+            core_exists(parser, ["outlook", "reminders-off"])
+            or core_exists(parser, ["outlook", "reminders-set"])
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

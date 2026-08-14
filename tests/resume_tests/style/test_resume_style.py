@@ -4,12 +4,30 @@ import unittest
 from pathlib import Path
 
 from resume.style import (
+    DEFAULT_STOPWORDS,
     _iter_texts,
     _sentences,
     _tokenize,
     build_style_profile,
     extract_style_keywords,
 )
+
+
+class TestDefaultStopwords(unittest.TestCase):
+    """Tests for DEFAULT_STOPWORDS constant."""
+
+    def test_is_set(self):
+        self.assertIsInstance(DEFAULT_STOPWORDS, set)
+
+    def test_contains_common_words(self):
+        common = ["the", "a", "an", "and", "or", "is", "are", "was", "were"]
+        for word in common:
+            self.assertIn(word, DEFAULT_STOPWORDS)
+
+    def test_contains_pronouns(self):
+        pronouns = ["i", "we", "you", "they", "he", "she"]
+        for p in pronouns:
+            self.assertIn(p, DEFAULT_STOPWORDS)
 
 
 class TestTokenize(unittest.TestCase):
@@ -19,6 +37,22 @@ class TestTokenize(unittest.TestCase):
         """_tokenize should extract simple words."""
         tokens = _tokenize("Hello world from Python")
         self.assertEqual(tokens, ["Hello", "world", "from", "Python"])
+
+    def test_tokenize_requires_minimum_length(self):
+        """Single letter tokens should be excluded."""
+        result = _tokenize("I a an go to")
+        self.assertNotIn("I", result)
+        self.assertNotIn("a", result)
+
+    def test_tokenize_numbers_alone_excluded(self):
+        """Pure numbers won't match the pattern (must start with letter)."""
+        result = _tokenize("123 456 789")
+        self.assertEqual(result, [])
+
+    def test_tokenize_alphanumeric_included(self):
+        result = _tokenize("AWS S3 EC2 Python3")
+        self.assertIn("AWS", result)
+        self.assertIn("Python3", result)
 
     def test_tokenize_with_punctuation(self):
         """_tokenize should handle punctuation."""
@@ -70,6 +104,11 @@ class TestSentences(unittest.TestCase):
         """_sentences should return empty list for empty string."""
         sents = _sentences("")
         self.assertEqual(sents, [])
+
+    def test_sentences_no_punctuation(self):
+        """A single unterminated sentence is still returned whole."""
+        result = _sentences("No ending punctuation here")
+        self.assertEqual(result, ["No ending punctuation here"])
 
 
 class TestIterTexts(unittest.TestCase):
@@ -127,6 +166,11 @@ class TestBuildStyleProfile(unittest.TestCase):
             self.assertEqual(profile['tokens'], [])
             self.assertEqual(profile['bigrams'], [])
             self.assertEqual(profile['avg_sentence_length'], 0.0)
+
+    def test_build_style_profile_nonexistent_directory(self):
+        """build_style_profile should return an empty profile, not raise, for a missing dir."""
+        profile = build_style_profile("/nonexistent/path/123456")
+        self.assertEqual(profile["files"], 0)
 
     def test_build_style_profile_with_content(self):
         """build_style_profile should analyze text content."""
@@ -226,6 +270,15 @@ class TestExtractStyleKeywords(unittest.TestCase):
         profile = {}
         keywords = extract_style_keywords(profile)
         self.assertEqual(keywords, [])
+
+    def test_extract_style_keywords_deduplicates_bigrams(self):
+        """A bigram identical to an already-included unigram should not repeat."""
+        profile = {
+            'top_unigrams': ['python'],
+            'top_bigrams': ['python'],
+        }
+        keywords = extract_style_keywords(profile, limit=20)
+        self.assertEqual(keywords.count('python'), 1)
 
 
 if __name__ == '__main__':

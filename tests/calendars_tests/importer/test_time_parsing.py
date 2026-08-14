@@ -108,6 +108,10 @@ class TestNormalizeDays(unittest.TestCase):
     def test_weekend_range(self):
         self.assertEqual(normalize_days("Sat to Sun"), ["SA", "SU"])
 
+    def test_day_range_wraps_around_end_of_week(self):
+        """Fri to Mon must wrap past Sunday, distinct from a forward-only range."""
+        self.assertEqual(normalize_days("Fri to Mon"), ["FR", "SA", "SU", "MO"])
+
     def test_abbreviated_days(self):
         self.assertEqual(normalize_days("Tue Thu"), ["TU", "TH"])
 
