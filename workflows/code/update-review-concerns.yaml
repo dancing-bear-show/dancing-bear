@@ -160,7 +160,7 @@ stages:
                 pullRequest(number:$pr){
                   reviewThreads(first:100){nodes{
                     isResolved
-                    comments(first:50){nodes{author{login} body path line}}
+                    comments(first:50){nodes{author { login } body path line}}
                   }}
                 }
               }
@@ -198,15 +198,56 @@ stages:
           "body": "...",            # the raw comment text
           "path": "...",            # file path (null for PR-level comments)
           "line": null | N,
-          "is_bot": true | false    # true if author contains "[bot]"
+          "is_bot": true | false,   # true if author contains "[bot]"
+          "role": "finding" | "author_reply",
+          "disposition": "accepted" | "rebutted" | "unknown"
         }
 
       Skip comments with empty body. Include PR-level comments even without a
       path — they may still describe a recurring code pattern.
 
-      Step 3 — write merged comment list:
+      Step 3 — classify finding vs. author reply (REQUIRED — do not skip):
+        Roughly half of all inline comments on a PR are the PR author replying
+        to a reviewer ("Fixed in abc1234", "Good catch — fixed in ..."). Those
+        are NOT findings and must never be mined into concerns. Classify each
+        comment:
+
+          role = "author_reply" when the comment's author equals the PR author
+            (resolve once per PR: gh pr view <PR> --json author -q .author.login).
+            Everything else is role = "finding".
+
+        Then set `disposition` on each *finding* by inspecting the author_reply
+        comments on the same path+line thread:
+          - "rebutted"  — a reply disputes the finding's premise. Signals:
+            "the premise is incorrect", "not a bug", "no change needed",
+            "kept intentionally", "already fixed in <sha> (merged)", or a reply
+            that cites code proving the reviewer was wrong.
+          - "accepted"  — a reply confirms and fixes ("Fixed in <sha>",
+            "Valid —", "Confirmed and fixed").
+          - "unknown"   — no reply on that thread.
+
+        This matters: a rebutted finding encodes a reviewer FALSE POSITIVE.
+        Mining it produces a concern that will generate the same false positive
+        on every future PR. Example from a real run — several findings claimed
+        `{workspace}` was an undeclared workflow variable; it is in fact a
+        runtime builtin declared in `src/workflow/linter.py`
+        (`_RUNTIME_BUILTIN_VARS`), so those findings were rebutted and must be
+        dropped rather than turned into a concern.
+
+      Step 4 — deduplicate:
+        Reviewers frequently post the SAME finding on many lines of one file
+        (one real run had 20 identical comments differing only by line number).
+        Collapse comments whose body is identical or near-identical (compare the
+        first ~180 characters) into a single entry, keeping the first occurrence
+        and recording the collapsed count as "occurrences_in_pr". Deduping before
+        clustering stops one chatty reviewer from manufacturing a fake "recurring
+        pattern" that clears the {min_occurrences} threshold on its own.
+
+      Step 5 — write merged comment list:
         Write to {workspace}/outputs/review-comments.json.
-        Include a top-level "total" field alongside "comments": [...].
+        Include a top-level "total" field alongside "comments": [...], plus
+        "finding_count" and "author_reply_count" so the next stage can sanity
+        check the split.
     agent:
       role: researcher
       model: sonnet
@@ -244,8 +285,18 @@ stages:
         Group by (file_pattern, description_theme) and count occurrences.
 
       Step 3 — comment analysis (unstructured source):
-        From review-comments.json comments, cluster semantically similar
-        comments. Use keyword extraction and structural similarity:
+        From review-comments.json comments, FIRST filter to the mineable set:
+          - Keep only role == "finding". Drop every role == "author_reply" —
+            "Fixed in abc1234" describes a patch, not a reviewable pattern.
+          - Drop every finding with disposition == "rebutted". Those are
+            reviewer false positives; promoting one to a concern would burn the
+            same false positive into every future review.
+          - Keep disposition "accepted" and "unknown".
+        Record the counts you dropped at each step in cluster-summary.md so the
+        human gate can see how much of the corpus was noise.
+
+        Then cluster the survivors by semantic similarity. Use keyword
+        extraction and structural similarity:
           - Comments mentioning the same code pattern (e.g. "missing type hint",
             "bare except", "no assertion on mock") form a cluster.
           - Comments from bot authors (is_bot: true) are weighted equally to
@@ -315,6 +366,18 @@ stages:
           - **check**: One sentence describing what to verify.
           - **triggers**: What in the diff activates this concern.
           - **example**: Concrete code example showing the problem and fix.
+
+      Step 1b — verify the cluster against real code BEFORE drafting:
+        A reviewer comment is a claim, not a fact. For each cluster, spot-check
+        the underlying claim against the current repo (Grep/Read the cited
+        symbol, flag, or module). Drop the cluster if the claim no longer holds
+        — the code may have changed since the review, or the reviewer may simply
+        have been wrong. Note the verification in the entry's rationale.
+
+        Also require GENERALITY: keep only patterns that will recur in future
+        code. Drop one-off typos, single-file wording fixes, and anything whose
+        "fix" is specific to one call site — those bloat the library without
+        catching anything twice.
 
       Step 2 — for each cluster, draft a concern entry:
         concern_id: kebab-case slug derived from the theme (must not collide
