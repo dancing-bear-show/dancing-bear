@@ -249,10 +249,14 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
             result = sync.apply_from_config(items, calendar="Test", all_occurrences=True, dry_run=False)
         self.assertEqual(result, 2)
         svc.update_event_location.assert_any_call(
-            event_id="series1", calendar_name="Test", location_str="New Room"
+            UpdateEventLocationRequest(
+                event_id="series1", location_str="New Room", calendar_name="Test"
+            )
         )
         svc.update_event_location.assert_any_call(
-            event_id="single1", calendar_name="Test", location_str="New Room"
+            UpdateEventLocationRequest(
+                event_id="single1", location_str="New Room", calendar_name="Test"
+            )
         )
         out = buf.getvalue()
         self.assertIn("Updated series", out)
