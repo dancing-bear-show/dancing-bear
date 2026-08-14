@@ -68,12 +68,35 @@ mode = "comment"
 # file_complexity is the SUM of every function's complexity in a file, so it
 # scales with function count, not with how complex any single function is.
 # At the default threshold of 50 it flagged 63 files whose median size was only
-# 384 lines and whose functions were individually clean (zero function_complexity
-# findings repo-wide) — it was measuring module cohesion, not complexity.
-# 80 keeps the genuine outliers (top ~15%) flagged. Per-function complexity is
-# still caught by function_complexity below, which is the signal we act on.
+# 384 lines and whose functions were individually clean — it was measuring
+# module cohesion, not complexity. 80 still caught 9 such files, all of them
+# cohesive parsers/dispatchers in a tight 81–94 band (max: bin/pr-assistant at
+# 94 over 494 lines). Their per-KLOC density is unremarkable; the sum is high
+# only because the files are legitimately large and branch-heavy.
+# 100 clears that band with headroom while keeping a ceiling that would flag a
+# genuinely runaway module. Per-function complexity is the signal we act on and
+# is caught by function_complexity, left at its default.
 [smells.file_complexity]
-threshold = 80
+threshold = 100
+
+# 31 findings at the default of 5, mostly test fixtures/factories where a wide
+# keyword surface is the point — the alternative is positional args or a dict.
+# 8 cuts that to 11, of which 10 are still fixtures that exceed even the raised
+# bar (_make_session_summary takes 12 kwargs). Raising further to silence them
+# would gut the check for production code, so if the fixture noise becomes a
+# problem the lever is test_patterns / --include-tests, not this threshold.
+[smells.function_parameters]
+threshold = 8
+
+# Note the key is return_statements — function_returns parses but is silently
+# ignored with a warning.
+# 12 findings at the default of 5, and 9 of them sat at exactly 6 returns:
+# guard-clause chains, i.e. the early-return pattern our own complexity
+# refactors push toward. Flagging those penalizes the fix. 8 excuses the
+# guard-clause shape while still catching the 3 real outliers (cmd_reorg at 8,
+# and the register_*_commands dispatchers in src/mail/cli/ at 11 and 13).
+[smells.return_statements]
+threshold = 8
 
 [[source]]
 name = "default"
