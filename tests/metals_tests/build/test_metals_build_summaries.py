@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from tests.metals_tests.fixtures import make_summary_row, write_summary_csv
 
+from core.paths import output_dir
 from metals.build_summaries import run, main
 
 
@@ -128,15 +129,17 @@ class TestRun(unittest.TestCase):
 class TestMain(unittest.TestCase):
     """Tests for main function."""
 
+    @patch.dict("os.environ", {"DANCING_BEAR_DATA_HOME": "/tmp/dancing-bear-test-metals"})  # nosec B108 - test-only env override
     @patch("metals.build_summaries.run")
     def test_main_with_defaults(self, mock_run):
-        """Test main with default arguments."""
+        """Test main resolves defaults via core.paths.output_dir('metals')."""
         mock_run.return_value = 0
         result = main([])
         self.assertEqual(result, 0)
+        expected_out_dir = str(output_dir("metals"))
         mock_run.assert_called_once_with(
-            costs_path="out/metals/costs.csv",
-            out_dir="out/metals",
+            costs_path=f"{expected_out_dir}/costs.csv",
+            out_dir=expected_out_dir,
         )
 
     @patch("metals.build_summaries.run")

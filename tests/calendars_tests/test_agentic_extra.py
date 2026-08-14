@@ -119,6 +119,40 @@ class TestCliPathExists(unittest.TestCase):
             self.skipTest("Parser not available in this test environment")
         self.assertTrue(core_exists(parser, ["outlook", "add"]))
         self.assertTrue(core_exists(parser, ["gmail", "scan-classes"]))
+        self.assertTrue(core_exists(parser, ["outlook", "add-recurring"]))
+        # Either reminders-off or reminders-set may exist depending on version.
+        self.assertTrue(
+            core_exists(parser, ["outlook", "reminders-off"])
+            or core_exists(parser, ["outlook", "reminders-set"])
+        )
+
+
+class TestParserActuallyLoads(unittest.TestCase):
+    """The parser must load — a None parser is a bug, not a test environment.
+
+    _load_parser previously reached the CLIApp through `calendars.__main__`,
+    which no longer re-exports `app`. The resulting AttributeError was
+    swallowed by cached_parser_loader's broad except and cached as None
+    forever, so --agentic, the CLI tree and the flow map silently rendered
+    without any real CLI structure.
+
+    Every other test here skips when the parser is None, which is precisely
+    why nothing caught it. These assert instead.
+    """
+
+    def test_load_parser_does_not_raise(self):
+        from calendars.agentic import _load_parser
+
+        parser = _load_parser()
+        self.assertIsNotNone(parser)
+        self.assertEqual(parser.prog, "calendar-assistant")
+
+    def test_cli_tree_is_not_empty(self):
+        from calendars.agentic import _cli_tree
+
+        tree = _cli_tree()
+        self.assertTrue(tree, "CLI tree is empty — the parser failed to load")
+        self.assertIn("outlook", tree)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -37,17 +37,25 @@ def _canon_rule(rule: dict) -> str:
     })
 
 
-def _fetch_rules_with_resilience(client: Any) -> list[dict[str, Any]]:
-    """Fetch existing rules with auth error handling and cache fallback."""
+def _fetch_rules_with_resilience(
+    client: Any,
+    use_cache: bool = False,
+    cache_ttl: int = 600,
+) -> list[dict[str, Any]]:
+    """Fetch existing rules with auth error handling and cache fallback.
+
+    Auth failures (401/403) propagate; any other error falls back to a cached
+    read so a transient outage does not look like an empty rule set.
+    """
     try:
-        return client.list_filters()
+        return client.list_filters(use_cache=use_cache, ttl=cache_ttl)
     except Exception as e:
         resp = getattr(e, 'response', None)
         status = getattr(resp, 'status_code', None) if resp else None
         if status in (401, 403):
             raise
         try:
-            return client.list_filters(use_cache=True, ttl=600)
+            return client.list_filters(use_cache=True, ttl=cache_ttl)
         except Exception:
             return []
 

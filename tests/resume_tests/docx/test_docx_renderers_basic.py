@@ -67,6 +67,24 @@ class TestBulletRenderer(unittest.TestCase):
         renderer.add_bullets(["Item 1", "Item 2", "Item 3"], plain=True, glyph="•")
         self.assertEqual(len(doc.paragraphs), 3)
 
+    def test_add_bullets_list_style_mode(self):
+        """Test add_bullets(plain=False) uses the configured list_style paragraphs."""
+        renderer, doc = self._get_renderer()
+        renderer.add_bullets(["Item 1", "Item 2"], plain=False, list_style="List Bullet")
+        self.assertEqual(len(doc.paragraphs), 2)
+        self.assertEqual(getattr(doc.paragraphs[0].style, "name", doc.paragraphs[0].style), "List Bullet")
+
+    def test_get_bullet_config_page_cfg_fallback(self):
+        """Constructor-level page_cfg supplies bullet config when sec is None."""
+        from resume.docx_sections import BulletRenderer
+        from tests.resume_tests.fixtures import FakeDocument
+        doc = FakeDocument()
+        page_cfg = {"bullets": {"glyph": "★", "style": "plain"}}
+        renderer = BulletRenderer(doc, page_cfg)
+        plain, glyph = renderer.get_bullet_config(None)
+        self.assertEqual(glyph, "★")
+        self.assertTrue(plain)
+
     def test_bold_keywords(self):
         """Test keyword bolding in text."""
         renderer, doc = self._get_renderer()
@@ -183,6 +201,25 @@ class TestHeaderRenderer(unittest.TestCase):
         texts = [r.text for r in runs]
         self.assertIn("New York", texts)
 
+    def test_add_header_line_location_brackets_by_default(self):
+        """Location is bracketed by default: distinct '[' / ']' runs."""
+        renderer, doc = self._get_renderer()
+        renderer.add_header_line(HeaderLineConfig(title_text="Engineer", loc_text="NYC"))
+        texts = [r.text for r in doc.paragraphs[0].runs]
+        self.assertIn("[", texts)
+        self.assertIn("]", texts)
+
+    def test_add_header_line_without_location_brackets(self):
+        """sec={"location_brackets": False} suppresses the bracket runs."""
+        renderer, doc = self._get_renderer()
+        renderer.add_header_line(
+            HeaderLineConfig(title_text="Engineer", loc_text="NYC"),
+            sec={"location_brackets": False},
+        )
+        texts = [r.text for r in doc.paragraphs[0].runs]
+        self.assertNotIn("[", texts)
+        self.assertNotIn("]", texts)
+
     def test_add_header_line_with_duration(self):
         """Test header with duration."""
         renderer, doc = self._get_renderer()
@@ -213,6 +250,21 @@ class TestHeaderRenderer(unittest.TestCase):
         renderer, _ = self._get_renderer()
         result = renderer._parse_meta_pt({})
         self.assertIsNone(result)
+
+    def test_parse_meta_pt_float(self):
+        """A bare float value passes through unchanged."""
+        renderer, _ = self._get_renderer()
+        self.assertEqual(renderer._parse_meta_pt({"meta_pt": 10.5}), 10.5)
+
+    def test_parse_meta_pt_int_as_float(self):
+        """An int value is coerced to float."""
+        renderer, _ = self._get_renderer()
+        self.assertEqual(renderer._parse_meta_pt({"meta_pt": 12}), 12.0)
+
+    def test_parse_meta_pt_none_value(self):
+        """An explicit None value (vs. missing key) returns None."""
+        renderer, _ = self._get_renderer()
+        self.assertIsNone(renderer._parse_meta_pt({"meta_pt": None}))
 
     def test_add_group_title(self):
         """Test adding a group title."""
@@ -273,6 +325,18 @@ class TestListSectionRenderer(unittest.TestCase):
         result = renderer._extract_item_text("", ("name",), None, " — ")
         self.assertIsNone(result)
 
+    def test_extract_item_text_dict_with_title_fallback(self):
+        """The 'title' key is used when 'name' is absent."""
+        renderer, _ = self._get_renderer()
+        result = renderer._extract_item_text({"title": "Docker"}, ("name", "title"), None, " — ")
+        self.assertEqual(result, "Docker")
+
+    def test_extract_item_text_empty_dict(self):
+        """An empty dict (distinct from an empty string) yields None."""
+        renderer, _ = self._get_renderer()
+        result = renderer._extract_item_text({}, ("name",), None, " — ")
+        self.assertIsNone(result)
+
     def test_render_simple_list(self):
         """Test rendering a simple list."""
         renderer, doc = self._get_renderer()
@@ -280,6 +344,27 @@ class TestListSectionRenderer(unittest.TestCase):
         result = renderer.render_simple_list(items)
         self.assertEqual(result, ["Item 1", "Item 2", "Item 3"])
         self.assertEqual(len(doc.paragraphs), 3)
+
+    def test_render_simple_list_inline(self):
+        """sec={"bullets": False} joins items into a single separator-delimited paragraph."""
+        renderer, doc = self._get_renderer()
+        sec = {"bullets": False, "separator": ", "}
+        renderer.render_simple_list(["A", "B", "C"], sec)
+        self.assertEqual(len(doc.paragraphs), 1)
+
+    def test_render_simple_list_skips_empty_items(self):
+        """Blank strings and empty dict items are dropped from the rendered list."""
+        renderer, _ = self._get_renderer()
+        items = ["Valid", "", "  ", {"name": ""}, "Also Valid"]
+        result = renderer.render_simple_list(items)
+        self.assertEqual(result, ["Valid", "Also Valid"])
+
+    def test_render_simple_list_title_and_label_fallback(self):
+        """render_simple_list's default name_keys include 'title' and 'label'."""
+        renderer, _ = self._get_renderer()
+        items = [{"name": "First"}, {"title": "Second"}, {"label": "Third"}]
+        result = renderer.render_simple_list(items)
+        self.assertEqual(result, ["First", "Second", "Third"])
 
 
 @mock_docx_modules

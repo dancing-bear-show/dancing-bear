@@ -9,10 +9,10 @@ Also prints a concise text summary.
 
 Usage:
   python -m metals.premium_summary \
-    --silver out/metals/premium_silver.csv \
-    --gold out/metals/premium_gold.csv \
-    --out-summary out/metals/premium_overview_summary.csv \
-    --out-monthly out/metals/premium_overview_monthly.csv
+    --silver premium_silver.csv \
+    --gold premium_gold.csv \
+    --out-summary premium_overview_summary.csv \
+    --out-monthly premium_overview_monthly.csv
 """
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
+
+from .pipeline import default_spot_dir
 
 
 @dataclass
@@ -194,17 +196,20 @@ def run(silver_csv: Optional[str], gold_csv: Optional[str], out_summary: str, ou
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    out_dir = default_spot_dir()
+    default_summary = f"{out_dir}/premium_overview_summary.csv"
+    default_monthly = f"{out_dir}/premium_overview_monthly.csv"
     p = argparse.ArgumentParser(description="Summarize premium and costs overall and monthly from premium CSVs")
-    p.add_argument("--silver", default="out/metals/premium_silver.csv")
-    p.add_argument("--gold", default="out/metals/premium_gold.csv")
-    p.add_argument("--out-summary", default="out/metals/premium_overview_summary.csv")
-    p.add_argument("--out-monthly", default="out/metals/premium_overview_monthly.csv")
+    p.add_argument("--silver", default=f"{out_dir}/premium_silver.csv")
+    p.add_argument("--gold", default=f"{out_dir}/premium_gold.csv")
+    p.add_argument("--out-summary", default=default_summary)
+    p.add_argument("--out-monthly", default=default_monthly)
     args = p.parse_args(argv)
     return run(
         silver_csv=getattr(args, "silver", None),
         gold_csv=getattr(args, "gold", None),
-        out_summary=getattr(args, "out_summary", "out/metals/premium_overview_summary.csv"),
-        out_monthly=getattr(args, "out_monthly", "out/metals/premium_overview_monthly.csv"),
+        out_summary=getattr(args, "out_summary", default_summary),
+        out_monthly=getattr(args, "out_monthly", default_monthly),
     )
 
 

@@ -9,7 +9,6 @@ Covers the silent-fallback ``except`` handlers in:
 - workflow.cli_dispatch._stage_names_from_manifest  (OSError → [])
 - workflow.include.extract_include_entries  (yaml.YAMLError → [])
 - workflow.output_checks._read_json  (OSError → error message)
-- workflow._fileutil.write_once  (success → True; file-exists → False)
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from workflow._fileutil import write_once
 from workflow.cli_compile import _fragment_bytes, _try_read_cached_compile
 from workflow.cli_dispatch import _stage_names_from_manifest, _stage_names_from_plan
 from workflow.compiler import _load_file_content
@@ -361,50 +359,6 @@ class TestReadJsonOSError(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].passed)
-
-
-# ---------------------------------------------------------------------------
-# workflow._fileutil.write_once
-# ---------------------------------------------------------------------------
-
-
-class TestFileUtilWriteOnce(unittest.TestCase):
-    """write_once returns True on success and False when file already exists."""
-
-    def test_returns_true_on_success(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            p = Path(tmp_dir) / "new.bin"
-            result = write_once(p, b"hello")
-        self.assertTrue(result)
-
-    def test_file_is_written_on_success(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            p = Path(tmp_dir) / "new.bin"
-            write_once(p, b"content")
-            self.assertEqual(p.read_bytes(), b"content")
-
-    def test_returns_false_when_file_already_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            p = Path(tmp_dir) / "existing.bin"
-            p.write_bytes(b"original")
-            result = write_once(p, b"new-content")
-        self.assertFalse(result)
-
-    def test_existing_file_content_unchanged_after_false(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            p = Path(tmp_dir) / "existing.bin"
-            p.write_bytes(b"original")
-            write_once(p, b"new-content")
-            self.assertEqual(p.read_bytes(), b"original")
-
-    def test_second_call_returns_false(self) -> None:
-        """Second call on same path returns False (O_EXCL prevents overwrite)."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            p = Path(tmp_dir) / "once.bin"
-            first = write_once(p, b"first")
-            second = write_once(p, b"second")
-        self.assertTrue(first)
-        self.assertFalse(second)
 
 
 if __name__ == "__main__":

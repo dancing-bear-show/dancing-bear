@@ -23,7 +23,9 @@ from core.cli_errors import CLIError, ExitCode
 from core.cli_framework import CLIApp
 from core.paths import ENV_DATA_HOME, output_dir
 
-from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json, write_text
+from core.textio import write_text
+
+from ..io_utils import read_text_any, read_text_raw, read_yaml_or_json, write_yaml_or_json
 from ..model import CandidateData
 from ..parsing import parse_linkedin_text, parse_resume_text, merge_profiles
 from ..summarizer import build_summary
@@ -202,7 +204,7 @@ def cmd_summarize(args: argparse.Namespace) -> int:
             lines.append("\n## Experience Highlights")
             for item in summary["experience_highlights"]:
                 lines.append(f"- {item}")
-        write_text("\n".join(lines), out)
+        write_text(out, "\n".join(lines))
     return 0
 
 

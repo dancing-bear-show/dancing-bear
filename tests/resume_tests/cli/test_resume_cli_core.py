@@ -293,6 +293,47 @@ class TestResumeCLIHelpers(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(result["sections"][0]["key"], "education")
 
+    def test_find_structure_in_dirs_prefers_nested_over_legacy(self):
+        """Test _find_structure_in_dirs prefers the nested layout when both exist."""
+        from resume.cli.main import _find_structure_in_dirs
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "testprofile"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "structure.json").write_text(json.dumps({"source": "nested"}))
+            (Path(tmpdir) / "testprofile.structure.json").write_text(json.dumps({"source": "legacy"}))
+
+            result = _find_structure_in_dirs("testprofile", [Path(tmpdir)])
+            self.assertEqual(result, {"source": "nested"})
+
+    def test_find_structure_in_dirs_tries_multiple_extensions(self):
+        """Test _find_structure_in_dirs finds a .yml structure file."""
+        from resume.cli.main import _find_structure_in_dirs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "testprofile"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "structure.yml").write_text("ext: yml\n")
+
+            result = _find_structure_in_dirs("testprofile", [Path(tmpdir)])
+            self.assertEqual(result, {"ext": "yml"})
+
+    def test_find_structure_in_dirs_searches_multiple_dirs(self):
+        """Test _find_structure_in_dirs searches later dirs when earlier ones miss."""
+        from resume.cli.main import _find_structure_in_dirs
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first_dir = Path(tmpdir) / "first"
+            second_dir = Path(tmpdir) / "second"
+            first_dir.mkdir()
+            second_dir.mkdir()
+            (second_dir / "testprofile.structure.json").write_text(json.dumps({"found": True}))
+
+            result = _find_structure_in_dirs("testprofile", [first_dir, second_dir])
+            self.assertEqual(result, {"found": True})
+
     def test_apply_profile_overlays_delegates(self):
         """Test _apply_profile_overlays delegates to overlays module."""
         from resume.cli.main import _apply_profile_overlays

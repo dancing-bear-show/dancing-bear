@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
 
-from core.fileutil import atomic_write_json
+from core.fileutil import atomic_write_json, safe_load_json
 
 
 class MailCache:
@@ -26,11 +25,7 @@ class MailCache:
         p = self._path("meta", msg_id)
         if not os.path.exists(p):
             return None
-        try:
-            with open(p, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except Exception:
-            return None
+        return safe_load_json(p, default=None)
 
     def put_meta(self, msg_id: str, data: dict[str, Any]) -> None:
         p = self._path("meta", msg_id)
@@ -40,11 +35,7 @@ class MailCache:
         p = self._path("full", msg_id)
         if not os.path.exists(p):
             return None
-        try:
-            with open(p, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except Exception:
-            return None
+        return safe_load_json(p, default=None)
 
     def put_full(self, msg_id: str, data: dict[str, Any]) -> None:
         p = self._path("full", msg_id)

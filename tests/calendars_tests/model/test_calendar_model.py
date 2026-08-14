@@ -87,6 +87,16 @@ class NormalizeRangeTests(unittest.TestCase):
     def test_no_range_returns_none(self):
         self.assertIsNone(_normalize_range({}))
 
+    def test_empty_range_dict_returns_none(self):
+        """{"range": {}} — an explicit but empty range dict — is distinct from
+        a wholly missing range key, and must also normalize to None."""
+        self.assertIsNone(_normalize_range({"range": {}}))
+
+    def test_top_level_until_only(self):
+        ev = {"until": "2025-12-31"}
+        result = _normalize_range(ev)
+        self.assertEqual(result, {"until": "2025-12-31"})
+
     def test_range_with_start_date(self):
         ev = {"range": {"start_date": "2025-01-15"}}
         result = _normalize_range(ev)

@@ -16,6 +16,7 @@ from metals.pipeline import (
     OutlookExtractProcessor,
     ExtractProducer,
 )
+from core.paths import output_dir
 from core.pipeline import ResultEnvelope
 from metals.extractors import MetalsAmount, OrderExtraction
 from tests.metals_tests.fixtures import make_mock_gmail_client
@@ -89,10 +90,11 @@ class TestPremiumDataclasses(unittest.TestCase):
     """Tests for premium dataclasses."""
 
     def test_premium_request(self):
-        """Test PremiumRequest."""
+        """Test PremiumRequest resolves defaults via core.paths.output_dir('metals')."""
         req = PremiumRequest()
-        self.assertEqual(req.costs_path, "out/metals/costs.csv")
-        self.assertEqual(req.spot_dir, "out/metals")
+        expected_out_dir = str(output_dir("metals"))
+        self.assertEqual(req.costs_path, f"{expected_out_dir}/costs.csv")
+        self.assertEqual(req.spot_dir, expected_out_dir)
 
     def test_premium_result(self):
         """Test PremiumResult."""

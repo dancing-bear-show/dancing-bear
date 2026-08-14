@@ -9,7 +9,7 @@ menubar.NSColor, menubar.NSFont, etc.).
 
 import os  # patched by tests via menubar.os
 import subprocess  # patched by tests via menubar.subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 from core.cli_errors import CLIError, ExitCode
@@ -97,6 +97,7 @@ from telemetry._menubar_display import (
     _model_short,  # noqa: F401
     _rate_str,  # noqa: F401
     _sparkline,  # noqa: F401
+    _window_since_impl,
 )
 
 _CLAUDE_DIR = Path.home() / ".claude"
@@ -122,16 +123,8 @@ def _save_config(cfg: dict) -> None:
 
 
 def _window_since(seconds: int | None) -> datetime:
-    """Return the UTC datetime marking the start of the given window.
-
-    Defined here so tests can patch menubar.datetime.
-    """
-    if seconds is None:
-        local_midnight = datetime.now().astimezone().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        return local_midnight.astimezone(timezone.utc)
-    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    """Return the UTC datetime marking the start of the given window."""
+    return _window_since_impl(seconds)
 
 
 def _build_version() -> str:

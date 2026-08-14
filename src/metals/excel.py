@@ -7,8 +7,8 @@ Usage:
   python -m metals.excel \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
-    --silver-csv out/metals/silver_summary.csv --silver-sheet Silver \
-    --gold-csv out/metals/gold_summary.csv --gold-sheet Gold
+    --silver-csv silver_summary.csv --silver-sheet Silver \
+    --gold-csv gold_summary.csv --gold-sheet Gold
 
 This overwrites the respective sheets starting at A1 with CSV contents.
 """

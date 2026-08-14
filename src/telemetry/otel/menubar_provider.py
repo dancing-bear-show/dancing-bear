@@ -174,11 +174,11 @@ class OtelMenubarProvider:
 
         for name, value, attrs in metrics_24h:
             if name == _METRIC_TOKEN_USAGE:
-                _accumulate_token_metric(attrs.get("type", ""), _safe_int(value), token_counters)
+                _accumulate_token_metric(attrs.get("type", ""), _safe_int(value, 0), token_counters)
             elif name == _METRIC_COST:
                 _accumulate_cost_metric(value, attrs, cost_holder, model_cost)
             elif name == "claude_code.active_time.total":
-                active_secs_24h += _safe_float(value)
+                active_secs_24h += _safe_float(value, 0.0)
 
         cost_7d = sum(value for name, value, _ in metrics_7d if name == _METRIC_COST)
         total_tokens_24h = sum(token_counters.values())
@@ -204,9 +204,9 @@ class OtelMenubarProvider:
         for name, value, attrs in metrics_24h:
             model = _trunc(attrs.get("model", "unknown"))
             if name == _METRIC_COST:
-                model_cost[model] += _safe_float(value)
+                model_cost[model] += _safe_float(value, 0.0)
             elif name == _METRIC_TOKEN_USAGE:
-                model_tokens[model] += _safe_int(value)
+                model_tokens[model] += _safe_int(value, 0)
 
         all_models = set(model_cost) | set(model_tokens)
         rows = [(m, model_cost.get(m, 0.0), model_tokens.get(m, 0)) for m in all_models]
@@ -249,9 +249,9 @@ class OtelMenubarProvider:
             if event_type != "claude_code.hook_execution_complete":
                 continue
             hooks_fired += 1
-            total_latency_ms += _safe_float(attrs.get("total_duration_ms", 0))
-            blocking_count += _safe_int(attrs.get("num_blocking", 0))
-            error_count += _safe_int(attrs.get("num_non_blocking_error", 0))
+            total_latency_ms += _safe_float(attrs.get("total_duration_ms", 0), 0.0)
+            blocking_count += _safe_int(attrs.get("num_blocking", 0), 0)
+            error_count += _safe_int(attrs.get("num_non_blocking_error", 0), 0)
             hook_name_counts[_trunc(attrs.get("hook_name", "unknown"))] += 1
 
         avg_latency = total_latency_ms / hooks_fired if hooks_fired > 0 else 0.0

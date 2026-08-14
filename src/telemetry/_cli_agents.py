@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from rich.table import Table
 
-from telemetry._cli_sessions import _fmt_tokens
+from telemetry.cli_formatters import _fmt_tokens
 
 if TYPE_CHECKING:
     from telemetry.models import AgentTokenRow

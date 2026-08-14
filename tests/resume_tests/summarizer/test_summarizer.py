@@ -192,6 +192,36 @@ class TestBuildSummary(unittest.TestCase):
         result = build_summary(data)
         self.assertEqual(result["top_skills"], [])
 
+    def test_prioritizes_keywords_across_headline_skills_and_experience(self):
+        # Integration case: headline passthrough combined with keyword-seeded
+        # skill prioritization and experience-highlight scoring in one call.
+        data = {
+            "name": "Taylor Example",
+            "headline": "SRE",
+            "skills": ["Python", "AWS", "Go"],
+            "experience": [
+                {
+                    "title": "SRE",
+                    "company": "Acme",
+                    "bullets": ["Built Kubernetes clusters", "Improved monitoring"],
+                },
+                {
+                    "title": "Developer",
+                    "company": "Other",
+                    "bullets": ["Built web apps"],
+                },
+            ],
+        }
+        seed = {"keywords": ["AWS", "Kubernetes"]}
+
+        summary = build_summary(data, seed=seed)
+
+        self.assertEqual(summary["name"], "Taylor Example")
+        self.assertEqual(summary["headline"], "SRE")
+        self.assertEqual(summary["top_skills"][0], "AWS")
+        self.assertIn("SRE at Acme", summary["experience_highlights"])
+        self.assertIn("Built Kubernetes clusters", summary["experience_highlights"])
+
 
 if __name__ == "__main__":
     unittest.main()

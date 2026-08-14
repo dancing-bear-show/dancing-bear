@@ -24,6 +24,24 @@ class TestCalendarLLMCLI(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("Generated:", out)
 
+    def test_llm_calendar_inventory(self):
+        import calendars.llm_cli as mod
+
+        with capture_stdout() as buf:
+            rc = mod.main(["inventory", "--stdout"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("LLM Agent Inventory", out)
+
+    def test_llm_calendar_policies(self):
+        import calendars.llm_cli as mod
+
+        with capture_stdout() as buf:
+            rc = mod.main(["policies", "--stdout"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("policies:", out)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

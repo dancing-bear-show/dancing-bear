@@ -77,6 +77,10 @@ class TestSafeInt(unittest.TestCase):
     def test_string_number_converted(self) -> None:
         self.assertEqual(_safe_int("7", 0), 7)
 
+    def test_bool_returns_default(self) -> None:
+        self.assertEqual(_safe_int(True, 9), 9)
+        self.assertEqual(_safe_int(False, 9), 9)
+
     def test_none_returns_default(self) -> None:
         self.assertEqual(_safe_int(None, 99), 99)
 

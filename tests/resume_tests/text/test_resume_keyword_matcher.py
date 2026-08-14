@@ -122,6 +122,46 @@ class TestKeywordMatcherSynonyms(KeywordMatcherTestMixin, unittest.TestCase):
         self.assertIsInstance(result, KeywordMatcher)
 
 
+class TestAddKeywordItem(KeywordMatcherTestMixin, unittest.TestCase):
+    """Tests for the private _add_keyword_item per-item helper.
+
+    add_keywords_from_spec exercises this indirectly, but not its individual
+    input-shape branches (skill-key dict, name-key dict, bare string, and the
+    ignore-invalid-input cases) in isolation.
+    """
+
+    def test_adds_dict_with_skill_key(self):
+        self.matcher._add_keyword_item({"skill": "Python", "weight": 2}, "required")
+        info = self.matcher.get_keyword_info("Python")
+        self.assertIsNotNone(info)
+        self.assertEqual(info.weight, 2)
+        self.assertEqual(info.tier, "required")
+
+    def test_adds_dict_with_name_key(self):
+        self.matcher._add_keyword_item({"name": "AWS"}, "preferred", category="cloud")
+        info = self.matcher.get_keyword_info("AWS")
+        self.assertIsNotNone(info)
+        self.assertEqual(info.category, "cloud")
+
+    def test_adds_string_item(self):
+        self.matcher._add_keyword_item("Docker", "nice")
+        info = self.matcher.get_keyword_info("Docker")
+        self.assertIsNotNone(info)
+        self.assertEqual(info.tier, "nice")
+
+    def test_ignores_empty_dict(self):
+        self.matcher._add_keyword_item({}, "required")
+        self.assertEqual(len(self.matcher.keywords), 0)
+
+    def test_ignores_empty_string(self):
+        self.matcher._add_keyword_item("", "required")
+        self.assertEqual(len(self.matcher.keywords), 0)
+
+    def test_ignores_non_string_non_dict(self):
+        self.matcher._add_keyword_item(123, "required")
+        self.assertEqual(len(self.matcher.keywords), 0)
+
+
 class TestKeywordMatcherKeywordRegistration(KeywordMatcherTestMixin, unittest.TestCase):
     """Tests for KeywordMatcher keyword registration."""
 

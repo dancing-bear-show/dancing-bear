@@ -81,6 +81,14 @@ def _make_svc():
 # ---------------------------------------------------------------------------
 
 class TestOutlookServiceDelegation(unittest.TestCase):
+    def test_list_events_in_range_delegates(self):
+        from calendars.outlook_service import ListEventsRequest
+        svc = _make_svc()
+        params = ListEventsRequest(start_iso="2025-01-01T00:00:00", end_iso="2025-01-31T23:59:59")
+        result = svc.list_events_in_range(params)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], "e1")
+
     def test_create_event_delegates(self):
         from core.outlook.models import EventCreationParams
         svc = _make_svc()

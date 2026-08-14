@@ -4,17 +4,19 @@ Daily spot series for precious metals with USD->CAD conversion.
 Fetches daily closes for a USD metal ticker (e.g., XAGUSD=X for silver), the
 USD/CAD FX rate (USDCAD=X), multiplies them to produce a CAD series, and writes
 to CSV. If --start-date is omitted, attempts to auto-detect from local
-summaries under out/metals/ (prefers <metal>_summary.csv, else costs.csv).
+summaries under the resolved metals output directory (core.paths.output_dir
+("metals"), default ~/.local/share/dancing-bear/metals; prefers
+<metal>_summary.csv, else costs.csv).
 
 Usage examples:
   # Silver spot CAD since first purchase → CSV
   python -m metals.spot \
-    --metal silver --out out/metals/silver_spot_cad_daily.csv
+    --metal silver --out silver_spot_cad_daily.csv
 
   # Explicit window
   python -m metals.spot \
     --metal silver --start-date 2025-04-23 --end-date 2025-10-20 \
-    --out out/metals/silver_spot_cad_daily.csv
+    --out silver_spot_cad_daily.csv
 
 Notes:
   - Uses Yahoo Finance chart API (no auth) for XAGUSD=X and USDCAD=X.
@@ -31,6 +33,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from core.constants import DEFAULT_REQUEST_TIMEOUT
 
+from .pipeline import default_spot_dir
 from .yahoo import parse_response as _parse_yahoo_response
 
 if TYPE_CHECKING:
@@ -223,16 +226,18 @@ def _find_earliest_date_in_csv(csv_path: Path, metal_filter: Optional[str] = Non
 
 
 def _auto_start_date(metal: str) -> Optional[str]:
-    """Find earliest purchase date from out/metals/* CSVs.
+    """Find earliest purchase date from the resolved metals output directory.
 
-    Prefers out/metals/<metal>_summary.csv; falls back to out/metals/costs.csv.
+    Prefers <out-dir>/<metal>_summary.csv; falls back to <out-dir>/costs.csv,
+    where <out-dir> is core.paths.output_dir("metals").
     Returns YYYY-MM-DD or None if unavailable.
     """
     m = (metal or "").strip().lower()
+    out_dir = default_spot_dir()
     paths_try: List[Path] = []
     if m in ("silver", "gold"):
-        paths_try.append(Path(f"out/metals/{m}_summary.csv"))
-    paths_try.append(Path("out/metals/costs.csv"))
+        paths_try.append(Path(f"{out_dir}/{m}_summary.csv"))
+    paths_try.append(Path(f"{out_dir}/costs.csv"))
 
     for p in paths_try:
         earliest = _find_earliest_date_in_csv(p, metal_filter=m)
@@ -371,10 +376,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--metal", default="silver", choices=["silver", "gold"], help="Metal to fetch (default: silver)")
     p.add_argument("--start-date", help="YYYY-MM-DD; default: earliest purchase auto-detected or 1y ago")
     p.add_argument("--end-date", help="YYYY-MM-DD; default: today")
-    p.add_argument("--out", help="Output CSV path; default: out/metals/<metal>_spot_cad_daily.csv")
+    p.add_argument("--out", help="Output CSV path; default: <metals out-dir>/<metal>_spot_cad_daily.csv")
     args = p.parse_args(argv)
     metal = getattr(args, "metal", "silver")
-    out_default = f"out/metals/{metal}_spot_cad_daily.csv"
+    out_default = f"{default_spot_dir()}/{metal}_spot_cad_daily.csv"
     out_path = getattr(args, "out", None) or out_default
     return run(
         metal=metal,

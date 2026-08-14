@@ -25,13 +25,36 @@ class TestFmtTokens(unittest.TestCase):
         self.assertEqual(_fmt_tokens(500), "500")
 
     def test_thousands(self):
-        self.assertEqual(_fmt_tokens(1500), "1K")
+        self.assertEqual(_fmt_tokens(1500), "2K")
 
     def test_millions(self):
         self.assertEqual(_fmt_tokens(2_500_000), "2.5M")
 
     def test_exactly_one_thousand(self):
         self.assertEqual(_fmt_tokens(1000), "1K")
+
+    def test_just_under_one_thousand(self):
+        self.assertEqual(_fmt_tokens(999), "999")
+
+    def test_just_under_rounding_boundary(self):
+        self.assertEqual(_fmt_tokens(1499), "1K")
+
+    def test_rounding_boundary_rounds_up(self):
+        self.assertEqual(_fmt_tokens(1500), "2K")
+
+    def test_half_boundary_at_2500_uses_banker_rounding(self):
+        # Python's f"{x:.0f}" uses round-half-to-even: 2.5 -> 2, not 3.
+        self.assertEqual(_fmt_tokens(2500), "2K")
+
+    def test_last_value_that_still_renders_as_k(self):
+        self.assertEqual(_fmt_tokens(999_499), "999K")
+
+    def test_rounds_over_to_m_rather_than_four_k_digits(self):
+        # 999_500 rounds to 1000K, which must roll over to 1.0M — the M
+        # threshold is checked after rounding so no four-digit K value exists.
+        for value in (999_500, 999_999):
+            with self.subTest(value=value):
+                self.assertEqual(_fmt_tokens(value), "1.0M")
 
 
 # ---------------------------------------------------------------------------

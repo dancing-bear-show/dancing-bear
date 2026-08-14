@@ -20,7 +20,6 @@ from .outlook_costs_extract import (  # noqa: F401
     _trim_disclaimer_lines,
 )
 from .outlook_costs_build import (  # noqa: F401
-    DEFAULT_COSTS_OUT,
     _summarize_ounces,
     _compute_confirmation_line_costs,
     _compute_proximity_line_costs,

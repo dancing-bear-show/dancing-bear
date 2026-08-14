@@ -126,6 +126,33 @@ class TestLocationSyncPlanFromConfig(unittest.TestCase):
         result = sync.plan_from_config(items, calendar="Test", dry_run=True)
         self.assertEqual(result, 0)
 
+    def test_non_dry_run_writes_standardized_address_into_config_item(self):
+        """dry_run=False mutates the config item's "location" field in place
+        with the address-formatted string — untested branch (the dry_run
+        tests above only count would-be updates, never inspect the mutation)."""
+        addr = {
+            "street": "11099 Bathurst St",
+            "city": "Richmond Hill",
+            "state": "ON",
+            "postalCode": "L4C 0A2",
+            "countryOrRegion": "CA",
+        }
+        events = [make_test_event(
+            "occ1", "Class", "2024-01-15T17:00:00",
+            location={"displayName": "Elgin West", "address": addr},
+            seriesMasterId="ser1",
+        )]
+        sync, _ = make_location_sync(events, mock_svc=True)
+        item = {
+            "subject": "Class",
+            "location": "Old Name",
+            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+        }
+        result = sync.plan_from_config([item], calendar="Test", dry_run=False)
+        self.assertEqual(result, 1)
+        self.assertIn("Richmond Hill", item["location"])
+        self.assertIn("11099 Bathurst St", item["location"])
+
 
 class TestLocationSyncApplyFromConfig(unittest.TestCase):
     """Tests for LocationSync.apply_from_config."""
@@ -196,6 +223,44 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
                 event_id="series1", location_str="New Room", calendar_name="Test"
             )
         )
+
+    def test_all_occurrences_updates_series_and_standalone_occurrence_separately(self):
+        """A mixed match set (one series event, one standalone event with no
+        seriesMasterId) updates both, via distinct series/occurrence code paths.
+
+        Distinct from test_all_occurrences_updates_series, which only covers
+        two events sharing the same seriesMasterId (deduped into one update).
+        """
+        events = [
+            make_test_event("occ1", "Weekly", "2024-01-15T09:00:00",
+                            location={"displayName": "Old"}, seriesMasterId="series1"),
+            make_test_event("single1", "Weekly", "2024-01-22T09:00:00",
+                            location={"displayName": "Old Single"}),
+        ]
+        sync, svc = make_location_sync(events, mock_svc=True)
+        svc.update_event_location = MagicMock()
+        items = [{
+            "subject": "Weekly",
+            "location": "New Room",
+            "range": {"start_date": "2024-01-01", "until": "2024-02-01"},
+        }]
+        buf = StringIO()
+        with patch("sys.stdout", buf):
+            result = sync.apply_from_config(items, calendar="Test", all_occurrences=True, dry_run=False)
+        self.assertEqual(result, 2)
+        svc.update_event_location.assert_any_call(
+            UpdateEventLocationRequest(
+                event_id="series1", location_str="New Room", calendar_name="Test"
+            )
+        )
+        svc.update_event_location.assert_any_call(
+            UpdateEventLocationRequest(
+                event_id="single1", location_str="New Room", calendar_name="Test"
+            )
+        )
+        out = buf.getvalue()
+        self.assertIn("Updated series", out)
+        self.assertIn("Updated occurrence", out)
 
     def test_skips_when_location_matches(self):
         events = [make_test_event(

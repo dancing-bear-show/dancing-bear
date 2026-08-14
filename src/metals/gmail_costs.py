@@ -11,7 +11,7 @@ Heuristics:
   over-approximate if costs differ by metal; most orders contain a single metal).
 
 Usage:
-  python -m metals.costs --profile gmail_personal --out out/metals/costs.csv
+  python -m metals.costs --profile gmail_personal --out costs.csv
 """
 from __future__ import annotations
 
@@ -75,17 +75,19 @@ from .gmail_costs_extract import (  # noqa: F401
     _process_order,
     GmailCostExtractor,
 )
+from .pipeline import default_costs_path
 
 
 def main(argv: List[str] | None = None) -> int:
+    default_out = default_costs_path()
     p = argparse.ArgumentParser(description='Extract costs and cost-per-oz from Gmail order emails')
     p.add_argument('--profile', default='gmail_personal')
-    p.add_argument('--out', default='out/metals/costs.csv')
+    p.add_argument('--out', default=default_out)
     args = p.parse_args(argv)
 
     extractor = GmailCostExtractor(
         profile=getattr(args, 'profile', 'gmail_personal'),
-        out_path=getattr(args, 'out', 'out/metals/costs.csv'),
+        out_path=getattr(args, 'out', default_out),
         days=365,
     )
     return extractor.run()
