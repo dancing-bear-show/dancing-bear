@@ -1,0 +1,282 @@
+# Check whether an existing workflow already does a task, before building it by hand.
+#
+# This repo has ~30 workflows. The recurring failure is not that they are missing,
+# it is that nobody looks: a task gets done ad hoc, and a second diverging
+# implementation of an existing process is born. This workflow makes the check
+# cheap and explicit so it actually happens.
+#
+# It is a ROUTER, not an executor. It never runs the task it finds. It answers one
+# question -- "does something already do this?" -- and hands back a ready-to-run
+# invocation, a near-miss to improve, or a clear no-match verdict.
+#
+# DAG:
+#   list-workflows (inline -- live catalog from ./bin/workflow list)
+#       |
+#   match-intent (inline -- score catalog against the task description)
+#       |
+#   inspect-candidates (reads params/stages of the top matches)
+#       |
+#   recommend (verdict + ready-to-run command)
+
+name: find-workflow-for-task
+version: "1.0"
+description: >
+  Given a plain-language task description, determines whether an existing
+  workflow already performs it, and returns one of three verdicts: RUN (an
+  existing workflow matches -- here is the exact invocation), IMPROVE (a
+  workflow nearly matches -- run it and note the gap, or extend it), or
+  NONE (nothing matches -- do the task directly, and consider capturing it
+  with /write-workflow if it will recur).
+
+  Intended as a pre-flight check before multi-step work: PR review, concern
+  mining, complexity sweeps, coverage expansion, CI debugging, resume
+  tailoring, phone layout reorganization. Cheap enough to run before any
+  task that looks like a process rather than a single edit.
+
+  Deliberately does NOT execute the workflow it finds. Choosing to run it is
+  the caller's decision -- this workflow only removes the excuse for not
+  having looked.
+
+metadata:
+  author: dancing-bear
+  created: "2026-08-14"
+
+trigger:
+  source: manual
+  params:
+    task: ""              # REQUIRED: plain-language description of the task
+    file_paths: ""        # optional: files involved, sharpens domain matching
+    max_candidates: "3"   # how many candidates to inspect in detail
+
+workspace_dir: "{work_dir}/find-workflow-for-task"
+
+stages:
+
+  # ============================================================================
+  # Stage 1: list-workflows -- build the live catalog
+  # ============================================================================
+
+  - name: list-workflows
+    kind: gather
+    executor: inline
+    description: >
+      Build the authoritative catalog of available workflows.
+
+      Step 1 -- create the workspace:
+        mkdir -p {workspace}/outputs
+
+      Step 2 -- list workflows from the engine, never from a hand-maintained
+      index. Catalogs embedded in SKILL.md files drift; the engine does not:
+        ./bin/workflow list --format json
+
+      Use `--format json`, not the default table: the table truncates file
+      paths and descriptions to fit terminal columns, so matching against it
+      silently compares against clipped text. The JSON emits exactly the keys
+      used below (file, name, version, description, stages).
+
+      Note: `workflow list` may emit forward-compat warnings on stderr for
+      individual files. Those are not failures -- keep going. Do NOT redirect
+      stderr into stdout (`2>&1`); it corrupts the JSON stream. Send it to a
+      separate file if you need to read it.
+
+      Step 3 -- write {workspace}/outputs/catalog.json, preserving those keys:
+        [
+          {
+            "file": "workflows/code/code-review.yaml",
+            "name": "code-review",
+            "description": "...",
+            "stages": 7
+          },
+          ...
+        ]
+
+      If the catalog is empty, write [] and say so plainly -- do not fabricate
+      entries from memory of what this repo usually contains.
+    agent:
+      role: researcher
+      model: sonnet
+      tools: [Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/catalog.json
+
+  # ============================================================================
+  # Stage 2: match-intent -- score the catalog against the task
+  # ============================================================================
+
+  - name: match-intent
+    kind: execute
+    executor: inline
+    depends_on: [list-workflows]
+    reads_from: [list-workflows]
+    description: >
+      Score every catalog entry against the task description: "{task}".
+      Optional file context: "{file_paths}".
+
+      Step 1 -- read {workspace}/outputs/catalog.json.
+        If it is empty, write an empty candidates array and exit 0.
+
+      Step 2 -- score each workflow 0-100 on how well it performs THIS task.
+      Match on what the workflow DOES, not on shared vocabulary. A workflow
+      whose description mentions "review" is not a match for "review my
+      resume wording" just because both say review -- check the domain too.
+
+      Scoring guide:
+        90-100  does exactly this task
+        70-89   does this task with a different scope or an extra step
+        40-69   overlaps meaningfully; would need params stretched or a gap noted
+        10-39   same domain, different job
+        0-9     unrelated
+
+      Step 3 -- keep the top {max_candidates} entries scoring >= 40. Discard
+      the rest. Being decisive matters more than being generous: a long list of
+      weak matches recreates the discovery problem this workflow exists to solve.
+
+      Step 4 -- write {workspace}/outputs/candidates.json:
+        [
+          {
+            "file": "...",
+            "name": "...",
+            "score": 85,
+            "reasoning": "one sentence on what it does vs what was asked"
+          }
+        ]
+
+      Also record how many workflows were scored, so the next stage can
+      distinguish "nothing scored well" from "the catalog was empty".
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/candidates.json
+
+  # ============================================================================
+  # Stage 3: inspect-candidates -- read the real params and stages
+  # ============================================================================
+
+  - name: inspect-candidates
+    kind: execute
+    executor: inline
+    depends_on: [match-intent]
+    reads_from: [match-intent]
+    description: >
+      Verify each candidate against its actual YAML. A description promises;
+      the stages deliver. This stage checks the promise.
+
+      Step 1 -- read {workspace}/outputs/candidates.json.
+        If empty, write an empty array to
+        {workspace}/outputs/inspected.json and exit 0.
+
+      Step 2 -- for each candidate, Read the workflow file and extract:
+        - every key under trigger.params, with its default
+        - which params have an empty default (caller must supply them)
+        - the stage names in order, so the caller can see the real shape
+        - any human_gate stage (the run will pause for input)
+        - any stage that writes outside {workspace} (it changes the repo)
+
+      Step 3 -- confirm the workflow is runnable as-is:
+        ./bin/workflow lint <file>
+        Record valid true/false plus any errors. A candidate that does not
+        lint must not be recommended as RUN -- downgrade it to IMPROVE and
+        say the lint is broken.
+
+      Step 4 -- write {workspace}/outputs/inspected.json:
+        [
+          {
+            "file": "...",
+            "name": "...",
+            "score": 85,
+            "required_params": ["pr_number"],
+            "optional_params": {"pr_size": "medium"},
+            "stages": ["fetch-diff", "sweep-concerns", "..."],
+            "has_human_gate": true,
+            "mutates_repo": true,
+            "lint_valid": true,
+            "reasoning": "..."
+          }
+        ]
+    agent:
+      role: reviewer
+      model: sonnet
+      tools: [Read, Bash, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/inspected.json
+
+  # ============================================================================
+  # Stage 4: recommend -- verdict and ready-to-run invocation
+  # ============================================================================
+
+  - name: recommend
+    kind: propose
+    executor: inline
+    depends_on: [inspect-candidates]
+    reads_from: [inspect-candidates, match-intent]
+    description: >
+      Produce a single clear verdict for the task: "{task}".
+
+      Step 1 -- read {workspace}/outputs/inspected.json.
+
+      Step 2 -- choose exactly one verdict:
+
+        RUN     -- top candidate scores >= 70 AND lint_valid is true.
+                   An existing workflow does this. Give the exact command.
+
+        IMPROVE -- top candidate scores 40-69, or scores >= 70 but fails lint.
+                   Something close exists. Name the specific gap and recommend
+                   running it as-is, or extending it. Do NOT propose forking a
+                   near-duplicate -- a second diverging copy of one process is
+                   the outcome this workflow exists to prevent.
+
+        NONE    -- no candidate scored >= 40, or the catalog was empty.
+                   Say so plainly. Do the task directly. If it will recur,
+                   suggest capturing it with /write-workflow.
+
+      Never invent a workflow that was not in the catalog, and never soften a
+      NONE into a weak RUN. A confident wrong recommendation costs more than
+      an honest "nothing matches" -- the caller acts on this verdict.
+
+      Step 3 -- for RUN and IMPROVE, build the invocation using ONLY params
+      that exist in that workflow's trigger.params (verified in the previous
+      stage). Fill required params from the task description where it supplies
+      them; otherwise mark them <REQUIRED -- supply this>:
+
+        ./bin/workflow run <file> --params key=value,key2=value2
+
+      Flag anything the caller should know before running: a human_gate that
+      will pause the run, or stages that mutate the repo.
+
+      Step 4 -- write {workspace}/outputs/recommendation.md:
+
+        ## Verdict: RUN | IMPROVE | NONE
+
+        <one sentence: what matched, or that nothing did>
+
+        ### Command
+        ```bash
+        ./bin/workflow run ... --params ...
+        ```
+
+        ### Before running
+        - params you must supply
+        - human gates that will pause the run
+        - whether it mutates the repo
+
+        ### Other candidates considered
+        | Workflow | Score | Why not chosen |
+
+      Step 5 -- print the verdict line and the command to stdout so the caller
+      sees the answer without opening the file.
+    agent:
+      role: doc-writer
+      model: sonnet
+      tools: [Read, Write]
+      access: read-write
+    required: true
+    writes_to:
+      - outputs/recommendation.md

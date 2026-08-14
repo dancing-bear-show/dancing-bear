@@ -36,6 +36,7 @@ always confirm against the live list before presenting an invocation:
 | **ci-debug** | `workflows/code/ci-debug.yaml` | Diagnose and fix GitHub Actions CI failures from a run URL or PR number | `run_url`, `pr_number`, `test_cmd`, `source_root`, `min_coverage` |
 | **load-concerns** | `workflows/code/load-concerns.yaml` | Load the subset of the review concern library relevant to a task | `task_type`, `file_paths`, `max_concerns` |
 | **update-review-concerns** | `workflows/code/update-review-concerns.yaml` | Mine past runs and PR threads for recurring issues the concern library misses | `window_days`, `min_occurrences`, `pr_number`, `max_prs` |
+| **find-workflow-for-task** | `workflows/code/find-workflow-for-task.yaml` | Pre-flight check: does a workflow already do this task? Returns RUN / IMPROVE / NONE plus a ready-to-run command. Never executes the task it finds | `task`, `file_paths`, `max_candidates` |
 
 ### Code quality and refactoring
 
