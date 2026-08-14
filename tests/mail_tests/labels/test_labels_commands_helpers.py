@@ -1,4 +1,4 @@
-"""Unit tests for mail/labels/commands.py helper functions."""
+"""Unit tests for mail/labels/commands_doctor.py and commands_plan.py helpers."""
 
 import unittest
 from unittest.mock import MagicMock, patch

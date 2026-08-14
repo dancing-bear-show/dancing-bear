@@ -1,4 +1,4 @@
-"""Additional tests for wifi/diagnostics.py covering previously uncovered branches."""
+"""Additional tests for the wifi/diagnostics_*.py modules covering previously uncovered branches."""
 from __future__ import annotations
 
 import subprocess

@@ -1,4 +1,4 @@
-"""Unit tests for mail/accounts/pipeline.py"""
+"""Unit tests for the mail/accounts/pipeline_*.py modules."""
 import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch

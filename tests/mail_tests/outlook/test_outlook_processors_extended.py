@@ -1,4 +1,4 @@
-"""Tests for mail/outlook/processors.py."""
+"""Extended tests for the mail/outlook/processors_*.py modules."""
 
 from tests.fixtures import test_path
 import tempfile

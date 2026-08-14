@@ -1,4 +1,4 @@
-"""Tests for mail/outlook/processors.py."""
+"""Tests for the mail/outlook/processors_*.py modules."""
 
 from __future__ import annotations
 
