@@ -47,7 +47,7 @@ stages:
         Filter output to files under {source_root}.
 
       Step 3 — per-file coverage from coverage.py:
-        coverage run -m unittest discover -s {test_path} -q 2>/dev/null || true
+        coverage run -m unittest discover -s {test_path} -t . -q 2>/dev/null || true
         coverage report --include="{source_root}*" --format=json > /tmp/cov-report.json
 
         Filter results to files under {source_root}. Identify all files with
@@ -109,12 +109,12 @@ stages:
                  "Follow project conventions: make_* factories (no manual dicts), "
                  "subTest() loops for multi-scenario cases (unittest has no @parametrize), "
                  "specific assertions (assertEqual/assertIn, not assertTrue), patch at the call site. "
-                 "After writing tests, run: python3 -m unittest discover -s {test_path} -q and fix any failures."
+                 "After writing tests, run: python3 -m unittest discover -s {test_path} -t . -q and fix any failures."
                )
              )
 
         4. After the tester agent returns, verify the tests pass:
-             python3 -m unittest discover -s {test_path} -q
+             python3 -m unittest discover -s {test_path} -t . -q
 
            If the command exits non-zero: read the error, fix the specific failure,
            and re-run. Up to 2 fix cycles per file.
@@ -161,14 +161,14 @@ stages:
         files are still below threshold, and report them in the output JSON.
 
       Step 2 — run the test suite for the target path:
-        python3 -m unittest discover -s {test_path} -q
+        python3 -m unittest discover -s {test_path} -t . -q
 
         Must exit 0. If it fails: read the error, identify the root cause,
         and record it — do not attempt further fixes in this stage (that would
         cause a revision of expand-coverage-files, not verify-coverage).
 
       Step 3 — confirm per-file coverage via coverage.py:
-        coverage run -m unittest discover -s {test_path} -q 2>/dev/null || true
+        coverage run -m unittest discover -s {test_path} -t . -q 2>/dev/null || true
         coverage report --include="{source_root}*" --format=json > /tmp/cov-verify.json
 
         Filter to files under {source_root}. Every file must be ≥{min_coverage}%.

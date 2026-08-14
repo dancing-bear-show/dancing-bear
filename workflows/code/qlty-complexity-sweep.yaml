@@ -343,7 +343,7 @@ stages:
           - If none found, skip and note "no tests for <group>".
 
         Run per-group discovery using the resolved test directory:
-          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <resolved_test_dir> -p "test_*.py" -q 2>&1
+          PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
 
         Fix failures up to 3 cycles per group:
           - Import error: the re-export shim is missing an import or has a
@@ -356,7 +356,7 @@ stages:
             document the blocker — do not abort other groups.
 
       Step 3 — run the full suite to catch cross-group regressions:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1 | tail -10
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1 | tail -10
 
       Step 4 — write {workspace}/validation/test-results.md:
         | Group | Test Dir | Tests Run | Status | Notes |
@@ -522,7 +522,7 @@ stages:
             import path).
           - Re-run using the "Test Dir" column recorded for this group in
             test-results.md:
-              PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir_from_table> -q 2>&1
+              PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
           - Up to 2 additional fix cycles per group.
 
       Step 4 — write {workspace}/validation/corrections-applied.md:
@@ -558,7 +558,7 @@ stages:
       check is still failing.
 
       Step 1 — full test suite:
-        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -q 2>&1
+        PYTHONPATH="$(pwd)/src" python3 -m unittest discover -s tests -t . -q 2>&1
 
         If exit != 0:
           Record failure output to {workspace}/validation/recheck-test-failure.txt.

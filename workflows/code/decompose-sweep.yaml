@@ -393,7 +393,7 @@ stages:
         Run per-domain discovery using the test directory found above
         (substitute the actual resolved path, e.g. tests/<domain>/ or the
         flat top-level file glob — do NOT assume tests/<domain>_tests/):
-          python3 -m unittest discover -s <resolved_test_dir> -p "test_*.py" -q 2>&1
+          python3 -m unittest discover -s <resolved_test_dir> -t . -p "test_*.py" -q 2>&1
 
         Fix failures up to 3 cycles per domain:
           - Import error: the re-export shim is missing an import or has a
@@ -562,7 +562,7 @@ stages:
             test-results.md (do NOT assume tests/<domain>_tests/ — reuse the
             exact path verify-tests resolved, e.g. tests/<domain>/ or a flat
             top-level file glob):
-              python3 -m unittest discover -s <test_dir_from_table> -q 2>&1
+              python3 -m unittest discover -s <test_dir_from_table> -t . -q 2>&1
           - Up to 2 additional fix cycles per domain.
 
       Step 4 — update telemetry:

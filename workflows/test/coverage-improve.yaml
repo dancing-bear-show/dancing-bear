@@ -252,7 +252,7 @@ stages:
              method names: test_<function>_<scenario>
 
         g. After writing or extending each test file, run:
-             python3 -m unittest discover -s tests/ -p 'test_*.py' -q 2>&1 | tail -5
+             python3 -m unittest discover -s tests/ -t . -p 'test_*.py' -q 2>&1 | tail -5
            Focus on failures related to the changed file.
            Fix import errors or assertion failures — up to 2 fix cycles per file.
            If still failing after 2 cycles, skip the remaining sad-path gaps
