@@ -16,8 +16,8 @@ from core.agentic import (
 
 
 def _load_parser():
-    from . import __main__ as main_mod
-    return main_mod.app.build_parser()
+    from .cli.main import app
+    return app.build_parser()
 
 
 _get_parser = _cached_parser_loader(_load_parser)
