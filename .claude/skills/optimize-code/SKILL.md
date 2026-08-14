@@ -60,7 +60,7 @@ Skill(skill="workflow", args="--workflow workflows/code/optimize-code.yaml --par
    - `scan-arch` — dead code, architecture compliance, dataclasses/type hints
 4. **mps-collate-findings** — merge all scan results into unified report
 5. **apply-corrections** — fix all critical + auto-fixable minor findings
-6. **recheck-lint** — `ruff check` + `pytest` to confirm fixes
+6. **recheck-lint** — `bin/ruff-resolve.sh check` + tests to confirm fixes
 7. **human-gate** — present summary, ask to commit/open PR
 
 ## Sub-skills (for targeted single-dimension passes)

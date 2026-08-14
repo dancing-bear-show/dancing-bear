@@ -33,6 +33,11 @@ jobs:
           src = pathlib.Path('src').resolve(); \
           got = pathlib.Path(core.__file__).resolve(); \
           sys.exit(0) if src in got.parents else (print(f'ERROR: core resolves to {got}, expected under {src}'), sys.exit(1))"
+      - name: Verify every test directory is discoverable
+        # `unittest discover` skips a directory with no __init__.py without
+        # warning, so its tests silently never run here. A gitignored
+        # __init__.py fails the same way: green locally, absent in CI.
+        run: python bin/check_test_discovery.py
       - name: Run tests with coverage
         run: |
           coverage run -m unittest discover

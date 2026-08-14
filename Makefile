@@ -37,8 +37,30 @@ dev-venv:
 
 install: venv
 
-test: venv
+test: venv check-tests
 	$(RUNPY) -m unittest -v
+
+# Lint with the same ruff build CI uses (qlty's pinned tool cache) rather than
+# whatever `ruff` happens to be on PATH — there usually isn't one, and a bare
+# `ruff check` then fails as "command not found" or, worse, runs a drifted
+# version. bin/ruff-resolve.sh handles the lookup and explains the fix if the
+# cache is cold. Note `qlty check` from a worktree under .claude/ scans zero
+# files and reports "No issues", so it is not a substitute for this target.
+.PHONY: lint
+lint:
+	@bin/ruff-resolve.sh check $(SRC) tests bin
+
+.PHONY: lint-fix
+lint-fix:
+	@bin/ruff-resolve.sh check --fix $(SRC) tests bin
+
+# A test directory without __init__.py is skipped silently by `unittest discover`,
+# so its tests never run and the module it covers reports 0% as if untested. Same
+# outcome when the __init__.py is gitignored: it passes locally and never reaches
+# CI. Both have happened here — guard runs before the suite so the failure is loud.
+.PHONY: check-tests
+check-tests:
+	@$(PYTHON) bin/check_test_discovery.py
 
 # Fail loudly if imports resolve outside this checkout (see SRC comment above).
 .PHONY: check-env
@@ -52,7 +74,7 @@ check-env: venv
 # The [tui] extra comes from the venv target above. An optional dep missing at
 # collection time reports its modules as 0% rather than as skipped, which reads
 # identically to untested code — so coverage must match CI's install.
-cov: venv
+cov: venv check-tests
 	$(PY) -m pip install coverage || true
 	$(RUNPY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true

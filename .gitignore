@@ -62,7 +62,10 @@ _out/
 backups/
 _archive/
 dist/
-build/
+# Anchored to the repo root: a bare "build/" also matched tests/metals_tests/build/,
+# which silently un-tracked its __init__.py and hid 8 tests from unittest discover.
+# `make check-tests` guards against this regressing.
+/build/
 tmp/
 reports/
 out/

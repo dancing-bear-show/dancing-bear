@@ -69,6 +69,15 @@ stages:
         .py files under {test_path}. This concern targets test files, not
         source files, so it must be scoped to the test tree.
 
+      Never claim a duplicate is "dead code" or "safe to delete" on the strength
+      of a qualified grep (mod.symbol / from mod import symbol). Those miss
+      multi-line parenthesized imports, aliased imports (import x as _x),
+      package __init__ re-exports, and getattr/dispatch-table access. Search the
+      bare symbol name across src/, tests/ and bin/ and inspect every hit before
+      making any such claim. Tests are call sites. The fix for this concern is
+      consolidate-and-migrate, never delete — see the intra-domain-duplicate
+      entry in concerns/reuse.md.
+
       Write {workspace}/analysis/reuse-findings.json:
         { "critical": [...], "minor": [...], "passed": [...] }
       Each finding: { "check": "<concern-id>", "file": "...", "line": N, "detail": "..." }

@@ -47,7 +47,7 @@ The workflow runs the full correction and recheck cycle:
 3. **mps-scan-reuse** — shared utility reuse, bare string literals, domain duplicate detection
 4. **mps-collate-findings** — collate reuse findings into unified report
 5. **apply-corrections** — fix all critical + auto-fixable minor reuse findings
-6. **recheck-lint** — `ruff check` + `pytest` to confirm fixes
+6. **recheck-lint** — `bin/ruff-resolve.sh check` + tests to confirm fixes
 7. **human-gate** — present reuse summary, ask to commit/open PR
 
 ## Workflow Params
