@@ -16,7 +16,10 @@ RUNPY := PYTHONPATH=$(SRC) $(PY)
 venv:
 	$(PYTHON) -m venv $(VENV)
 	$(PY) -m pip install -U pip
-	$(PY) -m pip install -e .
+	# [tui] pulls textual. `make test` depends on this target, and the telemetry
+	# TUI tests import textual directly — a plain `-e .` makes them fail on a
+	# fresh clone, and makes coverage silently report those modules as 0%.
+	$(PY) -m pip install -e ".[tui]"
 	# Ensure wrappers are executable
 	chmod +x bin/* 2>/dev/null || true
 
@@ -46,19 +49,17 @@ check-env: venv
 	sys.exit(0) if src in got.parents else (print(f'ERROR: core resolves to {got}, expected under {src}'), sys.exit(1))"
 	@echo "OK: imports resolve to $(SRC)"
 
-# Coverage targets install the [tui] extra: an optional dep that is missing at
+# The [tui] extra comes from the venv target above. An optional dep missing at
 # collection time reports its modules as 0% rather than as skipped, which reads
-# identically to untested code. Match CI so the numbers mean the same thing.
+# identically to untested code — so coverage must match CI's install.
 cov: venv
 	$(PY) -m pip install coverage || true
-	$(PY) -m pip install -e ".[tui]" || true
 	$(RUNPY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true
 	$(PY) -m coverage report -m
 
 cov-html: venv
 	$(PY) -m pip install coverage || true
-	$(PY) -m pip install -e ".[tui]" || true
 	$(RUNPY) -m coverage run -m unittest -q || true
 	$(PY) -m coverage combine || true
 	$(PY) -m coverage html && echo "Open ./htmlcov/index.html"

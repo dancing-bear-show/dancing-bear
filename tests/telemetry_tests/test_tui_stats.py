@@ -247,6 +247,8 @@ class TestPrintSummaryHappyPath(TempProjectsDirMixin, unittest.TestCase):
         self.session_file = _write_jsonl(proj, "psess.jsonl", records)
 
     def test_print_summary_outputs_session_header(self):
+        # Rich's Console resolves sys.stdout at write time, so redirect_stdout
+        # does capture its output — no Console patch needed here.
         buf = io.StringIO()
         with patch("telemetry.tui._stats.TranscriptProvider") as MockProv:
             inst = MockProv.return_value
@@ -256,10 +258,10 @@ class TestPrintSummaryHappyPath(TempProjectsDirMixin, unittest.TestCase):
             with contextlib.redirect_stdout(buf):
                 print_summary(session_id="psess")
         output = buf.getvalue()
-        # Rich Console writes to its own stream; capture via Console(file=...)
-        # redirect_stdout only catches plain print() calls, not Rich Console
-        # So we assert the function did not raise and returned normally
-        self.assertIsNotNone(output)  # output may be empty since Rich bypasses redirect
+        # Assert on the rendered session line, not just the word "Session":
+        # the id is what proves the requested session reached the renderer.
+        self.assertIn("Session: psess", output)
+        self.assertIn("Timeline", output)
 
     def test_print_summary_with_rich_console_capture(self):
         """Drive print_summary with a patched Console to capture Rich output."""
