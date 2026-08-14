@@ -163,6 +163,13 @@ stages:
           grep -rnE "(patch|patch\.object)\([\"']M\." tests src
         Record every hit as a patch_target for that facade.
 
+        ESCAPE THE DOTS. In an extended-regex grep, `.` matches any character,
+        so an unescaped "worker.queue" also matches the unrelated literal
+        "worker_queue" — which in this repo is a workflow executor-mode string
+        living in the very files that hold the real worker.queue patch targets.
+        The false hits are then indistinguishable from the true ones. Use
+        re.escape (the detector script does) or grep -F for fixed strings.
+
       Step 5 — detect shim chains.
         For each facade F, check whether any module F imports from is ITSELF in
         the facade set. If so record chain_parent/chain_child. Compute a
