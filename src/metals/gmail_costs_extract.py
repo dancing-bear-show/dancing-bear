@@ -81,10 +81,10 @@ def _fetch_message_ids(client: GmailClient) -> List[str]:
 
 def _is_costco_bulk_silver_total(vendor: str, metal: str, uoz: float, qty: float, val: float) -> bool:
     """True when a Costco silver unit price actually looks like a bulk-lot total, not a per-unit price."""
-    return (
-        vendor == 'Costco' and metal == 'silver' and uoz <= 1.05 and qty >= 10
-        and (val / max(uoz, 1e-6)) > 150
-    )
+    is_costco_silver = vendor == 'Costco' and metal == 'silver'
+    is_bulk_small_unit = uoz <= 1.05 and qty >= 10
+    implausible_per_oz = (val / max(uoz, 1e-6)) > 150
+    return is_costco_silver and is_bulk_small_unit and implausible_per_oz
 
 
 def _unit_hit_cost(hits: List[Tuple[float, str]], vendor: str, metal: str, uoz: float, qty: float) -> float:

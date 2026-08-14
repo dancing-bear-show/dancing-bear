@@ -29,17 +29,14 @@ def _bar(fraction: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+# Tool-input keys worth showing, most specific first; the first non-empty wins.
+_DESC_KEYS = ("file_path", "command", "pattern", "skill", "description")
+
+
 def _event_desc(evt: SessionEvent) -> str:
     """Extract a short description from a tool event's input."""
     inp = evt.tool_input or {}
-    desc = (
-        inp.get("file_path", "")
-        or inp.get("command", "")
-        or inp.get("pattern", "")
-        or inp.get("skill", "")
-        or inp.get("description", "")
-        or ""
-    )
+    desc = next((v for k in _DESC_KEYS if (v := inp.get(k))), "")
     if "/" in desc:
         desc = desc.split("/")[-1]
     return desc[:30]

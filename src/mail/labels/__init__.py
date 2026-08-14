@@ -4,5 +4,6 @@ __all__ = [
     "consumers",
     "processors",
     "producers",
-    "commands",
+    "commands_doctor",
+    "commands_plan",
 ]

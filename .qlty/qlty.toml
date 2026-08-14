@@ -19,6 +19,11 @@ exclude_patterns = [
   "*.min.*",
   "**/.yarn/**",
   "**/.claude/**",
+  # `.claire` is a stray mistyped `.claude` that accumulated agent worktrees.
+  # It is untracked, so it never reaches CI, but a local scan still walks it and
+  # reports its placeholder stubs as F821/S905 — 8 phantom findings that look
+  # like real undefined names. Excluded so local and CI scans agree.
+  "**/.claire/**",
   "**/.venv/**",
   "**/.cache/**",
   "**/out/**",

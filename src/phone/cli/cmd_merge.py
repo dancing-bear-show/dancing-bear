@@ -131,13 +131,14 @@ def cmd_reorg(args) -> int:
     if plan_obj is None:
         return 1
 
-    rc = _reorg_build_profile(dry_run, plan_path, layout_path, out_profile)
-    if rc != 0:
-        return rc
-
-    rc = _reorg_install(dry_run, no_install, out_profile, udid)
-    if rc != 0:
-        return rc
+    # Remaining steps share the same "nonzero rc aborts the chain" contract.
+    for step in (
+        lambda: _reorg_build_profile(dry_run, plan_path, layout_path, out_profile),
+        lambda: _reorg_install(dry_run, no_install, out_profile, udid),
+    ):
+        rc = step()
+        if rc != 0:
+            return rc
 
     _reorg_summary(
         ReorgSummary(
