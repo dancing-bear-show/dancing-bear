@@ -135,6 +135,8 @@ applicability by file type:
   personal usernames or OS-specific layouts into shared config.
 - **triggers**: Any `.yaml` or `.md` file containing `/Users/`, `/opt/homebrew/`,
   `/home/`, or other filesystem-rooted paths that are not workspace-relative.
+  This covers workflow YAML and `.llm/FLOWS.yaml` too — flow commands and agent
+  prompts are checked here rather than in the workflow guides.
 - **example**: `./bin/mail-assistant` replaced by `/Users/bcs/code/dancing-bear/bin/mail-assistant`
   — the path breaks on any other machine. Use workspace-relative or PATH-resolved
   commands instead.
@@ -353,3 +355,27 @@ applicability by file type:
   class GmailScanProducer: ...
   class KeywordMatchResult: ...  # prefix matches KeywordMatcher domain
   ```
+
+### truthiness-blocks-empty-clear
+- **severity**: major
+- **check**: Verify that optional override parameters test `is None` rather than truthiness. A truthiness test silently ignores an intentional empty-string or empty-list override, so a caller cannot clear a field that has a non-empty default.
+- **triggers**: Functions or `__post_init__` methods applying an optional parameter with `if param:` where `None` means "use default" but `""`/`[]` means "clear this field"; config-merge helpers that fold overrides with `or`.
+- **example**: `src/resume/docx_base.py` applies `metadata_title` only when truthy, so `metadata_title: ""` — an explicit request to clear the DOCX title — leaves the existing title in place. The same bug applies to `metadata_keywords: []`. Fix: `if metadata_title is not None:`.
+
+### unnecessary-lambda-in-dispatch
+- **severity**: minor
+- **check**: Verify dispatch tables and handler maps do not wrap a callable in a `lambda` that forwards its arguments unchanged. The wrapper adds a frame, hides the target's name in tracebacks, and weakens the signature for type checkers.
+- **triggers**: `{key: lambda a, b: func(a, b)}` in dispatch tables where the argument list is identical and in order; lambdas retained after a signature-unification refactor removed the difference they existed to smooth over.
+- **example**: `SidebarResumeWriter._MAIN_SECTION_RENDERERS["experience"]` held `lambda cell, data, page_cfg, sec: _render_main_experience(cell, data, page_cfg, sec)` — a pure pass-through. All four entries in that table had the same shape once every renderer accepted `sec`. Fix: reference `_render_main_experience` directly.
+
+### builtin-callable-annotation
+- **severity**: minor
+- **check**: Verify type annotations use `Callable[[Arg], Ret]` rather than the built-in `callable`, which is a function, not a type. Annotating with `callable` conveys no signature information and misleads type checkers.
+- **triggers**: Parameter or field annotations written as bare `callable` (lowercase, no subscript); a module annotating a predicate parameter without importing `Callable`.
+- **example**: `src/telemetry/pricing.py` annotated a predicate as `callable`, which a checker reads as the built-in function object rather than "accepts a str, returns bool". Fix: `from typing import Callable` and annotate `Callable[[str], bool]`.
+
+### config-comment-contradicts-value
+- **severity**: minor
+- **check**: Verify inline comments in config and template files describe the value actually configured. These comments are treated as load-bearing documentation, so a stale one misdirects the next edit.
+- **triggers**: YAML/TOML config where a comment annotating a field names a different literal than the field's value; template comments describing when a renderer consults a setting; comments asserting a key is honored by code that ignores it.
+- **example**: `template.scannable.yaml` commented "Heading 1 (14pt)" beside `h1_pt: 12`. Related shapes: `template.brian.yaml` set `item_color` on the summary section, which `SummarySectionRenderer` never applies; and a comment claimed `get_bullet_config()` is consulted only on the bulleted branch when it in fact runs whenever `summary` is a list. Fix: align the comment with real behavior, or delete the setting the code ignores.

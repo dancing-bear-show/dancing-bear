@@ -174,3 +174,9 @@ concerns live in `workflow.md`.
         test_cmd: "python3 -m unittest discover tests/calendar_tests/ -v"
   ```
   Without `params:`, both instances use the same `pr_title` from `trigger.params`. With `params:`, each instance gets its own title. The parent `trigger.params` values remain the fallback for any token not covered by `include.params`.
+
+### skill-doc-schema-enum-stale
+- **severity**: minor
+- **check**: When a skill doc or task YAML adds an enumerated value (category, kind, role), verify every schema example and allowed-values list in that same file gains it. Agents follow the schema literally, so a stale enum makes a legitimate value get rejected downstream.
+- **triggers**: A `SKILL.md` or task YAML containing an enum written out in more than one place (`"category": "a|b|c"` in a schema block plus a routing table elsewhere); a diff adding a value to one occurrence only.
+- **example**: `maid-task.yaml` added a `resume-copy` category route in Step 4 while the Step 3 schema still enumerated `correctness|security|tests|patterns|workflow`. An agent emitting `"category": "resume-copy"` had its finding treated as invalid — the newly mined concerns silently could not be filed. `docs` was missing from both. Fix: grep every occurrence of the enum in the file when adding a value.

@@ -149,9 +149,44 @@ one, and only turns red once a newly added module is imported by name.
 - Coverage uploaded to qlty for tracking
 - Both jobs must pass for merge
 
+## Check for an Existing Workflow First
+
+**Before starting any multi-step task, check whether a workflow already does it.**
+This repo has ~30 workflows. Reinventing one wastes the work already invested in
+it and produces a second, diverging implementation of the same process.
+
+```bash
+./bin/workflow list                      # live catalog — authoritative
+./bin/workflow list | grep -i <keyword>  # narrow by intent
+```
+
+Applies when the request is a *process* with more than a couple of steps —
+review a PR, mine concerns, sweep complexity, expand coverage, debug CI, tailor
+a resume, open a PR, reorganize the phone layout. Skip it for single-file edits,
+quick reads, and git operations.
+
+Decision order:
+
+1. **A workflow matches** → run it: `./bin/workflow run <file> --params k=v`.
+   Say which one you're using and why.
+2. **A workflow nearly matches** → run it and note the gap, or improve that
+   workflow. Do **not** fork a near-duplicate.
+3. **Nothing matches** → do the task directly. If it is likely to recur, offer
+   to capture it with `/write-workflow`.
+
+Use `/select-workflow` when the intent is clear but the file name isn't. Treat
+any catalog in a SKILL.md as a fast-path index only — it drifts, so confirm
+against `./bin/workflow list` before claiming a workflow does or doesn't exist.
+
+Improving an existing workflow beats adding a new one. When you run one by hand
+and hit a gap the YAML didn't cover, fix the YAML — that is how these get better.
+
 ## Key Commands
 
 ```bash
+# Check for an existing workflow BEFORE doing multi-step work
+./bin/workflow list
+
 # Token-efficient agentic schemas (prefer over --help)
 ./bin/mail --agentic --agentic-format yaml --agentic-compact
 ./bin/llm agentic --stdout

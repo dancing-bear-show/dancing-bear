@@ -128,3 +128,33 @@ doc file. Load alongside `patterns.md` for changes that also touch source files.
 - **check**: Verify that template or config files preserve all declared `{{VARIABLE}}` or `{placeholder}` tokens. When restructuring or regenerating a template, confirm that every placeholder present before the change still exists after it. Missing placeholders silently produce documents where required fields are rendered as blank or omitted.
 - **triggers**: A PR modifies a template file and the diff removes one or more `{{...}}` or `{...}` placeholder tokens; diff shows a template variable present in the `-` lines but absent from the `+` lines.
 - **example**: A config template had `profile: {{PROFILE_NAME}}` in its header; after a restructure the line was dropped — any rendering pipeline that substitutes `{{PROFILE_NAME}}` now silently omits the profile row. Fix: restore the missing placeholder.
+
+### diagram-names-nonexistent-symbol
+- **severity**: minor
+- **check**: Verify every class name, function name, and component label in an architecture Mermaid diagram matches a symbol that actually exists in the source. A diagram naming a renamed or removed class misleads readers tracing the code path.
+- **triggers**: A README or docs file contains a Mermaid diagram; a PR renames or removes a class/function; diagram node labels that differ from any exported name in the referenced source file.
+- **example**: `src/worker/README.md` diagram references `DaemonCommand`, but the implementation class is `DaemonRunner` (`worker/cli.py:23`) — a reader following the diagram to the source never finds the class. Fix: rename the node to `DaemonRunner`.
+
+### diagram-data-flow-mismatch
+- **severity**: minor
+- **check**: Verify architecture diagrams wire each command to the data source it actually uses. A blanket `commands --> data` edge lets every command appear to touch every source, which misdirects contributors even when each individual node name is correct.
+- **triggers**: README or `.llm/` context files with Mermaid architecture diagrams; a PR adds or changes an implementation's data source (e.g. OTLP vs JSONL); diagram arrows that contradict the path the implementation takes.
+- **example**: `src/telemetry/README.md` labelled `telemetry cost`/`sessions` as `CostScanProcessor`/OTLP-driven, but both use `TranscriptProvider` over JSONL under `~/.claude/projects`; `CostScanProcessor` is reachable only via `telemetry otel cost`. A contributor tracing the cost path is sent into the wrong subtree. Fix: replace the blanket edge with per-command edges.
+
+### cli-example-uses-deprecated-path
+- **severity**: minor
+- **check**: Verify documentation examples, `.llm/` context files, and skill guides do not direct users to a deprecated CLI subcommand. LLM agents follow documented examples literally, so a deprecated path produces a user-visible warning or an error.
+- **triggers**: `.llm/PATTERNS.md`, `.llm/CONTEXT.md`, or `SKILL.md` files referencing a subcommand marked `Deprecated:` in the source; a PR that adds a replacement subcommand without updating the doc examples in the same change.
+- **example**: `.llm/PATTERNS.md` documents `./bin/phone export`, but the CLI marks it `Deprecated: 'phone export' uses Finder backups...` and the current path is `export-device`. Agents following the pattern invoke the deprecated command. Fix: update the example to `export-device` in the PR that deprecates the old path.
+
+### guide-internal-inconsistency
+- **severity**: minor
+- **check**: Verify skill guides, concern files, and writing guides are internally self-consistent. When two sections state the same constraint with different values, implementors apply whichever rule they read first.
+- **triggers**: A `SKILL.md`, guide `.md`, or task YAML where two sections describe one constraint with conflicting values (paragraph counts, word ranges); an enum listed in one step but stale in a sibling step.
+- **example**: `.claude/COVER_LETTER_WRITING_GUIDE.md` said "Four paragraphs" in Structure but "3–4 paragraphs" under Length. Separately, `maid-task.yaml` Step 4 added a `resume-copy` category while the Step 3 schema enum still listed only `correctness|security|tests|patterns|workflow` — agents treat the new category as invalid. Fix: reconcile every occurrence in the same PR.
+
+### gitignore-path-doc-mismatch
+- **severity**: major
+- **check**: Verify that any doc, example config, or guide claiming a path "is gitignored" names a path git actually ignores. Confirm with `git check-ignore -v <path>` rather than reading `.gitignore` by eye — nested `.gitignore` files also apply, so a root-level rule is not the only coverage.
+- **triggers**: A `.md`, `.yaml`, or concern file stating a path is gitignored or "will not be committed"; docs pointing at a directory for PII-bearing captures; a PR adding such a claim without verifying the ignore rules.
+- **example**: Resume docs told readers to put real LinkedIn captures in `_data/profiles/<name>/linkedin.yaml` and called it gitignored. Reviewers reading only the root `.gitignore` (which lists just `_data/profiles_private/`) concluded PII was exposed. It was in fact covered by `src/resume/.gitignore:2` (`_data/`) — but a careful reader reaching the opposite conclusion is itself a docs defect. Fix: name the rule that does the ignoring and tell readers to confirm with `git check-ignore -v`. Note the inverse trap: a path ignored *silently* (e.g. `src/resume/config/profiles/*`) looks committed but is never tracked without `git add -f`.

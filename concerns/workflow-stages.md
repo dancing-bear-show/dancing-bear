@@ -13,10 +13,11 @@ Fragment, include, sub-workflow, and skill-sync concerns are in `workflow-fragme
 
 ## Concerns
 
-### wrong-cli-flags
+### stage-wrong-cli-flags
 - **severity**: critical
 - **check**: Verify every `./bin/` CLI invocation in a stage body uses flags
   that exist on that CLI, verified against its `--agentic` schema.
+  (The `.llm/FLOWS.yaml` counterpart is `flow-wrong-cli-flags` in workflow.md.)
 - **triggers**: Any workflow YAML stage whose description contains `./bin/`
   commands with explicit flag names.
 - **example**: `./bin/mail-assistant labels sync --delete-all` uses `--delete-all` but
@@ -131,3 +132,9 @@ Fragment, include, sub-workflow, and skill-sync concerns are in `workflow-fragme
 - **check**: Verify that stages whose entire workload is one or two trivial CLI or shell commands use `executor: inline` rather than spawning an agent. Stages that only run `./bin/` commands or `gh` operations require no synthesis, judgment, or multi-step reasoning — spawning an agent wastes resources and introduces unnecessary latency.
 - **triggers**: Workflow YAML stages that (a) have no `executor: inline` set, (b) whose `description` contains nothing but a single `./bin/` or `gh` command (possibly preceded by a `Read` of one file), and (c) whose `tools` list is limited to `[Bash]` or `[Read, Bash]` with no `Edit`, `Write`, or `Glob` needed for reasoning.
 - **example**: A `post-comments` stage whose description is entirely "read decision.txt then run `./bin/github pr-review-comment N --body-file /tmp/body.txt`" is assigned `role: doc-writer` and spawns a full agent. The stage produces no synthesized output — only a side-effect CLI call. Fix: add `executor: inline` so the orchestrator runs the command directly. Auth checks, comment posting, and other single-step CLI stages are canonical inline candidates.
+
+### verify-stage-missing-pythonpath
+- **severity**: major
+- **check**: Verify that any stage invoking `python3 -m unittest`, `coverage run -m unittest`, or `python3 -c "import <pkg>"` pins `PYTHONPATH="$PWD/src"`. Without it an inherited `PYTHONPATH` resolves imports to the **main checkout**, so tests pass against unmodified code — a false green indistinguishable from a real one.
+- **triggers**: Stage descriptions containing `python3 -m unittest` or `python3 -c "import` with no `PYTHONPATH=` on the same command; verify stages running the suite in an isolated worktree; any stage asserting "tests pass" as a gate condition.
+- **example**: `workflows/test/coverage-improve.yaml:299` runs a bare `python3 -m unittest discover -q`. In a worktree with direnv active from the main checkout, that imports the main checkout's `src/` — a newly added module can be entirely broken and the gate still reports green. Fix: `PYTHONPATH="$PWD/src" python3 -m unittest discover -q`, or call `make test`, which pins it.
