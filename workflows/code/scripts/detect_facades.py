@@ -63,6 +63,14 @@ def _classify_assignment(node: ast.Assign | ast.AnnAssign, names: list[str]) -> 
         return 0
 
     if isinstance(node.value, (ast.Name, ast.Attribute)):
+        if not tgt:
+            # Target is not a simple Name -- tuple unpacking from a single RHS
+            # (``a, b = mod.pair``), an attribute (``obj.attr = mod.x``), or a
+            # subscript (``a[0] = mod.x``). None of these bind a module-level
+            # name that another module could import, so they are not
+            # re-exports. Appending the empty ``tgt`` here would put "" into
+            # names_reexported and into the symbol map.
+            return 1
         names.append(tgt)  # alias re-export
         return 0
 

@@ -192,6 +192,32 @@ class TestClassifyAssignment(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("main", names)
 
+    def test_tuple_unpack_from_single_rhs_is_not_a_reexport(self):
+        # `a, b = mod.pair` has an Attribute RHS, so it reaches the re-export
+        # branch, but the target is a Tuple rather than a Name. Without a
+        # guard this appends "" to names.
+        node = _stmt("a, b = _mod.pair")
+        names: list[str] = []
+        result = _classify_assignment(node, names)
+        self.assertEqual(result, 1)
+        self.assertEqual(names, [])
+
+    def test_attribute_target_is_not_a_reexport(self):
+        # `obj.attr = mod.x` binds no module-level name.
+        node = _stmt("obj.attr = _mod.x")
+        names: list[str] = []
+        result = _classify_assignment(node, names)
+        self.assertEqual(result, 1)
+        self.assertEqual(names, [])
+
+    def test_subscript_target_is_not_a_reexport(self):
+        # `a[0] = mod.x` likewise binds no importable name.
+        node = _stmt("a[0] = _mod.x")
+        names: list[str] = []
+        result = _classify_assignment(node, names)
+        self.assertEqual(result, 1)
+        self.assertEqual(names, [])
+
     def test_dunder_all_skipped(self):
         node = _stmt("__all__ = ['run', 'main']")
         names: list[str] = []
