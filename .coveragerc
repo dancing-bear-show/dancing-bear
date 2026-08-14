@@ -6,6 +6,13 @@ omit =
     tests/*
     */test_*.py
     setup.py
+    # `python -m <pkg>` entry shims: a docstring, `from .cli import main`, and
+    # an `if __name__ == "__main__"` guard that coverage already excludes.
+    # The only measurable statement is the import itself, so a test here
+    # asserts that Python can import a module — not that anything works.
+    # Real entry-point coverage lives in the tests for each `cli.main`, and
+    # `make bin-wrappers-check` verifies the wrappers actually dispatch.
+    */__main__.py
 
 [report]
 exclude_lines =

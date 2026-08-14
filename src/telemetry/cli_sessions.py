@@ -44,11 +44,13 @@ def main() -> None:
 @click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
 def live(session: str | None, refresh: float, rules_path: str | None) -> None:
     """Live TUI dashboard that refreshes continuously."""
-    try:  # pragma: no cover
-        from telemetry.tui import run_live  # pragma: no cover
-    except ImportError:  # pragma: no cover
-        raise click.ClickException("textual is required for TUI commands: pip install textual")  # pragma: no cover
-    run_live(session_id=session, refresh=refresh, rules_path=rules_path)  # pragma: no cover
+    try:
+        from telemetry.tui import run_live
+    except ImportError as exc:
+        raise click.ClickException(
+            "textual is required for `telemetry live`: pip install 'personal-assistants[tui]'"
+        ) from exc
+    run_live(session_id=session, refresh=refresh, rules_path=rules_path)
 
 
 @main.command()
@@ -58,11 +60,10 @@ def live(session: str | None, refresh: float, rules_path: str | None) -> None:
 @click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
 def stats(session: str | None, refresh: float, compact: bool, rules_path: str | None) -> None:
     """Live stats panel — compact real-time session metrics."""
-    try:  # pragma: no cover
-        from telemetry.tui import run_stats  # pragma: no cover
-    except ImportError:  # pragma: no cover
-        raise click.ClickException("textual is required for TUI commands: pip install textual")  # pragma: no cover
-    run_stats(session_id=session, refresh=refresh, compact=compact, rules_path=rules_path)  # pragma: no cover
+    # Rich-only renderer (telemetry.tui._stats); no Textual required.
+    from telemetry.tui import run_stats
+
+    run_stats(session_id=session, refresh=refresh, compact=compact, rules_path=rules_path)
 
 
 @main.command()
@@ -70,8 +71,10 @@ def stats(session: str | None, refresh: float, compact: bool, rules_path: str | 
 @click.option("--rules", "rules_path", default=None, help="Path to custom rules YAML.")
 def summary(session: str | None, rules_path: str | None) -> None:
     """Print a one-shot session summary."""
-    from telemetry.tui import print_summary  # pragma: no cover
-    print_summary(session_id=session, rules_path=rules_path)  # pragma: no cover
+    # Rich-only renderer (telemetry.tui._stats); no Textual required.
+    from telemetry.tui import print_summary
+
+    print_summary(session_id=session, rules_path=rules_path)
 
 
 @main.command()

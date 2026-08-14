@@ -31,9 +31,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Textual is only needed by `telemetry live` (src/telemetry/tui/_app.py and
+# _widgets.py). Kept optional so the core CLIs stay dependency-light, but
+# included in `dev` so tests import and cover it rather than silently skipping.
+tui = [
+  "textual==8.2.8",
+]
 dev = [
   "pytest==9.1.1",
   "vulture==2.16",
+  # Self-reference so the textual pin lives only in [tui].
+  "personal-assistants[tui]",
 ]
 # Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
 # Keep as optional but not recommended for security-sensitive use
