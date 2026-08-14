@@ -8,25 +8,32 @@ from __future__ import annotations
 import importlib
 import sys
 
-_SUBCOMMANDS: dict[str, str] = {
-    "health": "telemetry.otel.cli.health",
-    "size": "telemetry.otel.cli.size",
-    "inspect": "telemetry.otel.cli.inspect",
-    "query": "telemetry.otel.cli.query",
-    "stats": "telemetry.otel.cli.stats",
-    "cost": "telemetry.otel.cli.cost",
-    "sessions": "telemetry.otel.cli.sessions",
-    "prune": "telemetry.otel.cli.prune",
-    "clear": "telemetry.otel.cli.clear",
-    "events-search": "telemetry.otel.cli.events_search",
-    "compare": "telemetry.otel.cli.compare",
-    "tools": "telemetry.otel.cli.tools",
-    "prompts": "telemetry.otel.cli.prompts",
-    "anomalies": "telemetry.otel.cli.anomalies",
-    "clusters": "telemetry.otel.cli.clusters",
-    "otel-summary": "telemetry.otel.cli.otel_summary",
-    "workflow-cost": "telemetry.otel.cli.workflow_cost",
+# Single registry: subcommand -> (module path, help description). Keeping the
+# module and its description in one entry means a new subcommand cannot be
+# registered without also giving it help text -- the previous parallel dicts
+# let one drift from the other, silently printing a blank description.
+_REGISTRY: dict[str, tuple[str, str]] = {
+    "health": ("telemetry.otel.cli.health", "Check OTEL telemetry system health"),
+    "size": ("telemetry.otel.cli.size", "Show telemetry storage usage"),
+    "inspect": ("telemetry.otel.cli.inspect", "Inspect raw telemetry records"),
+    "query": ("telemetry.otel.cli.query", "Query metrics by pattern"),
+    "stats": ("telemetry.otel.cli.stats", "Show telemetry statistics"),
+    "cost": ("telemetry.otel.cli.cost", "Analyze telemetry costs"),
+    "sessions": ("telemetry.otel.cli.sessions", "List sessions with usage and performance"),
+    "prune": ("telemetry.otel.cli.prune", "Prune old telemetry data"),
+    "clear": ("telemetry.otel.cli.clear", "Clear telemetry data files"),
+    "events-search": ("telemetry.otel.cli.events_search", "Search events by pattern"),
+    "compare": ("telemetry.otel.cli.compare", "Compare two sessions side-by-side"),
+    "tools": ("telemetry.otel.cli.tools", "Analyze tool usage and error rates"),
+    "prompts": ("telemetry.otel.cli.prompts", "Per-prompt token spend and tool usage"),
+    "anomalies": ("telemetry.otel.cli.anomalies", "Detect anomalous sessions (z-score)"),
+    "clusters": ("telemetry.otel.cli.clusters", "Cluster sessions by cost/tokens"),
+    "otel-summary": ("telemetry.otel.cli.otel_summary", "Aggregated OTEL statistics dashboard"),
+    "workflow-cost": ("telemetry.otel.cli.workflow_cost", "Per-stage cost breakdown for workflow runs"),
 }
+
+# Derived module lookup, kept as the dispatch surface.
+_SUBCOMMANDS: dict[str, str] = {name: module for name, (module, _) in _REGISTRY.items()}
 
 _ALIASES: dict[str, str] = {
     "metrics": "query",
@@ -116,28 +123,8 @@ def _print_help() -> None:
     print("Query and manage local OTEL telemetry data (~/.config/otel/)")
     print()
     print("Subcommands:")
-    col_width = max(len(k) for k in _SUBCOMMANDS) + 2
-    descriptions = {
-        "health": "Check OTEL telemetry system health",
-        "size": "Show telemetry storage usage",
-        "inspect": "Inspect raw telemetry records",
-        "query": "Query metrics by pattern",
-        "stats": "Show telemetry statistics",
-        "cost": "Analyze telemetry costs",
-        "sessions": "List sessions with usage and performance",
-        "prune": "Prune old telemetry data",
-        "clear": "Clear telemetry data files",
-        "events-search": "Search events by pattern",
-        "compare": "Compare two sessions side-by-side",
-        "tools": "Analyze tool usage and error rates",
-        "prompts": "Per-prompt token spend and tool usage",
-        "anomalies": "Detect anomalous sessions (z-score)",
-        "clusters": "Cluster sessions by cost/tokens",
-        "otel-summary": "Aggregated OTEL statistics dashboard",
-        "workflow-cost": "Per-stage cost breakdown for workflow runs",
-    }
-    for name in sorted(_SUBCOMMANDS):
-        desc = descriptions.get(name, "")
+    col_width = max(len(k) for k in _REGISTRY) + 2
+    for name, (_, desc) in sorted(_REGISTRY.items()):
         print(f"  {name:<{col_width}}{desc}")
     print()
     print("Aliases: metrics=query, events=inspect, du=size, rm=prune, delete=clear")

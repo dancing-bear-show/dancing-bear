@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from telemetry.otel.cli import (
     _ALIASES,
+    _REGISTRY,
     _SUBCOMMANDS,
+    _check_infrastructure,
+    _print_help,
     _should_skip_infrastructure_check,
     _split_argv,
     main,
@@ -167,6 +170,27 @@ class TestMainDispatcher(unittest.TestCase):
         }
         self.assertEqual(set(_SUBCOMMANDS.keys()), expected)
 
+    def test_subcommands_derived_from_registry(self):
+        self.assertEqual(
+            _SUBCOMMANDS,
+            {name: module for name, (module, _) in _REGISTRY.items()},
+        )
+
+    def test_every_subcommand_has_a_help_description(self):
+        # The registry pairs module and description in one entry precisely so
+        # these cannot drift; assert no entry carries a blank description.
+        missing = [name for name, (_, desc) in _REGISTRY.items() if not desc.strip()]
+        self.assertEqual(missing, [])
+
+    def test_help_lists_every_subcommand_with_its_description(self):
+        buf = io.StringIO()
+        with patch("sys.stdout", buf):
+            _print_help()
+        out = buf.getvalue()
+        for name, (_, desc) in _REGISTRY.items():
+            self.assertIn(name, out)
+            self.assertIn(desc, out)
+
     def test_infra_check_exit_with_none_code(self):
         fake_module = MagicMock()
         fake_module.main.return_value = 0
@@ -175,6 +199,91 @@ class TestMainDispatcher(unittest.TestCase):
                 with patch("telemetry.otel.cli._check_infrastructure", side_effect=SystemExit(None)):
                     result = main(["cost"])
         self.assertEqual(result, 1)
+
+
+class TestCheckInfrastructure(unittest.TestCase):
+    """_check_infrastructure is mocked out everywhere else; cover its real body."""
+
+    def test_returns_none_when_infrastructure_is_healthy(self):
+        fake_health = MagicMock()
+        with patch.dict("sys.modules", {"telemetry.otel.health": fake_health}):
+            self.assertIsNone(_check_infrastructure())
+        fake_health.require_otel_infrastructure.assert_called_once()
+
+    def test_propagates_system_exit_from_health_check(self):
+        # require_otel_infrastructure signals failure by raising SystemExit;
+        # _check_infrastructure must not swallow it -- main() translates it.
+        fake_health = MagicMock()
+        fake_health.require_otel_infrastructure.side_effect = SystemExit(3)
+        with patch.dict("sys.modules", {"telemetry.otel.health": fake_health}):
+            with self.assertRaises(SystemExit) as ctx:
+                _check_infrastructure()
+        self.assertEqual(ctx.exception.code, 3)
+
+
+class TestMainArgvDefaulting(unittest.TestCase):
+    def test_none_argv_falls_back_to_sys_argv(self):
+        buf = io.StringIO()
+        with patch("sys.argv", ["telemetry-otel"]):
+            with patch("sys.stdout", buf):
+                result = main(None)
+        self.assertEqual(result, 0)
+        self.assertIn("usage", buf.getvalue())
+
+    def test_none_argv_dispatches_subcommand_from_sys_argv(self):
+        fake_module = MagicMock()
+        fake_module.main.return_value = 0
+        with patch("sys.argv", ["telemetry-otel", "size"]):
+            with patch.dict("sys.modules", {"telemetry.otel.cli.size": fake_module}):
+                with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=True):
+                    result = main(None)
+        self.assertEqual(result, 0)
+        fake_module.main.assert_called_once_with([])
+
+
+class TestMainSadPaths(unittest.TestCase):
+    def test_unknown_subcommand_lists_available_commands(self):
+        buf = io.StringIO()
+        with patch("sys.stderr", buf):
+            result = main(["bogus"])
+        self.assertEqual(result, 2)
+        err = buf.getvalue()
+        for name in _REGISTRY:
+            self.assertIn(name, err)
+
+    def test_alias_to_unknown_target_is_not_silently_accepted(self):
+        # An alias pointing at a non-existent subcommand must fail loudly
+        # rather than dispatch to a missing module.
+        with patch.dict("telemetry.otel.cli._ALIASES", {"broken": "nope"}, clear=False):
+            buf = io.StringIO()
+            with patch("sys.stderr", buf):
+                result = main(["broken"])
+        self.assertEqual(result, 2)
+        self.assertIn("nope", buf.getvalue())
+
+    def test_subcommand_nonzero_exit_is_propagated(self):
+        fake_module = MagicMock()
+        fake_module.main.return_value = 7
+        with patch.dict("sys.modules", {"telemetry.otel.cli.cost": fake_module}):
+            with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=True):
+                result = main(["cost"])
+        self.assertEqual(result, 7)
+
+    def test_subcommand_flags_are_forwarded_not_consumed(self):
+        fake_module = MagicMock()
+        fake_module.main.return_value = 0
+        with patch.dict("sys.modules", {"telemetry.otel.cli.cost": fake_module}):
+            with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=True):
+                main(["cost", "--breakdown", "session"])
+        fake_module.main.assert_called_once_with(["--breakdown", "session"])
+
+    def test_import_error_on_registered_module_propagates(self):
+        # A registry entry naming a module that cannot be imported is a real
+        # defect; it must raise rather than be reported as a clean exit.
+        with patch.dict("telemetry.otel.cli._SUBCOMMANDS", {"cost": "telemetry.otel.cli.does_not_exist"}, clear=False):
+            with patch("telemetry.otel.cli._should_skip_infrastructure_check", return_value=True):
+                with self.assertRaises(ModuleNotFoundError):
+                    main(["cost"])
 
 
 if __name__ == "__main__":
