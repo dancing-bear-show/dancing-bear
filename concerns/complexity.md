@@ -80,7 +80,9 @@ Load this guide when the diff contains `.py` files.
   This limit is enforced by `[smells.function_parameters]` in `.qlty/qlty.toml`,
   which is set to 6 (qlty's threshold is the trigger point, not the ceiling).
   Keep the two in sync — when they diverge, reviewers flag signatures the
-  tooling stays silent on.
+  tooling stays silent on. Note the tool trips one argument earlier than that
+  on keyword-only signatures; see the counting caveat below before treating a
+  reported count as the real parameter count.
 - **triggers**: A `def`/`async def` with 6+ parameters (excluding `self`/`cls`);
   especially 3+ parameters sharing the same primitive type (e.g. multiple
   `str`/`int` args in a row) where call-site argument order is easy to
@@ -91,27 +93,38 @@ Load this guide when the diff contains `.py` files.
   related fields (e.g. `InviteRequest`) and take a single instance as the
   parameter: `def send_invite(invite: InviteRequest) -> None`. Prefer this over
   `**kwargs` or a plain `dict`, which lose type hints and IDE support.
-- **accepted exceptions**: two shapes trip qlty's parameter count without
-  carrying the risk this concern describes. Confirm which one applies before
-  filing a finding.
+- **counting caveat**: qlty's reported count is not the function's arity. It
+  counts `self`/`cls`, and it counts the bare `*` separator as if it were a
+  parameter. A keyword-only signature therefore reports one higher than it
+  actually takes — `def f(*, a, b, c, d, e)` takes 5 arguments and is reported
+  as `count = 6`. Verified directly: a fixture with `def f_mix(a, b, *, c, d,
+  e)` (5 real parameters) reports `count = 6`, while `def b_4kw(*, a, b, c, d)`
+  (4 real) is not flagged at all. Always read the signature before acting on a
+  count — of this repo's 18 current findings, 16 are inflated by the separator
+  and 8 of those have a real arity of 5, at or under the documented limit.
+- **accepted exceptions**: two shapes trip the count without carrying the risk
+  this concern describes. Confirm which one applies before filing a finding.
 
-  1. **Keyword-only signatures.** qlty counts every parameter, including those
-     after a bare `*`. Keyword-only arguments cannot be transposed at a call
-     site, so the stated failure mode is structurally impossible. Prefer adding
-     `*` over splitting a cohesive signature just to lower the count. All but
-     two of the repo's current findings are this shape (e.g.
-     `core/outlook/calendar.py` `update_event_location`, 4 keyword-only params
-     and zero positional).
+  1. **Keyword-only signatures.** Keyword-only arguments cannot be transposed
+     at a call site, so the stated failure mode is structurally impossible —
+     and per the counting caveat above, these signatures are also over-reported
+     by one. Prefer adding `*` over splitting a cohesive signature to lower a
+     count. 16 of the repo's 18 current findings are this shape, e.g.
+     `worker/queue_ops.py` `write_manifest`-style helpers and
+     `core/outlook/calendar.py` `update_event_location` (4 keyword-only
+     arguments plus `self`, reported as 6).
 
   2. **Click command callbacks.** A function decorated with `@click.command` /
      `@click.option` has its signature dictated by the decorators — Click binds
      by parameter name, so collapsing the arguments into a dataclass breaks the
      CLI, which is a public-surface break under CLAUDE.md. `telemetry/
      cli_sessions.py` `agents` and `telemetry/parse_transcripts.py`
-     `parse_transcripts` are both this case; note each already forwards its
-     arguments into a request dataclass (`AgentQueryRequest`,
-     `TranscriptParseRequest`) on the first line of the body, which is the
-     prescribed fix applied as far as Click allows.
+     `parse_transcripts` are both this case, and both are genuinely 6
+     positional arguments — the only two current findings that are not
+     separator-inflated. Each already forwards into a request dataclass
+     (`AgentQueryRequest`, `TranscriptParseRequest`) on the first line of the
+     body, which is this concern's prescribed fix applied as far as Click
+     allows.
 
   qlty cannot distinguish either shape — `[smells.function_parameters]` exposes
   only `enabled` and `threshold`, with no keyword-only awareness — so these
