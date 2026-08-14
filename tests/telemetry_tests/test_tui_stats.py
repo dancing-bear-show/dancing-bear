@@ -8,6 +8,7 @@ run_stats() is marked pragma: no cover and is not tested.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import io
 import unittest
 from pathlib import Path
@@ -344,11 +345,17 @@ class TestPrintSummarySadPaths(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestTuiLazyGetattr(unittest.TestCase):
+    # The submodules are reached via importlib rather than
+    # `from telemetry.tui import _widgets`, so each assertion compares the
+    # lazily-resolved attribute against an object obtained WITHOUT going
+    # through __getattr__. Asserting against `tui._widgets.HeaderPanel` would
+    # route both sides through the code under test and pass even if the lazy
+    # routing were completely broken.
     def test_textual_export_resolves_to_widgets_module(self):
         import telemetry.tui as tui
-        from telemetry.tui import _widgets
 
-        self.assertIs(tui.HeaderPanel, _widgets.HeaderPanel)
+        widgets = importlib.import_module("telemetry.tui._widgets")
+        self.assertIs(tui.HeaderPanel, widgets.HeaderPanel)
 
     def test_app_css_resolves(self):
         import telemetry.tui as tui
@@ -357,17 +364,17 @@ class TestTuiLazyGetattr(unittest.TestCase):
 
     def test_stats_export_resolves_to_stats_module(self):
         import telemetry.tui as tui
-        from telemetry.tui import _stats
 
-        self.assertIs(tui.print_summary, _stats.print_summary)
-        self.assertIs(tui.run_stats, _stats.run_stats)
+        stats = importlib.import_module("telemetry.tui._stats")
+        self.assertIs(tui.print_summary, stats.print_summary)
+        self.assertIs(tui.run_stats, stats.run_stats)
 
     def test_app_export_resolves_to_app_module(self):
         import telemetry.tui as tui
-        from telemetry.tui import _app
 
-        self.assertIs(tui.run_live, _app.run_live)
-        self.assertIs(tui.TelemetryTranscriptsApp, _app.TelemetryTranscriptsApp)
+        app = importlib.import_module("telemetry.tui._app")
+        self.assertIs(tui.run_live, app.run_live)
+        self.assertIs(tui.TelemetryTranscriptsApp, app.TelemetryTranscriptsApp)
 
     def test_unknown_name_raises_attribute_error(self):
         import telemetry.tui as tui
