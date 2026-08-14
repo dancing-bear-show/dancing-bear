@@ -150,7 +150,7 @@ def parse_user_record(
     )
 
 
-def parse_session_file(  # noqa: S3776 - JSONL file parser; loop+try/except+message-type dispatch is irreducible
+def parse_session_file(  # NOSONAR S3776 - JSONL file parser; loop+try/except+message-type dispatch is irreducible
     path: Path,
     compute_cost_fn: CostFn,
 ) -> tuple[list[SessionEvent], list[AgentSummary]]:

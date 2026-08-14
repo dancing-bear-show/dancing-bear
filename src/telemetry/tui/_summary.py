@@ -45,7 +45,7 @@ def _latest_model(api_events: list[SessionEvent]) -> str:
     return ""
 
 
-def compute_summary(  # noqa: S3776 - flat aggregation; many generator expressions inflate score but there is no reducible nesting
+def compute_summary(  # NOSONAR S3776 - flat aggregation; many generator expressions inflate score but there is no reducible nesting
     events: list[SessionEvent],
     agents: list[AgentSummary],
     config: SummaryConfig,
