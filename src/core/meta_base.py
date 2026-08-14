@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -12,10 +11,10 @@ class AppMeta:
 
     app_id: str
     purpose: str
-    display_name: Optional[str] = None  # human-readable name (defaults to title-cased app_id)
-    bin_name: Optional[str] = None  # defaults to ./bin/{app_id}
-    help_cmd: Optional[str] = None  # default help command
-    example_cmd: Optional[str] = None  # example command for extended familiarization
+    display_name: str | None = None  # human-readable name (defaults to title-cased app_id)
+    bin_name: str | None = None  # defaults to ./bin/{app_id}
+    help_cmd: str | None = None  # default help command
+    example_cmd: str | None = None  # example command for extended familiarization
 
     @property
     def _display_name(self) -> str:

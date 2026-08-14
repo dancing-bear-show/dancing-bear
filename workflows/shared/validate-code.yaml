@@ -60,7 +60,7 @@ stages:
 
       Step 2 — run ruff.
       Use Bash to run:
-        ruff check {source_root}
+        bin/ruff-resolve.sh check {source_root}
       Record any lint errors as critical findings.
 
       Step 3 — review files.
@@ -87,7 +87,7 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - ruff check {source_root} exits 0
+        - bin/ruff-resolve.sh check {source_root} exits 0
         - All correctness concerns checked (return types, error paths)
         - All security concerns checked (no injection, no hardcoded creds)
         - All pattern concerns checked (type hints, emit_rows, dataclasses)

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import Optional, Tuple
 
 from docx.shared import Pt, RGBColor  # type: ignore
 from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
@@ -15,7 +14,7 @@ from docx.oxml.ns import qn  # type: ignore
 
 
 # Type alias for RGB tuples
-RGB = Tuple[int, int, int]
+RGB = tuple[int, int, int]
 
 
 class StyleManager:
@@ -27,7 +26,7 @@ class StyleManager:
 
     @staticmethod
     @lru_cache(maxsize=256)
-    def parse_hex_color(hex_str: Optional[str]) -> Optional[RGB]:
+    def parse_hex_color(hex_str: str | None) -> RGB | None:
         """Parse a hex color string to RGB tuple.
 
         Args:
@@ -148,7 +147,7 @@ class StyleManager:
             pass
 
     @staticmethod
-    def apply_run_color(run, hex_color: Optional[str]) -> None:
+    def apply_run_color(run, hex_color: str | None) -> None:
         """Apply color to a text run."""
         if not hex_color:
             return
@@ -160,7 +159,7 @@ class StyleManager:
                 pass
 
     @staticmethod
-    def apply_run_size(run, size_pt: Optional[float]) -> None:
+    def apply_run_size(run, size_pt: float | None) -> None:
         """Apply font size to a text run."""
         if size_pt:
             try:

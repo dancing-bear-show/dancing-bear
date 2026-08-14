@@ -54,6 +54,13 @@ class TestReadText(unittest.TestCase):
             result = read_text(path)
             self.assertEqual(result, content)
 
+    def test_read_directory_path_returns_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_dir"
+            path.mkdir()
+            result = read_text(path)
+            self.assertEqual(result, "")
+
 
 class TestWriteText(unittest.TestCase):
     """Tests for write_text function."""

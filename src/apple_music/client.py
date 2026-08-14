@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional
+from typing import Iterable
 
 from core.cli_errors import CLIError
 from core.http import HttpClient, HttpRequestBody
@@ -18,7 +18,7 @@ class AppleMusicClient:
         developer_token: str,
         user_token: str,
         base_url: str = "https://api.music.apple.com",
-        session: Optional[object] = None,
+        session: object | None = None,
     ) -> None:
         self.developer_token = developer_token
         self.user_token = user_token
@@ -33,13 +33,13 @@ class AppleMusicClient:
             return f"/{stripped}"
         return f"/v1/{stripped}"
 
-    def _auth_headers(self) -> Dict[str, str]:
+    def _auth_headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {self.developer_token}",
             "Music-User-Token": self.user_token,
         }
 
-    def _get(self, path: str, params: Optional[Dict[str, object]] = None) -> dict:
+    def _get(self, path: str, params: dict[str, object] | None = None) -> dict:
         return self._request("GET", path, params=params)
 
     def _post(self, path: str, json_body: dict) -> dict:
@@ -49,8 +49,8 @@ class AppleMusicClient:
         self,
         method: str,
         path: str,
-        params: Optional[Dict[str, object]] = None,
-        json_body: Optional[dict] = None,
+        params: dict[str, object] | None = None,
+        json_body: dict | None = None,
     ) -> dict:
         import requests as _requests  # noqa: PLC0415 - intentional lazy import
 
@@ -73,10 +73,10 @@ class AppleMusicClient:
             raise AppleMusicCLIError(f"Invalid JSON from Apple Music: {resp.text}") from exc
 
     def _paginate(
-        self, path: str, params: Optional[Dict[str, object]] = None, limit: Optional[int] = None
+        self, path: str, params: dict[str, object] | None = None, limit: int | None = None
     ) -> Iterable[dict]:
         remaining = limit
-        next_path: Optional[str] = path
+        next_path: str | None = path
         next_params = params or {}
         while next_path:
             data = self._get(next_path, params=next_params)
@@ -89,10 +89,10 @@ class AppleMusicClient:
             next_path = data.get("next")
             next_params = None  # next already encodes params
 
-    def list_library_playlists(self, limit: Optional[int] = None) -> List[dict]:
+    def list_library_playlists(self, limit: int | None = None) -> list[dict]:
         return list(self._paginate("me/library/playlists", params={"limit": limit} if limit else None, limit=limit))
 
-    def list_playlist_tracks(self, playlist_id: str, limit: Optional[int] = None) -> List[dict]:
+    def list_playlist_tracks(self, playlist_id: str, limit: int | None = None) -> list[dict]:
         path = f"me/library/playlists/{playlist_id}/tracks"
         return list(self._paginate(path, params={"limit": limit} if limit else None, limit=limit))
 
@@ -100,11 +100,11 @@ class AppleMusicClient:
         """Lightweight auth check; returns storefront info."""
         return self._get("me/storefront")
 
-    def search_songs(self, term: str, storefront: str, limit: int = 5) -> List[dict]:
+    def search_songs(self, term: str, storefront: str, limit: int = 5) -> list[dict]:
         params = {"term": term, "types": "songs", "limit": limit}
         return self._get(f"catalog/{storefront}/search", params=params).get("results", {}).get("songs", {}).get("data", [])
 
-    def create_playlist(self, name: str, tracks: List[dict], description: Optional[str] = None) -> dict:
+    def create_playlist(self, name: str, tracks: list[dict], description: str | None = None) -> dict:
         body = {
             "attributes": {"name": name},
             "relationships": {"tracks": {"data": tracks}},

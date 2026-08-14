@@ -1,0 +1,1 @@
+"""Metals build-summary tests."""

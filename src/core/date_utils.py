@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+from typing import Any
 
 from .constants import FMT_DATETIME_SEC, FMT_DAY_START
 
@@ -81,7 +81,7 @@ def normalize_day(day_name: str) -> str:
     return DAY_MAP.get(day_name.lower().strip(), '')
 
 
-def normalize_days(spec: str) -> List[str]:
+def normalize_days(spec: str) -> list[str]:
     """Parse day specification to list of two-letter RRULE codes.
 
     Handles ranges like 'Mon to Fri' and lists like 'Mon & Wed'.
@@ -94,7 +94,7 @@ def normalize_days(spec: str) -> List[str]:
         'Sat-Sun' -> ['SA', 'SU']
     """
     s = (spec or '').lower().replace('&', ' & ').replace('to', ' to ').replace('&amp;', '&')
-    out: List[str] = []
+    out: list[str] = []
 
     # Check for ranges like "Mon to Fri" or "Mon-Fri"
     m = re.search(r'\b(mon|tue|wed|thu|fri|sat|sun)\w*\b\s*(?:-|to)\s*\b(mon|tue|wed|thu|fri|sat|sun)\w*\b', s)
@@ -113,7 +113,7 @@ def normalize_days(spec: str) -> List[str]:
     return out
 
 
-def parse_month(month_str: str) -> Optional[int]:
+def parse_month(month_str: str) -> int | None:
     """Parse month name (full or abbreviated) to number (1-12).
 
     Examples:
@@ -125,7 +125,7 @@ def parse_month(month_str: str) -> Optional[int]:
     return MONTH_MAP.get(cleaned) or MONTH_MAP.get(cleaned[:3])
 
 
-def to_iso_str(v: Any) -> Optional[str]:
+def to_iso_str(v: Any) -> str | None:
     """Convert a value to ISO datetime string.
 
     Args:

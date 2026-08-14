@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 
 @dataclass
 class CalendarRef:
     """Calendar identifier - either by ID or name."""
 
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
 
 
 @dataclass
@@ -26,7 +25,7 @@ class ReminderSettings:
     """Reminder configuration for events."""
 
     no_reminder: bool = False
-    reminder_minutes: Optional[int] = None
+    reminder_minutes: int | None = None
 
 
 @dataclass
@@ -39,18 +38,18 @@ class EventCreationParams:
     subject: str
     start_iso: str
     end_iso: str
-    calendar_ref: Optional[CalendarRef] = None
-    tz: Optional[str] = None
-    body_html: Optional[str] = None
+    calendar_ref: CalendarRef | None = None
+    tz: str | None = None
+    body_html: str | None = None
     all_day: bool = False
-    location: Optional[str] = None
-    reminder: Optional[ReminderSettings] = None
+    location: str | None = None
+    reminder: ReminderSettings | None = None
 
     # Legacy field support for backwards compatibility
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
     no_reminder: bool = False
-    reminder_minutes: Optional[int] = None
+    reminder_minutes: int | None = None
 
     def __post_init__(self):
         """Handle legacy field initialization."""
@@ -69,7 +68,7 @@ class RecurrencePattern:
 
     repeat: str  # daily|weekly|monthly
     interval: int = 1
-    byday: Optional[List[str]] = None  # For weekly: ["MO", "WE", "FR"]
+    byday: list[str] | None = None  # For weekly: ["MO", "WE", "FR"]
 
 
 @dataclass
@@ -77,8 +76,8 @@ class RecurrenceRange:
     """Recurrence date range."""
 
     range_start_date: str
-    range_until: Optional[str] = None
-    count: Optional[int] = None
+    range_until: str | None = None
+    count: int | None = None
 
 
 @dataclass
@@ -92,23 +91,23 @@ class RecurringEventCreationParams:
     start_time: str
     end_time: str
     repeat: str
-    calendar_ref: Optional[CalendarRef] = None
-    tz: Optional[str] = None
+    calendar_ref: CalendarRef | None = None
+    tz: str | None = None
     interval: int = 1
-    byday: Optional[List[str]] = None
-    range_start_date: Optional[str] = None
-    range_until: Optional[str] = None
-    count: Optional[int] = None
-    body_html: Optional[str] = None
-    location: Optional[str] = None
-    exdates: Optional[List[str]] = None
-    reminder: Optional[ReminderSettings] = None
+    byday: list[str] | None = None
+    range_start_date: str | None = None
+    range_until: str | None = None
+    count: int | None = None
+    body_html: str | None = None
+    location: str | None = None
+    exdates: list[str] | None = None
+    reminder: ReminderSettings | None = None
 
     # Legacy field support for backwards compatibility
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
     no_reminder: bool = False
-    reminder_minutes: Optional[int] = None
+    reminder_minutes: int | None = None
 
     def __post_init__(self):
         """Handle legacy field initialization."""
@@ -129,16 +128,16 @@ class EventSettingsPatch:
     """
 
     event_id: str
-    calendar_ref: Optional[CalendarRef] = None
-    categories: Optional[List[str]] = None
-    show_as: Optional[str] = None
-    sensitivity: Optional[str] = None
-    is_reminder_on: Optional[bool] = None
-    reminder_minutes: Optional[int] = None
+    calendar_ref: CalendarRef | None = None
+    categories: list[str] | None = None
+    show_as: str | None = None
+    sensitivity: str | None = None
+    is_reminder_on: bool | None = None
+    reminder_minutes: int | None = None
 
     # Legacy field support for backwards compatibility
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
 
     def __post_init__(self):
         """Handle legacy field initialization."""
@@ -157,16 +156,16 @@ class ListEventsRequest:
     Supports both new (date_range, calendar_ref) and legacy (start_iso, end_iso, calendar_id, calendar_name) initialization.
     """
 
-    date_range: Optional[DateRange] = None
-    calendar_ref: Optional[CalendarRef] = None
-    subject_filter: Optional[str] = None  # Optional subject substring filter
+    date_range: DateRange | None = None
+    calendar_ref: CalendarRef | None = None
+    subject_filter: str | None = None  # Optional subject substring filter
     top: int = 50  # Page size for targeted queries
 
     # Legacy field support for backwards compatibility
-    start_iso: Optional[str] = None
-    end_iso: Optional[str] = None
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    start_iso: str | None = None
+    end_iso: str | None = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
 
     def __post_init__(self):
         """Handle legacy field initialization."""
@@ -187,12 +186,12 @@ class UpdateEventReminderRequest:
 
     event_id: str
     is_on: bool
-    calendar_ref: Optional[CalendarRef] = None
-    minutes_before_start: Optional[int] = None
+    calendar_ref: CalendarRef | None = None
+    minutes_before_start: int | None = None
 
     # Legacy field support for backwards compatibility
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
 
     def __post_init__(self):
         """Handle legacy field initialization."""
@@ -211,15 +210,15 @@ class ListCalendarViewRequest:
     Supports both new (date_range, calendar_ref) and legacy (start_iso, end_iso, calendar_id) initialization.
     """
 
-    date_range: Optional[DateRange] = None
-    calendar_ref: Optional[CalendarRef] = None
+    date_range: DateRange | None = None
+    calendar_ref: CalendarRef | None = None
     select: str = "subject,start,end,seriesMasterId,type,createdDateTime,location"
     top: int = 200  # Larger page size for bulk operations
 
     # Legacy field support for backwards compatibility
-    start_iso: Optional[str] = None
-    end_iso: Optional[str] = None
-    calendar_id: Optional[str] = None
+    start_iso: str | None = None
+    end_iso: str | None = None
+    calendar_id: str | None = None
 
     def __post_init__(self):
         """Handle legacy field initialization."""
@@ -236,7 +235,7 @@ class SearchParams:
     """Parameters for inbox search."""
 
     search_query: str
-    days: Optional[int] = None
+    days: int | None = None
     top: int = 25
     pages: int = 2
     use_cache: bool = True
@@ -254,8 +253,8 @@ class MessageSearchQuery:
     query: str
     top: int = 50
     pages: int = 3
-    after: Optional[str] = None
-    sender: Optional[str] = None
+    after: str | None = None
+    sender: str | None = None
     only_inbox: bool = False
 
 
@@ -265,8 +264,8 @@ class UpdateEventLocationRequest:
 
     event_id: str
     location_str: str
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None
 
 
 @dataclass
@@ -275,5 +274,5 @@ class UpdateEventSubjectRequest:
 
     event_id: str
     subject: str
-    calendar_id: Optional[str] = None
-    calendar_name: Optional[str] = None
+    calendar_id: str | None = None
+    calendar_name: str | None = None

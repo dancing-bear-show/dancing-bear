@@ -10,9 +10,9 @@ from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
     cli_path_exists as _core_cli_path_exists,
-    read_text as _read_text,
     section as _section,
 )
+from core.textio import read_text as _read_text
 
 
 def build_agentic_capsule(compact: bool = False) -> str:

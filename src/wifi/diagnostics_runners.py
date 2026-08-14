@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import subprocess  # nosec B404
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Sequence
 
 
 @dataclass
@@ -16,12 +16,12 @@ class CommandResult:
 class CommandRunner:
     """Simple abstraction to allow faking subprocess calls in tests."""
 
-    def run(self, cmd: Sequence[str], timeout: Optional[float] = None) -> CommandResult:  # pragma: no cover - interface
+    def run(self, cmd: Sequence[str], timeout: float | None = None) -> CommandResult:  # pragma: no cover - interface
         raise NotImplementedError
 
 
 class SubprocessRunner(CommandRunner):
-    def run(self, cmd: Sequence[str], timeout: Optional[float] = None) -> CommandResult:
+    def run(self, cmd: Sequence[str], timeout: float | None = None) -> CommandResult:
         try:
             proc = subprocess.run(  # nosec B603 - cmd is controlled by caller
                 cmd,

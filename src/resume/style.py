@@ -4,7 +4,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Iterable
 
 from .io_utils import read_text_any
 
@@ -29,16 +29,16 @@ def _iter_texts(corpus_dir: str | os.PathLike[str]) -> Iterable[str]:
                 continue
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     return re.findall(r"[A-Za-z][A-Za-z0-9+_.-]+", text)
 
 
-def _sentences(text: str) -> List[str]:
+def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?])\s+", text)
     return [p.strip() for p in parts if p.strip()]
 
 
-def build_style_profile(corpus_dir: str, top_n: int = 50) -> Dict[str, Any]:
+def build_style_profile(corpus_dir: str, top_n: int = 50) -> dict[str, Any]:
     texts = list(_iter_texts(corpus_dir))
     if not texts:
         return {"files": 0, "tokens": [], "bigrams": [], "avg_sentence_length": 0.0}
@@ -63,7 +63,7 @@ def build_style_profile(corpus_dir: str, top_n: int = 50) -> Dict[str, Any]:
     return profile
 
 
-def extract_style_keywords(style_profile: Dict[str, Any], limit: int = 20) -> List[str]:
+def extract_style_keywords(style_profile: dict[str, Any], limit: int = 20) -> list[str]:
     kws = []
     kws.extend(style_profile.get("top_unigrams", [])[:limit])
     # include bigrams as tokens (optional)

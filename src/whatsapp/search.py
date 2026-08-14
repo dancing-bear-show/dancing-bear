@@ -15,7 +15,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable
 
 from core.cli_errors import NotFoundError
 from core.text_utils import truncate_text
@@ -61,7 +61,7 @@ def _connect_ro(path: str) -> sqlite3.Connection:
     return sqlite3.connect(uri, uri=True)
 
 
-def _build_like_clause(column: str, terms: Iterable[str], match_all: bool) -> Tuple[str, List[Any]]:
+def _build_like_clause(column: str, terms: Iterable[str], match_all: bool) -> tuple[str, list[Any]]:
     cleaned = [t.strip().lower() for t in terms if isinstance(t, str) and t.strip()]
     if not cleaned:
         return "", []
@@ -73,14 +73,14 @@ def _build_like_clause(column: str, terms: Iterable[str], match_all: bool) -> Tu
 
 
 def _build_where(
-    contains: List[str],
+    contains: list[str],
     match_all: bool,
-    contact: Optional[str],
-    from_me: Optional[bool],
-    since_days: Optional[int],
-) -> Tuple[str, List[Any]]:
-    conds: List[str] = ["m.ZTEXT IS NOT NULL"]
-    params: List[Any] = []
+    contact: str | None,
+    from_me: bool | None,
+    since_days: int | None,
+) -> tuple[str, list[Any]]:
+    conds: list[str] = ["m.ZTEXT IS NOT NULL"]
+    params: list[Any] = []
     # contains
     clause, clause_params = _build_like_clause("m.ZTEXT", contains or [], match_all)
     if clause:
@@ -109,7 +109,7 @@ def _build_where(
 def search_messages(
     db_path: str | None = None,
     query: MessageQuery | None = None,
-) -> List[MessageRow]:
+) -> list[MessageRow]:
     """Search WhatsApp messages.
 
     Args:
@@ -131,7 +131,7 @@ def search_messages(
         "ORDER BY m.ZMESSAGEDATE DESC "
         "LIMIT ?"
     )
-    rows: List[MessageRow] = []
+    rows: list[MessageRow] = []
     with _connect_ro(path) as conn:
         cur = conn.cursor()
         query_args = [APPLE_EPOCH_OFFSET, *params, int(q.limit)]
@@ -141,7 +141,7 @@ def search_messages(
 
 
 def format_rows_text(rows: Iterable[MessageRow]) -> str:
-    out_lines: List[str] = []
+    out_lines: list[str] = []
     for r in rows:
         who = "me" if r.from_me == 1 else "them"
         snippet = truncate_text((r.text or "").replace("\n", " "), 140)
@@ -149,7 +149,7 @@ def format_rows_text(rows: Iterable[MessageRow]) -> str:
     return "\n".join(out_lines)
 
 
-def rows_to_dicts(rows: Iterable[MessageRow]) -> List[Dict[str, Any]]:
+def rows_to_dicts(rows: Iterable[MessageRow]) -> list[dict[str, Any]]:
     return [
         {"ts": r.ts, "partner": r.partner, "from_me": bool(r.from_me), "text": r.text}
         for r in rows

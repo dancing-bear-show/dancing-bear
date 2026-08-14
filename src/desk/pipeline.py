@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 from core.cli_output import OutputWriter
 from core.pipeline import SafeProcessor, BaseProducer, RequestConsumer
@@ -14,9 +14,9 @@ from .utils import dump_output
 
 @dataclass
 class ScanRequest:
-    paths: List[str]
+    paths: list[str]
     min_size: str
-    older_than: Optional[str]
+    older_than: str | None
     include_duplicates: bool
     top_dirs: int
 
@@ -25,13 +25,13 @@ class ScanRequest:
 ScanRequestConsumer = RequestConsumer[ScanRequest]
 
 
-class ScanProcessor(SafeProcessor[ScanRequest, Dict[str, Any]]):
+class ScanProcessor(SafeProcessor[ScanRequest, dict[str, Any]]):
     """Scan for large, stale, and duplicate files with automatic error handling."""
 
-    def __init__(self, runner: Callable[..., Dict[str, Any]] = run_scan) -> None:
+    def __init__(self, runner: Callable[..., dict[str, Any]] = run_scan) -> None:
         self._runner = runner
 
-    def _process_safe(self, payload: ScanRequest) -> Dict[str, Any]:
+    def _process_safe(self, payload: ScanRequest) -> dict[str, Any]:
         return self._runner(
             paths=payload.paths,
             min_size=payload.min_size,
@@ -50,13 +50,13 @@ class PlanRequest:
 PlanRequestConsumer = RequestConsumer[PlanRequest]
 
 
-class PlanProcessor(SafeProcessor[PlanRequest, Dict[str, Any]]):
+class PlanProcessor(SafeProcessor[PlanRequest, dict[str, Any]]):
     """Create a plan from config rules with automatic error handling."""
 
-    def __init__(self, planner: Callable[[str], Dict[str, Any]] = plan_from_config) -> None:
+    def __init__(self, planner: Callable[[str], dict[str, Any]] = plan_from_config) -> None:
         self._planner = planner
 
-    def _process_safe(self, payload: PlanRequest) -> Dict[str, Any]:
+    def _process_safe(self, payload: PlanRequest) -> dict[str, Any]:
         return self._planner(payload.config_path)
 
 
@@ -83,17 +83,17 @@ class ApplyProcessor(SafeProcessor[ApplyRequest, None]):
 class ReportProducer(BaseProducer):
     """Produce output for scan/plan results with automatic error handling."""
 
-    def __init__(self, out_path: Optional[str], writer: Optional[OutputWriter] = None) -> None:
+    def __init__(self, out_path: str | None, writer: OutputWriter | None = None) -> None:
         super().__init__(writer)
         self._out_path = out_path
 
-    def _produce_success(self, payload: Dict[str, Any], diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: dict[str, Any], diagnostics: dict[str, Any] | None) -> None:
         dump_output(payload, self._out_path)
 
 
 class ApplyResultProducer(BaseProducer):
     """Produce output for apply operations with automatic error handling."""
 
-    def _produce_success(self, payload: None, diagnostics: Optional[Dict[str, Any]]) -> None:
+    def _produce_success(self, payload: None, diagnostics: dict[str, Any] | None) -> None:
         # Success is silent - no output needed
         pass

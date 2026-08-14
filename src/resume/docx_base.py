@@ -5,7 +5,7 @@ Provides common functionality for resume rendering.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 
@@ -33,7 +33,7 @@ def _apply_h1_color(doc, h1_color, h1_bg) -> None:
         doc.styles[STYLE_HEADING_1].font.color.rgb = RGBColor(*rgb)
 
 
-def _apply_font_styles(doc, page_cfg: Dict[str, Any]) -> None:
+def _apply_font_styles(doc, page_cfg: dict[str, Any]) -> None:
     """Apply font sizes and colors to Normal, Heading 1, and Title styles."""
     body_pt = float(page_cfg.get("body_pt", 10.5))
     h1_pt = float(page_cfg.get("h1_pt", 12))
@@ -57,7 +57,7 @@ def _apply_font_styles(doc, page_cfg: Dict[str, Any]) -> None:
             doc.styles["Title"].font.color.rgb = RGBColor(*rgbt)
 
 
-def apply_page_styles_to_doc(doc, page_cfg: Dict[str, Any]) -> None:
+def apply_page_styles_to_doc(doc, page_cfg: dict[str, Any]) -> None:
     """Apply compact page styles (margins and fonts) to a document object.
 
     Shared implementation used by both ResumeWriterBase and legacy module helpers.
@@ -81,13 +81,13 @@ def apply_page_styles_to_doc(doc, page_cfg: Dict[str, Any]) -> None:
         pass
 
 
-def _extract_locations(data: Dict[str, Any]) -> List[str]:
+def _extract_locations(data: dict[str, Any]) -> list[str]:
     """Extract unique non-empty location strings from experience entries."""
     locs = [str(e.get("location") or "").strip() for e in (data.get("experience") or [])]
     return list(dict.fromkeys([loc for loc in locs if loc]))
 
 
-def _set_category(cp, locs: List[str]) -> None:
+def _set_category(cp, locs: list[str]) -> None:
     """Set category on core properties, silently ignoring failures."""
     try:
         cp.category = "; ".join(locs)
@@ -98,7 +98,7 @@ def _set_category(cp, locs: List[str]) -> None:
 _OPC_PROPERTY_MAX = 255
 
 
-def _fit_property(items: List[str], sep: str = "; ") -> str:
+def _fit_property(items: list[str], sep: str = "; ") -> str:
     """Join items into an OPC core property, dropping any that overflow.
 
     OPC caps core properties at 255 characters and python-docx raises
@@ -115,7 +115,7 @@ def _fit_property(items: List[str], sep: str = "; ") -> str:
 
 
 def _metadata_title(
-    page_cfg: Dict[str, Any], name: str, contact_parts: List[str], include_pii: bool
+    page_cfg: dict[str, Any], name: str, contact_parts: list[str], include_pii: bool
 ) -> str:
     """Build the core-properties title, honoring an override and the PII flag."""
     override = page_cfg.get("metadata_title")
@@ -129,11 +129,11 @@ def _metadata_title(
 
 def _metadata_keywords(
     cp,
-    data: Dict[str, Any],
-    page_cfg: Dict[str, Any],
-    identity_parts: List[str],
+    data: dict[str, Any],
+    page_cfg: dict[str, Any],
+    identity_parts: list[str],
     include_pii: bool,
-) -> List[str]:
+) -> list[str]:
     """Build the keyword list, honoring an override and the PII flag.
 
     Also sets the category property when locations are included.
@@ -154,20 +154,40 @@ def _metadata_keywords(
     return kw
 
 
+def _identity_fields(data: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Derive (name, email, phone, location), falling back to the nested contact dict."""
+    contact = data.get("contact") or {}
+    name = data.get("name") or ""
+    email = data.get("email") or contact.get("email") or ""
+    phone = data.get("phone") or contact.get("phone") or ""
+    location = data.get("location") or contact.get("location") or ""
+    return name, email, phone, location
+
+
+def _stamp_metadata_dates(cp, page_cfg: dict[str, Any], name: str) -> None:
+    """Stamp created/modified/last_modified_by to now, unless the caller opts out.
+
+    python-docx ships a 2013 default timestamp in its template. Left alone, a
+    freshly generated resume advertises a decade-old created date.
+    """
+    if not bool(page_cfg.get("metadata_stamp_dates", True)):
+        return
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cp.created = now
+    cp.modified = now
+    cp.last_modified_by = name or cp.last_modified_by
+
+
 def set_document_metadata_on_doc(
-    doc, data: Dict[str, Any], page_cfg: Dict[str, Any]
+    doc, data: dict[str, Any], page_cfg: dict[str, Any]
 ) -> None:
     """Set document core properties (title, author, keywords).
 
     Shared implementation used by both ResumeWriterBase and legacy module helpers.
     """
     try:
-        name = data.get("name") or ""
-        contact = data.get("contact") or {}
-        email = data.get("email") or contact.get("email") or ""
-        phone = data.get("phone") or contact.get("phone") or ""
-        location = data.get("location") or contact.get("location") or ""
-
+        name, email, phone, location = _identity_fields(data)
         cp = doc.core_properties
 
         # metadata_pii: when False, keep contact details out of core properties.
@@ -194,15 +214,7 @@ def set_document_metadata_on_doc(
         # enclosing except would otherwise swallow every later assignment too.
         cp.keywords = _fit_property(kw)
 
-        # python-docx ships a 2013 default timestamp in its template. Left
-        # alone, a freshly generated resume advertises a decade-old created
-        # date. Stamp both to now unless the caller opts out.
-        if bool(page_cfg.get("metadata_stamp_dates", True)):
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            cp.created = now
-            cp.modified = now
-            cp.last_modified_by = name or cp.last_modified_by
+        _stamp_metadata_dates(cp, page_cfg, name)
     except Exception:  # nosec B110 - non-critical metadata setting failure
         pass
 
@@ -210,7 +222,7 @@ def set_document_metadata_on_doc(
 class ResumeWriterBase(ABC):
     """Base class for DOCX resume writers."""
 
-    def __init__(self, data: Dict[str, Any], template: Dict[str, Any]):
+    def __init__(self, data: dict[str, Any], template: dict[str, Any]):
         """Initialize writer with resume data and template config.
 
         Args:
@@ -225,7 +237,7 @@ class ResumeWriterBase(ABC):
         self.styles = StyleManager()
         self.text = TextFormatter()
 
-    def write(self, out_path: str, seed: Optional[Dict[str, Any]] = None) -> None:
+    def write(self, out_path: str, seed: dict[str, Any] | None = None) -> None:
         """Write resume to DOCX file.
 
         Args:
@@ -245,7 +257,7 @@ class ResumeWriterBase(ABC):
         self.doc.save(out_path)
 
     @abstractmethod
-    def _render_content(self, seed: Optional[Dict[str, Any]] = None) -> None:
+    def _render_content(self, seed: dict[str, Any] | None = None) -> None:
         """Render the main document content. Subclasses must implement."""
         pass
 
@@ -261,7 +273,7 @@ class ResumeWriterBase(ABC):
         """Set document core properties (title, author, keywords)."""
         set_document_metadata_on_doc(self.doc, self.data, self.page_cfg)
 
-    def _extract_experience_locations(self) -> List[str]:
+    def _extract_experience_locations(self) -> list[str]:
         """Extract unique location strings from experience entries."""
         locs = [str(e.get("location") or "").strip() for e in (self.data.get("experience") or [])]
         return list(dict.fromkeys([loc for loc in locs if loc]))
@@ -275,13 +287,13 @@ class ResumeWriterBase(ABC):
         contact = self.data.get("contact") or {}
         return self.data.get(field) or contact.get(field) or ""
 
-    def _collect_link_extras(self) -> List[str]:
+    def _collect_link_extras(self) -> list[str]:
         """Collect formatted link extras (website, linkedin, github, links list)."""
         return [display for display, _url in self._collect_link_extra_items()]
 
-    def _collect_link_extra_items(self) -> List[tuple[str, str]]:
+    def _collect_link_extra_items(self) -> list[tuple[str, str]]:
         """Collect link extras as (display, url) pairs for hyperlink rendering."""
-        items: List[tuple[str, str]] = []
+        items: list[tuple[str, str]] = []
         for field in ["website", "linkedin", "github"]:
             val = self._get_contact_field(field)
             if val:
@@ -300,7 +312,7 @@ class ResumeWriterBase(ABC):
         """Center a paragraph and remove indents."""
         self.styles.center_paragraph(para)
 
-    def _add_colored_run(self, paragraph, text: str, hex_color: Optional[str], **kwargs) -> Any:
+    def _add_colored_run(self, paragraph, text: str, hex_color: str | None, **kwargs) -> Any:
         """Add a run with optional color and formatting."""
         run = paragraph.add_run(text)
         if hex_color:
@@ -313,8 +325,8 @@ class ResumeWriterBase(ABC):
 
 
 def create_resume_writer(
-    data: Dict[str, Any],
-    template: Dict[str, Any],
+    data: dict[str, Any],
+    template: dict[str, Any],
 ) -> ResumeWriterBase:
     """Factory function to create the appropriate resume writer.
 

@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from .io_utils import safe_import
 from .docx_writer import _match_section_key
 
 
-def infer_structure_from_docx(path: str) -> Dict[str, Any]:
+def infer_structure_from_docx(path: str) -> dict[str, Any]:
     docx = safe_import("docx")
     if not docx:
         raise RuntimeError("Inferring structure requires python-docx; install python-docx.")
     from docx import Document  # type: ignore
 
     doc = Document(path)
-    order: List[str] = []
-    titles: Dict[str, str] = {}
+    order: list[str] = []
+    titles: dict[str, str] = {}
     seen = set()
     for p in doc.paragraphs:
         style = getattr(p.style, "name", "") or ""

@@ -105,6 +105,23 @@ class ActionsMixin:
             _rumps.alert(title="Start at Login", message=f"Could not update login item: {exc}")
         self._btn_login_item.state = 1 if _login_item.is_enabled() else 0  # type: ignore[attr-defined]
 
+    @staticmethod
+    def _clear_stale_project_dir(project_dir: Path, cutoff: float) -> int:
+        """Delete stale .jsonl files in project_dir; remove the dir if left empty.
+
+        Returns the number of files deleted.
+        """
+        deleted = 0
+        for jsonl_file in project_dir.glob("*.jsonl"):
+            if jsonl_file.stat().st_mtime < cutoff:
+                jsonl_file.unlink()
+                deleted += 1
+        try:
+            next(project_dir.iterdir())
+        except StopIteration:
+            project_dir.rmdir()
+        return deleted
+
     def _on_clear(self, _sender: object) -> None:  # noqa: ARG002
         import rumps as _rumps  # type: ignore[import-not-found]
         response = _rumps.alert(
@@ -124,14 +141,7 @@ class ActionsMixin:
             for project_dir in _PROJECTS_DIR.iterdir():
                 if not project_dir.is_dir():
                     continue
-                for jsonl_file in project_dir.glob("*.jsonl"):
-                    if jsonl_file.stat().st_mtime < cutoff:
-                        jsonl_file.unlink()
-                        deleted += 1
-                try:
-                    next(project_dir.iterdir())
-                except StopIteration:
-                    project_dir.rmdir()
+                deleted += self._clear_stale_project_dir(project_dir, cutoff)
         except Exception as exc:  # nosec B110 - partial cleanup failure is reported via notification
             _rumps.notification(title="Clear failed", subtitle="Could not delete all files", message=str(exc))
             return

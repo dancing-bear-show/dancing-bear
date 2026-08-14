@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from .io_utils import read_yaml_or_json
 
 
-def _normalize_keywords(lst: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _normalize_keywords(lst: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     if not lst:
         return out
     if isinstance(lst, list):
@@ -21,11 +21,11 @@ def _normalize_keywords(lst: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def load_job_config(path: str) -> Dict[str, Any]:
+def load_job_config(path: str) -> dict[str, Any]:
     return read_yaml_or_json(path)
 
 
-def build_keyword_spec(job_cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
+def build_keyword_spec(job_cfg: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[str]]]:
     kws = job_cfg.get("keywords", {}) or {}
     required = _normalize_keywords(kws.get("required"))
     preferred = _normalize_keywords(kws.get("preferred"))
@@ -40,7 +40,7 @@ def build_keyword_spec(job_cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[st
         or kws.get("individual_technology_references")
     )
 
-    synonyms: Dict[str, List[str]] = {}
+    synonyms: dict[str, list[str]] = {}
     syn = kws.get("synonyms") or {}
     if isinstance(syn, dict):
         for k, v in syn.items():
@@ -49,7 +49,7 @@ def build_keyword_spec(job_cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[st
             elif isinstance(v, str):
                 synonyms[str(k)] = [v]
 
-    spec: Dict[str, Any] = {
+    spec: dict[str, Any] = {
         "required": required,
         "preferred": preferred,
         "nice": nice,

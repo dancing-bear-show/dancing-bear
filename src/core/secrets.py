@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 
@@ -45,8 +45,8 @@ def _mask_value(value: str) -> str:
     return "***REDACTED***"
 
 
-def mask_headers(headers: Dict[str, str]) -> Dict[str, str]:
-    masked: Dict[str, str] = {}
+def mask_headers(headers: dict[str, str]) -> dict[str, str]:
+    masked: dict[str, str] = {}
     for k, v in (headers or {}).items():
         lk = (k or "").strip().lower()
         if lk in {"authorization", "proxy-authorization", "x-api-key", "x-auth-token"}:
@@ -134,16 +134,23 @@ class MaskingWriter:
         for line in lines:
             self.write(line)
 
+    def _flush_pending_buffer(self) -> bool:
+        """Write and clear any buffered content. Returns False on a broken pipe."""
+        if not (self._enabled and self._buffer):
+            return True
+        masked = mask_text(self._buffer)
+        try:
+            self._stream.write(masked)
+        except BrokenPipeError:
+            self._buffer = ""
+            return False
+        self._buffer = ""
+        return True
+
     def flush(self) -> None:
         try:
-            if self._enabled and self._buffer:
-                masked = mask_text(self._buffer)
-                try:
-                    self._stream.write(masked)
-                except BrokenPipeError:
-                    self._buffer = ""
-                    return
-                self._buffer = ""
+            if not self._flush_pending_buffer():
+                return
             try:
                 self._stream.flush()
             except BrokenPipeError:
@@ -161,7 +168,7 @@ class MaskingWriter:
             return False
 
     @property
-    def encoding(self) -> Optional[str]:
+    def encoding(self) -> str | None:
         return getattr(self._stream, "encoding", None)
 
     def __getattr__(self, name: str) -> Any:

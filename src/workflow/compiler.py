@@ -191,6 +191,40 @@ def _bfs_level(
     return normal, gated
 
 
+def _drain_level(queue: deque[str], assigned: dict[str, int], level: int) -> list[str]:
+    """Pop every stage currently queued, assigning it to level. Returns them sorted."""
+    current_level: list[str] = []
+    while queue:
+        name = queue.popleft()
+        assigned[name] = level
+        current_level.append(name)
+    current_level.sort()
+    return current_level
+
+
+def _next_ready_queue(
+    stages: tuple[StageSpec, ...],
+    deps: dict[str, set[str]],
+    assigned: dict[str, int],
+) -> deque[str]:
+    """Return stages whose dependencies are all assigned but are not yet themselves."""
+    return deque(
+        spec.name
+        for spec in stages
+        if spec.name not in assigned and all(d in assigned for d in deps[spec.name])
+    )
+
+
+def _groups_for_level(current_level: list[str], spec_map: dict[str, StageSpec]) -> list[tuple[str, ...]]:
+    """Split one BFS level into its normal group plus one group per human-gated stage."""
+    normal, gated = _bfs_level(current_level, spec_map)
+    groups: list[tuple[str, ...]] = []
+    if normal:
+        groups.append(tuple(normal))
+    groups.extend((g,) for g in gated)
+    return groups
+
+
 def _compute_parallel_groups(
     stages: tuple[StageSpec, ...],
 ) -> tuple[tuple[str, ...], ...]:
@@ -214,26 +248,9 @@ def _compute_parallel_groups(
     groups: list[tuple[str, ...]] = []
 
     while queue:
-        current_level: list[str] = []
-        while queue:
-            name = queue.popleft()
-            assigned[name] = level
-            current_level.append(name)
-
-        current_level.sort()
-        normal, gated = _bfs_level(current_level, spec_map)
-
-        if normal:
-            groups.append(tuple(normal))
-        for g in gated:
-            groups.append((g,))
-
-        next_queue: deque[str] = deque()
-        for spec in stages:
-            if spec.name not in assigned and all(d in assigned for d in deps[spec.name]):
-                next_queue.append(spec.name)
-
-        queue = next_queue
+        current_level = _drain_level(queue, assigned, level)
+        groups.extend(_groups_for_level(current_level, spec_map))
+        queue = _next_ready_queue(stages, deps, assigned)
         level += 1
 
     if len(assigned) != len(stage_names):

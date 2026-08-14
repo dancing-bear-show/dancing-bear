@@ -72,23 +72,26 @@ def _parse_since_window(since: str) -> datetime | None:
         raise click.BadParameter(f"Cannot parse time window: {since!r}. Use e.g. 7d, 30d, all.")
 
 
+def _passes_since_filter(p: Path, since_dt: datetime | None) -> bool:
+    """Return True when p should be included given the since_dt mtime cutoff."""
+    if since_dt is None:
+        return True
+    try:
+        mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return False
+    return mtime >= since_dt
+
+
 def _find_jsonl_files(projects_dir: Path, since_dt: datetime | None) -> list[Path]:
     """Return all .jsonl files under projects_dir, optionally filtered by mtime."""
-    files: list[Path] = []
     if not projects_dir.exists():
-        return files
-    for p in projects_dir.rglob("*.jsonl"):
-        if not p.is_file():
-            continue
-        if since_dt is not None:
-            try:
-                mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
-                if mtime < since_dt:
-                    continue
-            except OSError:
-                continue
-        files.append(p)
-    return files
+        return []
+    return [
+        p
+        for p in projects_dir.rglob("*.jsonl")
+        if p.is_file() and _passes_since_filter(p, since_dt)
+    ]
 
 
 def _session_id_from_path(path: Path) -> str:

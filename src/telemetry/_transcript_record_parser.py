@@ -65,6 +65,51 @@ def _process_tool_use_blocks(
     return bash_added
 
 
+def _append_prompt_entry(session_index: dict[str, object], prompt_index: int, text: str) -> None:
+    """Append one prompt entry to session_index["prompts"]."""
+    prompts = session_index["prompts"]
+    assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
+    prompts.append({
+        "prompt_index": prompt_index,
+        "text": text,
+        "token_estimate": _token_estimate(text),
+        "tool_calls_after": 0,
+    })
+
+
+def _process_user_string_content(
+    content: str,
+    session_index: dict[str, object],
+    prompt_index_base: int,
+    prompts_added: int,
+) -> int:
+    """Handle plain-string message content — the normal user-prompt case."""
+    text = content.strip()
+    if not text:
+        return 0
+    _append_prompt_entry(session_index, prompt_index_base + prompts_added, text)
+    return 1
+
+
+def _process_user_list_content(
+    content: list[object],
+    session_index: dict[str, object],
+    prompt_index_base: int,
+    prompts_added: int,
+) -> int:
+    """Handle list message content — may be tool_result blocks; extract any text blocks."""
+    added = 0
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "text":
+            continue
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+        _append_prompt_entry(session_index, prompt_index_base + prompts_added + added, text)
+        added += 1
+    return added
+
+
 def _process_user_role_record(
     record: dict[str, object],
     session_index: dict[str, object],
@@ -84,43 +129,11 @@ def _process_user_role_record(
         msg = {}
     content = msg.get("content") or record.get("content")
 
-    # Plain-string content — the normal user-prompt case.
     if isinstance(content, str):
-        text = content.strip()
-        if not text:
-            return 0
-        prompts = session_index["prompts"]
-        assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
-        prompts.append({
-            "prompt_index": prompt_index_base + prompts_added,
-            "text": text,
-            "token_estimate": _token_estimate(text),
-            "tool_calls_after": 0,
-        })
-        return 1
-
-    # List content — may be tool_result blocks; extract any text blocks present.
-    if not isinstance(content, list):
-        return 0
-    added = 0
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        if block.get("type") != "text":
-            continue
-        text = str(block.get("text") or "").strip()
-        if not text:
-            continue
-        prompts = session_index["prompts"]
-        assert isinstance(prompts, list)  # nosec B101 - type narrowing; caller always initializes this list
-        prompts.append({
-            "prompt_index": prompt_index_base + prompts_added + added,
-            "text": text,
-            "token_estimate": _token_estimate(text),
-            "tool_calls_after": 0,
-        })
-        added += 1
-    return added
+        return _process_user_string_content(content, session_index, prompt_index_base, prompts_added)
+    if isinstance(content, list):
+        return _process_user_list_content(content, session_index, prompt_index_base, prompts_added)
+    return 0
 
 
 def _parse_content_blocks(record: dict[str, object], msg: dict[str, object]) -> list[object]:

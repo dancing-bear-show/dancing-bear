@@ -399,52 +399,73 @@ def run_outlook_rules_prune_empty(args) -> int:
     return 0
 
 
-def run_outlook_messages_summarize(args) -> int:
-    """Summarize an Outlook message identified by --id or --query."""
-    import re
-    from pathlib import Path
-
-    client, err = get_outlook_client(args)
-    if err:
-        return err
-
+def _resolve_summarize_msg_id(client, args) -> tuple[str | None, int | None]:
+    """Resolve the target message id from --id or --query. Returns (msg_id, error_code)."""
     msg_id = getattr(args, "id", None)
+    if msg_id:
+        return msg_id, None
     query = (getattr(args, "query", None) or "").strip()
+    if not query:
+        print("Provide --id or --query to identify a message")
+        return None, 1
     top = getattr(args, "top", 5) or 5
     pages = getattr(args, "pages", 1) or 1
-    max_words = int(getattr(args, "max_words", 120) or 120)
-    out_path = getattr(args, "out", None)
+    results = client.search_messages(query=query, top=int(top), pages=int(pages))
+    if not results:
+        print("No message found matching query")
+        return None, 1
+    return results[0]["id"], None
 
-    if not msg_id:
-        if not query:
-            print("Provide --id or --query to identify a message")
-            return 1
-        results = client.search_messages(query=query, top=int(top), pages=int(pages))
-        if not results:
-            print("No message found matching query")
-            return 1
-        msg_id = results[0]["id"]
 
-    msg = client.get_message(msg_id, select_body=True)
+def _extract_summarize_body_text(msg: dict) -> str:
+    """Strip HTML tags and collapse whitespace in a message body/preview."""
+    import re
+
     body_content = (msg.get("body") or {}).get("content") or msg.get("bodyPreview") or ""
     text = re.sub(r"<[^>]+>", " ", body_content)
-    text = re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
-    from ..llm_adapter import summarize_text
-    summary = summarize_text(text, max_words=max_words)
 
+def _format_summarize_output(msg: dict, summary: str) -> str:
+    """Format the header + summary block printed/written for a summarized message."""
     subject = msg.get("subject", "")
     received = (msg.get("receivedDateTime") or "")[:10]
     addr = (msg.get("from") or {}).get("emailAddress", {})
     from_str = f"{addr.get('name', '')} <{addr.get('address', '')}>"
+    return f"[{received}] {subject!r} from {from_str}\n{summary}"
 
-    output = f"[{received}] {subject!r} from {from_str}\n{summary}"
+
+def _write_summarize_output(out_path: str, output: str) -> None:
+    from pathlib import Path
+
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_path).write_text(output + "\n", encoding="utf-8")
+    print(f"Summary written to {out_path}")
+
+
+def run_outlook_messages_summarize(args) -> int:
+    """Summarize an Outlook message identified by --id or --query."""
+    client, err = get_outlook_client(args)
+    if err:
+        return err
+
+    msg_id, err_code = _resolve_summarize_msg_id(client, args)
+    if err_code is not None:
+        return err_code
+
+    max_words = int(getattr(args, "max_words", 120) or 120)
+    msg = client.get_message(msg_id, select_body=True)
+    text = _extract_summarize_body_text(msg)
+
+    from ..llm_adapter import summarize_text
+    summary = summarize_text(text, max_words=max_words)
+
+    output = _format_summarize_output(msg, summary)
     print(output)
 
+    out_path = getattr(args, "out", None)
     if out_path:
-        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_text(output + "\n", encoding="utf-8")
-        print(f"Summary written to {out_path}")
+        _write_summarize_output(out_path, output)
 
     return 0
 

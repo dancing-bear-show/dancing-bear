@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Iterator
 
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
@@ -17,8 +17,8 @@ class SessionStats:
     session_id: str
     path: Path
     model: str = ""
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     events: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -37,7 +37,7 @@ class SessionStats:
         return (self.input_tokens + self.output_tokens +
                 self.cache_read_tokens + self.cache_create_tokens)
 
-    def accumulate_usage(self, usage: Dict[str, Any]) -> None:
+    def accumulate_usage(self, usage: dict[str, Any]) -> None:
         """Add token counts from a usage dict."""
         self.input_tokens += usage.get("input_tokens", 0)
         self.output_tokens += usage.get("output_tokens", 0)
@@ -66,7 +66,7 @@ def iter_session_files(days: int = 7) -> Iterator[Path]:
                 yield jl
 
 
-def _parse_ts(raw: str) -> Optional[datetime]:
+def _parse_ts(raw: str) -> datetime | None:
     """Parse ISO 8601 timestamp and normalize to UTC.
 
     Handles trailing Z and converts all results to UTC so timestamps are
@@ -85,7 +85,7 @@ def _parse_ts(raw: str) -> Optional[datetime]:
         return None
 
 
-def _process_assistant_record(stats: SessionStats, msg: Dict[str, Any]) -> None:
+def _process_assistant_record(stats: SessionStats, msg: dict[str, Any]) -> None:
     """Extract model, usage, and tool calls from an assistant message."""
     stats.events += 1
 
@@ -101,11 +101,36 @@ def _process_assistant_record(stats: SessionStats, msg: Dict[str, Any]) -> None:
             stats.tool_counts[name] = stats.tool_counts.get(name, 0) + 1
 
 
-def _process_user_record(stats: SessionStats, rec: Dict[str, Any]) -> None:
+def _process_user_record(stats: SessionStats, rec: dict[str, Any]) -> None:
     """Extract subagent token usage from a user message."""
     sub = rec.get("toolUseResult")
     if sub and isinstance(sub, dict):
         stats.accumulate_usage(sub.get("usage", {}))
+
+
+_RECORD_HANDLERS: dict[str, Any] = {
+    "assistant": lambda stats, rec: _process_assistant_record(stats, rec.get("message", {})),
+    "user": _process_user_record,
+}
+
+
+def _parse_session_line(stats: SessionStats, line: str) -> None:
+    """Parse and apply a single JSONL line to stats. No-op on malformed input."""
+    line = line.strip()
+    if not line:
+        return
+    try:
+        rec = json.loads(line)
+    except json.JSONDecodeError:
+        return  # nosec B112 - skip corrupt/partial writes
+
+    ts = _parse_ts(rec.get("timestamp", ""))
+    if ts:
+        stats.update_time_range(ts)
+
+    handler = _RECORD_HANDLERS.get(rec.get("type"))
+    if handler:
+        handler(stats, rec)
 
 
 def parse_session(path: Path) -> SessionStats:
@@ -114,22 +139,6 @@ def parse_session(path: Path) -> SessionStats:
 
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # nosec B112 - skip corrupt/partial writes
-
-            ts = _parse_ts(rec.get("timestamp", ""))
-            if ts:
-                stats.update_time_range(ts)
-
-            rec_type = rec.get("type")
-            if rec_type == "assistant":
-                _process_assistant_record(stats, rec.get("message", {}))
-            elif rec_type == "user":
-                _process_user_record(stats, rec)
+            _parse_session_line(stats, line)
 
     return stats

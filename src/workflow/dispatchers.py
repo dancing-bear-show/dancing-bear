@@ -139,7 +139,6 @@ class LocalDispatcher:
         a circular abstraction.  The subprocess call in _run_cli_command is the
         engine's own dispatch mechanism — SafeProcessor wrapping is deferred
         until a non-self-hosting context requires it.
-        # nosec B603 - subprocess args are compiled from trusted workflow YAML, not user input
         """
         data: dict[str, Any] = {}
         errors: list[str] = []

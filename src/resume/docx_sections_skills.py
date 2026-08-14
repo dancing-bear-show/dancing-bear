@@ -250,20 +250,26 @@ class TechnologiesSectionRenderer(SkillsSectionRenderer):
             return None
         return self.text.clean_inline(text)
 
+    def _normalize_group_tech_items(
+        self, raw_items: list, show_desc: bool, desc_sep: str
+    ) -> list[str]:
+        """Normalize every item in a single skills group, dropping empties."""
+        items: list[str] = []
+        for x in raw_items:
+            item = self._normalize_tech_item(x, show_desc, desc_sep)
+            if item:
+                items.append(item)
+        return items
+
     def _extract_from_skills_groups(
         self, data: dict, show_desc: bool, desc_sep: str
     ) -> list[str]:
         """Extract tech items from skills_groups with technology titles."""
         tech_titles = {"technology", "technologies", "tooling", "tools"}
-        items: list[str] = []
 
         for g in data.get("skills_groups") or []:
             title = str(g.get("title") or "").strip().lower()
             if title in tech_titles:
-                for x in g.get("items") or []:
-                    item = self._normalize_tech_item(x, show_desc, desc_sep)
-                    if item:
-                        items.append(item)
-                break
+                return self._normalize_group_tech_items(g.get("items") or [], show_desc, desc_sep)
 
-        return items
+        return []

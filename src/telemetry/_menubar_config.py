@@ -1,11 +1,12 @@
 """Config loading, saving, and parsing helpers for the menubar app."""
 
 import json
-import os
 import string
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
+
+from core.fileutil import atomic_write_json
+from telemetry.constants import CONFIG_PATH as _CONFIG_PATH
 
 _DEFAULT_MONTHLY_BUDGET = 4000.0
 _DEFAULT_COST_MULTIPLIER = 1.0  # scales locally-computed cost (see pricing.py)
@@ -52,9 +53,6 @@ _OTEL_SECTION_KEYS = (
     "otel_usage", "otel_models", "otel_meta", "otel_hooks",
     "otel_tools", "otel_code", "otel_skills", "otel_sessions",
 )
-
-# Default config path — overridden by menubar.py shim to allow test patching.
-_CONFIG_PATH = Path.home() / ".claude" / "claudestats.json"
 
 
 class _IconTemplate(string.Template):
@@ -149,49 +147,61 @@ def _migrate_flat_keys(raw: dict) -> dict:
     return sections
 
 
-def _load_config(config_path: Path | None = None) -> dict:
-    """Load config from disk, merging stored values over defaults."""
-    path = config_path if config_path is not None else _CONFIG_PATH
+def _read_raw_config(path: Path) -> dict:
+    """Read and parse the config file, falling back to {} on any error."""
     try:
         raw = json.loads(path.read_text())
-        if not isinstance(raw, dict):
-            raw = {}
+        return raw if isinstance(raw, dict) else {}
     except Exception:  # nosec B110 - any read/parse error falls back to defaults
-        raw = {}
+        return {}
 
+
+def _coerce_monthly_budget(raw: dict) -> float:
+    """Parse and validate monthly_budget, returning the default on failure."""
     try:
         budget = float(raw.get("monthly_budget", _DEFAULT_MONTHLY_BUDGET))
-        if budget <= 0:
-            budget = _DEFAULT_MONTHLY_BUDGET
+        return budget if budget > 0 else _DEFAULT_MONTHLY_BUDGET
     except (TypeError, ValueError):
-        budget = _DEFAULT_MONTHLY_BUDGET
+        return _DEFAULT_MONTHLY_BUDGET
 
-    raw_icon = raw.get("icon_display", _DEFAULT_ICON_TEMPLATE)
-    icon_display = _coerce_icon_display(raw_icon)
-    icon_migrated = isinstance(raw_icon, str) and raw_icon in _ICON_LEGACY_MAP
 
+def _coerce_poll_interval(raw: dict) -> int:
+    """Parse and clamp poll_interval, returning the default on failure."""
     try:
         poll_interval = int(raw.get("poll_interval", _DEFAULT_POLL_INTERVAL))
-        poll_interval = max(_POLL_INTERVAL_MIN, min(_POLL_INTERVAL_MAX, poll_interval))
+        return max(_POLL_INTERVAL_MIN, min(_POLL_INTERVAL_MAX, poll_interval))
     except (TypeError, ValueError):
-        poll_interval = _DEFAULT_POLL_INTERVAL
+        return _DEFAULT_POLL_INTERVAL
 
-    cost_multiplier = _coerce_cost_multiplier(raw.get("cost_multiplier", _DEFAULT_COST_MULTIPLIER))
 
+def _resolve_sections(raw: dict) -> tuple[dict, bool]:
+    """Merge stored sections over defaults. Returns (sections, needs_migration)."""
     stored_sections = raw.get("sections")
     needs_migration = not isinstance(stored_sections, dict)
     if needs_migration:
         stored_sections = _migrate_flat_keys(raw)
 
-    sections: dict = {}
-    for name, defaults in _DEFAULT_SECTIONS.items():
-        sections[name] = _merge_section(defaults, stored_sections.get(name, {}))
+    sections: dict = {
+        name: _merge_section(defaults, stored_sections.get(name, {}))
+        for name, defaults in _DEFAULT_SECTIONS.items()
+    }
+    return sections, needs_migration
+
+
+def _load_config(config_path: Path | None = None) -> dict:
+    """Load config from disk, merging stored values over defaults."""
+    path = config_path if config_path is not None else _CONFIG_PATH
+    raw = _read_raw_config(path)
+
+    raw_icon = raw.get("icon_display", _DEFAULT_ICON_TEMPLATE)
+    icon_migrated = isinstance(raw_icon, str) and raw_icon in _ICON_LEGACY_MAP
+    sections, needs_migration = _resolve_sections(raw)
 
     result = {
-        "monthly_budget": budget,
-        "icon_display": icon_display,
-        "poll_interval": poll_interval,
-        "cost_multiplier": cost_multiplier,
+        "monthly_budget": _coerce_monthly_budget(raw),
+        "icon_display": _coerce_icon_display(raw_icon),
+        "poll_interval": _coerce_poll_interval(raw),
+        "cost_multiplier": _coerce_cost_multiplier(raw.get("cost_multiplier", _DEFAULT_COST_MULTIPLIER)),
         "sections": sections,
     }
 
@@ -207,25 +217,7 @@ def _load_config(config_path: Path | None = None) -> dict:
 def _save_config(cfg: dict, config_path: Path | None = None) -> None:
     """Persist config atomically."""
     path = config_path if config_path is not None else _CONFIG_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=path.parent,
-        delete=False,
-        suffix=".tmp",
-        encoding="utf-8",
-    )
-    try:
-        json.dump(cfg, fd, indent=2)
-        fd.close()
-        os.replace(fd.name, path)
-    except Exception:
-        fd.close()
-        try:
-            os.unlink(fd.name)
-        except OSError:  # nosec B110 - cleanup failure is non-fatal; original exception re-raised below
-            pass
-        raise
+    atomic_write_json(path, cfg)
 
 
 def _config_to_text(cfg: dict) -> str:

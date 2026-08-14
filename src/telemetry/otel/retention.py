@@ -132,28 +132,36 @@ class TelemetryPruner:
             pass
         return None
 
+    def _apply_line(
+        self, line: str, data_type: str, cutoff: datetime, kept_records: list
+    ) -> bool:
+        """Parse+filter one non-blank line, appending to kept_records if kept.
+
+        Returns True when the line was a record (blank lines are not counted).
+        """
+        if not line.strip():
+            return False
+        result = self._parse_and_filter_line(line, data_type, cutoff)
+        if result is not None:
+            kept_records.append(result)
+        return True
+
     def _filter_records(
         self, file_path: Path, data_type: str, cutoff: datetime
     ) -> tuple[list, int, int]:
         """Filter records older than cutoff timestamp."""
+        kept_records: list = []
         records_before = 0
-        records_after = 0
-        kept_records = []
 
         try:
             with open(file_path) as f:
                 for line in f:
-                    if not line.strip():
-                        continue
-                    records_before += 1
-                    result = self._parse_and_filter_line(line, data_type, cutoff)
-                    if result is not None:
-                        kept_records.append(result)
-                        records_after += 1
+                    if self._apply_line(line, data_type, cutoff, kept_records):
+                        records_before += 1
         except OSError as e:
             raise OSError(f"Failed to read {file_path}: {e}") from e
 
-        return kept_records, records_before, records_after
+        return kept_records, records_before, len(kept_records)
 
     def _get_earliest_timestamp(self, data_type: str, record_dict: dict) -> datetime | None:
         """Get earliest timestamp from a record dict."""

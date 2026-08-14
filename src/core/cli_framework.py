@@ -11,15 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    TypeVar,
-)
+from typing import Any, Callable, Sequence, TypeVar
 
 from .cli_errors import CLIError, ExitCode, handle_error
 from .cli_framework_group import CommandGroup
@@ -59,8 +51,8 @@ class CLIApp:
         name: str,
         description: str = "",
         *,
-        version: Optional[str] = None,
-        epilog: Optional[str] = None,
+        version: str | None = None,
+        epilog: str | None = None,
         add_common_args: bool = True,
     ):
         """Initialize the CLI application.
@@ -78,13 +70,13 @@ class CLIApp:
         self.epilog = epilog
         self.add_common_args = add_common_args
 
-        self._commands: Dict[str, CommandDef] = {}
-        self._groups: Dict[str, "CommandGroup"] = {}
-        self._parser: Optional[argparse.ArgumentParser] = None
-        self._pending_arguments: List[Argument] = []
+        self._commands: dict[str, CommandDef] = {}
+        self._groups: dict[str, "CommandGroup"] = {}
+        self._parser: argparse.ArgumentParser | None = None
+        self._pending_arguments: list[Argument] = []
 
     @staticmethod
-    def _split_command_name(name: str, parent: Optional[str]) -> tuple[Optional[str], str]:
+    def _split_command_name(name: str, parent: str | None) -> tuple[str | None, str]:
         """Split a "parent.name" or "parent name" command name into (parent, name).
 
         If parent is already given explicitly, name is returned unsplit.
@@ -106,8 +98,8 @@ class CLIApp:
         *,
         help: str = "",
         description: str = "",
-        aliases: Optional[List[str]] = None,
-        parent: Optional[str] = None,
+        aliases: list[str] | None = None,
+        parent: str | None = None,
     ) -> Callable[[CommandFunc], CommandFunc]:
         """Decorator to register a command.
 
@@ -324,10 +316,10 @@ class CLIApp:
         self,
         assistant: Any,
         emit_func: Callable[[str, bool], int],
-        argv: Optional[Sequence[str]] = None,
+        argv: Sequence[str] | None = None,
         *,
-        pre_run_hook: Optional[Callable[[], None]] = None,
-        post_build_hook: Optional[Callable[[argparse.ArgumentParser], None]] = None,
+        pre_run_hook: Callable[[], None] | None = None,
+        post_build_hook: Callable[[argparse.ArgumentParser], None] | None = None,
     ) -> int:
         """Run the CLI application with agentic flag support.
 
@@ -374,9 +366,9 @@ class CLIApp:
 
     def run(
         self,
-        argv: Optional[Sequence[str]] = None,
+        argv: Sequence[str] | None = None,
         *,
-        on_no_command: Optional[Callable[[], int]] = None,
+        on_no_command: Callable[[], int] | None = None,
     ) -> int:
         """Run the CLI application.
 
@@ -421,6 +413,6 @@ class CLIApp:
         # Run the command with error handling
         return self._run_cmd_func_with_error_handling(cmd_func, args, coerce_int=False)
 
-    def main(self, argv: Optional[Sequence[str]] = None) -> None:
+    def main(self, argv: Sequence[str] | None = None) -> None:
         """Run the CLI and exit with the return code."""
         sys.exit(self.run(argv))

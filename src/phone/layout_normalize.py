@@ -151,17 +151,22 @@ def compute_location_map(layout: NormalizedLayout) -> dict[str, str]:
     return loc
 
 
+def _iter_page_app_ids(page: list[Item]):
+    """Yield app IDs from a single page (including its folder contents)."""
+    for it in page:
+        if _is_app_item(it):
+            bid = _get_app_id(it)
+            if bid:
+                yield bid
+        elif _is_folder_item(it):
+            yield from (a for a in _get_folder_apps(it) if a)
+
+
 def _iter_all_app_ids(layout: NormalizedLayout):
     """Yield all app IDs from dock and pages (including folder contents)."""
     yield from (a for a in layout.dock if a)
     for page in layout.pages:
-        for it in page:
-            if _is_app_item(it):
-                bid = _get_app_id(it)
-                if bid:
-                    yield bid
-            elif _is_folder_item(it):
-                yield from (a for a in _get_folder_apps(it) if a)
+        yield from _iter_page_app_ids(page)
 
 
 def list_all_apps(layout: NormalizedLayout) -> list[str]:

@@ -7,7 +7,6 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Optional
 
 
 class ExitCode(IntEnum):
@@ -27,7 +26,7 @@ class CLIError(Exception):
     """CLI error with exit code and message."""
     message: str
     code: ExitCode = ExitCode.ERROR
-    hint: Optional[str] = None
+    hint: str | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -35,31 +34,31 @@ class CLIError(Exception):
 
 class ConfigError(CLIError):
     """Configuration-related error."""
-    def __init__(self, message: str, hint: Optional[str] = None):
+    def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.CONFIG_ERROR, hint)
 
 
 class AuthError(CLIError):
     """Authentication-related error."""
-    def __init__(self, message: str, hint: Optional[str] = None):
+    def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.AUTH_ERROR, hint)
 
 
 class NetworkError(CLIError):
     """Network-related error."""
-    def __init__(self, message: str, hint: Optional[str] = None):
+    def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.NETWORK_ERROR, hint)
 
 
 class NotFoundError(CLIError):
     """Resource not found error."""
-    def __init__(self, message: str, hint: Optional[str] = None):
+    def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.NOT_FOUND, hint)
 
 
 class UsageError(CLIError):
     """Usage/argument error."""
-    def __init__(self, message: str, hint: Optional[str] = None):
+    def __init__(self, message: str, hint: str | None = None):
         super().__init__(message, ExitCode.USAGE, hint)
 
 

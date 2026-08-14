@@ -10,7 +10,7 @@ Extracted from docx_sidebar. Provides:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from docx.shared import Pt, Inches, RGBColor  # type: ignore
 from docx.oxml.ns import qn  # type: ignore
@@ -44,7 +44,7 @@ def _remove_cell_borders(cell) -> None:
     tc_pr.append(tc_borders)
 
 
-def _add_indented_run(cell, text: str, page_cfg: Dict[str, Any], style: Optional[IndentedRunStyle] = None):
+def _add_indented_run(cell, text: str, page_cfg: dict[str, Any], style: IndentedRunStyle | None = None):
     """Add an indented paragraph with styled run."""
     s = style or IndentedRunStyle()
     p = cell.add_paragraph()
@@ -60,7 +60,7 @@ def _add_indented_run(cell, text: str, page_cfg: Dict[str, Any], style: Optional
     return p
 
 
-def _render_sidebar_section(cell, title: str, items: List[str], page_cfg: Dict[str, Any], bulleted: bool = True) -> None:
+def _render_sidebar_section(cell, title: str, items: list[str], page_cfg: dict[str, Any], bulleted: bool = True) -> None:
     """Render a generic section in sidebar with optional bullets."""
     h1_color = page_cfg.get("h1_color", "#D4A84B")
     text_color = page_cfg.get("sidebar_text_color", "#333333")
@@ -91,7 +91,7 @@ def _render_sidebar_section(cell, title: str, items: List[str], page_cfg: Dict[s
         _tight_paragraph(p, after_pt=2)
 
 
-def _render_main_section_heading(cell, title: str, page_cfg: Dict[str, Any]) -> None:
+def _render_main_section_heading(cell, title: str, page_cfg: dict[str, Any]) -> None:
     """Render a section heading in main column."""
     h1_color = page_cfg.get("h1_color", "#D4A84B")
 
@@ -105,7 +105,7 @@ def _render_main_section_heading(cell, title: str, page_cfg: Dict[str, Any]) -> 
     _tight_paragraph(p, before_pt=10, after_pt=6)
 
 
-def _render_edu_meta(cell, institution: str, year: str, page_cfg: Dict[str, Any]) -> None:
+def _render_edu_meta(cell, institution: str, year: str, page_cfg: dict[str, Any]) -> None:
     """Render institution and year as secondary paragraph."""
     if not institution and not year:
         return

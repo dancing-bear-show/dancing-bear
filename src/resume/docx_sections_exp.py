@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .docx_renderers import HeaderRenderer, ListSectionRenderer
 from .render_config import DEFAULT_BULLET_STYLE, HeaderLineConfig
@@ -32,7 +32,7 @@ class _ExperienceRenderOpts:
     prior_max_bullets: int = 999
 
     @classmethod
-    def from_cfg(cls, cfg: Dict[str, Any]) -> "_ExperienceRenderOpts":
+    def from_cfg(cls, cfg: dict[str, Any]) -> "_ExperienceRenderOpts":
         """Build from a section config dict."""
         max_bullets = int(cfg.get("max_bullets", 999))
         return cls(
@@ -48,15 +48,15 @@ class _ExperienceRenderOpts:
 class ExperienceSectionRenderer(ListSectionRenderer):
     """Renders experience/work history section."""
 
-    def __init__(self, doc, page_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, doc, page_cfg: dict[str, Any] | None = None):
         super().__init__(doc, page_cfg)
         self.headers = HeaderRenderer(doc)
 
     def render(
         self,
-        data: Dict[str, Any],
-        sec: Optional[Dict[str, Any]] = None,
-        keywords: Optional[List[str]] = None,
+        data: dict[str, Any],
+        sec: dict[str, Any] | None = None,
+        keywords: list[str] | None = None,
     ) -> None:
         items = data.get("experience") or []
         cfg = sec or {}
@@ -79,10 +79,10 @@ class ExperienceSectionRenderer(ListSectionRenderer):
 
     def _render_experience_entry(
         self,
-        e: Dict[str, Any],
+        e: dict[str, Any],
         idx: int,
-        cfg: Dict[str, Any],
-        keywords: Optional[List[str]],
+        cfg: dict[str, Any],
+        keywords: list[str] | None,
         opts: _ExperienceRenderOpts,
     ):
         """Render a single experience entry."""
@@ -135,7 +135,7 @@ class ExperienceSectionRenderer(ListSectionRenderer):
                 list_style=opts.bullet_style,
             )
 
-    def _format_date_span(self, e: Dict[str, Any]) -> str:
+    def _format_date_span(self, e: dict[str, Any]) -> str:
         """Format the date span for an experience entry."""
         start_txt = str(e.get("start", "") or "")
         end_txt = str(e.get("end", "") or "")
@@ -169,9 +169,9 @@ class ExperienceSectionRenderer(ListSectionRenderer):
             return min(max_bullets, recent_max_bullets)
         return min(max_bullets, prior_max_bullets)
 
-    def _normalize_bullets(self, bullets: List[Any], limit: int) -> List[str]:
+    def _normalize_bullets(self, bullets: list[Any], limit: int) -> list[str]:
         """Normalize bullet items to strings."""
-        result: List[str] = []
+        result: list[str] = []
         for b in bullets[:limit]:
             if isinstance(b, dict):
                 bt = str(b.get("text") or b.get("line") or b.get("name") or "").strip()
@@ -185,11 +185,11 @@ class ExperienceSectionRenderer(ListSectionRenderer):
 class EducationSectionRenderer(ListSectionRenderer):
     """Renders education section."""
 
-    def __init__(self, doc, page_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, doc, page_cfg: dict[str, Any] | None = None):
         super().__init__(doc, page_cfg)
         self.headers = HeaderRenderer(doc)
 
-    def render(self, data: Dict[str, Any], sec: Optional[Dict[str, Any]] = None):
+    def render(self, data: dict[str, Any], sec: dict[str, Any] | None = None):
         for ed in data.get("education") or []:
             degree = str(ed.get("degree") or "").strip()
             institution = str(ed.get("institution") or "").strip()

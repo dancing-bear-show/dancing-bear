@@ -181,7 +181,7 @@ stages:
         3. Apply the fix using the Edit tool. Keep the change minimal — fix only
            what the finding identifies; do not refactor surrounding code.
         4. After editing, run ruff on the changed file:
-             Bash tool: ruff check --fix {file}
+             Bash tool: bin/ruff-resolve.sh check --fix {file}
            If ruff reports new errors unrelated to the fix, leave them — do not
            introduce scope creep.
         5. If item["finding_id"] maps to a test file in outputs/changed-files.txt,
@@ -334,7 +334,7 @@ stages:
       does not apply fixes — it only reads and runs.
 
       Step 1 — linting:
-        Bash tool: ruff check {source_root}
+        Bash tool: bin/ruff-resolve.sh check {source_root}
         Record pass/fail and any new violations (violations that are not in the
         pre-fix diff are regressions from fix-code or fix-qlty).
 

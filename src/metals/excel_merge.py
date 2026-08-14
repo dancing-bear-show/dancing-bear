@@ -21,21 +21,7 @@ from core.auth import resolve_outlook_credentials
 from core.constants import DEFAULT_OUTLOOK_TOKEN_CACHE, DEFAULT_REQUEST_TIMEOUT
 from mail.outlook_api import OutlookClient
 from .workbook import WorkbookContext, read_csv_rows as _read_csv, write_range_to_sheet as _write_range_wb, col_letter as _col_letter  # noqa: F401
-
-
-def _to_records(values: List[List[str]]) -> Tuple[List[str], List[Dict[str, str]]]:
-    if not values:
-        return [], []
-    headers = [str(h).strip() for h in values[0]]
-    recs: List[Dict[str, str]] = []
-    for row in values[1:]:
-        d: Dict[str, str] = {}
-        for i, h in enumerate(headers):
-            d[h] = str(row[i]) if i < len(row) else ""
-        # Skip empty lines (no order_id)
-        if any(d.get(k) for k in headers):
-            recs.append(d)
-    return headers, recs
+from .excel_io import _to_records
 
 
 def _records_to_values(headers: List[str], recs: List[Dict[str, str]]) -> List[List[str]]:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 CommandFunc = Callable[[argparse.Namespace], int]
 
@@ -16,7 +16,7 @@ CommandFunc = Callable[[argparse.Namespace], int]
 class Argument:
     """Definition of a CLI argument."""
     name_or_flags: tuple
-    kwargs: Dict[str, Any] = field(default_factory=dict)
+    kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -26,6 +26,6 @@ class CommandDef:
     func: CommandFunc
     help: str = ""
     description: str = ""
-    arguments: List[Argument] = field(default_factory=list)
-    aliases: List[str] = field(default_factory=list)
-    parent: Optional[str] = None  # For nested commands like "outlook add"
+    arguments: list[Argument] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
+    parent: str | None = None  # For nested commands like "outlook add"

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import configparser
 import os
-from typing import Iterable, Tuple
+from typing import Iterable
 
 # -----------------------------------------------------------------------------
 # Credential paths
@@ -88,6 +88,25 @@ def _ini_satisfies(
     return require_option is None or require_option in section
 
 
+def _read_ini_candidate(
+    path: str,
+    require_section: str | None,
+    require_option: str | None,
+) -> tuple[str, IniSections] | None:
+    """Read and validate one candidate path. Returns (expanded_path, sections) or None."""
+    if not path:
+        return None
+    expanded = os.path.expanduser(path)
+    if not os.path.isfile(expanded):
+        return None
+    parsed = _parse_ini_file(expanded)
+    if parsed is None:
+        return None
+    if not _ini_satisfies(parsed, require_section, require_option):
+        return None
+    return expanded, parsed
+
+
 def read_credential_ini_first(
     explicit: str | None = None,
     search_paths: Iterable[str] | None = None,
@@ -114,16 +133,9 @@ def read_credential_ini_first(
     candidates.extend(credential_ini_paths() if search_paths is None else search_paths)
 
     for path in candidates:
-        if not path:
-            continue
-        expanded = os.path.expanduser(path)
-        if not os.path.isfile(expanded):
-            continue
-        parsed = _parse_ini_file(expanded)
-        if parsed is None:
-            continue
-        if _ini_satisfies(parsed, require_section, require_option):
-            return expanded, parsed
+        found = _read_ini_candidate(path, require_section, require_option)
+        if found is not None:
+            return found
     return None, {}
 
 
@@ -177,7 +189,7 @@ DEFAULT_OUTLOOK_TOKEN_CACHE = ".cache/.msal_token.json"  # noqa: S105  # nosec B
 # -----------------------------------------------------------------------------
 
 # Default timeout for HTTP requests: (connect_seconds, read_seconds)
-DEFAULT_REQUEST_TIMEOUT: Tuple[int, int] = (10, 30)
+DEFAULT_REQUEST_TIMEOUT: tuple[int, int] = (10, 30)
 
 
 # -----------------------------------------------------------------------------

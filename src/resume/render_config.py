@@ -5,7 +5,7 @@ Reduces parameter count by grouping related rendering options.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 DEFAULT_BULLET_STYLE = "List Bullet"
 
@@ -38,8 +38,8 @@ class MetaRunConfig:
     brackets: bool = True
     open_br: str = "["
     close_br: str = "]"
-    meta_pt: Optional[float] = None
-    color: Optional[str] = None
+    meta_pt: float | None = None
+    color: str | None = None
     italic: bool = False
 
 
@@ -51,15 +51,15 @@ class CenteredHeaderLineStyle:
     color: str
     bold: bool
     after_pt: float
-    bg_rgb: Optional[tuple] = None
+    bg_rgb: tuple | None = None
 
 
 @dataclass
 class RenderContext:
     """Common rendering context shared across functions."""
 
-    sec: Optional[Dict[str, Any]] = None  # Section config
-    keywords: Optional[List[str]] = None  # Keywords to highlight/bold
+    sec: dict[str, Any] | None = None  # Section config
+    keywords: list[str] | None = None  # Keywords to highlight/bold
 
 
 @dataclass
@@ -76,8 +76,8 @@ class IndentedRunStyle:
 class ExperienceFilterConfig:
     """Configuration for experience filtering."""
 
-    max_roles: Optional[int] = None
-    max_bullets_per_role: Optional[int] = None
+    max_roles: int | None = None
+    max_bullets_per_role: int | None = None
     min_score: int = 1
 
 

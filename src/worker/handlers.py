@@ -150,30 +150,40 @@ def _execute_command(cmd: list[str], env_overlay: dict, timeout: int, cwd: str |
     return _execute_subprocess(cmd, env_overlay, timeout, cwd=cwd or str(_repo_root()))
 
 
+def _validate_run_cli_payload(
+    payload: dict[str, object],
+) -> tuple[str, None, None] | tuple[None, str, list]:
+    """Validate payload.cmd and its program. Returns (error, None, None) or (None, prog, cmd_list)."""
+    cmd_list = list(payload.get("cmd") or [])
+    if not cmd_list:
+        return "missing payload.cmd", None, None
+    prog = str(cmd_list[0])
+    if not _is_allowed_bin(prog):
+        return f"disallowed or missing program: {prog}", None, None
+    return None, prog, cmd_list
+
+
+def _parse_run_cli_timeout(payload: dict[str, object]) -> int:
+    try:
+        return int(payload.get("timeout") or 300)
+    except Exception:  # nosec B110 - fallback to default timeout
+        return 300
+
+
 def handle_run_cli(job: dict[str, object]) -> tuple[bool, object]:  # pragma: no cover - subprocess execution
     """Run a repo bin command with args.
 
     payload schema: {"cmd": ["bin_name_or_path", "arg1", ...], "env": {..}, "timeout": 300, "cwd": "/optional/path"}
     """
     payload = dict(job.get("payload") or {})
-    cmd_list = list(payload.get("cmd") or [])
-    if not cmd_list:
-        return (False, "missing payload.cmd")
+    error, prog, cmd_list = _validate_run_cli_payload(payload)
+    if error:
+        return (False, error)
 
-    # Validate the first element points to an allowed bin program
-    prog = str(cmd_list[0])
-    if not _is_allowed_bin(prog):
-        return (False, f"disallowed or missing program: {prog}")
-
-    # Build command
     cmd = _build_command(prog, cmd_list)
     env_overlay = dict(payload.get("env") or {})
     cwd = str(payload.get("cwd") or "").strip() or None
-
-    try:
-        timeout = int(payload.get("timeout") or 300)
-    except Exception:  # nosec B110 - fallback to default timeout
-        timeout = 300
+    timeout = _parse_run_cli_timeout(payload)
 
     try:
         out = _execute_command(cmd, env_overlay, timeout, cwd=cwd)

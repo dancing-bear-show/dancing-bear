@@ -12,7 +12,7 @@ Extracted from parsing_experience. Provides:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .parsing_experience_text import (
     _extract_contact,
@@ -43,10 +43,10 @@ class _DocxParaHelper:
         return len(self._paragraphs)
 
 
-def _docx_find_sections(helper: _DocxParaHelper) -> tuple[List[int], Dict[str, Dict[str, int]]]:
+def _docx_find_sections(helper: _DocxParaHelper) -> tuple[list[int], dict[str, dict[str, int]]]:
     """Find H1 section indices and their bounds."""
     h1_indices = [i for i in range(len(helper)) if helper.style(i).startswith("heading 1")]
-    sections: Dict[str, Dict[str, int]] = {}
+    sections: dict[str, dict[str, int]] = {}
     for idx in h1_indices:
         key = _key_from_heading(helper.text(idx))
         if key:
@@ -80,11 +80,11 @@ def _docx_try_extract_headline(helper: _DocxParaHelper, i: int, txt: str) -> str
     return ""
 
 
-def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple[str, str, List[str]]:
+def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple[str, str, list[str]]:
     """Extract name, headline, and early lines from docx."""
     name = _docx_try_extract_name(helper)
     headline = ""
-    early_lines: List[str] = []
+    early_lines: list[str] = []
     for i in range(min(first_h1, 10)):
         txt = helper.text(i)
         if txt:
@@ -96,8 +96,8 @@ def _docx_extract_name_headline(helper: _DocxParaHelper, first_h1: int) -> tuple
 
 def _docx_extract_summary(
     helper: _DocxParaHelper,
-    sections: Dict[str, Dict[str, int]],
-    h1_indices: List[int],
+    sections: dict[str, dict[str, int]],
+    h1_indices: list[int],
     first_h1: int,
 ) -> str:
     """Extract summary/profile from docx."""
@@ -120,7 +120,7 @@ def _docx_extract_summary(
     return " ".join(_filter_summary_lines(preface)).strip()
 
 
-def _filter_summary_lines(lines: List[str]) -> List[str]:
+def _filter_summary_lines(lines: list[str]) -> list[str]:
     """Filter out contact/name/label lines from potential summary text."""
     cleaned = []
     for ln in lines:
@@ -139,13 +139,13 @@ def _filter_summary_lines(lines: List[str]) -> List[str]:
 
 
 def _docx_extract_education(
-    helper: _DocxParaHelper, sections: Dict[str, Dict[str, int]]
-) -> List[Dict[str, str]]:
+    helper: _DocxParaHelper, sections: dict[str, dict[str, int]]
+) -> list[dict[str, str]]:
     """Extract education entries from docx."""
     if "education" not in sections:
         return []
 
-    education: List[Dict[str, str]] = []
+    education: list[dict[str, str]] = []
     s = sections["education"]
     for i in range(s["start"] + 1, s["end"] + 1):
         line = helper.text(i)
@@ -160,7 +160,7 @@ def _docx_extract_education(
     return education
 
 
-def _parse_h2_education(line: str) -> Dict[str, str]:
+def _parse_h2_education(line: str) -> dict[str, str]:
     """Parse education from H2-style heading."""
     parts = [p.strip() for p in re.split(r"\t+|\s{2,}", line)]
     degree = parts[0] if parts else line
@@ -172,7 +172,7 @@ def _parse_h2_education(line: str) -> Dict[str, str]:
     return {"degree": degree, "institution": "", "year": year}
 
 
-def _append_bullet_text(text: str, current: Optional[Dict[str, Any]], is_list_style: bool) -> None:
+def _append_bullet_text(text: str, current: dict[str, Any] | None, is_list_style: bool) -> None:
     """Append text as a bullet on current, stripping any bullet glyph if list-styled."""
     if not current:
         return
@@ -181,7 +181,7 @@ def _append_bullet_text(text: str, current: Optional[Dict[str, Any]], is_list_st
         current.setdefault("bullets", []).append(bullet_text)
 
 
-def _role_header_or_none(text: str) -> Optional[Dict[str, Any]]:
+def _role_header_or_none(text: str) -> dict[str, Any] | None:
     """Parse text as a role header, or None if it is a bullet line.
 
     A line opening with a bullet glyph is always a bullet, never a role header.
@@ -200,9 +200,9 @@ def _role_header_or_none(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _process_exp_paragraph(
-    style: str, text: str, current: Optional[Dict[str, Any]], last_company: str,
+    style: str, text: str, current: dict[str, Any] | None, last_company: str,
     is_next_h2: bool
-) -> tuple[Optional[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
+) -> tuple[dict[str, Any] | None, str, dict[str, Any] | None]:
     """Process a single experience paragraph. Returns (current, last_company, completed_role)."""
     # _role_header_or_none, not _parse_experience_entry: a glyph-prefixed line
     # is always a bullet, never a role header (see #173).
@@ -225,16 +225,16 @@ def _process_exp_paragraph(
 
 
 def _docx_extract_experience(
-    helper: _DocxParaHelper, sections: Dict[str, Dict[str, int]]
-) -> List[Dict[str, Any]]:
+    helper: _DocxParaHelper, sections: dict[str, dict[str, int]]
+) -> list[dict[str, Any]]:
     """Extract experience entries from docx."""
     exp_key = next((k for k in ("experience", "work experiences", "work experience") if k in sections), None)
     if not exp_key:
         return []
 
     s = sections[exp_key]
-    experience: List[Dict[str, Any]] = []
-    current: Optional[Dict[str, Any]] = None
+    experience: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
     last_company = ""
 
     for i in range(s["start"] + 1, s["end"] + 1):
@@ -253,7 +253,7 @@ def _docx_extract_experience(
     return experience
 
 
-def _parse_h2_experience(text: str, last_company: str) -> tuple[Dict[str, Any], str]:
+def _parse_h2_experience(text: str, last_company: str) -> tuple[dict[str, Any], str]:
     """Parse experience role from H2-style heading.
 
     A self-contained header ("Title at Company - [Location] - (Start - End)")
@@ -283,7 +283,7 @@ def _parse_h2_experience(text: str, last_company: str) -> tuple[Dict[str, Any], 
     return role, last_company
 
 
-def _key_from_heading(text: str) -> Optional[str]:
+def _key_from_heading(text: str) -> str | None:
     """Map heading text to section key based on keyword patterns."""
     low = (text or "").strip().lower()
     if not low:
@@ -345,7 +345,7 @@ def _looks_like_section_heading(text: str) -> bool:
     return False
 
 
-def parse_resume_docx(path: str) -> Dict[str, Any]:
+def parse_resume_docx(path: str) -> dict[str, Any]:
     """Parse resume directly from a .docx using heading styles."""
     from .io_utils import safe_import
 
@@ -364,7 +364,7 @@ def parse_resume_docx(path: str) -> Dict[str, Any]:
     contact = _extract_contact(early_lines)
     summary = _docx_extract_summary(helper, sections, h1_indices, first_h1)
 
-    skills: List[str] = []
+    skills: list[str] = []
     if "skills" in sections:
         s = sections["skills"]
         block = [helper.text(i) for i in range(s["start"] + 1, s["end"] + 1) if helper.text(i)]

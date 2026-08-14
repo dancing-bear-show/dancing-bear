@@ -305,6 +305,25 @@ def _check_inline_executor(defn: object, result: LintResult) -> None:
             )
 
 
+def _release_dependents(
+    name: str,
+    deps: dict[str, set[str]],
+    in_degree: dict[str, int],
+) -> list[str]:
+    """Decrement in_degree for every remaining candidate depending on name.
+
+    Returns the candidates that just reached in_degree 0 (newly ready).
+    """
+    ready: list[str] = []
+    for candidate, cdeps in deps.items():
+        if candidate in in_degree and name in cdeps:
+            in_degree[candidate] -= 1
+            if in_degree[candidate] == 0:
+                del in_degree[candidate]
+                ready.append(candidate)
+    return ready
+
+
 def _bfs_advance(
     queue: list[str],
     deps: dict[str, set[str]],
@@ -313,12 +332,7 @@ def _bfs_advance(
     """Process one BFS wave and return the next queue."""
     next_queue: list[str] = []
     for name in queue:
-        for candidate, cdeps in deps.items():
-            if candidate in in_degree and name in cdeps:
-                in_degree[candidate] -= 1
-                if in_degree[candidate] == 0:
-                    del in_degree[candidate]
-                    next_queue.append(candidate)
+        next_queue.extend(_release_dependents(name, deps, in_degree))
     for name in queue:
         if name in in_degree:
             del in_degree[name]

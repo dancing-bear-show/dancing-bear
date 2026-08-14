@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import json
 import os
 import re
-from typing import Dict, Iterable, List, Optional
+from typing import Iterable
 
 from core.cli_output import emit_one
 from core.yamlio import dump_config as _dump_yaml
 
 
-def expand_paths(paths: Iterable[str]) -> List[str]:
+def expand_paths(paths: Iterable[str]) -> list[str]:
     return [os.path.abspath(os.path.expanduser(p)) for p in paths]
 
 
@@ -39,7 +41,7 @@ def parse_size(s: str) -> int:
 _DUR_PART = re.compile(r"(?P<num>\d+)(?P<unit>[smhdw])", re.IGNORECASE)
 
 
-def parse_duration(s: Optional[str]) -> Optional[int]:
+def parse_duration(s: str | None) -> int | None:
     if not s:
         return None
     s = s.strip()
@@ -68,7 +70,7 @@ def human_size(n: int) -> str:
     return f"{int(n)} TB"
 
 
-def dump_output(obj: Dict, out_path: Optional[str]) -> None:
+def dump_output(obj: dict, out_path: str | None) -> None:
     if not out_path:
         # default to pretty JSON on stdout
         emit_one(obj)

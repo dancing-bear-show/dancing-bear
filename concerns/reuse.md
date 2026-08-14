@@ -25,6 +25,33 @@ non-test source files unless noted.
   both a domain's CLI module and a helper module — fix by moving the shared
   helper to `core/` and importing it from both call sites. Also: a domain module
   that implements its own `read_yaml()` instead of importing from `core/`.
+- **fix is always consolidate-and-migrate, never delete**: The remedy is to keep
+  one implementation and update every call site to import it. Do **not** report a
+  duplicate as "dead code, safe to delete" unless you have proven it is
+  unreferenced using the search below — and even then, prefer migration. A
+  reviewer's grep is evidence about the *search*, not about the symbol.
+- **proving a symbol is unreferenced (required before any delete claim)**: a
+  single-line regex like `grep -rn "mod\.symbol\|from mod import.*symbol"` is
+  **not sufficient** — it silently misses the most common real import forms:
+  - multi-line parenthesized imports:
+    `from core.agentic import (\n    read_text as _read_text,\n)`
+  - aliased imports (`import x as _x`), where the call site never spells the
+    original name
+  - re-exports through a package `__init__.py`
+  - dynamic access: `getattr(mod, name)`, dispatch tables, `@decorator`
+    registration, CLI subcommand tables
+  Instead, search for the **bare symbol name across `src/`, `tests/`, and
+  `bin/`** (`grep -rn "\bread_text\b" src tests bin`) and inspect every hit,
+  including inside parenthesized import blocks. Tests count as call sites: a
+  symbol covered by its own tests is not dead, and deleting it breaks the suite.
+- **counter-example (a real false positive)**: `core/agentic.py:read_text` was
+  reported as dead because `grep "agentic.read_text"` returned nothing. It is
+  imported by `src/mail/agentic.py` as `read_text as _read_text` inside a
+  multi-line import block and covered by 3 tests in
+  `tests/core_tests/test_core_agentic.py`. Deleting it would have broken the
+  mail agentic capsule and the test suite. It is still a genuine duplicate of
+  `core/textio.py:read_text` — the correct fix was to migrate the call sites,
+  not to delete.
 
 ### bare-repeated-string
 - **severity**: minor

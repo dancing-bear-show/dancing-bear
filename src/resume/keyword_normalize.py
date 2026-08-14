@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Iterable
 
 
 @dataclass
@@ -18,7 +18,7 @@ class KeywordInfo:
     keyword: str
     tier: str = "preferred"  # required, preferred, nice
     weight: int = 1
-    category: Optional[str] = None
+    category: str | None = None
 
 
 @dataclass
@@ -27,11 +27,11 @@ class KeywordMatchResult:
     keyword: str
     tier: str
     weight: int
-    category: Optional[str]
+    category: str | None
     count: int = 1
-    contexts: List[str] = field(default_factory=list)
+    contexts: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "skill": self.keyword,
             "tier": self.tier,
@@ -50,8 +50,8 @@ class SynonymRegistry:
     """Manages synonym mappings: canonical -> [aliases] and alias -> canonical."""
 
     def __init__(self) -> None:
-        self._synonyms: Dict[str, List[str]] = {}  # canonical -> [aliases]
-        self._reverse_map: Dict[str, str] = {}  # alias.lower() -> canonical
+        self._synonyms: dict[str, list[str]] = {}  # canonical -> [aliases]
+        self._reverse_map: dict[str, str] = {}  # alias.lower() -> canonical
 
     def add_synonym(self, canonical: str, alias: str) -> "SynonymRegistry":
         """Add a single synonym mapping."""
@@ -63,7 +63,7 @@ class SynonymRegistry:
         self._reverse_map[canonical.lower()] = canonical
         return self
 
-    def add_synonyms(self, synonyms: Dict[str, List[str]]) -> "SynonymRegistry":
+    def add_synonyms(self, synonyms: dict[str, list[str]]) -> "SynonymRegistry":
         """Add multiple synonym mappings."""
         for canonical, aliases in (synonyms or {}).items():
             self._reverse_map[canonical.lower()] = canonical
@@ -79,19 +79,19 @@ class SynonymRegistry:
         """Get the canonical form of a keyword."""
         return self._reverse_map.get(keyword.lower(), keyword)
 
-    def get_aliases(self, canonical: str) -> List[str]:
+    def get_aliases(self, canonical: str) -> list[str]:
         """Get all aliases for a canonical keyword."""
         return list(self._synonyms.get(canonical, []))
 
-    def expand(self, keyword: str) -> List[str]:
+    def expand(self, keyword: str) -> list[str]:
         """Expand a keyword to include itself and all aliases."""
         canon = self.canonicalize(keyword)
         return [canon] + self.get_aliases(canon)
 
-    def expand_all(self, keywords: Iterable[str]) -> List[str]:
+    def expand_all(self, keywords: Iterable[str]) -> list[str]:
         """Expand multiple keywords to include all aliases (deduplicated)."""
-        seen: Set[str] = set()
-        result: List[str] = []
+        seen: set[str] = set()
+        result: list[str] = []
         for kw in keywords or []:
             if not kw:
                 continue

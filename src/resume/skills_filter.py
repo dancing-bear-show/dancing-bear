@@ -4,12 +4,12 @@ Uses KeywordMatcher for consistent matching behavior across the codebase.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Iterable
 
 from .keyword_matcher import KeywordMatcher
 
 
-def _extract_item_name(item: Any) -> Optional[str]:
+def _extract_item_name(item: Any) -> str | None:
     """Extract keyword name from an item (dict or str)."""
     if isinstance(item, dict):
         name = item.get("skill") or item.get("name")
@@ -19,9 +19,9 @@ def _extract_item_name(item: Any) -> Optional[str]:
     return None
 
 
-def _flatten_tier_keywords(spec: Dict[str, Any]) -> List[str]:
+def _flatten_tier_keywords(spec: dict[str, Any]) -> list[str]:
     """Extract keywords from required/preferred/nice tiers."""
-    out: List[str] = []
+    out: list[str] = []
     for tier in ("required", "preferred", "nice"):
         for item in spec.get(tier, []) or []:
             if (name := _extract_item_name(item)):
@@ -29,9 +29,9 @@ def _flatten_tier_keywords(spec: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _flatten_category_keywords(spec: Dict[str, Any]) -> List[str]:
+def _flatten_category_keywords(spec: dict[str, Any]) -> list[str]:
     """Extract keywords from category sections."""
-    out: List[str] = []
+    out: list[str] = []
     cats = spec.get("categories") or {}
     for _, lst in (cats.items() if isinstance(cats, dict) else []):
         for item in lst or []:
@@ -40,16 +40,16 @@ def _flatten_category_keywords(spec: Dict[str, Any]) -> List[str]:
     return out
 
 
-def _flatten_keywords(spec: Dict[str, Any]) -> List[str]:
+def _flatten_keywords(spec: dict[str, Any]) -> list[str]:
     """Extract all keywords from a keyword spec."""
     return _flatten_tier_keywords(spec) + _flatten_category_keywords(spec)
 
 
 def filter_skills_by_keywords(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     matched_keywords: Iterable[str],
-    synonyms: Optional[Dict[str, List[str]]] = None,
-) -> Dict[str, Any]:
+    synonyms: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
     """Return a shallow-copied data with skills filtered by matched keywords.
 
     - Filters skills_groups items whose name/desc contains any keyword or synonym.
@@ -94,7 +94,7 @@ def _item_text(it: Any) -> str:
     return str(it)
 
 
-def _filter_skill_groups(groups: List[Any], matcher: "KeywordMatcher", expanded: List[str]) -> List[Dict[str, Any]]:
+def _filter_skill_groups(groups: list[Any], matcher: "KeywordMatcher", expanded: list[str]) -> list[dict[str, Any]]:
     """Filter skill groups to only items matching expanded keywords."""
     new_groups = []
     for g in groups:

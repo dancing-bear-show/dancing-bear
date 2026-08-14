@@ -12,9 +12,8 @@ from collections.abc import Callable
 import json
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
-_CONFIG_PATH = Path.home() / ".claude" / "claudestats.json"
+from telemetry.constants import CONFIG_PATH as _CONFIG_PATH
 
 # (mtime, multiplier) cache so we don't re-read the JSON on every call.
 _mult_cache: tuple[float, float] = (-1.0, 1.0)

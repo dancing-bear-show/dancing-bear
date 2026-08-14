@@ -2,22 +2,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, Sequence
 
 # argparse is optional at import time; type checking only.
 try:  # pragma: no cover - best effort typing
     from argparse import ArgumentParser  # type: ignore
 except Exception:  # pragma: no cover
     ArgumentParser = object  # type: ignore
-
-
-def read_text(path: Path) -> str:
-    """Return UTF-8 text for `path`, or empty string if it cannot be read."""
-    try:
-        return path.read_text(encoding="utf-8")
-    except Exception:
-        return ""
 
 
 def section(title: str, body: str) -> str:
@@ -32,10 +23,10 @@ def build_capsule(
     app_id: str,
     purpose: str,
     commands: Iterable[str],
-    sections: Iterable[Tuple[str, str]],
+    sections: Iterable[tuple[str, str]],
 ) -> str:
     """Render a standard agentic capsule given metadata and sections."""
-    out: List[str] = []
+    out: list[str] = []
     out.append(f"agentic: {app_id}")
     out.append(f"purpose: {purpose}")
     out.append("commands:")
@@ -49,14 +40,14 @@ def build_capsule(
     return "\n".join([s for s in out if s.strip()])
 
 
-def _get_subparsers_action(parser: ArgumentParser) -> Optional[object]:
+def _get_subparsers_action(parser: ArgumentParser) -> object | None:
     for act in getattr(parser, "_actions", []):
         if act.__class__.__name__.endswith("SubParsersAction"):
             return act
     return None
 
 
-def _child_choices(parser: ArgumentParser) -> List[str]:
+def _child_choices(parser: ArgumentParser) -> list[str]:
     act = _get_subparsers_action(parser)
     if not act:
         return []
@@ -64,14 +55,14 @@ def _child_choices(parser: ArgumentParser) -> List[str]:
     return sorted(choices.keys())
 
 
-def build_cli_tree(parser: Optional[ArgumentParser], depth: int = 2) -> str:
+def build_cli_tree(parser: ArgumentParser | None, depth: int = 2) -> str:
     """Return a compact CLI tree string for the given parser."""
     if parser is None:
         return ""
     root_act = _get_subparsers_action(parser)
     if not root_act:
         return ""
-    lines: List[str] = []
+    lines: list[str] = []
     for name, subp in sorted(getattr(root_act, "choices", {}).items()):
         if depth <= 1:
             lines.append(f"- {name}")
@@ -84,7 +75,7 @@ def build_cli_tree(parser: Optional[ArgumentParser], depth: int = 2) -> str:
     return "\n".join(lines)
 
 
-def cli_path_exists(parser: Optional[ArgumentParser], path: Sequence[str]) -> bool:
+def cli_path_exists(parser: ArgumentParser | None, path: Sequence[str]) -> bool:
     """Return True if the parser exposes a nested path of subcommands."""
     if parser is None:
         return False
@@ -100,7 +91,7 @@ def cli_path_exists(parser: Optional[ArgumentParser], path: Sequence[str]) -> bo
     return True
 
 
-def list_subcommands(parser: Optional[ArgumentParser]) -> List[str]:
+def list_subcommands(parser: ArgumentParser | None) -> list[str]:
     """Return the top-level subcommands for a parser."""
     if parser is None:
         return []
@@ -110,7 +101,7 @@ def list_subcommands(parser: Optional[ArgumentParser]) -> List[str]:
     return sorted(getattr(act, "choices", {}).keys())
 
 
-def cached_parser_loader(load_parser: Callable[[], ArgumentParser]) -> Callable[[], Optional[ArgumentParser]]:
+def cached_parser_loader(load_parser: Callable[[], ArgumentParser]) -> Callable[[], ArgumentParser | None]:
     """Wrap a parser-building callable with the standard try/except/cache shape.
 
     `load_parser` does the module-specific import and returns a built parser,
@@ -120,7 +111,7 @@ def cached_parser_loader(load_parser: Callable[[], ArgumentParser]) -> Callable[
     """
 
     @lru_cache(maxsize=1)
-    def _get_parser() -> Optional[ArgumentParser]:
+    def _get_parser() -> ArgumentParser | None:
         try:
             return load_parser()
         except Exception:  # nosec B110 - best-effort; CLI module may be unavailable/broken, callers treat None as "no CLI tree"

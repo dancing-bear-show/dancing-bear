@@ -1,8 +1,6 @@
 """Agentic capsule helpers for the Schedule Assistant CLI."""
 from __future__ import annotations
 
-from typing import List, Tuple
-
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
@@ -25,12 +23,12 @@ def _cli_tree() -> str:
     return _core_build_cli_tree(_get_parser())
 
 
-def _cli_path_exists(path: List[str]) -> bool:
+def _cli_path_exists(path: list[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
 def _flow_map() -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     if _cli_path_exists(["plan"]):
         lines.append("- Plan")
         lines.append("  - Build canonical plan: ./bin/schedule-assistant plan --source schedules/classes.csv --out out/schedule.plan.yaml")
@@ -60,7 +58,7 @@ def build_agentic_capsule() -> str:
         "verify: ./bin/schedule-assistant verify --plan out/schedule.plan.yaml --calendar 'Your Family' --from 2025-10-01 --to 2025-12-31",
         "sync (dry-run): ./bin/schedule-assistant sync --plan out/schedule.plan.yaml --calendar 'Your Family' --from 2025-10-01 --to 2025-12-31 --dry-run",
     ]
-    sections: List[Tuple[str, str]] = []
+    sections: list[tuple[str, str]] = []
     tree = _cli_tree()
     if tree:
         sections.append(("CLI Tree", tree))
@@ -76,7 +74,7 @@ def build_agentic_capsule() -> str:
 
 
 def build_domain_map() -> str:
-    sections: List[str] = []
+    sections: list[str] = []
     sections.append("Top-Level\n- schedule/__main__.py — CLI entry\n- schedule/README.md — usage examples\n- config/calendar/ — canonical plans")
     tree = _cli_tree()
     if tree:

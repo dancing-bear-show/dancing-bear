@@ -4,7 +4,7 @@ Provides the default single-column resume layout.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .docx_base import ResumeWriterBase
 from .docx_links import render_contact_runs
@@ -53,7 +53,7 @@ SECTIONS_WITH_KEYWORDS = {"summary", "experience"}
 # "summary" reads summary OR headline (SummarySectionRenderer fallback).
 # "skills" reads skills_groups OR skills (SkillsSectionRenderer).
 # "technologies" reads technologies OR falls back to skills_groups.
-_SECTION_DATA_KEYS: Dict[str, tuple[str, ...]] = {
+_SECTION_DATA_KEYS: dict[str, tuple[str, ...]] = {
     "summary": ("summary", "headline"),
     "skills": ("skills_groups", "skills"),
     "technologies": ("technologies", "skills_groups"),
@@ -68,7 +68,7 @@ _SECTION_DATA_KEYS: Dict[str, tuple[str, ...]] = {
 }
 
 
-def _section_has_data(key: str, data: Dict[str, Any]) -> bool:
+def _section_has_data(key: str, data: dict[str, Any]) -> bool:
     """Return True when the section has at least one non-empty data key.
 
     Sections not in _SECTION_DATA_KEYS are treated as always having data
@@ -83,7 +83,7 @@ def _section_has_data(key: str, data: Dict[str, Any]) -> bool:
 class StandardResumeWriter(ResumeWriterBase):
     """Standard single-column resume writer."""
 
-    def _render_content(self, seed: Optional[Dict[str, Any]] = None) -> None:
+    def _render_content(self, seed: dict[str, Any] | None = None) -> None:
         """Render standard single-column resume content."""
         self._render_document_header()
 
@@ -154,13 +154,13 @@ class StandardResumeWriter(ResumeWriterBase):
         self,
         paragraph,
         email: str,
-        plain_parts: List[str],
-        link_items: List[tuple[str, str]],
+        plain_parts: list[str],
+        link_items: list[tuple[str, str]],
     ) -> None:
         """Build the contact-line paragraph run-by-run with hyperlinks."""
         render_contact_runs(paragraph, email, plain_parts, link_items)
 
-    def _resolve_sections(self) -> List[Dict[str, Any]]:
+    def _resolve_sections(self) -> list[dict[str, Any]]:
         """Resolve section order and configuration from template."""
         sections = self.template.get("sections") or []
         return sections

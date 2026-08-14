@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 
 def _score(v) -> float:
@@ -16,7 +16,7 @@ def _item_priority(it: Any) -> float:
     return _score(pr) if pr is not None else 1.0
 
 
-def _filter_items(items: List[Any], cutoff: float) -> List[Any]:
+def _filter_items(items: list[Any], cutoff: float) -> list[Any]:
     out = []
     for it in (items or []):
         if isinstance(it, dict):
@@ -28,7 +28,7 @@ def _filter_items(items: List[Any], cutoff: float) -> List[Any]:
     return out
 
 
-def _filter_skills_groups(groups: List[Any], cutoff: float) -> List[Any]:
+def _filter_skills_groups(groups: list[Any], cutoff: float) -> list[Any]:
     """Filter skills_groups items by priority cutoff."""
     new_groups = []
     for g in groups or []:
@@ -42,7 +42,7 @@ def _filter_skills_groups(groups: List[Any], cutoff: float) -> List[Any]:
     return new_groups
 
 
-def _filter_experience(exp: List[Any], cutoff: float) -> List[Any]:
+def _filter_experience(exp: list[Any], cutoff: float) -> list[Any]:
     """Filter experience roles and bullets by priority cutoff."""
     new_exp = []
     for e in exp or []:
@@ -57,7 +57,7 @@ def _filter_experience(exp: List[Any], cutoff: float) -> List[Any]:
     return new_exp
 
 
-def filter_by_min_priority(data: Dict[str, Any], min_prio: float) -> Dict[str, Any]:
+def filter_by_min_priority(data: dict[str, Any], min_prio: float) -> dict[str, Any]:
     """Apply priority/usefulness cutoff across known lists in candidate data."""
     d = dict(data)
 

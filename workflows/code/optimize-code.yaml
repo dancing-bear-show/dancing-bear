@@ -137,7 +137,9 @@ stages:
       If no critical or minor findings across all sources: write "no corrections needed" and exit.
 
       Fix ALL critical findings. Fix minor findings that do not require a design decision.
-      After each file edit: run ruff check <file> and fix any lint errors.
+      After each file edit: run bin/ruff-resolve.sh check <file> and fix any lint errors.
+      (Bare `ruff` is not on PATH here; CI lints via qlty's pinned ruff and the
+      resolver script selects that same build. Do not pip install ruff.)
       Do not add comments explaining WHAT (only WHY if non-obvious).
 
       Write {workspace}/validation/corrections-applied.md:
@@ -161,7 +163,7 @@ stages:
     depends_on: [apply-corrections]
     reads_from: [apply-corrections]
     description: >
-      ruff check {source_root}
+      bin/ruff-resolve.sh check {source_root}
       ./bin/test-quality test-failures {test_path} -x -q
       Confirm all previously-critical findings are resolved.
       Write {workspace}/validation/recheck.json: { "lint_exit": 0, "test_exit": 0, "unresolved": [] }
@@ -173,7 +175,7 @@ stages:
     validation:
       strategy: unit
       criteria:
-        - ruff check {source_root} exits 0
+        - bin/ruff-resolve.sh check {source_root} exits 0
         - pytest {test_path} -x -q exits 0
         - No new issues introduced by corrections
       max_revisions: 1

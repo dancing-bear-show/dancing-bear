@@ -132,6 +132,22 @@ All CLIs use argparse with positional subcommand dispatch. Arguments are passed 
 - `.qlty/qlty.toml` `exclude_patterns` ignores `**/.claude/**`, so agents spawned with `isolation: "worktree"` (created under `.claude/worktrees/`) get a silently empty scan — 0 issues means "excluded", not "clean"
 - Run qlty from the main checkout or a worktree outside `.claude/`; treat a suspiciously empty result as a broken environment, not a passing one
 
+**Linting (ruff directly):**
+- Use `make lint` (or `make lint-fix`), never a bare `ruff check`
+- There is **no standalone `ruff` on PATH**. CI lints through `qlty check`, which
+  runs ruff from qlty's own pinned tool cache — so `ruff check <file>` fails as
+  "command not found", and a `pip install ruff` would drift from the version CI
+  enforces. `bin/ruff-resolve.sh` resolves the qlty-pinned build (override with
+  `RUFF_BIN=`), and `make lint` wraps it over `src/`, `tests/`, and `bin/`
+- This matters because the two obvious fallbacks both **fail silently**: a bare
+  `ruff` may not exist, and `qlty check` inside `.claude/worktrees/` scans zero
+  files while printing "✔ No issues". Neither absence is a passing lint
+- If the tool cache is cold, run any `~/.qlty/bin/qlty check` once from outside
+  `.claude/` to populate it, then `make lint`
+- Suppression codes are linter-specific: `# noqa:` takes ruff codes (`F401`,
+  `S602`), `# NOSONAR` takes SonarQube codes (`S3776`, `S3516`). A SonarQube code
+  in a `# noqa:` suppresses nothing and makes ruff warn on every run
+
 **Testing:**
 - Run tests: `make test` (pins `PYTHONPATH` to this checkout — always prefer it)
 - With coverage: `make cov`

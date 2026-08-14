@@ -71,6 +71,39 @@ class _PromptAccumulator:
     last_ts: datetime | None = None
 
 
+def _matches_prompt_filters(
+    event: object,
+    since_dt: datetime | None,
+    session_id: str | None,
+) -> bool:
+    """Return True when event passes the since/session_id filters."""
+    if since_dt and event.timestamp < since_dt:  # type: ignore[union-attr]
+        return False
+    if session_id and get_session_id(event) != session_id:  # type: ignore[arg-type]
+        return False
+    return True
+
+
+def _accumulate_record_events(
+    record: object,
+    prompts: dict[str, _PromptAccumulator],
+    since_dt: datetime | None,
+    session_id: str | None,
+) -> None:
+    """Accumulate all log_records of a single record into prompts."""
+    for event in record.log_records:  # type: ignore[attr-defined]
+        if not _matches_prompt_filters(event, since_dt, session_id):
+            continue
+
+        prompt_id = event.get_attr("prompt.id")  # type: ignore[union-attr]
+        if not prompt_id:
+            continue
+
+        acc = prompts[prompt_id]
+        acc.session_id = get_session_id(event)  # type: ignore[arg-type]
+        _dispatch_prompt_event(event, acc)
+
+
 def _accumulate_prompt_events(
     events: list,
     since_dt: datetime | None,
@@ -80,21 +113,7 @@ def _accumulate_prompt_events(
     prompts: dict[str, _PromptAccumulator] = defaultdict(_PromptAccumulator)
 
     for record in events:
-        for event in record.log_records:
-            if since_dt and event.timestamp < since_dt:
-                continue
-
-            sid = get_session_id(event)
-            if session_id and sid != session_id:
-                continue
-
-            prompt_id = event.get_attr("prompt.id")
-            if not prompt_id:
-                continue
-
-            acc = prompts[prompt_id]
-            acc.session_id = sid
-            _dispatch_prompt_event(event, acc)
+        _accumulate_record_events(record, prompts, since_dt, session_id)
 
     return prompts
 

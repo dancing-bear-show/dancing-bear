@@ -4,14 +4,14 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from core.cli_errors import CLIError
 from core.fileutil import atomic_write_json
 from core.yamlio import dump_config as _dump_yaml, load_config as _load_yaml
 
 
-def safe_import(name: str) -> Optional[Any]:
+def safe_import(name: str) -> Any | None:
     try:
         return __import__(name)
     except Exception:

@@ -1,8 +1,6 @@
 """Agentic capsule helpers for the Resume Assistant CLI."""
 from __future__ import annotations
 
-from typing import List, Tuple
-
 from core.agentic import (
     build_capsule as _build_capsule,
     build_cli_tree as _core_build_cli_tree,
@@ -25,12 +23,12 @@ def _cli_tree() -> str:
     return _core_build_cli_tree(_get_parser())
 
 
-def _cli_path_exists(path: List[str]) -> bool:
+def _cli_path_exists(path: list[str]) -> bool:
     return _core_cli_path_exists(_get_parser(), path)
 
 
 def _flow_map() -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     if all(_cli_path_exists([cmd]) for cmd in [["extract"], ["summarize"], ["render"]]):
         lines.append("- Resume workflow")
         lines.append("  - Extract: ./bin/resume-assistant extract --linkedin data/linkedin.txt --resume data/resume.pdf --out out/profile.json")
@@ -52,7 +50,7 @@ def build_agentic_capsule() -> str:
         "render: ./bin/resume-assistant render --data out/profile.json --template templates/modern.yaml --profile default",
         "align: ./bin/resume-assistant align --data out/profile.json --job jobs/default.yaml",
     ]
-    sections: List[Tuple[str, str]] = []
+    sections: list[tuple[str, str]] = []
     tree = _cli_tree()
     if tree:
         sections.append(("CLI Tree", tree))
@@ -68,7 +66,7 @@ def build_agentic_capsule() -> str:
 
 
 def build_domain_map() -> str:
-    sections: List[str] = []
+    sections: list[str] = []
     sections.append("Top-Level\n- resume/cli/main.py — CLI entry\n- config/ — seeds, templates, job specs\n- corpus/ — sample resumes\n- out/ — generated outputs (summaries, DOCX)")
     tree = _cli_tree()
     if tree:

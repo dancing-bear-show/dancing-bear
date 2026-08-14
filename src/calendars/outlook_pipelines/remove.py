@@ -6,8 +6,7 @@ from ._base import (
     Path,
     Any,
     Sequence,
-    SafeProcessor,
-    normalize_event,
+    EventIterationProcessor,
     BaseProducer,
     RequestConsumer,
     check_service_required,
@@ -62,51 +61,64 @@ class DeleteOneRequest:
     failed_label: str
 
 
-class OutlookRemoveProcessor(SafeProcessor[OutlookRemoveRequest, OutlookRemoveResult]):
+@dataclass
+class _RemoveAccumulator:
+    """Per-run accumulator for OutlookRemoveProcessor's template method."""
+
+    apply: bool
+    plan: list[OutlookRemovePlanEntry]
+    logs: list[str]
+    deleted_total: int
+
+
+class OutlookRemoveProcessor(EventIterationProcessor):
     def __init__(self, config_loader=None) -> None:
         self._config_loader = config_loader
 
-    def _process_safe(self, payload: OutlookRemoveRequest) -> OutlookRemoveResult:
-        items = load_events_config(payload.config_path, self._config_loader)
+    def _load_events(self, payload: OutlookRemoveRequest) -> list[dict[str, Any]]:
+        return load_events_config(payload.config_path, self._config_loader)
+
+    def _init_accumulator(self, payload: OutlookRemoveRequest) -> _RemoveAccumulator:
         check_service_required(payload.service)  # Raises ValueError if None
+        return _RemoveAccumulator(apply=payload.apply, plan=[], logs=[], deleted_total=0)
+
+    def _handle_event(
+        self, payload: OutlookRemoveRequest, idx: int, nev: dict[str, Any], accumulator: _RemoveAccumulator
+    ) -> None:
+        subj = (nev.get("subject") or "").strip()
+        window = self._resolve_window(nev)
+        if not window:
+            return
+        start_iso, end_iso = window
+        cal_name = payload.calendar or nev.get("calendar")
         svc = payload.service
+        try:
+            from calendars.outlook_service import ListEventsRequest
+            occ = svc.list_events_in_range(ListEventsRequest(
+                start_iso=start_iso,
+                end_iso=end_iso,
+                calendar_name=cal_name,
+                subject_filter=subj,
+            ))
+        except Exception as exc:
+            accumulator.logs.append(f"[{idx}] list error: {exc}")
+            return
+        matches = self._match_events(occ or [], nev, payload.subject_only)
+        series_ids, event_ids = self._collect_ids(matches)
+        if not series_ids and not event_ids:
+            return
+        entry = OutlookRemovePlanEntry(subject=subj, series_ids=series_ids, event_ids=event_ids)
+        accumulator.plan.append(entry)
+        if payload.apply:
+            accumulator.deleted_total += self._apply_deletions(entry, svc, accumulator.logs)
 
-        plan: list[OutlookRemovePlanEntry] = []
-        logs: list[str] = []
-        deleted_total = 0
-
-        for idx, raw in enumerate(items, start=1):
-            if not isinstance(raw, dict):
-                continue
-            nev = normalize_event(raw)
-            subj = (nev.get("subject") or "").strip()
-            window = self._resolve_window(nev)
-            if not window:
-                continue
-            start_iso, end_iso = window
-            cal_name = payload.calendar or nev.get("calendar")
-            try:
-                from calendars.outlook_service import ListEventsRequest
-                occ = svc.list_events_in_range(ListEventsRequest(
-                    start_iso=start_iso,
-                    end_iso=end_iso,
-                    calendar_name=cal_name,
-                    subject_filter=subj,
-                ))
-            except Exception as exc:
-                logs.append(f"[{idx}] list error: {exc}")
-                continue
-            matches = self._match_events(occ or [], nev, payload.subject_only)
-            series_ids, event_ids = self._collect_ids(matches)
-            if not series_ids and not event_ids:
-                continue
-            entry = OutlookRemovePlanEntry(subject=subj, series_ids=series_ids, event_ids=event_ids)
-            plan.append(entry)
-            if payload.apply:
-                deleted_total += self._apply_deletions(entry, svc, logs)
-
-        result = OutlookRemoveResult(plan=plan, apply=payload.apply, deleted=deleted_total, logs=logs)
-        return result
+    def _finalize(self, accumulator: _RemoveAccumulator) -> OutlookRemoveResult:
+        return OutlookRemoveResult(
+            plan=accumulator.plan,
+            apply=accumulator.apply,
+            deleted=accumulator.deleted_total,
+            logs=accumulator.logs,
+        )
 
     def _resolve_window(self, event: dict[str, Any]) -> tuple[str, str] | None:
         single_start = (event.get("start") or "").strip()

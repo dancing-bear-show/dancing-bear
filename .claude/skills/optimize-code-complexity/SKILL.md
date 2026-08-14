@@ -47,7 +47,7 @@ The workflow runs the full correction and recheck cycle:
 3. **mps-scan-complexity** — cognitive complexity audit (target < 15), print-vs-logging check
 4. **mps-collate-findings** — collate complexity findings into unified report
 5. **apply-corrections** — fix all critical + auto-fixable minor complexity findings
-6. **recheck-lint** — `ruff check` + `pytest` to confirm fixes
+6. **recheck-lint** — `bin/ruff-resolve.sh check` + tests to confirm fixes
 7. **human-gate** — present complexity summary, ask to commit/open PR
 
 ## Workflow Params

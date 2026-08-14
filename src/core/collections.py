@@ -4,14 +4,14 @@ Generic functions for list manipulation, deduplication, etc.
 """
 from __future__ import annotations
 
-from typing import Callable, Hashable, List, Optional, TypeVar
+from typing import Callable, Hashable, TypeVar
 
 __all__ = ["dedupe"]
 
 T = TypeVar("T")
 
 
-def dedupe(items: List[T], key_fn: Optional[Callable[[T], Hashable]] = None) -> List[T]:
+def dedupe(items: list[T], key_fn: Callable[[T], Hashable] | None = None) -> list[T]:
     """Remove duplicates from a list while preserving order.
 
     Args:
@@ -32,7 +32,7 @@ def dedupe(items: List[T], key_fn: Optional[Callable[[T], Hashable]] = None) -> 
         key_fn = _identity
 
     seen: set[Hashable] = set()
-    result: List[T] = []
+    result: list[T] = []
     for item in items:
         key = key_fn(item)
         if key not in seen:

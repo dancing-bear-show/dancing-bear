@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import sys
 from importlib import import_module
-from typing import Callable, Dict, List
+from typing import Callable
 
 # Map shorthand app names to their CLI modules (each exposes a main() entry).
-APP_MODULES: Dict[str, str] = {
+APP_MODULES: dict[str, str] = {
     "mail": "mail.__main__",
     "calendar": "calendars.__main__",
     "schedule": "schedule.__main__",
@@ -26,7 +26,7 @@ APP_MODULES: Dict[str, str] = {
 }
 
 
-def _load_app_main(app: str) -> Callable[[List[str]], int]:
+def _load_app_main(app: str) -> Callable[[list[str]], int]:
     module_path = APP_MODULES.get(app)
     if not module_path:
         raise KeyError(app)
@@ -40,7 +40,7 @@ def _load_app_main(app: str) -> Callable[[List[str]], int]:
     return main
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = list(argv) if argv is not None else sys.argv[1:]
     if not args or args[0] in {"-h", "--help"}:
         apps = ", ".join(sorted(APP_MODULES))

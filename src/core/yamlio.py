@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.cli_errors import CLIError, ExitCode
 
@@ -18,7 +18,7 @@ def _require_yaml():
         raise CLIError("PyYAML not installed. Run: pip install pyyaml", ExitCode.CONFIG_ERROR) from exc
 
 
-def load_config(path: Optional[str]) -> Dict[str, Any]:
+def load_config(path: str | None) -> dict[str, Any]:
     """Load a YAML file into a dict; returns {} if missing/empty."""
     if not path:
         return {}
@@ -36,7 +36,7 @@ def load_config(path: Optional[str]) -> Dict[str, Any]:
     return result  # type: ignore[return-value]
 
 
-def dump_config(path: str, data: Dict[str, Any]) -> None:
+def dump_config(path: str, data: dict[str, Any]) -> None:
     """Write a dict to YAML with stable ordering for humans."""
     yaml = _require_yaml()
     target = Path(path)

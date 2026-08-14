@@ -4,16 +4,16 @@ Matches candidate profile against job requirements and produces alignment report
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from .keyword_matcher import KeywordMatcher
 
 
 def _find_missing_required(
-    keyword_spec: Dict[str, Any],
+    keyword_spec: dict[str, Any],
     matcher: KeywordMatcher,
     matched_set: set,
-) -> List[str]:
+) -> list[str]:
     """Find required keywords not present in matched_set."""
     missing = []
     for item in keyword_spec.get("required", []):
@@ -26,10 +26,10 @@ def _find_missing_required(
 
 
 def _missing_from_items(
-    items: List[Any],
+    items: list[Any],
     matcher: KeywordMatcher,
     matched_set: set,
-) -> List[str]:
+) -> list[str]:
     """Find canonical keywords from items not present in matched_set."""
     missing = []
     for item in items or []:
@@ -42,10 +42,10 @@ def _missing_from_items(
 
 
 def _find_missing_by_category(
-    keyword_spec: Dict[str, Any],
+    keyword_spec: dict[str, Any],
     matcher: KeywordMatcher,
     matched_set: set,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     """Find keywords missing from each category."""
     return {
         cat_name: _missing_from_items(items, matcher, matched_set)
@@ -54,10 +54,10 @@ def _find_missing_by_category(
 
 
 def align_candidate_to_job(
-    candidate: Dict[str, Any],
-    keyword_spec: Dict[str, Any],
-    synonyms: Dict[str, List[str]] | None = None,
-) -> Dict[str, Any]:
+    candidate: dict[str, Any],
+    keyword_spec: dict[str, Any],
+    synonyms: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
     """Align a candidate profile against a job keyword specification.
 
     Args:
@@ -115,10 +115,10 @@ def _bullet_text(b: Any) -> str:
 
 
 def _filter_bullets(
-    bullets: List[Any],
+    bullets: list[Any],
     matcher: KeywordMatcher,
     max_bullets: int,
-) -> List[str]:
+) -> list[str]:
     """Filter bullets to those matching keywords, up to max_bullets."""
     kept = []
     for b in bullets:
@@ -133,12 +133,12 @@ def _filter_bullets(
 
 
 def _build_tailored_exp_items(
-    candidate: Dict[str, Any],
-    scores: Dict[int, int],
+    candidate: dict[str, Any],
+    scores: dict[int, int],
     matcher: KeywordMatcher,
     min_exp_score: int,
     max_bullets_per_role: int,
-) -> List[Tuple[int, Dict[str, Any]]]:
+) -> list[tuple[int, dict[str, Any]]]:
     """Build scored experience items, filtering by score and bullets."""
     items = []
     for i, e in enumerate(candidate.get("experience") or []):
@@ -150,12 +150,12 @@ def _build_tailored_exp_items(
 
 
 def build_tailored_candidate(
-    candidate: Dict[str, Any],
-    alignment: Dict[str, Any],
+    candidate: dict[str, Any],
+    alignment: dict[str, Any],
     limit_skills: int = 20,
     max_bullets_per_role: int = 6,
     min_exp_score: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build a tailored candidate profile based on alignment results.
 
     Args:

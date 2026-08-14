@@ -10,7 +10,7 @@ Extracted from resume.parsing. Provides:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict
+from typing import Any
 
 from resume.parsing_experience import (
     _split_lines,
@@ -60,7 +60,7 @@ def _parse_linkedin_desc(desc: str) -> tuple[str, str]:
     return summary, location
 
 
-def _parse_linkedin_meta_from_html(html_text: str) -> Dict[str, Any]:
+def _parse_linkedin_meta_from_html(html_text: str) -> dict[str, Any]:
     """Extract name/headline/location/summary from meta tags in public profile HTML."""
     title_tag = ""
     m = re.search(r"<title>([^<]+)</title>", html_text, re.I)
@@ -76,7 +76,7 @@ def _parse_linkedin_meta_from_html(html_text: str) -> Dict[str, Any]:
     )
     summary, location = _parse_linkedin_desc(desc)
 
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "name": name,
         "headline": headline,
         "email": "",
@@ -92,7 +92,7 @@ def _parse_linkedin_meta_from_html(html_text: str) -> Dict[str, Any]:
     return {}
 
 
-def parse_linkedin_text(text: str) -> Dict[str, Any]:
+def parse_linkedin_text(text: str) -> dict[str, Any]:
     """Parse LinkedIn plain-text or HTML export into a profile dict."""
     if "<html" in text.lower() or "<meta" in text.lower():
         meta = _parse_linkedin_meta_from_html(text)

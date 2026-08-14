@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .diagnostics_probes import (
     DnsResult,
@@ -16,12 +16,12 @@ from .diagnostics_probes import (
 
 @dataclass
 class DiagnoseConfig:
-    ping_targets: List[str]
+    ping_targets: list[str]
     ping_count: int = 12
-    gateway: Optional[str] = None
-    trace_target: Optional[str] = None
+    gateway: str | None = None
+    trace_target: str | None = None
     dns_host: str = "google.com"
-    http_url: Optional[str] = "https://speed.cloudflare.com/__down"
+    http_url: str | None = "https://speed.cloudflare.com/__down"
     include_trace: bool = True
     include_http: bool = True
     include_wifi: bool = True
@@ -34,14 +34,14 @@ class DiagnoseConfig:
 @dataclass
 class Report:
     timestamp: str
-    gateway: Optional[str]
-    wifi: Optional[WifiInfo]
-    ping_results: List[PingResult]
+    gateway: str | None
+    wifi: WifiInfo | None
+    ping_results: list[PingResult]
     dns: DnsResult
-    trace: Optional[TraceResult]
-    http: Optional[HttpResult]
-    survey_results: List[PingResult] = dataclasses.field(default_factory=list)
-    findings: List[str] = dataclasses.field(default_factory=list)
+    trace: TraceResult | None
+    http: HttpResult | None
+    survey_results: list[PingResult] = dataclasses.field(default_factory=list)
+    findings: list[str] = dataclasses.field(default_factory=list)
     condition: str = "unknown"
 
 
@@ -49,15 +49,15 @@ class Report:
 class DiagnoseResults:
     """Collected results from a diagnostic run for deriving findings."""
 
-    gateway: Optional[str]
-    ping_results: List[PingResult]
+    gateway: str | None
+    ping_results: list[PingResult]
     icmp_filtered: bool
     dns: DnsResult
-    trace: Optional[TraceResult]
-    http: Optional[HttpResult]
+    trace: TraceResult | None
+    http: HttpResult | None
 
 
-def _check_gateway_health(gateway_ping: Optional[PingResult], icmp_filtered: bool) -> List[str]:
+def _check_gateway_health(gateway_ping: PingResult | None, icmp_filtered: bool) -> list[str]:
     """Check gateway ping health, return findings."""
     if icmp_filtered:
         return []
@@ -70,7 +70,7 @@ def _check_gateway_health(gateway_ping: Optional[PingResult], icmp_filtered: boo
     return []
 
 
-def _check_upstream_health(upstream: List[PingResult], gateway_ping: Optional[PingResult]) -> List[str]:
+def _check_upstream_health(upstream: list[PingResult], gateway_ping: PingResult | None) -> list[str]:
     """Check upstream ping health, return findings."""
     if not upstream:
         return []
@@ -84,7 +84,7 @@ def _check_upstream_health(upstream: List[PingResult], gateway_ping: Optional[Pi
     return []
 
 
-def _check_dns_health(dns: DnsResult) -> List[str]:
+def _check_dns_health(dns: DnsResult) -> list[str]:
     """Check DNS health, return findings."""
     if dns.error:
         return [f"DNS lookup failed for {dns.host}: {dns.error}"]
@@ -93,7 +93,7 @@ def _check_dns_health(dns: DnsResult) -> List[str]:
     return []
 
 
-def _check_http_health(http: Optional[HttpResult]) -> List[str]:
+def _check_http_health(http: HttpResult | None) -> list[str]:
     """Check HTTP health, return findings."""
     if not http:
         return []
@@ -104,12 +104,12 @@ def _check_http_health(http: Optional[HttpResult]) -> List[str]:
     return []
 
 
-def derive_findings(results: DiagnoseResults) -> List[str]:
+def derive_findings(results: DiagnoseResults) -> list[str]:
     """Derive human-readable findings from diagnostic results."""
     gateway_ping = next((p for p in results.ping_results if p.label == "gateway"), None)
     upstream = [p for p in results.ping_results if p.label != "gateway"]
 
-    findings: List[str] = []
+    findings: list[str] = []
     if results.icmp_filtered:
         findings.append("Gateway ICMP likely filtered; judging health via trace/HTTP instead of ping loss.")
 
@@ -124,7 +124,7 @@ def derive_findings(results: DiagnoseResults) -> List[str]:
     return findings
 
 
-def _append_trace_section(lines: List[str], trace: TraceResult) -> None:
+def _append_trace_section(lines: list[str], trace: TraceResult) -> None:
     lines.append("")
     lines.append(f"Trace → {trace.target}:")
     if trace.lines:
@@ -134,7 +134,7 @@ def _append_trace_section(lines: List[str], trace: TraceResult) -> None:
 
 
 def render_report(report: Report) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     header = f"Wi-Fi Doctor @ {report.timestamp}"
     box = "+" + "-" * (len(header) + 2) + "+"
     lines.extend([box, f"| {header} |", box])
@@ -166,7 +166,7 @@ def render_report(report: Report) -> str:
 format_report = render_report
 
 
-def _detect_icmp_filtered(survey_results: List[PingResult], trace: Optional[TraceResult]) -> bool:
+def _detect_icmp_filtered(survey_results: list[PingResult], trace: TraceResult | None) -> bool:
     if not survey_results:
         return False
     survey_gateway = next((p for p in survey_results if p.label.startswith("survey-gateway")), None)
@@ -189,9 +189,9 @@ def _score_ping(p: PingResult) -> int:
 
 def compute_condition(
     *,
-    ping_results: List[PingResult],
+    ping_results: list[PingResult],
     icmp_filtered: bool,
-    http: Optional[HttpResult],
+    http: HttpResult | None,
     dns: DnsResult,
 ) -> str:
     if icmp_filtered:
@@ -217,7 +217,7 @@ def compute_condition(
     return "bad"
 
 
-def report_to_dict(report: Report) -> Dict[str, Any]:
+def report_to_dict(report: Report) -> dict[str, Any]:
     def _clean(value: Any) -> Any:
         if dataclasses.is_dataclass(value):
             return {k: _clean(v) for k, v in dataclasses.asdict(value).items()}
@@ -273,7 +273,7 @@ def format_http(result: HttpResult) -> str:
     return f"failed: {result.error or 'http error'}"
 
 
-def _loss_bar(loss_pct: Optional[float], width: int = 18) -> str:
+def _loss_bar(loss_pct: float | None, width: int = 18) -> str:
     if loss_pct is None:
         return "[" + "?" * width + "]"
     success_pct = max(0.0, min(100.0, 100.0 - loss_pct))

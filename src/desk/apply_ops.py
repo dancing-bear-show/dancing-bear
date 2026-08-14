@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import os
 import shutil
-from typing import Dict, List
 
 from core.cli_output import OutputWriter
 from core.yamlio import load_config as _load_yaml
@@ -14,7 +15,7 @@ def apply_plan_file(
     writer = writer or OutputWriter()
     plan_path = os.path.expanduser(plan_path)
     data = _load_data(plan_path)
-    ops: List[Dict] = data.get("operations", [])
+    ops: list[dict] = data.get("operations", [])
     for op in ops:
         action = op.get("action")
         if action == "move":
@@ -25,7 +26,7 @@ def apply_plan_file(
             writer.print(f"? unknown action: {action}")
 
 
-def _load_data(path: str) -> Dict:
+def _load_data(path: str) -> dict:
     import json
 
     if path.lower().endswith((".yaml", ".yml")):

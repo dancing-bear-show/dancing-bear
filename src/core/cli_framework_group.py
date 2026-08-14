@@ -5,14 +5,7 @@ Split out of cli_framework.py to keep that module focused on CLIApp.
 from __future__ import annotations
 
 import argparse
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    TYPE_CHECKING,
-)
+from typing import Any, Callable, TYPE_CHECKING
 
 from .cli_framework_types import CommandDef, CommandFunc
 
@@ -35,7 +28,7 @@ class CommandGroup:
         self.name = name
         self.help = help
         self.description = description or help
-        self._commands: Dict[str, CommandDef] = {}
+        self._commands: dict[str, CommandDef] = {}
 
     def command(
         self,
@@ -43,7 +36,7 @@ class CommandGroup:
         *,
         help: str = "",
         description: str = "",
-        aliases: Optional[List[str]] = None,
+        aliases: list[str] | None = None,
     ) -> Callable[[CommandFunc], CommandFunc]:
         """Decorator to register a command in this group.
 
