@@ -8,12 +8,30 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from core.cli_errors import CLIError
+from core.paths import output_dir
 from core.pipeline import RequestConsumer, SafeProcessor, BaseProducer
 
 from .extractors import MetalsAmount, OrderExtraction
 
+# Domain name passed to core.paths.output_dir() for this package's generated
+# output (costs.csv, spot price CSVs, etc). See "Generated Output Location" in
+# CLAUDE.md: resolves to <data-home>/metals unless overridden by an explicit
+# --out-dir/--out/--costs flag.
+OUT_DIR_DOMAIN = "metals"
 
-DEFAULT_COSTS_PATH = "out/metals/costs.csv"
+
+def default_costs_path() -> str:
+    """Resolve the default costs.csv path under core.paths.output_dir("metals").
+
+    Called fresh (not cached at import time) so it honours DANCING_BEAR_DATA_HOME/
+    XDG_DATA_HOME overrides set after this module is imported — e.g. by tests.
+    """
+    return str(output_dir(OUT_DIR_DOMAIN) / "costs.csv")
+
+
+def default_spot_dir() -> str:
+    """Resolve the default spot-prices directory under core.paths.output_dir("metals")."""
+    return str(output_dir(OUT_DIR_DOMAIN))
 
 
 # ============================================================================
@@ -66,8 +84,8 @@ class SpotPriceResult:
 @dataclass
 class PremiumRequest:
     """Request to calculate purchase premiums."""
-    costs_path: str = DEFAULT_COSTS_PATH
-    spot_dir: str = "out/metals"
+    costs_path: str = field(default_factory=default_costs_path)
+    spot_dir: str = field(default_factory=default_spot_dir)
 
 
 @dataclass
@@ -82,7 +100,7 @@ class PremiumResult:
 class GmailCostsRequest:
     """Request to extract costs from Gmail order emails."""
     profile: str = "gmail_personal"
-    out_path: str = DEFAULT_COSTS_PATH
+    out_path: str = field(default_factory=default_costs_path)
 
 
 @dataclass
@@ -96,7 +114,7 @@ class GmailCostsResult:
 class OutlookCostsRequest:
     """Request to extract costs from Outlook order emails."""
     profile: str = "outlook_personal"
-    out_path: str = DEFAULT_COSTS_PATH
+    out_path: str = field(default_factory=default_costs_path)
 
 
 @dataclass
@@ -270,7 +288,7 @@ class SpotPriceProcessor(SafeProcessor[SpotPriceRequest, SpotPriceResult]):
         )
 
         metal = (request.metal or "").strip().lower()
-        out_path = request.out_path or f"out/metals/{metal}_spot_cad_daily.csv"
+        out_path = request.out_path or f"{default_spot_dir()}/{metal}_spot_cad_daily.csv"
         sdate = request.start_date or _auto_start_date(metal) or (
             _date.today() - _td(days=365)
         ).isoformat()

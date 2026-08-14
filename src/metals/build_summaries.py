@@ -1,9 +1,9 @@
 """
 Build gold/silver summary CSVs from costs.csv for Excel merge/publish.
 
-Reads out/metals/costs.csv and writes:
-  - out/metals/gold_summary.csv
-  - out/metals/silver_summary.csv
+Reads costs.csv and writes gold_summary.csv and silver_summary.csv, all under
+the resolved metals output directory (core.paths.output_dir("metals")) by
+default.
 
 Each summary has columns: date,order_id,vendor,total_oz,cost_per_oz
 """
@@ -13,6 +13,8 @@ import argparse
 import csv
 from pathlib import Path
 from typing import List
+
+from .pipeline import default_costs_path, default_spot_dir
 
 
 def run(costs_path: str, out_dir: str) -> int:
@@ -49,11 +51,13 @@ def run(costs_path: str, out_dir: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    default_costs = default_costs_path()
+    default_out_dir = default_spot_dir()
     p = argparse.ArgumentParser(description="Build gold/silver summary CSVs from costs.csv")
-    p.add_argument("--costs", default="out/metals/costs.csv")
-    p.add_argument("--out-dir", default="out/metals")
+    p.add_argument("--costs", default=default_costs)
+    p.add_argument("--out-dir", default=default_out_dir)
     args = p.parse_args(argv)
-    return run(costs_path=getattr(args, "costs", "out/metals/costs.csv"), out_dir=getattr(args, "out_dir", "out/metals"))
+    return run(costs_path=getattr(args, "costs", default_costs), out_dir=getattr(args, "out_dir", default_out_dir))
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -7,8 +7,8 @@ Usage:
   python -m metals.excel_all \
     --profile outlook_personal \
     --drive-id <DRIVE_ID> --item-id <ITEM_ID> \
-    --silver-csv out/metals/silver_summary.csv \
-    --gold-csv out/metals/gold_summary.csv \
+    --silver-csv silver_summary.csv \
+    --gold-csv gold_summary.csv \
     --all-sheet All --summary-sheet Summary \
     --out-name "Metals Summary (Merged).xlsx"
 """

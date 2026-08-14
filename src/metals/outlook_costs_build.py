@@ -9,11 +9,10 @@ from .outlook_costs_extract import (
     GoldRowContext,
     OutlookCostExtractor,
 )
-
-DEFAULT_COSTS_OUT = 'out/metals/costs.csv'
+from .pipeline import default_costs_path
 
 # Test helper defaults
-_TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', DEFAULT_COSTS_OUT)
+_TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', default_costs_path())
 
 
 def _summarize_ounces(items: List[Dict], metal_guess: str) -> Tuple[Dict[str, float], Dict[str, Dict[float, float]]]:
@@ -49,14 +48,15 @@ def run(profile: str, out_path: str, days: int = 365) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    default_out = default_costs_path()
     p = argparse.ArgumentParser(description='Extract RCM costs from Outlook and merge into costs.csv')
     p.add_argument('--profile', default='outlook_personal')
-    p.add_argument('--out', default=DEFAULT_COSTS_OUT)
+    p.add_argument('--out', default=default_out)
     p.add_argument('--days', type=int, default=365)
     args = p.parse_args(argv)
     return run(
         profile=getattr(args, 'profile', 'outlook_personal'),
-        out_path=getattr(args, 'out', DEFAULT_COSTS_OUT),
+        out_path=getattr(args, 'out', default_out),
         days=int(getattr(args, 'days', 365))
     )
 

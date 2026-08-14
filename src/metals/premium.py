@@ -1,9 +1,10 @@
 """
 Analyze purchase premium over spot and estimate 'fractional premium'.
 
-Reads costs from out/metals/costs.csv (produced by extract-metals-costs),
-fetches daily spot for the metal (USD) and USD/CAD, computes same-day CAD
-spot, and then computes per-order premium per ounce and percentage.
+Reads costs from the resolved metals output directory's costs.csv (produced by
+extract-metals-costs; see core.paths.output_dir("metals")), fetches daily spot
+for the metal (USD) and USD/CAD, computes same-day CAD spot, and then computes
+per-order premium per ounce and percentage.
 
 Outputs a detailed CSV and prints a summary grouped by unit class:
   - fractional (<1 oz only)
@@ -13,10 +14,10 @@ Outputs a detailed CSV and prints a summary grouped by unit class:
 
 Usage examples:
   python -m metals.premium \
-    --metal gold --out out/metals/premium_gold.csv
+    --metal gold --out premium_gold.csv
 
   python -m metals.premium \
-    --metal silver --costs out/metals/costs.csv --out out/metals/premium_silver.csv
+    --metal silver --costs costs.csv --out premium_silver.csv
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from .pipeline import default_costs_path, default_spot_dir
 from .spot import _fetch_stooq_series, _fetch_yahoo_series
 
 
@@ -231,17 +233,18 @@ def run(metal: str, costs_path: str, out_path: str) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    default_costs = default_costs_path()
     p = argparse.ArgumentParser(description="Compute per-order premium vs spot and summarize fractional premium")
     p.add_argument("--metal", default="silver", choices=["silver", "gold"])  # default: silver
-    p.add_argument("--costs", default="out/metals/costs.csv")
-    p.add_argument("--out", help="Output CSV path; default: out/metals/premium_<metal>.csv")
+    p.add_argument("--costs", default=default_costs)
+    p.add_argument("--out", help="Output CSV path; default: <metals out-dir>/premium_<metal>.csv")
     args = p.parse_args(argv)
     metal = getattr(args, "metal", "silver")
-    out_default = f"out/metals/premium_{metal}.csv"
+    out_default = f"{default_spot_dir()}/premium_{metal}.csv"
     out_path = getattr(args, "out", None) or out_default
     return run(
         metal=metal,
-        costs_path=getattr(args, "costs", "out/metals/costs.csv"),
+        costs_path=getattr(args, "costs", default_costs),
         out_path=out_path,
     )
 

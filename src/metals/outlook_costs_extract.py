@@ -12,6 +12,7 @@ from mail.outlook_api import OutlookClient
 
 from .cost_extractor import CostExtractor, MessageInfo, OrderData
 from .costs_common import extract_order_amount, format_breakdown, format_qty, get_price_band
+from .pipeline import default_costs_path
 from .vendors import RCMParser
 
 
@@ -60,8 +61,7 @@ _RCM_QUERIES = [
     'Confirmation for order number',
 ]
 
-_DEFAULT_COSTS_OUT = 'out/metals/costs.csv'
-_TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', _DEFAULT_COSTS_OUT)
+_TEST_EXTRACTOR_DEFAULTS = ('outlook_personal', default_costs_path())
 
 
 class OutlookCostExtractor(CostExtractor):
