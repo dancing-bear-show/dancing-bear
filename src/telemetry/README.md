@@ -4,6 +4,15 @@ Claude Code session analysis: cost tracking, token usage, session browsing, tran
 
 Does not support `--agentic`; discover subcommands with `./bin/telemetry --help`.
 
+`telemetry live` needs Textual, which is an optional extra:
+
+```bash
+pip install -e ".[tui]"     # or ".[dev]", which includes it
+```
+
+Every other command — including `stats` and `summary` — renders via Rich and
+works without it.
+
 ## Key Commands
 
 ```bash
@@ -12,7 +21,7 @@ Does not support `--agentic`; discover subcommands with `./bin/telemetry --help`
 ./bin/telemetry sessions --limit 20         # list sessions with cost and token breakdown
 ./bin/telemetry agents                      # per-agent token and cost breakdown
 ./bin/telemetry history                     # recent sessions in a Rich table
-./bin/telemetry live                        # live TUI dashboard (refreshes continuously)
+./bin/telemetry live                        # live TUI dashboard (needs [tui] extra)
 ./bin/telemetry stats                       # compact real-time session metrics
 ./bin/telemetry summary                     # one-shot session summary
 ./bin/telemetry parse-transcripts           # pre-parse JSONL transcripts to structured JSON

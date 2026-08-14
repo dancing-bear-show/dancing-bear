@@ -86,7 +86,7 @@ DataTable:focus {
 # ---------------------------------------------------------------------------
 
 
-class _DetailModal(ModalScreen):  # pragma: no cover
+class _DetailModal(ModalScreen):
     """Generic detail modal — shows Rich markup and closes on Esc/Enter."""
 
     BINDINGS = [
@@ -99,7 +99,7 @@ class _DetailModal(ModalScreen):  # pragma: no cover
         self._title = title
         self._content = content
 
-    def compose(self) -> ComposeResult:
+    def compose(self) -> ComposeResult:  # pragma: no cover - needs a mounted app
         from rich.panel import Panel  # noqa: PLC0415 - local import keeps Textual deps isolated
 
         with VerticalScroll(id="detail-scroll"):
@@ -115,7 +115,7 @@ class _DetailModal(ModalScreen):  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 
-class SessionPickerScreen(ModalScreen[str]):  # pragma: no cover
+class SessionPickerScreen(ModalScreen[str]):
     """Modal for switching sessions."""
 
     BINDINGS = [Binding("escape", "dismiss_modal", "Close")]
@@ -150,7 +150,7 @@ class SessionPickerScreen(ModalScreen[str]):  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 
-class HeaderPanel(Static):  # pragma: no cover
+class HeaderPanel(Static):
     """Session summary header (not focusable)."""
 
     def update_summary(self, summary: SessionSummary) -> None:
@@ -159,14 +159,14 @@ class HeaderPanel(Static):  # pragma: no cover
         self.update(_render_header_text(summary))
 
 
-class TipsPanel(Static):  # pragma: no cover
+class TipsPanel(Static):
     """Tips display (not focusable, shown when no tips)."""
 
     def update_empty(self) -> None:
         self.update("[dim]No tips — session looks clean![/]")
 
 
-class FooterInfo(Static):  # pragma: no cover
+class FooterInfo(Static):
     """Bottom info bar."""
 
     def update_info(

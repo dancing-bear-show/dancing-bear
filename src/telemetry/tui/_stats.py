@@ -20,7 +20,7 @@ from telemetry.tui._renderers import (
 from telemetry.tui._summary import SummaryConfig, compute_summary
 
 
-class _StatsRenderer:  # pragma: no cover
+class _StatsRenderer:
     """Holds live-stats state and builds Rich renderables for each refresh tick."""
 
     def __init__(
@@ -80,7 +80,7 @@ class _StatsRenderer:  # pragma: no cover
         return _render_stats_panel(summary)
 
 
-def run_stats(  # pragma: no cover
+def run_stats(  # pragma: no cover - blocks on a Rich Live refresh loop
     session_id: str | None = None,
     refresh: float = 2.0,
     compact: bool = False,

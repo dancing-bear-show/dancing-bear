@@ -144,6 +144,29 @@ one, and only turns red once a newly added module is imported by name.
 - This applies to subagents too: an agent verifying with bare `python3` in an
   isolated worktree is not verifying anything
 
+**Coverage exemptions** (`.coveragerc`):
+- `*/__main__.py` is omitted. These are `python -m <pkg>` entry shims: a
+  docstring, `from .cli import main`, and a `__main__` guard. The only
+  measurable statement is the import, so a test there asserts that Python can
+  import a module — not that the CLI works. Cover the underlying `cli.main`
+  instead; `make bin-wrappers-check` verifies the wrappers actually dispatch.
+- Do **not** write tests whose only purpose is to import a module and raise its
+  coverage number. A test must assert behaviour.
+- Note that a re-export-only `__init__.py` already reports ~100% because any
+  import of the package executes it. That number is free, not earned — don't
+  read it as evidence the package is tested.
+- Conversely, do **not** exempt a module just because it reports 0%. Check why
+  first. `src/telemetry/tui/` once sat at 0% because `textual` was never
+  declared as a dependency, so the lazy import in `telemetry/tui/__init__.py`
+  never fired — a missing optional dep reports as 0%, indistinguishable from
+  untested code. That was a real gap, fixed by declaring the `[tui]` extra.
+- **An optional dependency must be declared as an extra and installed wherever
+  coverage is measured** (`make cov`, `make dev-venv`, and CI all install
+  `[tui]`). An undeclared optional dep silently zeroes out whole modules.
+- Guard optional imports at the narrowest scope that needs them. Only
+  `telemetry live` requires textual; `stats` and `summary` render via Rich and
+  must not be gated behind a textual check.
+
 **CI/CD:**
 - `.github/workflows/ci.yml` runs qlty checks + tests with coverage on push/PR
 - Coverage uploaded to qlty for tracking

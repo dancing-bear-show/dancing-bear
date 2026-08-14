@@ -32,7 +32,7 @@ from telemetry.tui._widgets import (
 )
 
 
-class TelemetryTranscriptsApp(App):  # pragma: no cover
+class TelemetryTranscriptsApp(App):
     """Interactive telemetry-transcripts TUI dashboard."""
 
     CSS = APP_CSS
@@ -76,7 +76,7 @@ class TelemetryTranscriptsApp(App):  # pragma: no cover
         yield FooterInfo(id="footer-info")
         yield Footer()
 
-    def on_mount(self) -> None:
+    def on_mount(self) -> None:  # pragma: no cover - query_one needs a mounted DOM
         if self._session_id is None:
             self._session_id = self._transcript.get_current_session_id()
         if self._session_id:
@@ -109,7 +109,7 @@ class TelemetryTranscriptsApp(App):  # pragma: no cover
     # Data refresh — panels always show FULL session data
     # ------------------------------------------------------------------
 
-    def _refresh_data(self) -> None:
+    def _refresh_data(self) -> None:  # pragma: no cover - query_one needs a mounted DOM
         if not self._session_file or not self._session_id:
             self.query_one("#header", HeaderPanel).update(
                 "[red]No session found. Press 's' to select.[/]"
@@ -313,7 +313,7 @@ class TelemetryTranscriptsApp(App):  # pragma: no cover
         self.push_screen(SessionPickerScreen(sessions), on_dismiss)
 
 
-def run_live(  # pragma: no cover
+def run_live(  # pragma: no cover - blocks on the Textual event loop
     session_id: str | None = None,
     refresh: float = 2.0,
     rules_path: str | None = None,

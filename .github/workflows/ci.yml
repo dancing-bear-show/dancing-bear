@@ -23,7 +23,9 @@ jobs:
       - name: Install
         run: |
           python -m pip install -U pip
-          python -m pip install -e .
+          # [tui] pulls textual so the telemetry TUI modules are importable and
+          # actually measured; without it they silently report 0% coverage.
+          python -m pip install -e ".[tui]"
           python -m pip install coverage
       - name: Verify imports resolve to this checkout
         run: |
