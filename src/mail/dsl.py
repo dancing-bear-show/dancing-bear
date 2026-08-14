@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 
 from .outlook.helpers import norm_label_name_outlook, norm_label_color_outlook as normalize_label_color_outlook
 
@@ -25,6 +26,36 @@ def normalize_labels_for_outlook(labels: list[dict], name_mode: str = "join-dash
     return out
 
 
+def _coerce_label_list(value: object) -> list[str]:
+    """Return action.add as a list of label names.
+
+    `add` is user-authored YAML. Writing `add: work` instead of `add: [work]`
+    is an easy slip, and iterating the raw value turned that single label into
+    one label per CHARACTER (['w','o','r','k']) -- four bogus Outlook rules
+    from a missing pair of brackets. A scalar int raised TypeError outright.
+    Both are now treated as a one-element list.
+
+    A mapping (`add: {work: true}`) is malformed too -- every real spec writes
+    `add` as a list of strings. It is treated as a scalar rather than iterated,
+    because iterating yields its KEYS: `{work: true, urgent: false}` would
+    silently become ['work', 'urgent'], inventing a label from a key the author
+    switched off. One obviously-wrong label beats several plausible ones.
+
+    bytes decode rather than stringify, so `add: !!binary` yields 'work' and
+    not the repr "b'work'".
+    """
+    if isinstance(value, bytes):
+        return _decode_label(value)
+    if isinstance(value, (str, dict)) or not isinstance(value, Iterable):
+        return [str(value)] if value else []
+    return [x.decode("utf-8", "replace") if isinstance(x, bytes) else str(x) for x in value if x]
+
+
+def _decode_label(value: bytes) -> list[str]:
+    """Decode a bytes label to text, replacing undecodable sequences."""
+    return [value.decode("utf-8", "replace")] if value else []
+
+
 def normalize_filter_for_outlook(spec: dict) -> dict | None:
     if not isinstance(spec, dict):
         return None
@@ -36,7 +67,7 @@ def normalize_filter_for_outlook(spec: dict) -> dict | None:
             crit[k] = str(m[k])
     act = {}
     if a.get("add"):
-        act["add"] = [str(x) for x in a["add"] if x]
+        act["add"] = _coerce_label_list(a["add"])
     if a.get("forward"):
         act["forward"] = str(a["forward"])
     # Outlook-only hint: move to folder by path
