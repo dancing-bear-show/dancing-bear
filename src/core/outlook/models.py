@@ -257,3 +257,23 @@ class MessageSearchQuery:
     after: Optional[str] = None
     sender: Optional[str] = None
     only_inbox: bool = False
+
+
+@dataclass
+class UpdateEventLocationRequest:
+    """Parameters for updating an event's location."""
+
+    event_id: str
+    location_str: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None
+
+
+@dataclass
+class UpdateEventSubjectRequest:
+    """Parameters for updating an event's subject/title."""
+
+    event_id: str
+    subject: str
+    calendar_id: Optional[str] = None
+    calendar_name: Optional[str] = None

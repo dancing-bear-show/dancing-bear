@@ -1,6 +1,6 @@
+import argparse
 import types
 import unittest
-from types import SimpleNamespace
 
 from tests.fixtures import capture_stdout, FakeCalendarService
 
@@ -28,8 +28,8 @@ class TestRemindersFlows(unittest.TestCase):
 
     def test_reminders_off(self):
         from calendars.outlook.commands import run_outlook_reminders_off
-        args = SimpleNamespace(calendar=None, from_date='2025-01-01', to_date='2025-01-31', all_occurrences=True, dry_run=False,
-                               profile=None, client_id=None, tenant=None, token=None)
+        args = argparse.Namespace(calendar=None, from_date='2025-01-01', to_date='2025-01-31', all_occurrences=True, dry_run=False,
+                                  profile=None, client_id=None, tenant=None, token=None)
         with capture_stdout() as buf:
             rc = run_outlook_reminders_off(args)
         out = buf.getvalue()
@@ -38,8 +38,8 @@ class TestRemindersFlows(unittest.TestCase):
 
     def test_reminders_set_minutes(self):
         from calendars.outlook.commands import run_outlook_reminders_set
-        args = SimpleNamespace(calendar=None, from_date='2025-01-01', to_date='2025-01-31', off=False, minutes=10, dry_run=False,
-                               profile=None, client_id=None, tenant=None, token=None)
+        args = argparse.Namespace(calendar=None, from_date='2025-01-01', to_date='2025-01-31', off=False, minutes=10, dry_run=False,
+                                  profile=None, client_id=None, tenant=None, token=None)
         with capture_stdout() as buf:
             rc = run_outlook_reminders_set(args)
         out = buf.getvalue()

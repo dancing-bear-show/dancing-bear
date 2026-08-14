@@ -1,6 +1,7 @@
 """Outlook Locations Pipelines - enrich, update, and apply location data."""
 
 from core.cli_errors import NotFoundError
+from core.outlook.models import UpdateEventLocationRequest
 
 from ._base import (
     Any,
@@ -117,7 +118,9 @@ class OutlookLocationsEnrichProcessor(SafeProcessor[OutlookLocationsEnrichReques
                 self._logs.append(f"{LOG_DRY_RUN} would update series {sid} location '{loc}' -> '{new_loc}'")
                 continue
             try:
-                svc.update_event_location(event_id=sid, calendar_id=cal_id, location_str=new_loc)
+                svc.update_event_location(
+                    UpdateEventLocationRequest(event_id=sid, location_str=new_loc, calendar_id=cal_id)
+                )
                 updated += 1
                 self._logs.append(f"Updated series {sid} location -> {new_loc}")
             except Exception as exc:

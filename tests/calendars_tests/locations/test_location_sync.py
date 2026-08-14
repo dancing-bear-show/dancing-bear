@@ -7,6 +7,7 @@ from io import StringIO
 from unittest.mock import MagicMock, patch
 
 from calendars.location_sync import LocationSync, MatchCriteria
+from core.outlook.models import UpdateEventLocationRequest
 from tests.calendars_tests.fixtures import FakeCalendarService
 
 
@@ -191,7 +192,9 @@ class TestLocationSyncApplyFromConfig(unittest.TestCase):
         # Should update series once (deduped by seriesMasterId)
         self.assertEqual(result, 1)
         svc.update_event_location.assert_called_once_with(
-            event_id="series1", calendar_name="Test", location_str="New Room"
+            UpdateEventLocationRequest(
+                event_id="series1", location_str="New Room", calendar_name="Test"
+            )
         )
 
     def test_skips_when_location_matches(self):
