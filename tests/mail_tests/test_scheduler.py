@@ -267,6 +267,95 @@ class ParseSendAtTests(unittest.TestCase):
         self.assertEqual(without, with_sec)
 
 
+class ParseSendInMalformedTests(unittest.TestCase):
+    """parse_send_in must reject malformed input rather than salvage digits.
+
+    --send-in is a public CLI flag. The previous implementation scanned with
+    re.findall, so any string *containing* a digit-unit pair parsed: 'abc2hxyz'
+    became 2h, and '-5h' became +5h because the minus was never in the pattern
+    -- turning "5 hours ago" into "5 hours from now". A wrong-but-plausible
+    delay is worse than a rejection, because the caller schedules it silently.
+    """
+
+    def test_negative_duration_is_rejected(self):
+        """'-5h' must not silently become +5h."""
+        self.assertIsNone(parse_send_in("-5h"))
+
+    def test_negative_compound_duration_is_rejected(self):
+        self.assertIsNone(parse_send_in("-1h30m"))
+
+    def test_surrounding_junk_is_rejected(self):
+        for value in ("abc2hxyz", "send in 2h please", "2h;rm -rf /"):
+            with self.subTest(value=value):
+                self.assertIsNone(parse_send_in(value))
+
+    def test_leading_junk_is_rejected(self):
+        self.assertIsNone(parse_send_in("x2h"))
+
+    def test_trailing_junk_is_rejected(self):
+        self.assertIsNone(parse_send_in("2hx"))
+
+    def test_bare_number_without_unit_is_rejected(self):
+        self.assertIsNone(parse_send_in("5"))
+
+    def test_bare_unit_without_number_is_rejected(self):
+        self.assertIsNone(parse_send_in("h30m"))
+
+    def test_trailing_number_without_unit_is_rejected(self):
+        self.assertIsNone(parse_send_in("1h30"))
+
+    def test_unknown_unit_is_rejected(self):
+        for value in ("2x", "2w", "2y"):
+            with self.subTest(value=value):
+                self.assertIsNone(parse_send_in(value))
+
+    def test_whitespace_only_is_rejected(self):
+        self.assertIsNone(parse_send_in("   "))
+
+    def test_zero_duration_returns_none(self):
+        """Zero is not a usable delay; callers treat None as invalid."""
+        for value in ("0s", "0m", "0h", "0d"):
+            with self.subTest(value=value):
+                self.assertIsNone(parse_send_in(value))
+
+    def test_valid_forms_still_parse(self):
+        """The rejection must not narrow legitimate input."""
+        self.assertEqual(parse_send_in("2h"), 7200)
+        self.assertEqual(parse_send_in("1h30m"), 5400)
+        self.assertEqual(parse_send_in("2d4h"), 187200)
+        self.assertEqual(parse_send_in("45s"), 45)
+        self.assertEqual(parse_send_in(" 2h "), 7200)
+        self.assertEqual(parse_send_in("2H"), 7200)
+
+
+class ParseSendAtMalformedTests(unittest.TestCase):
+    """parse_send_at returns None for anything it cannot fully parse."""
+
+    def test_date_without_time_is_rejected(self):
+        self.assertIsNone(parse_send_at("2026-08-12"))
+
+    def test_garbage_is_rejected(self):
+        for value in ("not-a-date", "tomorrow", ""):
+            with self.subTest(value=value):
+                self.assertIsNone(parse_send_at(value))
+
+    def test_impossible_date_is_rejected(self):
+        self.assertIsNone(parse_send_at("2026-13-45 99:99"))
+
+    def test_trailing_junk_is_rejected(self):
+        self.assertIsNone(parse_send_at("2026-08-12 10:00 please"))
+
+    def test_supported_formats_parse(self):
+        for value in (
+            "2026-08-12 10:00",
+            "2026-08-12 10:00:00",
+            "2026-08-12T10:00",
+            "2026-08-12T10:00:00",
+        ):
+            with self.subTest(value=value):
+                self.assertIsNotNone(parse_send_at(value))
+
+
 class ParseSendInTests(unittest.TestCase):
     """Exercise parse_send_in() - early exit and all unit branches (lines 103, 112-117)."""
 
