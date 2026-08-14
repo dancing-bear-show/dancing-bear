@@ -73,20 +73,24 @@ Load this guide when the diff contains `.py` files.
 
 ### too-many-parameters
 - **severity**: minor
-- **check**: Verify that no function or method signature has more than 4
+- **check**: Verify that no function or method signature has more than 5
   parameters (excluding `self`/`cls`). Long parameter lists are error-prone at
   call sites (easy to swap same-typed positional args), hard to extend without
   breaking every caller, and a signal that related data should travel together.
-- **triggers**: A `def`/`async def` with 5+ parameters (excluding `self`/`cls`);
+  This limit is enforced by `[smells.function_parameters]` in `.qlty/qlty.toml`,
+  which is set to 6 (qlty's threshold is the trigger point, not the ceiling).
+  Keep the two in sync — when they diverge, reviewers flag signatures the
+  tooling stays silent on.
+- **triggers**: A `def`/`async def` with 6+ parameters (excluding `self`/`cls`);
   especially 3+ parameters sharing the same primitive type (e.g. multiple
   `str`/`int` args in a row) where call-site argument order is easy to
   transpose by mistake.
 - **example**: `def send_invite(name: str, email: str, org: str, role: str,
-  expires_at: datetime) -> None` — 5 parameters, three of them `str`, easy to
-  pass in the wrong order. Fix: introduce a `@dataclass` grouping the related
-  fields (e.g. `InviteRequest`) and take a single instance as the parameter:
-  `def send_invite(invite: InviteRequest) -> None`. Prefer this over `**kwargs`
-  or a plain `dict`, which lose type hints and IDE support.
+  team: str, expires_at: datetime) -> None` — 6 parameters, four of them `str`,
+  easy to pass in the wrong order. Fix: introduce a `@dataclass` grouping the
+  related fields (e.g. `InviteRequest`) and take a single instance as the
+  parameter: `def send_invite(invite: InviteRequest) -> None`. Prefer this over
+  `**kwargs` or a plain `dict`, which lose type hints and IDE support.
 
 ### file-too-large
 - **severity**: minor
