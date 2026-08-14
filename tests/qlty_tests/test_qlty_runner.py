@@ -568,18 +568,21 @@ class ResolveBinaryTests(unittest.TestCase):
 class BaseArgsPathForwardingTests(unittest.TestCase):
     """Explicit paths must never be re-read by qlty as flags."""
 
-    def test_no_separator_when_no_paths(self):
-        args = QltyRunner._base_args(
-            Source.SMELLS, scan_all=True, include_tests=True, paths=()
+    @staticmethod
+    def _argv(source, *, scan_all, paths, include_tests=True, wire_flag="--json"):
+        """Assemble the full argv the way invoke() does."""
+        base = QltyRunner._base_args(
+            source, scan_all=scan_all, include_tests=include_tests, paths=paths
         )
+        return QltyRunner._with_paths(base, wire_flag, paths)
+
+    def test_no_separator_when_no_paths(self):
+        args = self._argv(Source.SMELLS, scan_all=True, paths=())
         self.assertNotIn("--", args)
 
     def test_separator_precedes_explicit_paths(self):
-        args = QltyRunner._base_args(
-            Source.SMELLS,
-            scan_all=False,
-            include_tests=True,
-            paths=("src/qlty/runner.py",),
+        args = self._argv(
+            Source.SMELLS, scan_all=False, paths=("src/qlty/runner.py",)
         )
         self.assertIn("--", args)
         self.assertLess(args.index("--"), args.index("src/qlty/runner.py"))
@@ -587,8 +590,8 @@ class BaseArgsPathForwardingTests(unittest.TestCase):
     def test_leading_dash_path_is_not_read_as_a_flag(self):
         # A file literally named "-foo.py", or a stray "--all", must land after
         # the end-of-options marker rather than altering the scan.
-        args = QltyRunner._base_args(
-            Source.CHECK, scan_all=False, include_tests=True, paths=("-foo.py", "--all")
+        args = self._argv(
+            Source.CHECK, scan_all=False, paths=("-foo.py", "--all")
         )
         sep = args.index("--")
         self.assertEqual(args[sep + 1:], ["-foo.py", "--all"])
@@ -601,36 +604,24 @@ class BaseArgsPathForwardingTests(unittest.TestCase):
         # Naming paths already widens the scan past the changed-files default.
         for source in (Source.CHECK, Source.SMELLS):
             with self.subTest(source=source):
-                args = QltyRunner._base_args(
-                    source, scan_all=True, include_tests=True, paths=("src/qlty/",)
-                )
+                args = self._argv(source, scan_all=True, paths=("src/qlty/",))
                 sep = args.index("--")
                 self.assertNotIn("--all", args[:sep])
 
     def test_scan_all_still_applies_without_paths(self):
-        args = QltyRunner._base_args(
-            Source.CHECK, scan_all=True, include_tests=True, paths=()
-        )
+        args = self._argv(Source.CHECK, scan_all=True, paths=())
         self.assertIn("--all", args)
 
     def test_wire_flag_precedes_the_separator(self):
-        # Appending --json after _base_args put it past the "--" marker, so
+        # Appending --json to a finished argv put it past the "--" marker, so
         # qlty read it as a path and failed with "No such file or directory".
-        args = QltyRunner._base_args(
-            Source.SMELLS,
-            scan_all=False,
-            include_tests=True,
-            paths=("tests/",),
-            wire_flag="--json",
-        )
+        args = self._argv(Source.SMELLS, scan_all=False, paths=("tests/",))
         sep = args.index("--")
         self.assertIn("--json", args[:sep])
         self.assertEqual(args[sep + 1:], ["tests/"])
 
     def test_check_keeps_read_only_flags_before_the_separator(self):
-        args = QltyRunner._base_args(
-            Source.CHECK, scan_all=True, include_tests=True, paths=("src/qlty/",)
-        )
+        args = self._argv(Source.CHECK, scan_all=True, paths=("src/qlty/",))
         sep = args.index("--")
         self.assertIn("--no-fix", args[:sep])
         self.assertIn("--no-cache", args[:sep])
@@ -662,12 +653,13 @@ class BaseArgsIncludeTestsTests(unittest.TestCase):
         self.assertNotIn("--include-tests", args)
 
     def test_include_tests_precedes_the_end_of_options_marker(self):
-        args = QltyRunner._base_args(
+        base = QltyRunner._base_args(
             Source.SMELLS,
             scan_all=True,
             include_tests=True,
             paths=("src/qlty/",),
         )
+        args = QltyRunner._with_paths(base, "--json", ("src/qlty/",))
         sep = args.index("--")
         self.assertIn("--include-tests", args[:sep])
 

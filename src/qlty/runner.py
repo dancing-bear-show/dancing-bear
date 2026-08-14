@@ -219,17 +219,12 @@ class QltyRunner:
         format yields parseable output -- never returns an empty list to
         represent a failure.
         """
+        base_args = self._base_args(
+            source, scan_all=scan_all, include_tests=include_tests, paths=paths
+        )
+
         def argv(wire_flag: str) -> list[str]:
-            # The wire-format flag has to be built into the argv rather than
-            # appended: _base_args ends with "--" plus the paths, so anything
-            # tacked on afterwards is read by qlty as another path.
-            return self._base_args(
-                source,
-                scan_all=scan_all,
-                include_tests=include_tests,
-                paths=paths,
-                wire_flag=wire_flag,
-            )
+            return self._with_paths(base_args, wire_flag, paths)
 
         json_run = self._execute(argv("--json"))
         if self._scan_ran(json_run):
@@ -272,13 +267,32 @@ class QltyRunner:
         )
 
     @staticmethod
+    def _with_paths(
+        base: Sequence[str], wire_flag: str, paths: Sequence[str]
+    ) -> list[str]:
+        """Append the wire-format flag and paths to already-built scan flags.
+
+        Kept separate from ``_base_args`` because ordering is the whole point:
+        the flag must land *before* the ``--`` marker. Appending it to a
+        finished argv put it after, and qlty then read ``--json`` as a path
+        ("Failed to access entry: .../--json").
+        """
+        args = [*base, wire_flag] if wire_flag else list(base)
+        if paths:
+            # End-of-options marker: without it a path that starts with "-"
+            # (e.g. a file literally named "-foo.py", or a stray "--all") is
+            # read by qlty as a flag, silently changing the scan's meaning.
+            args.append("--")
+            args.extend(paths)
+        return args
+
+    @staticmethod
     def _base_args(
         source: Source,
         *,
         scan_all: bool,
         include_tests: bool,
         paths: Sequence[str],
-        wire_flag: str = "",
     ) -> list[str]:
         args = [source.value]
         if scan_all and not paths:
@@ -295,14 +309,6 @@ class QltyRunner:
             # `qlty check` does not accept --include-tests and hard-errors if
             # given it; only `smells` excludes test_patterns by default.
             args.append("--include-tests")
-        if wire_flag:
-            args.append(wire_flag)
-        if paths:
-            # End-of-options marker: without it a path that starts with "-"
-            # (e.g. a file literally named "-foo.py", or a stray "--all") is
-            # read by qlty as a flag, silently changing the scan's meaning.
-            args.append("--")
-            args.extend(paths)
         return args
 
     @staticmethod
