@@ -16,6 +16,7 @@ Exit 0 when every test directory is discoverable, 1 otherwise.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -40,8 +41,12 @@ def _gitignored(paths: list[Path]) -> set[Path]:
     """Subset of `paths` that git would ignore (so CI would never see them)."""
     if not paths:
         return set()
-    proc = subprocess.run(
-        ["git", "check-ignore", "--stdin"],
+    git_bin = shutil.which("git")
+    if git_bin is None:
+        print("WARNING: git not found in PATH — skipping gitignore check", file=sys.stderr)
+        return set()
+    proc = subprocess.run(  # nosec B603 B607 - git_bin resolved via shutil.which, fixed argv, no shell, input is repo-internal paths
+        [git_bin, "check-ignore", "--stdin"],
         input="\n".join(str(p) for p in paths),
         capture_output=True,
         text=True,
