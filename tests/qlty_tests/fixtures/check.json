@@ -1,0 +1,36 @@
+[
+  {
+    "tool": "ripgrep",
+    "ruleKey": "NOTE",
+    "message": "# NOTE: outlook_costs.run() (the module-level wrapper, patched by",
+    "level": "LEVEL_NOTE",
+    "category": "CATEGORY_LINT",
+    "location": {
+      "path": "src/metals/pipeline.py",
+      "range": {
+        "startLine": 346,
+        "startColumn": 11,
+        "endLine": 346,
+        "endColumn": 15
+      }
+    },
+    "mode": "MODE_COMMENT"
+  },
+  {
+    "tool": "radarlint-python",
+    "ruleKey": "python:S5655",
+    "message": "Change this argument; Function \"_resolve_event_location\" expects a different type",
+    "level": "LEVEL_HIGH",
+    "category": "CATEGORY_LINT",
+    "location": {
+      "path": "tests/calendars_tests/test_producer_output_branches.py",
+      "range": {
+        "startLine": 520,
+        "startColumn": 47,
+        "endLine": 520,
+        "endColumn": 59
+      }
+    },
+    "mode": "MODE_COMMENT"
+  }
+]

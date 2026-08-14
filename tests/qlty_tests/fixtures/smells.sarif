@@ -1,0 +1,1427 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "qlty",
+          "informationUri": "https://github.com/qlty/qlty",
+          "semanticVersion": "0.640.0",
+          "version": "0.640.0 macos-arm64 (a766f45 2026-07-28)",
+          "releaseDateUtc": "2026-07-28",
+          "rules": [
+            {
+              "id": "qlty:function-parameters"
+            },
+            {
+              "id": "qlty:function-complexity"
+            },
+            {
+              "id": "qlty:boolean-logic"
+            },
+            {
+              "id": "qlty:return-statements"
+            },
+            {
+              "id": "qlty:similar-code"
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): finish"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/worker/queue_ops.py"
+                },
+                "region": {
+                  "startLine": 164,
+                  "startColumn": 11,
+                  "endLine": 171,
+                  "endColumn": 2,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): requeue_error"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/worker/queue_ops.py"
+                },
+                "region": {
+                  "startLine": 279,
+                  "startColumn": 18,
+                  "endLine": 286,
+                  "endColumn": 2,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): agents"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/telemetry/cli_sessions.py"
+                },
+                "region": {
+                  "startLine": 199,
+                  "startColumn": 11,
+                  "endLine": 199,
+                  "endColumn": 101,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): add_named_bullet"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/docx_renderers.py"
+                },
+                "region": {
+                  "startLine": 75,
+                  "startColumn": 25,
+                  "endLine": 83,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): add_bullets"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/docx_renderers.py"
+                },
+                "region": {
+                  "startLine": 98,
+                  "startColumn": 20,
+                  "endLine": 106,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): render_simple_list"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/docx_renderers.py"
+                },
+                "region": {
+                  "startLine": 305,
+                  "startColumn": 27,
+                  "endLine": 313,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): parse_transcripts"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/telemetry/parse_transcripts.py"
+                },
+                "region": {
+                  "startLine": 128,
+                  "startColumn": 22,
+                  "endLine": 135,
+                  "endColumn": 2,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-complexity",
+          "level": "warning",
+          "message": {
+            "text": "Function with high complexity (count = 18): _render_content"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/docx_standard.py"
+                },
+                "region": {
+                  "startLine": 86,
+                  "startColumn": 5,
+                  "endLine": 119,
+                  "endColumn": 48,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "function.name": "_render_content"
+          },
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): request"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/core/http.py"
+                },
+                "region": {
+                  "startLine": 216,
+                  "startColumn": 16,
+                  "endLine": 224,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:boolean-logic",
+          "level": "warning",
+          "message": {
+            "text": "Complex binary expression"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/telemetry/tui/_formatters.py"
+                },
+                "region": {
+                  "startLine": 36,
+                  "startColumn": 9,
+                  "endLine": 38,
+                  "endColumn": 34,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:boolean-logic",
+          "level": "warning",
+          "message": {
+            "text": "Complex binary expression"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/mail/outlook/processors_calendar.py"
+                },
+                "region": {
+                  "startLine": 377,
+                  "startColumn": 35,
+                  "endLine": 377,
+                  "endColumn": 60,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): __init__"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/core/cli_framework.py"
+                },
+                "region": {
+                  "startLine": 57,
+                  "startColumn": 17,
+                  "endLine": 65,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): command"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/core/cli_framework.py"
+                },
+                "region": {
+                  "startLine": 103,
+                  "startColumn": 16,
+                  "endLine": 111,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): run_with_assistant"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/core/cli_framework.py"
+                },
+                "region": {
+                  "startLine": 323,
+                  "startColumn": 27,
+                  "endLine": 331,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:boolean-logic",
+          "level": "warning",
+          "message": {
+            "text": "Complex binary expression"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/metals/gmail_costs_extract.py"
+                },
+                "region": {
+                  "startLine": 87,
+                  "startColumn": 9,
+                  "endLine": 87,
+                  "endColumn": 49,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:return-statements",
+          "level": "warning",
+          "message": {
+            "text": "Function with many returns (count = 8): cmd_reorg"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/cli/cmd_merge.py"
+                },
+                "region": {
+                  "startLine": 102,
+                  "startColumn": 1,
+                  "endLine": 152,
+                  "endColumn": 13,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): build_mobileconfig"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/profile.py"
+                },
+                "region": {
+                  "startLine": 432,
+                  "startColumn": 23,
+                  "endLine": 439,
+                  "endColumn": 2,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:return-statements",
+          "level": "warning",
+          "message": {
+            "text": "Function with many returns (count = 13): register_filters_commands"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/mail/cli/cmd_filters.py"
+                },
+                "region": {
+                  "startLine": 8,
+                  "startColumn": 1,
+                  "endLine": 127,
+                  "endColumn": 25,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:return-statements",
+          "level": "warning",
+          "message": {
+            "text": "Function with many returns (count = 11): register_labels_commands"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/mail/cli/cmd_labels.py"
+                },
+                "region": {
+                  "startLine": 8,
+                  "startColumn": 1,
+                  "endLine": 98,
+                  "endColumn": 24,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-complexity",
+          "level": "warning",
+          "message": {
+            "text": "Function with high complexity (count = 18): main"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "costco_receipts.py"
+                },
+                "region": {
+                  "startLine": 78,
+                  "startColumn": 1,
+                  "endLine": 164,
+                  "endColumn": 67,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "function.name": "main"
+          },
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): _expand_includes"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/workflow/include.py"
+                },
+                "region": {
+                  "startLine": 262,
+                  "startColumn": 21,
+                  "endLine": 269,
+                  "endColumn": 2,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): resume"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/workflow/orchestrator.py"
+                },
+                "region": {
+                  "startLine": 102,
+                  "startColumn": 15,
+                  "endLine": 109,
+                  "endColumn": 6,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): write_manifest"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/workflow/persistence.py"
+                },
+                "region": {
+                  "startLine": 130,
+                  "startColumn": 19,
+                  "endLine": 137,
+                  "endColumn": 2,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:function-parameters",
+          "level": "warning",
+          "message": {
+            "text": "Function with many parameters (count = 6): ping_target"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/wifi/diagnostics_probes.py"
+                },
+                "region": {
+                  "startLine": 286,
+                  "startColumn": 16,
+                  "endLine": 286,
+                  "endColumn": 95,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "structure",
+              "name": "structure"
+            }
+          ]
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 24 lines of similar code in 2 locations (mass = 94)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/classify.py"
+                },
+                "region": {
+                  "startLine": 71,
+                  "startColumn": 0,
+                  "endLine": 94,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/classify.py"
+                },
+                "region": {
+                  "startLine": 158,
+                  "startColumn": 0,
+                  "endLine": 181,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "node_kind": "pair",
+            "mass": 94.0,
+            "identical": false,
+            "structural_hash": "264832654b3df85bd7649c52bcc40cca"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 24 lines of similar code in 2 locations (mass = 94)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/classify.py"
+                },
+                "region": {
+                  "startLine": 158,
+                  "startColumn": 0,
+                  "endLine": 181,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/classify.py"
+                },
+                "region": {
+                  "startLine": 71,
+                  "startColumn": 0,
+                  "endLine": 94,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "mass": 94.0,
+            "node_kind": "pair",
+            "identical": false,
+            "structural_hash": "264832654b3df85bd7649c52bcc40cca"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 19 lines of similar code in 2 locations (mass = 157)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/core/date_utils.py"
+                },
+                "region": {
+                  "startLine": 32,
+                  "startColumn": 0,
+                  "endLine": 50,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/telemetry/otel/cli/__init__.py"
+                },
+                "region": {
+                  "startLine": 120,
+                  "startColumn": 0,
+                  "endLine": 138,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "mass": 157.0,
+            "node_kind": "expression_statement",
+            "identical": false,
+            "structural_hash": "a22d916ecb805a5407257ae97b1f8c20"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 19 lines of similar code in 2 locations (mass = 157)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/telemetry/otel/cli/__init__.py"
+                },
+                "region": {
+                  "startLine": 120,
+                  "startColumn": 0,
+                  "endLine": 138,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/core/date_utils.py"
+                },
+                "region": {
+                  "startLine": 32,
+                  "startColumn": 0,
+                  "endLine": 50,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "node_kind": "expression_statement",
+            "mass": 157.0,
+            "identical": false,
+            "structural_hash": "a22d916ecb805a5407257ae97b1f8c20"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 21 lines of similar code in 2 locations (mass = 89)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/whatsapp/meta.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 21,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/wifi/meta.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 21,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "node_kind": "module",
+            "structural_hash": "01624a8c416f28c88d702484a03d613a",
+            "identical": false,
+            "mass": 89.0
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 21 lines of similar code in 2 locations (mass = 89)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/wifi/meta.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 21,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/whatsapp/meta.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 21,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "structural_hash": "01624a8c416f28c88d702484a03d613a",
+            "mass": 89.0,
+            "identical": false,
+            "node_kind": "module"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 36 lines of similar code in 2 locations (mass = 141)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/desk/llm_cli.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 36,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/llm_cli.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 36,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "node_kind": "module",
+            "mass": 141.0,
+            "identical": false,
+            "structural_hash": "f8355f173c2b5cb2d80e218ea114316f"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 36 lines of similar code in 2 locations (mass = 141)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/llm_cli.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 36,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/desk/llm_cli.py"
+                },
+                "region": {
+                  "startLine": 1,
+                  "startColumn": 0,
+                  "endLine": 36,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "node_kind": "module",
+            "structural_hash": "f8355f173c2b5cb2d80e218ea114316f",
+            "identical": false,
+            "mass": 141.0
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 20 lines of similar code in 3 locations (mass = 98)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/schedule/agentic.py"
+                },
+                "region": {
+                  "startLine": 56,
+                  "startColumn": 0,
+                  "endLine": 75,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/desk/agentic.py"
+                },
+                "region": {
+                  "startLine": 45,
+                  "startColumn": 0,
+                  "endLine": 64,
+                  "endColumn": 0
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/agentic.py"
+                },
+                "region": {
+                  "startLine": 48,
+                  "startColumn": 0,
+                  "endLine": 67,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "structural_hash": "1093212ffd89dea7c90854acea33975b",
+            "mass": 98.0,
+            "identical": false,
+            "node_kind": "function_definition"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 20 lines of similar code in 3 locations (mass = 98)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/desk/agentic.py"
+                },
+                "region": {
+                  "startLine": 45,
+                  "startColumn": 0,
+                  "endLine": 64,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/schedule/agentic.py"
+                },
+                "region": {
+                  "startLine": 56,
+                  "startColumn": 0,
+                  "endLine": 75,
+                  "endColumn": 0
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/agentic.py"
+                },
+                "region": {
+                  "startLine": 48,
+                  "startColumn": 0,
+                  "endLine": 67,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "node_kind": "function_definition",
+            "identical": false,
+            "mass": 98.0,
+            "structural_hash": "1093212ffd89dea7c90854acea33975b"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 20 lines of similar code in 3 locations (mass = 98)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/resume/agentic.py"
+                },
+                "region": {
+                  "startLine": 48,
+                  "startColumn": 0,
+                  "endLine": 67,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/schedule/agentic.py"
+                },
+                "region": {
+                  "startLine": 56,
+                  "startColumn": 0,
+                  "endLine": 75,
+                  "endColumn": 0
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/desk/agentic.py"
+                },
+                "region": {
+                  "startLine": 45,
+                  "startColumn": 0,
+                  "endLine": 64,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "mass": 98.0,
+            "identical": false,
+            "node_kind": "function_definition",
+            "structural_hash": "1093212ffd89dea7c90854acea33975b"
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 21 lines of similar code in 2 locations (mass = 77)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/metals/vendors.py"
+                },
+                "region": {
+                  "startLine": 31,
+                  "startColumn": 0,
+                  "endLine": 51,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/classify.py"
+                },
+                "region": {
+                  "startLine": 114,
+                  "startColumn": 0,
+                  "endLine": 134,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "structural_hash": "35d1e582389a6a003445a3c61c061a7e",
+            "node_kind": "list",
+            "mass": 77.0,
+            "identical": false
+          }
+        },
+        {
+          "ruleId": "qlty:similar-code",
+          "level": "warning",
+          "message": {
+            "text": "Found 21 lines of similar code in 2 locations (mass = 77)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/phone/classify.py"
+                },
+                "region": {
+                  "startLine": 114,
+                  "startColumn": 0,
+                  "endLine": 134,
+                  "endColumn": 0,
+                  "sourceLanguage": "python"
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/metals/vendors.py"
+                },
+                "region": {
+                  "startLine": 31,
+                  "startColumn": 0,
+                  "endLine": 51,
+                  "endColumn": 0
+                }
+              }
+            }
+          ],
+          "taxa": [
+            {
+              "id": "duplication",
+              "name": "duplication"
+            }
+          ],
+          "properties": {
+            "structural_hash": "35d1e582389a6a003445a3c61c061a7e",
+            "mass": 77.0,
+            "identical": false,
+            "node_kind": "list"
+          }
+        }
+      ]
+    }
+  ]
+}
