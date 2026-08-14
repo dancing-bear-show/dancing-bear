@@ -12,6 +12,7 @@ import json
 import sys
 from pathlib import Path
 
+from core.fileutil import write_once
 from workflow.cli_helpers import check_workflow_path
 from workflow.compiler import validate_dag_contracts
 from workflow.include import extract_include_entries, resolve_fragment_path
@@ -100,15 +101,10 @@ def _try_read_cached_compile(cache_path: Path) -> dict | None:
 
 def _write_once(path: Path, content: bytes) -> None:
     """Write *content* to *path* only if it does not already exist."""
-    import os
     try:
-        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            os.write(fd, content)
-        finally:
-            os.close(fd)
-    except OSError:
-        pass  # nosec B110 - cache write failure is non-fatal
+        write_once(path, content)
+    except OSError:  # nosec B110 - cache write failure (incl. already-exists race) is non-fatal
+        pass
 
 
 def _build_compile_payload(path: str) -> dict:

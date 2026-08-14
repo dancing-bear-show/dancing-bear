@@ -12,11 +12,16 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-def chunked(seq: Sequence[T], size: int) -> Iterator[list[T]]:
-    """Yield lists of up to ``size`` elements from ``seq``."""
+def chunked(seq: Iterable[T], size: int) -> Iterator[list[T]]:
+    """Yield lists of up to ``size`` elements from ``seq``.
+
+    Accepts any iterable; non-``Sequence`` inputs (generators, etc.) are
+    materialized into a list first since chunking requires slicing.
+    """
+    items: Sequence[T] = seq if isinstance(seq, Sequence) else list(seq)
     n = max(1, int(size or 1))
-    for i in range(0, len(seq or []), n):
-        yield list(seq[i : i + n])
+    for i in range(0, len(items), n):
+        yield list(items[i : i + n])
 
 
 def parallel_map(
