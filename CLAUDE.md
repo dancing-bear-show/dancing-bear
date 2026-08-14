@@ -177,6 +177,28 @@ At conversation start, BEFORE responding to the user's first request, run:
 
 This emits a read-only familiarization capsule (skip paths, step sequence). Use `--compact` for minimal token usage.
 
+## Generated Output Location
+
+Generated artifacts are written **outside the checkout** by default, resolved by
+`src/core/paths.py`:
+
+1. an explicit `--out-dir` passed to the command
+2. `$DANCING_BEAR_DATA_HOME`
+3. `$XDG_DATA_HOME/dancing-bear`
+4. `~/.local/share/dancing-bear` (default)
+
+Each domain gets a subdirectory (`<data-home>/resume`, `<data-home>/charts`, …).
+A relative `--out-dir` is still honoured as-is, so `--out-dir out` writes to
+`./out` for scripts that expect the old behaviour.
+
+Rationale: relative defaults resolve against the working directory, so running a
+command from the repo wrote generated files — including resumes carrying PII —
+into the checkout. Those paths are gitignored, which prevents an accidental
+commit but not an accidental `git clean -fdx`.
+
+New output-producing domains should call `core.paths.output_dir("<domain>")`
+rather than defaulting to a relative path.
+
 ## Credentials (Profiles)
 
 Use profiles in `~/.config/credentials.ini`:
