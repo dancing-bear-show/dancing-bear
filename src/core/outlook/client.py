@@ -151,7 +151,14 @@ class OutlookClientBase(ConfigCacheMixin):
         return False
 
     def _try_load_token_cache(self, cache) -> bool:
-        """Load the on-disk token cache, falling back to the legacy format. Returns True on success."""
+        """Populate `cache` from the on-disk token, falling back to the legacy format.
+
+        Returns True only when authentication is already complete and the caller
+        can return early — i.e. a legacy token was loaded directly into
+        `self._token`. Deserializing the MSAL cache returns False despite
+        succeeding, because the caller still needs a silent-auth pass to turn
+        that cache into an access token.
+        """
         if not (self.token_path and os.path.exists(self.token_path)):
             return False
         try:
@@ -159,7 +166,7 @@ class OutlookClientBase(ConfigCacheMixin):
                 data = f.read()
             try:
                 cache.deserialize(data)
-                return False  # loaded into cache; caller still needs a silent-auth pass
+                return False  # cache populated, but not yet authenticated — see docstring
             except Exception:
                 return self._try_load_legacy_token(cache, data)
         except Exception:  # nosec B110 - token read failed, proceed with fresh auth
