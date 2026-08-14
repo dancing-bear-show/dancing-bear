@@ -200,7 +200,7 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
             doc = load_config(payload.config_path)
             desired = normalize_filters_for_outlook(doc.get("filters") or [])
 
-            existing = self._fetch_existing_rules(client, payload.use_cache, payload.cache_ttl)
+            existing = _fetch_rules_with_resilience(client)
             existing_keys = {_canon_rule(r) for r in existing}
             name_to_id = client.get_label_id_map()
             folder_map = client.get_folder_id_map() if payload.move_to_folders else {}
@@ -219,18 +219,6 @@ class OutlookRulesPlanProcessor(Processor[OutlookRulesPlanPayload, ResultEnvelop
                 payload=None,
                 diagnostics={"error": str(exc), "code": 1},
             )
-
-    def _fetch_existing_rules(
-        self, client: Any, use_cache: bool, cache_ttl: int
-    ) -> list[dict[str, Any]]:
-        """Fetch existing rules with fallback."""
-        try:
-            return client.list_filters(use_cache=use_cache, ttl=cache_ttl)
-        except Exception:
-            try:
-                return client.list_filters(use_cache=True, ttl=cache_ttl)
-            except Exception:
-                return []
 
     def _build_plan_items(
         self,

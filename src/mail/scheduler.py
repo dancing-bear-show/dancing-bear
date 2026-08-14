@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-from core.fileutil import atomic_write_json
+from core.fileutil import atomic_write_json, safe_load_json
 
 
 def _queue_path() -> Path:
@@ -36,10 +35,7 @@ def _load_queue() -> list[dict]:
     p = _queue_path()
     if not p.exists():
         return []
-    try:
-        return json.loads(p.read_text(encoding="utf-8")) or []
-    except Exception:
-        return []
+    return safe_load_json(p, default=[]) or []
 
 
 def _save_queue(items: list[dict]) -> None:

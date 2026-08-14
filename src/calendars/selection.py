@@ -35,10 +35,6 @@ def compute_window(event: dict[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def _weekday_code(dt: _dt.datetime) -> str:
-    return ["MO", "TU", "WE", "TH", "FR", "SA", "SU"][dt.weekday()]
-
-
 def weekday_code(dt: _dt.datetime, *, upper: bool = False) -> str:
     """Return 2-letter weekday code (mo/tu/we/th/fr/sa/su) for a datetime.
 
@@ -76,7 +72,7 @@ def _event_matches_filters(
     tend = _local_time_hhmm(en)
     try:
         dt = _dt.datetime.fromisoformat(st.replace("Z", "+00:00"))
-        wcode = _weekday_code(dt)
+        wcode = weekday_code(dt, upper=True)
     except Exception:
         wcode = None
     if want_days and (not wcode or wcode.lower() not in want_days):
