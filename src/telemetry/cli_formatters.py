@@ -54,7 +54,9 @@ def _fmt_duration(s: object) -> str:
 
 
 def _fmt_tokens(n: int) -> str:
-    if n >= 1_000_000:
+    # Compare against the M threshold *after* rounding: 999_500 rounds to
+    # 1000K, which should roll over to 1.0M rather than render four K digits.
+    if n >= 999_500:
         return f"{n / 1_000_000:.1f}M"
     if n >= 1_000:
         return f"{n / 1_000:.0f}K"

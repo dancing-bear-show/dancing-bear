@@ -46,8 +46,15 @@ class TestFmtTokens(unittest.TestCase):
         # Python's f"{x:.0f}" uses round-half-to-even: 2.5 -> 2, not 3.
         self.assertEqual(_fmt_tokens(2500), "2K")
 
-    def test_just_under_one_million(self):
-        self.assertEqual(_fmt_tokens(999_999), "1000K")
+    def test_last_value_that_still_renders_as_k(self):
+        self.assertEqual(_fmt_tokens(999_499), "999K")
+
+    def test_rounds_over_to_m_rather_than_four_k_digits(self):
+        # 999_500 rounds to 1000K, which must roll over to 1.0M — the M
+        # threshold is checked after rounding so no four-digit K value exists.
+        for value in (999_500, 999_999):
+            with self.subTest(value=value):
+                self.assertEqual(_fmt_tokens(value), "1.0M")
 
 
 # ---------------------------------------------------------------------------
