@@ -6,7 +6,7 @@ import unittest
 from whatsapp.meta import META
 
 
-class TestMetaConstants(unittest.TestCase):
+class TestWhatsAppAppMeta(unittest.TestCase):
     """Tests for the whatsapp AppMeta declaration.
 
     Asserts the values this module actually declares. The rendering of each

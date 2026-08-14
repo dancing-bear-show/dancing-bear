@@ -6,6 +6,7 @@ one, so it is asserted once.
 """
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from core.meta_base import AppMeta
@@ -87,7 +88,7 @@ class TestAppMetaIsFrozen(unittest.TestCase):
 
     def test_assignment_raises(self):
         meta = AppMeta(app_id="demo", purpose="p")
-        with self.assertRaises(Exception):
+        with self.assertRaises(dataclasses.FrozenInstanceError):
             meta.app_id = "other"  # type: ignore[misc]
 
 
