@@ -210,6 +210,7 @@ class QltyRunner:
         source: Source,
         *,
         scan_all: bool = True,
+        include_tests: bool = True,
         paths: Sequence[str] = (),
     ) -> InvocationResult:
         """Run one qlty subcommand, preferring --json and falling back to --sarif.
@@ -218,9 +219,14 @@ class QltyRunner:
         format yields parseable output -- never returns an empty list to
         represent a failure.
         """
-        base_args = self._base_args(source, scan_all=scan_all, paths=paths)
+        base_args = self._base_args(
+            source, scan_all=scan_all, include_tests=include_tests, paths=paths
+        )
 
-        json_run = self._execute([*base_args, "--json"])
+        def argv(wire_flag: str) -> list[str]:
+            return self._with_paths(base_args, wire_flag, paths)
+
+        json_run = self._execute(argv("--json"))
         if self._scan_ran(json_run):
             findings = self._parse_or_raise(
                 json_run, WireFormat.JSON, source, parse_json_findings
@@ -236,7 +242,7 @@ class QltyRunner:
         # been removed upstream. Fall back to the documented --sarif, but record
         # the degradation so it is reported rather than silently absorbed.
         json_failure = self._failure_summary(json_run)
-        sarif_run = self._execute([*base_args, "--sarif"])
+        sarif_run = self._execute(argv("--sarif"))
         if not self._scan_ran(sarif_run):
             raise QltyInvocationError(
                 "qlty failed in both --json and --sarif modes; no finding set "
@@ -261,21 +267,48 @@ class QltyRunner:
         )
 
     @staticmethod
-    def _base_args(
-        source: Source, *, scan_all: bool, paths: Sequence[str]
+    def _with_paths(
+        base: Sequence[str], wire_flag: str, paths: Sequence[str]
     ) -> list[str]:
-        args = [source.value]
-        if scan_all:
-            args.append("--all")
-        if source is Source.CHECK:
-            # Never mutate the working tree from a read-only scan.
-            args.extend(["--no-fix", "--no-cache"])
+        """Append the wire-format flag and paths to already-built scan flags.
+
+        Kept separate from ``_base_args`` because ordering is the whole point:
+        the flag must land *before* the ``--`` marker. Appending it to a
+        finished argv put it after, and qlty then read ``--json`` as a path
+        ("Failed to access entry: .../--json").
+        """
+        args = [*base, wire_flag] if wire_flag else list(base)
         if paths:
             # End-of-options marker: without it a path that starts with "-"
             # (e.g. a file literally named "-foo.py", or a stray "--all") is
             # read by qlty as a flag, silently changing the scan's meaning.
             args.append("--")
             args.extend(paths)
+        return args
+
+    @staticmethod
+    def _base_args(
+        source: Source,
+        *,
+        scan_all: bool,
+        include_tests: bool,
+        paths: Sequence[str],
+    ) -> list[str]:
+        args = [source.value]
+        if scan_all and not paths:
+            # qlty rejects `--all` alongside explicit paths ("the argument
+            # '--all' cannot be used with specified [PATHS]"), and the two mean
+            # the same thing anyway: naming paths already widens the scan past
+            # the changed-files default. Sending both made every path-scoped
+            # scan exit nonzero with no findings.
+            args.append("--all")
+        if source is Source.CHECK:
+            # Never mutate the working tree from a read-only scan.
+            args.extend(["--no-fix", "--no-cache"])
+        if include_tests and source is Source.SMELLS:
+            # `qlty check` does not accept --include-tests and hard-errors if
+            # given it; only `smells` excludes test_patterns by default.
+            args.append("--include-tests")
         return args
 
     @staticmethod

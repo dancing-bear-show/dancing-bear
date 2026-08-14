@@ -394,6 +394,24 @@ class InvokeFallbackTests(unittest.TestCase):
             runner.invoke(Source.SMELLS, scan_all=False)
         self.assertNotIn("--all", executed.call_args[0][0])
 
+    def test_include_tests_flag_is_passed_for_smells(self):
+        runner = self._runner()
+        with patch.object(
+            runner, "_execute", return_value=completed("[]", 0)
+        ) as executed:
+            runner.invoke(Source.SMELLS, include_tests=True)
+        self.assertIn("--include-tests", executed.call_args[0][0])
+
+    def test_include_tests_flag_is_never_passed_for_check(self):
+        # `qlty check` hard-errors on --include-tests; it only exists for
+        # `smells`, which is the only source that excludes test_patterns.
+        runner = self._runner()
+        with patch.object(
+            runner, "_execute", return_value=completed("[]", 0)
+        ) as executed:
+            runner.invoke(Source.CHECK, include_tests=True)
+        self.assertNotIn("--include-tests", executed.call_args[0][0])
+
 
 class ExecuteSubprocessFailureTests(unittest.TestCase):
     """The two subprocess failure modes _execute itself maps.
@@ -550,12 +568,20 @@ class ResolveBinaryTests(unittest.TestCase):
 class BaseArgsPathForwardingTests(unittest.TestCase):
     """Explicit paths must never be re-read by qlty as flags."""
 
+    @staticmethod
+    def _argv(source, *, scan_all, paths, include_tests=True, wire_flag="--json"):
+        """Assemble the full argv the way invoke() does."""
+        base = QltyRunner._base_args(
+            source, scan_all=scan_all, include_tests=include_tests, paths=paths
+        )
+        return QltyRunner._with_paths(base, wire_flag, paths)
+
     def test_no_separator_when_no_paths(self):
-        args = QltyRunner._base_args(Source.SMELLS, scan_all=True, paths=())
+        args = self._argv(Source.SMELLS, scan_all=True, paths=())
         self.assertNotIn("--", args)
 
     def test_separator_precedes_explicit_paths(self):
-        args = QltyRunner._base_args(
+        args = self._argv(
             Source.SMELLS, scan_all=False, paths=("src/qlty/runner.py",)
         )
         self.assertIn("--", args)
@@ -564,7 +590,7 @@ class BaseArgsPathForwardingTests(unittest.TestCase):
     def test_leading_dash_path_is_not_read_as_a_flag(self):
         # A file literally named "-foo.py", or a stray "--all", must land after
         # the end-of-options marker rather than altering the scan.
-        args = QltyRunner._base_args(
+        args = self._argv(
             Source.CHECK, scan_all=False, paths=("-foo.py", "--all")
         )
         sep = args.index("--")
@@ -572,14 +598,70 @@ class BaseArgsPathForwardingTests(unittest.TestCase):
         # --all appears only as a forwarded path, never as a scan flag.
         self.assertNotIn("--all", args[:sep])
 
+    def test_scan_all_is_dropped_when_paths_are_given(self):
+        # qlty exits nonzero on `--all` combined with explicit paths, so a
+        # path-scoped scan that also sent --all produced no findings at all.
+        # Naming paths already widens the scan past the changed-files default.
+        for source in (Source.CHECK, Source.SMELLS):
+            with self.subTest(source=source):
+                args = self._argv(source, scan_all=True, paths=("src/qlty/",))
+                sep = args.index("--")
+                self.assertNotIn("--all", args[:sep])
+
+    def test_scan_all_still_applies_without_paths(self):
+        args = self._argv(Source.CHECK, scan_all=True, paths=())
+        self.assertIn("--all", args)
+
+    def test_wire_flag_precedes_the_separator(self):
+        # Appending --json to a finished argv put it past the "--" marker, so
+        # qlty read it as a path and failed with "No such file or directory".
+        args = self._argv(Source.SMELLS, scan_all=False, paths=("tests/",))
+        sep = args.index("--")
+        self.assertIn("--json", args[:sep])
+        self.assertEqual(args[sep + 1:], ["tests/"])
+
     def test_check_keeps_read_only_flags_before_the_separator(self):
-        args = QltyRunner._base_args(
-            Source.CHECK, scan_all=True, paths=("src/qlty/",)
-        )
+        args = self._argv(Source.CHECK, scan_all=True, paths=("src/qlty/",))
         sep = args.index("--")
         self.assertIn("--no-fix", args[:sep])
         self.assertIn("--no-cache", args[:sep])
-        self.assertIn("--all", args[:sep])
+        # --all is deliberately absent here: qlty rejects it alongside explicit
+        # paths. See test_scan_all_is_dropped_when_paths_are_given.
+
+
+class BaseArgsIncludeTestsTests(unittest.TestCase):
+    """`--include-tests` is smells-only, and must stay before the `--` marker."""
+
+    def test_smells_with_include_tests_true_gets_the_flag(self):
+        args = QltyRunner._base_args(
+            Source.SMELLS, scan_all=True, include_tests=True, paths=()
+        )
+        self.assertIn("--include-tests", args)
+
+    def test_check_never_gets_the_flag_even_when_requested(self):
+        # `qlty check --help` does not list --include-tests; qlty check
+        # hard-errors if given it. Regression guard against leaking it in.
+        args = QltyRunner._base_args(
+            Source.CHECK, scan_all=True, include_tests=True, paths=()
+        )
+        self.assertNotIn("--include-tests", args)
+
+    def test_smells_with_include_tests_false_omits_the_flag(self):
+        args = QltyRunner._base_args(
+            Source.SMELLS, scan_all=True, include_tests=False, paths=()
+        )
+        self.assertNotIn("--include-tests", args)
+
+    def test_include_tests_precedes_the_end_of_options_marker(self):
+        base = QltyRunner._base_args(
+            Source.SMELLS,
+            scan_all=True,
+            include_tests=True,
+            paths=("src/qlty/",),
+        )
+        args = QltyRunner._with_paths(base, "--json", ("src/qlty/",))
+        sep = args.index("--")
+        self.assertIn("--include-tests", args[:sep])
 
 
 if __name__ == "__main__":
