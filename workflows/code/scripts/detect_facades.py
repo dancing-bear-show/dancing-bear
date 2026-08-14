@@ -8,10 +8,10 @@ alias assignments: imports > 0 AND defs == 0 AND other == 0.
 from __future__ import annotations
 
 import ast
+import datetime
 import json
 import os
 import re
-import subprocess
 import sys
 from collections import defaultdict
 
@@ -69,15 +69,42 @@ def classify(path):
 
 
 def module_path(path):
-    return path[len(SRC) + 1:].removesuffix(".py").replace("/", ".")
+    """Convert a filesystem path under SRC to a dotted module name.
+
+    Uses os.path.relpath + os.sep (not a hard-coded "/") so this works on
+    Windows and regardless of the caller's cwd relative to SRC.
+    """
+    rel = os.path.relpath(path, SRC).removesuffix(".py")
+    return ".".join(rel.split(os.sep))
 
 
-def grep(pattern, roots):
-    dirs = [d for d in roots if os.path.isdir(d)]
-    if not dirs:
-        return []
-    out = subprocess.run(["grep", "-rnE", pattern, *dirs], capture_output=True, text=True).stdout
-    return [ln for ln in out.splitlines() if ln.strip()]
+def scan_lines(pattern, roots):
+    """Pure-Python replacement for shelling out to `grep -rnE`.
+
+    Returns "path:lineno" strings for every line matching `pattern` under the
+    given root directories. Unreadable/binary files are skipped explicitly —
+    a missing external grep binary previously failed silently (empty stdout),
+    which this makes impossible since there's no external process to be absent.
+    """
+    regex = re.compile(pattern)
+    hits = []
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for fn in filenames:
+                if not fn.endswith(".py"):
+                    continue
+                p = os.path.join(dirpath, fn)
+                try:
+                    with open(p, encoding="utf-8") as fh:
+                        lines = fh.readlines()
+                except (OSError, UnicodeDecodeError):
+                    continue  # nosec B112 - skip unreadable/binary files silently
+                for lineno, line in enumerate(lines, start=1):
+                    if regex.search(line):
+                        hits.append(f"{p}:{lineno}")
+    return hits
 
 
 def imports_of(path):
@@ -147,7 +174,7 @@ def ast_callers():
             except (SyntaxError, UnicodeDecodeError, OSError):
                 continue
             pkg = ""
-            if p.startswith(SRC + "/"):
+            if p.startswith(SRC + os.sep):
                 mp = module_path(p)
                 pkg = mp.rsplit(".", 1)[0] if "." in mp else ""
             for n in ast.walk(tree):
@@ -185,11 +212,14 @@ _ast_hits = ast_callers()
 for mod, f in facades.items():
     esc = re.escape(mod)
     files = sorted(_ast_hits.get(mod, set()) - {f["path"]})
-    f["src_callers"] = sum(1 for x in files if x.startswith("src/"))
-    f["test_callers"] = sum(1 for x in files if x.startswith("tests/"))
-    f["bin_callers"] = sum(1 for x in files if x.startswith("bin/"))
+    f["src_callers"] = sum(1 for x in files if x.startswith(SRC + os.sep))
+    f["test_callers"] = sum(1 for x in files if x.startswith("tests" + os.sep))
+    f["bin_callers"] = sum(1 for x in files if x.startswith("bin" + os.sep))
     f["caller_files"] = files
-    patches = grep(rf"(patch|patch\.object)\([\"']{esc}\.", ["tests", "src"])
+    # re.escape(mod) so "worker.queue" doesn't match the unrelated literal
+    # "worker_queue" — that trap produced 20 indistinguishable false positives
+    # during this sweep.
+    patches = scan_lines(rf"(patch|patch\.object)\([\"']{esc}\.", ["tests", SRC])
     f["patch_targets"] = [h.split(":")[0] + ":" + h.split(":")[1] for h in patches]
 
 # ---- Step 5: chains ---------------------------------------------------------
@@ -208,10 +238,11 @@ for mod, f in facades.items():
 
 # ---- Step 6: symbol -> terminal real module --------------------------------
 def _module_file(mod):
-    p = os.path.join(SRC, mod.replace(".", "/") + ".py")
+    parts = mod.split(".")
+    p = os.path.join(SRC, *parts) + ".py"
     if os.path.exists(p):
         return p
-    p = os.path.join(SRC, mod.replace(".", "/"), "__init__.py")
+    p = os.path.join(SRC, *parts, "__init__.py")
     return p if os.path.exists(p) else None
 
 
@@ -260,7 +291,7 @@ def resolve(mod, sym, hops=0):
     """Follow re-export hops to the module that actually defines sym."""
     if hops > 10:
         return None
-    p = facades.get(mod, {}).get("path") or os.path.join(SRC, mod.replace(".", "/") + ".py")
+    p = facades.get(mod, {}).get("path") or os.path.join(SRC, *mod.split(".")) + ".py"
     if not os.path.exists(p):
         return None
     try:
@@ -337,8 +368,7 @@ for mod, f in facades.items():
     f["symbols_unresolved"] = len(unresolved)
 
 out = {
-    "scanned_at": subprocess.run(["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
-                                 capture_output=True, text=True).stdout.strip(),
+    "scanned_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "include_init": INCLUDE_INIT,
     "total_facades": len(facades),
     "facades": sorted(facades.values(),
