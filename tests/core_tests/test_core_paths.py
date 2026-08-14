@@ -7,6 +7,9 @@ from unittest.mock import patch
 
 from core.paths import APP_DIR_NAME, ENV_DATA_HOME, data_home, output_dir
 
+# tests/core_tests/test_core_paths.py -> tests/core_tests -> tests -> checkout
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _env(**overrides):
     """Patch os.environ with the data-home vars cleared, then applied."""
@@ -25,13 +28,18 @@ class TestDataHome(unittest.TestCase):
                 Path(os.path.expanduser("~/.local/share")) / APP_DIR_NAME,
             )
 
-    def test_default_is_outside_the_working_directory(self):
-        """The whole point: generated files must not land in the checkout."""
+    def test_default_is_outside_the_checkout(self):
+        """The whole point: generated files must not land in the checkout.
+
+        Anchored to the repo root derived from ``__file__`` rather than to the
+        working directory — tests run from a parent of the checkout (or from
+        ``~``, which contains the default ``~/.local/share``) would make a
+        cwd-based assertion say the wrong thing in either direction.
+        """
         with _env():
-            self.assertTrue(data_home().is_absolute())
-            self.assertFalse(
-                str(data_home()).startswith(str(Path.cwd()) + os.sep)
-            )
+            resolved = data_home()
+            self.assertTrue(resolved.is_absolute())
+            self.assertFalse(resolved.is_relative_to(REPO_ROOT))
 
     def test_xdg_data_home_is_honoured(self):
         with _env(XDG_DATA_HOME="/fake/xdg"):

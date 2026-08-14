@@ -113,8 +113,11 @@ def _apply_filter_pipeline(data: dict, args: argparse.Namespace, min_priority: f
 def _resolve_out(args: argparse.Namespace, default_ext: str, kind: str) -> Path:
     """Resolve output path.
 
-    New scheme: nest by profile under out-dir for clearer segregation:
-      out/<profile>/<kind><ext>
+    Nests by profile under the resolved out-dir for clearer segregation:
+      <out-dir>/<profile>/<kind><ext>
+
+    ``<out-dir>`` is ``--out-dir`` when given, else ``core.paths.output_dir()``
+    for this domain (``<data-home>/resume``).
 
     Backward compatibility is preserved elsewhere when reading (e.g., structure).
     """
