@@ -29,11 +29,23 @@ def iter_py():
                 yield os.path.join(dirpath, fn)
 
 
+def parse_py(path):
+    """Parse a Python file, or return None if it cannot be read or parsed.
+
+    Centralises the read so every call site closes its handle deterministically
+    rather than relying on refcount finalisation of a bare open(...).read().
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return ast.parse(fh.read())
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return None
+
+
 def classify(path):
     """Return (imports, defs, other, reexported_names) for a module's top level."""
-    try:
-        tree = ast.parse(open(path, encoding="utf-8").read())
-    except (SyntaxError, UnicodeDecodeError):
+    tree = parse_py(path)
+    if tree is None:
         return None
     imports = defs = other = 0
     names = []
@@ -109,9 +121,8 @@ def scan_lines(pattern, roots):
 
 def imports_of(path):
     """Modules this file imports from (absolute dotted, resolving relatives)."""
-    try:
-        tree = ast.parse(open(path, encoding="utf-8").read())
-    except (SyntaxError, UnicodeDecodeError):
+    tree = parse_py(path)
+    if tree is None:
         return []
     pkg = module_path(path).rsplit(".", 1)[0] if "." in module_path(path) else ""
     found = []
@@ -169,9 +180,8 @@ def ast_callers():
             if not fn.endswith(".py"):
                 continue
             p = os.path.join(root, fn).lstrip("./")
-            try:
-                tree = ast.parse(open(p, encoding="utf-8").read())
-            except (SyntaxError, UnicodeDecodeError, OSError):
+            tree = parse_py(p)
+            if tree is None:
                 continue
             pkg = ""
             if p.startswith(SRC + os.sep):
@@ -269,9 +279,8 @@ def defines(mod, sym):
     p = _module_file(mod)
     if not p:
         return False
-    try:
-        tree = ast.parse(open(p, encoding="utf-8").read())
-    except (SyntaxError, UnicodeDecodeError):
+    tree = parse_py(p)
+    if tree is None:
         return False
     for n in _binding_nodes(tree.body):
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name == sym:
@@ -294,9 +303,8 @@ def resolve(mod, sym, hops=0):
     p = facades.get(mod, {}).get("path") or os.path.join(SRC, *mod.split(".")) + ".py"
     if not os.path.exists(p):
         return None
-    try:
-        tree = ast.parse(open(p, encoding="utf-8").read())
-    except (SyntaxError, UnicodeDecodeError):
+    tree = parse_py(p)
+    if tree is None:
         return None
     pkg = mod.rsplit(".", 1)[0] if "." in mod else ""
 
