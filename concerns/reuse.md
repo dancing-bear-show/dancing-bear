@@ -56,6 +56,12 @@ non-test source files unless noted.
   constant, dataclass, or utility function (not a class that owns domain logic);
   dataclasses or enums whose definition file is not a shared module but that
   are imported by 2+ other files in the same domain.
+- **not a trigger**: `<domain>/agentic.py` hand-authoring its capsule text and
+  domain map. 10 of the 11 domains define `build_agentic_capsule()` this way,
+  and it is deliberate: the auto-derived schema is what `--agentic
+  --agentic-format json` emits, while the text capsule carries curated prose
+  that cannot be derived from the parser (rationale, caveats, semantics).
+  Two surfaces, two purposes — not a hand-maintained copy of one source.
 - **example**: A plain dataclass defined in a domain's CLI module and then
   imported by a sibling helper module — because both CLI and helper use it,
   the dataclass belongs in a shared location within that domain or in `core/`.

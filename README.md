@@ -55,6 +55,7 @@ CLI help:
 | Charts | `./bin/charts` | Render time-series charts from JSON |
 | Diagrams | `./bin/diagrams` | Mermaid diagram generation |
 | Workflow | `./bin/workflow` | YAML DAG workflow engine |
+| Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
 
 Legacy `-assistant` suffixed binaries still work (e.g., `./bin/mail-assistant`).
 
@@ -67,7 +68,7 @@ safety pattern before touching any real provider.
 flowchart TB
     user([CLI or Claude Code])
     assistant[./bin/assistant]
-    bins["./bin/mail  ./bin/calendar  ./bin/schedule\n./bin/phone  ./bin/whatsapp  ./bin/wifi\n./bin/metals  ./bin/maker  ./bin/charts\n./bin/diagrams  ./bin/workflow  ./bin/worker\n./bin/telemetry  ./bin/llm"]
+    bins["./bin/mail  ./bin/calendar  ./bin/schedule\n./bin/phone  ./bin/whatsapp  ./bin/wifi\n./bin/metals  ./bin/maker  ./bin/charts\n./bin/diagrams  ./bin/workflow  ./bin/worker\n./bin/telemetry  ./bin/llm  ./bin/qlty-assistant"]
 
     subgraph domain["Domain packages (src/)"]
         mail[mail/]
@@ -86,6 +87,7 @@ flowchart TB
         workflow[workflow/]
         worker[worker/]
         telemetry[telemetry/]
+        qlty[qlty/]
     end
 
     core[src/core/ — shared helpers + CLI framework]
