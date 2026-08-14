@@ -6,6 +6,7 @@ from typing import Any
 
 from .selection import compute_window, filter_events_by_day_time
 from .model import normalize_event
+from core.outlook.models import UpdateEventLocationRequest
 
 
 @dataclass
@@ -118,7 +119,13 @@ class LocationSync:
         if update.dry_run:
             print(f"[dry-run] would update {update.label} '{update.subj}' -> '{update.yaml_loc}' (id={update.event_id})")
         else:
-            self.svc.update_event_location(event_id=update.event_id, calendar_name=update.cal_name, location_str=update.yaml_loc)
+            self.svc.update_event_location(
+                UpdateEventLocationRequest(
+                    event_id=update.event_id,
+                    location_str=update.yaml_loc,
+                    calendar_name=update.cal_name,
+                )
+            )
             print(f"Updated {update.label}: {update.subj} -> {update.yaml_loc}")
 
     def _apply_all_occurrences(

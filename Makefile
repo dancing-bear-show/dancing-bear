@@ -16,7 +16,10 @@ RUNPY := PYTHONPATH=$(SRC) $(PY)
 venv:
 	$(PYTHON) -m venv $(VENV)
 	$(PY) -m pip install -U pip
-	$(PY) -m pip install -e .
+	# [tui] pulls textual. `make test` depends on this target, and the telemetry
+	# TUI tests import textual directly — a plain `-e .` makes them fail on a
+	# fresh clone, and makes coverage silently report those modules as 0%.
+	$(PY) -m pip install -e ".[tui]"
 	# Ensure wrappers are executable
 	chmod +x bin/* 2>/dev/null || true
 
@@ -25,8 +28,10 @@ dev-venv:
 	$(PY) -m pip install -U pip setuptools wheel
 	# Dev deps (pytest etc.)
 	$(PY) -m pip install -r requirements-dev.txt || true
-	# Install package editable
-	$(PY) -m pip install -e .
+	# Install package editable with the dev extra. [dev] includes textual so the
+	# telemetry TUI modules are importable locally and coverage matches CI —
+	# a plain `-e .` leaves them unimportable and silently at 0%.
+	$(PY) -m pip install -e ".[dev]"
 	# Ensure wrappers are executable
 	chmod +x bin/* || true
 
@@ -44,6 +49,9 @@ check-env: venv
 	sys.exit(0) if src in got.parents else (print(f'ERROR: core resolves to {got}, expected under {src}'), sys.exit(1))"
 	@echo "OK: imports resolve to $(SRC)"
 
+# The [tui] extra comes from the venv target above. An optional dep missing at
+# collection time reports its modules as 0% rather than as skipped, which reads
+# identically to untested code — so coverage must match CI's install.
 cov: venv
 	$(PY) -m pip install coverage || true
 	$(RUNPY) -m coverage run -m unittest -q || true

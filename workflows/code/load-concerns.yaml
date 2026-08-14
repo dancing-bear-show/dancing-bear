@@ -125,7 +125,7 @@ stages:
       Write {workspace}/outputs/concerns.json:
         [
           {
-            "concern_id": "wrong-cli-flags",
+            "concern_id": "flow-wrong-cli-flags",
             "severity": "critical",
             "guide": "workflow.md",
             "check": "one-line check description",
@@ -159,7 +159,7 @@ stages:
 
         | ID | Severity | Check |
         |----|----------|-------|
-        | wrong-cli-flags | critical | Verify every ./bin/ invocation uses flags that exist on that CLI |
+        | flow-wrong-cli-flags | critical | Verify every ./bin/ invocation uses flags that exist on that CLI |
         | ... | ... | ... |
 
         ### Critical Concerns (fix before committing)

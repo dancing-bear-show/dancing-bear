@@ -16,6 +16,7 @@ from core.outlook.models import (
     ListCalendarViewRequest,
     ListEventsRequest,
     RecurringEventCreationParams,
+    UpdateEventLocationRequest,
     UpdateEventReminderRequest,
 )
 
@@ -134,5 +135,5 @@ class FakeCalendarService:
         self.created_events.append(("recurring", params))
         return evt
 
-    def update_event_location(self, *, event_id: str, location_str: str, **kwargs) -> None:  # NOSONAR - fake interface must match real signature
-        self.updated_locations.append((event_id, location_str))
+    def update_event_location(self, params: UpdateEventLocationRequest) -> None:
+        self.updated_locations.append((params.event_id, params.location_str))

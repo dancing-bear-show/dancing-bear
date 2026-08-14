@@ -259,3 +259,21 @@ source files introduce new `sys.exit()` paths, HTTP clients, or mock boundaries.
 - **check**: Verify that any wildcard import shim in a test tree defines `__all__` or carries a suppression comment explaining the re-export intent, so linters do not flag it as a namespace-polluting import.
 - **triggers**: Test files that use `from <module> import *` to re-export decompose-sweep shim symbols; `# NOSONAR` or `# noqa` suppressions on wildcard imports that lack an inline rationale; new shim files under `tests/` created by decompose refactors.
 - **example**: `from tests.mail_tests.accounts.test_accounts_processors import *  # NOSONAR` — no rationale; a future reader cannot distinguish an intentional backward-compat shim from an accidental wildcard. Fix: add a comment — `# NOSONAR - intentional re-export shim from decompose-sweep; __all__ not defined in source` — or define `__all__` in the imported module to prevent namespace pollution.
+
+### fake-silent-miss
+- **severity**: major
+- **check**: Verify that test fakes and stubs fail fast — raise `KeyError`, `AssertionError`, or a domain error — when asked for a key or ID they do not hold, rather than returning placeholder data. A fake that answers every lookup hides bugs where the code under test requests the wrong identifier.
+- **triggers**: Fake classes under `tests/fakes/` whose lookup methods (`get_attachment`, `get_message`, `fetch_label`) return a sentinel (empty bytes, `{}`, `None`) for an absent ID instead of raising; new fakes whose `__getitem__` has a bare `or default` fallback with no assertion.
+- **example**: `tests/fakes/gmail.py` `FakeGmailClient.get_attachment()` returned placeholder bytes for an unregistered attachment id, so a test passing the *wrong* id still passed and the real bug went undetected. Fix: raise `KeyError(attachment_id)` when the id is absent.
+
+### test-date-rollover-flakiness
+- **severity**: major
+- **check**: Verify that a test which writes a time-keyed artifact (a file named `YYYYMMDD`, a date-partitioned log) and then reads it back freezes "today" for both the write and the read. Sampling `datetime.now()` twice can straddle a UTC midnight boundary and make the two halves disagree.
+- **triggers**: Tests calling `datetime.now()` or `date.today()` in setup *and* again inside the code under test; tests for throughput/status/log commands whose filename derives from the current date; any test that could fail only when run within seconds of midnight UTC.
+- **example**: `test_worker_silent_fallbacks.py` setUp writes a perf log keyed by `datetime.now(UTC)`, then `StatusCommand._calculate_throughput()` recomputes `ymd` at call time (`worker/commands.py:124`). If midnight passes between the two, the method looks for a different filename and returns `None`. Fix: patch `worker.commands.datetime` to a fixed value so both halves agree.
+
+### test-asserts-cwd-not-repo-root
+- **severity**: minor
+- **check**: Verify that a test asserting a path is "outside the checkout" derives the repo root from `__file__` or a project constant rather than from `Path.cwd()`. The working directory at test time is not the checkout, so the assertion can be vacuous or spuriously fail.
+- **triggers**: Assertions like `not str(result).startswith(str(Path.cwd()))` or `Path.cwd() not in result.parents` used to prove a path escapes the repo; tests validating default output-directory placement.
+- **example**: `tests/core_tests/test_core_paths.py` asserted the default data home is outside `Path.cwd()`. Run the suite from `~` and `~/.local/share/dancing-bear` *is* under `cwd`, so the test fails while the code is correct. Fix: derive the root via `Path(__file__).resolve()` and assert the result is not under it.

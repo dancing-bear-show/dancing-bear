@@ -35,7 +35,7 @@ flowchart TB
         prod["BaseProducer\n→ OutputWriter"]
     end
     api_gmail["Gmail API\n(gmail_api.py)"]
-    api_outlook["outlook_api/client.py\nGraph API"]
+    api_outlook["core/outlook/client.py\nGraph API"]
 
     bin --> cli
     cli --> groups
@@ -77,7 +77,7 @@ Key modules:
 - `cli/main.py` — CLIApp wiring; all groups and subcommands registered here
 - `providers/gmail.py`, `providers/outlook.py` — `BaseProvider` subclasses; implement labels/filters/messages
 - `gmail_api.py` — low-level Gmail REST wrapper (lazy import)
-- `outlook_api/client.py` — Graph API client (lazy import, MSAL auth)
+- `core/outlook/client.py` — Graph API client (lazy import, MSAL auth); `mail/outlook_api` is a thin alias re-exporting `OutlookClient` for existing call sites
 - `filters/processors_plan.py` — `FiltersPlanProcessor`, `FiltersSyncProcessor`, `FiltersExportProcessor`
 - `filters/processors_sweep.py` — `FiltersSweepProcessor`, `FiltersPruneProcessor`
 - `labels/processors.py` — `LabelsPlanProcessor`, `LabelsSyncProcessor`; producers in `labels/producers.py` (`LabelsPlanProducer`, `LabelsSyncProducer`, `LabelsExportProducer`)

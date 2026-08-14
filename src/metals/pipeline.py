@@ -58,7 +58,7 @@ class ExtractResult:
 class SpotPriceRequest:
     """Request to fetch spot prices."""
     metal: str  # gold or silver
-    start_date: str | None = None  # YYYY-MM-DD; None = auto-detect
+    start_date: str | None = None  # YYYY-MM-DD; None = auto-detect  # NOSONAR - format hint, not commented-out code
     end_date: str | None = None
     out_path: str = ""  # output CSV path; empty = default per metal
 

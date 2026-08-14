@@ -50,8 +50,8 @@ class _FakeClient:
     def list_calendars(self):
         return [{"id": "cal1", "name": "Primary"}]
 
-    def update_event_location(self, *, event_id, calendar_id=None, calendar_name=None, location_str):
-        self.location_updates.append((event_id, location_str))
+    def update_event_location(self, params):
+        self.location_updates.append((params.event_id, params.location_str))
 
     def update_event_reminder(self, params):
         self.reminder_updates.append(params)
@@ -59,8 +59,8 @@ class _FakeClient:
     def update_event_settings(self, params):
         self.settings_updates.append(params)
 
-    def update_event_subject(self, *, event_id, calendar_id=None, calendar_name=None, subject):
-        self.subject_updates.append((event_id, subject))
+    def update_event_subject(self, params):
+        self.subject_updates.append((params.event_id, params.subject))
 
     def ensure_calendar_permission(self, calendar_id, recipient, role):
         self.permissions.append((calendar_id, recipient, role))
@@ -152,8 +152,9 @@ class TestOutlookServiceDelegation(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_update_event_location(self):
+        from core.outlook.models import UpdateEventLocationRequest
         svc = _make_svc()
-        svc.update_event_location(event_id="e1", location_str="Test Location")
+        svc.update_event_location(UpdateEventLocationRequest(event_id="e1", location_str="Test Location"))
         self.assertEqual(len(svc.client.location_updates), 1)
 
     def test_update_event_reminder(self):
@@ -171,8 +172,9 @@ class TestOutlookServiceDelegation(unittest.TestCase):
         self.assertEqual(len(svc.client.settings_updates), 1)
 
     def test_update_event_subject(self):
+        from core.outlook.models import UpdateEventSubjectRequest
         svc = _make_svc()
-        svc.update_event_subject(event_id="e1", subject="New Title")
+        svc.update_event_subject(UpdateEventSubjectRequest(event_id="e1", subject="New Title"))
         self.assertIn(("e1", "New Title"), svc.client.subject_updates)
 
     def test_ensure_calendar_permission(self):

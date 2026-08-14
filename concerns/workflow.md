@@ -12,10 +12,12 @@ param wiring, and agent definition quality.
 
 ## Concerns
 
-### wrong-cli-flags
+### flow-wrong-cli-flags
 - **severity**: critical
 - **check**: Verify every `./bin/` CLI invocation in a flow step uses flags that
   exist on that CLI, verified against its `--agentic` schema.
+  (The workflow-YAML stage counterpart is `stage-wrong-cli-flags` in
+  workflow-stages.md.)
 - **triggers**: Any flow `cmd` or `steps` entry with explicit flag names; new or
   modified entries in `.llm/FLOWS.yaml`.
 - **example**: A flow step calls `./bin/mail-assistant filters sync --delete-all`
@@ -34,15 +36,6 @@ param wiring, and agent definition quality.
 - **example**: A flow declares `cmd: ./bin/mail-assistant --profile {profile} filters plan`
   but `{profile}` is never passed at call sites — the placeholder is literal and
   produces a broken command. Fix: either substitute the param or use a concrete value.
-
-### hardcoded-absolute-path
-- **severity**: major
-- **check**: Verify no absolute paths appear in flow commands, agent prompts, or
-  YAML config files — paths like `/Users/...` are non-portable.
-- **triggers**: Any `.yaml` or `.md` file containing `/Users/`, `/opt/homebrew/`,
-  `/home/`, or other filesystem-rooted paths not rooted at the workspace.
-- **example**: A flow step hardcodes `/Users/bcs/code/dancing-bear/bin/mail-assistant`
-  instead of `./bin/mail-assistant` — breaks on any other machine.
 
 ### shell-chain-no-failure-record
 - **severity**: major
@@ -220,3 +213,21 @@ param wiring, and agent definition quality.
 - **check**: Verify that module paths, method signatures, and data shapes cited in workflow stage pseudocode exist in the actual codebase — agents following pseudocode that points at non-existent files or wrong method signatures will immediately fail or produce wrong output.
 - **triggers**: Workflow YAML stage descriptions containing `import` statements, file paths, or method calls with concrete module paths or method signatures; pseudocode that names argument names or return-value keys that differ from the actual implementation.
 - **example**: A stage description imports `from mail.providers import GmailProvider` — but the actual class lives under `mail/gmail_provider.py`. The agent follows the pseudocode, gets `ModuleNotFoundError`, and fails. Fix: verify all pseudocode paths with `find . -name '*.py' | xargs grep -l 'class GmailProvider'` before committing the workflow. Also check method signatures match the actual module.
+
+### trigger-param-unreferenced
+- **severity**: major
+- **check**: Verify that every key declared in `trigger.params` is interpolated as `{param}` in at least one stage body. A declared-but-unreferenced param is dead configuration: callers can set it, the run silently ignores it, and the workflow does something other than what the param name promises.
+- **triggers**: A `trigger.params` key whose `{name}` appears in no stage `description`, `writes_to`, or `when:`; params added in a diff without a matching interpolation site; a param documented in the header comment but absent from the DAG.
+- **example**: `pdffill-domain-build.yaml` declared `branch` and described it as the branch implementation agents work on, but `{branch}` appeared nowhere and no stage checked a branch out — the run used whatever branch happened to be active, contradicting the merge instructions in its own human gate. Fix: interpolate the param where it belongs, or delete it from `trigger.params`.
+
+### workflow-spec-missing-prerequisite-artifact
+- **severity**: major
+- **check**: When a stage instructs writing a file that imports or invokes another artifact, verify some stage also instructs creating that artifact. A spec that prescribes the consumer but not the producer fails at first invocation.
+- **triggers**: A stage writing a `bin/` wrapper with `from <pkg>.__main__ import main` where no stage writes `src/<pkg>/__main__.py`; verify stages invoking an entry point whose module was never specified; test stages importing a module no stage creates.
+- **example**: `pdffill-domain-build.yaml` instructed writing `bin/pdffill` importing `pdffill.__main__`, and a later stage ran `./bin/pdffill --help` — but no stage ever wrote `src/pdffill/__main__.py`, so the verify stage hit `ModuleNotFoundError`. Fix: add the missing producer stage ahead of every consumer.
+
+### workflow-log-pii-exposure
+- **severity**: major
+- **check**: Verify that stages handling personal data (resume content, email bodies, identifiers, tokens) do not print raw structured output to stdout. The engine does not redact transcripts, so anything echoed is captured even if later steps redact what reaches disk.
+- **triggers**: Stage descriptions with `cat <file>.json`, `echo "$JSON"`, or `--format json` piped to stdout where the data is described as personal or user-supplied; smoke tests that dump a full parse result to prove fields populated.
+- **example**: A real-form smoke test ran `pdffill parse --format json resume.pdf` and printed the whole payload — name, address, employment history — into the run transcript. Fix: pipe through a field-name-only extractor (`print(list(d))`) or redirect to a temp file and print only a count.

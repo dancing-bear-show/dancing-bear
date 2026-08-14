@@ -96,7 +96,7 @@ class TestLoadDefinitionRaisesCLIError(unittest.TestCase):
             _load_definition("/nonexistent/path/wf.yaml")
         except CLIError:
             pass  # expected path under test — CLIError, not SystemExit
-        except SystemExit:
+        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
             self.fail("_load_definition raised SystemExit instead of CLIError")
 
     def test_invalid_yaml_raises_cli_error(self) -> None:
@@ -112,7 +112,7 @@ class TestLoadDefinitionRaisesCLIError(unittest.TestCase):
                 _load_definition(path)
             except CLIError:
                 pass  # expected path under test — CLIError, not SystemExit
-            except SystemExit:
+            except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
                 self.fail("_load_definition raised SystemExit instead of CLIError")
 
     def test_missing_file_cli_error_code_is_error(self) -> None:
@@ -145,7 +145,7 @@ class TestLoadManifestRaisesCLIError(unittest.TestCase):
             _load_manifest("/no/such/wf.yaml")
         except CLIError:
             pass  # expected path under test — CLIError, not SystemExit
-        except SystemExit:
+        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
             self.fail("_load_manifest raised SystemExit instead of CLIError")
 
     def test_compile_error_raises_cli_error(self) -> None:
@@ -202,7 +202,7 @@ stages:
                 _load_manifest(path)
             except CLIError:
                 pass  # expected path under test — CLIError, not SystemExit
-            except SystemExit:
+            except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
                 self.fail("_load_manifest raised SystemExit instead of CLIError")
 
     def test_happy_path_returns_defn_and_manifest(self) -> None:
@@ -230,7 +230,7 @@ class TestBuildResolvedParamsRaisesCLIError(unittest.TestCase):
             _build_resolved_params("/no/such/file.yaml", {})
         except CLIError:
             pass  # expected path under test — CLIError, not SystemExit
-        except SystemExit:
+        except SystemExit:  # NOSONAR - asserting SystemExit is NOT raised; re-raising would defeat the test
             self.fail("_build_resolved_params raised SystemExit instead of CLIError")
 
     def test_invalid_yaml_raises_cli_error(self) -> None:

@@ -401,3 +401,39 @@ changes — new functions, modified logic, CLI `run()` methods, and datetime han
 - **check**: Verify that every `except Exception` block that *swallows* the error — `pass`, `continue`, or a sentinel return (`return None`/`{}`/`[]`) — carries a `# nosec B110` or `# nosec B112` comment with an inline rationale. Blocks that re-raise or convert the exception into a domain error (e.g. `raise CLIError(...) from exc`) do not swallow it and need no annotation.
 - **triggers**: `except Exception` / `except Exception as e` blocks in `.py` source files whose body is `pass`, `continue`, or a bare sentinel return, and that lack a `# nosec` annotation; `_process_safe`, `consume()`, or loader methods that catch `Exception` broadly and continue past the failure. Do NOT trigger on blocks whose body re-raises or raises a domain-specific error.
 - **example**: `except Exception: return None` with no annotation — Bandit flags this and reviewers cannot tell whether swallowing the error is intentional or an oversight. Fix: `except Exception:  # nosec B110 - <reason why this is best-effort and not hiding real bugs>`. By contrast, `except Exception as exc: raise CLIError(...) from exc` converts rather than swallows and correctly needs no `# nosec`.
+
+### dict-comprehension-key-collision
+- **severity**: major
+- **check**: Verify that a dict built by comprehension or loop over a superset of keys cannot have a correct entry silently overwritten by a later one. Confirm the resulting mapping holds the intended value for every key, not merely that every key is present.
+- **triggers**: A dict comprehension inverting a name→code table where several names share one code; length or cardinality filters (`if len(k) > 3`) used to pick a "canonical" name; reverse lookups built from an alias-bearing source table.
+- **example**: `RRULE_CODE_TO_DAY_NAME = {code: name for name, code in TABLE.items() if len(name) > 3}` — both `"tues"` and `"tuesday"` map to `"TU"`, so `TU` resolves to whichever iterates last and Outlook/Graph day normalization emits the wrong day. Fix: build the mapping explicitly from the authoritative names rather than by filtering a table that also contains aliases.
+
+### optional-widened-into-required-slot
+- **severity**: major
+- **check**: Verify that a value typed `T | None` is not passed straight into a slot typed `T`. The annotation then claims the field is always present while `None` can flow through it, so downstream code trusts a guarantee the types no longer provide.
+- **triggers**: Dataclass/`TypedDict` constructor calls where the argument comes from an optional field and the receiving slot is non-optional; a field loosened to `| None` in a diff without auditing its consumers.
+- **example**: `SummaryConfig.session_id` was widened to `str | None`, but `compute_summary()` passes it directly into `SessionSummary.session_id`, typed `str`. Downstream readers see a missing session id while the hints insist it exists. Fix: narrow at the call site, or make the receiving type optional and handle it consistently.
+
+### dict-get-default-not-none-guard
+- **severity**: major
+- **check**: Verify that `dict.get(key, {})` is not used to guard against an explicit `null` in API or JSON payloads. The default applies only when the key is *absent* — an explicit `None` value is returned as-is and the next `.get()` raises.
+- **triggers**: `payload.get("attributes", {})` / `.get("items", [])` on externally-parsed data followed by chained access; provider responses whose schema permits explicit nulls.
+- **example**: `song.get("attributes", {}).get("name")` raises `AttributeError` when the API returns `"attributes": null`, because `.get` returns `None` rather than the `{}` default. Fix: `(song.get("attributes") or {}).get("name")`, the defensive form already used elsewhere in that module.
+
+### signature-refactor-stale-call-sites
+- **severity**: critical
+- **check**: Verify that a signature change — especially removing or merging keyword arguments — updated every call site. Stale kwargs raise `TypeError` only when that line executes, so an untested path stays broken through a green suite.
+- **triggers**: A diff changing a widely-called function's parameter list; a PR claiming call sites were "updated atomically"; `grep` for the removed kwarg still returning hits outside the changed file.
+- **example**: `HttpClient` moved from `json=`/`data=`/`files=`/`stream=` kwargs to a single `body: HttpRequestBody`, but `maker/print/send_to_printer.py` still passed `files=`/`data=`/`json=` and `wifi/diagnostics_probes.py` still passed `stream=True` — each raising `TypeError` on first use. Fix: grep every removed kwarg name repo-wide before merging.
+
+### frozen-dataclass-mutable-field
+- **severity**: minor
+- **check**: Verify that `@dataclass(frozen=True)` classes do not carry mutable fields that are mutated after construction. `frozen=True` blocks rebinding the attribute, not `append`/`update` on the object it points at, so the immutability guarantee is misleading.
+- **triggers**: `frozen=True` alongside a `list[...]`/`dict[...]` field; code calling `.append()` or `.update()` on a field of a frozen instance; accumulator fields threaded through a pipeline request object.
+- **example**: `@dataclass(frozen=True) class DeleteOneRequest` carries a `logs: list[str]` appended to during deletions. The append succeeds because only `request.logs = [...]` is blocked, so readers and type checkers infer an immutability that does not hold. Fix: drop `frozen=True`, or return the logs instead of accumulating into the frozen object.
+
+### config-parser-read-return-unchecked
+- **severity**: major
+- **check**: Verify that `ConfigParser.read(path)` return values are checked. `read()` swallows permission and open errors and returns an empty list, so an unreadable file is indistinguishable from a successfully parsed empty one.
+- **triggers**: `cp.read(path)` where the result is discarded; helpers that walk candidate config files and use "the first readable one"; credential-resolution search orders.
+- **example**: An unreadable `credentials.ini` (mode 000) makes `cp.read()` return `[]`, so a caller treats it as the first readable file and returns an empty config — shadowing a later file that *is* readable. Fix: `if not cp.read(path): return None` so an unreadable file is treated as absent, as `core/constants.py:_parse_ini_file` now does.
