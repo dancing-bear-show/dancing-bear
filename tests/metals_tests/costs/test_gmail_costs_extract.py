@@ -4,17 +4,21 @@ from __future__ import annotations
 import unittest
 
 from metals.costs_common import G_PER_OZ, extract_order_amount
-from metals.gmail_costs import (
+from metals.constants import (
+    PAT_DECIMAL_OZ as _PAT_OZ,
+    PAT_FRAC_OZ as _PAT_FRAC,
+    PAT_GRAMS as _PAT_G,
+)
+from metals.gmail_costs_extract import (
     _classify_vendor,
-    _extract_line_items,
     _is_cancelled,
     _is_order_confirmation,
+)
+from metals.gmail_costs_qty_items import (
+    _extract_line_items,
     _parse_frac_match,
     _parse_gram_match,
     _parse_oz_match,
-    _PAT_FRAC,
-    _PAT_G,
-    _PAT_OZ,
 )
 
 
