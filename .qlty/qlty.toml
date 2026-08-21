@@ -57,11 +57,12 @@ exclude_patterns = [
   # A single-file AST analyser that the facade-elimination workflow shells out
   # to by path; it is run as a script, never imported. file_complexity sums to
   # 172 against a threshold of 100 (see [smells.file_complexity] below), but the
-  # excess is inherent to the shape: ~20 small helpers that are individually
-  # clean — there is no function_complexity finding on it — which have to live
-  # in one file because the workflow invokes one path. Splitting it into a
-  # package to satisfy a file-level sum would add indirection to a script with
-  # exactly one caller.
+  # excess is inherent to the shape: 27 small helpers, none of which trips
+  # function_complexity individually, which have to live in one file because the
+  # workflow invokes one path. Splitting it into a package to satisfy a
+  # file-level sum would add indirection to a script with exactly one caller.
+  # (The file does carry two return_statements findings — _resolve_alias_assign
+  # and resolve, 6 returns each — which this exclusion also silences.)
   #
   # Excluded by path rather than by raising the global threshold, which was
   # deliberately tuned to 100 and would stop catching genuinely runaway modules.
