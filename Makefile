@@ -19,7 +19,9 @@ venv:
 	# [tui] pulls textual. `make test` depends on this target, and the telemetry
 	# TUI tests import textual directly — a plain `-e .` makes them fail on a
 	# fresh clone, and makes coverage silently report those modules as 0%.
-	$(PY) -m pip install -e ".[tui]"
+	# [slides] pulls python-pptx for the same reason: tests/slides_tests imports
+	# it directly, so omitting it fails 603 tests on a fresh clone.
+	$(PY) -m pip install -e ".[tui,slides]"
 	# Ensure wrappers are executable
 	chmod +x bin/* 2>/dev/null || true
 
