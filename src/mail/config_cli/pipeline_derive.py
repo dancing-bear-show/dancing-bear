@@ -101,8 +101,13 @@ class DeriveFiltersResult:
 DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
-def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
-    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
+def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
+    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX.
+
+    Also strips the ``keepInInbox`` marker, which is an input directive rather
+    than part of the provider payload. Both this and :func:`_apply_move_to_folders`
+    must strip it, since only one of the two runs per derive.
+    """
     for i, spec in enumerate(out_specs):
         orig = filters[i] if i < len(filters) else {}
         remove_list = ((orig or {}).get("action") or {}).get("remove") or []
@@ -114,11 +119,14 @@ def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
         spec["action"] = a
 
 
-def _apply_move_to_folders(out_specs: list) -> None:
+def _apply_move_to_folders(out_specs: list[dict]) -> None:
     """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set.
 
-    Rules marked `keepInInbox` are skipped: on Outlook a moveToFolder is a real
+    Rules marked ``keepInInbox`` are skipped: on Outlook a moveToFolder is a real
     move, so deriving one would pull mail the user wants to see out of the inbox.
+    The marker is stripped either way — it is an input directive, not part of the
+    provider payload. :func:`_apply_archive_on_remove_inbox` strips it too, since
+    only one of the two runs per derive.
     """
     for spec in out_specs:
         a = spec.get("action") or {}

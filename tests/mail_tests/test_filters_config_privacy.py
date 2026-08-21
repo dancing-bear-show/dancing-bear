@@ -13,9 +13,8 @@ from pathlib import Path
 import yaml
 
 from mail.config_cli.commands import UNIFIED_FILTERS_NAME, resolve_filters_config
+from tests.fixtures import REPO_ROOT
 
-# tests/mail_tests/test_filters_config_privacy.py -> mail_tests -> tests -> checkout
-REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO_ROOT / "config" / "filters_unified.example.yaml"
 
 
