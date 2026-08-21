@@ -64,7 +64,7 @@ filters:
   # Forwarding: copy to a partner without removing it from your own inbox.
 
   - match:
-      from: school.example.edu OR notices.school.example.edu
+      from: school.example.org OR notices.school.example.org
     action:
       add:
       - Kids/School
@@ -88,7 +88,9 @@ filters:
   # Omitting `remove: [INBOX]` is enough for Gmail, but NOT for Outlook: the
   # derive step auto-populates `moveToFolder` from the first `add` label, and on
   # Outlook that is a real move rather than a Gmail-style label. `keepInInbox`
-  # suppresses it. Use this for senders you are actively waiting to hear from.
+  # opts this one rule out while others still move. (Deriving with
+  # --no-outlook-move-to-folders suppresses the move for every rule instead.)
+  # Use this for senders you are actively waiting to hear from.
 
   - match:
       from: platform.example.com OR go.platform.example.com

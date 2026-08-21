@@ -17,6 +17,10 @@ from tests.fixtures import REPO_ROOT
 
 EXAMPLE = REPO_ROOT / "config" / "filters_unified.example.yaml"
 
+#: The only second-level domains RFC 2606 reserves for documentation. Everything
+#: else is registrable by a real party, so it must not appear in a public template.
+RESERVED_EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
+
 
 def _tracked_files() -> list[str]:
     """Paths git currently tracks, or [] when git is unavailable."""
@@ -86,12 +90,17 @@ class TestExampleIsSynthetic(unittest.TestCase):
             fwd = (rule.get("action") or {}).get("forward")
             if fwd:
                 self.assertTrue(
-                    fwd.endswith(("@example.com", "@example.org", "@example.net")),
+                    fwd.endswith(tuple("@" + d for d in RESERVED_EXAMPLE_DOMAINS)),
                     f"non-example forward address in template: {fwd}",
                 )
 
     def test_every_sender_uses_a_reserved_example_domain(self):
-        """RFC 2606 reserves example.com/org/net; anything else may be a real party."""
+        """RFC 2606 reserves example.com/org/net only — nothing else is guaranteed unowned.
+
+        Do not widen this tuple to make a template entry pass. example.edu, for
+        instance, is a real registrable domain; putting it in a public template
+        would point readers at whoever owns it.
+        """
         for rule in self.doc["filters"]:
             senders = (rule.get("match") or {}).get("from", "")
             for term in senders.split(" OR "):
@@ -100,7 +109,7 @@ class TestExampleIsSynthetic(unittest.TestCase):
                     continue
                 host = term.split("@")[-1]
                 self.assertTrue(
-                    host.endswith(("example.com", "example.org", "example.net", "example.edu")),
+                    host.endswith(RESERVED_EXAMPLE_DOMAINS),
                     f"non-example sender in template: {term}",
                 )
 

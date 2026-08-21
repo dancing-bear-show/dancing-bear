@@ -73,8 +73,9 @@ def normalize_filter_for_outlook(spec: dict) -> dict | None:
     # Outlook-only hint: move to folder by path
     if a.get("moveToFolder"):
         act["moveToFolder"] = str(a["moveToFolder"])  # path or name
-    # Opt-out: suppress the auto-derived moveToFolder so mail stays in the inbox.
-    # Outlook has no label-without-move, so categorizing alone requires this.
+    # Per-rule opt-out from the moveToFolder derived from add[] when move-to-folders
+    # is enabled, so this rule's mail stays in the inbox while others still move.
+    # Carried through here; stripped from the output by _strip_keep_in_inbox.
     if a.get("keepInInbox"):
         act["keepInInbox"] = True
     if not crit and not act:
