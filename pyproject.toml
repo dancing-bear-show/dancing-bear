@@ -16,7 +16,7 @@ dependencies = [
   "python-docx==1.2.0",
   "google-api-python-client==2.198.0",
   "google-auth==2.56.3",
-  "google-auth-httplib2==0.4.0",
+  "google-auth-httplib2==0.4.1",
   "google-auth-oauthlib==1.4.0",
   "httplib2==0.32.0",
   "matplotlib>=3.8",
