@@ -336,7 +336,7 @@ class TestRunLabelsPruneEmpty(unittest.TestCase):
             make_user_label("Empty1", "L1", messages=0),
             make_user_label("HasMessages", "L2", messages=5),
         ]
-        rc, out, client = self._run_prune(labels)
+        rc, out, _ = self._run_prune(labels)
         self.assertEqual(rc, 0)
         self.assertIn("Prune complete", out)
         self.assertIn("Deleted: 1", out)
