@@ -175,7 +175,6 @@ class ContentMixin:
         self, slide, content, theme_color,
     ) -> None:
         """Populate a centered title slide."""
-        from pptx.enum.shapes import MSO_SHAPE_TYPE
         from pptx.enum.text import PP_ALIGN
         from pptx.util import Inches, Pt
 
@@ -202,11 +201,21 @@ class ContentMixin:
             title_shape.width = title_w
             title_shape.height = Inches(1.5)
 
-        # Subtitle in the text box below (no bullets)
+        self._populate_title_subtitle(slide, content, theme_color)
+
+    def _populate_title_subtitle(self, slide, content, theme_color) -> None:
+        """Render a title slide's bullets as centered, bullet-free subtitle lines."""
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+        from pptx.enum.text import PP_ALIGN
+        from pptx.util import Inches, Pt
+
+        if not content.bullets:
+            return
+
         text_box = self._find_shape(
             slide, placeholder=False, shape_type=MSO_SHAPE_TYPE.TEXT_BOX, has_text_frame=True
         )
-        if text_box is None and content.bullets:
+        if text_box is None:
             # Legacy templates ship a non-placeholder text box on the title
             # slide; standard PowerPoint layouts do not. Without one, this
             # method used to drop every bullet on a title slide silently —
@@ -214,20 +223,20 @@ class ContentMixin:
             text_box = slide.shapes.add_textbox(
                 Inches(1.665), Inches(3.8), Inches(10.0), Inches(2.0)
             )
-        if text_box and content.bullets:
-            text_box.left = Inches(1.5)
-            text_box.top = Inches(3.8)
-            text_box.width = Inches(10.0)
-            text_box.height = Inches(2.0)
-            tf = text_box.text_frame
-            tf.word_wrap = True
-            tf.clear()
-            for i, item in enumerate(content.bullets):
-                p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-                p.alignment = PP_ALIGN.CENTER
-                # Explicitly suppress bullets via XML
-                self._suppress_bullet(p)
-                text = str(item.text if isinstance(item, BulletItem) else item)
-                run = p.add_run()
-                run.text = text
-                self._style_run(run, font_size=Pt(22), theme_color=theme_color)
+
+        text_box.left = Inches(1.5)
+        text_box.top = Inches(3.8)
+        text_box.width = Inches(10.0)
+        text_box.height = Inches(2.0)
+        tf = text_box.text_frame
+        tf.word_wrap = True
+        tf.clear()
+        for i, item in enumerate(content.bullets):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            p.alignment = PP_ALIGN.CENTER
+            # Explicitly suppress bullets via XML
+            self._suppress_bullet(p)
+            text = str(item.text if isinstance(item, BulletItem) else item)
+            run = p.add_run()
+            run.text = text
+            self._style_run(run, font_size=Pt(22), theme_color=theme_color)

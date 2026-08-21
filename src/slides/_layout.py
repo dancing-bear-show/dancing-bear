@@ -123,7 +123,8 @@ class LayoutMixin:
         of slides.
         """
         layout_map = deck.metadata.layout_map
-        assert layout_map is not None  # guaranteed by caller
+        if layout_map is None:  # guaranteed by caller; assert would vanish under -O
+            raise ValueError("layout_map mode requires deck.metadata.layout_map")
 
         # Resolve layouts — prefer master layouts, fall back to slide indices
         layouts = self._resolve_layouts_from_master(prs, layout_map)
