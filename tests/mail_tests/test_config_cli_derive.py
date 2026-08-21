@@ -224,6 +224,45 @@ class DeriveFiltersTests(TestCase):
             action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
             self.assertNotIn("keepInInbox", action)
 
+    def test_derive_filters_keep_in_inbox_stripped_with_all_flags_off(self):
+        """Both flags off means neither branch runs — the marker must still be stripped.
+
+        Regression: stripping used to live inside the move/archive branches, which
+        are mutually exclusive and both skipped under --no-outlook-move-to-folders,
+        so keepInInbox leaked into the derived Outlook config.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=False,
+                    outlook_move_to_folders=False,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
+            self.assertNotIn("keepInInbox", action)
+            # No folder move was requested, so none should have been derived.
+            self.assertNotIn("moveToFolder", action)
+            self.assertEqual(["Tech/Grafana"], action["add"])
+
     def test_derive_filters_processor_empty_filters(self):
         """DeriveFiltersProcessor handles empty filters list."""
         with tempfile.TemporaryDirectory() as tmpdir:

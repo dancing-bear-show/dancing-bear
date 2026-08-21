@@ -101,22 +101,32 @@ class DeriveFiltersResult:
 DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
-def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
-    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX.
+def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
+    """Remove the ``keepInInbox`` marker from every derived Outlook spec.
 
-    Also strips the ``keepInInbox`` marker, which is an input directive rather
-    than part of the provider payload. Both this and :func:`_apply_move_to_folders`
-    must strip it, since only one of the two runs per derive.
+    ``keepInInbox`` is an input directive that suppresses the derived
+    ``moveToFolder``; it is not part of the provider payload. Stripping happens
+    here, unconditionally, rather than inside the move/archive branches: those
+    are mutually exclusive and both are skipped under
+    ``--no-outlook-move-to-folders``, which previously let the marker leak into
+    the derived Outlook config.
     """
+    for spec in out_specs:
+        action = spec.get("action")
+        if isinstance(action, dict):
+            action.pop("keepInInbox", None)
+
+
+def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
+    """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
     for i, spec in enumerate(out_specs):
         orig = filters[i] if i < len(filters) else {}
         remove_list = ((orig or {}).get("action") or {}).get("remove") or []
-        a = spec.get("action") or {}
-        a.pop("keepInInbox", None)
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
+            a = spec.get("action") or {}
             a["moveToFolder"] = "Archive"
             a.pop("add", None)
-        spec["action"] = a
+            spec["action"] = a
 
 
 def _apply_move_to_folders(out_specs: list[dict]) -> None:
@@ -124,15 +134,13 @@ def _apply_move_to_folders(out_specs: list[dict]) -> None:
 
     Rules marked ``keepInInbox`` are skipped: on Outlook a moveToFolder is a real
     move, so deriving one would pull mail the user wants to see out of the inbox.
-    The marker is stripped either way — it is an input directive, not part of the
-    provider payload. :func:`_apply_archive_on_remove_inbox` strips it too, since
-    only one of the two runs per derive.
+    The marker is only read here; :func:`_strip_keep_in_inbox` removes it from the
+    output on every path.
     """
     for spec in out_specs:
         a = spec.get("action") or {}
         adds = a.get("add") or []
-        if a.pop("keepInInbox", None):
-            spec["action"] = a
+        if a.get("keepInInbox"):
             continue
         if adds and not a.get("moveToFolder"):
             a["moveToFolder"] = str(adds[0])
@@ -160,6 +168,9 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
             _apply_archive_on_remove_inbox(out_specs, filters)
         elif payload.outlook_move_to_folders:
             _apply_move_to_folders(out_specs)
+        # Unconditional: neither branch above runs when both flags are off, and
+        # keepInInbox is an input directive that must never reach the provider.
+        _strip_keep_in_inbox(out_specs)
 
         out_o = Path(payload.out_outlook)
         out_o.parent.mkdir(parents=True, exist_ok=True)
