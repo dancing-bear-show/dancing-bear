@@ -1546,5 +1546,43 @@ class TestGenerateCallsRenameSlidesParts(unittest.TestCase):
         mock_prs.part.rename_slide_parts.assert_called_once_with(["rId2", "rId3"])
 
 
+class TestApplyNotes(unittest.TestCase):
+    """Cover _apply_notes, including the template-notes leak path.
+
+    Legacy mode reuses the first template slide, so notes already present on
+    that slide would survive into a deck that declares none — shipping
+    template-only content in the generated .pptx.
+    """
+
+    def test_writes_notes_when_present(self) -> None:
+        """A deck slide with notes writes them to the notes text frame."""
+        slide = MagicMock()
+
+        SlideGenerator._apply_notes(slide, "speaker notes here")
+
+        self.assertEqual(
+            slide.notes_slide.notes_text_frame.text, "speaker notes here"
+        )
+
+    def test_clears_inherited_notes_when_deck_has_none(self) -> None:
+        """A reused template slide's existing notes are cleared, not inherited."""
+        slide = MagicMock()
+        slide.has_notes_slide = True
+
+        SlideGenerator._apply_notes(slide, None)
+
+        self.assertEqual(slide.notes_slide.notes_text_frame.text, "")
+
+    def test_does_not_create_notes_part_for_new_slide(self) -> None:
+        """A slide with no notes part does not gain an empty one."""
+        slide = MagicMock()
+        slide.has_notes_slide = False
+
+        SlideGenerator._apply_notes(slide, None)
+
+        # Touching .notes_slide at all would materialise the part in python-pptx.
+        self.assertNotIn("notes_slide", slide._mock_children)
+
+
 if __name__ == "__main__":
     unittest.main()

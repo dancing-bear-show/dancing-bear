@@ -196,10 +196,18 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
 
     @staticmethod
     def _apply_notes(slide, notes: str | None) -> None:
-        """Write speaker notes to the slide's notes text frame."""
-        if not notes:
+        """Write speaker notes, clearing any inherited from the template slide.
+
+        Legacy mode reuses the first template slide, so notes already on it
+        would otherwise survive into a deck that declares none — shipping
+        template-only content. Only touches an existing notes part when the
+        deck has no notes, so newly added slides do not gain empty ones.
+        """
+        if notes:
+            slide.notes_slide.notes_text_frame.text = notes
             return
-        slide.notes_slide.notes_text_frame.text = notes
+        if slide.has_notes_slide:
+            slide.notes_slide.notes_text_frame.text = ""
 
     def _populate_slide(
         self, slide, content, theme_color, *, is_title_slide: bool = False, inherit_style: bool = False,
