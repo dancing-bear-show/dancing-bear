@@ -435,7 +435,7 @@ def cmd_config_derive_labels(args) -> int:
 
 
 @config_group.command("derive.filters", help="Derive Gmail and Outlook filters YAML from unified")
-@config_group.argument("--in", dest="in_path", required=True, help="Unified filters YAML")
+@config_group.argument("--in", dest="in_path", help="Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)")
 @config_group.argument("--out-gmail", required=True, help="Output Gmail filters YAML")
 @config_group.argument("--out-outlook", required=True, help="Output Outlook rules YAML")
 @config_group.argument("--outlook-move-to-folders", action="store_true", dest="outlook_move_to_folders", default=True, help="Encode moveToFolder (default on)")
@@ -446,7 +446,7 @@ def cmd_config_derive_filters(args) -> int:
 
 
 @config_group.command("optimize.filters", help="Optimize unified configs by merging similar rules")
-@config_group.argument("--in", dest="in_path", required=True, help="Unified filters YAML")
+@config_group.argument("--in", dest="in_path", help="Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)")
 @config_group.argument("--out", required=True, help="Output optimized YAML")
 @config_group.argument("--merge-threshold", type=int, default=2, help="Minimum rules to merge")
 @config_group.argument("--preview", action="store_true", help="Print merge summary")
@@ -455,7 +455,7 @@ def cmd_config_optimize_filters(args) -> int:
 
 
 @config_group.command("audit.filters", help="Audit unified coverage vs provider exports")
-@config_group.argument("--in", dest="in_path", required=True, help="Unified filters YAML")
+@config_group.argument("--in", dest="in_path", help="Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)")
 @config_group.argument("--export", dest="export_path", required=True, help="Gmail exported filters YAML")
 @config_group.argument("--preview-missing", action="store_true", help="List missing rules")
 def cmd_config_audit_filters(args) -> int:
@@ -467,7 +467,7 @@ workflows_group = app.group("workflows", help="Agentic workflows that chain plan
 
 
 @workflows_group.command("gmail-from-unified", help="Derive Gmail filters from unified YAML, plan, and optionally apply")
-@workflows_group.argument("--config", required=True, help="Unified filters YAML")
+@workflows_group.argument("--config", help="Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)")
 @workflows_group.argument("--out-dir", default="out", help="Directory for artifacts")
 @workflows_group.argument("--delete-missing", action="store_true", help="Include deletions")
 @workflows_group.argument("--apply", action="store_true", help="Apply changes after planning")
@@ -476,7 +476,7 @@ def cmd_workflows_gmail_from_unified(args) -> int:
 
 
 @workflows_group.command("from-unified", help="Derive provider configs from unified, plan per provider, optionally apply")
-@workflows_group.argument("--config", required=True, help="Unified filters YAML")
+@workflows_group.argument("--config", help="Unified filters YAML (default: ~/.config/dancing-bear/filters_unified.yaml)")
 @workflows_group.argument("--out-dir", default="out", help="Directory for artifacts")
 @workflows_group.argument("--providers", help="Comma-separated providers (gmail,outlook)")
 @workflows_group.argument("--delete-missing", action="store_true", help="Include deletions")

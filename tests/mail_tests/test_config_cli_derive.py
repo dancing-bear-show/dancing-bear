@@ -137,6 +137,132 @@ class DeriveFiltersTests(TestCase):
             self.assertTrue(out_gmail.exists())
             self.assertTrue(out_outlook.exists())
 
+    def _derive(self, tmpdir, yaml_text):
+        """Run the derive processor over yaml_text; return (gmail_doc, outlook_doc)."""
+        import yaml
+
+        in_path = Path(tmpdir) / "filters.yaml"
+        in_path.write_text(yaml_text)
+        out_gmail = Path(tmpdir) / "gmail.yaml"
+        out_outlook = Path(tmpdir) / "outlook.yaml"
+
+        # Mirrors the CLI default (--outlook-move-to-folders is on by default),
+        # which the dataclass default does not carry.
+        result = DeriveFiltersProcessor().process(
+            DeriveFiltersRequest(
+                in_path=str(in_path),
+                out_gmail=str(out_gmail),
+                out_outlook=str(out_outlook),
+                outlook_move_to_folders=True,
+            )
+        )
+        self.assertTrue(result.ok())
+        return (
+            yaml.safe_load(out_gmail.read_text()),
+            yaml.safe_load(out_outlook.read_text()),
+        )
+
+    def test_derive_filters_outlook_derives_move_to_folder_by_default(self):
+        """Without keepInInbox, Outlook gets a moveToFolder from the first add label."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, outlook = self._derive(
+                tmpdir,
+                "filters:\n"
+                "  - match:\n"
+                "      from: nintendo.net\n"
+                "    action:\n"
+                "      add: [Tech/Nintendo]\n",
+            )
+            action = outlook["filters"][0]["action"]
+            self.assertEqual("Tech/Nintendo", action["moveToFolder"])
+
+    def test_derive_filters_keep_in_inbox_suppresses_move_to_folder(self):
+        """keepInInbox blocks the derived Outlook moveToFolder so mail stays in the inbox."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, outlook = self._derive(
+                tmpdir,
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n",
+            )
+            action = outlook["filters"][0]["action"]
+            self.assertNotIn("moveToFolder", action)
+            self.assertEqual(["Tech/Grafana"], action["add"])
+            # The marker is an input directive, not part of the provider payload.
+            self.assertNotIn("keepInInbox", action)
+
+    def test_derive_filters_keep_in_inbox_stripped_on_archive_path(self):
+        """The archive branch also strips the keepInInbox marker from output."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=True,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
+            self.assertNotIn("keepInInbox", action)
+
+    def test_derive_filters_keep_in_inbox_stripped_with_all_flags_off(self):
+        """Both flags off means neither branch runs — the marker must still be stripped.
+
+        Regression: stripping used to live inside the move/archive branches, which
+        are mutually exclusive and both skipped under --no-outlook-move-to-folders,
+        so keepInInbox leaked into the derived Outlook config.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            in_path = Path(tmpdir) / "filters.yaml"
+            in_path.write_text(
+                "filters:\n"
+                "  - match:\n"
+                "      from: grafana.com\n"
+                "    action:\n"
+                "      add: [Tech/Grafana]\n"
+                "      keepInInbox: true\n"
+            )
+            out_gmail = Path(tmpdir) / "gmail.yaml"
+            out_outlook = Path(tmpdir) / "outlook.yaml"
+
+            result = DeriveFiltersProcessor().process(
+                DeriveFiltersRequest(
+                    in_path=str(in_path),
+                    out_gmail=str(out_gmail),
+                    out_outlook=str(out_outlook),
+                    outlook_archive_on_remove_inbox=False,
+                    outlook_move_to_folders=False,
+                )
+            )
+            self.assertTrue(result.ok())
+
+            import yaml
+
+            action = yaml.safe_load(out_outlook.read_text())["filters"][0]["action"]
+            self.assertNotIn("keepInInbox", action)
+            # No folder move was requested, so none should have been derived.
+            self.assertNotIn("moveToFolder", action)
+            self.assertEqual(["Tech/Grafana"], action["add"])
+
     def test_derive_filters_processor_empty_filters(self):
         """DeriveFiltersProcessor handles empty filters list."""
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -214,7 +214,7 @@ Filters:
 
 Unified filters (single YAML → Gmail + Outlook):
 ```bash
-python3 -m mail workflows from-unified --config config/filters_unified.yaml [--delete-missing] [--apply]
+./bin/mail workflows from-unified [--delete-missing] [--apply]
 # --providers gmail,outlook to control providers
 # --no-outlook-move-to-folders to disable Outlook folder moves
 ```

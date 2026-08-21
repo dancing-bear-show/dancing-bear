@@ -180,9 +180,9 @@ def _mail_flows() -> list[dict[str, Any]]:
             'tags': ['unified', 'derive', 'gmail', 'outlook', 'safe'],
             'requires': [["config", "derive", "filters"]],
             'commands': [
-                "./bin/mail-assistant config derive filters --in config/filters_unified.yaml --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml",
+                "./bin/mail-assistant config derive filters --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml",
             ],
-            'notes': 'Generates provider-specific YAMLs from the canonical unified config.',
+            'notes': 'Reads ~/.config/dancing-bear/filters_unified.yaml unless --in is given.',
         },
         {
             'id': 'labels.derive',

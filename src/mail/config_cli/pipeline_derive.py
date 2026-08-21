@@ -101,7 +101,23 @@ class DeriveFiltersResult:
 DeriveFiltersRequestConsumer = RequestConsumer[DeriveFiltersRequest]
 
 
-def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
+def _strip_keep_in_inbox(out_specs: list[dict]) -> None:
+    """Remove the ``keepInInbox`` marker from every derived Outlook spec.
+
+    ``keepInInbox`` is an input directive that suppresses the derived
+    ``moveToFolder``; it is not part of the provider payload. Stripping happens
+    here, unconditionally, rather than inside the move/archive branches: those
+    are mutually exclusive and both are skipped under
+    ``--no-outlook-move-to-folders``, which previously let the marker leak into
+    the derived Outlook config.
+    """
+    for spec in out_specs:
+        action = spec.get("action")
+        if isinstance(action, dict):
+            action.pop("keepInInbox", None)
+
+
+def _apply_archive_on_remove_inbox(out_specs: list[dict], filters: list[dict]) -> None:
     """Mutate out_specs: replace 'add' with 'moveToFolder=Archive' when original removes INBOX."""
     for i, spec in enumerate(out_specs):
         orig = filters[i] if i < len(filters) else {}
@@ -113,11 +129,19 @@ def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
             spec["action"] = a
 
 
-def _apply_move_to_folders(out_specs: list) -> None:
-    """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set."""
+def _apply_move_to_folders(out_specs: list[dict]) -> None:
+    """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set.
+
+    Rules marked ``keepInInbox`` are skipped: on Outlook a moveToFolder is a real
+    move, so deriving one would pull mail the user wants to see out of the inbox.
+    The marker is only read here; :func:`_strip_keep_in_inbox` removes it from the
+    output on every path.
+    """
     for spec in out_specs:
         a = spec.get("action") or {}
         adds = a.get("add") or []
+        if a.get("keepInInbox"):
+            continue
         if adds and not a.get("moveToFolder"):
             a["moveToFolder"] = str(adds[0])
             spec["action"] = a
@@ -144,6 +168,9 @@ class DeriveFiltersProcessor(SafeProcessor[DeriveFiltersRequest, DeriveFiltersRe
             _apply_archive_on_remove_inbox(out_specs, filters)
         elif payload.outlook_move_to_folders:
             _apply_move_to_folders(out_specs)
+        # Unconditional: neither branch above runs when both flags are off, and
+        # keepInInbox is an input directive that must never reach the provider.
+        _strip_keep_in_inbox(out_specs)
 
         out_o = Path(payload.out_outlook)
         out_o.parent.mkdir(parents=True, exist_ok=True)

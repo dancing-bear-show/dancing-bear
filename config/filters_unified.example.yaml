@@ -1,0 +1,112 @@
+# Example unified filter/rule source of truth for Gmail and Outlook.
+#
+# This file is a TEMPLATE. Every address and domain below is fictional.
+#
+# Your real rules are NOT kept in this repository. A filter set enumerates the
+# sender domains you receive mail from and the addresses you forward to — your
+# bank, your kids' school, your doctor — so it is personal data, not source.
+# It lives outside the checkout, next to your credentials:
+#
+#   ~/.config/dancing-bear/filters_unified.yaml
+#
+# Get started:
+#   mkdir -p ~/.config/dancing-bear
+#   cp config/filters_unified.example.yaml ~/.config/dancing-bear/filters_unified.yaml
+#   chmod 600 ~/.config/dancing-bear/filters_unified.yaml
+#   $EDITOR ~/.config/dancing-bear/filters_unified.yaml
+#
+# Resolution order (first match wins):
+#   1. an explicit --in / --config flag
+#   2. $DANCING_BEAR_CONFIG_HOME/filters_unified.yaml
+#   3. $XDG_CONFIG_HOME/dancing-bear/filters_unified.yaml
+#   4. ~/.config/dancing-bear/filters_unified.yaml
+#
+# Schema:
+#   match.from     — sender pattern (OR-separated domains or addresses)
+#   action.add     — label(s) to add (Gmail: label; Outlook: category hint)
+#   action.remove  — label(s) to remove (Gmail: INBOX = skip inbox)
+#   action.forward — forward to this address
+#   action.moveToFolder — Outlook folder path (derived from add[] when omitted)
+#   action.keepInInbox  — suppress the derived Outlook moveToFolder (stay in inbox)
+#
+# Derive provider-specific configs (reads the config home by default):
+#   ./bin/mail-assistant config derive.filters \
+#     --out-gmail out/filters.gmail.from_unified.yaml \
+#     --out-outlook out/filters.outlook.from_unified.yaml
+#
+# Then plan before you apply — never apply blind:
+#   ./bin/mail-assistant filters plan --config <derived gmail yaml>
+#   ./bin/mail-assistant filters sync --config <derived gmail yaml> --dry-run
+#   ./bin/mail-assistant filters sync --config <derived gmail yaml>
+
+filters:
+
+  # ── Finance ─────────────────────────────────────────────────────────────────
+  # Archive on arrival: labeled, skips the inbox (`remove: [INBOX]`).
+
+  - match:
+      from: bank.example.com OR e.bank.example.com
+    action:
+      add:
+      - Finance/Bank
+      remove:
+      - INBOX
+
+  - match:
+      from: broker.example.com OR alerts.broker.example.com
+    action:
+      add:
+      - Finance/Brokerage
+      remove:
+      - INBOX
+
+  # ── Kids ────────────────────────────────────────────────────────────────────
+  # Forwarding: copy to a partner without removing it from your own inbox.
+
+  - match:
+      from: school.example.org OR notices.school.example.org
+    action:
+      add:
+      - Kids/School
+      forward: partner@example.com
+
+  # ── Lists ───────────────────────────────────────────────────────────────────
+  # One rule can carry many senders; keep them OR-separated on wrapped lines.
+
+  - match:
+      from: shop.example.com OR deals.example.com OR newsletter.example.org
+        OR mail.retailer.example.com OR promos.retailer.example.com
+    action:
+      add:
+      - Lists/Commercial
+      remove:
+      - INBOX
+
+  # ── Tech ────────────────────────────────────────────────────────────────────
+  # Labeled but deliberately left in the inbox.
+  #
+  # Omitting `remove: [INBOX]` is enough for Gmail, but NOT for Outlook: the
+  # derive step auto-populates `moveToFolder` from the first `add` label, and on
+  # Outlook that is a real move rather than a Gmail-style label. `keepInInbox`
+  # opts this one rule out while others still move. (Deriving with
+  # --no-outlook-move-to-folders suppresses the move for every rule instead.)
+  # Use this for senders you are actively waiting to hear from.
+
+  - match:
+      from: platform.example.com OR go.platform.example.com
+    action:
+      add:
+      - Tech/Platform
+      keepInInbox: true
+
+  # ── Security ────────────────────────────────────────────────────────────────
+  # Explicit moveToFolder overrides the label-derived default on Outlook.
+
+  - match:
+      from: security.example.net
+    action:
+      add:
+      - Security/Alerts
+      moveToFolder: Security/Alerts
+      remove:
+      - INBOX

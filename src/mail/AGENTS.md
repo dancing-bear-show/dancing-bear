@@ -4,7 +4,7 @@ Scope
 
 Domain
 - Purpose: Gmail/Outlook CLI for labels, filters/rules, signatures.
-- Canonical config: unified filters live at `config/filters_unified.yaml`.
+- Canonical config: unified filters live at `~/.config/dancing-bear/filters_unified.yaml` (outside checkout; `config/filters_unified.example.yaml` is the tracked template).
 - Derive provider configs; do not hand-edit derived outputs in `out/`.
 - Keep public CLI stable (additive changes only); preserve existing flags/subcommands.
 - Use shared auth flag builders (`mail.cli.args`, backed by `core.cli_args`) to keep Gmail/Outlook args consistent.

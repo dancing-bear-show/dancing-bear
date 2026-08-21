@@ -1,7 +1,7 @@
 Migration State
 
 Unified Filters
-- Source: `config/filters_unified.yaml`
+- Source: `~/.config/dancing-bear/filters_unified.yaml` (outside checkout; `config/filters_unified.example.yaml` is the tracked template)
 - Coverage: simple Gmail rules fully unified; ongoing consolidation for retailers and finance domains.
 
 Outlook Parity

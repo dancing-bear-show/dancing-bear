@@ -41,7 +41,7 @@ Never mutate state without first staging and previewing:
 
 ## 5. Config Source of Truth
 
-- Canonical filters: `config/filters_unified.yaml`
+- Canonical filters: `~/.config/dancing-bear/filters_unified.yaml` (outside checkout; `config/filters_unified.example.yaml` is the tracked template)
 - Derived outputs: `out/filters.gmail.from_unified.yaml`, `out/filters.outlook.from_unified.yaml`
 - Always derive from unified config, never edit derived files directly
 

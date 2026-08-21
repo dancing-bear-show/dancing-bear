@@ -27,7 +27,9 @@ stages:
     kind: propose
     human_gate: true
     description: >
-      Compare outputs/current-filters.json against config/filters_unified.yaml.
+      Compare outputs/current-filters.json against the unified filter config
+      (default ~/.config/dancing-bear/filters_unified.yaml; overridable via
+      DANCING_BEAR_CONFIG_HOME or XDG_CONFIG_HOME).
       Produce a plan showing which filters will be added, updated, or removed.
       Write the plan to outputs/filter-plan.json.
     agent:

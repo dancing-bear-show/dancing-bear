@@ -13,7 +13,7 @@ Onboarding and auth:
   - `./bin/mail-assistant --profile outlook_personal outlook auth validate`
 
 Unified (derive from canonical):
-- Derive filters: `./bin/mail-assistant config derive filters --in config/filters_unified.yaml --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml`
+- Derive filters: `./bin/mail-assistant config derive filters --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml`
 - Optionally derive labels: `./bin/mail-assistant config derive labels --out-gmail out/labels.gmail.from_unified.yaml --out-outlook out/labels.outlook.from_unified.yaml`
 
 Gmail filters (plan → apply → verify):
