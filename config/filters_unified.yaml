@@ -6,10 +6,12 @@
 #   action.remove — label(s) to remove (Gmail: INBOX = skip inbox)
 #   action.forward — forward to this address
 #   action.moveToFolder — Outlook folder path (derived from add[] when omitted)
+#   action.keepInInbox — suppress the derived Outlook moveToFolder (stay in inbox)
 #
 # Derive provider-specific configs:
-#   ./bin/mail-assistant filters derive --provider gmail   --out out/filters.gmail.from_unified.yaml
-#   ./bin/mail-assistant filters derive --provider outlook --out out/filters.outlook.from_unified.yaml
+#   ./bin/mail-assistant config derive.filters --in config/filters_unified.yaml \
+#     --out-gmail out/filters.gmail.from_unified.yaml \
+#     --out-outlook out/filters.outlook.from_unified.yaml
 
 filters:
 
@@ -150,7 +152,7 @@ filters:
         partnernews.airmiles.ca OR wyrmwoodgaming.com OR e.kamalaharris.com OR email.rewardsnetwork.com
         OR email.aadvantagecruises.com OR montagneweb-1.com.ar OR email.ibm.com OR baggu.com
         OR tchicken.popeyeschicken.ca OR e.nofrills.ca OR esmiskin.com OR cscrewards.coldstonecreamery.com
-        OR email.legoland.com OR info.verbling.com OR email.gotransit.com OR grafana.com
+        OR email.legoland.com OR info.verbling.com OR email.gotransit.com
         OR email.alltrails.com OR con.sonos.com OR em.pcoptimum.ca OR e.crave.ca OR
         us.umusic-online.com OR e.rogers.com OR info.la-z-boy.com OR newsletter.anycubic.com
         OR club.splitsvillebowl.ca OR mail.marvel.com OR oldnavy.ca OR email.bose.com
@@ -254,6 +256,16 @@ filters:
       - INBOX
 
   # ── Tech ─────────────────────────────────────────────────────────────────────
+
+  # Labeled but intentionally kept in the inbox — expecting recruiter mail.
+  # Do not add `remove: [INBOX]`; keepInInbox also blocks the Outlook
+  # auto-derived moveToFolder, which would otherwise move it out.
+  - match:
+      from: grafana.com OR grafana.net OR go.grafana.com
+    action:
+      add:
+      - Tech/Grafana
+      keepInInbox: true
 
   - match:
       from: nintendo.net OR accounts.nintendo.com

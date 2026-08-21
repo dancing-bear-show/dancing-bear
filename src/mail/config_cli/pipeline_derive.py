@@ -106,18 +106,26 @@ def _apply_archive_on_remove_inbox(out_specs: list, filters: list) -> None:
     for i, spec in enumerate(out_specs):
         orig = filters[i] if i < len(filters) else {}
         remove_list = ((orig or {}).get("action") or {}).get("remove") or []
+        a = spec.get("action") or {}
+        a.pop("keepInInbox", None)
         if isinstance(remove_list, list) and any(str(x).upper() == "INBOX" for x in remove_list):
-            a = spec.get("action") or {}
             a["moveToFolder"] = "Archive"
             a.pop("add", None)
-            spec["action"] = a
+        spec["action"] = a
 
 
 def _apply_move_to_folders(out_specs: list) -> None:
-    """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set."""
+    """Mutate out_specs: set 'moveToFolder' from first 'add' label when not already set.
+
+    Rules marked `keepInInbox` are skipped: on Outlook a moveToFolder is a real
+    move, so deriving one would pull mail the user wants to see out of the inbox.
+    """
     for spec in out_specs:
         a = spec.get("action") or {}
         adds = a.get("add") or []
+        if a.pop("keepInInbox", None):
+            spec["action"] = a
+            continue
         if adds and not a.get("moveToFolder"):
             a["moveToFolder"] = str(adds[0])
             spec["action"] = a
