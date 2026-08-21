@@ -1,17 +1,23 @@
 """Labels command group registration for Mail Assistant CLI."""
 from __future__ import annotations
 
+from typing import Any
+
 from core.cli_framework import CLIApp
 from core.cli_help_text import HELP_YAML_OUT
 
+# One argparse argument: the flag names, plus the kwargs forwarded to
+# add_argument(). Values are heterogeneous (str, bool, int), hence Any.
+ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
+
 # Every labels subcommand takes the same OAuth pair, so it is declared once here
 # rather than repeated per command.
-_AUTH_ARGS = (
+_AUTH_ARGS: tuple[ArgSpec, ...] = (
     (("--credentials",), {"help": "Path to OAuth credentials.json"}),
     (("--token",), {"help": "Path to token.json"}),
 )
 
-_DRY_RUN = (("--dry-run",), {"action": "store_true", "help": "Preview changes"})
+_DRY_RUN: ArgSpec = (("--dry-run",), {"action": "store_true", "help": "Preview changes"})
 
 
 def register_labels_commands(app: CLIApp) -> object:
@@ -32,7 +38,7 @@ def register_labels_commands(app: CLIApp) -> object:
     )
 
     # (subcommand, help, handler, extra args appended after the shared auth pair)
-    specs = [
+    specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
         ("list", "List Gmail labels", run_labels_list, [
             (("--json",), {"action": "store_true", "help": "Output JSON instead of table"}),
         ]),

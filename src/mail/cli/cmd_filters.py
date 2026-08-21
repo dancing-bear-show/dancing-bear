@@ -1,18 +1,24 @@
 """Filters command group registration for Mail Assistant CLI."""
 from __future__ import annotations
 
+from typing import Any
+
 from core.cli_framework import CLIApp
 from core.cli_help_text import HELP_START_DATE, HELP_YAML_OUT
 
+# One argparse argument: the flag names, plus the kwargs forwarded to
+# add_argument(). Values are heterogeneous (str, bool, int), hence Any.
+ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
+
 # Every filters subcommand takes the same OAuth pair, so it is declared once
 # here rather than repeated per command.
-_AUTH_ARGS = (
+_AUTH_ARGS: tuple[ArgSpec, ...] = (
     (("--credentials",), {"help": "Path to OAuth credentials.json"}),
     (("--token",), {"help": "Path to token.json"}),
 )
 
-_DRY_RUN = (("--dry-run",), {"action": "store_true", "help": "Preview changes"})
-_CONFIG = (("--config",), {"required": True, "help": "Filters YAML config"})
+_DRY_RUN: ArgSpec = (("--dry-run",), {"action": "store_true", "help": "Preview changes"})
+_CONFIG: ArgSpec = (("--config",), {"required": True, "help": "Filters YAML config"})
 
 
 def register_filters_commands(app: CLIApp) -> object:
@@ -32,13 +38,13 @@ def register_filters_commands(app: CLIApp) -> object:
         run_filters_rm_from_token,
     )
 
-    from_token_arg = (
+    from_token_arg: ArgSpec = (
         ("--from-token",),
         {"required": True, "dest": "from_token", "help": "Token in from address"},
     )
 
     # (subcommand, help, handler, extra args appended after the shared auth pair)
-    specs = [
+    specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
         ("list", "List Gmail filters", run_filters_list, [
             (("--json",), {"action": "store_true", "help": "Output JSON"}),
         ]),
