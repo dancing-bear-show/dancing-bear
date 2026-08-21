@@ -554,5 +554,123 @@ class TestDataclassOutput(unittest.TestCase):
         self.assertIn("Bob", out)
 
 
+class TestCommandGroupRegister(unittest.TestCase):
+    """CommandGroup.register() must match the @command/@argument decorator form.
+
+    register() appends to CLIApp._pending_arguments directly, in reverse, because
+    command() applies list(reversed(...)) to undo the bottom-up order that stacked
+    decorators produce. That double reversal is easy to break silently: getting it
+    wrong reorders every flag on a registered subcommand without failing anything
+    else, so these tests pin the ordering explicitly.
+    """
+
+    @staticmethod
+    def _flags(app, full_name):
+        return [a.name_or_flags for a in app._commands[full_name].arguments]
+
+    def _decorator_app(self):
+        app = CLIApp("t")
+        group = app.group("g", help="g")
+
+        @group.command("cmd", help="C")
+        @group.argument("--first", help="f")
+        @group.argument("--second", help="s")
+        @group.argument("--third", help="t")
+        def _handler(args) -> int:
+            return 0
+
+        return app
+
+    def _register_app(self):
+        app = CLIApp("t")
+        group = app.group("g", help="g")
+
+        def _handler(args) -> int:
+            return 0
+
+        group.register("cmd", "C", _handler, [
+            (("--first",), {"help": "f"}),
+            (("--second",), {"help": "s"}),
+            (("--third",), {"help": "t"}),
+        ])
+        return app
+
+    def test_preserves_source_order(self):
+        self.assertEqual(
+            self._flags(self._register_app(), "g.cmd"),
+            [("--first",), ("--second",), ("--third",)],
+        )
+
+    def test_matches_decorator_form(self):
+        self.assertEqual(
+            self._flags(self._register_app(), "g.cmd"),
+            self._flags(self._decorator_app(), "g.cmd"),
+        )
+
+    def test_kwargs_survive_registration(self):
+        app = CLIApp("t")
+        group = app.group("g", help="g")
+
+        def _handler(args) -> int:
+            return 0
+
+        group.register("cmd", "C", _handler, [
+            (("--count",), {"type": int, "default": 7, "help": "n"}),
+            (("--flag",), {"action": "store_true", "help": "b"}),
+            (("--name",), {"required": True, "dest": "who", "help": "w"}),
+        ])
+        by_flag = {a.name_or_flags[0]: a.kwargs for a in app._commands["g.cmd"].arguments}
+        self.assertEqual(by_flag["--count"]["type"], int)
+        self.assertEqual(by_flag["--count"]["default"], 7)
+        self.assertEqual(by_flag["--flag"]["action"], "store_true")
+        self.assertTrue(by_flag["--name"]["required"])
+        self.assertEqual(by_flag["--name"]["dest"], "who")
+
+    def test_parser_accepts_registered_arguments(self):
+        args = self._register_app().build_parser().parse_args(
+            ["g", "cmd", "--first", "a", "--second", "b", "--third", "c"]
+        )
+        self.assertEqual((args.first, args.second, args.third), ("a", "b", "c"))
+
+    def test_shared_kwargs_dict_reused_across_commands(self):
+        """A kwargs dict reused by two commands must not be mutated by the first."""
+        shared = {"help": "shared flag"}
+        app = CLIApp("t")
+        group = app.group("g", help="g")
+
+        def _handler(args) -> int:
+            return 0
+
+        group.register("one", "1", _handler, [(("--shared",), shared)])
+        group.register("two", "2", _handler, [(("--shared",), shared)])
+
+        self.assertEqual(shared, {"help": "shared flag"})
+        for name in ("g.one", "g.two"):
+            self.assertEqual(self._flags(app, name), [("--shared",)])
+
+    def test_empty_argument_list(self):
+        app = CLIApp("t")
+        group = app.group("g", help="g")
+
+        def _handler(args) -> int:
+            return 0
+
+        group.register("bare", "B", _handler, [])
+        self.assertEqual(self._flags(app, "g.bare"), [])
+        self.assertIs(app._commands["g.bare"].func, _handler)
+
+    def test_does_not_leak_pending_arguments(self):
+        app = CLIApp("t")
+        group = app.group("g", help="g")
+
+        def _handler(args) -> int:
+            return 0
+
+        group.register("one", "1", _handler, [(("--a",), {"help": "a"})])
+        self.assertEqual(app._pending_arguments, [])
+        group.register("two", "2", _handler, [(("--b",), {"help": "b"})])
+        self.assertEqual(self._flags(app, "g.two"), [("--b",)])
+
+
 if __name__ == "__main__":
     unittest.main()
