@@ -140,6 +140,11 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
             is either a single SlideLayout (legacy mode) or a dict mapping
             layout names to SlideLayout objects (layout_map mode).
         """
+        # deck.template_path wins here by design. The module-level wrappers
+        # (generate_pptx / generate_from_yaml) already resolve an explicit
+        # template_path override BEFORE constructing the generator, so by this
+        # point self.template_path is only the fallback for callers that
+        # constructed SlideGenerator directly.
         template = deck.template_path or self.template_path
         if not template:
             raise ValueError(ERR_NO_TEMPLATE_PATH)
@@ -189,10 +194,21 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
     # Slide population dispatch
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _apply_notes(slide, notes: str | None) -> None:
+        """Write speaker notes to the slide's notes text frame."""
+        if not notes:
+            return
+        slide.notes_slide.notes_text_frame.text = notes
+
     def _populate_slide(
         self, slide, content, theme_color, *, is_title_slide: bool = False, inherit_style: bool = False,
     ) -> None:
         """Populate a slide based on its content type."""
+        # Notes first: every content branch below returns, so writing notes
+        # afterwards would drop them for image, mermaid, and table slides.
+        self._apply_notes(slide, getattr(content, "notes", None))
+
         # Handle image/mermaid slides first
         if hasattr(content, "mermaid") and content.mermaid:
             png_path = self._render_mermaid(content.mermaid)
@@ -298,6 +314,12 @@ class SlideGenerator(ShapeUtilsMixin, StylingMixin, TableMixin, ContentMixin, Im
         rename_fn = getattr(prs.part, "rename_slide_parts", None)
         if callable(rename_fn):
             rename_fn(rel_ids)
+
+        # python-pptx does not create missing parents, so a documented
+        # -o out/deck.pptx fails on a fresh checkout without this.
+        parent = os.path.dirname(output_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
 
         prs.save(output_path)
         return output_path

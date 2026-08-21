@@ -25,7 +25,10 @@ jobs:
           python -m pip install -U pip
           # [tui] pulls textual so the telemetry TUI modules are importable and
           # actually measured; without it they silently report 0% coverage.
-          python -m pip install -e ".[tui]"
+          # [slides] pulls python-pptx for the same reason: tests/slides_tests
+          # imports it at collection time, so omitting it fails the suite before
+          # a single test runs.
+          python -m pip install -e ".[tui,slides]"
           python -m pip install coverage
       - name: Verify imports resolve to this checkout
         run: |

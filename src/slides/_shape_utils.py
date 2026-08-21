@@ -70,7 +70,7 @@ class ShapeUtilsMixin:
             width = slide.part.package.presentation.slide_width
             if isinstance(width, int):
                 return width
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError):  # nosec B110 - mocked/partial slide objects in tests lack the package chain; width is non-essential, fall through to the default below
             pass
         return Inches(10)  # fallback for widescreen 16:9
 
