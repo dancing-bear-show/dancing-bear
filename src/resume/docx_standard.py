@@ -84,43 +84,46 @@ def _section_has_data(key: str, data: dict[str, Any]) -> bool:
     return any(bool(data.get(k)) for k in data_keys)
 
 
+def _seed_keywords(seed: dict[str, Any] | None) -> list[str]:
+    """Return the seed's keyword list as strings, or [] when absent/malformed."""
+    if not seed or not isinstance(seed.get("keywords"), list):
+        return []
+    return [str(k) for k in seed["keywords"]]
+
+
 class StandardResumeWriter(ResumeWriterBase):
     """Standard single-column resume writer."""
 
     def _render_content(self, seed: dict[str, Any] | None = None) -> None:
         """Render standard single-column resume content."""
         self._render_document_header()
+        keywords = _seed_keywords(seed)
+        for sec in self._resolve_sections():
+            self._render_section(sec, keywords)
 
-        # Extract keywords from seed
-        keywords = []
-        if seed and isinstance(seed.get("keywords"), list):
-            keywords = [str(k) for k in seed.get("keywords", [])]
+    def _render_section(self, sec: dict[str, Any], keywords: list[str]) -> None:
+        """Render one configured section, skipping unrenderable or empty ones."""
+        key = sec.get("key")
+        if not key:
+            return
 
-        # Resolve and render sections
-        sections = self._resolve_sections()
+        # Skip sections with no registered renderer (e.g. "projects").
+        renderer_class = SECTION_RENDERERS.get(key)
+        if renderer_class is None:
+            return
 
-        for sec in sections:
-            key = sec.get("key")
-            if not key:
-                continue
+        # Skip sections whose data is absent or empty.
+        if not _section_has_data(key, self.data):
+            return
 
-            # Skip sections with no registered renderer (e.g. "projects").
-            renderer_class = SECTION_RENDERERS.get(key)
-            if renderer_class is None:
-                continue
+        title = sec.get("title") or (key.title() if isinstance(key, str) else "")
+        self._render_section_heading(title)
 
-            # Skip sections whose data is absent or empty.
-            if not _section_has_data(key, self.data):
-                continue
-
-            title = sec.get("title") or (key.title() if isinstance(key, str) else "")
-            self._render_section_heading(title)
-
-            renderer = renderer_class(self.doc, self.page_cfg)
-            if key in SECTIONS_WITH_KEYWORDS:
-                renderer.render(self.data, sec, keywords)
-            else:
-                renderer.render(self.data, sec)
+        renderer = renderer_class(self.doc, self.page_cfg)
+        if key in SECTIONS_WITH_KEYWORDS:
+            renderer.render(self.data, sec, keywords)
+        else:
+            renderer.render(self.data, sec)
 
     def _render_document_header(self) -> None:
         """Render the name, headline, and contact line at the top of the resume."""
