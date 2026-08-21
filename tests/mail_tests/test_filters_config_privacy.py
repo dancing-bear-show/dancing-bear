@@ -22,7 +22,7 @@ EXAMPLE = REPO_ROOT / "config" / "filters_unified.example.yaml"
 def _tracked_files() -> list[str]:
     """Paths git currently tracks, or [] when git is unavailable."""
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B603 B607 - fixed literal argv, no interpolated input
             ["git", "ls-files"],
             cwd=REPO_ROOT,
             capture_output=True,
@@ -61,7 +61,7 @@ class TestRealFiltersAreNotTracked(unittest.TestCase):
     def test_gitignore_covers_the_real_file(self):
         """`git check-ignore` is the authority — pattern order in .gitignore is subtle."""
         real = REPO_ROOT / "config" / UNIFIED_FILTERS_NAME
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607 - argv built from module constants, not input
             ["git", "check-ignore", "-q", str(real)],
             cwd=REPO_ROOT,
             capture_output=True,
@@ -111,9 +111,11 @@ class TestExampleIsSynthetic(unittest.TestCase):
 
 
 class TestResolveFiltersConfig(unittest.TestCase):
+    """Paths here are resolver inputs only; nothing is opened or created."""
+
     def test_explicit_flag_wins(self):
-        args = type("A", (), {"in_path": "/tmp/explicit.yaml"})()
-        self.assertEqual("/tmp/explicit.yaml", resolve_filters_config(args))
+        args = type("A", (), {"in_path": "/explicit/path/mine.yaml"})()
+        self.assertEqual("/explicit/path/mine.yaml", resolve_filters_config(args))
 
     def test_missing_attribute_falls_back_to_config_home(self):
         resolved = resolve_filters_config(type("A", (), {})())
@@ -126,8 +128,8 @@ class TestResolveFiltersConfig(unittest.TestCase):
 
     def test_reads_alternate_attribute_name(self):
         """`workflows` subcommands spell the flag --config, not --in."""
-        args = type("A", (), {"config": "/tmp/wf.yaml"})()
-        self.assertEqual("/tmp/wf.yaml", resolve_filters_config(args, "config"))
+        args = type("A", (), {"config": "/explicit/path/wf.yaml"})()
+        self.assertEqual("/explicit/path/wf.yaml", resolve_filters_config(args, "config"))
 
 
 if __name__ == "__main__":

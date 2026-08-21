@@ -54,21 +54,30 @@ _XDG_CONFIG_HOME = "XDG_CONFIG_HOME"
 _DEFAULT_CONFIG_HOME = "~/.config"
 
 
+def _xdg_root(project_env: str, xdg_env: str, default: str) -> Path:
+    """Resolve an XDG-style root: project override, then XDG, then the default.
+
+    The project override names the root itself; the other two get the app
+    subdirectory appended, since those roots are shared with other programs.
+    """
+    override = os.environ.get(project_env)
+    if override:
+        return Path(os.path.expanduser(override))
+
+    xdg = os.environ.get(xdg_env)
+    if xdg:
+        return Path(os.path.expanduser(xdg)) / APP_DIR_NAME
+
+    return Path(os.path.expanduser(default)) / APP_DIR_NAME
+
+
 def data_home() -> Path:
     """Return the root directory generated artifacts are written under.
 
     Does not create the directory; callers that write to it should mkdir with
     ``parents=True``.
     """
-    override = os.environ.get(ENV_DATA_HOME)
-    if override:
-        return Path(os.path.expanduser(override))
-
-    xdg = os.environ.get(_XDG_DATA_HOME)
-    if xdg:
-        return Path(os.path.expanduser(xdg)) / APP_DIR_NAME
-
-    return Path(os.path.expanduser(_DEFAULT_DATA_HOME)) / APP_DIR_NAME
+    return _xdg_root(ENV_DATA_HOME, _XDG_DATA_HOME, _DEFAULT_DATA_HOME)
 
 
 def config_home() -> Path:
@@ -77,15 +86,7 @@ def config_home() -> Path:
     Resolution mirrors :func:`data_home` but against the CONFIG root, matching
     the credential lookup in ``core.constants``. Does not create the directory.
     """
-    override = os.environ.get(ENV_CONFIG_HOME)
-    if override:
-        return Path(os.path.expanduser(override))
-
-    xdg = os.environ.get(_XDG_CONFIG_HOME)
-    if xdg:
-        return Path(os.path.expanduser(xdg)) / APP_DIR_NAME
-
-    return Path(os.path.expanduser(_DEFAULT_CONFIG_HOME)) / APP_DIR_NAME
+    return _xdg_root(ENV_CONFIG_HOME, _XDG_CONFIG_HOME, _DEFAULT_CONFIG_HOME)
 
 
 def config_file(name: str, override: str | os.PathLike[str] | None = None) -> Path:
