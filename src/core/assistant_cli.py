@@ -23,6 +23,7 @@ APP_MODULES: dict[str, str] = {
     "music": "apple_music.__main__",
     "apple-music": "apple_music.__main__",
     "wifi": "wifi.__main__",
+    "slides": "slides.__main__",
 }
 
 

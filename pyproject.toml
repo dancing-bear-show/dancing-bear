@@ -37,11 +37,23 @@ dependencies = [
 tui = [
   "textual==8.2.8",
 ]
+# python-pptx (and its transitive lxml dep) plus Pillow for image sizing, used
+# by the slides domain (src/slides/). Kept optional so the core CLIs stay
+# dependency-light; mmdc (mermaid-cli) is a separate npm-installed binary, not
+# a pip dependency, and is not listed here.
+slides = [
+  "python-pptx>=1.0.0",
+  "Pillow>=10.0.0",
+]
 dev = [
   "pytest==9.1.1",
   "vulture==2.16",
   # Self-reference so the textual pin lives only in [tui].
   "personal-assistants[tui]",
+  # Self-reference so the slides extra is installed wherever coverage runs —
+  # an undeclared optional dep reports 0% coverage indistinguishably from
+  # untested code (the [tui] extra hit this trap once; see CLAUDE.md).
+  "personal-assistants[slides]",
 ]
 # Note: pdfplumber depends on pdfminer.six==20251107 (vulnerable version)
 # Keep as optional but not recommended for security-sensitive use
@@ -63,6 +75,7 @@ apple-music-assistant = "apple_music.__main__:main"
 apple-music-user-token = "apple_music.user_token_cli:main"
 wifi-assistant = "wifi.__main__:main"
 wifi = "wifi.__main__:main"
+slides = "slides.__main__:main"
 
 [tool.vulture]
 paths = [
@@ -136,4 +149,5 @@ include = [
   "worker*",
   "maker*",
   "desk*",
+  "slides*",
 ]

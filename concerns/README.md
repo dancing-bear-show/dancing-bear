@@ -17,6 +17,7 @@ Code review concern guides for dancing-bear. Each file covers a domain:
 | workflow-stages.md | Workflow stage runtime concerns, model tier, tool access | 12 |
 | workflow-fanout.md | Fan-out patterns, writes-to contracts, worker queue correctness | 16 |
 | phone-layout.md | iOS home screen layout: icon map, folder/page structure, profile install | 7 |
+| slides-yaml.md | Slide deck YAML: bullet forms, layouts, silent-drop failure modes | 13 |
 
 Used by: code review agents and the `reviewer` agent defined in CLAUDE.md.
 Load guides selectively based on the file types in the diff.
