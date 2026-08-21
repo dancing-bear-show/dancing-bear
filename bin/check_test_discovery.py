@@ -33,6 +33,7 @@ from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parent.parent / "tests"
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
+INIT_PY = "__init__.py"
 
 # Directory names allowed to shadow an importable module. Add only names that
 # are provably safe (never imported by src/ under that name).
@@ -85,7 +86,7 @@ def _importable_names() -> set[str]:
         for entry in Path(site).iterdir():
             if entry.name.startswith(("_", ".")):
                 continue
-            if entry.is_dir() and (entry / "__init__.py").exists():
+            if entry.is_dir() and (entry / INIT_PY).exists():
                 names.add(entry.name)
             elif entry.suffix == ".py":
                 names.add(entry.stem)
@@ -110,8 +111,8 @@ def main() -> int:
         return 1
 
     dirs = _test_dirs(TESTS_ROOT)
-    missing = [d for d in dirs if not (d / "__init__.py").exists()]
-    present = [d / "__init__.py" for d in dirs if (d / "__init__.py").exists()]
+    missing = [d for d in dirs if not (d / INIT_PY).exists()]
+    present = [d / INIT_PY for d in dirs if (d / INIT_PY).exists()]
     ignored = sorted(_gitignored(present))
     shadowing = _shadowing(dirs)
 

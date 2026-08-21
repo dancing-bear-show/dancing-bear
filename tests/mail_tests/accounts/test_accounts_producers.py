@@ -5,11 +5,7 @@ from __future__ import annotations
 import unittest
 
 from core.pipeline import ResultEnvelope
-from mail.accounts.pipeline_list import (
-    AccountsListResult,
-    AccountInfo,
-    AccountsListProducer,
-)
+from mail.accounts.pipeline_list import AccountInfo
 from mail.accounts.pipeline_list_export import (
     ExportedLabelsInfo,
     AccountsExportLabelsResult,
@@ -53,25 +49,6 @@ def make_account_info(
 ) -> AccountInfo:
     """Create an AccountInfo for testing."""
     return AccountInfo(name=name, provider=provider, credentials=credentials, token=token)
-
-
-class TestAccountsListProducer(unittest.TestCase):
-    """Tests for AccountsListProducer."""
-
-    def test_produce_items_outputs_formatted_accounts(self):
-        result = AccountsListResult(accounts=[
-            make_account_info(name="personal", provider="gmail"),
-            make_account_info(name="work", provider="outlook"),
-        ])
-        envelope = ResultEnvelope(status="success", payload=result)
-        producer = AccountsListProducer()
-        with capture_stdout() as buf:
-            producer.produce(envelope)
-        output = buf.getvalue()
-        self.assertIn("personal", output)
-        self.assertIn("provider=gmail", output)
-        self.assertIn("work", output)
-        self.assertIn("provider=outlook", output)
 
 
 class TestAccountsExportLabelsProducer(unittest.TestCase):

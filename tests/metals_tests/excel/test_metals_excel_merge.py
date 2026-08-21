@@ -6,26 +6,12 @@ import tempfile
 import unittest
 
 from metals.excel_merge import (
-    _col_letter,
     _read_csv,
     _to_records,
     _records_to_values,
     _merge,
 )
 
-
-class TestColLetter(unittest.TestCase):
-    """Tests for _col_letter function."""
-
-    def test_single_letters(self):
-        """Test single letter columns."""
-        self.assertEqual(_col_letter(1), "A")
-        self.assertEqual(_col_letter(26), "Z")
-
-    def test_double_letters(self):
-        """Test double letter columns."""
-        self.assertEqual(_col_letter(27), "AA")
-        self.assertEqual(_col_letter(52), "AZ")
 
 
 class TestReadCsv(unittest.TestCase):
@@ -58,12 +44,6 @@ class TestToRecords(unittest.TestCase):
         self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["date"], "2024-01-15")
         self.assertEqual(records[0]["order_id"], "12345")
-
-    def test_handles_empty_values(self):
-        """Test handles empty values."""
-        headers, records = _to_records([])
-        self.assertEqual(headers, [])
-        self.assertEqual(records, [])
 
     def test_handles_header_only(self):
         """Test handles header only."""

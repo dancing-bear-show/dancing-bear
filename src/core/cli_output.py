@@ -340,7 +340,7 @@ def _emit_rows_table(rows: list[dict[str, object]], cols: list[str]) -> None:
         _emit_rows_table_plain(rows, cols)
 
 
-def emit_rows(  # noqa: S3516 - NOSONAR - always returns 0 by design; callers chain return emit_rows() as exit code
+def emit_rows(  # NOSONAR S3516 - always returns 0 by design; callers chain return emit_rows() as exit code
     rows: list[dict[str, object]],
     fmt: str = "json",
     headers: list[str] | None = None,

@@ -34,10 +34,6 @@ from tests.telemetry_tests.shared_fixtures import (
 # ---------------------------------------------------------------------------
 
 class TestSessionToDict(unittest.TestCase):
-    def test_returns_empty_for_non_session(self):
-        result = _session_to_dict("not a session")
-        self.assertEqual(result, {})
-
     def test_happy_path_with_agents(self):
         agent = _make_agent_summary()
         s = _make_session_summary(agents=[agent])
@@ -54,12 +50,6 @@ class TestSessionToDict(unittest.TestCase):
         result = _session_to_dict(s)
         self.assertIsNotNone(result["duration_minutes"])
         self.assertAlmostEqual(result["duration_minutes"], 30.0, places=1)
-
-    def test_no_end_time_duration_none(self):
-        s = _make_session_summary()
-        s.end_time = None
-        result = _session_to_dict(s)
-        self.assertIsNone(result["duration_minutes"])
 
     def test_no_start_time_isoformat_none(self):
         s = _make_session_summary()

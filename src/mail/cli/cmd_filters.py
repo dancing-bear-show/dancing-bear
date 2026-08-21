@@ -1,8 +1,24 @@
 """Filters command group registration for Mail Assistant CLI."""
 from __future__ import annotations
 
+from typing import Any
+
 from core.cli_framework import CLIApp
 from core.cli_help_text import HELP_START_DATE, HELP_YAML_OUT
+
+# One argparse argument: the flag names, plus the kwargs forwarded to
+# add_argument(). Values are heterogeneous (str, bool, int), hence Any.
+ArgSpec = tuple[tuple[str, ...], dict[str, Any]]
+
+# Every filters subcommand takes the same OAuth pair, so it is declared once
+# here rather than repeated per command.
+_AUTH_ARGS: tuple[ArgSpec, ...] = (
+    (("--credentials",), {"help": "Path to OAuth credentials.json"}),
+    (("--token",), {"help": "Path to token.json"}),
+)
+
+_DRY_RUN: ArgSpec = (("--dry-run",), {"action": "store_true", "help": "Preview changes"})
+_CONFIG: ArgSpec = (("--config",), {"required": True, "help": "Filters YAML config"})
 
 
 def register_filters_commands(app: CLIApp) -> object:
@@ -22,106 +38,66 @@ def register_filters_commands(app: CLIApp) -> object:
         run_filters_rm_from_token,
     )
 
+    from_token_arg: ArgSpec = (
+        ("--from-token",),
+        {"required": True, "dest": "from_token", "help": "Token in from address"},
+    )
+
+    # (subcommand, help, handler, extra args appended after the shared auth pair)
+    specs: list[tuple[str, str, Any, list[ArgSpec]]] = [
+        ("list", "List Gmail filters", run_filters_list, [
+            (("--json",), {"action": "store_true", "help": "Output JSON"}),
+        ]),
+        ("export", "Export Gmail filters to YAML", run_filters_export, [
+            (("--out",), {"required": True, "help": HELP_YAML_OUT}),
+        ]),
+        ("sync", "Sync Gmail filters from YAML config", run_filters_sync, [
+            _CONFIG,
+            _DRY_RUN,
+            (("--delete-missing",), {"action": "store_true", "help": "Delete filters not in config"}),
+            (("--require-forward-verified",), {
+                "action": "store_true", "help": "Require forward address verified",
+            }),
+        ]),
+        ("plan", "Plan filter changes from YAML config", run_filters_plan, [_CONFIG]),
+        ("impact", "Count messages that would match each filter", run_filters_impact, [
+            _CONFIG,
+            (("--days",), {"type": int, "default": 30, "help": "Days of messages to check"}),
+        ]),
+        ("sweep", "Apply filter actions to existing messages", run_filters_sweep, [
+            _CONFIG,
+            (("--days",), {"type": int, "default": 30, "help": "Days of messages to sweep"}),
+            _DRY_RUN,
+            (("--batch-size",), {"type": int, "default": 500, "help": "Batch size for modifications"}),
+        ]),
+        ("sweep-range", "Apply filters to a date range of messages", run_filters_sweep_range, [
+            _CONFIG,
+            (("--start",), {"required": True, "help": HELP_START_DATE}),
+            (("--end",), {"required": True, "help": "End date YYYY-MM-DD"}),
+            _DRY_RUN,
+            (("--batch-size",), {"type": int, "default": 500, "help": "Batch size"}),
+        ]),
+        ("delete", "Delete a specific filter by ID", run_filters_delete, [
+            (("--id",), {"required": True, "help": "Filter ID to delete"}),
+        ]),
+        ("prune-empty", "Delete filters with no actions", run_filters_prune_empty, [_DRY_RUN]),
+        ("add-forward-by-label", "Add forwarding filter by label", run_filters_add_forward_by_label, [
+            (("--label",), {"required": True, "help": "Label to forward"}),
+            (("--to",), {"required": True, "help": "Forward address"}),
+            _DRY_RUN,
+        ]),
+        ("add-from-token", "Add filter from token-based rule", run_filters_add_from_token, [
+            from_token_arg,
+            (("--label",), {"required": True, "help": "Label to apply"}),
+            _DRY_RUN,
+        ]),
+        ("rm-from-token", "Remove filter matching from token", run_filters_rm_from_token, [
+            from_token_arg,
+            _DRY_RUN,
+        ]),
+    ]
+
     filters_group = app.group("filters", help="Gmail filters operations")
-
-    @filters_group.command("list", help="List Gmail filters")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--json", action="store_true", help="Output JSON")
-    def cmd_filters_list(args) -> int:
-        return run_filters_list(args)
-
-    @filters_group.command("export", help="Export Gmail filters to YAML")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--out", required=True, help=HELP_YAML_OUT)
-    def cmd_filters_export(args) -> int:
-        return run_filters_export(args)
-
-    @filters_group.command("sync", help="Sync Gmail filters from YAML config")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--config", required=True, help="Filters YAML config")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    @filters_group.argument("--delete-missing", action="store_true", help="Delete filters not in config")
-    @filters_group.argument("--require-forward-verified", action="store_true", help="Require forward address verified")
-    def cmd_filters_sync(args) -> int:
-        return run_filters_sync(args)
-
-    @filters_group.command("plan", help="Plan filter changes from YAML config")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--config", required=True, help="Filters YAML config")
-    def cmd_filters_plan(args) -> int:
-        return run_filters_plan(args)
-
-    @filters_group.command("impact", help="Count messages that would match each filter")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--config", required=True, help="Filters YAML config")
-    @filters_group.argument("--days", type=int, default=30, help="Days of messages to check")
-    def cmd_filters_impact(args) -> int:
-        return run_filters_impact(args)
-
-    @filters_group.command("sweep", help="Apply filter actions to existing messages")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--config", required=True, help="Filters YAML config")
-    @filters_group.argument("--days", type=int, default=30, help="Days of messages to sweep")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    @filters_group.argument("--batch-size", type=int, default=500, help="Batch size for modifications")
-    def cmd_filters_sweep(args) -> int:
-        return run_filters_sweep(args)
-
-    @filters_group.command("sweep-range", help="Apply filters to a date range of messages")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--config", required=True, help="Filters YAML config")
-    @filters_group.argument("--start", required=True, help=HELP_START_DATE)
-    @filters_group.argument("--end", required=True, help="End date YYYY-MM-DD")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    @filters_group.argument("--batch-size", type=int, default=500, help="Batch size")
-    def cmd_filters_sweep_range(args) -> int:
-        return run_filters_sweep_range(args)
-
-    @filters_group.command("delete", help="Delete a specific filter by ID")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--id", required=True, help="Filter ID to delete")
-    def cmd_filters_delete(args) -> int:
-        return run_filters_delete(args)
-
-    @filters_group.command("prune-empty", help="Delete filters with no actions")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    def cmd_filters_prune_empty(args) -> int:
-        return run_filters_prune_empty(args)
-
-    @filters_group.command("add-forward-by-label", help="Add forwarding filter by label")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--label", required=True, help="Label to forward")
-    @filters_group.argument("--to", required=True, help="Forward address")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    def cmd_filters_add_forward_by_label(args) -> int:
-        return run_filters_add_forward_by_label(args)
-
-    @filters_group.command("add-from-token", help="Add filter from token-based rule")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--from-token", required=True, dest="from_token", help="Token in from address")
-    @filters_group.argument("--label", required=True, help="Label to apply")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    def cmd_filters_add_from_token(args) -> int:
-        return run_filters_add_from_token(args)
-
-    @filters_group.command("rm-from-token", help="Remove filter matching from token")
-    @filters_group.argument("--credentials", help="Path to OAuth credentials.json")
-    @filters_group.argument("--token", help="Path to token.json")
-    @filters_group.argument("--from-token", required=True, dest="from_token", help="Token in from address")
-    @filters_group.argument("--dry-run", action="store_true", help="Preview changes")
-    def cmd_filters_rm_from_token(args) -> int:
-        return run_filters_rm_from_token(args)
-
+    for name, help_text, handler, extra in specs:
+        filters_group.register(name, help_text, handler, list(_AUTH_ARGS) + extra)
     return filters_group

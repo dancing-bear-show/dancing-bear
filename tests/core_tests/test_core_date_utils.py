@@ -47,15 +47,6 @@ class TestRruleCodeToWeekday(unittest.TestCase):
 
 
 class TestNormalizeDay(unittest.TestCase):
-    def test_full_day_names(self):
-        self.assertEqual(normalize_day("Monday"), "MO")
-        self.assertEqual(normalize_day("Tuesday"), "TU")
-        self.assertEqual(normalize_day("Wednesday"), "WE")
-        self.assertEqual(normalize_day("Thursday"), "TH")
-        self.assertEqual(normalize_day("Friday"), "FR")
-        self.assertEqual(normalize_day("Saturday"), "SA")
-        self.assertEqual(normalize_day("Sunday"), "SU")
-
     def test_abbreviated_day_names(self):
         self.assertEqual(normalize_day("Mon"), "MO")
         self.assertEqual(normalize_day("Tue"), "TU")

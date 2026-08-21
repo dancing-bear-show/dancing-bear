@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 from typing import Any, Callable, TYPE_CHECKING
 
-from .cli_framework_types import CommandDef, CommandFunc
+from .cli_framework_types import Argument, CommandDef, CommandFunc
 
 if TYPE_CHECKING:
     from .cli_framework import CLIApp
@@ -79,6 +79,27 @@ class CommandGroup:
     ) -> Callable[[CommandFunc], CommandFunc]:
         """Decorator to add an argument. Delegates to app."""
         return self.app.argument(*name_or_flags, **kwargs)
+
+    def register(
+        self,
+        name: str,
+        help: str,
+        func: CommandFunc,
+        arguments: list[tuple[tuple[str, ...], dict[str, Any]]],
+    ) -> None:
+        """Register one command from a spec instead of stacked decorators.
+
+        Equivalent to a `@command` + `@argument` stack: `arguments` are applied
+        in source order, matching how decorators read top-to-bottom. Use this
+        for groups whose subcommands are uniform pass-throughs, where the
+        decorator form is mostly repeated boilerplate.
+        """
+        # `argument()` only queues when its returned decorator is applied to a
+        # function, so push onto the pending list directly. Reversed, because
+        # `command()` un-reverses the stack that bottom-up decorators produce.
+        for flags, kwargs in reversed(arguments):
+            self.app._pending_arguments.append(Argument(flags, kwargs))
+        self.command(name, help=help)(func)
 
     def _build_subparsers(self, parser: argparse.ArgumentParser) -> None:
         """Build subparsers for this group's commands."""
