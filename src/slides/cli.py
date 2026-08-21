@@ -175,7 +175,16 @@ def cmd_generate(args) -> int:
         return 1
     deck.template_path = template
 
-    output_path = args.output or str(yaml_path.with_suffix(".pptx"))
+    # An explicit -o is honoured as given. The implicit default goes to the
+    # shared data home, not next to the input: decks are generated FROM files
+    # in the checkout, and defaulting beside them would write artifacts into
+    # the repository. See core.paths.output_dir and CLAUDE.md.
+    if args.output:
+        output_path = args.output
+    else:
+        from core.paths import output_dir
+
+        output_path = str(output_dir("slides") / f"{yaml_path.stem}.pptx")
     try:
         from .generator import SlideGenerator
 

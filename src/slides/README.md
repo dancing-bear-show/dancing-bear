@@ -7,6 +7,7 @@ Supports `--agentic --agentic-format json` (auto-derived schema).
 ## Key Commands
 
 ```bash
+./bin/slides generate deck.yaml --template template.pptx
 ./bin/slides generate deck.yaml --template template.pptx -o out/deck.pptx
 ./bin/slides validate deck.yaml
 ./bin/slides templates template.pptx --format table
@@ -16,6 +17,11 @@ A template `.pptx` is **required** — via `--template` or `template_path:` in
 the deck YAML — because no default template ships with the repo (any real
 template carries branding). Missing template raises a clear error, not a
 traceback. `--template` overrides `template_path:` when both are present.
+
+Without `-o`, the deck is written to `output_dir("slides")` — by default
+`~/.local/share/dancing-bear/slides/<deck-name>.pptx`, outside the checkout
+(see `src/core/paths.py`). Pass `-o` for an explicit path; missing parent
+directories are created.
 
 `mermaid:` slides shell out to `mmdc` (`npm install -g @mermaid-js/mermaid-cli`)
 at generation time; a missing binary raises `RuntimeError`, never a silent

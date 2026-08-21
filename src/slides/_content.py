@@ -206,6 +206,14 @@ class ContentMixin:
         text_box = self._find_shape(
             slide, placeholder=False, shape_type=MSO_SHAPE_TYPE.TEXT_BOX, has_text_frame=True
         )
+        if text_box is None and content.bullets:
+            # Legacy templates ship a non-placeholder text box on the title
+            # slide; standard PowerPoint layouts do not. Without one, this
+            # method used to drop every bullet on a title slide silently —
+            # which for a single-slide deck meant losing all its content.
+            text_box = slide.shapes.add_textbox(
+                Inches(1.665), Inches(3.8), Inches(10.0), Inches(2.0)
+            )
         if text_box and content.bullets:
             text_box.left = Inches(1.5)
             text_box.top = Inches(3.8)

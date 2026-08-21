@@ -151,10 +151,17 @@ class TestCmdGenerate(unittest.TestCase):
     @patch("slides.generator.SlideGenerator.generate")
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_output_derived_from_yaml_extension(self, mock_path_class, mock_load_deck, mock_gen):
-        """cmd_generate derives output path by replacing .yaml with .pptx."""
+    def test_output_defaults_to_data_home_for_yaml(self, mock_path_class, mock_load_deck, mock_gen):
+        """cmd_generate defaults the output into output_dir("slides"), not beside the YAML.
+
+        Behaviour change from the ported source, which wrote a sibling .pptx.
+        Per CLAUDE.md, output-producing domains resolve implicit paths via
+        core.paths.output_dir so generated artifacts land outside the checkout
+        (those paths are gitignored, which prevents a stray commit but not a
+        `git clean -fdx`). An explicit -o is still honoured verbatim.
+        """
         mock_path_class.return_value.exists.return_value = True
-        mock_path_class.return_value.with_suffix.return_value = "deck.pptx"
+        mock_path_class.return_value.stem = "deck"
         mock_deck = MagicMock()
         mock_deck.metadata.layout_map = None
         mock_deck.template_path = None
@@ -164,15 +171,18 @@ class TestCmdGenerate(unittest.TestCase):
         args = _make_generate_args(template=TEST_TEMPLATE_PATH)
         result = cmd_generate(args)
         self.assertEqual(result, 0)
-        mock_gen.assert_called_once_with(mock_deck, "deck.pptx")
+        out_path = mock_gen.call_args[0][1]
+        self.assertTrue(out_path.endswith("deck.pptx"), out_path)
+        self.assertIn("slides", out_path)
+        self.assertNotEqual(out_path, "deck.pptx")
 
     @patch("slides.generator.SlideGenerator.generate")
     @patch("slides.cli.load_deck_from_yaml")
     @patch("slides.cli.Path")
-    def test_output_derived_from_yml_extension(self, mock_path_class, mock_load_deck, mock_gen):
-        """cmd_generate derives output path by replacing .yml with .pptx."""
+    def test_output_defaults_to_data_home_for_yml(self, mock_path_class, mock_load_deck, mock_gen):
+        """A .yml deck defaults into output_dir("slides") using the deck's stem."""
         mock_path_class.return_value.exists.return_value = True
-        mock_path_class.return_value.with_suffix.return_value = "deck.pptx"
+        mock_path_class.return_value.stem = "deck"
         mock_deck = MagicMock()
         mock_deck.metadata.layout_map = None
         mock_deck.template_path = None
@@ -185,7 +195,10 @@ class TestCmdGenerate(unittest.TestCase):
         )
         result = cmd_generate(args)
         self.assertEqual(result, 0)
-        mock_gen.assert_called_once_with(mock_deck, "deck.pptx")
+        out_path = mock_gen.call_args[0][1]
+        self.assertTrue(out_path.endswith("deck.pptx"), out_path)
+        self.assertIn("slides", out_path)
+        self.assertNotEqual(out_path, "deck.pptx")
 
     @patch("slides.generator.SlideGenerator.generate")
     @patch("slides.cli.load_deck_from_yaml")
