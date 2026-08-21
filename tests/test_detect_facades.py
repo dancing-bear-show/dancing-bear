@@ -458,7 +458,7 @@ class TestClassify(unittest.TestCase):
         try:
             result = classify(p)
             self.assertIsNotNone(result)
-            imports, defs, other, names = result
+            imports, defs, other, _ = result
             self.assertGreater(imports, 0)
             self.assertEqual(defs, 0)
             self.assertEqual(other, 0)
@@ -473,7 +473,7 @@ class TestClassify(unittest.TestCase):
         try:
             result = classify(p)
             self.assertIsNotNone(result)
-            imports, defs, other, names = result
+            _, defs, _, _ = result
             self.assertGreater(defs, 0)
         finally:
             os.unlink(p)
@@ -487,7 +487,7 @@ class TestClassify(unittest.TestCase):
         try:
             result = classify(p)
             self.assertIsNotNone(result)
-            imports, defs, other, names = result
+            imports, _, _, _ = result
             # __future__ is skipped, __all__ is skipped — imports == 0
             self.assertEqual(imports, 0)
         finally:
@@ -503,7 +503,7 @@ class TestClassify(unittest.TestCase):
         try:
             result = classify(p)
             self.assertIsNotNone(result)
-            imports, defs, other, names = result
+            _, _, other, _ = result
             self.assertGreater(other, 0)
         finally:
             os.unlink(p)
