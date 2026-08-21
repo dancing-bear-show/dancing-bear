@@ -54,6 +54,7 @@ CLI help:
 | Maker | `./bin/maker` | Utility generators |
 | Charts | `./bin/charts` | Render time-series charts from JSON |
 | Diagrams | `./bin/diagrams` | Mermaid diagram generation |
+| Slides | `./bin/slides` | Generate PowerPoint decks from YAML |
 | Workflow | `./bin/workflow` | YAML DAG workflow engine |
 | Qlty | `./bin/qlty-assistant` | Scan, triage, and rank qlty findings by remediation tier |
 
@@ -68,7 +69,7 @@ safety pattern before touching any real provider.
 flowchart TB
     user([CLI or Claude Code])
     assistant[./bin/assistant]
-    bins["./bin/mail  ./bin/calendar  ./bin/schedule\n./bin/phone  ./bin/whatsapp  ./bin/wifi\n./bin/metals  ./bin/maker  ./bin/charts\n./bin/diagrams  ./bin/workflow  ./bin/worker\n./bin/telemetry  ./bin/llm  ./bin/qlty-assistant"]
+    bins["./bin/mail  ./bin/calendar  ./bin/schedule\n./bin/phone  ./bin/whatsapp  ./bin/wifi\n./bin/metals  ./bin/maker  ./bin/charts\n./bin/diagrams  ./bin/slides  ./bin/workflow  ./bin/worker\n./bin/telemetry  ./bin/llm  ./bin/qlty-assistant"]
 
     subgraph domain["Domain packages (src/)"]
         mail[mail/]
@@ -407,6 +408,7 @@ src/
   maker/        utility generators
   charts/       time-series chart rendering (line/bar/area/dual)
   diagrams/     Mermaid diagram generation
+  slides/       PowerPoint deck generation from YAML
   workflow/     YAML DAG engine (parse/compile/run/lint/list/status)
   worker/       background job queue and daemon
   telemetry/    Claude Code session telemetry (cost, tokens, TUI)
