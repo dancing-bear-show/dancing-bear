@@ -49,10 +49,12 @@ junit*.xml
 node_modules/
 
 # Local config (root private configs)
+# Only *.example.yaml templates are tracked. Real filter rules list the sender
+# domains a user receives mail from and the addresses they forward to, so they
+# live in ~/.config/dancing-bear/ and are never committed.
 .config/
 /config/*
 !/config/*.example.yaml
-!/config/filters_unified.yaml
 
 # Local logs and OAuth flows (do not commit)
 logs/

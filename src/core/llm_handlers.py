@@ -243,7 +243,7 @@ def _familiar_content(verbose: bool, compact: bool = False) -> str:
         steps.extend(
             [
                 "  - run: ./bin/mail-assistant config inspect --only-mail || true",
-                "  - run: ./bin/mail-assistant workflows from-unified --config config/filters_unified.yaml || true",
+                "  - run: ./bin/mail-assistant workflows from-unified || true",
             ]
         )
     return base + "\n".join(steps) + "\n"

@@ -2,13 +2,13 @@ Mail Assistant — Agent Context
 
 Overview
 - CLI to manage Gmail and Outlook: labels, filters/rules, signatures.
-- Unified source of truth for filters lives at `config/filters_unified.yaml`.
+- Unified source of truth for filters lives at `~/.config/dancing-bear/filters_unified.yaml` (outside checkout; `config/filters_unified.example.yaml` is the tracked template).
 - Derived provider configs are generated from unified (do not hand-edit provider outputs).
 - AGENTS.md is domain-specific; general agent patterns live in `.llm/PATTERNS.md`.
 
 Key Workflows
 - Plan before apply (prefer exact-match destructive syncs only after review):
-  - Gmail plan: `./bin/mail filters plan --config config/filters_unified.yaml --delete-missing`
+  - Gmail plan: `./bin/mail filters plan --config out/filters.gmail.from_unified.yaml --delete-missing`
   - Outlook plan: `./bin/mail outlook rules.plan --config out/filters.outlook.from_unified.yaml --move-to-folders`
 - Verify no drift after apply:
   - Gmail: `filters export` and compare with `out/filters.gmail.from_unified.yaml`

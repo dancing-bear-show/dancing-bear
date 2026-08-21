@@ -57,7 +57,7 @@ Filter config data flow (unified YAML → provider sync):
 title: Filter Sync Data Flow
 ---
 flowchart LR
-    unified["config/filters_unified.yaml"]
+    unified["~/.config/dancing-bear/filters_unified.yaml"]
     derive["config derive filters\n--in / --out-gmail / --out-outlook"]
     gmail_yaml["out/filters.gmail.yaml"]
     outlook_yaml["out/filters.outlook.yaml"]
@@ -94,7 +94,7 @@ Quick Start
 - LLM domain map: `./bin/llm domain-map --stdout` (or `--write .llm/DOMAIN_MAP.md`)
 - LLM inventory (JSON): `./bin/llm inventory --format json --stdout`
 - Gmail export filters: `./bin/mail --profile gmail_personal filters export --out out/filters.gmail.export.yaml`
-- Gmail sync filters: `./bin/mail --profile gmail_personal filters sync --config config/filters_unified.yaml --dry-run`
+- Gmail sync filters: `./bin/mail --profile gmail_personal filters sync --config out/filters.gmail.from_unified.yaml --dry-run`
 - Outlook rules plan: `./bin/mail --profile outlook_personal outlook rules.plan --config out/filters.outlook.yaml`
 
 Outlook Authentication (first time)

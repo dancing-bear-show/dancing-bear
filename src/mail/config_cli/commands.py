@@ -120,6 +120,23 @@ def run_config_inspect(args: argparse.Namespace) -> int:
     return 0 if envelope.ok() else 1
 
 
+#: Filename of the unified filter rules under the config home.
+UNIFIED_FILTERS_NAME = "filters_unified.yaml"
+
+
+def resolve_filters_config(args: argparse.Namespace, attr: str = "in_path") -> str:
+    """Return the unified filters path from ``args``, falling back to config home.
+
+    The real rule set is not kept in the checkout — it enumerates the sender
+    domains a user receives mail from and the addresses they forward to. An
+    explicit flag still wins; otherwise it resolves to
+    ``~/.config/dancing-bear/filters_unified.yaml``.
+    """
+    from core.paths import config_file
+
+    return str(config_file(UNIFIED_FILTERS_NAME, getattr(args, attr, None)))
+
+
 def run_config_derive_labels(args: argparse.Namespace) -> int:
     """Derive Gmail and Outlook labels YAML from unified labels.yaml."""
     request = DeriveLabelsRequest(
@@ -135,7 +152,7 @@ def run_config_derive_labels(args: argparse.Namespace) -> int:
 def run_config_derive_filters(args: argparse.Namespace) -> int:
     """Derive Gmail and Outlook filters YAML from unified filters.yaml."""
     request = DeriveFiltersRequest(
-        in_path=getattr(args, "in_path", None) or "",
+        in_path=resolve_filters_config(args),
         out_gmail=args.out_gmail,
         out_outlook=args.out_outlook,
         outlook_archive_on_remove_inbox=getattr(args, "outlook_archive_on_remove_inbox", False),
@@ -149,7 +166,7 @@ def run_config_derive_filters(args: argparse.Namespace) -> int:
 def run_config_optimize_filters(args: argparse.Namespace) -> int:
     """Merge rules with same destination label and simple from criteria."""
     request = OptimizeFiltersRequest(
-        in_path=getattr(args, "in_path", None) or "",
+        in_path=resolve_filters_config(args),
         out_path=args.out,
         merge_threshold=int(getattr(args, "merge_threshold", 2) or 2),
         preview=getattr(args, "preview", False),
@@ -162,7 +179,7 @@ def run_config_optimize_filters(args: argparse.Namespace) -> int:
 def run_config_audit_filters(args: argparse.Namespace) -> int:
     """Report percentage of simple Gmail rules not present in unified config."""
     request = AuditFiltersRequest(
-        in_path=getattr(args, "in_path", None) or "",
+        in_path=resolve_filters_config(args),
         export_path=getattr(args, "export_path", None) or "",
         preview_missing=getattr(args, "preview_missing", False),
     )
@@ -183,7 +200,7 @@ def run_workflows_gmail_from_unified(args: argparse.Namespace) -> int:
 
     # 1) Derive provider-specific configs from unified
     request = DeriveFiltersRequest(
-        in_path=args.config,
+        in_path=resolve_filters_config(args, "config"),
         out_gmail=str(out_gmail),
         out_outlook=str(out_outlook),
         outlook_move_to_folders=True,
@@ -381,7 +398,7 @@ def run_workflows_from_unified(args: argparse.Namespace) -> int:
     out_outlook = str(out_dir / "filters.outlook.from_unified.yaml")
 
     request = DeriveFiltersRequest(
-        in_path=args.config,
+        in_path=resolve_filters_config(args, "config"),
         out_gmail=out_gmail,
         out_outlook=out_outlook,
         outlook_move_to_folders=bool(getattr(args, 'outlook_move_to_folders', True)),

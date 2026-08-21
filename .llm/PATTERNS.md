@@ -74,7 +74,7 @@ rg -n "filters_unified.yaml|derive|audit|optimize" src/mail/ README.md \
 Familiarization: Large YAML/JSON Policy
 ```
 - Only open large YAML/JSON when auditing derived vs canonical.
-- Canonical: config/filters_unified.yaml
+- Canonical: ~/.config/dancing-bear/filters_unified.yaml (outside checkout; config/filters_unified.example.yaml is the tracked template)
 - Derived/ephemeral: out/** (legacy _out/**), backups/**, exports (open only for audits)
 ```
 

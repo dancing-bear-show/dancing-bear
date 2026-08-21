@@ -38,7 +38,7 @@ curated:
   mail:
     - id: unified_derive
       desc: Derive provider configs from unified
-      cmd: ./bin/mail config derive filters --in config/filters_unified.yaml --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml
+      cmd: ./bin/mail config derive filters --out-gmail out/filters.gmail.from_unified.yaml --out-outlook out/filters.outlook.from_unified.yaml
 
     - id: gmail_filters_plan_apply_verify
       desc: Gmail Filters — Plan → Apply → Verify

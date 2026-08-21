@@ -86,7 +86,7 @@ Agentic Schemas - Notes
 
 Familiarization Policy (Fast + Lean)
 - Avoid opening large YAML/JSON unless auditing derived vs canonical.
-  - Canonical: `config/filters_unified.yaml` (single source of truth)
+  - Canonical: `~/.config/dancing-bear/filters_unified.yaml` (outside checkout; `config/filters_unified.example.yaml` is the tracked template)
   - Derived/ephemeral (open only for audits): `out/**` (legacy `_out/**`), `backups/**`, exports
 - Ignore heavy/non-core paths during scanning: `.venv/`, `.cache/`, `.git/`, `src/maker/`, `_disasm/`, `out/`, `_out/` (legacy), `backups/`, `personal_assistants.egg-info/`
 - Reading order for new contexts:
@@ -133,7 +133,7 @@ Messages (Provider-Agnostic)
 - `messages threads-get` fetches a whole conversation by `--thread-id`, `--id`, or `--query`
 
 Operational Checks (Mail filters/rules)
-- Unified is the source of truth: treat `config/filters_unified.yaml` as canonical for both Gmail and Outlook.
+- Unified is the source of truth: `~/.config/dancing-bear/filters_unified.yaml` is canonical for both Gmail and Outlook (outside checkout; `config/filters_unified.example.yaml` is the tracked template).
 - Always run a plan first, then apply:
   - Gmail: `filters plan --config ... [--delete-missing]` then `filters sync --delete-missing`.
   - Outlook: `outlook rules plan --config ... --move-to-folders` then `outlook rules sync --delete-missing`.
